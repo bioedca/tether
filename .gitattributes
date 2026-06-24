@@ -1,0 +1,31 @@
+# Line-ending normalization for the 3-OS CI matrix on Windows-primary development
+# (PRD §12.1). Text files are normalized to LF in the repo; checkout is native.
+* text=auto
+
+# --- Binary file types: never line-ending-normalized (avoids corrupting data) ---
+*.tif   binary
+*.tiff  binary
+*.hdf5  binary
+*.h5    binary
+*.tether binary
+*.mat   binary
+*.tdat  binary
+*.tmap  binary
+*.smd   binary
+*.npy   binary
+*.npz   binary
+*.png   binary
+*.pdf   binary
+*.gz    binary
+*.zip   binary
+
+# --- Git-LFS: the LARGE-fixture / benchmark tier only (PRD §8 NFR-FIXTURES) ---
+# The ≈0.9 GB UCKOPSB movie, kinSoftChallenge assets, and large *.hdf5 benchmarks
+# live under these gated paths and are tracked by LFS; the SMALL committed fixtures
+# under tests/fixtures/ (NOT .../large/) stay in plain git (PLAN §2.1).
+tests/fixtures/large/**  filter=lfs diff=lfs merge=lfs -text
+benchmarks/large/**      filter=lfs diff=lfs merge=lfs -text
+
+# Keep the committed dependency locks diffable as text
+conda-lock.yml          text
+sidecar/conda-lock.yml  text

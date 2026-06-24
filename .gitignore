@@ -1,0 +1,56 @@
+# --- Local-only working docs (never committed; see CLAUDE.md / PLAN.md) ---
+CLAUDE.md
+PLAN.md
+
+# --- Python / build artifacts ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+*.so
+.Python
+pip-wheel-metadata/
+src/tether/_version.py        # setuptools-scm / hatch-vcs generated
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+.conda/
+.mamba/
+
+# --- Test / coverage / type / lint caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# --- Project store working files & experiment markers (PRD §5.1, §5.4) ---
+*.tether                      # local working project stores (fixtures are committed explicitly)
+*.lock                        # single-writer experiment lock markers (PRD §5.4)
+!conda-lock.yml               # but DO track the committed dependency locks
+!sidecar/conda-lock.yml
+
+# --- Local-only cached Zarr movie pyramid scratch (never synced; PRD §4.1/§5.1) ---
+*.zarr/
+.zarr_scratch/
+
+# --- Docs / tooling generated artifacts ---
+site/                         # mkdocs build output
+graphify-out/                 # graphify knowledge-graph artifact
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~

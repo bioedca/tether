@@ -1,0 +1,13 @@
+version = 1
+SPDX-PackageName = "Tether"
+SPDX-PackageSupplier = "The Tether Authors <bioedca@u.northwestern.edu>"
+SPDX-PackageDownloadLocation = "https://github.com/bioedca/tether"
+
+# Blanket licensing for files that do not carry their own SPDX header
+# (docs, config, metadata). Python sources carry per-file SPDX headers and
+# take precedence over this aggregate entry. See PRD §12.1 (SPDX / REUSE).
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The Tether Authors <bioedca@u.northwestern.edu>"
+SPDX-License-Identifier = "GPL-3.0-or-later"

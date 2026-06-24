@@ -1,0 +1,44 @@
+Tether
+Copyright (C) 2026 The Tether Authors <bioedca@u.northwestern.edu>
+Mondragón Lab, Northwestern University
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See the LICENSE file for the full GPL-3.0 text.
+
+================================================================================
+Third-party software interoperation & attribution
+================================================================================
+
+tMAVEN  (GPL-3.0)  — Verma, Ray, Bodick, Kinz-Thompson & Gonzalez (2024),
+  Biophysical Journal 123(14):2179–2193, doi:10.1016/j.bpj.2024.01.022.
+  Upstream: https://github.com/GonzalezBiophysicsLab/tmaven  (pinned commit
+  10f4230b6d13c6d2ad67b05d801696b4a40eff4a).
+  Tether DOES NOT vendor tMAVEN. It runs an *isolated tMAVEN sidecar* in its own
+  conda environment (PyQt5 + numpy<2) and exchanges data over the SMD-HDF5 format
+  (PRD §4.3). A future M9 signed installer that BUNDLES the sidecar ships tMAVEN's
+  own GPL-3.0 license text alongside Tether's, and the SBOM lists the sidecar as a
+  distinct, attributed component (PRD §12.1, §12.8, §9 M9).
+
+--------------------------------------------------------------------------------
+Algorithm references (read-only; never vendored or redistributed)
+--------------------------------------------------------------------------------
+
+Deep-LASI  — Wanninger, Asadiatouei, Bohlen, Salem, Tinnefeld, Ploetz & Lamb
+  (2023), Nature Communications 14:6564, doi:10.1038/s41467-023-42272-9.
+  Tether's native movie→trace extraction and registration mirror the Deep-LASI
+  algorithm specification (PRD Appendix E); no Deep-LASI source is included.
+
+MASH-FRET  — Börner, Kowerko, Hadzic, König, Ritter & Sigel (2018),
+  PLoS ONE 13(4):e0195277, doi:10.1371/journal.pone.0195277.
+  Consulted as a simulation / methodology reference (PRD Appendix references);
+  no MASH-FRET source is included.
+
+SMD (Single-Molecule Dataset) format — Greenfeld, van de Meent, Pavlichin,
+  Mabuchi, Wiggins, Gonzalez & Herschlag (2015), BMC Bioinformatics 16:3,
+  doi:10.1186/s12859-014-0429-4. The .tether project store is an SMD superset
+  (PRD §5.3).
+
+See CITATION.cff for machine-readable citation metadata and docs/PRD.md
+("References") for the complete bibliography.

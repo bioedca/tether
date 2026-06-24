@@ -1,0 +1,123 @@
+cff-version: 1.2.0
+message: "If you use Tether in your research, please cite it using this metadata."
+title: "Tether"
+abstract: >-
+  A cross-platform, provenance-first desktop suite for single-molecule FRET
+  (smFRET) analysis: native movie-to-trace extraction, a trace-to-movie
+  round-trip browser, per-condition machine-assisted curation, photophysical
+  corrections, and HMM idealization via an isolated tMAVEN sidecar. Built for
+  the Mondragón Lab, Northwestern University.
+type: software
+authors:
+  - name: "The Tether Authors"
+    affiliation: "Mondragón Lab, Northwestern University"
+    email: "bioedca@u.northwestern.edu"
+license: GPL-3.0-or-later
+repository-code: "https://github.com/bioedca/tether"
+url: "https://github.com/bioedca/tether"
+keywords:
+  - single-molecule FRET
+  - smFRET
+  - TIRF microscopy
+  - trace extraction
+  - HMM idealization
+  - provenance
+  - napari
+  - PySide6
+# version and doi are filled at release tags (optionally Zenodo-archived at M9).
+references:
+  - type: article
+    title: "Increasing the accuracy of single-molecule data analysis using tMAVEN"
+    authors:
+      - family-names: "Verma"
+        given-names: "Anjali R."
+      - family-names: "Ray"
+        given-names: "Korak Kumar"
+      - family-names: "Bodick"
+        given-names: "Michael"
+      - family-names: "Kinz-Thompson"
+        given-names: "Colin D."
+      - family-names: "Gonzalez"
+        given-names: "Ruben L."
+        name-suffix: "Jr."
+    journal: "Biophysical Journal"
+    volume: 123
+    issue: 14
+    year: 2024
+    start: 2179
+    end: 2193
+    doi: "10.1016/j.bpj.2024.01.022"
+    notes: "tMAVEN — idealization sidecar (GPL-3.0)."
+  - type: article
+    title: >-
+      Deep-LASI: deep-learning assisted, single-molecule imaging analysis of
+      multi-color DNA origami structures
+    authors:
+      - family-names: "Wanninger"
+        given-names: "Simon"
+      - family-names: "Asadiatouei"
+        given-names: "Pooyeh"
+      - family-names: "Bohlen"
+        given-names: "Johann"
+      - family-names: "Salem"
+        given-names: "Clemens-Bässem"
+      - family-names: "Tinnefeld"
+        given-names: "Philip"
+      - family-names: "Ploetz"
+        given-names: "Evelyn"
+      - family-names: "Lamb"
+        given-names: "Don C."
+    journal: "Nature Communications"
+    volume: 14
+    year: 2023
+    start: 6564
+    doi: "10.1038/s41467-023-42272-9"
+    notes: "Deep-LASI — extraction / registration algorithm reference."
+  - type: article
+    title: "Simulations of camera-based single-molecule fluorescence experiments"
+    authors:
+      - family-names: "Börner"
+        given-names: "Richard"
+      - family-names: "Kowerko"
+        given-names: "Danny"
+      - family-names: "Hadzic"
+        given-names: "Mélodie C. A. S."
+      - family-names: "König"
+        given-names: "Sebastian L. B."
+      - family-names: "Ritter"
+        given-names: "Marc"
+      - family-names: "Sigel"
+        given-names: "Roland K. O."
+    journal: "PLoS ONE"
+    volume: 13
+    issue: 4
+    year: 2018
+    start: "e0195277"
+    doi: "10.1371/journal.pone.0195277"
+    notes: "MASH-FRET — simulation / methodology reference."
+  - type: article
+    title: >-
+      Single-molecule dataset (SMD): a generalized storage format for raw and
+      processed single-molecule data
+    authors:
+      - family-names: "Greenfeld"
+        given-names: "Max"
+      - family-names: "van de Meent"
+        given-names: "Jan-Willem"
+      - family-names: "Pavlichin"
+        given-names: "Dmitri S."
+      - family-names: "Mabuchi"
+        given-names: "Hideo"
+      - family-names: "Wiggins"
+        given-names: "Chris H."
+      - family-names: "Gonzalez"
+        given-names: "Ruben L."
+        name-suffix: "Jr."
+      - family-names: "Herschlag"
+        given-names: "Daniel"
+    journal: "BMC Bioinformatics"
+    volume: 16
+    year: 2015
+    start: 3
+    doi: "10.1186/s12859-014-0429-4"
+    notes: "SMD — interchange format; the .tether store is an SMD superset."
