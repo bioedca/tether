@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Tether base environment — the PySide6/napari GUI + compute stack (PRD §4.1).
+#
+# Pin-and-hold policy (PRD §4.1, §12): this file expresses *constraints*; the
+# committed multi-platform `conda-lock.yml` pins the *exact* versions and is the
+# single source of truth. CI restores the lock and never solves fresh. A re-lock
+# is a deliberate PR validated by `conda-lock-verify`.
+#
+# numpy upper bound = the tested Numba-supported numpy ceiling. Numba 0.61
+# supports NumPy up to 2.1 (min 1.24) and Python 3.10–3.13 (context7:
+# numba.readthedocs.io 0.61.0 release notes), so numpy is bounded `<2.2` and
+# Python pinned to one concrete version (3.12) inside that window.
+#
+# This stack is DISTINCT from and never merged with `sidecar/environment.yml`
+# (PyQt5 + numpy<2), which exists precisely to keep that conflict isolated
+# (PRD §4.3).
+name: tether
+channels:
+  - conda-forge
+platforms:
+  - linux-64
+  - osx-64
+  - osx-arm64
+  - win-64
+dependencies:
+  # --- interpreter (one pinned Python inside Numba's window) ---
+  - python=3.12.*
+  - pip
+  # --- compute (Numba bounds the numpy ceiling) ---
+  - numpy>=1.26,<2.2
+  - numba>=0.61,<0.62
+  - scipy>=1.13
+  - scikit-image>=0.24
+  - pandas>=2.2
+  # --- GUI stack (PySide6 shell + embedded napari + pyqtgraph docks) ---
+  - napari>=0.5,<0.6
+  - pyside6>=6.6
+  - pyqtgraph>=0.13
+  # --- storage / IO ---
+  - h5py>=3.11
+  - tifffile>=2024.7.2

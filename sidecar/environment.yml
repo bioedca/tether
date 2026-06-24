@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Tether tMAVEN sidecar environment — ISOLATED from the base stack (PRD §4.3).
+#
+# tMAVEN is a PyQt5 app pinned to numpy<2 (tmaven/setup.py:
+# `numpy>=1.21.0,<2.0.0`, `PyQt5>=5.15.0`), whereas Tether's own GUI is
+# PySide6/napari on current numpy. The sidecar runs in its own environment /
+# subprocess so the two numpy worlds never share a process.
+#
+# Dependencies are the *trimmed* subset of tMAVEN's `install_requires`
+# (tmaven/setup.py:22-32) needed to drive vbFRET / consensus VB-HMM / ebFRET
+# headless via `tmaven.maven.maven_class`, plus the PyQt5/matplotlib needed for
+# the standalone-GUI hand-off (PRD §4.1, §4.3, §12):
+#   * `biasd @ git+main` is OMITTED — lazy-imported, not on conda-forge, unused
+#     by the three in-scope HMM methods.
+#   * the unbounded `numba>=0.51.0` is given an explicit UPPER bound so the
+#     sidecar can be solved reproducibly and bundled in an offline installer.
+#
+# NEVER merge these deps into the base `environment.yml`.
+name: tether-sidecar
+channels:
+  - conda-forge
+platforms:
+  - linux-64
+  - osx-64
+  - osx-arm64
+  - win-64
+dependencies:
+  # --- interpreter (numpy<2 ⇒ Python ≤3.12; matches the base pin) ---
+  - python=3.12.*
+  - pip
+  # --- compute (tMAVEN's hard numpy<2 pin; numba given an explicit ceiling) ---
+  - numpy>=1.21,<2.0
+  - numba>=0.51,<0.61
+  - scipy>=1.7
+  # --- IO / config (tMAVEN install_requires subset) ---
+  - h5py>=3.6
+  - toml
+  - appdirs
+  - importlib_resources
+  # --- GUI / plotting for the standalone-tMAVEN hand-off (PyQt5, not PySide6) ---
+  - pyqt>=5.15,<6
+  - matplotlib-base>=3.5
