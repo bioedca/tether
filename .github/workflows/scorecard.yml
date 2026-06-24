@@ -24,7 +24,9 @@ jobs:
     name: scorecard-analysis
     runs-on: ubuntu-latest
     permissions:
+      # Required to upload the Scorecard SARIF into GitHub code scanning.
       security-events: write
+      # Required by ossf/scorecard-action to publish results via OIDC.
       id-token: write
       contents: read
     steps:
