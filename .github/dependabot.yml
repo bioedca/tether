@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Dependabot (PRD §12.8). Covers `pip` (the pyproject optional-dependency dev
+# tooling) and `github-actions` (the SHA-pinned `uses:` in .github/workflows).
+# It does NOT cover the conda locks — a re-lock is a deliberate developer PR
+# (pin-and-hold, §4.1); the scheduled deps-audit.yml watches the rest. Updates
+# are grouped weekly and carry Conventional-Commit prefixes so the resulting PR
+# titles pass the `commitlint` gate.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      pip:
+        patterns: ["*"]
+    commit-message:
+      prefix: build
+      include: scope
+    labels:
+      - dependencies
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+      include: scope
+    labels:
+      - dependencies
