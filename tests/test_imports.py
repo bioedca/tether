@@ -23,6 +23,7 @@ SUBMODULES = [
 def test_package_imports_and_exposes_version() -> None:
     import tether
 
+    assert tether.__doc__, "tether is missing its package docstring"
     assert isinstance(tether.__version__, str)
     assert tether.__version__
 
