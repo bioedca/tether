@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Composite action — the single source of truth for environment setup
+# (PRD §12.6). It RESTORES the committed, multi-platform conda-lock and never
+# solves the environment fresh (pin-and-hold, PRD §4.1): the lock owns every
+# dependency, so the package is installed with `pip install -e . --no-deps`.
+# Reused by ci.yml today and by schema-guard / docs / release as they land.
+name: setup-env
+description: >-
+  Restore the committed conda-lock environment with micromamba and install
+  tether without dependencies (the lock is authoritative).
+
+inputs:
+  environment-file:
+    description: Path to the committed conda-lock file to restore.
+    required: false
+    default: conda-lock.yml
+  environment-name:
+    description: Name of the micromamba environment to create.
+    required: false
+    default: tether
+  install-tether:
+    description: Whether to `pip install -e . --no-deps` after creating the env.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    # `environment-file` ending in `-lock.yml` is detected as a conda-lock
+    # unified lockfile and installed without solving; the cache key folds in the
+    # lock hash + environment name + OS (mamba-org/setup-micromamba docs).
+    - name: Restore conda-lock environment (micromamba)
+      uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462 # v2
+      with:
+        environment-file: ${{ inputs.environment-file }}
+        environment-name: ${{ inputs.environment-name }}
+        cache-environment: true
+        init-shell: bash
+
+    - name: Install tether (no deps; the lock is authoritative)
+      if: ${{ inputs.install-tether == 'true' }}
+      shell: bash -el {0}
+      run: python -m pip install -e . --no-deps
