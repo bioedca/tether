@@ -151,6 +151,11 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash -e {0}
         run: sudo apt-get update && sudo apt-get install -y xvfb
+      # Test tooling is pip-installed on top of the locked runtime stack — the
+      # same pattern as the lint (ruff) and docs-build (mkdocs) jobs. The base
+      # conda-lock owns the scientific runtime; pytest/pytest-qt are dev tools.
+      - name: Install test tooling
+        run: python -m pip install pytest pytest-qt pytest-cov
       - name: Run tests
         run: |
           if [ "${RUNNER_OS}" = "Linux" ]; then
