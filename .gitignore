@@ -14,7 +14,10 @@ wheels/
 *.so
 .Python
 pip-wheel-metadata/
-src/tether/_version.py        # setuptools-scm / hatch-vcs generated
+# setuptools-scm / hatch-vcs generated version file
+src/tether/_version.py
+# uv's local lockfile (Tether's dependency source of truth is conda-lock, not uv)
+uv.lock
 
 # --- Virtual environments ---
 .venv/
@@ -33,9 +36,12 @@ htmlcov/
 coverage.xml
 
 # --- Project store working files & experiment markers (PRD §5.1, §5.4) ---
-*.tether                      # local working project stores (fixtures are committed explicitly)
-*.lock                        # single-writer experiment lock markers (PRD §5.4)
-!conda-lock.yml               # but DO track the committed dependency locks
+# local working project stores (fixtures are committed explicitly)
+*.tether
+# single-writer experiment lock markers (PRD §5.4); also catches local uv.lock
+*.lock
+# but DO track the committed dependency locks
+!conda-lock.yml
 !sidecar/conda-lock.yml
 
 # --- Local-only cached Zarr movie pyramid scratch (never synced; PRD §4.1/§5.1) ---
@@ -43,8 +49,10 @@ coverage.xml
 .zarr_scratch/
 
 # --- Docs / tooling generated artifacts ---
-site/                         # mkdocs build output
-graphify-out/                 # graphify knowledge-graph artifact
+# mkdocs build output
+site/
+# graphify knowledge-graph artifact
+graphify-out/
 
 # --- OS / editor cruft ---
 .DS_Store
