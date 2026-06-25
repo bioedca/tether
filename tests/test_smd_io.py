@@ -140,6 +140,17 @@ def test_write_rejects_dangling_source_index(tmp_path: Path) -> None:
         )
 
 
+def test_write_rejects_negative_source_index(tmp_path: Path) -> None:
+    pytest.importorskip("h5py")
+    with pytest.raises(ValueError, match="non-negative"):
+        write_smd(
+            tmp_path / "bad.hdf5",
+            np.zeros((2, 5, 2)),
+            source_names=["a", "b"],
+            source_index=[0, -1],
+        )
+
+
 def test_read_rejects_non_smd_group(tmp_path: Path) -> None:
     h5py = pytest.importorskip("h5py")
     path = tmp_path / "notsmd.hdf5"
@@ -147,3 +158,35 @@ def test_read_rejects_non_smd_group(tmp_path: Path) -> None:
         f.create_group("dataset").attrs["format"] = "something-else"
     with pytest.raises(ValueError, match="not SMD"):
         read_smd(path)
+
+
+def test_read_rejects_malformed_raw(tmp_path: Path) -> None:
+    """A 3-channel (non donor/acceptor) raw is rejected at read time."""
+    h5py = pytest.importorskip("h5py")
+    path = tmp_path / "malformed.hdf5"
+    with h5py.File(path, "w") as f:
+        g = f.create_group("dataset")
+        g.attrs["format"] = "SMD"
+        g.create_group("data").create_dataset("raw", data=np.zeros((2, 5, 3)))
+    with pytest.raises(ValueError, match="raw must be"):
+        read_smd(path)
+
+
+def test_read_rejects_half_superset(tmp_path: Path) -> None:
+    """A tether superset with only donor_xy (no acceptor_xy) is rejected."""
+    h5py = pytest.importorskip("h5py")
+    raw = np.random.default_rng(4).random((2, 8, 2))
+    path = write_smd(tmp_path / "half.hdf5", raw)
+    with h5py.File(path, "a") as f:
+        gx = f["dataset"].create_group("tether")
+        gx.attrs["format"] = "tether-smd-superset"
+        gx.create_dataset("donor_xy", data=np.zeros((2, 2)))
+    with pytest.raises(ValueError, match="only one of donor_xy"):
+        read_smd(path)
+
+
+def test_smd_module_does_not_import_h5py_eagerly() -> None:
+    """match_return_leg (pure NumPy) must not transitively require h5py."""
+    import tether.idealize.smd as smd_module
+
+    assert not hasattr(smd_module, "h5py")

@@ -32,7 +32,9 @@ import numpy as np
 if TYPE_CHECKING:
     from os import PathLike
 
-import h5py
+# ``h5py`` is imported lazily inside :func:`read_smd` / :func:`write_smd` so that
+# ``import tether.idealize`` (and :func:`tether.idealize.match_return_leg`, which
+# is pure NumPy) does not require h5py.
 
 #: Group attribute values tMAVEN recognises (``load_smd_in_hdf5`` accepts any case).
 SMD_FORMAT = "SMD"
@@ -143,6 +145,8 @@ def write_smd(
     pathlib.Path
         The written path.
     """
+    import h5py
+
     raw = np.asarray(raw, dtype="float64")
     if raw.ndim != 3 or raw.shape[2] != 2:
         raise ValueError(f"raw must be (n_molecules, n_frames, 2); got shape {raw.shape}")
@@ -156,6 +160,8 @@ def write_smd(
         source_index = np.zeros(n, dtype="int64")
     else:
         source_index = _as_1d_int64(source_index, n, "source_index")
+    if int(source_index.min(initial=0)) < 0:
+        raise ValueError("source_index must be non-negative")
     if int(source_index.max(initial=-1)) >= len(source_names):
         raise ValueError("source_index references a source beyond source_names")
 
@@ -238,6 +244,16 @@ def _decode(value) -> str:
     return value.decode() if isinstance(value, bytes) else str(value)
 
 
+def _read_str_dataset(group, name: str, n: int, path) -> list[str] | None:
+    """Read an optional length-``n`` string dataset from ``group`` (or ``None``)."""
+    if name not in group:
+        return None
+    values = [_decode(x) for x in group[name][:]]
+    if len(values) != n:
+        raise ValueError(f"{path}: tether/{name} length {len(values)} != {n}")
+    return values
+
+
 def read_smd(path: str | PathLike[str], group: str = DEFAULT_GROUP) -> SMDData:
     """Read an SMD-HDF5 file (Tether- or tMAVEN-authored) into :class:`SMDData`.
 
@@ -245,6 +261,8 @@ def read_smd(path: str | PathLike[str], group: str = DEFAULT_GROUP) -> SMDData:
     plus the Tether ``tether/`` superset group when present. Sources are
     returned in ``source_index`` order (matching tMAVEN's reader).
     """
+    import h5py
+
     path = Path(path)
     with h5py.File(path, "r") as f:
         if group not in f:
@@ -256,9 +274,15 @@ def read_smd(path: str | PathLike[str], group: str = DEFAULT_GROUP) -> SMDData:
 
         gd = g["data"]
         raw = gd["raw"][:].astype("float64")
+        if raw.ndim != 3 or raw.shape[2] != 2:
+            raise ValueError(
+                f"{path}: data/raw must be (n_molecules, n_frames, 2); got {raw.shape}"
+            )
         n = raw.shape[0]
         if "source_index" in gd:
-            source_index = gd["source_index"][:].astype("int64")
+            source_index = gd["source_index"][:].astype("int64").reshape(-1)
+            if source_index.shape[0] != n:
+                raise ValueError(f"{path}: data/source_index length {source_index.shape[0]} != {n}")
         else:
             source_index = np.zeros(n, dtype="int64")
 
@@ -269,24 +293,39 @@ def read_smd(path: str | PathLike[str], group: str = DEFAULT_GROUP) -> SMDData:
             source_names = [_decode(gs[k].attrs["source_name"]) for k in keys]
         except (KeyError, ValueError):
             source_names = [_decode(x) for x in literal_eval(_decode(gs.attrs["source_list"]))]
+        if source_index.size and (
+            int(source_index.min()) < 0 or int(source_index.max()) >= len(source_names)
+        ):
+            raise ValueError(f"{path}: source_index out of range for {len(source_names)} sources")
 
         classes = pre_list = post_list = None
         if "tMAVEN" in g:
             gt = g["tMAVEN"]
-            classes = gt["classes"][:].astype("int64")
-            pre_list = gt["pre_list"][:].astype("int64")
-            post_list = gt["post_list"][:].astype("int64")
+            classes = gt["classes"][:].astype("int64").reshape(-1)
+            pre_list = gt["pre_list"][:].astype("int64").reshape(-1)
+            post_list = gt["post_list"][:].astype("int64").reshape(-1)
+            for label, arr in (
+                ("classes", classes),
+                ("pre_list", pre_list),
+                ("post_list", post_list),
+            ):
+                if arr.shape[0] != n:
+                    raise ValueError(f"{path}: tMAVEN/{label} length {arr.shape[0]} != {n}")
 
         donor_xy = acceptor_xy = molecule_keys = molecule_ids = None
         if "tether" in g:
             gx = g["tether"]
-            if "donor_xy" in gx:
+            has_donor, has_acceptor = "donor_xy" in gx, "acceptor_xy" in gx
+            if has_donor != has_acceptor:
+                raise ValueError(f"{path}: tether superset has only one of donor_xy/acceptor_xy")
+            if has_donor:
                 donor_xy = gx["donor_xy"][:].astype("float64")
                 acceptor_xy = gx["acceptor_xy"][:].astype("float64")
-            if "molecule_key" in gx:
-                molecule_keys = [_decode(x) for x in gx["molecule_key"][:]]
-            if "molecule_id" in gx:
-                molecule_ids = [_decode(x) for x in gx["molecule_id"][:]]
+                for label, arr in (("donor_xy", donor_xy), ("acceptor_xy", acceptor_xy)):
+                    if arr.shape != (n, 2):
+                        raise ValueError(f"{path}: tether/{label} shape {arr.shape} != ({n}, 2)")
+            molecule_keys = _read_str_dataset(gx, "molecule_key", n, path)
+            molecule_ids = _read_str_dataset(gx, "molecule_id", n, path)
 
         return SMDData(
             raw=raw,

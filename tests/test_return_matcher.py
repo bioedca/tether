@@ -34,6 +34,16 @@ def test_matches_tail_zero_padded_traces() -> None:
     assert result.mapping.tolist() == [2, 0]
 
 
+def test_nonzero_discarded_tail_blocks_match() -> None:
+    """Leading-region agreement with real (non-zero) tail data is not identity."""
+    store = _store(3, 30, seed=21)
+    returned = np.zeros((1, 45, 2))
+    returned[0, :30] = store[1]
+    returned[0, 30:] = 7.0  # real data past the store's length, not zero padding
+    result = match_return_leg(returned, store)
+    assert result.unmatched == [0]
+
+
 def test_reports_unmatched_returning_trace() -> None:
     """A returning trace absent from the store is reported, never guessed."""
     store = _store(3, 30, seed=11)

@@ -92,7 +92,8 @@ def match_return_leg(
     returned = _validate_raw(returned_raw, "returned_raw")
     store = _validate_raw(store_raw, "store_raw")
     m, n = returned.shape[0], store.shape[0]
-    t = min(returned.shape[1], store.shape[1])
+    tr, ts = returned.shape[1], store.shape[1]
+    t = min(tr, ts)
 
     if id_hint is not None:
         id_hint = np.asarray(id_hint, dtype="int64").reshape(-1)
@@ -102,14 +103,25 @@ def match_return_leg(
     store_t = store[:, :t, :]
     threshold = atol + rtol * np.abs(store_t)  # (N, t, 2), elementwise allclose bound
 
+    # The leading-region match only implies identity when the frames discarded
+    # past the common length ``t`` are zero padding, not real data (tMAVEN pads
+    # at the tail, PRD §5.2). Gate per longer side.
+    store_tail_ok = (
+        np.all(store[:, t:, :] == 0.0, axis=(1, 2)) if ts > t else np.ones(n, dtype="bool")
+    )
+
     mapping = np.full(m, -1, dtype="int64")
     used = np.zeros(n, dtype="bool")
     matched: list[tuple[int, int]] = []
     unmatched: list[int] = []
 
     for i in range(m):
+        if tr > t and not np.all(returned[i, t:, :] == 0.0):
+            # Returning trace carries real data past the store's length: not a match.
+            unmatched.append(i)
+            continue
         diff = np.abs(store_t - returned[i, :t, :])  # (N, t, 2)
-        within = np.all(diff <= threshold, axis=(1, 2)) & ~used  # (N,)
+        within = np.all(diff <= threshold, axis=(1, 2)) & ~used & store_tail_ok  # (N,)
 
         chosen = -1
         # Honour a hint only when it is itself a valid intensity match.
