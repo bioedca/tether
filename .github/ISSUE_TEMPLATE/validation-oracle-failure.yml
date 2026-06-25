@@ -1,0 +1,112 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Validation-oracle-failure issue form (PRD §8 NFR-VALID, §12.5). The
+# project-specific form for a failed scientific acceptance oracle (a–g) or a §9
+# milestone gate that does not meet its §11.2 tolerance. Auto-labels P0 because
+# a regressed oracle means a scientific result may be wrong — the highest
+# severity for a measurement tool. Source defensible data; never weaken the
+# oracle to match (PRD CLAUDE.md data-gaps rule).
+name: Validation-oracle failure
+description: A scientific acceptance oracle (PRD §8 a–g) or §9 gate failed its §11.2 tolerance.
+title: "validation: <oracle> fails <metric> on <fixture>"
+labels: ["type:validation-oracle-failure", "priority:P0"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when a **scientific** check regresses — not a generic bug.
+        Report the oracle, the measured-vs-expected numbers against **PRD §11.2**,
+        the fixture tier, and the suspected §4.2 module. Remediation sources
+        defensible public data with provenance + a locking test; it never
+        fabricates a value nor weakens the oracle (CLAUDE.md data-gaps rule).
+  - type: dropdown
+    id: oracle
+    attributes:
+      label: Which oracle failed (PRD §8 NFR-VALID a–g)
+      options:
+        - "(a) Extraction vs Deep-LASI — recall / intensity Pearson / RMS [M1]"
+        - "(b) Idealization parity — state count / means / Viterbi / ELBO [M0.5→M2/M6]"
+        - "(c) Kinetics — rates vs inter-tool spread [M8]"
+        - "(d) Ranker — precision@k uplift, prequential [M5]"
+        - "(e) α/γ edge cases — total-failure→apparent-E never NaN [M3]"
+        - "(f) Round-trip + schema migration — integrity / version stamp [M0/M2]"
+        - "(g) Bleach frames — per-channel first-bleach vs .mat [M3]"
+        - "other / unsure"
+    validations:
+      required: true
+  - type: input
+    id: gate
+    attributes:
+      label: §9 milestone gate
+      description: The milestone acceptance clause this oracle backs.
+      placeholder: "M0.5(a) idealization parity ; M3 γ-agreement ±10%"
+    validations:
+      required: true
+  - type: textarea
+    id: measured
+    attributes:
+      label: Measured vs expected (PRD §11.2)
+      description: The actual numbers and the §11.2 tolerance they breach.
+      placeholder: |
+        - metric: Viterbi per-frame agreement
+        - measured: 0.91
+        - §11.2 tolerance: ≥ 0.95
+        - delta: -0.04
+    validations:
+      required: true
+  - type: dropdown
+    id: fixture-tier
+    attributes:
+      label: Fixture tier
+      description: Where the failing fixture lives (PRD §8 NFR-FIXTURES, PLAN §2).
+      options:
+        - "committed small (tests/fixtures/)"
+        - "gated large (tests/fixtures/large/, LFS — large-fixtures.yml)"
+        - "synthetic / generated"
+        - "external (example-data/, read-only)"
+    validations:
+      required: true
+  - type: input
+    id: fixture
+    attributes:
+      label: Fixture identifier
+      placeholder: "tests/fixtures/large/smd_281mol.hdf5"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Suspected module (PRD §4.2)
+      options:
+        - "io"
+        - "imaging"
+        - "fret"
+        - "idealize"
+        - "ml"
+        - "analysis"
+        - "project"
+        - "schema"
+        - "sidecar"
+        - "unknown"
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Reproduction / harness
+      description: The test id or harness command, seed(s), and any logs.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Remediation checks (CLAUDE.md data-gaps / invariants)
+      options:
+        - label: I will not weaken the oracle or its §11.2 tolerance to make it pass.
+          required: true
+        - label: Any new reference data will be defensible (sourced, versioned, provenance + locking test).
+          required: true
+        - label: Parity is statistical — I compared against the frozen tolerance, not a bit-exact value.
+          required: false
