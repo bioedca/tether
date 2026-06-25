@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# schema-guard — the M0 HDF5 schema freeze gate (PRD §5/§9 M0/§12.6). It runs the
+# builder that writes a real `.tether` (scripts/dump_schema.py --check), dumps the
+# structure the code declares, and diffs it against the committed golden manifest
+# schema/schema_frozen.json. Additions pass; a removed/renamed/retyped frozen
+# field, a decremented schema_version, or a stale golden fail. A deliberate
+# structural change bumps schema_version, carries an ADR, and regenerates the
+# golden in the same PR. Required from M0 (promoted into the main-baseline ruleset
+# once this workflow lands, mirroring sidecar/parity at M0.5).
+name: schema-guard
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  schema-guard:
+    name: schema-guard
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Activate the restored micromamba env (init-shell: bash) so h5py/numpy
+        # from the base conda-lock are importable.
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Restore env + install tether
+        uses: ./.github/actions/setup-env
+      - name: Verify the HDF5 schema freeze (declared vs golden)
+        run: python scripts/dump_schema.py --check
