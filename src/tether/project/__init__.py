@@ -8,3 +8,7 @@ is scriptable without a display.
 """
 
 from __future__ import annotations
+
+from tether.project.core import Project
+
+__all__ = ["Project"]
