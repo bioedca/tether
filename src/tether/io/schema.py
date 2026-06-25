@@ -375,6 +375,20 @@ def _diff_compound(path: str, golden: Mapping[str, Any], current: Mapping[str, A
     violations: list[str] = []
     g_fields = {fld["name"]: fld for fld in golden.get("fields", [])}
     c_fields = {fld["name"]: fld for fld in current.get("fields", [])}
+
+    # A compound dtype's on-disk byte layout is positional, so field *order* is
+    # part of the freeze: new fields may only be appended. A reorder or a
+    # mid-list insertion changes the layout and breaks binary compatibility with
+    # existing `.tether` files, so require the golden field sequence to remain an
+    # exact prefix of the current one (additive tails are still allowed).
+    g_order = [fld["name"] for fld in golden.get("fields", [])]
+    c_order = [fld["name"] for fld in current.get("fields", [])]
+    if c_order[: len(g_order)] != g_order:
+        violations.append(
+            f"{path}: frozen field order changed or a field was inserted out of "
+            f"append-only position: {g_order} -> {c_order}"
+        )
+
     for name, g_fld in g_fields.items():
         c_fld = c_fields.get(name)
         if c_fld is None:

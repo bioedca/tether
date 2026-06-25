@@ -27,6 +27,9 @@ jobs:
   schema-guard:
     name: schema-guard
     runs-on: ubuntu-latest
+    # Bound the gate: a hung --check (stuck import/IO) should fail fast, not hold
+    # the runner to the 6-hour default.
+    timeout-minutes: 10
     defaults:
       run:
         # Activate the restored micromamba env (init-shell: bash) so h5py/numpy

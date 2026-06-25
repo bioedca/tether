@@ -155,6 +155,26 @@ def test_guard_flags_dtype_change() -> None:
     assert any("weight" in v and "dtype" in v for v in violations)
 
 
+def test_guard_flags_reordered_field() -> None:
+    """A compound dtype's byte layout is positional — a reorder must fail."""
+    golden = schema.build_manifest()
+    current = copy.deepcopy(golden)
+    fields = current["datasets"]["/molecules/table"]["dtype"]["fields"]
+    fields[0], fields[1] = fields[1], fields[0]  # swap molecule_id <-> molecule_key
+    violations = schema.diff_manifest(golden, current)
+    assert any("append-only" in v or "order" in v for v in violations)
+
+
+def test_guard_flags_mid_insertion() -> None:
+    """A field inserted in the middle (not appended) breaks the frozen layout."""
+    golden = schema.build_manifest()
+    current = copy.deepcopy(golden)
+    fields = current["datasets"]["/labels/table"]["dtype"]["fields"]
+    fields.insert(1, {"name": "inserted_in_middle", "dtype": "f8", "shape": []})
+    violations = schema.diff_manifest(golden, current)
+    assert any("append-only" in v or "order" in v for v in violations)
+
+
 def test_guard_flags_removed_group() -> None:
     golden = schema.build_manifest()
     current = copy.deepcopy(golden)
