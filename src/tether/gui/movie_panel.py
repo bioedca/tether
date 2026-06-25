@@ -70,11 +70,18 @@ class _NativeDisplayArray:
         # swap on just the sliced data (typically one frame), not the whole stack.
         return np.asarray(self._base[index]).astype(self.dtype)
 
-    def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
+    def __array__(self, dtype: np.dtype | None = None, copy: bool | None = None) -> np.ndarray:
         # Fallback only; the per-frame ``__getitem__`` path is what napari uses
-        # for slicing. Honour an explicit requested dtype if given.
+        # for slicing. This adapter always byte-swaps to native order, so it can
+        # never return a no-copy view — honour the NumPy 2.x ``copy`` contract by
+        # rejecting ``copy=False`` (NumPy 1.x never passes ``copy``).
+        if copy is False:
+            raise ValueError(
+                "_NativeDisplayArray.__array__ always byte-swaps to native order; "
+                "a zero-copy array (copy=False) is not possible."
+            )
         out = np.asarray(self._base).astype(self.dtype)
-        return out if dtype is None else out.astype(dtype)
+        return out if dtype is None else out.astype(dtype, copy=False)
 
     def __iter__(self) -> Iterator[np.ndarray]:
         for i in range(self.shape[0]):

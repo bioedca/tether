@@ -19,6 +19,7 @@ Two layers:
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -27,6 +28,7 @@ import numpy as np
 import pytest
 
 from tether.gui.movie_panel import (
+    NapariMoviePanel,
     _display_array,
     _first_frame_contrast,
     _NativeDisplayArray,
@@ -36,10 +38,17 @@ from tether.io.movie import open_movie
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "movie_be_64x64x50.tif"
 _NATIVE = "<" if sys.byteorder == "little" else ">"
 
-# Instantiating a real napari Viewer needs an OpenGL context for its vispy canvas.
-# macOS CI provides none under ``QT_QPA_PLATFORM=offscreen`` (the cocoa GL backend
-# segfaults), so the Viewer-instantiating smokes are skipped on that exact combo —
-# they still run headless on Linux (xvfb) and Windows, and the panel is
+# Gate the GUI smokes at COLLECTION time, before pytest resolves the ``qtbot``
+# fixture: a body-level ``importorskip`` runs after fixture setup, so a missing
+# Qt binding would error in setup instead of skipping cleanly. ``find_spec`` only
+# locates the packages (no import / no Qt cost).
+_HAS_NAPARI_QT = all(importlib.util.find_spec(m) is not None for m in ("napari", "qtpy"))
+_needs_napari = pytest.mark.skipif(not _HAS_NAPARI_QT, reason="napari/qtpy not installed")
+
+# Instantiating a real napari Viewer also needs an OpenGL context for its vispy
+# canvas. macOS CI provides none under ``QT_QPA_PLATFORM=offscreen`` (the cocoa GL
+# backend segfaults), so the Viewer-instantiating smokes are skipped on that exact
+# combo — they still run headless on Linux (xvfb) and Windows, and the panel is
 # live-verified on a real display. A macOS dev with a real display is unaffected.
 _NO_HEADLESS_GL = sys.platform == "darwin" and os.environ.get("QT_QPA_PLATFORM") == "offscreen"
 _needs_gl = pytest.mark.skipif(
@@ -87,6 +96,13 @@ def test_native_display_array_iterates_frames() -> None:
     np.testing.assert_array_equal(frames[1].astype(np.int64), native[1].astype(np.int64))
 
 
+def test_native_display_array_rejects_zero_copy() -> None:
+    # the adapter always byte-swaps, so it cannot honour copy=False (NumPy 2.x)
+    disp = _NativeDisplayArray(np.arange(24, dtype=np.uint16).reshape(2, 3, 4).astype(">u2"))
+    with pytest.raises(ValueError, match="copy=False"):
+        np.asarray(disp, copy=False)
+
+
 def test_first_frame_contrast_samples_first_frame() -> None:
     native = np.arange(2 * 3 * 4, dtype=np.uint16).reshape(2, 3, 4)
     lo, hi = _first_frame_contrast(native.astype(">u2"))
@@ -104,15 +120,12 @@ def test_first_frame_contrast_widens_flat_frame() -> None:
 
 
 @pytest.mark.gui
+@_needs_napari
 @_needs_gl
 def test_panel_displays_movie_headless(qtbot) -> None:  # qtbot: ensure a QApplication
-    pytest.importorskip("napari")
-    pytest.importorskip("qtpy")
-    from tether.gui.movie_panel import NapariMoviePanel
-
-    reader = open_movie(FIXTURE)
-    panel = NapariMoviePanel()
-    try:
+    # Both the reader and the panel are context managers, so cleanup is robust
+    # even if the panel constructor raises after the reader is opened.
+    with open_movie(FIXTURE) as reader, NapariMoviePanel() as panel:
         layer = panel.set_movie(reader)
 
         # the movie is displayed as exactly one image layer
@@ -137,20 +150,11 @@ def test_panel_displays_movie_headless(qtbot) -> None:  # qtbot: ensure a QAppli
 
         # the napari Qt main window is exposed for embedding
         assert panel.qt_window is not None
-    finally:
-        panel.close()
-        reader.close()
 
 
 @pytest.mark.gui
+@_needs_napari
 @_needs_gl
 def test_panel_rejects_non_movie_reader(qtbot) -> None:  # qtbot: ensure a QApplication
-    pytest.importorskip("napari")
-    from tether.gui.movie_panel import NapariMoviePanel
-
-    panel = NapariMoviePanel()
-    try:
-        with pytest.raises(TypeError, match="MovieReader"):
-            panel.set_movie(np.zeros((3, 4, 4), dtype=np.uint16))  # type: ignore[arg-type]
-    finally:
-        panel.close()
+    with NapariMoviePanel() as panel, pytest.raises(TypeError, match="MovieReader"):
+        panel.set_movie(np.zeros((3, 4, 4), dtype=np.uint16))  # type: ignore[arg-type]
