@@ -9,3 +9,22 @@ idealization staleness tracking; and dwell/rate analysis.
 """
 
 from __future__ import annotations
+
+from tether.idealize.matcher import MatchResult, match_return_leg
+from tether.idealize.smd import (
+    DEFAULT_GROUP,
+    SMD_FORMAT,
+    SMDData,
+    read_smd,
+    write_smd,
+)
+
+__all__ = [
+    "DEFAULT_GROUP",
+    "SMD_FORMAT",
+    "MatchResult",
+    "SMDData",
+    "match_return_leg",
+    "read_smd",
+    "write_smd",
+]
