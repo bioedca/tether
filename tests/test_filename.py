@@ -90,8 +90,12 @@ def test_condition_id_is_deterministic() -> None:
     "key",
     [
         ConditionKey(),  # all-empty
-        ConditionKey(construct_variant="Bla UCKOPSB T-box", ligand="tRNA",
-                     ligand_concentration=600.0, ligand_concentration_unit="nM"),
+        ConditionKey(
+            construct_variant="Bla UCKOPSB T-box",
+            ligand="tRNA",
+            ligand_concentration=600.0,
+            ligand_concentration_unit="nM",
+        ),
         ConditionKey(construct_variant="WCBN", dye="Cy3"),
         ConditionKey(buffer="T50", temperature_c=23.5, laser_power=2.0),
     ],
