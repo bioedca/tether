@@ -42,6 +42,11 @@ test = ["pytest", "pytest-qt", "pytest-cov"]
 docs = ["mkdocs", "mkdocs-material"]
 dev = ["ruff", "pre-commit", "reuse"]
 
+# Console entry point (PRD §7.11 headless core). Stdlib argparse — no runtime
+# dependency, so no conda-lock change (pin-and-hold). Real subcommands land at M1.
+[project.scripts]
+tether = "tether.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/bioedca/tether"
 Repository = "https://github.com/bioedca/tether"
