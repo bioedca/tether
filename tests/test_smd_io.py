@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 
 import numpy as np
@@ -185,8 +188,33 @@ def test_read_rejects_half_superset(tmp_path: Path) -> None:
         read_smd(path)
 
 
-def test_smd_module_does_not_import_h5py_eagerly() -> None:
-    """match_return_leg (pure NumPy) must not transitively require h5py."""
-    import tether.idealize.smd as smd_module
+def test_idealize_imports_and_matches_without_h5py() -> None:
+    """The public import path + match_return_leg must work with h5py unavailable.
 
-    assert not hasattr(smd_module, "h5py")
+    Run in a fresh subprocess with ``h5py`` blocked at import, so a regression to
+    an eager ``import h5py`` (anywhere in the ``tether.idealize`` chain) fails
+    here rather than silently passing a single-namespace ``hasattr`` check.
+    """
+    code = textwrap.dedent(
+        """
+        import builtins, sys
+        _real_import = builtins.__import__
+        def _blocked(name, *args, **kwargs):
+            if name == "h5py" or name.startswith("h5py."):
+                raise ImportError("h5py is blocked for this test")
+            return _real_import(name, *args, **kwargs)
+        builtins.__import__ = _blocked
+        sys.modules.pop("h5py", None)
+
+        import numpy as np
+        import tether.idealize as ti
+
+        result = ti.match_return_leg(np.zeros((1, 3, 2)), np.zeros((1, 3, 2)))
+        assert result.mapping.tolist() == [0]
+        assert "h5py" not in sys.modules, "tether.idealize eagerly imported h5py"
+        print("OK")
+        """
+    )
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert "OK" in proc.stdout
