@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Issue-form chooser config (PRD §12.5). Blank issues are disabled so every
+# report uses a structured form. Security reports are routed OUT of public
+# issues to the private vulnerability-reporting (PVR) flow per SECURITY.md.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/bioedca/tether/security/advisories/new
+    about: >-
+      Do NOT open a public issue for security problems. Use GitHub private
+      vulnerability reporting (PVR); see SECURITY.md for the disclosure process.

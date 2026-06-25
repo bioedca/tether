@@ -1,0 +1,96 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Feature / enhancement issue form (PRD §12.5). Use for a new capability or a
+# change to planned behavior. Prefer to tie the request to a PRD requirement
+# (FR-ID / §-number) so it threads to the roadmap (PRD §9, §12.7).
+name: Feature / enhancement
+description: Propose a new capability or a change to planned behavior.
+title: "feat(<scope>): <summary>"
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep the title in Conventional-Commit form (`type(scope): summary`) — it
+        becomes the squash-merge title of the implementing PR (PRD §12.2). A new
+        user-facing scientific claim must carry a citation; a new tunable must be
+        registered in **PRD §11.2** (single source of truth), not hardcoded.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What can't be done today, and why it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: The capability or behavior change you want.
+    validations:
+      required: true
+  - type: input
+    id: prd-ref
+    attributes:
+      label: PRD reference (FR-ID / §-number)
+      description: The requirement this implements or amends, if known.
+      placeholder: FR-EXTRACT / §7.1 ; or "none — new requirement"
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Target module (PRD §4.2)
+      options:
+        - "io"
+        - "imaging"
+        - "fret"
+        - "idealize"
+        - "ml"
+        - "analysis"
+        - "gui"
+        - "project"
+        - "schema"
+        - "sidecar"
+        - "packaging"
+        - "unknown"
+    validations:
+      required: true
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Milestone (PRD §9)
+      options:
+        - "M0"
+        - "M0.5"
+        - "M1"
+        - "M2"
+        - "M3"
+        - "M4"
+        - "M5"
+        - "M6"
+        - "M7"
+        - "M8"
+        - "M9"
+        - "unknown"
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How we will know it is done (testable, ties to a §9 clause where possible).
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: A new scientific/statistical claim, if any, will carry a literature citation.
+          required: false
+        - label: A new tunable, if any, will be registered in PRD §11.2 (not hardcoded).
+          required: false

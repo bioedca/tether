@@ -1,0 +1,114 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Bug report issue form (PRD §12.5). A reproducible defect in shipped behavior.
+# For a failed validation oracle (PRD §8 NFR-VALID a–g) use the dedicated
+# "Validation-oracle failure" form instead; for security use the private
+# advisory link in config.yml (PVR, SECURITY.md) — never a public issue.
+name: Bug report
+description: Report a reproducible defect in Tether.
+title: "fix(<scope>): <summary>"
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please keep the title in Conventional-Commit
+        form (`type(scope): summary`) — it becomes the squash-merge title of the
+        fixing PR (PRD §12.2). **Do not** attach real lab experimental data or a
+        user `.tether` project; use a small committed fixture or a synthetic case.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear description of the bug and the impact.
+      placeholder: Opening a big-endian movie raises ... instead of displaying it.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, deterministic steps. Prefer a committed fixture path.
+      placeholder: |
+        1. open `tests/fixtures/movie_be_64x64x50.tif`
+        2. call ...
+        3. observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected module (PRD §4.2)
+      description: The §4.2 module / cross-cutting area closest to the defect.
+      options:
+        - "io"
+        - "imaging"
+        - "fret"
+        - "idealize"
+        - "ml"
+        - "analysis"
+        - "gui"
+        - "project"
+        - "schema"
+        - "sidecar"
+        - "packaging"
+        - "unknown"
+    validations:
+      required: true
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Milestone
+      description: The roadmap milestone this belongs to (PRD §9).
+      options:
+        - "M0"
+        - "M0.5"
+        - "M1"
+        - "M2"
+        - "M3"
+        - "M4"
+        - "M5"
+        - "M6"
+        - "M7"
+        - "M8"
+        - "M9"
+        - "unknown"
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Tether version (`tether --version`), base vs sidecar env.
+      placeholder: |
+        - OS: Windows 11
+        - tether --version: 0.0.1.dev11+g031de7d
+        - env: base (PySide6 / numpy 2.x) | sidecar (PyQt5 / numpy<2)
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Traceback / logs
+      description: Paste the full traceback. It is rendered as code automatically.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is not a security report (those go through the private advisory link).
+          required: true
+        - label: No real lab data or user `.tether` project is attached.
+          required: true
