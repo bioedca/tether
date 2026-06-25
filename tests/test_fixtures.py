@@ -14,9 +14,6 @@ from pathlib import Path
 
 import pytest
 
-h5py = pytest.importorskip("h5py")
-tifffile = pytest.importorskip("tifffile")
-
 FIXTURES = Path(__file__).parent / "fixtures"
 LARGE = FIXTURES / "large"
 
@@ -44,10 +41,12 @@ def _is_lfs_pointer(path: Path) -> bool:
 def test_plain_fixture_under_size_gate(path: Path) -> None:
     assert path.is_file(), f"missing committed fixture: {path}"
     size = path.stat().st_size
-    assert size < MAX_PLAIN_BYTES, f"{path.name} is {size} B (>= 512 KiB plain-git gate)"
+    # `<=` mirrors pre-commit's `--maxkb=512`, which allows files at exactly 512 KiB.
+    assert size <= MAX_PLAIN_BYTES, f"{path.name} is {size} B (> 512 KiB plain-git gate)"
 
 
 def test_movie_is_big_endian_crop() -> None:
+    tifffile = pytest.importorskip("tifffile")
     path = FIXTURES / "movie_be_64x64x50.tif"
     with tifffile.TiffFile(path) as tif:
         assert tif.byteorder == ">", "movie fixture must stay big-endian (M0 S7 reader)"
@@ -61,6 +60,7 @@ def test_movie_is_big_endian_crop() -> None:
     [("smd_4mol.hdf5", 4), ("smd_2mol.hdf5", 2)],
 )
 def test_small_smd_structure(name: str, n_mol: int) -> None:
+    h5py = pytest.importorskip("h5py")
     with h5py.File(FIXTURES / name, "r") as f:
         raw = f["dataset/data/raw"]
         assert raw.shape == (n_mol, 1700, 2)
@@ -70,6 +70,7 @@ def test_small_smd_structure(name: str, n_mol: int) -> None:
 
 @pytest.mark.large
 def test_population_smd_and_model() -> None:
+    h5py = pytest.importorskip("h5py")
     smd = LARGE / "smd_281mol.hdf5"
     model = LARGE / "model_281mol.hdf5"
     if _is_lfs_pointer(smd) or _is_lfs_pointer(model):
