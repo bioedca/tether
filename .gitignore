@@ -1,6 +1,8 @@
 # --- Local-only working docs (never committed; see CLAUDE.md / PLAN.md) ---
 CLAUDE.md
 PLAN.md
+# Claude Code working directory: worktrees under .claude/worktrees/ + local settings
+.claude/
 
 # --- Python / build artifacts ---
 __pycache__/
