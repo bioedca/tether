@@ -1,0 +1,420 @@
+{
+  "attrs": {
+    "/": {
+      "app_version": {
+        "dtype": "str"
+      },
+      "format": {
+        "dtype": "str",
+        "value": "tether-project"
+      },
+      "schema_version": {
+        "dtype": "int",
+        "value": 1
+      }
+    }
+  },
+  "datasets": {
+    "/conditions/table": {
+      "dtype": {
+        "fields": [
+          {
+            "dtype": "str:utf-8",
+            "name": "condition_id",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "construct_variant",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "dye",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "ligand",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "ligand_concentration",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "ligand_concentration_unit",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "buffer",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "temperature_c",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "laser_power",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "date",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "replicate",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "leakage_alpha",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "leakage_alpha_source",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "tags",
+            "shape": []
+          }
+        ],
+        "kind": "compound"
+      },
+      "maxshape": [
+        null
+      ],
+      "shape": [
+        0
+      ]
+    },
+    "/labels/table": {
+      "dtype": {
+        "fields": [
+          {
+            "dtype": "str:utf-8",
+            "name": "molecule_key",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "labeler",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "timestamp",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "source_file",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "source",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "weight",
+            "shape": []
+          },
+          {
+            "dtype": "i4",
+            "name": "label_value",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "condition_id",
+            "shape": []
+          }
+        ],
+        "kind": "compound"
+      },
+      "maxshape": [
+        null
+      ],
+      "shape": [
+        0
+      ]
+    },
+    "/molecules/table": {
+      "dtype": {
+        "fields": [
+          {
+            "dtype": "str:utf-8",
+            "name": "molecule_id",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "molecule_key",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "movie_id",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "donor_xy",
+            "shape": [
+              2
+            ]
+          },
+          {
+            "dtype": "f8",
+            "name": "acceptor_xy",
+            "shape": [
+              2
+            ]
+          },
+          {
+            "dtype": "i4",
+            "name": "aperture_id",
+            "shape": []
+          },
+          {
+            "dtype": "i4",
+            "name": "frame_range",
+            "shape": [
+              2
+            ]
+          },
+          {
+            "dtype": "i4",
+            "name": "analysis_window",
+            "shape": [
+              2
+            ]
+          },
+          {
+            "dtype": "i4",
+            "name": "bleach_frames",
+            "shape": [
+              2
+            ]
+          },
+          {
+            "dtype": "f8",
+            "name": "alpha",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "gamma",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "delta",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "correction_method",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "correction_confidence",
+            "shape": []
+          },
+          {
+            "dtype": "i4",
+            "name": "curation_label",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "category",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "quality_class",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "condition_id",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "condition_id_provisional",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "source_filename",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "tags",
+            "shape": []
+          }
+        ],
+        "kind": "compound"
+      },
+      "maxshape": [
+        null
+      ],
+      "shape": [
+        0
+      ]
+    },
+    "/movies/table": {
+      "dtype": {
+        "fields": [
+          {
+            "dtype": "str:utf-8",
+            "name": "movie_id",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "uri",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "sha256",
+            "shape": []
+          },
+          {
+            "dtype": "i8",
+            "name": "file_size",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "mtime",
+            "shape": []
+          },
+          {
+            "dtype": "i1",
+            "name": "offline_flag",
+            "shape": []
+          },
+          {
+            "dtype": "i4",
+            "name": "n_frames",
+            "shape": []
+          },
+          {
+            "dtype": "i4",
+            "name": "height",
+            "shape": []
+          },
+          {
+            "dtype": "i4",
+            "name": "width",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "pixel_dtype",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "byteorder",
+            "shape": []
+          },
+          {
+            "dtype": "f8",
+            "name": "frame_time",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "head_tail_hash",
+            "shape": []
+          },
+          {
+            "dtype": "str:utf-8",
+            "name": "calibration_id",
+            "shape": []
+          },
+          {
+            "dtype": "i4",
+            "name": "donor_crop",
+            "shape": [
+              4
+            ]
+          },
+          {
+            "dtype": "i4",
+            "name": "acceptor_crop",
+            "shape": [
+              4
+            ]
+          },
+          {
+            "dtype": "i4",
+            "name": "donor_rotation_deg",
+            "shape": []
+          },
+          {
+            "dtype": "i4",
+            "name": "acceptor_rotation_deg",
+            "shape": []
+          },
+          {
+            "dtype": "i1",
+            "name": "donor_flip",
+            "shape": [
+              2
+            ]
+          },
+          {
+            "dtype": "i1",
+            "name": "acceptor_flip",
+            "shape": [
+              2
+            ]
+          }
+        ],
+        "kind": "compound"
+      },
+      "maxshape": [
+        null
+      ],
+      "shape": [
+        0
+      ]
+    }
+  },
+  "format": "tether-project",
+  "groups": [
+    "/",
+    "/calibration",
+    "/conditions",
+    "/features",
+    "/idealization",
+    "/labels",
+    "/models",
+    "/molecules",
+    "/movies",
+    "/patches",
+    "/settings",
+    "/traces"
+  ],
+  "schema_version": 1
+}
