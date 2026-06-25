@@ -11,12 +11,15 @@ Two layers:
 * A **``@pytest.mark.gui``** smoke that actually instantiates the panel, displays
   the committed big-endian fixture, and asserts the layer is present with the
   right name / shape / native byte order, then tears down cleanly. It runs
-  headless (``QT_QPA_PLATFORM=offscreen``); pixel rendering is covered by the
-  live computer-use smoke, not asserted here (the offscreen canvas is 0×0).
+  headless (``QT_QPA_PLATFORM=offscreen``) on Linux (xvfb) and Windows; it is
+  skipped on macOS-offscreen, whose Qt provides no GL context for the vispy
+  canvas (segfault). Pixel rendering is covered by the live computer-use smoke,
+  not asserted here (the offscreen canvas is 0×0).
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -32,6 +35,17 @@ from tether.io.movie import open_movie
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "movie_be_64x64x50.tif"
 _NATIVE = "<" if sys.byteorder == "little" else ">"
+
+# Instantiating a real napari Viewer needs an OpenGL context for its vispy canvas.
+# macOS CI provides none under ``QT_QPA_PLATFORM=offscreen`` (the cocoa GL backend
+# segfaults), so the Viewer-instantiating smokes are skipped on that exact combo —
+# they still run headless on Linux (xvfb) and Windows, and the panel is
+# live-verified on a real display. A macOS dev with a real display is unaffected.
+_NO_HEADLESS_GL = sys.platform == "darwin" and os.environ.get("QT_QPA_PLATFORM") == "offscreen"
+_needs_gl = pytest.mark.skipif(
+    _NO_HEADLESS_GL,
+    reason="napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)",
+)
 
 
 def _is_native(dtype: np.dtype) -> bool:
@@ -90,6 +104,7 @@ def test_first_frame_contrast_widens_flat_frame() -> None:
 
 
 @pytest.mark.gui
+@_needs_gl
 def test_panel_displays_movie_headless(qtbot) -> None:  # qtbot: ensure a QApplication
     pytest.importorskip("napari")
     pytest.importorskip("qtpy")
@@ -128,6 +143,7 @@ def test_panel_displays_movie_headless(qtbot) -> None:  # qtbot: ensure a QAppli
 
 
 @pytest.mark.gui
+@_needs_gl
 def test_panel_rejects_non_movie_reader(qtbot) -> None:  # qtbot: ensure a QApplication
     pytest.importorskip("napari")
     from tether.gui.movie_panel import NapariMoviePanel
