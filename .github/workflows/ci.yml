@@ -170,10 +170,13 @@ jobs:
       # tests at M0 S8 (no GUI tests exist yet, so it is not installed here).
       - name: Install test tooling
         run: python -m pip install "pytest==9.1.1"
+      # The `large` marker needs the Git-LFS gated tier, which the default
+      # checkout does not pull (PLAN §2.1/§2.2) — exclude it from the required
+      # matrix so a structural HDF5 fixture never gates on an LFS pull.
       - name: Run tests
         run: |
           if [ "${RUNNER_OS}" = "Linux" ]; then
-            xvfb-run -a pytest -v
+            xvfb-run -a pytest -v -m "not large"
           else
-            pytest -v
+            pytest -v -m "not large"
           fi
