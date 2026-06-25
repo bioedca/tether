@@ -81,6 +81,17 @@ def test_open_rejects_truncated_project(tmp_path) -> None:
         Project.open(trunc)
 
 
+def test_open_rejects_group_without_table(tmp_path) -> None:
+    # The other _missing_skeleton branch: a rich-entity group is present but its
+    # `table` dataset is gone (a partially-written project).
+    path = tmp_path / "demo.tether"
+    Project.create(path)
+    with h5py.File(path, "r+") as f:
+        del f["molecules/table"]
+    with pytest.raises(ValueError):
+        Project.open(path)
+
+
 def test_parse_condition_is_provisional() -> None:
     parsed = Project.parse_condition("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
     assert parsed.key.ligand == "tRNA"
