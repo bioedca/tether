@@ -98,11 +98,21 @@ def test_condition_id_is_deterministic() -> None:
         ),
         ConditionKey(construct_variant="WCBN", dye="Cy3"),
         ConditionKey(buffer="T50", temperature_c=23.5, laser_power=2.0),
+        # Reserved encoding characters must survive the round-trip even for keys
+        # built outside parse_filename (e.g. an M4 human-edited buffer/construct).
+        ConditionKey(buffer="T50 | pH 7.5", construct_variant="x=y, z"),
     ],
 )
 def test_condition_key_canonical_round_trip(key: ConditionKey) -> None:
     # The defining round-trip: from_canonical ∘ to_canonical is the identity.
     assert ConditionKey.from_canonical(key.to_canonical()) == key
+
+
+def test_condition_id_coerces_int_and_float() -> None:
+    # 600 and 600.0 are the same condition (PRD §5.1 key) → the same join id.
+    a = ConditionKey(ligand="tRNA", ligand_concentration=600)
+    b = ConditionKey(ligand="tRNA", ligand_concentration=600.0)
+    assert a.condition_id() == b.condition_id()
 
 
 def test_unrecognized_name_never_raises() -> None:

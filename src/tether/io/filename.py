@@ -32,6 +32,7 @@ The example-data filenames this targets (PRD Appendix A, ``example-data/``):
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from hashlib import sha256
@@ -99,29 +100,15 @@ _LIGANDS: frozenset[str] = frozenset(
     {"trna", "mrna", "rrna", "trna2", "rna", "dna", "atp", "gtp", "mg", "mgcl2", "ligand"}
 )
 
-#: Characters reserved by the canonical-string encoding; scrubbed from values so
-#: the round-trip is unambiguous. Provisional values come from filenames and
-#: never contain these in practice.
-_RESERVED = str.maketrans({"|": "/", "=": "-"})
-
 
 def _norm(text: str) -> str:
-    """Collapse whitespace and strip the canonical-encoding reserved characters."""
-    return " ".join(text.split()).translate(_RESERVED).strip()
+    """Collapse internal/edge whitespace to single spaces."""
+    return " ".join(text.split())
 
 
-def _fmt_num(value: float | None) -> str:
-    """Round-trip-stable number rendering: ``None`` → ``""``; drop trailing zeros."""
-    if value is None:
-        return ""
-    if value == int(value):
-        return str(int(value))
-    return repr(value)
-
-
-def _parse_num(text: str) -> float | None:
-    """Inverse of :func:`_fmt_num` (``""`` → ``None``)."""
-    return float(text) if text else None
+def _as_float(value: float | None) -> float | None:
+    """Coerce a numeric key field to ``float`` so ``600`` and ``600.0`` match."""
+    return None if value is None else float(value)
 
 
 # --- The condition identity key ----------------------------------------------
@@ -148,39 +135,41 @@ class ConditionKey:
     laser_power: float | None = None
 
     def to_canonical(self) -> str:
-        """Serialize to a deterministic, exactly-reversible string.
+        """Serialize to a deterministic, exactly-reversible JSON string.
 
-        Inverse of :meth:`from_canonical`; the pair is a true round-trip
-        (:func:`parse_filename` "round-trips a known condition string", PRD §9 M0).
+        Inverse of :meth:`from_canonical`; the pair is a true round-trip for
+        **any** key, including human-edited ``buffer`` / ``construct_variant``
+        values containing arbitrary characters (JSON quotes them losslessly), so
+        :meth:`condition_id` — the ``/molecules.condition_id_provisional`` ↔
+        ``/conditions.condition_id`` join key (PRD §5.1) — stays stable no matter
+        how the key was built (parser output or M4 human edit). Numeric fields are
+        coerced to ``float`` so ``600`` and ``600.0`` canonicalize identically.
         """
-        fields = (
-            ("construct", self.construct_variant),
-            ("dye", self.dye),
-            ("ligand", self.ligand),
-            ("ligand_conc", _fmt_num(self.ligand_concentration)),
-            ("ligand_unit", self.ligand_concentration_unit),
-            ("buffer", self.buffer),
-            ("temp_c", _fmt_num(self.temperature_c)),
-            ("laser", _fmt_num(self.laser_power)),
-        )
-        return " | ".join(f"{name}={value}" for name, value in fields)
+        payload = {
+            "construct": self.construct_variant,
+            "dye": self.dye,
+            "ligand": self.ligand,
+            "ligand_conc": _as_float(self.ligand_concentration),
+            "ligand_unit": self.ligand_concentration_unit,
+            "buffer": self.buffer,
+            "temp_c": _as_float(self.temperature_c),
+            "laser": _as_float(self.laser_power),
+        }
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
     @classmethod
     def from_canonical(cls, text: str) -> ConditionKey:
         """Reconstruct a key from :meth:`to_canonical` output."""
-        parts: dict[str, str] = {}
-        for chunk in text.split(" | "):
-            name, _, value = chunk.partition("=")
-            parts[name] = value
+        p = json.loads(text)
         return cls(
-            construct_variant=parts.get("construct", ""),
-            dye=parts.get("dye", ""),
-            ligand=parts.get("ligand", ""),
-            ligand_concentration=_parse_num(parts.get("ligand_conc", "")),
-            ligand_concentration_unit=parts.get("ligand_unit", ""),
-            buffer=parts.get("buffer", ""),
-            temperature_c=_parse_num(parts.get("temp_c", "")),
-            laser_power=_parse_num(parts.get("laser", "")),
+            construct_variant=p["construct"],
+            dye=p["dye"],
+            ligand=p["ligand"],
+            ligand_concentration=p["ligand_conc"],
+            ligand_concentration_unit=p["ligand_unit"],
+            buffer=p["buffer"],
+            temperature_c=p["temp_c"],
+            laser_power=p["laser"],
         )
 
     def condition_id(self) -> str:

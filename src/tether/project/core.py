@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 from tether.io.filename import ParsedFilename, parse_filename
 from tether.io.schema import (
     SCHEMA_VERSION,
-    assert_compatible,
+    assert_is_compatible_project,
     create_project,
     read_schema_version,
 )
@@ -58,15 +58,18 @@ class Project:
 
     @classmethod
     def open(cls, path: str | Path) -> Project:
-        """Open an existing ``.tether``, refusing a file newer than this app.
+        """Open an existing ``.tether``, rejecting non-projects and future files.
 
-        Enforces the §5.4 forward-compatibility guard (:func:`assert_compatible`)
-        before handing back a usable :class:`Project`.
+        Validates the on-disk Tether contract — the file is readable HDF5 carrying
+        the ``format`` marker (PRD §5.1), and its ``schema_version`` is not newer
+        than this app (the §5.4 forward-compatibility guard) — before handing back
+        a usable :class:`Project`. A foreign or partial HDF5 file is refused, not
+        silently accepted (:func:`tether.io.schema.assert_is_compatible_project`).
         """
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"no such .tether project: {path}")
-        assert_compatible(read_schema_version(path))
+        assert_is_compatible_project(path)
         return cls(path)
 
     @property

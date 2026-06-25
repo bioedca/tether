@@ -257,6 +257,38 @@ def assert_compatible(file_version: int) -> None:
         )
 
 
+def assert_is_compatible_project(path: str | Path) -> int:
+    """Validate that ``path`` is a readable, compatible ``.tether`` store.
+
+    Checks, in order: the file is HDF5-readable; its root ``format`` attribute is
+    the :data:`FORMAT_TAG` marker (so a foreign or partial HDF5 file is rejected,
+    not silently accepted as a project); and its ``schema_version`` is not newer
+    than this app (:func:`assert_compatible`, PRD §5.4). Returns the on-disk
+    ``schema_version``.
+
+    Raises
+    ------
+    ValueError
+        If the file is not readable HDF5, lacks the Tether ``format`` marker, or
+        is missing the ``schema_version`` stamp.
+    """
+    try:
+        with h5py.File(path, "r") as f:
+            fmt = f.attrs.get("format")
+            version = f.attrs.get("schema_version")
+    except OSError as exc:
+        raise ValueError(f"{path} is not a readable .tether HDF5 project") from exc
+    if isinstance(fmt, bytes):
+        fmt = fmt.decode("utf-8")
+    if fmt != FORMAT_TAG:
+        raise ValueError(f"{path} is not a .tether project (format marker={fmt!r})")
+    if version is None:
+        raise ValueError(f"{path} is missing the schema_version stamp")
+    version = int(version)
+    assert_compatible(version)
+    return version
+
+
 # --- Manifest (introspection) ------------------------------------------------
 
 

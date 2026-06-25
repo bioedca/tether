@@ -51,6 +51,24 @@ def test_open_refuses_future_schema(tmp_path) -> None:
         Project.open(path)
 
 
+def test_open_rejects_foreign_hdf5(tmp_path) -> None:
+    # A valid HDF5 that is not a Tether store (no `format` marker) is refused,
+    # not silently accepted (PRD §5.1 on-disk contract).
+    foreign = tmp_path / "foreign.h5"
+    with h5py.File(foreign, "w") as f:
+        f.attrs["schema_version"] = SCHEMA_VERSION  # present, but no `format`
+        f.create_dataset("payload", data=[1, 2, 3])
+    with pytest.raises(ValueError):
+        Project.open(foreign)
+
+
+def test_open_rejects_non_hdf5(tmp_path) -> None:
+    junk = tmp_path / "not.tether"
+    junk.write_bytes(b"this is not an HDF5 file")
+    with pytest.raises(ValueError):
+        Project.open(junk)
+
+
 def test_parse_condition_is_provisional() -> None:
     parsed = Project.parse_condition("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
     assert parsed.key.ligand == "tRNA"
