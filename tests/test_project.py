@@ -7,7 +7,7 @@ from __future__ import annotations
 import h5py
 import pytest
 
-from tether.io.schema import SCHEMA_VERSION
+from tether.io.schema import FORMAT_TAG, SCHEMA_VERSION
 from tether.project import Project
 
 
@@ -67,6 +67,18 @@ def test_open_rejects_non_hdf5(tmp_path) -> None:
     junk.write_bytes(b"this is not an HDF5 file")
     with pytest.raises(ValueError):
         Project.open(junk)
+
+
+def test_open_rejects_truncated_project(tmp_path) -> None:
+    # The root markers are present but the frozen §5.1 skeleton is missing, e.g.
+    # an interrupted write — must be refused, not silently accepted.
+    trunc = tmp_path / "trunc.tether"
+    with h5py.File(trunc, "w") as f:
+        f.attrs["format"] = FORMAT_TAG
+        f.attrs["schema_version"] = SCHEMA_VERSION
+        # deliberately no /movies, /molecules, /conditions, /labels, ... groups
+    with pytest.raises(ValueError):
+        Project.open(trunc)
 
 
 def test_parse_condition_is_provisional() -> None:

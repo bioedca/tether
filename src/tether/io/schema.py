@@ -257,34 +257,60 @@ def assert_compatible(file_version: int) -> None:
         )
 
 
+def _missing_skeleton(f: h5py.File) -> list[str]:
+    """Return the frozen top-level §5.1 skeleton paths absent from an open file.
+
+    Validates only the *top-level* structure :func:`create_project` writes — the
+    rich-entity groups + their 0-row ``table`` datasets and the empty container
+    groups — using the same single-source-of-truth constants. (Deep field-level
+    structure is the separate ``schema-guard`` gate's job, on the *writer*.)
+    """
+    missing: list[str] = []
+    for name in _RICH_TABLES:
+        group = f.get(name)
+        if not isinstance(group, h5py.Group):
+            missing.append(f"/{name}")
+        elif not isinstance(group.get(TABLE), h5py.Dataset):
+            missing.append(f"/{name}/{TABLE}")
+    for name in _CONTAINER_GROUPS:
+        if not isinstance(f.get(name), h5py.Group):
+            missing.append(f"/{name}")
+    return missing
+
+
 def assert_is_compatible_project(path: str | Path) -> int:
-    """Validate that ``path`` is a readable, compatible ``.tether`` store.
+    """Validate that ``path`` is a readable, complete, compatible ``.tether`` store.
 
     Checks, in order: the file is HDF5-readable; its root ``format`` attribute is
-    the :data:`FORMAT_TAG` marker (so a foreign or partial HDF5 file is rejected,
-    not silently accepted as a project); and its ``schema_version`` is not newer
-    than this app (:func:`assert_compatible`, PRD §5.4). Returns the on-disk
-    ``schema_version``.
+    the :data:`FORMAT_TAG` marker; the frozen §5.1 top-level skeleton is present
+    (so a foreign **or truncated** HDF5 file is rejected, not silently accepted as
+    a project); and its ``schema_version`` is not newer than this app
+    (:func:`assert_compatible`, PRD §5.4). Returns the on-disk ``schema_version``.
 
     Raises
     ------
     ValueError
-        If the file is not readable HDF5, lacks the Tether ``format`` marker, or
-        is missing the ``schema_version`` stamp.
+        If the file is not readable HDF5, lacks the Tether ``format`` marker, is
+        missing part of the frozen skeleton, or has no ``schema_version`` stamp.
     """
     try:
         with h5py.File(path, "r") as f:
             fmt = f.attrs.get("format")
+            if isinstance(fmt, bytes):
+                fmt = fmt.decode("utf-8")
+            if fmt != FORMAT_TAG:
+                raise ValueError(f"{path} is not a .tether project (format marker={fmt!r})")
             version = f.attrs.get("schema_version")
+            if version is None:
+                raise ValueError(f"{path} is missing the schema_version stamp")
+            missing = _missing_skeleton(f)
+            if missing:
+                raise ValueError(
+                    f"{path} is not a complete .tether project; missing: {', '.join(missing)}"
+                )
+            version = int(version)
     except OSError as exc:
         raise ValueError(f"{path} is not a readable .tether HDF5 project") from exc
-    if isinstance(fmt, bytes):
-        fmt = fmt.decode("utf-8")
-    if fmt != FORMAT_TAG:
-        raise ValueError(f"{path} is not a .tether project (format marker={fmt!r})")
-    if version is None:
-        raise ValueError(f"{path} is missing the schema_version stamp")
-    version = int(version)
     assert_compatible(version)
     return version
 
