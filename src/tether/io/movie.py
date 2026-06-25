@@ -76,6 +76,15 @@ class MovieReader:
                 "uncompressed, contiguous TIFF (the reference movie format, PRD "
                 "Appendix A)."
             ) from exc
+        # Defensive parity check: the memmap is laid out from the series geometry,
+        # so a disagreement means tifffile mapped a different shape than it
+        # reported (e.g. a malformed / non-contiguous file it failed to reject) —
+        # serving frames from it would silently return wrong data.
+        if self._data.shape != self._shape:
+            raise ValueError(
+                f"{self._path}: memory-map shape {self._data.shape} does not match "
+                f"the TIFF series geometry {self._shape}; refusing to serve frames."
+            )
         # Take the dtype from the map itself so it carries the true on-disk byte
         # order ('>u2' for the reference movie) and matches every frame view.
         self._dtype = self._data.dtype
