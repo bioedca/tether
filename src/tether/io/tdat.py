@@ -152,10 +152,27 @@ def _scalar(group: h5py.Group, name: str) -> float:
     return float(np.asarray(group[name][()]).reshape(-1)[0])
 
 
+def _one_based_channel_index(value: float, name: str) -> int:
+    """Validate a MATLAB 1-based channel index and return it 0-based.
+
+    Rejects non-finite, fractional, or out-of-range values so a corrupt header
+    can never leak an invalid channel id into the public :class:`Tdat`.
+    """
+    if not np.isfinite(value):
+        raise ValueError(f"{name} must be a finite channel index; got {value!r}")
+    rounded = round(value)
+    if not np.isclose(value, rounded):
+        raise ValueError(f"{name} must be an integer channel index; got {value!r}")
+    channel = int(rounded) - 1
+    if not 0 <= channel < _MAX_CHANNELS:
+        raise ValueError(f"{name} must be a 1..{_MAX_CHANNELS} channel index; got {value!r}")
+    return channel
+
+
 def _one_based_channels(group: h5py.Group, name: str) -> tuple[int, ...]:
     """Read a MATLAB 1-based channel-index vector as a sorted 0-based tuple."""
     values = np.asarray(group[name][()], dtype=np.float64).reshape(-1)
-    return tuple(sorted(int(round(v)) - 1 for v in values))
+    return tuple(sorted(_one_based_channel_index(v, name) for v in values))
 
 
 def _coloc_tables(file: h5py.File, temp: h5py.Group) -> list[np.ndarray]:
@@ -174,7 +191,12 @@ def _coloc_tables(file: h5py.File, temp: h5py.Group) -> list[np.ndarray]:
         if not ref:  # null reference (unpopulated cell slot)
             continue
         table = np.asarray(file[ref][()], dtype=np.float64)
-        if table.ndim != 2 or _N_COLS not in table.shape:
+        # A MATLAB empty-array cell element (a movie with no colocalized
+        # particles) dereferences to a non-2-D dims marker — legitimately skip
+        # it. A 2-D array with the wrong column count is corrupt or
+        # schema-changed input: fail loudly rather than silently decoding fewer
+        # molecules.
+        if table.ndim != 2:
             continue
         if table.shape[0] != _N_COLS:
             raise ValueError(
@@ -207,7 +229,9 @@ def read_tdat(path: str | PathLike[str]) -> Tdat:
             _scalar(temp, "DefaultGamma"),
         )
         channels_with_data = _one_based_channels(temp, "ChannelsWithData")
-        reference_channel = int(round(_scalar(temp, "MappingReferenceChannel"))) - 1
+        reference_channel = _one_based_channel_index(
+            _scalar(temp, "MappingReferenceChannel"), "MappingReferenceChannel"
+        )
         tables = _coloc_tables(file, temp)
 
     coloc = _build_colocalization(tables)
@@ -230,12 +254,23 @@ def _build_colocalization(tables: list[np.ndarray]) -> TdatColocalization:
             n_molecules=0,
         )
     table = np.vstack(tables)
-    channel_present = table[:, _FLAG_START : _FLAG_START + _MAX_CHANNELS].astype(bool).any(axis=0)
+    flags = table[:, _FLAG_START : _FLAG_START + _MAX_CHANNELS].astype(bool)  # (N, 4) per-row bCh
+    channel_present = flags.any(axis=0)
+    # findColoc keeps only molecules colocalized in *every* data channel; filter
+    # defensively to rows present in all participating channels so a row that
+    # lacks a channel can never publish that channel's placeholder (post 1-based
+    # conversion: negative) coordinates. The kept rows stay aligned across
+    # channels — coords[d][i] and coords[a][i] are the same molecule.
+    participating = np.flatnonzero(channel_present)
+    complete = (
+        flags[:, participating].all(axis=1)
+        if participating.size
+        else np.zeros(len(table), dtype=bool)
+    )
+    table = table[complete]
     coords: dict[int, np.ndarray] = {}
     detection_index: dict[int, np.ndarray] = {}
-    for channel in range(_MAX_CHANNELS):
-        if not channel_present[channel]:
-            continue
+    for channel in participating.tolist():
         base = channel * 3
         # X, Y are stored [x, y] (PRD §11.1); 1-based inclusive -> 0-based.
         xy = table[:, base : base + 2] - 1.0

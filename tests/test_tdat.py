@@ -30,31 +30,65 @@ def tdat() -> Tdat:
     return read_tdat(FIXTURE)
 
 
-def _write_minimal_tdat(path: Path, particles: object) -> None:
-    """Write a minimal ``temp`` struct with the given ``ParticlesColocalized``."""
+def _write_minimal_tdat(
+    path: Path,
+    table: np.ndarray | None,
+    *,
+    channels: list[float] | None = None,
+    reference: float = 1.0,
+) -> None:
+    """Write a minimal ``temp`` struct for decoder tests.
+
+    ``table`` is an ``(N, 17)`` findColoc matrix (written MATLAB-transposed behind
+    a cell object reference); ``None`` writes the MATLAB empty-array marker (a
+    non-reference dims stub). ``channels`` / ``reference`` populate
+    ``ChannelsWithData`` / ``MappingReferenceChannel`` (MATLAB 1-based).
+    """
+    if channels is None:
+        channels = [1.0, 2.0]
     with h5py.File(path, "w") as f:
         temp = f.create_group("temp")
-        if isinstance(particles, np.ndarray) and particles.dtype == h5py.ref_dtype:
-            refs = f.create_group("#refs#")
-            table = refs.create_dataset("a", data=particles_table())
-            pc = temp.create_dataset("ParticlesColocalized", shape=(1, 1), dtype=h5py.ref_dtype)
-            pc[0, 0] = table.ref
-        else:
+        if table is None:
             # MATLAB stores an empty [] as a small non-reference uint64 dims marker.
             temp.create_dataset("ParticlesColocalized", data=np.array([0, 0], dtype=np.uint64))
+        else:
+            refs = f.create_group("#refs#")
+            ds = refs.create_dataset("a", data=np.asarray(table, dtype=np.float64).T)
+            pc = temp.create_dataset("ParticlesColocalized", shape=(1, 1), dtype=h5py.ref_dtype)
+            pc[0, 0] = ds.ref
         for name in ("DefaultAlpha", "DefaultBeta", "DefaultGamma"):
             temp.create_dataset(name, data=np.array([[0.0]]))
-        temp.create_dataset("ChannelsWithData", data=np.array([[1.0], [2.0]]))
-        temp.create_dataset("MappingReferenceChannel", data=np.array([[1.0]]))
+        temp.create_dataset(
+            "ChannelsWithData", data=np.array(channels, dtype=np.float64).reshape(-1, 1)
+        )
+        temp.create_dataset("MappingReferenceChannel", data=np.array([[reference]]))
+
+
+def _coloc_row(
+    ch1: tuple[float, float, float],
+    ch2: tuple[float, float, float] | None,
+    flags: tuple[int, int, int, int],
+    nfile: float = 1.0,
+) -> list[float]:
+    """One 17-column findColoc row: X1 Y1 #1 | X2 Y2 #2 | … | bCh1..4 | nFile."""
+    row = [0.0] * 17
+    row[0:3] = list(ch1)
+    if ch2 is not None:
+        row[3:6] = list(ch2)
+    row[12:16] = [float(b) for b in flags]
+    row[16] = nfile
+    return row
 
 
 def particles_table() -> np.ndarray:
-    """A two-molecule (17, 2) findColoc table in MATLAB-transposed orientation."""
-    rows = np.zeros((2, 17), dtype=np.float64)
-    rows[:, 0:3] = [[10.0, 20.0, 1.0], [30.0, 40.0, 2.0]]  # ch1 X,Y,#
-    rows[:, 12] = 1.0  # bCh1
-    rows[:, 16] = 1.0  # nFile
-    return rows.T
+    """A two-molecule single-channel (N, 17) findColoc table (ch1 only)."""
+    return np.asarray(
+        [
+            _coloc_row((10.0, 20.0, 1.0), None, (1, 0, 0, 0)),
+            _coloc_row((30.0, 40.0, 2.0), None, (1, 0, 0, 0)),
+        ],
+        dtype=np.float64,
+    )
 
 
 def test_decode_shape_and_channels(tdat: Tdat) -> None:
@@ -123,7 +157,7 @@ def test_appendix_b_remap_is_not_a_naming_passthrough() -> None:
 
 def test_empty_colocalization_returns_zero(tmp_path: Path) -> None:
     path = tmp_path / "empty.tdat"
-    _write_minimal_tdat(path, particles=None)
+    _write_minimal_tdat(path, table=None)
     result = read_tdat(path)
     assert result.colocalization.n_molecules == 0
     assert result.colocalization.coords == {}
@@ -135,11 +169,56 @@ def test_empty_colocalization_returns_zero(tmp_path: Path) -> None:
 
 def test_minimal_referenced_table_decodes(tmp_path: Path) -> None:
     path = tmp_path / "ref.tdat"
-    _write_minimal_tdat(path, particles=np.empty((1, 1), dtype=h5py.ref_dtype))
+    _write_minimal_tdat(path, table=particles_table())
     coloc = read_tdat(path).colocalization
     assert coloc.n_molecules == 2
     assert np.allclose(coloc.coords[0], [[9.0, 19.0], [29.0, 39.0]])
     assert coloc.channel_present.tolist() == [True, False, False, False]
+
+
+def test_invalid_channel_metadata_raises(tmp_path: Path) -> None:
+    # A corrupt MappingReferenceChannel (fractional / out-of-range) must be
+    # rejected, not silently rounded into a bogus channel id.
+    fractional = tmp_path / "frac.tdat"
+    _write_minimal_tdat(fractional, table=particles_table(), reference=2.5)
+    with pytest.raises(ValueError, match="MappingReferenceChannel"):
+        read_tdat(fractional)
+    out_of_range = tmp_path / "oor.tdat"
+    _write_minimal_tdat(out_of_range, table=particles_table(), channels=[1.0, 9.0])
+    with pytest.raises(ValueError, match="ChannelsWithData"):
+        read_tdat(out_of_range)
+
+
+def test_malformed_coloc_table_raises(tmp_path: Path) -> None:
+    # A non-null reference to a 2-D table with the wrong column count is corrupt
+    # input and must fail loudly rather than decode as fewer molecules.
+    path = tmp_path / "malformed.tdat"
+    bad = np.zeros((2, 16), dtype=np.float64)  # 16 columns, not 17
+    _write_minimal_tdat(path, table=bad)
+    with pytest.raises(ValueError, match="expected 17 columns"):
+        read_tdat(path)
+
+
+def test_partial_colocalization_row_is_filtered(tmp_path: Path) -> None:
+    # A two-channel file with one fully-colocalized row and one row missing the
+    # acceptor: only the complete row is published, and no channel ever exposes a
+    # placeholder (post-1-based-conversion negative) coordinate.
+    path = tmp_path / "partial.tdat"
+    table = np.asarray(
+        [
+            _coloc_row((10.0, 20.0, 1.0), (11.0, 28.0, 1.0), (1, 1, 0, 0)),  # complete
+            _coloc_row((30.0, 40.0, 2.0), None, (1, 0, 0, 0)),  # acceptor missing
+        ],
+        dtype=np.float64,
+    )
+    _write_minimal_tdat(path, table=table)
+    coloc = read_tdat(path).colocalization
+    assert coloc.n_molecules == 1
+    assert coloc.channel_present.tolist() == [True, True, False, False]
+    assert np.allclose(coloc.coords[0], [[9.0, 19.0]])
+    assert np.allclose(coloc.coords[1], [[10.0, 27.0]])
+    for xy in coloc.coords.values():
+        assert xy.min() >= 0.0  # no fabricated negative placeholder coords
 
 
 def test_not_a_tdat_raises(tmp_path: Path) -> None:
