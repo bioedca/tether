@@ -12,3 +12,17 @@ colocalization.
 """
 
 from __future__ import annotations
+
+from tether.imaging.detect import (
+    atrous_wavelet_planes,
+    b3_spline_kernel,
+    detect_spots,
+    detection_image,
+)
+
+__all__ = [
+    "atrous_wavelet_planes",
+    "b3_spline_kernel",
+    "detect_spots",
+    "detection_image",
+]
