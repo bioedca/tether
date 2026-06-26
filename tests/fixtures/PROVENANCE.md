@@ -23,6 +23,7 @@ uv run --no-project --with h5py --with tifffile --with numpy \
 | `tests/fixtures/large/smd_281mol.hdf5` | 281-molecule population SMD (parity gate) | `model-source-smd-281mol.hdf5` | 3,925,718 B | 3,925,718 B | `286130c45a679263…` | verbatim · **LFS** |
 | `tests/fixtures/large/model_281mol.hdf5` | 4-state vbHMM model (parity gate) | `model.hdf5` | 2,621,011 B | 2,621,011 B | `8f78fa48ad0311fd…` | verbatim · **LFS** |
 | `tests/fixtures/aperture_oracle.npz` | aperture Sum-integration oracle (M0.5 S5) | `…010.tif` + `…010.mat` | 891,955,083 B + 9,053,155 B | 460,472 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` | 6 donor crops + `don` oracle |
+| `tests/fixtures/tdat_coloc_slice.tdat` | TIRFdata colocalization slice (M0.5 S6 decode) | `…010.tif…00-00.tdat` | 37,039,831 B | 41,344 B | `b6a911d48bc27cd1…` | coloc table only |
 
 **Accessed:** 2026-06-22 (date `example-data/` was gathered onto this
 workstation; see its `README.md`). **Origin:** Mondragón Lab (Northwestern)
@@ -53,6 +54,17 @@ top 6 kept (`donor-corr` 0.992–0.994). The acceptor channel is
 registration-mapped (a `.tmap` apply) and is **not** in this fixture — it rides
 the M0.5 S6 `.tdat`/`.tmap` decode. Regenerate with
 `scripts/make_aperture_fixture.py`.
+
+## TIRFdata colocalization slice
+
+`tdat_coloc_slice.tdat` is a tiny **MATLAB v7.3** (`.tdat`-format) file derived
+from the 37 MB UCKOPSB `.tdat`, holding the real `ParticlesColocalized` matrix
+(250 molecules × 17 columns) reached through the same cell → object-reference →
+`#refs#` path as the original, plus the three `Default{Alpha,Beta,Gamma}` scalars
+(all `0` for this acquisition). The ~37 MB of trace/patch arrays and the MCOS
+object blob are dropped, so it stays in plain git yet faithfully exercises the
+M0.5 S6 `tether.io.read_tdat` decoder (coordinates + the Appendix-B factor remap)
+in the required test matrix. Regenerate with `scripts/make_tdat_fixture.py`.
 
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 

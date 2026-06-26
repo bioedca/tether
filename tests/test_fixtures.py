@@ -26,6 +26,7 @@ PLAIN_FIXTURES = [
     FIXTURES / "smd_4mol.hdf5",
     FIXTURES / "smd_2mol.hdf5",
     FIXTURES / "aperture_oracle.npz",
+    FIXTURES / "tdat_coloc_slice.tdat",
 ]
 
 
