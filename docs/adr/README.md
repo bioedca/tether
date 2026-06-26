@@ -29,5 +29,11 @@ prose harmonization of the PRD (PRD §12.7).
 | [0007](0007-parity-is-statistical.md) | Idealization parity is statistical, asserted vs a frozen tolerance | accepted | §7.4, §11.2 |
 | [0008](0008-correction-factor-remap.md) | Deep-LASI → Tether correction-factor naming remap (β→α, α→δ, γ→γ) | accepted | Appendix B.1 |
 
+### Homed incrementally by implementing PRs
+
+| ADR | Title | Status | PRD anchor |
+|----:|-------|--------|------------|
+| [0009](0009-parity-metrics-and-freeze.md) | Idealization-parity metric definitions and the M0.5 freeze | accepted | §7.4, §11.2 |
+
 _Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
 by the PRs that implement them._
