@@ -27,7 +27,6 @@ import numpy as np  # noqa: E402
 
 from tether.imaging.aperture import (  # noqa: E402
     IntegratedTraces,
-    _round_half_away,
     aperture_masks,
     integrate_traces,
 )
@@ -82,16 +81,6 @@ def test_aperture_rejects_empty_ring() -> None:
     # (10.0, 10.04] brackets no achievable pixel distance (next is sqrt(101)=10.05).
     with pytest.raises(ValueError, match="ring is empty"):
         aperture_masks(21, disk_radius=3, ring_inner=10.0, ring_outer=10.04)
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [(0.5, 1), (1.5, 2), (2.5, 3), (-0.5, -1), (-1.5, -2), (1.4, 1), (1.6, 2)],
-)
-def test_round_half_away_matches_matlab(value: float, expected: int) -> None:
-    # MATLAB rounds halves away from zero (Deep-LASI crop centring); Python's
-    # built-in round is half-to-even (round(0.5)==0, round(2.5)==2).
-    assert _round_half_away(value) == expected
 
 
 # --- Sum integration math (Stages 11-15) ------------------------------------

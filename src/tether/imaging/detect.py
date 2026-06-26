@@ -30,7 +30,9 @@ A faithful NumPy/SciPy port of Deep-LASI's class-default (mode 1) detection path
   margin drops spots too close to the edge and an 8 px min-separation keeps only
   the brightest of each cluster (non-maximum suppression by local 3x3 sum). The
   guardrails run **after** the snap so the returned coordinates always satisfy
-  the border + separation contract.
+  the border + separation contract. Every coordinate-to-pixel snap uses MATLAB
+  away-from-zero rounding (:func:`tether.imaging._rounding.round_half_away`) to
+  match Deep-LASI's ``round`` exactly.
 
 **Coordinate convention.** :func:`detect_spots` returns an ``(N, 2)`` float array
 of ``[x, y]`` = ``[column, row]`` (Deep-LASI stores ``fliplr`` -> ``[x, y]``),
@@ -43,6 +45,8 @@ from __future__ import annotations
 
 import numpy as np
 from scipy import ndimage
+
+from tether.imaging._rounding import round_half_away
 
 __all__ = [
     "detection_image",
@@ -178,11 +182,13 @@ def _refine_snap(
 
     Crops a ``(2*half+1)`` window, Gaussian-smooths (sigma=1), finds the max, and
     if the offset from the crop centre is < 3 px snaps to ``round(centroid +
-    offset)`` (`findPart.m:88-101`). Spots too close to the border to crop are
-    returned unchanged.
+    offset)`` (`findPart.m:88-101`). Rounding is MATLAB away-from-zero
+    (:func:`round_half_away`), matching the reference ``round`` at both the crop
+    centre and the snap. Spots too close to the border to crop are returned
+    unchanged.
     """
     height, width = detection_img.shape
-    r0, c0 = int(round(row)), int(round(col))
+    r0, c0 = int(round_half_away(row)), int(round_half_away(col))
     if r0 - half < 0 or r0 + half >= height or c0 - half < 0 or c0 + half >= width:
         return row, col
     crop = detection_img[r0 - half : r0 + half + 1, c0 - half : c0 + half + 1]
@@ -190,7 +196,10 @@ def _refine_snap(
     max_r, max_c = np.unravel_index(int(np.argmax(smoothed)), smoothed.shape)
     off_r, off_c = max_r - half, max_c - half
     if np.hypot(off_r, off_c) < 3:
-        return float(round(row + off_r)), float(round(col + off_c))
+        # NB Deep-LASI's XY is already an integer pixel here so its findPart.m:97
+        # round() is a near-no-op; Tether snaps the RAW center_of_mass float, so the
+        # away-from-zero tie-break is load-bearing (not a faithful-port oversight).
+        return float(round_half_away(row + off_r)), float(round_half_away(col + off_c))
     return row, col
 
 
@@ -276,8 +285,13 @@ def detect_spots(
         return np.empty((0, 2), dtype=np.float64)
 
     # Brightness = local 3x3 sum of the detection image at each (snapped) centroid.
-    rows = np.clip(np.round(coords[:, 0]).astype(int), 1, height - 2)
-    cols = np.clip(np.round(coords[:, 1]).astype(int), 1, width - 2)
+    # MATLAB away-from-zero rounding (Wave_Partfind.m brightness sampling) keeps the
+    # 3x3 window on the same pixel as Deep-LASI and detect.py on one rounding rule.
+    # The rounding *direction* here only re-orders NMS tie-breaks (never the returned
+    # coordinates), so its correctness is covered by the round_half_away unit tests
+    # rather than a (fragile) end-to-end NMS-ordering assertion.
+    rows = np.clip(round_half_away(coords[:, 0]).astype(int), 1, height - 2)
+    cols = np.clip(round_half_away(coords[:, 1]).astype(int), 1, width - 2)
     brightness = np.array(
         [detection_img[r - 1 : r + 2, c - 1 : c + 2].sum() for r, c in zip(rows, cols, strict=True)]
     )

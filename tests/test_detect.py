@@ -22,6 +22,7 @@ pytest.importorskip("scipy")
 import numpy as np  # noqa: E402
 
 from tether.imaging.detect import (  # noqa: E402
+    _refine_snap,
     atrous_wavelet_planes,
     b3_spline_kernel,
     detect_spots,
@@ -227,3 +228,29 @@ def test_detect_spots_on_fixture_movie() -> None:
     assert np.all(np.isfinite(spots))
     assert np.all(spots[:, 0] >= 0) and np.all(spots[:, 0] <= 63)  # x in bounds
     assert np.all(spots[:, 1] >= 0) and np.all(spots[:, 1] <= 63)  # y in bounds
+
+
+# --- MATLAB away-from-zero snap rounding (findPart.m round; #23 follow-up) ---
+# `_refine_snap` returns NATIVE (row, col) order (detect_spots flips to [x, y]).
+# Snapped outputs are integer-valued, so assert with `==`. Both constructions put
+# a single bright pixel so the Gaussian-smoothed argmax is at that pixel, isolating
+# the rounding: with banker's (half-to-even) rounding the legacy code returned a
+# different pixel (noted per case).
+
+
+def test_refine_snap_crop_centre_rounds_away_from_zero() -> None:
+    # Centroid (10.5, 12.5): away-from-zero crop centre (11, 13) puts the bright
+    # pixel at the window centre -> offset 0 -> snap = (round_away(10.5),
+    # round_away(12.5)) = (11, 13). Banker's crop centre (10, 12) -> (12, 14).
+    img = np.zeros((30, 30))
+    img[11, 13] = 1.0
+    assert _refine_snap(img, 10.5, 12.5, half=5) == (11.0, 13.0)
+
+
+def test_refine_snap_locks_both_round_sites() -> None:
+    # Centroid (10.5, 13.5), bright pixel (11, 14): full away/away -> (11, 14),
+    # which is unique vs the legacy banker/banker path (12, 14). One assertion
+    # pins BOTH the crop-centre round (findPart crop) and the final snap round.
+    img = np.zeros((30, 30))
+    img[11, 14] = 1.0
+    assert _refine_snap(img, 10.5, 13.5, half=5) == (11.0, 14.0)
