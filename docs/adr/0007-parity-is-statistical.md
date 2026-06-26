@@ -41,8 +41,11 @@ is frozen (a hard gate).
 - Good: a stable, non-flaky parity gate grounded in measured variance.
 - Trade-off: the freeze is a prerequisite milestone gate (M0.5 S4) blocking M2/M6.
 - Follow-up: provisional defaults (≥90% / ≤0.02 / ≥95% / ≤0.01) are replaced by
-  measured values at M0.5 S4.
+  measured values at M0.5 S4 — **done** (the measured cross-seed spread was
+  negligible, confirming the defaults; see [ADR-0009](0009-parity-metrics-and-freeze.md)).
 
 ## More information
 
-PRD §7.4, §11.2, §8 NFR-VALID(b); PLAN §1.1 hard gates, M0.5 S4.
+PRD §7.4, §11.2, §8 NFR-VALID(b); PLAN §1.1 hard gates, M0.5 S4. The metric
+definitions, freeze policy, and measured result are recorded in
+[ADR-0009](0009-parity-metrics-and-freeze.md).
