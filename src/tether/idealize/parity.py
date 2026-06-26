@@ -193,13 +193,19 @@ def compare_models(ref: StateModel, test: StateModel) -> ParityMetrics:
     """
     ref_path = canonical_state_path(ref)
     test_path = canonical_state_path(test)
+    n_states_ref = int(np.asarray(ref.means).reshape(-1).size)
+    n_states_test = int(np.asarray(test.means).reshape(-1).size)
+    # A differing state count is an invalid one-to-one comparison: force Viterbi
+    # disagreement (matching the inf returned by state_mean_abs_delta) so an
+    # extra unused state can never read as perfect framewise agreement.
+    same_count = n_states_ref == n_states_test
     return ParityMetrics(
         state_count_fraction=state_count_fraction(ref_path, test_path),
         state_mean_abs_delta=state_mean_abs_delta(ref, test),
-        viterbi_agreement=viterbi_agreement(ref_path, test_path),
+        viterbi_agreement=viterbi_agreement(ref_path, test_path) if same_count else 0.0,
         relative_elbo=relative_elbo(ref, test),
-        n_states_ref=int(np.asarray(ref.means).reshape(-1).size),
-        n_states_test=int(np.asarray(test.means).reshape(-1).size),
+        n_states_ref=n_states_ref,
+        n_states_test=n_states_test,
     )
 
 
@@ -207,9 +213,24 @@ def within_tolerance(metrics: ParityMetrics, tolerance: dict) -> tuple[bool, lis
     """Check one comparison against a frozen tolerance dict.
 
     Returns ``(ok, failures)`` where ``failures`` names each violated bound, so a
-    CI assertion can report *which* metric drifted, not just that one did.
+    CI assertion can report *which* metric drifted, not just that one did. A
+    non-finite metric (``nan``/``inf`` — e.g. an incomparable fit or a malformed
+    ELBO) is a hard failure, never silently "within tolerance".
     """
     failures: list[str] = []
+    nonfinite = [
+        name
+        for name, value in (
+            ("state-count agreement", metrics.state_count_fraction),
+            ("per-state |ΔE|", metrics.state_mean_abs_delta),
+            ("Viterbi agreement", metrics.viterbi_agreement),
+            ("relative ΔELBO", metrics.relative_elbo),
+        )
+        if not np.isfinite(value)
+    ]
+    if nonfinite:
+        failures.append(f"non-finite metric(s): {', '.join(nonfinite)}")
+        return (False, failures)
     if metrics.state_count_fraction < tolerance["state_count_min_fraction"]:
         failures.append(
             f"state-count agreement {metrics.state_count_fraction:.4f} "
@@ -247,10 +268,16 @@ class SpreadSummary:
 
     @property
     def worst(self) -> float:
-        finite = [v for v in self.values if np.isfinite(v)]
-        if not finite:
+        # Non-finite values are sentinel failures (an incomparable run) and MUST
+        # surface as the worst case — never be filtered out — or freeze() could
+        # ratify a finite tolerance over invalid comparisons. A ceiling's worst
+        # is the failing direction (inf); a floor's is 0.0.
+        if not self.values:
             return float("inf") if self.direction == "ceiling" else 0.0
-        return min(finite) if self.direction == "floor" else max(finite)
+        arr = np.asarray(self.values, dtype="float64")
+        if not np.all(np.isfinite(arr)):
+            return float("inf") if self.direction == "ceiling" else 0.0
+        return float(np.min(arr)) if self.direction == "floor" else float(np.max(arr))
 
     def percentile(self, q: float) -> float:
         finite = [v for v in self.values if np.isfinite(v)]
@@ -318,7 +345,17 @@ def measure_spread(
     self-comparison, for fixtures with no committed model). Returns the
     per-metric :class:`SpreadSummary` map and the raw per-run metrics. This is
     the M0.5 ratification harness — sidecar-only, never run in the CI matrix.
+
+    Raises ``ValueError`` for configurations that would yield zero comparisons
+    (so a freeze can never ratify ``0``/``inf`` placeholders): ``n_runs < 1``, or
+    ``reference is None`` with ``n_runs < 2`` (the first run is the anchor, not a
+    comparison).
     """
+    if n_runs < 1:
+        raise ValueError("n_runs must be at least 1")
+    if reference is None and n_runs < 2:
+        raise ValueError("n_runs must be >= 2 when anchoring on the first run (reference=None)")
+
     smd_path = Path(smd_path)
     scratch = Path(scratch_dir) if scratch_dir else smd_path.parent
     scratch.mkdir(parents=True, exist_ok=True)

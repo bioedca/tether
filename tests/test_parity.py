@@ -12,6 +12,9 @@ sidecar and lives behind ``@pytest.mark.sidecar`` (deselected from CI).
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -21,6 +24,8 @@ from tether.idealize import (
     StateModel,
     compare_models,
     freeze,
+    load_frozen_tolerance,
+    measure_spread,
     state_count_fraction,
     state_mean_abs_delta,
     viterbi_agreement,
@@ -32,6 +37,8 @@ from tether.idealize.parity import (
     canonical_state_path,
     relative_elbo,
 )
+
+FROZEN_JSON = Path(__file__).resolve().parents[1] / "schema" / "parity_tolerance.json"
 
 NAN = float("nan")
 
@@ -224,3 +231,105 @@ def test_freeze_widens_when_spread_exceeds_provisional():
     assert tol["relative_elbo_max"] == pytest.approx(0.045)
     assert tol["state_count_min_fraction"] < 0.90
     assert tol["viterbi_min_agreement"] < 0.95
+
+
+# --------------------------------------------------------------------------- #
+# state-count-mismatch invariants and non-finite guards                       #
+# --------------------------------------------------------------------------- #
+
+
+def test_compare_forces_viterbi_zero_on_state_count_mismatch():
+    # Identical low-FRET path, but test declares an extra unused high state.
+    ideal = [[0.1, 0.1, 0.1]]
+    ref = _model([0.1, 0.9], idealized=ideal)
+    test = _model([0.1, 0.5, 0.9], idealized=ideal)  # 3 states vs 2
+    m = compare_models(ref, test)
+    assert m.n_states_ref != m.n_states_test
+    assert m.viterbi_agreement == 0.0  # not silently 1.0
+    assert m.state_mean_abs_delta == float("inf")
+
+
+def test_within_tolerance_rejects_non_finite_metric():
+    m = ParityMetrics(
+        state_count_fraction=1.0,
+        state_mean_abs_delta=float("nan"),  # malformed
+        viterbi_agreement=1.0,
+        relative_elbo=0.0,
+        n_states_ref=2,
+        n_states_test=2,
+    )
+    ok, failures = within_tolerance(m, PROVISIONAL)
+    assert not ok
+    assert any("non-finite" in f for f in failures)
+
+
+def test_spread_worst_preserves_non_finite_sentinels():
+    # An inf ΔE (incomparable run) must surface as the worst ceiling, not be dropped.
+    ceiling = SpreadSummary("state_mean_abs_delta", "ceiling", [0.01, float("inf"), 0.02])
+    assert ceiling.worst == float("inf")
+    floor = SpreadSummary("viterbi_agreement", "floor", [0.99, float("nan"), 1.0])
+    assert floor.worst == 0.0
+
+
+def test_freeze_cannot_ratify_over_a_sentinel_failure():
+    # A single incomparable run (inf ΔE) blows the frozen ceiling open, so the
+    # freeze can never quietly ratify a finite tolerance over invalid evidence.
+    tol = freeze(
+        _spread(
+            {
+                "state_count_fraction": [1.0, 1.0],
+                "state_mean_abs_delta": [0.001, float("inf")],
+                "viterbi_agreement": [1.0, 1.0],
+                "relative_elbo": [0.0, 0.0],
+            }
+        )
+    )
+    assert not np.isfinite(tol["state_mean_abs_delta_max"])
+
+
+def test_measure_spread_rejects_zero_comparison_configs():
+    with pytest.raises(ValueError, match="n_runs must be at least 1"):
+        measure_spread("ignored.hdf5", n_runs=0)
+    with pytest.raises(ValueError, match="anchoring on the first run"):
+        measure_spread("ignored.hdf5", reference=None, n_runs=1)
+
+
+# --------------------------------------------------------------------------- #
+# the committed frozen artifact (PR-facing — runs in the base CI matrix)       #
+# --------------------------------------------------------------------------- #
+
+
+def test_frozen_artifact_covers_its_own_measured_evidence():
+    """The committed tolerance must satisfy every recorded per-run measurement.
+
+    This is the PR-facing parity check: it needs no sidecar (it asserts the
+    *frozen JSON* against its own recorded spread), so branch protection can gate
+    on it via the base `test` matrix, while the live sidecar fit stays in the
+    out-of-band `sidecar.yml`. A tampered/loosened artifact or a freeze that does
+    not cover its evidence fails here.
+    """
+    data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
+    tol = data["tolerance"]
+    # Provisional defaults are the documented floor/ceiling design intent.
+    assert data["provisional"] == PROVISIONAL
+    floors = {
+        "state_count_fraction": "state_count_min_fraction",
+        "viterbi_agreement": "viterbi_min_agreement",
+    }
+    ceilings = {
+        "state_mean_abs_delta": "state_mean_abs_delta_max",
+        "relative_elbo": "relative_elbo_max",
+    }
+    for fixture in data["spread_by_fixture"].values():
+        for metric, summ in fixture["metrics"].items():
+            for v in summ["values"]:
+                if metric in floors:
+                    assert v >= tol[floors[metric]], f"{metric}={v} below frozen floor"
+                else:
+                    assert v <= tol[ceilings[metric]], f"{metric}={v} above frozen ceiling"
+
+
+def test_load_frozen_tolerance_returns_the_four_bounds():
+    tol = load_frozen_tolerance(FROZEN_JSON)
+    assert set(tol) == set(PROVISIONAL)
+    assert all(np.isfinite(v) for v in tol.values())

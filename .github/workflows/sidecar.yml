@@ -10,6 +10,14 @@
 # §11.2 tolerance (schema/parity_tolerance.json). The tolerance is a frozen INPUT
 # ratified once at M0.5; this job asserts against it and never recomputes it.
 #
+# The parity gate is split in two (the separation CodeRabbit flagged on PR #21):
+#   * PR-facing, pure: the base `test` matrix runs `tests/test_parity.py`, which
+#     asserts the FROZEN JSON against its own recorded evidence
+#     (`test_frozen_artifact_covers_its_own_measured_evidence`) — no sidecar, so it
+#     gates every PR and catches a tampered/loosened tolerance.
+#   * Out-of-band, live (this workflow): drive the real fits and assert them vs the
+#     frozen tolerance, which needs the heavy sidecar env + tMAVEN.
+#
 # Trigger: manual (workflow_dispatch) + nightly (schedule), NOT pull_request — the
 # sidecar env is heavy to provision and the live fits are slow, so it is run out of
 # band rather than on every PR. It is intentionally NOT yet a required status check:

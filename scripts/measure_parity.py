@@ -128,6 +128,22 @@ def main() -> int:
             "sidecar_python": os.environ.get("TETHER_SIDECAR_PYTHON", "unset"),
             "note": "tMAVEN self-reseeds; parity is statistical, never bit-exact (PRD §7.4).",
         },
+        "coverage": {
+            "measured_methods": ["vbconhmm (vb Consensus HMM)"],
+            "applied_to": [
+                "vbFRET (per-trace, M2)",
+                "consensus VB-HMM (M6)",
+                "ebFRET (M6)",
+            ],
+            "note": (
+                "The §11.2 row is ONE tolerance applied to all idealization methods. M0.5 "
+                "measured the cross-seed spread on the vb Consensus HMM path only (the committed "
+                "reference-model type + the M6 method + the Appendix-D.2 fixture type). Per-trace "
+                "vbFRET and ebFRET are asserted against this same frozen row at M2/M6, where their "
+                "own fixtures exist; their cross-seed spread is NOT separately measured here. See "
+                "ADR-0009."
+            ),
+        },
         "freeze_policy": (
             "frozen = more permissive of (provisional §11.2 default, measured worst-case "
             f"± margin); margin={args.margin}: ceilings ×(1+margin), floors −margin·(1−worst)."

@@ -8,6 +8,17 @@
     "sidecar_python": "C:/ProgramData/miniconda3/envs/tmaven/python.exe",
     "note": "tMAVEN self-reseeds; parity is statistical, never bit-exact (PRD \u00a77.4)."
   },
+  "coverage": {
+    "measured_methods": [
+      "vbconhmm (vb Consensus HMM)"
+    ],
+    "applied_to": [
+      "vbFRET (per-trace, M2)",
+      "consensus VB-HMM (M6)",
+      "ebFRET (M6)"
+    ],
+    "note": "The \u00a711.2 row is ONE tolerance applied to all idealization methods. M0.5 measured the cross-seed spread on the vb Consensus HMM path only (the committed reference-model type + the M6 method + the Appendix-D.2 fixture type). Per-trace vbFRET and ebFRET are asserted against this same frozen row at M2/M6, where their own fixtures exist; their cross-seed spread is NOT separately measured here. See ADR-0009."
+  },
   "freeze_policy": "frozen = more permissive of (provisional \u00a711.2 default, measured worst-case \u00b1 margin); margin=0.5: ceilings \u00d7(1+margin), floors \u2212margin\u00b7(1\u2212worst).",
   "provisional": {
     "state_count_min_fraction": 0.9,
