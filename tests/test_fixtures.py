@@ -25,6 +25,7 @@ PLAIN_FIXTURES = [
     FIXTURES / "movie_be_64x64x50.tif",
     FIXTURES / "smd_4mol.hdf5",
     FIXTURES / "smd_2mol.hdf5",
+    FIXTURES / "aperture_oracle.npz",
 ]
 
 
