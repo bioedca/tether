@@ -206,8 +206,9 @@ def test_run_vbfret_timeout_becomes_sidecar_error(tmp_path, monkeypatch):
     smd = tmp_path / "smd.hdf5"
     write_smd(smd, np.zeros((1, 4, 2)))
 
+    # bytes stderr (TimeoutExpired can leave it un-decoded even under text=True).
     def _raise_timeout(*_args, **_kwargs):
-        raise subprocess.TimeoutExpired(cmd="tmaven", timeout=1.0, stderr="boom")
+        raise subprocess.TimeoutExpired(cmd="tmaven", timeout=1.0, stderr=b"boom")
 
     monkeypatch.setattr(subprocess, "run", _raise_timeout)
     with pytest.raises(SidecarError, match="timed out after"):

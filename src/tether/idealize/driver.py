@@ -356,6 +356,9 @@ def _parse_status(stdout: str) -> dict | None:
     return status
 
 
-def _tail(text: str, n: int = 40) -> str:
-    lines = text.splitlines()
+def _tail(text: str | bytes | None, n: int = 40) -> str:
+    # TimeoutExpired.stderr can be bytes even under text=True; normalise first.
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", "replace")
+    lines = (text or "").splitlines()
     return "\n".join(lines[-n:])
