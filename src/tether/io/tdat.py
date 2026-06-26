@@ -160,10 +160,11 @@ def _one_based_channel_index(value: float, name: str) -> int:
     """
     if not np.isfinite(value):
         raise ValueError(f"{name} must be a finite channel index; got {value!r}")
-    rounded = round(value)
-    if not np.isclose(value, rounded):
+    if not float(value).is_integer():
+        # exact, not tolerant: a channel index is stored as an exact-integer
+        # double, so any fractional part (even near-integer) is corruption.
         raise ValueError(f"{name} must be an integer channel index; got {value!r}")
-    channel = int(rounded) - 1
+    channel = int(value) - 1
     if not 0 <= channel < _MAX_CHANNELS:
         raise ValueError(f"{name} must be a 1..{_MAX_CHANNELS} channel index; got {value!r}")
     return channel

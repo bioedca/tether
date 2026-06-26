@@ -183,6 +183,11 @@ def test_invalid_channel_metadata_raises(tmp_path: Path) -> None:
     _write_minimal_tdat(fractional, table=particles_table(), reference=2.5)
     with pytest.raises(ValueError, match="MappingReferenceChannel"):
         read_tdat(fractional)
+    # a near-integer must also be rejected (exact check, not tolerant rounding)
+    near = tmp_path / "near.tdat"
+    _write_minimal_tdat(near, table=particles_table(), reference=1.0000001)
+    with pytest.raises(ValueError, match="integer channel index"):
+        read_tdat(near)
     out_of_range = tmp_path / "oor.tdat"
     _write_minimal_tdat(out_of_range, table=particles_table(), channels=[1.0, 9.0])
     with pytest.raises(ValueError, match="ChannelsWithData"):
