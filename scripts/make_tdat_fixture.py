@@ -80,7 +80,11 @@ def main() -> None:
         pc = temp_out.create_dataset("ParticlesColocalized", shape=(1, 1), dtype=h5py.ref_dtype)
         pc[0, 0] = coloc.ref
         pc.attrs["MATLAB_class"] = np.bytes_("cell")
-        for name, value in (("DefaultAlpha", alpha), ("DefaultBeta", beta), ("DefaultGamma", gamma)):
+        for name, value in (
+            ("DefaultAlpha", alpha),
+            ("DefaultBeta", beta),
+            ("DefaultGamma", gamma),
+        ):
             scalar = temp_out.create_dataset(name, data=np.array([[value]], dtype=np.float64))
             scalar.attrs["MATLAB_class"] = np.bytes_("double")
         cwd = temp_out.create_dataset("ChannelsWithData", data=channels)
