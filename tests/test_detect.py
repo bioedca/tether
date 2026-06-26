@@ -174,6 +174,27 @@ def test_detect_spots_border_removal() -> None:
     assert _count_near(detect_spots(det, border_margin=6), x=40, y=40) == 1
 
 
+def test_detect_spots_output_respects_guardrails_after_refine() -> None:
+    # The Stage-4 max-pixel snap must not push a spot back across the border or
+    # within min_separation: guardrails run AFTER refinement, so the returned
+    # coordinates always satisfy the border + separation contract (PR #22 review).
+    rng = np.random.default_rng(7)
+    image = rng.normal(100, 5, size=(64, 64))
+    for row, col in [(10, 10), (10, 16), (50, 50), (32, 8)]:
+        _gaussian_blob(image, row, col, amp=500)
+    det = image / image.max()
+    margin, min_sep = 6, 10.0
+    spots = detect_spots(det, border_margin=margin, min_separation=min_sep, refine=True)
+    assert spots.shape[0] >= 1
+    # x = col, y = row; every spot within [margin, size-1-margin] on both axes.
+    assert np.all(spots[:, 0] >= margin) and np.all(spots[:, 0] <= 63 - margin)
+    assert np.all(spots[:, 1] >= margin) and np.all(spots[:, 1] <= 63 - margin)
+    # Pairwise separation >= min_sep holds on the refined output.
+    for i in range(spots.shape[0]):
+        for j in range(i + 1, spots.shape[0]):
+            assert np.hypot(*(spots[i] - spots[j])) >= min_sep
+
+
 def test_detect_spots_empty_on_flat_image() -> None:
     spots = detect_spots(np.full((32, 32), 0.5))
     assert spots.shape == (0, 2)

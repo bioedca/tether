@@ -24,11 +24,13 @@ A faithful NumPy/SciPy port of Deep-LASI's class-default (mode 1) detection path
   Recognit.*); wavelet-segmentation + centroid localization follows Izeddin
   (2012).
 
-* **Stage 4 — guardrails + snap** (within :func:`detect_spots`): a border margin
-  drops spots too close to the edge; an 8 px min-separation keeps only the
-  brightest of each cluster (non-maximum suppression by local 3x3 sum); and an
-  optional max-pixel **snap** (Gaussian sigma = 1, capped at 3 px) refines each
-  centroid toward the local intensity maximum (`mapping/findPart.m:88-101`).
+* **Stage 4 — snap + guardrails** (within :func:`detect_spots`): an optional
+  max-pixel **snap** (Gaussian sigma = 1, capped at 3 px) refines each centroid
+  toward the local intensity maximum (`mapping/findPart.m:88-101`); then a border
+  margin drops spots too close to the edge and an 8 px min-separation keeps only
+  the brightest of each cluster (non-maximum suppression by local 3x3 sum). The
+  guardrails run **after** the snap so the returned coordinates always satisfy
+  the border + separation contract.
 
 **Coordinate convention.** :func:`detect_spots` returns an ``(N, 2)`` float array
 of ``[x, y]`` = ``[column, row]`` (Deep-LASI stores ``fliplr`` -> ``[x, y]``),
@@ -254,6 +256,13 @@ def detect_spots(
     centroids = ndimage.center_of_mass(mask.astype(np.float64), labels, keep_labels)
     coords = np.atleast_2d(np.asarray(centroids, dtype=np.float64))  # (M, 2) (row, col)
 
+    # Snap first (Stage 4), so the guardrails below are authoritative over the
+    # FINAL coordinates: the max-pixel snap can move a centroid up to ~3 px, which
+    # could otherwise push it back across the border or within min_separation of a
+    # neighbour. Applying border + NMS *after* the snap keeps the output contract.
+    if refine:
+        coords = np.array([_refine_snap(detection_img, r, c) for r, c in coords], dtype=np.float64)
+
     # Border guardrail (Stage 4).
     height, width = detection_img.shape
     in_bounds = (
@@ -266,7 +275,7 @@ def detect_spots(
     if coords.shape[0] == 0:
         return np.empty((0, 2), dtype=np.float64)
 
-    # Brightness = local 3x3 sum of the detection image at each rounded centroid.
+    # Brightness = local 3x3 sum of the detection image at each (snapped) centroid.
     rows = np.clip(np.round(coords[:, 0]).astype(int), 1, height - 2)
     cols = np.clip(np.round(coords[:, 1]).astype(int), 1, width - 2)
     brightness = np.array(
@@ -275,9 +284,6 @@ def detect_spots(
 
     kept = _suppress_neighbours(coords, brightness, min_separation)
     coords = coords[kept]
-
-    if refine:
-        coords = np.array([_refine_snap(detection_img, r, c) for r, c in coords], dtype=np.float64)
 
     # Return [x, y] = [col, row], descending brightness (suppression order).
     return np.column_stack([coords[:, 1], coords[:, 0]])
