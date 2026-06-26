@@ -27,6 +27,7 @@ import numpy as np  # noqa: E402
 
 from tether.imaging.aperture import (  # noqa: E402
     IntegratedTraces,
+    _round_half_away,
     aperture_masks,
     integrate_traces,
 )
@@ -75,6 +76,22 @@ def test_aperture_rejects_bad_radii() -> None:
         aperture_masks(21, disk_radius=6, ring_inner=4, ring_outer=8)
     with pytest.raises(ValueError, match="does not fit"):
         aperture_masks(11, disk_radius=3, ring_inner=5, ring_outer=8)
+
+
+def test_aperture_rejects_empty_ring() -> None:
+    # (10.0, 10.04] brackets no achievable pixel distance (next is sqrt(101)=10.05).
+    with pytest.raises(ValueError, match="ring is empty"):
+        aperture_masks(21, disk_radius=3, ring_inner=10.0, ring_outer=10.04)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(0.5, 1), (1.5, 2), (2.5, 3), (-0.5, -1), (-1.5, -2), (1.4, 1), (1.6, 2)],
+)
+def test_round_half_away_matches_matlab(value: float, expected: int) -> None:
+    # MATLAB rounds halves away from zero (Deep-LASI crop centring); Python's
+    # built-in round is half-to-even (round(0.5)==0, round(2.5)==2).
+    assert _round_half_away(value) == expected
 
 
 # --- Sum integration math (Stages 11-15) ------------------------------------
@@ -176,6 +193,7 @@ def test_integrated_traces_is_frozen_dataclass() -> None:
 def test_integration_matches_deeplasi_donor_oracle() -> None:
     data = np.load(ORACLE)
     crops = data["crops"]  # (N, T, 21, 21) uint16, big-endian movie pixels
+    assert crops.dtype == np.dtype(">u2")  # source byte order preserved (not byte-swapped)
     don_ref = data["don_ref"]  # (N, T) Deep-LASI raw donor intensity
     n_mol, n_frames = don_ref.shape
     centre = tuple(int(v) for v in data["local_center"])  # (row, col) of the spot

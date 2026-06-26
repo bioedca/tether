@@ -45,6 +45,16 @@ __all__ = [
 ]
 
 
+def _round_half_away(value: float) -> int:
+    """Round to nearest integer, ties away from zero (MATLAB ``round`` semantics).
+
+    Python's built-in :func:`round` rounds halves to even; Deep-LASI rounds spot
+    coordinates with MATLAB's away-from-zero rule (``extractTraces.m:9``), so an
+    exact ``*.5`` centroid must snap the same way to land on the same pixel.
+    """
+    return int(np.floor(value + 0.5)) if value >= 0 else int(np.ceil(value - 0.5))
+
+
 @dataclass(frozen=True)
 class IntegratedTraces:
     """Per-molecule Sum-integration result (one row per input coordinate).
@@ -109,6 +119,11 @@ def aperture_masks(
     dist = np.hypot(rows - centre, cols - centre)
     disk = dist <= disk_radius
     ring = (dist > ring_inner) & (dist <= ring_outer)
+    if not ring.any():
+        raise ValueError(
+            f"background ring is empty for radii ({ring_inner}, {ring_outer}] in a "
+            f"{window}px window; choose radii that enclose pixels"
+        )
     return disk, ring
 
 
@@ -127,8 +142,9 @@ def integrate_traces(
     Parameters
     ----------
     movie:
-        ``(T, H, W)`` image stack (any numeric dtype, incl. big-endian; cast to
-        ``float64``).
+        ``(T, H, W)`` **raw** image stack of non-negative intensities (any numeric
+        dtype, incl. big-endian; cast to ``float64``) — as in Deep-LASI, the ring
+        background averages the positive in-ring pixels.
     coords:
         ``(N, 2)`` ``[x, y]`` = ``[col, row]`` spot coordinates (e.g. from
         :func:`tether.imaging.detect.detect_spots`).
@@ -170,8 +186,8 @@ def integrate_traces(
     valid = np.zeros(n_mol, dtype=bool)
 
     for i in range(n_mol):
-        col = int(round(coords[i, 0]))
-        row = int(round(coords[i, 1]))
+        col = _round_half_away(coords[i, 0])
+        row = _round_half_away(coords[i, 1])
         if row - half < 0 or row + half >= height or col - half < 0 or col + half >= width:
             continue  # aperture falls outside the frame -> zero trace, valid=False
         crop = movie[:, row - half : row + half + 1, col - half : col + half + 1].astype(
@@ -182,6 +198,10 @@ def integrate_traces(
         bg_smoothed = uniform_filter1d(crop, size=bg_window, axis=0, mode="nearest", origin=0)
 
         tot = (crop * disk).sum(axis=(1, 2))
+        # Ring background = mean over the POSITIVE in-ring pixels, faithful to
+        # Deep-LASI `mean(bg(bg>0))` (extractTracesC.m:22). `movie` is raw,
+        # non-negative intensity (as in Deep-LASI), so this equals the full ring
+        # mean except where a ring pixel is exactly 0 -- which the reference drops.
         ring_vals = bg_smoothed[:, ring]  # (T, n_ring)
         positive = ring_vals > 0
         counts = positive.sum(axis=1)

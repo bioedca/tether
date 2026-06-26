@@ -67,7 +67,12 @@ def _aperture_masks() -> tuple[np.ndarray, np.ndarray]:
 
 
 def _integrate(crop: np.ndarray, disk: np.ndarray, ring: np.ndarray) -> np.ndarray:
-    """Reference Sum integration used only to *score* candidate molecules."""
+    """Reference Sum integration used only to *score* candidate molecules.
+
+    Mirrors :func:`tether.imaging.aperture.integrate_traces` (positive in-ring
+    background mean per Deep-LASI ``mean(bg(bg>0))``) so the selection matches
+    what the committed test will measure.
+    """
     bg = uniform_filter1d(crop, size=10, axis=0, mode="nearest", origin=0)
     tot = (crop * disk).sum(axis=(1, 2))
     ringvals = bg[:, ring]
@@ -95,8 +100,10 @@ def main() -> None:
     interior = slice(HALF, N_FRAMES - HALF)  # frames whose 10-frame bg window is in-crop
     scored: list[tuple[float, int, int, int]] = []  # (corr, mol, row, col)
     for mol in range(fret_pairs.shape[0]):
-        col = int(round(fret_pairs[mol, 0])) - 1  # MATLAB 1-based -> 0-based
-        row = int(round(fret_pairs[mol, 1])) - 1
+        # MATLAB away-from-zero round, then 1-based -> 0-based (coords are integers
+        # here, but stay consistent with tether.imaging.aperture's crop centring).
+        col = int(np.floor(fret_pairs[mol, 0] + 0.5)) - 1
+        row = int(np.floor(fret_pairs[mol, 1] + 0.5)) - 1
         if not (HALF <= row < height - HALF and HALF <= col < width - HALF):
             continue
         crop = movie[:, row - HALF : row + HALF + 1, col - HALF : col + HALF + 1].astype(np.float64)
@@ -111,7 +118,9 @@ def main() -> None:
     if len(chosen) < N_MOL:
         raise SystemExit(f"only {len(chosen)} molecules cleared corr>={MIN_CORR}; loosen criteria")
 
-    crops = np.empty((N_MOL, N_FRAMES, 2 * HALF + 1, 2 * HALF + 1), dtype=np.uint16)
+    # Preserve the movie's (big-endian) byte order so the committed crops match
+    # the documented uint16 source verbatim (no native-endian byte-swap).
+    crops = np.empty((N_MOL, N_FRAMES, 2 * HALF + 1, 2 * HALF + 1), dtype=movie.dtype)
     don_ref = np.empty((N_MOL, N_FRAMES), dtype=np.float64)
     mol_idx = np.empty(N_MOL, dtype=np.int32)
     full_xy = np.empty((N_MOL, 2), dtype=np.int32)  # (col, row) = (x, y), 0-based
