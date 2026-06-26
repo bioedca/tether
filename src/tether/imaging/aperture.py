@@ -38,21 +38,13 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.ndimage import uniform_filter1d
 
+from tether.imaging._rounding import round_half_away
+
 __all__ = [
     "IntegratedTraces",
     "aperture_masks",
     "integrate_traces",
 ]
-
-
-def _round_half_away(value: float) -> int:
-    """Round to nearest integer, ties away from zero (MATLAB ``round`` semantics).
-
-    Python's built-in :func:`round` rounds halves to even; Deep-LASI rounds spot
-    coordinates with MATLAB's away-from-zero rule (``extractTraces.m:9``), so an
-    exact ``*.5`` centroid must snap the same way to land on the same pixel.
-    """
-    return int(np.floor(value + 0.5)) if value >= 0 else int(np.ceil(value - 0.5))
 
 
 @dataclass(frozen=True)
@@ -186,8 +178,8 @@ def integrate_traces(
     valid = np.zeros(n_mol, dtype=bool)
 
     for i in range(n_mol):
-        col = _round_half_away(coords[i, 0])
-        row = _round_half_away(coords[i, 1])
+        col = int(round_half_away(coords[i, 0]))
+        row = int(round_half_away(coords[i, 1]))
         if row - half < 0 or row + half >= height or col - half < 0 or col + half >= width:
             continue  # aperture falls outside the frame -> zero trace, valid=False
         crop = movie[:, row - half : row + half + 1, col - half : col + half + 1].astype(
