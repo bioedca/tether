@@ -10,6 +10,20 @@ idealization staleness tracking; and dwell/rate analysis.
 
 from __future__ import annotations
 
+from tether.idealize.driver import (
+    MODEL_GROUP,
+    NO_STATE,
+    SIDECAR_ENV_VAR,
+    Dwell,
+    IdealizationResult,
+    SidecarError,
+    StateModel,
+    dwells_from_states,
+    read_model,
+    resolve_sidecar_python,
+    run_vbfret,
+    states_from_idealized,
+)
 from tether.idealize.matcher import MatchResult, match_return_leg
 from tether.idealize.smd import (
     DEFAULT_GROUP,
@@ -21,10 +35,22 @@ from tether.idealize.smd import (
 
 __all__ = [
     "DEFAULT_GROUP",
+    "MODEL_GROUP",
+    "NO_STATE",
+    "SIDECAR_ENV_VAR",
     "SMD_FORMAT",
+    "Dwell",
+    "IdealizationResult",
     "MatchResult",
     "SMDData",
+    "SidecarError",
+    "StateModel",
+    "dwells_from_states",
     "match_return_leg",
+    "read_model",
     "read_smd",
+    "resolve_sidecar_python",
+    "run_vbfret",
+    "states_from_idealized",
     "write_smd",
 ]

@@ -94,4 +94,5 @@ addopts = "--strict-markers --strict-config"
 markers = [
   "gui: exercises the PySide6/napari/pyqtgraph GUI (run headless: QT_QPA_PLATFORM=offscreen).",
   "large: needs the gated large-fixture tier (never part of the default required matrix).",
+  "sidecar: drives the live tMAVEN sidecar env (needs $TETHER_SIDECAR_PYTHON; never in the CI matrix).",
 ]

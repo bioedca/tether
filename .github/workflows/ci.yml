@@ -173,11 +173,13 @@ jobs:
         run: python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0"
       # The `large` marker needs the Git-LFS gated tier, which the default
       # checkout does not pull (PLAN §2.1/§2.2) — exclude it from the required
-      # matrix so a structural HDF5 fixture never gates on an LFS pull.
+      # matrix so a structural HDF5 fixture never gates on an LFS pull. The
+      # `sidecar` marker drives the isolated tMAVEN env (numpy<2/PyQt5), which CI
+      # does not build (M0.5 S1) — exclude it too; it is a dev-machine check.
       - name: Run tests
         run: |
           if [ "${RUNNER_OS}" = "Linux" ]; then
-            xvfb-run -a pytest -v -m "not large"
+            xvfb-run -a pytest -v -m "not large and not sidecar"
           else
-            pytest -v -m "not large"
+            pytest -v -m "not large and not sidecar"
           fi
