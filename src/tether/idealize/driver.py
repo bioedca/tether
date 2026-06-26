@@ -295,14 +295,22 @@ def run_vbfret(
     env.setdefault("QT_QPA_PLATFORM", "offscreen")
     env.setdefault("NAPARI_ASYNC", "0")
 
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # subprocess.run kills the child on timeout; surface it as a SidecarError
+        # (the documented failure mode) with the stderr tail, like the paths below.
+        raise SidecarError(
+            f"sidecar idealization timed out after {timeout}s\n"
+            f"--- stderr (tail) ---\n{_tail(exc.stderr or '')}"
+        ) from exc
     status = _parse_status(proc.stdout)
     if proc.returncode != 0 or status is None or not status.get("ok"):
         detail = (status or {}).get("error") if status else None

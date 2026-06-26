@@ -198,6 +198,22 @@ def test_run_vbfret_missing_smd_raises(tmp_path):
         run_vbfret(tmp_path / "absent.hdf5", sidecar_python=sys.executable)
 
 
+def test_run_vbfret_timeout_becomes_sidecar_error(tmp_path, monkeypatch):
+    import subprocess
+
+    from tether.idealize import write_smd
+
+    smd = tmp_path / "smd.hdf5"
+    write_smd(smd, np.zeros((1, 4, 2)))
+
+    def _raise_timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(cmd="tmaven", timeout=1.0, stderr="boom")
+
+    monkeypatch.setattr(subprocess, "run", _raise_timeout)
+    with pytest.raises(SidecarError, match="timed out after"):
+        run_vbfret(smd, sidecar_python=sys.executable, timeout=1.0)
+
+
 # --------------------------------------------------------------------------- #
 # _parse_status
 # --------------------------------------------------------------------------- #
