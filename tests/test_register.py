@@ -26,9 +26,13 @@ pytest.importorskip("scipy")  # tether.imaging.register imports scipy.io
 import numpy as np  # noqa: E402
 
 from tether.imaging.register import (  # noqa: E402
+    PairedControlPoints,
     PolyTransform2D,
+    SimilarityTransform2D,
     TmapChannel,
+    estimate_translation_prealign,
     fit_polynomial_transform,
+    pair_control_points,
     point_rms,
     read_tmap,
 )
@@ -228,3 +232,199 @@ def test_read_tmap_matches_committed_fixture() -> None:
             np.testing.assert_allclose(got_t.b, exp_t.b, atol=1e-9)
             np.testing.assert_allclose(got_t.norm_xy, exp_t.norm_xy, atol=1e-9)
             np.testing.assert_allclose(got_t.norm_uv, exp_t.norm_uv, atol=1e-9)
+
+
+# --- prealign + NN pairing (M1 S5; Appendix E Stages 7-8) --------------------
+
+
+def _bead_image(
+    points: np.ndarray, shape: tuple[int, int] = (128, 128), sigma: float = 1.6
+) -> np.ndarray:
+    """A normalized [0, 1] image with a Gaussian blob at each ``[x, y]`` point."""
+    yy, xx = np.mgrid[0 : shape[0], 0 : shape[1]]
+    img = np.zeros(shape, dtype=float)
+    for x, y in np.atleast_2d(points):
+        img += np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2 * sigma**2))
+    peak = img.max()
+    return img / peak if peak > 0 else img
+
+
+# SimilarityTransform2D math
+
+
+def test_similarity_identity_is_a_no_op() -> None:
+    pts = np.array([[0.0, 0.0], [10.5, 200.0], [255.0, 511.0]])
+    tf = SimilarityTransform2D(scale=1.0, rotation=0.0, translation=np.zeros(2))
+    np.testing.assert_allclose(tf.apply(pts), pts, atol=1e-12)
+
+
+def test_similarity_translation_only() -> None:
+    pts = np.array([[1.0, 2.0], [3.0, 4.0]])
+    tf = SimilarityTransform2D(scale=1.0, rotation=0.0, translation=np.array([5.0, -3.0]))
+    np.testing.assert_allclose(tf.apply(pts), pts + [5.0, -3.0])
+
+
+def test_similarity_rotation_and_scale() -> None:
+    # 90deg CCW, scale 2: [1, 0] -> 2*[0, 1] = [0, 2]; then translate by [10, 20].
+    tf = SimilarityTransform2D(scale=2.0, rotation=np.pi / 2, translation=np.array([10.0, 20.0]))
+    np.testing.assert_allclose(tf.apply(np.array([[1.0, 0.0]])), [[10.0, 22.0]], atol=1e-12)
+
+
+def test_similarity_validates_translation_shape() -> None:
+    with pytest.raises(ValueError, match="translation"):
+        SimilarityTransform2D(scale=1.0, rotation=0.0, translation=np.zeros(3))
+
+
+def test_similarity_apply_rejects_bad_shape() -> None:
+    tf = SimilarityTransform2D(scale=1.0, rotation=0.0, translation=np.zeros(2))
+    with pytest.raises(ValueError, match=r"\(N, 2\)"):
+        tf.apply(np.zeros((3, 3)))
+
+
+# estimate_translation_prealign (phase correlation; needs scikit-image)
+
+
+def test_translation_prealign_recovers_known_shift() -> None:
+    pytest.importorskip("skimage")
+    rng = np.random.RandomState(0)
+    pts = rng.uniform([30, 30], [98, 98], (25, 2))
+    dx, dy = 7.0, -4.0
+    reference = _bead_image(pts)
+    moving = _bead_image(pts + [dx, dy])  # content displaced by [dx, dy]
+    prealign = estimate_translation_prealign(reference, moving)
+    assert prealign.scale == 1.0
+    assert prealign.rotation == 0.0
+    # The prealign maps moving -> reference, i.e. translation ~ -[dx, dy] ...
+    np.testing.assert_allclose(prealign.translation, [-dx, -dy], atol=0.6)
+    # ... and it actually re-aligns the displaced points onto the reference points.
+    assert point_rms(prealign.apply(pts + [dx, dy]), pts) < 0.6
+    # The documented default is upsample_factor=10 (PRD §11.2 / ADR-0012).
+    explicit = estimate_translation_prealign(reference, moving, upsample_factor=10)
+    np.testing.assert_array_equal(prealign.translation, explicit.translation)
+
+
+def test_translation_prealign_validates_inputs() -> None:
+    pytest.importorskip("skimage")
+    img = np.zeros((16, 16))
+    with pytest.raises(ValueError, match="same shape"):
+        estimate_translation_prealign(img, np.zeros((16, 8)))
+    with pytest.raises(ValueError, match="2-D"):
+        estimate_translation_prealign(np.zeros(16), img)
+    with pytest.raises(ValueError, match="upsample_factor"):
+        estimate_translation_prealign(img, img, upsample_factor=0)
+
+
+# pair_control_points
+
+
+def test_pairing_recovers_correspondence_on_real_tdat() -> None:
+    h5py = pytest.importorskip("h5py")
+    assert h5py  # used transitively by read_tdat
+    from tether.io import read_tdat
+
+    tdat = read_tdat(TDAT_FIXTURE)
+    reference = tdat.colocalization.coords[tdat.reference_channel]  # (250, 2) [x, y]
+    shift = np.array([5.0, -3.0])
+    rng = np.random.RandomState(0)
+    perm = rng.permutation(len(reference))
+    moving = reference[perm] + shift  # shuffled + displaced "moving" cloud
+    prealign = SimilarityTransform2D(scale=1.0, rotation=0.0, translation=-shift)
+
+    paired = pair_control_points(reference, moving, tol=2.0, prealign=prealign)
+
+    assert isinstance(paired, PairedControlPoints)
+    assert len(paired.reference) == len(reference)  # every molecule matched
+    # Unique one-to-one: no reference and no moving point assigned twice.
+    assert len(set(paired.reference_index.tolist())) == len(reference)
+    assert len(set(paired.moving_index.tolist())) == len(reference)
+    # Index contract: the returned points are exactly those at the reported indices.
+    np.testing.assert_array_equal(paired.reference, reference[paired.reference_index])
+    np.testing.assert_array_equal(paired.moving, moving[paired.moving_index])
+    # Each kept pair is the planted correspondence.
+    np.testing.assert_array_equal(perm[paired.moving_index], paired.reference_index)
+    # Fit-on-original: returned moving are the ORIGINAL (displaced) coords, not the
+    # prealigned ones -> reference + shift == returned moving for every pair.
+    np.testing.assert_allclose(paired.reference + shift, paired.moving, atol=1e-9)
+
+
+def test_pairing_is_mutual_no_double_assignment() -> None:
+    # Two moving points near one reference: a greedy gate maps both; mutual keeps
+    # only the closer one (no double-assignment).
+    reference = np.array([[0.0, 0.0], [100.0, 100.0]])
+    moving = np.array([[0.5, 0.0], [0.6, 0.0]])
+    paired = pair_control_points(reference, moving, tol=2.0)
+    assert paired.reference_index.tolist() == [0]
+    assert paired.moving_index.tolist() == [0]
+
+
+def test_pairing_drops_unmatched_and_respects_tol() -> None:
+    reference = np.array([[0.0, 0.0], [50.0, 50.0]])
+    moving = np.array([[0.1, 0.0], [10.0, 10.0]])  # mov0 pairs ref0; mov1 too far
+    paired = pair_control_points(reference, moving, tol=2.0)
+    assert paired.reference_index.tolist() == [0]
+    assert paired.moving_index.tolist() == [0]
+    # Gate is inclusive at exactly tol (faithful to findPairs.m `D <= tol`).
+    ref = np.array([[0.0, 0.0]])
+    assert len(pair_control_points(ref, np.array([[2.5, 0.0]]), tol=2.0).reference) == 0
+    assert len(pair_control_points(ref, np.array([[2.0, 0.0]]), tol=2.0).reference) == 1
+    assert len(pair_control_points(ref, np.array([[1.5, 0.0]]), tol=2.0).reference) == 1
+
+
+def test_pairing_empty_inputs() -> None:
+    ref = np.array([[1.0, 2.0]])
+    for paired in (
+        pair_control_points(np.empty((0, 2)), ref),
+        pair_control_points(ref, np.empty((0, 2))),
+    ):
+        assert paired.reference.shape == (0, 2)
+        assert paired.moving.shape == (0, 2)
+        assert paired.reference_index.shape == (0,)
+        assert paired.moving_index.shape == (0,)
+
+
+def test_pairing_validates_inputs() -> None:
+    with pytest.raises(ValueError, match=r"\(N, 2\)"):
+        pair_control_points(np.zeros((3, 3)), np.zeros((3, 2)))
+    with pytest.raises(ValueError, match="tol"):
+        pair_control_points(np.zeros((3, 2)), np.zeros((3, 2)), tol=0.0)
+
+
+def test_pairing_does_not_mutate_inputs() -> None:
+    reference = np.array([[0.0, 0.0], [10.0, 10.0]])
+    moving = np.array([[0.2, 0.0], [10.1, 10.0]])
+    ref_before, mov_before = reference.copy(), moving.copy()
+    prealign = SimilarityTransform2D(scale=1.0, rotation=0.0, translation=np.array([0.0, 0.0]))
+    pair_control_points(reference, moving, tol=2.0, prealign=prealign)
+    np.testing.assert_array_equal(reference, ref_before)
+    np.testing.assert_array_equal(moving, mov_before)
+
+
+def test_public_imaging_surface_reexports_registration() -> None:
+    # The new symbols must be reachable through tether.imaging (not just .register),
+    # so a broken re-export in tether.imaging.__init__ is caught here.
+    import tether.imaging as imaging
+
+    assert imaging.SimilarityTransform2D is SimilarityTransform2D
+    assert imaging.PairedControlPoints is PairedControlPoints
+    assert imaging.estimate_translation_prealign is estimate_translation_prealign
+    assert imaging.pair_control_points is pair_control_points
+
+
+def test_prealign_pair_fit_chain_on_synthetic_beads() -> None:
+    pytest.importorskip("skimage")
+    from tether.imaging.detect import detect_spots
+
+    rng = np.random.RandomState(3)
+    pts = rng.uniform([20, 20], [108, 108], (20, 2))
+    dx, dy = 6.0, 5.0
+    reference = _bead_image(pts)
+    moving = _bead_image(pts + [dx, dy])
+    ref_spots = detect_spots(reference)
+    mov_spots = detect_spots(moving)
+    prealign = estimate_translation_prealign(reference, moving)
+    paired = pair_control_points(ref_spots, mov_spots, tol=2.0, prealign=prealign)
+    # Most beads pair, and a degree-2 fit on the ORIGINAL moving coords recovers
+    # the moving -> reference map to sub-pixel RMS.
+    assert len(paired.reference) >= 15
+    fit = fit_polynomial_transform(paired.moving, paired.reference)
+    assert point_rms(fit.apply(paired.moving), paired.reference) < 0.5

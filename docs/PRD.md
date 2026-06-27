@@ -800,7 +800,7 @@ validation front-loaded at M0.5.
 | Aperture (PSF disk / BG ring) | 21×21 grid; disk r = 3 (29 px); ring inner 6 / outer 8 (84 px); dead-zone 3 < d ≤ 6 | `deeplasi/functions/filtering/circ.m:5-32`, `classes/TRACERdata.m:92-100` |
 | Per-frame background | 10-frame uniform temporal moving average, ring mean | `deeplasi/functions/traces/extractTracesC.m:13-22` |
 | Integration | Sum (top-hat): I = TOT − bg·N_psf | `deeplasi/functions/traces/extractTracesC.m:20-33` |
-| Registration prealign | phase-correlation, 4-DOF similarity | `deeplasi/functions/mapping/createMapPhaseCorr.m:6-16`; [Crocker1996] (bandpass alt.) |
+| Registration prealign | phase-correlation, 4-DOF similarity (current: translation only, S5a; rotation+scale → S5b, ADR-0012); sub-pixel `upsample_factor` = 10 | `deeplasi/functions/mapping/createMapPhaseCorr.m:6-16`; [Crocker1996] (bandpass alt.); `upsample_factor` = `skimage.registration.phase_cross_correlation` sub-pixel precision (ADR-0012) |
 | NN pairing tolerance | 2 px (fit on original, un-prealigned coords); 4 px legacy | `deeplasi/functions/mapping/findPairs.m:15-24`, `createMap.m:53` |
 | Polynomial map degree | 2 (retry 3; similarity fallback if < ~6 points); 4 legacy | `deeplasi/functions/mapping/createMapPhaseCorr.m:20-47`, `createMap.m:57-58` |
 | Registration RMS-residual gate | ≤ 0.5 px (Tether addition; Deep-LASI uses visual QA only) | Tether improvement over `createMapPhaseCorr.m` |
