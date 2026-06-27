@@ -35,6 +35,7 @@ prose harmonization of the PRD (PRD §12.7).
 |----:|-------|--------|------------|
 | [0009](0009-parity-metrics-and-freeze.md) | Idealization-parity metric definitions and the M0.5 freeze | accepted | §7.4, §11.2 |
 | [0010](0010-defer-cross-os-gui-handoff.md) | Defer the 2-OS standalone-tMAVEN GUI hand-off check to M9 | accepted | §9 M0.5(a), §9 M9 |
+| [0011](0011-home-extraction-recall-at-m1.md) | Home the M0.5 ≥95% extraction-recall acceptance at M1 | accepted | §9 M0.5(b), §9 M1 |
 
 _Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
 by the PRs that implement them._
