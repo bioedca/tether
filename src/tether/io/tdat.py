@@ -273,8 +273,13 @@ def _build_colocalization(tables: list[np.ndarray]) -> TdatColocalization:
     detection_index: dict[int, np.ndarray] = {}
     for channel in participating.tolist():
         base = channel * 3
-        # X, Y are stored [x, y] (PRD §11.1); 1-based inclusive -> 0-based.
-        xy = table[:, base : base + 2] - 1.0
+        # findColoc writes its coordinate columns as [row, col]: they come from
+        # ParticlesMapped/Particles, which are MATLAB [row, col] straight out of
+        # findPart.m (deeplasi mapping/findColoc.m; findPart.m:44 `XY=[ty,tx]`).
+        # Flip to Tether's [x, y] = [col, row] convention (PRD §11.1), then
+        # convert 1-based inclusive -> 0-based. (The earlier "no flip" assumption
+        # put row in x, which the M0.5 S6 registration validation exposed.)
+        xy = table[:, base : base + 2][:, ::-1] - 1.0
         coords[channel] = np.ascontiguousarray(xy, dtype=np.float64)
         detection_index[channel] = table[:, base + 2].astype(np.int64)
     return TdatColocalization(
