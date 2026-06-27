@@ -78,7 +78,14 @@ jobs:
           environment-name: tether-sidecar
           install-tether: "true"
       - name: Install pinned tMAVEN + pytest into the sidecar env
-        run: python -m pip install --no-build-isolation pytest "${TMAVEN_SPEC}"
+        # tMAVEN imports the legacy `pkg_resources` API at runtime without
+        # declaring it. setuptools shipped `pkg_resources` until v81 deprecated
+        # and then removed it, and the sidecar env resolves to setuptools 82, so
+        # the import fails. Pin setuptools to the last series that still ships
+        # `pkg_resources` here, alongside the pip-layered tMAVEN (the GPL
+        # reference app driven over IPC, layered onto the sidecar lock, not in
+        # it) — the same place the future guided sidecar-setup script must.
+        run: python -m pip install --no-build-isolation pytest "setuptools<81" "${TMAVEN_SPEC}"
       - name: Assert idealization parity against the frozen §11.2 tolerance
         env:
           # runner.temp is valid here (step level) but not in the job-level env.
@@ -87,4 +94,13 @@ jobs:
           TETHER_SIDECAR_PYTHON_AUTO: "1"
         run: |
           export TETHER_SIDECAR_PYTHON="$(python -c 'import sys; print(sys.executable)')"
-          pytest -m sidecar -q
+          # Scope collection to the sidecar test modules only. The isolated sidecar
+          # env intentionally lacks the base GUI/IO stack (tifffile, napari, …), so a
+          # repo-wide `pytest -m sidecar` aborts at COLLECTION the moment it imports
+          # an unrelated base-only module (e.g. tests/test_movie_panel.py → tifffile)
+          # → exit 2 before any sidecar test runs. The two real sidecar modules import
+          # only `tether.idealize`, which the sidecar env satisfies. The
+          # `test_*sidecar*.py` glob is the contract enforced in the base matrix by
+          # tests/test_marker_contract.py, so a new sidecar test cannot silently
+          # escape this job. `-m sidecar` still filters within the collected files.
+          pytest -m sidecar tests/test_*sidecar*.py -q
