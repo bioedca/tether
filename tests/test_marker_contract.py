@@ -19,11 +19,14 @@ from __future__ import annotations
 
 import ast
 import fnmatch
+import re
 from pathlib import Path
 
-# Must match the glob in .github/workflows/sidecar.yml's parity step.
+# Must match the glob in .github/workflows/sidecar.yml's parity step
+# (test_contract_glob_matches_workflow_glob asserts they stay in lockstep).
 SIDECAR_FILE_GLOB = "test_*sidecar*.py"
 TESTS_DIR = Path(__file__).parent
+SIDECAR_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "sidecar.yml"
 
 
 def _uses_sidecar_marker(source: str) -> bool:
@@ -85,4 +88,22 @@ def test_sidecar_marked_modules_match_ci_glob():
     # the repo has at least the parity + driver sidecar suites.
     assert len(detected) >= 2, (
         f"expected to detect the known sidecar suites (parity + driver); detected only: {detected}"
+    )
+
+
+def test_contract_glob_matches_workflow_glob():
+    """The contract's glob is exactly the one ``sidecar.yml`` collects with.
+
+    Binds this guard to the real CI command so the two cannot drift: the parity
+    step must invoke ``pytest -m sidecar`` against ``tests/<SIDECAR_FILE_GLOB>``
+    and nothing else. (Comment mentions of other ``tests/*.py`` paths elsewhere
+    in the workflow are ignored -- only the ``pytest`` command line is checked.)
+    """
+    workflow = SIDECAR_WORKFLOW.read_text(encoding="utf-8")
+    pytest_lines = [ln for ln in workflow.splitlines() if "pytest -m sidecar" in ln]
+    assert pytest_lines, "sidecar.yml must run `pytest -m sidecar`"
+    globs = re.findall(r"tests/(\S+\.py)", " ".join(pytest_lines))
+    assert globs == [SIDECAR_FILE_GLOB], (
+        f"sidecar.yml's `pytest -m sidecar` must collect exactly "
+        f"'tests/{SIDECAR_FILE_GLOB}'; found: {globs}"
     )
