@@ -25,7 +25,7 @@ prose harmonization of the PRD (PRD §12.7).
 | [0003](0003-apparent-e-never-nan.md) | Total-correction-failure falls back to apparent-E, never NaN | accepted | §7.2 |
 | [0004](0004-pin-and-hold-dual-lock-isolation.md) | Pin-and-hold conda-lock with an isolated tMAVEN sidecar lock | accepted | §4.1, §4.3 |
 | [0005](0005-m0-schema-freeze.md) | Freeze the HDF5 schema skeleton at M0 (additive-only thereafter) | accepted | §5, §9 M0 |
-| [0006](0006-sidecar-ipc-escalation.md) | Pre-committed sidecar escalation: headless `maven_class`, else bundled IPC | accepted | §4.3, §9 M0.5 |
+| [0006](0006-sidecar-ipc-escalation.md) | Pre-committed sidecar escalation: headless `maven_class`, else bundled IPC | accepted (resolved: headless, IPC not built) | §4.3, §9 M0.5 |
 | [0007](0007-parity-is-statistical.md) | Idealization parity is statistical, asserted vs a frozen tolerance | accepted | §7.4, §11.2 |
 | [0008](0008-correction-factor-remap.md) | Deep-LASI → Tether correction-factor naming remap (β→α, α→δ, γ→γ) | accepted | Appendix B.1 |
 
