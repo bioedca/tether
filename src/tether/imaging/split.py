@@ -116,6 +116,10 @@ def process_image(
         cr = np.asarray(crop).ravel()
         if cr.size != 4:
             raise ValueError(f"crop must have 4 elements [y1, x1, y2, x2], got {cr.size}")
+        if not np.all(cr == np.floor(cr)):
+            # Crop comes from stored channel metadata; a fractional bound (e.g. 1.9)
+            # must fail fast, not be silently truncated to the wrong pixel.
+            raise ValueError(f"crop values must be integers, got {cr.tolist()}")
         y1, x1, y2, x2 = (int(v) for v in cr)
         height, width = out.shape[row_axis], out.shape[col_axis]
         if y1 < 1 or x1 < 1 or y2 < y1 or x2 < x1:
@@ -141,13 +145,23 @@ class ChannelGeometry:
 
     A typed record of the stored fields: ``crop`` = ``[y1, x1, y2, x2]`` 1-based
     inclusive (or ``None`` for the full frame), ``rotation_deg`` in
-    ``{0, 90, 180, 270}``, and ``flip`` = ``[v, h]``. Validation happens in
-    :func:`process_image` (the single source), so the record stays a thin holder.
+    ``{0, 90, 180, 270}``, and ``flip`` = ``[v, h]``. ``crop`` / ``flip`` accept
+    any array-like at construction but are normalised to immutable tuples in
+    :meth:`__post_init__`, so the frozen record keeps value semantics (a stored
+    ``np.ndarray`` would make equality ambiguous and stay mutable in place). The
+    bounds/value validation is :func:`process_image` (the single source), so the
+    record stays a thin holder.
     """
 
-    crop: np.ndarray | None = None
+    crop: tuple[int, ...] | None = None
     rotation_deg: int = 0
     flip: tuple[int, int] = (0, 0)
+
+    def __post_init__(self) -> None:
+        # Frozen dataclass: must go through object.__setattr__ to normalise.
+        if self.crop is not None:
+            object.__setattr__(self, "crop", tuple(np.asarray(self.crop).ravel().tolist()))
+        object.__setattr__(self, "flip", tuple(np.asarray(self.flip).ravel().tolist()))
 
     def apply(self, image: np.ndarray) -> np.ndarray:
         """Split ``image`` (``(H, W)`` or ``(T, H, W)``) into this channel's sub-image."""

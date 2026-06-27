@@ -141,6 +141,13 @@ def test_process_image_rejects_out_of_bounds_crop() -> None:
         process_image(np.zeros((6, 6)), crop=[1, 1, 6, 7])  # x2 > width
 
 
+def test_process_image_rejects_fractional_crop() -> None:
+    # Crop comes from stored metadata; a fractional bound must fail fast rather
+    # than be truncated by int() to the wrong pixel (silent misalignment).
+    with pytest.raises(ValueError, match="crop values must be integers"):
+        process_image(np.zeros((6, 6)), crop=[1.0, 1.0, 3.5, 3.0])
+
+
 def test_process_image_crop_bounds_apply_in_rotated_frame() -> None:
     # After a 90-degree rotation a (2, 4) frame becomes (4, 2); a crop valid only
     # in the rotated frame (y2=4 > original H=2) must succeed, proving the order.
@@ -191,6 +198,18 @@ def test_channel_geometry_apply_matches_process_image() -> None:
         geom.apply(a),
         process_image(a, rotation_deg=90, crop=[2, 2, 5, 5], flip=(0, 1)),
     )
+
+
+def test_channel_geometry_normalizes_to_tuples_for_value_semantics() -> None:
+    # crop/flip accept array-like but are stored as immutable tuples, so the frozen
+    # record keeps value semantics: equal geometries compare equal and hash equal
+    # (a stored np.ndarray would make __eq__ ambiguous and stay mutable in place).
+    g_list = ChannelGeometry(crop=[1, 1, 64, 32], flip=[1, 0])
+    g_arr = ChannelGeometry(crop=np.array([1, 1, 64, 32]), flip=np.array([1, 0]))
+    assert g_list == g_arr
+    assert hash(g_list) == hash(g_arr)
+    assert isinstance(g_list.crop, tuple) and isinstance(g_list.flip, tuple)
+    assert g_list.crop == (1, 1, 64, 32) and g_list.flip == (1, 0)
 
 
 def test_split_channels_left_right_tiles_back_to_frame() -> None:
