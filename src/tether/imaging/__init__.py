@@ -32,8 +32,14 @@ from tether.imaging.register import (
     poly_basis_deg2,
     read_tmap,
 )
+from tether.imaging.split import (
+    ChannelGeometry,
+    process_image,
+    split_channels,
+)
 
 __all__ = [
+    "ChannelGeometry",
     "IntegratedTraces",
     "PolyTransform2D",
     "TmapChannel",
@@ -46,5 +52,7 @@ __all__ = [
     "integrate_traces",
     "point_rms",
     "poly_basis_deg2",
+    "process_image",
     "read_tmap",
+    "split_channels",
 ]
