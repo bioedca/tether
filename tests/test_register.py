@@ -382,6 +382,16 @@ def test_pairing_validates_inputs() -> None:
         pair_control_points(np.zeros((3, 2)), np.zeros((3, 2)), tol=0.0)
 
 
+def test_pairing_does_not_mutate_inputs() -> None:
+    reference = np.array([[0.0, 0.0], [10.0, 10.0]])
+    moving = np.array([[0.2, 0.0], [10.1, 10.0]])
+    ref_before, mov_before = reference.copy(), moving.copy()
+    prealign = SimilarityTransform2D(scale=1.0, rotation=0.0, translation=np.array([0.0, 0.0]))
+    pair_control_points(reference, moving, tol=2.0, prealign=prealign)
+    np.testing.assert_array_equal(reference, ref_before)
+    np.testing.assert_array_equal(moving, mov_before)
+
+
 def test_prealign_pair_fit_chain_on_synthetic_beads() -> None:
     pytest.importorskip("skimage")
     from tether.imaging.detect import detect_spots
