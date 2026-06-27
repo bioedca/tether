@@ -63,4 +63,5 @@ unaffected.
 ## More information
 
 PRD §4.3, §7.4, §9 M0.5(a), §9 M9; PLAN M0.5 S2 / M9; issue #13; ADR-0002,
-ADR-0004, ADR-0006, ADR-0009.
+ADR-0004, ADR-0006, ADR-0009. Companion M0.5-close decision for the §9 M0.5(b)
+leg: ADR-0011 (homes the ≥95% extraction-recall acceptance at M1).
