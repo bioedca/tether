@@ -29,6 +29,7 @@ from tether.imaging.register import (
     TmapChannel,
     fit_polynomial_transform,
     point_rms,
+    poly_basis_deg2,
     read_tmap,
 )
 
@@ -44,5 +45,6 @@ __all__ = [
     "fit_polynomial_transform",
     "integrate_traces",
     "point_rms",
+    "poly_basis_deg2",
     "read_tmap",
 ]

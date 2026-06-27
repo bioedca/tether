@@ -79,11 +79,16 @@ and the input/output normalisation affines for both directions
 control points. The bulky per-channel result image is dropped, so it stays in
 plain git yet lets the required test matrix validate the registration
 *independently* of the source file: a native degree-2 fit from the committed
-`.tdat` molecule pairs reproduces this imported map to RMS ≈ 0.43 px (§9 M0.5(b):
-≤ 0.5 px; ≥ 95 % of molecules within 1 px). The `read_tmap` decoder itself is
-re-checked against this fixture by a data-present-only test (skipped when the
-external `.tmap` is absent, e.g. the default CI checkout). Regenerate with
-`scripts/make_tmap_fixture.py`.
+`.tdat` molecule pairs reproduces this imported map to RMS ≈ 0.43 px, agreeing
+with it to within 1 px at 99 % of the Deep-LASI molecule positions (the §9
+M0.5(b) registration-residual gate, ≤ 0.5 px). This is registration
+*faithfulness*, not colocalization recall — the "≥ 95 % of molecules matched
+within 1 px" recall gate needs the M1 detection + colocalization pipeline (the
+`.tmap`'s own residual to the actual acceptor molecules is median > 1 px). The
+`read_tmap` decoder (which leans on a scipy private MAT-5 reader, validated
+against **scipy 1.18.0**) is re-checked against this fixture by a
+data-present-only test (skipped when the external `.tmap` is absent, e.g. the
+default CI checkout). Regenerate with `scripts/make_tmap_fixture.py`.
 
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 

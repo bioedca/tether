@@ -116,10 +116,24 @@ def test_fit_rejects_mismatched_shapes() -> None:
         fit_polynomial_transform(np.zeros((6, 2)), np.zeros((7, 2)))
 
 
+def test_fit_rejects_degenerate_control_points() -> None:
+    # Enough points but collinear (x == y) -> rank-deficient degree-2 design matrix.
+    line = np.arange(8, dtype=float)
+    src = np.column_stack([line, line])
+    dst = np.column_stack([line * 1.1, line - 2.0])
+    with pytest.raises(ValueError, match="non-degenerate"):
+        fit_polynomial_transform(src, dst)
+
+
 def test_point_rms_known_value() -> None:
     a = np.array([[0.0, 0.0], [3.0, 4.0]])
     b = np.zeros((2, 2))
     assert point_rms(a, b) == pytest.approx(np.sqrt(12.5))
+
+
+def test_point_rms_rejects_empty() -> None:
+    with pytest.raises(ValueError, match="zero points"):
+        point_rms(np.empty((0, 2)), np.empty((0, 2)))
 
 
 # --- decoded .tmap fixture ---------------------------------------------------
@@ -130,7 +144,8 @@ def test_reference_channel_map_is_identity() -> None:
     rng = np.random.RandomState(0)
     grid = rng.uniform([10, 10], [240, 500], (200, 2))
     ref = channels[reference]
-    assert point_rms(ref.ref_to_channel.apply(grid), grid) < 1e-6
+    # Exercise the public 0-based API (not the raw 1-based transform).
+    assert point_rms(ref.reference_to_channel(grid), grid) < 1e-6
 
 
 def test_decoded_forward_inverse_round_trip() -> None:
@@ -140,12 +155,21 @@ def test_decoded_forward_inverse_round_trip() -> None:
     for cid, ch in channels.items():
         if cid == reference:
             continue
-        back = ch.channel_to_ref.apply(ch.ref_to_channel.apply(grid))
+        back = ch.channel_to_reference(ch.reference_to_channel(grid))
         assert point_rms(back, grid) < 0.1  # independently fitted fwd/inv
 
 
 def test_native_fit_reproduces_tmap_within_tolerance() -> None:
-    """§9 M0.5(b): native registration RMS <= 0.5 px vs the .tmap; >=95% within 1 px."""
+    """§9 M0.5(b) registration gate: a native degree-2 fit reproduces the imported
+    .tmap to RMS <= 0.5 px.
+
+    This is registration *faithfulness* (native fit vs imported map agree), not
+    colocalization recall: the ">=95% of molecules matched within 1 px" recall
+    criterion is the M1 detection+colocalization deliverable (the .tmap's own
+    residual to the actual acceptor molecules has median > 1 px). Here ">=95%
+    within 1 px" means the native fit and the imported map agree to within 1 px at
+    >=95% of the Deep-LASI molecule positions.
+    """
     h5py = pytest.importorskip("h5py")
     assert h5py  # used transitively by read_tdat
     from tether.io import read_tdat
@@ -162,9 +186,9 @@ def test_native_fit_reproduces_tmap_within_tolerance() -> None:
         native = fit_polynomial_transform(donor, acceptor)  # reference -> channel
         native_pred = native.apply(donor)
         tmap_pred = ch.reference_to_channel(donor)
-        residual = np.linalg.norm(native_pred - tmap_pred, axis=1)
-        assert point_rms(native_pred, tmap_pred) <= 0.5  # RMS gate
-        assert np.mean(residual <= 1.0) >= 0.95  # recall gate
+        agreement = np.linalg.norm(native_pred - tmap_pred, axis=1)
+        assert point_rms(native_pred, tmap_pred) <= 0.5  # native-vs-.tmap RMS gate
+        assert np.mean(agreement <= 1.0) >= 0.95  # native agrees with .tmap within 1 px
         checked += 1
     assert checked >= 1
 
@@ -195,6 +219,8 @@ def test_read_tmap_matches_committed_fixture() -> None:
     assert sorted(decoded) == sorted(fixture)
     for cid, expected in fixture.items():
         got = decoded[cid]
+        np.testing.assert_array_equal(got.crop, expected.crop)
+        np.testing.assert_allclose(got.map_particles, expected.map_particles, atol=1e-9)
         for name in ("ref_to_channel", "channel_to_ref"):
             exp_t = getattr(expected, name)
             got_t = getattr(got, name)

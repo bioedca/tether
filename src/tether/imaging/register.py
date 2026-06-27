@@ -143,6 +143,10 @@ def fit_polynomial_transform(
         norm_xy = np.eye(3)
 
     terms = poly_basis_deg2(xn[:, 0], xn[:, 1])
+    if np.linalg.matrix_rank(terms) < 6:
+        # Enough points but degenerate (duplicate/collinear) -> rank-deficient
+        # design matrix; lstsq would silently return an underdetermined fit.
+        raise ValueError("degree-2 fit needs 6 non-degenerate control points")
     a, *_ = np.linalg.lstsq(terms, dst[:, 0], rcond=None)
     b, *_ = np.linalg.lstsq(terms, dst[:, 1], rcond=None)
     return PolyTransform2D(a=a, b=b, norm_xy=norm_xy, norm_uv=np.eye(3))
@@ -154,6 +158,8 @@ def point_rms(a: np.ndarray, b: np.ndarray) -> float:
     b = np.atleast_2d(np.asarray(b, dtype=np.float64))
     if a.shape != b.shape or a.ndim != 2 or a.shape[1] != 2:
         raise ValueError("a and b must be matching (N, 2) arrays of [x, y]")
+    if len(a) == 0:
+        raise ValueError("point_rms is undefined for zero points")
     return float(np.sqrt(np.mean(np.sum((a - b) ** 2, axis=1))))
 
 

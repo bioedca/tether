@@ -101,12 +101,12 @@ def main() -> None:
     ref = channels[reference_id]
     print(
         f"reference channel {reference_id} identity RMS: "
-        f"{point_rms(ref.ref_to_channel.apply(grid), grid):.2e} px"
+        f"{point_rms(ref.reference_to_channel(grid), grid):.2e} px"
     )
     for cid, ch in channels.items():
         if cid == reference_id:
             continue
-        roundtrip = point_rms(ch.channel_to_ref.apply(ch.ref_to_channel.apply(grid)), grid)
+        roundtrip = point_rms(ch.channel_to_reference(ch.reference_to_channel(grid)), grid)
         print(f"channel {cid} ref->ch->ref round-trip RMS: {roundtrip:.2e} px")
 
     # §9 M0.5(b) numbers on the committed .tdat molecule pairs. The native fit maps
@@ -126,9 +126,15 @@ def main() -> None:
         rms = point_rms(native_pred, tmap_pred)
         within = np.linalg.norm(native_pred - tmap_pred, axis=1) <= 1.0
         coloc = np.median(np.linalg.norm(tmap_pred - acceptor, axis=1))
+        # NB: `within` measures native-fit-vs-imported-.tmap transform agreement at
+        # the molecule positions (the registration-faithfulness gate), NOT
+        # colocalization recall. The .tmap's own residual to the actual acceptor
+        # molecules (coloc, median > 1 px) is the recall-flavoured number, which
+        # needs the M1 detection+colocalization pipeline to close.
         print(
             f"channel {cid}: native-vs-.tmap RMS={rms:.3f}px  "
-            f"within-1px={within.mean():.3f}  (.tmap->molecule median={coloc:.3f}px)"
+            f"native-matches-.tmap-within-1px={within.mean():.3f}  "
+            f"(.tmap->molecule median={coloc:.3f}px)"
         )
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
