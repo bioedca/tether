@@ -205,8 +205,16 @@ class SimilarityTransform2D:
     translation: np.ndarray  # (2,) [tx, ty]
 
     def __post_init__(self) -> None:
-        if np.asarray(self.translation).shape != (2,):
+        translation = np.asarray(self.translation, dtype=np.float64)
+        if translation.shape != (2,):
             raise ValueError("SimilarityTransform2D.translation must have shape (2,)")
+        if not np.isfinite(self.scale) or self.scale <= 0:
+            raise ValueError("SimilarityTransform2D.scale must be finite and > 0")
+        if not np.isfinite(self.rotation):
+            raise ValueError("SimilarityTransform2D.rotation must be finite")
+        if not np.all(np.isfinite(translation)):
+            raise ValueError("SimilarityTransform2D.translation must be finite")
+        object.__setattr__(self, "translation", translation)
 
     def apply(self, points: np.ndarray) -> np.ndarray:
         """Map ``(N, 2)`` ``[x, y]`` points through the transform (returns ``(N, 2)``)."""

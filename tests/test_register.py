@@ -298,6 +298,9 @@ def test_translation_prealign_recovers_known_shift() -> None:
     np.testing.assert_allclose(prealign.translation, [-dx, -dy], atol=0.6)
     # ... and it actually re-aligns the displaced points onto the reference points.
     assert point_rms(prealign.apply(pts + [dx, dy]), pts) < 0.6
+    # The documented default is upsample_factor=10 (PRD §11.2 / ADR-0012).
+    explicit = estimate_translation_prealign(reference, moving, upsample_factor=10)
+    np.testing.assert_array_equal(prealign.translation, explicit.translation)
 
 
 def test_translation_prealign_validates_inputs() -> None:
@@ -373,6 +376,7 @@ def test_pairing_empty_inputs() -> None:
         assert paired.reference.shape == (0, 2)
         assert paired.moving.shape == (0, 2)
         assert paired.reference_index.shape == (0,)
+        assert paired.moving_index.shape == (0,)
 
 
 def test_pairing_validates_inputs() -> None:
@@ -390,6 +394,17 @@ def test_pairing_does_not_mutate_inputs() -> None:
     pair_control_points(reference, moving, tol=2.0, prealign=prealign)
     np.testing.assert_array_equal(reference, ref_before)
     np.testing.assert_array_equal(moving, mov_before)
+
+
+def test_public_imaging_surface_reexports_registration() -> None:
+    # The new symbols must be reachable through tether.imaging (not just .register),
+    # so a broken re-export in tether.imaging.__init__ is caught here.
+    import tether.imaging as imaging
+
+    assert imaging.SimilarityTransform2D is SimilarityTransform2D
+    assert imaging.PairedControlPoints is PairedControlPoints
+    assert imaging.estimate_translation_prealign is estimate_translation_prealign
+    assert imaging.pair_control_points is pair_control_points
 
 
 def test_prealign_pair_fit_chain_on_synthetic_beads() -> None:
