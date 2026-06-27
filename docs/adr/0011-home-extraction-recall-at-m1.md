@@ -49,10 +49,12 @@ M0.5 may close with clause (1) demonstrated-as-a-preview rather than passed at t
 
 ## Considered options
 
-- **A. Home the binding recall gate at M1; close M0.5 on its de-risking
-  deliverables.** M0.5(b) clause (1) is satisfied at M0.5 as the demonstrated
-  detection *path* (a preview); the ≥ 95% bar is the binding M1 extraction-tolerance
-  gate (PRD §9 M1, PLAN §1.1/§2.3/§4 S5), which M1 cannot close without. No PRD edit.
+- **A. Home the binding recall gate at M1; close M0.5 on its non-recall
+  de-risking deliverables.** The ≥ 95% recall bar is **not** treated as satisfied
+  at M0.5 — it remains the binding M1 extraction-tolerance gate (PRD §9 M1, PLAN
+  §1.1/§2.3/§4 S5), which M1 cannot close without. The M0.5(b) clause-(1) checklist
+  item is **annotated as homed at M1 (this ADR) when the milestone is closed** — so
+  the close and the checklist stay aligned. No PRD edit (recall stays in M1).
 - **B. Keep M0.5 open until the M1 detector reaches ≥ 95% recall.** Circular against
   the milestone DAG (M0.5 → M1): M0.5 would only close partway through M1, while M1
   work proceeds anyway. The recall gate is captured by M1's own acceptance regardless.
@@ -63,13 +65,15 @@ M0.5 may close with clause (1) demonstrated-as-a-preview rather than passed at t
 ## Decision outcome
 
 Chosen option: **A**. The binding ≥ 95% matched-molecule recall (with intensity
-Pearson r ≥ 0.99) is the **M1** extraction-tolerance gate; M0.5(b) clause (1) is
-satisfied for M0.5 close as the demonstrated detection path. **M0.5 closes** on its
-de-risking deliverables — headless vbFRET sidecar driver + the frozen §11.2 parity
-tolerance (the hard gate) + the validated `.tdat` decode / factor remap / native
-registration. **No SemVer tag** (M0.5 is a fractional de-risking gate, not a release
-— PRD §12.7's SemVer track runs M0–M9 and omits M0.5). The frozen PRD §9 text is
-unchanged.
+Pearson r ≥ 0.99) is the **M1** extraction-tolerance gate and is **not** treated as
+satisfied at M0.5. **M0.5 closes** on its **non-recall** de-risking deliverables —
+headless vbFRET sidecar driver + the frozen §11.2 parity tolerance (the hard gate) +
+the validated `.tdat` decode / factor remap / native registration — and the close is
+enacted together with **annotating the GitHub M0.5(b) clause-(1) checklist item as
+homed at M1 (this ADR)**, so the milestone state and its checklist stay aligned.
+**No SemVer tag** (M0.5 is a fractional de-risking gate, not a release — PRD §12.7's
+SemVer track runs M0–M9 and omits M0.5). The frozen PRD §9 text is unchanged; the
+recall criterion continues to bind at M1.
 
 ### Consequences
 
@@ -81,9 +85,10 @@ unchanged.
   RMS ≤ 0.5 px on the UCKOPSB pair (PRD §9 M1; oracle wired into `large-fixtures.yml`
   per PLAN §5 S9). The M0.5 registration-RMS evidence (0.434 px) and the decode carry
   forward as M1 substrate.
-- Trade-off: M0.5 closes with clause (1) demonstrated rather than passed at 95%.
-  Reversible — if the maintainer judges the bar should bind at M0.5, reopening the
-  milestone and #17 is a one-step revert; the recall gate is unchanged either way.
+- Trade-off: M0.5 closes **without** the ≥ 95% recall having been met — that gate is
+  deferred-in-place to M1, not passed at M0.5. Reversible — if the maintainer judges
+  the bar should bind at M0.5, reopening the milestone and #17 is a one-step revert;
+  the recall gate is unchanged either way.
 - Follow-up: #17 is closed (its decode/remap/registration code is merged; this ADR
   resolves its remaining close-decision). M0.5 milestone closed; its acceptance
   checklist annotated (clause (1) → M1 (this ADR); GUI 2-OS leg → M9 (ADR-0010)).
