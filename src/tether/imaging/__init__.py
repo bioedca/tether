@@ -24,13 +24,25 @@ from tether.imaging.detect import (
     detect_spots,
     detection_image,
 )
+from tether.imaging.register import (
+    PolyTransform2D,
+    TmapChannel,
+    fit_polynomial_transform,
+    point_rms,
+    read_tmap,
+)
 
 __all__ = [
     "IntegratedTraces",
+    "PolyTransform2D",
+    "TmapChannel",
     "aperture_masks",
     "atrous_wavelet_planes",
     "b3_spline_kernel",
     "detect_spots",
     "detection_image",
+    "fit_polynomial_transform",
     "integrate_traces",
+    "point_rms",
+    "read_tmap",
 ]

@@ -24,6 +24,7 @@ uv run --no-project --with h5py --with tifffile --with numpy \
 | `tests/fixtures/large/model_281mol.hdf5` | 4-state vbHMM model (parity gate) | `model.hdf5` | 2,621,011 B | 2,621,011 B | `8f78fa48ad0311fd…` | verbatim · **LFS** |
 | `tests/fixtures/aperture_oracle.npz` | aperture Sum-integration oracle (M0.5 S5) | `…010.tif` + `…010.mat` | 891,955,083 B + 9,053,155 B | 460,472 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` | 6 donor crops + `don` oracle |
 | `tests/fixtures/tdat_coloc_slice.tdat` | TIRFdata colocalization slice (M0.5 S6 decode) | `…010.tif…00-00.tdat` | 37,039,831 B | 41,344 B | `b6a911d48bc27cd1…` | coloc table only |
+| `tests/fixtures/tmap_coeffs.npz` | Deep-LASI `.tmap` registration coefficients (M0.5 S6 registration) | `…20250718…13-40.tmap` | 3,872,385 B | 5,905 B | `7db0cf80d161847e…` | decoded degree-2 coeffs only |
 
 **Accessed:** 2026-06-22 (date `example-data/` was gathered onto this
 workstation; see its `README.md`). **Origin:** Mondragón Lab (Northwestern)
@@ -65,6 +66,24 @@ from the 37 MB UCKOPSB `.tdat`, holding the real `ParticlesColocalized` matrix
 object blob are dropped, so it stays in plain git yet faithfully exercises the
 M0.5 S6 `tether.io.read_tdat` decoder (coordinates + the Appendix-B factor remap)
 in the required test matrix. Regenerate with `scripts/make_tdat_fixture.py`.
+
+## Deep-LASI `.tmap` registration coefficients
+
+`tmap_coeffs.npz` holds the decoded degree-2 channel-registration transforms from
+the 3.7 MB Deep-LASI `.tmap` (a classic MATLAB v5 MAT-file whose coefficients live
+in the MCOS `__function_workspace__` blob). `scripts/make_tmap_fixture.py` runs the
+real decoder (`tether.imaging.register.read_tmap`) and stores, per channel, the
+`images.geotrans.PolynomialTransformation2D` coefficient vectors `A`/`B` (6 each)
+and the input/output normalisation affines for both directions
+(`ref_to_channel`, `channel_to_ref`), plus the crop rect and `MapParticles` bead
+control points. The bulky per-channel result image is dropped, so it stays in
+plain git yet lets the required test matrix validate the registration
+*independently* of the source file: a native degree-2 fit from the committed
+`.tdat` molecule pairs reproduces this imported map to RMS ≈ 0.43 px (§9 M0.5(b):
+≤ 0.5 px; ≥ 95 % of molecules within 1 px). The `read_tmap` decoder itself is
+re-checked against this fixture by a data-present-only test (skipped when the
+external `.tmap` is absent, e.g. the default CI checkout). Regenerate with
+`scripts/make_tmap_fixture.py`.
 
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 
