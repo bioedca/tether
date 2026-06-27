@@ -7,10 +7,18 @@ must map a coordinate from one half onto the other. Deep-LASI persists that map 
 a ``.tmap`` file as MATLAB ``images.geotrans.PolynomialTransformation2D`` objects;
 Tether validates a *native* polynomial fit against it.
 
-This module provides the thin M0.5 preview of that pipeline (the full
-bead-detection -> phase-correlation prealign -> nearest-neighbour pairing -> fit
-pipeline is M1 S5/S6):
+This module builds that pipeline incrementally (the native bead-detection ->
+phase-correlation prealign -> nearest-neighbour pairing -> degree-2 fit chain of
+M1 S5/S6):
 
+* :class:`SimilarityTransform2D` + :func:`estimate_translation_prealign` -- the
+  coarse phase-correlation prealign that seeds pairing (Appendix E Stage 7). M1
+  S5 lands the translation DOF; the full 4-DOF rotation+scale estimate (a
+  Fourier-Mellin log-polar pass, the analogue of ``imregcorr(..., 'similarity')``)
+  is a follow-up that reuses the same transform type (ADR-0012);
+* :func:`pair_control_points` -- mutual nearest-neighbour pairing within a px
+  tolerance (Appendix E Stage 8), matched in the prealigned frame but returning
+  the original un-prealigned moving coords for the fit (ADR-0012);
 * :class:`PolyTransform2D` -- a degree-2 2-D polynomial warp in the exact MATLAB
   form (per-output coefficient vectors ``A`` (x) and ``B`` (y) in the basis
   ``[1, x, y, x*y, x**2, y**2]`` with input/output normalisation affines), shared
@@ -42,11 +50,16 @@ from pathlib import Path
 
 import numpy as np
 import scipy.io as sio
+from scipy.spatial import cKDTree
 
 __all__ = [
+    "PairedControlPoints",
     "PolyTransform2D",
+    "SimilarityTransform2D",
     "TmapChannel",
+    "estimate_translation_prealign",
     "fit_polynomial_transform",
+    "pair_control_points",
     "point_rms",
     "poly_basis_deg2",
     "read_tmap",
@@ -161,6 +174,200 @@ def point_rms(a: np.ndarray, b: np.ndarray) -> float:
     if len(a) == 0:
         raise ValueError("point_rms is undefined for zero points")
     return float(np.sqrt(np.mean(np.sum((a - b) ** 2, axis=1))))
+
+
+# --- prealign + nearest-neighbour pairing (Appendix E Stages 7-8) ------------
+
+
+@dataclass(frozen=True)
+class SimilarityTransform2D:
+    """A 4-DOF similarity transform: isotropic scale + rotation + translation.
+
+    Evaluates ``out = scale * R(rotation) @ [x, y] + translation`` with ``R`` the
+    standard counter-clockwise rotation, in Tether's ``[x, y] = [col, row]``
+    convention. This is the *registration prealign* (PRD Appendix E Stage 7;
+    ``deeplasi/functions/mapping/createMapPhaseCorr.m:11`` ``imregcorr(...,
+    'similarity')``): a coarse map whose only job is to bring corresponding
+    control points close enough for nearest-neighbour pairing. It is **never**
+    composed into the stored polynomial calibration — the map is always fit on
+    the original, un-prealigned coordinates (Stage 8; see
+    :func:`pair_control_points`).
+
+    M1 S5 populates this from a translation-only phase correlation
+    (:func:`estimate_translation_prealign`); the full 4-DOF rotation+scale
+    estimate (Fourier-Mellin log-polar) is a follow-up. The scale/rotation fields
+    are first-class here so that estimator slots in without an API change
+    (ADR-0012).
+    """
+
+    scale: float
+    rotation: float  # radians, counter-clockwise
+    translation: np.ndarray  # (2,) [tx, ty]
+
+    def __post_init__(self) -> None:
+        if np.asarray(self.translation).shape != (2,):
+            raise ValueError("SimilarityTransform2D.translation must have shape (2,)")
+
+    def apply(self, points: np.ndarray) -> np.ndarray:
+        """Map ``(N, 2)`` ``[x, y]`` points through the transform (returns ``(N, 2)``)."""
+        pts = np.atleast_2d(np.asarray(points, dtype=np.float64))
+        if pts.ndim != 2 or pts.shape[1] != 2:
+            raise ValueError("points must be an (N, 2) array of [x, y]")
+        cos_t, sin_t = np.cos(self.rotation), np.sin(self.rotation)
+        rot = self.scale * np.array([[cos_t, -sin_t], [sin_t, cos_t]])
+        return pts @ rot.T + np.asarray(self.translation, dtype=np.float64)
+
+
+def estimate_translation_prealign(
+    reference: np.ndarray, moving: np.ndarray, *, upsample_factor: int = 10
+) -> SimilarityTransform2D:
+    """Estimate the translation that seeds pairing, via phase correlation (Stage 7).
+
+    The translation-DOF analogue of Deep-LASI's ``imregcorr`` prealign:
+    ``skimage.registration.phase_cross_correlation`` finds the whole-image shift
+    aligning ``moving`` onto ``reference`` to ``1 / upsample_factor`` px. The
+    returned :class:`SimilarityTransform2D` (scale 1, rotation 0) maps a moving
+    ``[x, y]`` point into the reference frame; pass it to
+    :func:`pair_control_points` as ``prealign``.
+
+    Parameters
+    ----------
+    reference, moving:
+        2-D single-channel images of the **same shape** (e.g. the per-half bead
+        detection images from :func:`tether.imaging.detect.detection_image`).
+    upsample_factor:
+        Sub-pixel registration upsampling (PRD §11.2 default 10): the shift is
+        resolved to ``1 / upsample_factor`` px.
+    """
+    reference = np.asarray(reference, dtype=np.float64)
+    moving = np.asarray(moving, dtype=np.float64)
+    if reference.ndim != 2 or moving.ndim != 2:
+        raise ValueError("reference and moving must be 2-D images")
+    if reference.shape != moving.shape:
+        raise ValueError(
+            f"reference {reference.shape} and moving {moving.shape} must have the same shape"
+        )
+    if upsample_factor < 1:
+        raise ValueError(f"upsample_factor must be >= 1, got {upsample_factor}")
+
+    from skimage.registration import phase_cross_correlation  # noqa: PLC0415 (heavy, isolated)
+
+    shift, _error, _phasediff = phase_cross_correlation(
+        reference, moving, upsample_factor=upsample_factor
+    )
+    # phase_cross_correlation returns the shift in numpy [row, col] order that
+    # registers `moving` onto `reference`: a feature at p_moving maps to
+    # p_reference = p_moving + [shift_col, shift_row]. Convert to [x, y].
+    translation = np.array([shift[1], shift[0]], dtype=np.float64)
+    return SimilarityTransform2D(scale=1.0, rotation=0.0, translation=translation)
+
+
+@dataclass(frozen=True)
+class PairedControlPoints:
+    """Matched control points from :func:`pair_control_points`.
+
+    Attributes
+    ----------
+    reference:
+        ``(K, 2)`` ``[x, y]`` reference-channel points (one per pair).
+    moving:
+        ``(K, 2)`` ``[x, y]`` moving-channel points — the **original**,
+        un-prealigned coordinates (the prealign only seeds matching; the
+        polynomial map is fit on these, PRD Appendix E Stage 8).
+    reference_index, moving_index:
+        ``(K,)`` indices back into the input ``reference`` / ``moving`` arrays.
+    """
+
+    reference: np.ndarray
+    moving: np.ndarray
+    reference_index: np.ndarray
+    moving_index: np.ndarray
+
+
+def pair_control_points(
+    reference: np.ndarray,
+    moving: np.ndarray,
+    *,
+    tol: float = 2.0,
+    prealign: SimilarityTransform2D | None = None,
+) -> PairedControlPoints:
+    """Mutual nearest-neighbour pairing of control points within ``tol`` px (Stage 8).
+
+    Ports ``deeplasi/functions/mapping/findPairs.m`` with a deliberate correctness
+    fix: matches must be **mutual** — each kept reference point's nearest moving
+    point is the same point that chose it, and vice versa — so no point is
+    assigned to two partners. Deep-LASI's ``pdist2(...,'Smallest',1)`` is a
+    one-directional greedy gate that can map two moving points onto one reference
+    point; Tether enforces a unique one-to-one matching instead (ADR-0012).
+
+    Matching runs in the **prealigned** frame when ``prealign`` is given
+    (``prealign.apply`` is applied to ``moving`` before the nearest-neighbour
+    search), but the returned ``moving`` points are the **original**,
+    un-prealigned coordinates — the prealign exists only to make matching
+    reliable, never to bake the coarse transform into the fitted map.
+
+    Parameters
+    ----------
+    reference, moving:
+        ``(N, 2)`` / ``(M, 2)`` ``[x, y]`` point sets (e.g. bead centroids from
+        :func:`tether.imaging.detect.detect_spots` on each half).
+    tol:
+        Maximum Euclidean pairing distance in px (PRD §11.2 default 2; up to ~4).
+    prealign:
+        Optional coarse transform mapping ``moving`` into the reference frame
+        (e.g. from :func:`estimate_translation_prealign`).
+
+    Returns
+    -------
+    PairedControlPoints
+        The mutual matches; ``reference``/``moving`` are ready for
+        :func:`fit_polynomial_transform`. Empty (``K = 0``) when nothing pairs.
+    """
+    reference = np.atleast_2d(np.asarray(reference, dtype=np.float64))
+    moving = np.atleast_2d(np.asarray(moving, dtype=np.float64))
+    for name, arr in (("reference", reference), ("moving", moving)):
+        if arr.ndim != 2 or arr.shape[1] != 2:
+            raise ValueError(f"{name} must be an (N, 2) array of [x, y]")
+    if tol <= 0:
+        raise ValueError(f"tol must be > 0, got {tol}")
+
+    if len(reference) == 0 or len(moving) == 0:
+        empty_i = np.empty(0, dtype=np.intp)
+        empty_xy = np.empty((0, 2), dtype=np.float64)
+        return PairedControlPoints(empty_xy, empty_xy.copy(), empty_i, empty_i.copy())
+
+    moving_search = prealign.apply(moving) if prealign is not None else moving
+
+    ref_tree = cKDTree(reference)
+    moving_tree = cKDTree(moving_search)
+    # cKDTree's distance_upper_bound is a strict bound (a point at exactly the
+    # bound is a miss), so nudge it up one ULP to make the gate inclusive --
+    # faithful to Deep-LASI's `D <= tol` (findPairs.m:22). A cKDTree miss is
+    # marked with an infinite distance and index == n (the queried tree's size).
+    gate = float(np.nextafter(tol, np.inf))
+    # For each moving point: its nearest reference within tol.
+    dist_m, nn_ref = ref_tree.query(moving_search, k=1, distance_upper_bound=gate)
+    # For each reference point: its nearest moving within tol.
+    _dist_r, nn_moving = moving_tree.query(reference, k=1, distance_upper_bound=gate)
+
+    n_ref = len(reference)
+    ref_idx: list[int] = []
+    mov_idx: list[int] = []
+    for m, (d, r) in enumerate(zip(dist_m, nn_ref, strict=True)):
+        if not np.isfinite(d) or r >= n_ref:  # no reference within tol
+            continue
+        if nn_moving[r] == m:  # mutual nearest neighbours -> a unique pair
+            ref_idx.append(int(r))
+            mov_idx.append(int(m))
+
+    ref_arr = np.asarray(ref_idx, dtype=np.intp)
+    mov_arr = np.asarray(mov_idx, dtype=np.intp)
+    return PairedControlPoints(
+        reference=reference[ref_arr],
+        moving=moving[mov_arr],  # ORIGINAL (un-prealigned) coords
+        reference_index=ref_arr,
+        moving_index=mov_arr,
+    )
 
 
 @dataclass(frozen=True)
