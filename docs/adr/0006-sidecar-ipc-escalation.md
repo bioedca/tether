@@ -71,6 +71,6 @@ M0.5 S3 and issue #14 are closed by this decision; no escalation code ships.
 
 ## More information
 
-PRD §4.3, §9 M0.5, §10; PLAN M0.5 S1–S3 (§15 Session log, 2026-06-27); issue
-#14; CI evidence PR #29 / `sidecar/parity` run `28276519587`; ADR-0004,
-ADR-0007, ADR-0009.
+PRD §4.3, §9 M0.5, §10; PLAN M0.5 S1–S3 (§15 Session log, 2026-06-27);
+issue #14; CI evidence PR #29 / `sidecar/parity` run `28276519587`;
+ADR-0004, ADR-0007, ADR-0009.
