@@ -103,9 +103,13 @@ def process_image(
     flip_arr = np.asarray(flip)
     if flip_arr.shape != (2,):
         raise ValueError(f"flip must be a length-2 [v, h] sequence, got shape {flip_arr.shape}")
-    if flip_arr[0]:
+    if not np.isin(flip_arr, (0, 1)).all():
+        # Deep-LASI flips only on an exact ``flipI(i) == 1`` (processImage.m:19-20);
+        # reject any other value rather than silently treating it as a flip.
+        raise ValueError(f"flip values must each be 0 or 1, got {flip_arr.tolist()}")
+    if flip_arr[0] == 1:
         out = np.flip(out, axis=row_axis)
-    if flip_arr[1]:
+    if flip_arr[1] == 1:
         out = np.flip(out, axis=col_axis)
 
     if crop is not None:

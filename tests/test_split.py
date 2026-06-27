@@ -91,6 +91,13 @@ def test_process_image_rejects_bad_flip_shape() -> None:
         process_image(np.zeros((4, 4)), flip=(1, 0, 1))
 
 
+def test_process_image_rejects_non_binary_flip() -> None:
+    # Deep-LASI flips only on an exact ``== 1``; a stray value (e.g. 2) is rejected
+    # rather than silently treated as a flip.
+    with pytest.raises(ValueError, match="flip values must each be 0 or 1"):
+        process_image(np.zeros((4, 4)), flip=(2, 0))
+
+
 # --- crop (MATLAB 1-based inclusive -> 0-based half-open) ---------------------
 
 
