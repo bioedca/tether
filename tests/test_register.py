@@ -337,6 +337,9 @@ def test_pairing_recovers_correspondence_on_real_tdat() -> None:
     # Unique one-to-one: no reference and no moving point assigned twice.
     assert len(set(paired.reference_index.tolist())) == len(reference)
     assert len(set(paired.moving_index.tolist())) == len(reference)
+    # Index contract: the returned points are exactly those at the reported indices.
+    np.testing.assert_array_equal(paired.reference, reference[paired.reference_index])
+    np.testing.assert_array_equal(paired.moving, moving[paired.moving_index])
     # Each kept pair is the planted correspondence.
     np.testing.assert_array_equal(perm[paired.moving_index], paired.reference_index)
     # Fit-on-original: returned moving are the ORIGINAL (displaced) coords, not the
