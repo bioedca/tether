@@ -177,6 +177,13 @@ class TmapChannel:
     1-based pixel coordinates; the :meth:`reference_to_channel` /
     :meth:`channel_to_reference` helpers accept and return Tether 0-based
     ``[x, y]`` and handle that boundary (PRD §11.1).
+
+    The registration is **channel-local**: Deep-LASI extracts each channel as a
+    sub-image via ``processImage(I, Rotation, Crop, Flip)`` (``tools/processImage.m``)
+    and registers those crops, so :meth:`reference_to_channel` maps a *reference-
+    local* coordinate to a *this-channel-local* coordinate. To place a point in
+    the raw, un-split movie use :meth:`reference_to_channel_image`, which folds in
+    the per-channel crop :attr:`origin`.
     """
 
     channel_id: int
@@ -185,6 +192,25 @@ class TmapChannel:
     ref_to_channel: PolyTransform2D  # decoded MapToReference; apply: reference -> channel
     channel_to_ref: PolyTransform2D  # decoded MapFromReference; apply: channel -> reference
 
+    @property
+    def origin(self) -> np.ndarray:
+        """0-based ``[x, y]`` pixel origin of this channel's crop in the full frame.
+
+        Deep-LASI's ``processImage`` crops the channel sub-image as
+        ``I(y1:y2, x1:x2)`` from the rect ``Crop = [[y1, x1], [y2, x2]]`` (1-based,
+        inclusive; ``tools/processImage.m:23-30``). The sub-image's top-left pixel
+        is therefore full-frame ``(x1, y1)``; returned 0-based as ``[x1-1, y1-1]``,
+        so a channel-local ``[x, y]`` plus this origin is the full-frame position.
+        """
+        flat = np.asarray(self.crop, dtype=np.float64).ravel()
+        if flat.size != 4:
+            raise ValueError(
+                f"channel {self.channel_id} crop must have 4 elements [y1, x1, y2, x2], "
+                f"got {flat.size}"
+            )
+        y1, x1 = flat[0], flat[1]
+        return np.array([x1 - 1.0, y1 - 1.0])
+
     def reference_to_channel(self, points0: np.ndarray) -> np.ndarray:
         """Map 0-based ``[x, y]`` from the reference channel into this channel (0-based)."""
         return self.ref_to_channel.apply(np.asarray(points0, dtype=np.float64) + 1.0) - 1.0
@@ -192,6 +218,30 @@ class TmapChannel:
     def channel_to_reference(self, points0: np.ndarray) -> np.ndarray:
         """Map 0-based ``[x, y]`` from this channel into the reference channel (0-based)."""
         return self.channel_to_ref.apply(np.asarray(points0, dtype=np.float64) + 1.0) - 1.0
+
+    def reference_to_channel_image(
+        self,
+        points0: np.ndarray,
+        *,
+        reference_origin: np.ndarray | tuple[float, float] = (0.0, 0.0),
+    ) -> np.ndarray:
+        """Map full-frame reference ``[x, y]`` to this channel's full-frame position.
+
+        Composes the channel-local registration with the crop geometry: a
+        full-frame reference point is rebased to the reference channel's local
+        frame (subtract ``reference_origin``), warped into this channel's local
+        frame (:meth:`reference_to_channel`), then offset by this channel's crop
+        :attr:`origin` back to full-frame pixels. Use this to read the acceptor
+        signal in the raw (un-split) movie at a donor coordinate's mapped position
+        — the donor-anchored colocalization read (PRD Appendix E Stages 11-13).
+
+        ``reference_origin`` defaults to ``(0, 0)`` (the donor/reference channel
+        is conventionally cropped from the frame origin); pass the reference
+        channel's :attr:`origin` if it is not.
+        """
+        pts = np.atleast_2d(np.asarray(points0, dtype=np.float64))
+        ref_origin = np.asarray(reference_origin, dtype=np.float64)
+        return self.reference_to_channel(pts - ref_origin) + self.origin
 
 
 # --- .tmap MCOS decode -------------------------------------------------------

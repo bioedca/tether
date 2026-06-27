@@ -25,6 +25,7 @@ uv run --no-project --with h5py --with tifffile --with numpy \
 | `tests/fixtures/aperture_oracle.npz` | aperture Sum-integration oracle (M0.5 S5) | `…010.tif` + `…010.mat` | 891,955,083 B + 9,053,155 B | 460,472 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` | 6 donor crops + `don` oracle |
 | `tests/fixtures/tdat_coloc_slice.tdat` | TIRFdata colocalization slice (M0.5 S6 decode) | `…010.tif…00-00.tdat` | 37,039,831 B | 41,344 B | `b6a911d48bc27cd1…` | coloc table only |
 | `tests/fixtures/tmap_coeffs.npz` | Deep-LASI `.tmap` registration coefficients (M0.5 S6 registration) | `…20250718…13-40.tmap` | 3,872,385 B | 5,905 B | `7db0cf80d161847e…` | decoded degree-2 coeffs only |
+| `tests/fixtures/acceptor_oracle.npz` | acceptor aperture-integration oracle via `.tmap` apply (M0.5 S5/S6) | `…010.tif` + `…010.mat` + `…13-40.tmap` | 891,955,083 B + 9,053,155 B + 3,872,385 B | 271,214 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` + `7db0cf80d161847e…` | 6 acceptor crops + `acc` oracle |
 
 **Accessed:** 2026-06-22 (date `example-data/` was gathered onto this
 workstation; see its `README.md`). **Origin:** Mondragón Lab (Northwestern)
@@ -89,6 +90,34 @@ within 1 px" recall gate needs the M1 detection + colocalization pipeline (the
 against **scipy 1.18.0**) is re-checked against this fixture by a
 data-present-only test (skipped when the external `.tmap` is absent, e.g. the
 default CI checkout). Regenerate with `scripts/make_tmap_fixture.py`.
+
+## Acceptor-intensity oracle
+
+`acceptor_oracle.npz` completes the M0.5(b) aperture-integration comparison for
+the **acceptor** channel (the donor half is `aperture_oracle.npz`). The acceptor
+is reached through the registration: each donor coordinate is warped into the
+acceptor channel's full-frame position with
+`tether.imaging.register.TmapChannel.reference_to_channel_image` (which folds in
+the acceptor crop origin `[256, 0]` — Deep-LASI registers channel-local
+sub-images, `tools/processImage.m`), then a 21×21 aperture is Sum-integrated there
+and compared to the `.mat` raw acceptor trace `acc`. It holds 6 acceptor-spot
+crops (`crops`, shape `(6, 70, 21, 21)`, big-endian `uint16`) from the first 70
+frames around each warped position, each paired with the molecule's raw acceptor
+trace `acc_ref` (`(6, 70)`); also `molecule_index`, `pacc` (the acceptor
+first-bleach frame), `warped_xy` (full-frame `[x, y]`, all in the acceptor half
+`x > 256`), `snapped_xy` (the crop-centre pixel), and `local_center` (`[10, 10]`).
+**Acceptor signal is sparse in this field.** Under donor-only excitation (no ALEX
+here, `Default Alpha = 0`), acceptor emission arises from FRET and is low or
+absent when FRET is low or the acceptor is dark/bleached (Roy, Hohng & Ha 2008,
+*Nat. Methods*; Hellenkamp et al. 2018, *Nat. Methods*) — so across all 250
+molecules the median correlation is ≈ 0.50 and a broad high-correlation gate like
+the always-bright donor's is not achievable here. The fixture
+therefore keeps the **strongest-acceptor-signal** molecules (top pre-bleach `acc`
+std), validated over the **pre-acceptor-bleach window** where the signal exists —
+the `.tmap` apply + aperture recovers the Deep-LASI acceptor intensity (median
+corr ≈ 0.85, best ≈ 0.99 across the committed set). This is the *loose* M0.5
+preview; the strict broad gate is M1 (PRD §4 M1 / §9 M1). Regenerate with
+`scripts/make_acceptor_fixture.py`.
 
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 
