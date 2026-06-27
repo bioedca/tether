@@ -27,6 +27,7 @@ PLAIN_FIXTURES = [
     FIXTURES / "smd_2mol.hdf5",
     FIXTURES / "aperture_oracle.npz",
     FIXTURES / "tdat_coloc_slice.tdat",
+    FIXTURES / "tmap_coeffs.npz",
 ]
 
 
@@ -45,6 +46,20 @@ def test_plain_fixture_under_size_gate(path: Path) -> None:
     size = path.stat().st_size
     # `<=` mirrors pre-commit's `--maxkb=512`, which allows files at exactly 512 KiB.
     assert size <= MAX_PLAIN_BYTES, f"{path.name} is {size} B (> 512 KiB plain-git gate)"
+
+
+def test_tmap_coeffs_structure() -> None:
+    np = pytest.importorskip("numpy")
+    data = np.load(FIXTURES / "tmap_coeffs.npz")
+    ids = data["channel_ids"].tolist()
+    assert len(ids) == 2
+    assert int(data["reference_channel"]) in ids
+    for cid in ids:
+        for name in ("ref_to_channel", "channel_to_ref"):
+            assert data[f"c{cid}_{name}_a"].shape == (6,)  # degree-2 coeffs
+            assert data[f"c{cid}_{name}_b"].shape == (6,)
+            assert data[f"c{cid}_{name}_norm_xy"].shape == (3, 3)
+            assert data[f"c{cid}_{name}_norm_uv"].shape == (3, 3)
 
 
 def test_movie_is_big_endian_crop() -> None:

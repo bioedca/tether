@@ -107,10 +107,11 @@ def test_decode_shape_and_channels(tdat: Tdat) -> None:
 
 def test_first_molecule_coords_are_xy_zero_based(tdat: Tdat) -> None:
     coloc = tdat.colocalization
-    # findColoc row 0 (1-based, stored [x, y]): donor X1=485 Y1=15 ; acceptor X2=487 Y2=23.
-    # Tether is 0-based [x, y] (PRD §11.1): subtract 1, no flip.
-    assert coloc.coords[0][0].tolist() == pytest.approx([484.0, 14.0], abs=1e-6)
-    assert coloc.coords[1][0].tolist() == pytest.approx([486.0, 22.0], abs=1e-6)
+    # findColoc row 0 stores [row, col] (1-based): donor (485, 15), acceptor (487, 23).
+    # Tether flips to [x, y] = [col, row] (PRD §11.1) and converts 1-based -> 0-based:
+    # donor [15, 485] - 1 = [14, 484]; acceptor [23, 487] - 1 = [22, 486].
+    assert coloc.coords[0][0].tolist() == pytest.approx([14.0, 484.0], abs=1e-6)
+    assert coloc.coords[1][0].tolist() == pytest.approx([22.0, 486.0], abs=1e-6)
     # detection indices are source bookkeeping, kept 1-based and integer.
     assert coloc.detection_index[0][:3].tolist() == [9, 13, 17]
     assert coloc.detection_index[1][:3].tolist() == [31, 33, 27]
@@ -123,17 +124,20 @@ def test_coords_within_frame_and_finite(tdat: Tdat) -> None:
         assert xy.dtype == np.float64
         assert np.all(np.isfinite(xy))
         assert xy.min() >= 0.0  # 0-based: no negative pixels
-        assert xy[:, 0].max() < 512.0  # within a 512-wide reference frame
+        # This acquisition splits the chip left/right, so each channel half is
+        # 256 px wide: x = col < 256 (the convention check — [row, col] would put
+        # row, which reaches ~512, in x), y = row < 512.
+        assert xy[:, 0].max() < 256.0
         assert xy[:, 1].max() < 512.0
 
 
 def test_donor_acceptor_not_swapped(tdat: Tdat) -> None:
-    # Donor (ch1) and acceptor (ch2) share near-equal x and a small signed y split
-    # offset in reference-channel coords — a swap or flip would blow these up.
+    # Matched molecules sit at near-identical positions in each cropped half, so the
+    # donor->acceptor offset is just the few-pixel channel registration; a frame
+    # swap/flip would blow this up to hundreds of pixels.
     donor = tdat.colocalization.coords[0]
     acceptor = tdat.colocalization.coords[1]
-    assert np.median(np.abs(acceptor[:, 0] - donor[:, 0])) < 5.0
-    assert 0.0 < np.median(acceptor[:, 1] - donor[:, 1]) < 20.0
+    assert np.median(np.linalg.norm(acceptor - donor, axis=1)) < 15.0
 
 
 def test_factors_decoded_and_remapped(tdat: Tdat) -> None:
@@ -172,7 +176,9 @@ def test_minimal_referenced_table_decodes(tmp_path: Path) -> None:
     _write_minimal_tdat(path, table=particles_table())
     coloc = read_tdat(path).colocalization
     assert coloc.n_molecules == 2
-    assert np.allclose(coloc.coords[0], [[9.0, 19.0], [29.0, 39.0]])
+    # rows store [row, col] -> flipped to [x, y] and 1-based -> 0-based:
+    # (10, 20) -> [19, 9], (30, 40) -> [39, 29].
+    assert np.allclose(coloc.coords[0], [[19.0, 9.0], [39.0, 29.0]])
     assert coloc.channel_present.tolist() == [True, False, False, False]
 
 
@@ -220,8 +226,10 @@ def test_partial_colocalization_row_is_filtered(tmp_path: Path) -> None:
     coloc = read_tdat(path).colocalization
     assert coloc.n_molecules == 1
     assert coloc.channel_present.tolist() == [True, True, False, False]
-    assert np.allclose(coloc.coords[0], [[9.0, 19.0]])
-    assert np.allclose(coloc.coords[1], [[10.0, 27.0]])
+    # [row, col] -> [x, y], 1-based -> 0-based: donor (10, 20) -> [19, 9];
+    # acceptor (11, 28) -> [27, 10].
+    assert np.allclose(coloc.coords[0], [[19.0, 9.0]])
+    assert np.allclose(coloc.coords[1], [[27.0, 10.0]])
     for xy in coloc.coords.values():
         assert xy.min() >= 0.0  # no fabricated negative placeholder coords
 
