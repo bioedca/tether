@@ -11,11 +11,13 @@ This module builds that pipeline incrementally (the native bead-detection ->
 phase-correlation prealign -> nearest-neighbour pairing -> degree-2 fit chain of
 M1 S5/S6):
 
-* :class:`SimilarityTransform2D` + :func:`estimate_translation_prealign` -- the
-  coarse phase-correlation prealign that seeds pairing (Appendix E Stage 7). M1
-  S5 lands the translation DOF; the full 4-DOF rotation+scale estimate (a
-  Fourier-Mellin log-polar pass, the analogue of ``imregcorr(..., 'similarity')``)
-  is a follow-up that reuses the same transform type (ADR-0012);
+* :class:`SimilarityTransform2D` + :func:`estimate_translation_prealign` /
+  :func:`estimate_similarity_prealign` -- the coarse phase-correlation prealign
+  that seeds pairing (Appendix E Stage 7). M1 S5a lands the translation DOF; M1
+  S5b lands the full 4-DOF rotation+scale estimate -- a Fourier-Mellin log-polar
+  pass, the faithful analogue of Deep-LASI ``imregcorr(..., 'similarity')``
+  (``createMapPhaseCorr.m:11``) -- reusing the same transform type (ADR-0012,
+  ADR-0013);
 * :func:`pair_control_points` -- mutual nearest-neighbour pairing within a px
   tolerance (Appendix E Stage 8), matched in the prealigned frame but returning
   the original un-prealigned moving coords for the fit (ADR-0012);
@@ -57,6 +59,7 @@ __all__ = [
     "PolyTransform2D",
     "SimilarityTransform2D",
     "TmapChannel",
+    "estimate_similarity_prealign",
     "estimate_translation_prealign",
     "fit_polynomial_transform",
     "pair_control_points",
@@ -193,11 +196,12 @@ class SimilarityTransform2D:
     the original, un-prealigned coordinates (Stage 8; see
     :func:`pair_control_points`).
 
-    M1 S5 populates this from a translation-only phase correlation
-    (:func:`estimate_translation_prealign`); the full 4-DOF rotation+scale
-    estimate (Fourier-Mellin log-polar) is a follow-up. The scale/rotation fields
-    are first-class here so that estimator slots in without an API change
-    (ADR-0012).
+    M1 S5a populates this from a translation-only phase correlation
+    (:func:`estimate_translation_prealign`, the scale-1/rotation-0 special case);
+    M1 S5b populates the full 4-DOF rotation+scale estimate from a Fourier-Mellin
+    log-polar pass (:func:`estimate_similarity_prealign`). The scale/rotation
+    fields are first-class here so both estimators share one type (ADR-0012,
+    ADR-0013).
     """
 
     scale: float
@@ -268,6 +272,152 @@ def estimate_translation_prealign(
     # p_reference = p_moving + [shift_col, shift_row]. Convert to [x, y].
     translation = np.array([shift[1], shift[0]], dtype=np.float64)
     return SimilarityTransform2D(scale=1.0, rotation=0.0, translation=translation)
+
+
+def _masked_ncc(a: np.ndarray, b: np.ndarray, mask: np.ndarray) -> float:
+    """Normalised cross-correlation of ``a`` and ``b`` over ``mask`` (-1 if too small)."""
+    if int(mask.sum()) < 64:
+        return -1.0
+    av = a[mask] - a[mask].mean()
+    bv = b[mask] - b[mask].mean()
+    denom = float(np.sqrt((av * av).sum() * (bv * bv).sum()))
+    return float((av * bv).sum() / denom) if denom > 0 else -1.0
+
+
+def estimate_similarity_prealign(
+    reference: np.ndarray,
+    moving: np.ndarray,
+    *,
+    upsample_factor: int = 10,
+    low_sigma: float = 3.0,
+    high_sigma: float = 20.0,
+) -> SimilarityTransform2D:
+    """Estimate a 4-DOF similarity prealign (rotation + scale + translation), Stage 7.
+
+    The faithful Python analogue of Deep-LASI's ``imregcorr(...,'similarity')``
+    (``deeplasi/functions/mapping/createMapPhaseCorr.m:11``), which recovers
+    translation **and** rotation **and** isotropic scale by frequency-domain
+    (Fourier-Mellin) registration. Where :func:`estimate_translation_prealign`
+    covers only the translation DOF (M1 S5a), this adds rotation + scale (M1 S5b,
+    ADR-0013). The returned :class:`SimilarityTransform2D` maps a ``moving``
+    ``[x, y]`` point into the ``reference`` frame; pass it to
+    :func:`pair_control_points` as ``prealign``. ``reference`` defaults to the
+    donor half (PRD §11.2).
+
+    Method (the canonical skimage log-polar recipe, version-matched to the base
+    ``conda-lock`` scikit-image 0.26):
+
+    1. band-pass each image (``difference_of_gaussians``) to suppress DC/background
+       and high-frequency noise, then apply a Hann window (``filters.window``);
+    2. take the centred FFT magnitude (``scipy.fft.fftshift(fft2(...))``) -- which
+       is translation-invariant, so rotation+scale live here alone;
+    3. log-polar resample the magnitude (``transform.warp_polar(scaling='log')``)
+       and phase-correlate the two (``phase_cross_correlation``,
+       ``normalization=None``): the angular shift is rotation, the radial shift is
+       log-scale;
+    4. the FFT magnitude is centro-symmetric, so rotation is ambiguous mod 180°
+       and the scale direction is order-dependent -- so the four candidates
+       (rotation ``{θ, θ-180}`` × scale ``{s, 1/s}``) are each materialised, the
+       residual translation found by a windowed real-space phase correlation, and
+       the candidate with the highest masked-overlap NCC is chosen (no fragile
+       hand-derived sign convention).
+
+    **Reliable regime.** Validated for the physical split-sensor case -- the
+    near-identity regime of sub-degree rotation and sub-percent scale, which is all
+    dual-view channel registration ever needs (the committed calibration crop's
+    ``.tmap`` similarity is ≈ 0.04°, ≈ 0.1 % off unity). Larger warps are not
+    validated and grow unreliable on sparse fields; rotations approaching ±90° are
+    inherently ambiguous from a magnitude spectrum and are out of scope (ADR-0013).
+
+    Parameters
+    ----------
+    reference, moving:
+        2-D single-channel images of the **same shape** (the per-half bead
+        detection / calibration images).
+    upsample_factor:
+        Sub-pixel upsampling of the final translation phase correlation
+        (PRD §11.2 default 10): translation resolved to ``1 / upsample_factor`` px.
+    low_sigma, high_sigma:
+        Band-pass Gaussian std-devs in px (PRD §11.2 prealign row; defaults 3 / 20
+        suppress saturated background + pixel noise while keeping bead-scale
+        structure).
+    """
+    reference = np.asarray(reference, dtype=np.float64)
+    moving = np.asarray(moving, dtype=np.float64)
+    if reference.ndim != 2 or moving.ndim != 2:
+        raise ValueError("reference and moving must be 2-D images")
+    if reference.shape != moving.shape:
+        raise ValueError(
+            f"reference {reference.shape} and moving {moving.shape} must have the same shape"
+        )
+    if upsample_factor < 1:
+        raise ValueError(f"upsample_factor must be >= 1, got {upsample_factor}")
+    if not (0 < low_sigma < high_sigma):
+        raise ValueError(f"require 0 < low_sigma < high_sigma, got {low_sigma}, {high_sigma}")
+    # The low-frequency log-polar radius is shape[0]//8; require >= 16 px per axis so
+    # radius >= 2 keeps np.log(radius) > 0 (real bead detection images are >= 256 px).
+    if min(reference.shape) < 16:
+        raise ValueError(f"images must be >= 16 px per axis, got {reference.shape}")
+    if not (np.all(np.isfinite(reference)) and np.all(np.isfinite(moving))):
+        raise ValueError("reference and moving must be finite (no NaN/inf)")
+
+    # Heavy, GUI-stack-adjacent imports kept local (mirrors estimate_translation_prealign).
+    from scipy.fft import fft2, fftshift  # noqa: PLC0415
+    from skimage.filters import difference_of_gaussians, window  # noqa: PLC0415
+    from skimage.registration import phase_cross_correlation  # noqa: PLC0415
+    from skimage.transform import SimilarityTransform, warp, warp_polar  # noqa: PLC0415
+
+    han = window("hann", reference.shape)
+    ref_fs = np.abs(fftshift(fft2(difference_of_gaussians(reference, low_sigma, high_sigma) * han)))
+    mov_fs = np.abs(fftshift(fft2(difference_of_gaussians(moving, low_sigma, high_sigma) * han)))
+
+    shape = ref_fs.shape
+    radius = shape[0] // 8  # restrict to low frequencies (where the bead structure lives)
+    warped_ref = warp_polar(ref_fs, radius=radius, output_shape=shape, scaling="log", order=0)
+    warped_mov = warp_polar(mov_fs, radius=radius, output_shape=shape, scaling="log", order=0)
+    # The magnitude is centro-symmetric: only the [0, 180) angular half is unique.
+    half = shape[0] // 2
+    (shift_r, shift_c), _err, _pd = phase_cross_correlation(
+        warped_ref[:half], warped_mov[:half], upsample_factor=10, normalization=None
+    )
+    raw_angle = (360.0 / shape[0]) * shift_r
+    raw_scale = float(np.exp(shift_c / (shape[1] / np.log(radius))))
+
+    cx, cy = moving.shape[1] / 2.0, moving.shape[0] / 2.0
+
+    def _centred(scale: float, rot_deg: float) -> SimilarityTransform:
+        # rotation + isotropic scale about the image centre (translation resolved next).
+        return (
+            SimilarityTransform(translation=(-cx, -cy))
+            + SimilarityTransform(scale=scale, rotation=np.deg2rad(rot_deg))
+            + SimilarityTransform(translation=(cx, cy))
+        )
+
+    ones = np.ones_like(moving)
+    best_score = -np.inf
+    best_full = SimilarityTransform()  # identity seed; always overwritten (score >= -1 > -inf)
+    for rot_c in (raw_angle, raw_angle - 180.0):
+        for scale_c in (raw_scale, 1.0 / raw_scale):
+            rs = _centred(scale_c, rot_c)
+            moving_rs = warp(moving, rs.inverse, order=1, preserve_range=True)
+            # Window before the translation phase correlation to suppress warp-border
+            # artefacts that otherwise corrupt the recovered shift.
+            (t_r, t_c), _e, _p = phase_cross_correlation(
+                reference * han, moving_rs * han, upsample_factor=upsample_factor
+            )
+            full = rs + SimilarityTransform(translation=(float(t_c), float(t_r)))
+            aligned = warp(moving, full.inverse, order=1, preserve_range=True)
+            cover = warp(ones, full.inverse, order=0, preserve_range=True) > 0.5
+            score = _masked_ncc(reference, aligned, cover)
+            if score > best_score:
+                best_score, best_full = score, full
+
+    sim = SimilarityTransform(matrix=best_full.params)
+    return SimilarityTransform2D(
+        scale=float(sim.scale),
+        rotation=float(sim.rotation),
+        translation=np.asarray(sim.translation, dtype=np.float64),
+    )
 
 
 @dataclass(frozen=True)
