@@ -256,6 +256,17 @@ def test_fit_validates_inputs() -> None:
         fit_registration_map(ref, ref, reference_channel=1, moving_channel=2, on_over_gate="nope")  # type: ignore[arg-type]
 
 
+def test_fit_rejects_non_finite_control_points() -> None:
+    # Non-finite coords would yield a non-finite residual that reads as "unknown"
+    # (never over-gate), silently accepting an invalid calibration.
+    rng = np.random.RandomState(7)
+    ref = rng.uniform([0, 0], [100, 100], (8, 2))
+    moving = ref.copy()
+    moving[0, 0] = np.nan
+    with pytest.raises(ValueError, match="finite"):
+        fit_registration_map(ref, moving, reference_channel=1, moving_channel=2)
+
+
 # --- map-file persistence (Stage 10) -----------------------------------------
 
 
@@ -337,6 +348,7 @@ def test_write_read_calibration_round_trip(tmp_path: Path) -> None:
     create_project(project)
     reg = _identity_map(
         rms_residual=0.42,
+        reference_geometry=ChannelGeometry(crop=(1, 1, 256, 256), rotation_deg=90, flip=(1, 0)),
         moving_geometry=ChannelGeometry(crop=(1, 257, 256, 512)),
         provenance={"app_version": "1.2.3", "fit": "polynomial-deg2"},
     )
@@ -380,6 +392,20 @@ def test_read_calibration_missing_id_raises(tmp_path: Path) -> None:
     create_project(project)
     with pytest.raises(KeyError, match="no calibration"):
         read_calibration(project, "ghost")
+
+
+def test_write_calibration_refuses_missing_or_foreign_store(tmp_path: Path) -> None:
+    # write_calibration is additive-only: it must refuse to create a new store or
+    # graft /calibration onto a foreign HDF5 file (it opens r+, not a).
+    h5py = pytest.importorskip("h5py")
+    with pytest.raises(ValueError):
+        write_calibration(tmp_path / "absent.tether", _identity_map(), calibration_id="x")
+    foreign = tmp_path / "foreign.h5"
+    with h5py.File(foreign, "w") as f:
+        f.create_group("not_tether")
+    with pytest.raises(ValueError):
+        write_calibration(foreign, _identity_map(), calibration_id="x")
+    assert not (tmp_path / "absent.tether").exists()  # never created a store
 
 
 def test_writing_calibration_keeps_schema_manifest_frozen(tmp_path: Path) -> None:
@@ -531,13 +557,29 @@ def test_imported_over_gate_fail_policy_raises() -> None:
 
 
 def test_registration_map_from_tmap_validates() -> None:
-    _reference, channels = _load_tmap_fixture()
+    reference, channels = _load_tmap_fixture()
     with pytest.raises(ValueError, match="empty"):
         registration_map_from_tmap({})
     with pytest.raises(ValueError, match="not in decoded"):
         registration_map_from_tmap(channels, moving_channel=999)
+    with pytest.raises(ValueError, match="reference_channel .* not in decoded"):
+        registration_map_from_tmap(channels, reference_channel=999)
     with pytest.raises(ValueError, match="on_over_gate"):
         registration_map_from_tmap(channels, on_over_gate="nope")  # type: ignore[arg-type]
+    # A lone control-point array must not silently disable RMS gating.
+    donor = channels[next(c for c in channels if c != reference)].map_particles
+    with pytest.raises(ValueError, match="provided together"):
+        registration_map_from_tmap(channels, reference_points=donor)
+
+
+def test_imported_map_carries_both_channel_crops() -> None:
+    _reference, channels = _load_tmap_fixture()
+    reg = registration_map_from_tmap(channels)
+    # Both channels' crop geometry is carried from the .tmap (Stage 10).
+    assert reg.reference_geometry is not None
+    assert reg.reference_geometry.crop is not None
+    assert reg.moving_geometry is not None
+    assert reg.moving_geometry.crop is not None
 
 
 # --- public surface ----------------------------------------------------------
@@ -547,8 +589,13 @@ def test_public_imaging_surface_reexports_calibration() -> None:
     import tether.imaging as imaging
 
     assert imaging.RegistrationMap is RegistrationMap
+    assert imaging.RegistrationOverGateError is RegistrationOverGateError
+    assert imaging.OverGateRegistrationWarning is OverGateRegistrationWarning
     assert imaging.fit_registration_map is fit_registration_map
     assert imaging.registration_map_from_tmap is registration_map_from_tmap
     assert imaging.save_map is save_map
+    assert imaging.load_map is load_map
     assert imaging.write_calibration is write_calibration
+    assert imaging.read_calibration is read_calibration
     assert imaging.DEFAULT_RMS_GATE_PX == DEFAULT_RMS_GATE_PX
+    assert imaging.LOW_CONFIDENCE_TAG == LOW_CONFIDENCE_TAG

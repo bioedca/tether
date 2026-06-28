@@ -315,11 +315,18 @@ def fit_registration_map(
         raise ValueError(
             "reference_points and moving_points must be matching (N, 2) arrays of [x, y]"
         )
+    if not (np.isfinite(reference_points).all() and np.isfinite(moving_points).all()):
+        # Non-finite coords yield non-finite coefficients/RMS, and a non-finite
+        # residual reads as "unknown" (never over-gate) -- which would silently
+        # accept an invalid calibration. Reject up front.
+        raise ValueError("reference_points and moving_points must contain only finite values")
     if on_over_gate not in ("warn", "fail"):
         raise ValueError(f"on_over_gate must be 'warn' or 'fail', got {on_over_gate!r}")
 
     ref_to_moving, moving_to_ref, degree = _fit_both(reference_points, moving_points)
     rms = point_rms(ref_to_moving.apply(reference_points), moving_points)
+    if not np.isfinite(rms):
+        raise ValueError("registration fit produced a non-finite RMS residual")
 
     reg_map = RegistrationMap(
         reference_channel=int(reference_channel),
@@ -395,8 +402,9 @@ def registration_map_from_tmap(
 
     The imported transforms are the ``.tmap``'s ``reference -> channel`` and
     ``channel -> reference`` maps (0-based via the :class:`TmapChannel` helpers).
-    The crop origin is taken from the ``.tmap``; per-channel rotation/flip are not
-    yet decoded (S7) and are left unset. When matched control points
+    Each channel's crop is carried from the ``.tmap`` (reference + moving); the
+    per-channel rotation/flip are not yet decoded (S7) and are left unset. When
+    matched control points
     (``reference_points`` / ``moving_points``, e.g. colocalized molecule pairs) are
     supplied, the imported map's RMS residual is measured at them and the same
     over-gate policy as the native path applies (``on_over_gate``: ``"warn"`` flags
@@ -416,6 +424,10 @@ def registration_map_from_tmap(
         raise ValueError(f"on_over_gate must be 'warn' or 'fail', got {on_over_gate!r}")
     if reference_channel is None:
         reference_channel = min(channels)
+    if reference_channel not in channels:
+        raise ValueError(
+            f"reference_channel {reference_channel} not in decoded .tmap {sorted(channels)}"
+        )
     if moving_channel is None:
         others = [cid for cid in channels if cid != reference_channel]
         if len(others) != 1:
@@ -429,6 +441,7 @@ def registration_map_from_tmap(
     if reference_channel == moving_channel:
         raise ValueError(f"reference and moving channel must differ (both {reference_channel})")
 
+    reference = channels[reference_channel]
     moving = channels[moving_channel]
     # The TmapChannel transforms warp channel-local 1-based coords; wrap them in
     # 0-based PolyTransform2Ds (forward = reference -> moving) so the RegistrationMap
@@ -438,14 +451,29 @@ def registration_map_from_tmap(
 
     n_pts = 0
     rms = float("nan")
-    if reference_points is not None and moving_points is not None:
+    if (reference_points is None) != (moving_points is None):
+        # A lone array would silently leave rms=NaN (never over-gate) and
+        # n_control_points=0 -- disabling the gate. Require both or neither.
+        raise ValueError("reference_points and moving_points must be provided together")
+    if reference_points is not None:
         reference_points = np.atleast_2d(np.asarray(reference_points, dtype=np.float64))
         moving_points = np.atleast_2d(np.asarray(moving_points, dtype=np.float64))
-        if reference_points.shape != moving_points.shape:
-            raise ValueError("reference_points and moving_points must have matching shape")
+        if (
+            reference_points.shape != moving_points.shape
+            or reference_points.ndim != 2
+            or reference_points.shape[1] != 2
+        ):
+            raise ValueError(
+                "reference_points and moving_points must be matching (N, 2) arrays of [x, y]"
+            )
+        if not (np.isfinite(reference_points).all() and np.isfinite(moving_points).all()):
+            raise ValueError("reference_points and moving_points must contain only finite values")
         n_pts = int(len(reference_points))
         rms = float(point_rms(ref_to_moving.apply(reference_points), moving_points))
 
+    reference_geometry = ChannelGeometry(
+        crop=tuple(np.asarray(reference.crop, dtype=int).ravel().tolist())
+    )
     moving_geometry = ChannelGeometry(
         crop=tuple(np.asarray(moving.crop, dtype=int).ravel().tolist())
     )
@@ -460,7 +488,7 @@ def registration_map_from_tmap(
         gate_px=float(gate_px),
         degree=_DEGREE_POLYNOMIAL,
         source="imported",
-        reference_geometry=None,
+        reference_geometry=reference_geometry,
         moving_geometry=moving_geometry,
         provenance={"app_version": app_version, "source_file": source_file, "fit": "imported-tmap"},
     )
@@ -620,14 +648,24 @@ def write_calibration(
     This is **additive data** -- the frozen ``/calibration`` container group itself
     is untouched, so the M0 schema freeze (``schema-guard``) stays green.
 
+    The target **must already be a compatible ``.tether`` project**
+    (:func:`tether.io.schema.assert_is_compatible_project`); the file is opened
+    ``r+`` (never ``a``) so this can neither create a fresh store nor graft a
+    ``/calibration`` group onto a foreign HDF5 file, and it writes into the
+    pre-declared frozen group rather than conjuring one. Calibrations are
+    write-once per ``calibration_id``.
+
     Returns the ``/calibration/<calibration_id>`` path written.
     """
     import h5py  # noqa: PLC0415
 
+    from tether.io.schema import assert_is_compatible_project  # noqa: PLC0415
+
     project_path = Path(project_path)
+    assert_is_compatible_project(project_path)  # refuse non-/foreign/future stores
     str_dt = h5py.string_dtype(encoding="utf-8")
-    with h5py.File(project_path, "a") as f:
-        cal = f.require_group(_CALIBRATION_GROUP)
+    with h5py.File(project_path, "r+") as f:
+        cal = f[_CALIBRATION_GROUP]  # frozen skeleton guarantees this exists
         if calibration_id in cal:
             raise ValueError(
                 f"calibration '{calibration_id}' already exists in {project_path} "
