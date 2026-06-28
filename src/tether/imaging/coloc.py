@@ -115,10 +115,14 @@ class ColocalizedMolecules:
     donor_index: np.ndarray
     acceptor_index: np.ndarray
 
+    def __len__(self) -> int:
+        """Number of kept molecules; makes an empty result falsy (``if result:``)."""
+        return int(self.donor_xy.shape[0])
+
     @property
     def n_molecules(self) -> int:
         """Number of kept (extractable) donor-anchored molecules."""
-        return int(self.donor_xy.shape[0])
+        return len(self)
 
 
 def _as_xy(points: np.ndarray, name: str) -> np.ndarray:

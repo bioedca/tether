@@ -196,6 +196,16 @@ def test_donor_index_tracks_survivors() -> None:
 # --- empties + validation ----------------------------------------------------
 
 
+def test_len_and_truthiness() -> None:
+    reg = _make_map()
+    res = colocalize(
+        np.array([[30.0, 30.0], [40.0, 40.0]]), reg, donor_shape=(64, 64), acceptor_shape=(64, 64)
+    )
+    assert len(res) == res.n_molecules == 2 and res  # non-empty is truthy
+    empty = colocalize(np.empty((0, 2)), reg, donor_shape=(64, 64), acceptor_shape=(64, 64))
+    assert len(empty) == 0 and not empty  # empty is falsy
+
+
 def test_empty_donor_spots_returns_empty() -> None:
     reg = _make_map()
     res = colocalize(np.empty((0, 2)), reg, donor_shape=(64, 64), acceptor_shape=(64, 64))
