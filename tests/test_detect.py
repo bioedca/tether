@@ -119,6 +119,17 @@ def test_detection_image_drops_partial_tail_block() -> None:
     assert image[5, 6] == 0.0
 
 
+def test_detection_image_does_not_mutate_input() -> None:
+    # detection_image casts with copy=False, so it must not write through to the
+    # caller's array (a float64 input is passed through, not copied).
+    movie = np.zeros((120, 8, 8), dtype=np.float64)
+    movie[:, 1, 1] = 100.0
+    movie[100:, 5, 6] = 1000.0
+    before = movie.copy()
+    detection_image(movie, block=50)
+    np.testing.assert_array_equal(movie, before)
+
+
 # --- à trous planes (Stage 3) -----------------------------------------------
 
 
