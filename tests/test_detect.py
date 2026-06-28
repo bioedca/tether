@@ -103,6 +103,22 @@ def test_detection_image_validates_ndim() -> None:
         detection_image(np.zeros((8, 8)))
 
 
+def test_detection_image_drops_partial_tail_block() -> None:
+    # T=120 is not a multiple of block=50: frames 100-119 form a partial tail
+    # block, which cumIMG.m drops (keeping only the two whole 50-frame blocks).
+    block = 50
+    movie = np.zeros((120, 8, 8), dtype=np.float64)
+    movie[:, 1, 1] = 100.0  # a steady spot present in every frame (the whole blocks)
+    movie[100:, 5, 6] = 1000.0  # a bright spike ONLY in the dropped tail (frames 100-119)
+    image = detection_image(movie, block=block)
+    # Faithful to cumIMG.m: dropping the remainder makes T=120 identical to T=100.
+    np.testing.assert_array_equal(image, detection_image(movie[: 2 * block], block=block))
+    # The steady spot is the normalized peak; the dropped-tail spike never appears
+    # (had the partial block been kept, [5, 6] would be the global max instead).
+    assert image[1, 1] == pytest.approx(1.0)
+    assert image[5, 6] == 0.0
+
+
 # --- à trous planes (Stage 3) -----------------------------------------------
 
 
