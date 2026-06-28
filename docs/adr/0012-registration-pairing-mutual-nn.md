@@ -111,5 +111,5 @@ Chosen: **A + C + E.**
 PRD Appendix E Stages 6–10, §11.1, §11.2 (prealign / NN-pairing / polynomial-map
 rows); `deeplasi/functions/mapping/createMapPhaseCorr.m`, `findPairs.m`,
 `createMap.m`; PLAN §5 S5/S6; ADR-0008 (correction-factor remap), ADR-0011
-(extraction-recall homed at M1). Follow-up: S5b (4-DOF Fourier-Mellin
-rotation+scale prealign + a committed bead-image-pair fixture).
+(extraction-recall homed at M1). Follow-up **now homed in ADR-0013**: S5b (4-DOF
+Fourier-Mellin rotation+scale prealign + a committed bead-image-pair fixture).

@@ -29,6 +29,7 @@ PLAIN_FIXTURES = [
     FIXTURES / "acceptor_oracle.npz",
     FIXTURES / "tdat_coloc_slice.tdat",
     FIXTURES / "tmap_coeffs.npz",
+    FIXTURES / "bead_prealign_oracle.npz",
 ]
 
 

@@ -119,6 +119,43 @@ corr ≈ 0.85, best ≈ 0.99 across the committed set). This is the *loose* M0.5
 preview; the strict broad gate is M1 (PRD §4 M1 / §9 M1). Regenerate with
 `scripts/make_acceptor_fixture.py`.
 
+## 4-DOF prealign oracle
+
+`bead_prealign_oracle.npz` validates the M1 S5b Fourier-Mellin similarity
+prealign (`tether.imaging.register.estimate_similarity_prealign`, the faithful
+analogue of Deep-LASI `imregcorr(...,'similarity')`, `createMapPhaseCorr.m:11`).
+It is derived from the **bead-calibration** acquisition staged by the maintainer
+(closing the data-gap ADR-0012 flagged):
+
+- Source `map.tif` (792,946 B, sha256 `b538b539ee75add3509f2540c6182df80608b4f047c432588a5829eecf1d5d90`)
+  — a single 512×512 contrast-stretched `uint8` bead field, split left/right at
+  column 256 (donor cols 0–255, acceptor 256–511), saved as 3 byte-identical
+  pseudo-RGB planes.
+- Source `…20250721_2025-07-21_15-36.tmap` (3,884,619 B, sha256
+  `a993036a53d1d4920fe2a1f8409a33889d0f72ca417162efc910845bc9c3f462`) — the
+  paired Deep-LASI registration map (decoded by `read_tmap`).
+
+The fixture holds the two real 256×256 centred channel crops (`donor`,
+`acceptor`, `uint8`) plus the **ground-truth acceptor→donor similarity** in the
+crop's local `[x, y]` frame (`gt_scale` 1.00114, `gt_rotation_deg` +0.0382,
+`gt_translation` ≈ `[-7.59, -1.91]`), obtained by sampling the decoded `.tmap`
+polynomial on a grid and least-squares (Umeyama) fitting a similarity (grid fit
+residual 0.192 px); also `donor_crop_offset` `[0, 128]` and `acceptor_crop_offset`
+`[256, 128]` (`[col, row]`). The estimator recovers this on the real pair to
+Δscale 0.0002, Δrotation 0.04°, Δtranslation 0.33 px.
+
+**Validation scope.** `map.tif` is a contrast-stretched, partly-saturated display
+export — its FFT magnitude is DC-dominated, so it can only validate the
+near-identity *real* relationship (the crop's ground truth above — rotation
+~0.04°, scale ~0.11% off unity), not
+large-warp *recovery* (verified: saturating an otherwise-recoverable synthetic
+bead field to `uint8` breaks Fourier-Mellin recovery). Large-warp recovery of the
+estimator is therefore unit-tested separately on a deterministic non-saturated
+synthetic bead field (`tests/test_register_prealign.py`); this fixture proves the
+estimator reports the **true similarity on real bead images**. **Accessed:**
+2026-06-27. **License:** GPL-3.0-or-later (Mondragón Lab, Northwestern).
+Regenerate with `scripts/make_bead_prealign_fixture.py`.
+
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 
 `smd_281mol.hdf5` (the redistributable ≥50-molecule population SMD) and its
