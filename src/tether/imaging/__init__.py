@@ -18,6 +18,19 @@ from tether.imaging.aperture import (
     aperture_masks,
     integrate_traces,
 )
+from tether.imaging.calibrate import (
+    DEFAULT_RMS_GATE_PX,
+    LOW_CONFIDENCE_TAG,
+    OverGateRegistrationWarning,
+    RegistrationMap,
+    RegistrationOverGateError,
+    fit_registration_map,
+    load_map,
+    read_calibration,
+    registration_map_from_tmap,
+    save_map,
+    write_calibration,
+)
 from tether.imaging.detect import (
     atrous_wavelet_planes,
     b3_spline_kernel,
@@ -44,10 +57,15 @@ from tether.imaging.split import (
 )
 
 __all__ = [
+    "DEFAULT_RMS_GATE_PX",
+    "LOW_CONFIDENCE_TAG",
     "ChannelGeometry",
     "IntegratedTraces",
+    "OverGateRegistrationWarning",
     "PairedControlPoints",
     "PolyTransform2D",
+    "RegistrationMap",
+    "RegistrationOverGateError",
     "SimilarityTransform2D",
     "TmapChannel",
     "aperture_masks",
@@ -58,11 +76,17 @@ __all__ = [
     "estimate_similarity_prealign",
     "estimate_translation_prealign",
     "fit_polynomial_transform",
+    "fit_registration_map",
     "integrate_traces",
+    "load_map",
     "pair_control_points",
     "point_rms",
     "poly_basis_deg2",
     "process_image",
+    "read_calibration",
     "read_tmap",
+    "registration_map_from_tmap",
+    "save_map",
     "split_channels",
+    "write_calibration",
 ]
