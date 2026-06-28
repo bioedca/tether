@@ -86,7 +86,12 @@ def _sha256(path: Path) -> str:
 def main() -> None:
     img = tifffile.imread(TIF)
     if img.ndim == 3:  # pseudo-RGB save artefact: 3 byte-identical planes
-        img = img[0]
+        if img.shape[0] == 3:  # sample-first (C, H, W)
+            img = img[0]
+        elif img.shape[-1] == 3:  # sample-last (H, W, C)
+            img = img[..., 0]
+        else:
+            raise SystemExit(f"unexpected 3-D map.tif shape {img.shape}")
     donor = np.ascontiguousarray(img[CROP[0], 0:256])
     acceptor = np.ascontiguousarray(img[CROP[0], 256:512])
     assert donor.shape == (256, 256) and acceptor.shape == (256, 256)  # noqa: S101

@@ -26,6 +26,7 @@ uv run --no-project --with h5py --with tifffile --with numpy \
 | `tests/fixtures/tdat_coloc_slice.tdat` | TIRFdata colocalization slice (M0.5 S6 decode) | `…010.tif…00-00.tdat` | 37,039,831 B | 41,344 B | `b6a911d48bc27cd1…` | coloc table only |
 | `tests/fixtures/tmap_coeffs.npz` | Deep-LASI `.tmap` registration coefficients (M0.5 S6 registration) | `…20250718…13-40.tmap` | 3,872,385 B | 5,905 B | `7db0cf80d161847e…` | decoded degree-2 coeffs only |
 | `tests/fixtures/acceptor_oracle.npz` | acceptor aperture-integration oracle via `.tmap` apply (M0.5 S5/S6) | `…010.tif` + `…010.mat` + `…13-40.tmap` | 891,955,083 B + 9,053,155 B + 3,872,385 B | 271,214 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` + `7db0cf80d161847e…` | 6 acceptor crops + `acc` oracle |
+| `tests/fixtures/bead_prealign_oracle.npz` | 4-DOF prealign oracle (M1 S5b registration) | `…20250721…15-36.tmap` + `map.tif` | 792,946 B + 3,884,619 B | 104,307 B | `b538b539ee75add3…` + `a993036a53d1d492…` | 2 bead-channel crops + `.tmap` ground truth |
 
 **Accessed:** 2026-06-22 (date `example-data/` was gathered onto this
 workstation; see its `README.md`). **Origin:** Mondragón Lab (Northwestern)
