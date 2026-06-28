@@ -6,10 +6,11 @@ A faithful NumPy/SciPy port of Deep-LASI's class-default (mode 1) detection path
 (`deeplasi/functions/external/Wave_Partfind.m`, `mapping/findPart.m`):
 
 * **Stage 2 — detection image** (:func:`detection_image`): the "Cumulated" image,
-  a moving-average max projection. Frames are grouped into non-overlapping blocks
-  of ``block`` (default 50), each block is mean-projected, the per-pixel **max**
-  across block-means is taken, and the result is normalized to ``[0, 1]``. Too
-  few frames (``T < block``) falls back to a sum projection. This suppresses
+  a moving-average max projection. Frames are grouped into non-overlapping **whole**
+  blocks of ``block`` (default 50; a trailing partial block of ``T % block`` frames
+  is dropped, as in ``cumIMG.m``), each block is mean-projected, the per-pixel
+  **max** across block-means is taken, and the result is normalized to ``[0, 1]``.
+  Too few frames (``T < block``) falls back to a sum projection. This suppresses
   single-frame noise/blinking while keeping a spot bright in >= 1 window
   (`tools/cumIMG.m:16-65`).
 
@@ -90,9 +91,10 @@ def detection_image(movie: np.ndarray, block: int = 50) -> np.ndarray:
         including big-endian — it is cast to ``float64``).
     block:
         Moving-average window in frames (Deep-LASI ``MovingAverageWindowSize``,
-        default 50). Frames are grouped into non-overlapping blocks; a final
-        partial block (remainder ``T % block``) is kept as its own (smaller)
-        block-mean so no signal is dropped.
+        default 50). Frames are grouped into non-overlapping **whole** blocks; the
+        trailing partial block (remainder ``T % block`` frames) is **dropped**,
+        matching ``cumIMG.m`` (``reshape(...,movAvg,[])`` keeps only whole blocks).
+        When ``T < block`` there is no whole block, so a sum projection is used.
 
     Returns
     -------
@@ -109,15 +111,18 @@ def detection_image(movie: np.ndarray, block: int = 50) -> np.ndarray:
     n_frames = data.shape[0]
 
     if n_frames < block:
-        # Too few frames for a single window -> sum projection fallback.
+        # No whole block -> sum projection fallback (cumIMG.m's `isempty(B)` branch,
+        # deeplasi/functions/tools/cumIMG.m:53-56).
         projection = data.sum(axis=0)
     else:
+        # Keep only WHOLE blocks: the trailing ``T % block`` remainder frames are
+        # dropped, matching cumIMG.m's
+        # ``reshape(img(:,:,1:end-mod(s(3),movAvg)), s1, s2, movAvg, [])``
+        # (deeplasi/functions/tools/cumIMG.m:49). A smaller partial block would
+        # under-suppress temporal noise and could spike the per-pixel max, shifting
+        # which spots the a trous detector finds relative to the Deep-LASI oracle.
         n_full = n_frames // block
         block_means = data[: n_full * block].reshape(n_full, block, *data.shape[1:]).mean(axis=1)
-        remainder = n_frames - n_full * block
-        if remainder:
-            tail = data[n_full * block :].mean(axis=0, keepdims=True)
-            block_means = np.concatenate([block_means, tail], axis=0)
         projection = block_means.max(axis=0)
 
     peak = projection.max()
