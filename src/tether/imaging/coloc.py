@@ -56,7 +56,11 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.spatial import cKDTree
 
-from tether.imaging.aperture import aperture_in_frame
+from tether.imaging.aperture import (
+    _validate_frame_shape,
+    _validate_window,
+    aperture_in_frame,
+)
 from tether.imaging.calibrate import RegistrationMap
 
 __all__ = [
@@ -183,12 +187,12 @@ def colocalize(
         )
     if not (coloc_distance_px > 0):
         raise ValueError(f"coloc_distance_px must be > 0, got {coloc_distance_px}")
-    if window < 1 or window % 2 == 0:
-        # Validated up front (not only inside aperture_in_frame) so the contract
-        # holds even when donor_spots is empty and the guardrail never runs.
-        raise ValueError(f"window must be a positive odd integer, got {window}")
-    _validate_shape(donor_shape, "donor_shape")
-    _validate_shape(acceptor_shape, "acceptor_shape")
+    # Validate window + shapes up front via the shared aperture validators (not only
+    # inside aperture_in_frame) so the contract holds even when donor_spots is empty
+    # and the guardrail never runs -- and matches integrate_traces exactly.
+    _validate_window(window)
+    _validate_frame_shape(donor_shape, "donor_shape")
+    _validate_frame_shape(acceptor_shape, "acceptor_shape")
 
     donor_xy = _as_xy(donor_spots, "donor_spots")
     if donor_xy.shape[0] == 0:
@@ -262,16 +266,6 @@ def _annotate_detection(
     detected[hit] = True
     acceptor_index[hit] = idx[hit].astype(np.intp)
     return detected, acceptor_index
-
-
-def _validate_shape(shape: tuple[int, int], name: str) -> None:
-    arr = np.asarray(shape)
-    if arr.shape != (2,) or not np.issubdtype(arr.dtype, np.number):
-        raise ValueError(f"{name} must be a numeric (H, W) pair, got {shape!r}")
-    # isfinite first: floor(inf) == inf and inf >= 1, so a non-finite dim would
-    # otherwise slip past and only fail later as a raw OverflowError on int().
-    if not (np.all(np.isfinite(arr)) and np.all(arr == np.floor(arr)) and np.all(arr >= 1)):
-        raise ValueError(f"{name} must be a positive integer (H, W) pair, got {shape!r}")
 
 
 def _empty_result() -> ColocalizedMolecules:

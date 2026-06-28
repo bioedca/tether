@@ -259,9 +259,10 @@ def test_rejects_bad_frame_shape(bad: tuple[int, ...]) -> None:
         colocalize(np.array([[30.0, 30.0]]), reg, donor_shape=bad, acceptor_shape=(64, 64))
 
 
-@pytest.mark.parametrize("window", [20, 0, -1])
-def test_rejects_non_odd_window(window: int) -> None:
-    # Validated up front, so even an empty donor set rejects a bad window.
+@pytest.mark.parametrize("window", [20, 0, -1, 21.5])
+def test_rejects_non_odd_window(window: float) -> None:
+    # Validated up front, so even an empty donor set rejects a bad (even, <1, or
+    # non-integer) window.
     reg = _make_map()
     for donor in (np.array([[30.0, 30.0]]), np.empty((0, 2))):
         with pytest.raises(ValueError, match="positive odd integer"):

@@ -244,9 +244,20 @@ def test_aperture_in_frame_single_xy_and_empty() -> None:
 
 
 def test_aperture_in_frame_window_validation() -> None:
-    for window in (20, 0, -1):
+    for window in (20, 0, -1, 21.5):  # even, <1, and a non-integer window
         with pytest.raises(ValueError, match="positive odd integer"):
             aperture_in_frame(np.array([[10.0, 10.0]]), shape=(64, 64), window=window)
+
+
+@pytest.mark.parametrize(
+    "bad", [(64,), (64, 64, 3), (64.5, 64.0), (0, 64), (-1, 64), (float("inf"), 64)]
+)
+def test_aperture_in_frame_shape_validation(bad: tuple[float, ...]) -> None:
+    # aperture_in_frame is the shared Stage 13 contract, so it must reject a
+    # malformed (H, W) itself -- not truncate, return all-False, or raise a raw
+    # IndexError/OverflowError downstream.
+    with pytest.raises(ValueError, match="H, W"):
+        aperture_in_frame(np.array([[10.0, 10.0]]), shape=bad)
 
 
 def test_aperture_in_frame_smaller_window_widens_inframe() -> None:

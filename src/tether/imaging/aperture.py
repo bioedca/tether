@@ -48,6 +48,37 @@ __all__ = [
 ]
 
 
+def _validate_window(window: int) -> None:
+    """Reject an aperture side length that is not a positive odd integer.
+
+    The canonical window check shared by :func:`aperture_masks`,
+    :func:`aperture_in_frame`, and (transitively) :func:`integrate_traces` /
+    :func:`tether.imaging.coloc.colocalize`, so a window a crop cannot use is
+    rejected the same way everywhere. A non-integer (e.g. ``21.5``) is rejected too,
+    not silently floored.
+    """
+    if not isinstance(window, (int, np.integer)) or window < 1 or window % 2 == 0:
+        raise ValueError(f"window must be a positive odd integer, got {window!r}")
+
+
+def _validate_frame_shape(shape: tuple[int, int], name: str = "shape") -> tuple[int, int]:
+    """Validate a ``(H, W)`` frame shape and unpack it to a pair of positive ints.
+
+    The canonical shape check for the Stage 13 contract: a malformed shape
+    (``(64,)``, ``(-1, 64)``, a fractional or non-finite dim) raises a clear
+    ``ValueError`` rather than truncating, returning all-``False``, or blowing up
+    later as a raw ``IndexError`` / ``OverflowError`` inside ``int(...)``.
+    """
+    arr = np.asarray(shape)
+    if arr.shape != (2,) or not np.issubdtype(arr.dtype, np.number):
+        raise ValueError(f"{name} must be a numeric (H, W) pair, got {shape!r}")
+    # isfinite first: floor(inf) == inf and inf >= 1, so a non-finite dim would
+    # otherwise pass and only fail later as a raw OverflowError on int().
+    if not (np.all(np.isfinite(arr)) and np.all(arr == np.floor(arr)) and np.all(arr >= 1)):
+        raise ValueError(f"{name} must be a positive integer (H, W) pair, got {shape!r}")
+    return int(arr[0]), int(arr[1])
+
+
 def aperture_in_frame(
     coords: np.ndarray, *, shape: tuple[int, int], window: int = 21
 ) -> np.ndarray:
@@ -76,14 +107,13 @@ def aperture_in_frame(
     np.ndarray
         ``(N,)`` bool; ``True`` where the aperture fits.
     """
-    if window < 1 or window % 2 == 0:
-        raise ValueError(f"window must be a positive odd integer, got {window}")
+    _validate_window(window)
+    height, width = _validate_frame_shape(shape)
     coords = np.atleast_2d(np.asarray(coords, dtype=np.float64))
     if coords.shape == (1, 0):  # atleast_2d of an empty input -> no rows
         return np.empty(0, dtype=bool)
     if coords.ndim != 2 or coords.shape[1] != 2:
         raise ValueError(f"coords must be (N, 2) [x, y], got shape {coords.shape}")
-    height, width = (int(shape[0]), int(shape[1]))
     half = window // 2
     cols = round_half_away(coords[:, 0]).astype(int)  # x -> col
     rows = round_half_away(coords[:, 1]).astype(int)  # y -> row
@@ -139,8 +169,7 @@ def aperture_masks(
     tuple[np.ndarray, np.ndarray]
         ``(disk_mask, ring_mask)``, each ``(window, window)`` bool.
     """
-    if window < 1 or window % 2 == 0:
-        raise ValueError(f"window must be a positive odd integer, got {window}")
+    _validate_window(window)
     if not (0 < disk_radius <= ring_inner < ring_outer):
         raise ValueError(
             "radii must satisfy 0 < disk_radius <= ring_inner < ring_outer, got "
