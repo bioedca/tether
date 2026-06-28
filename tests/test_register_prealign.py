@@ -127,6 +127,22 @@ def test_real_bead_pair_matches_tmap_ground_truth() -> None:
     assert np.linalg.norm(est.translation) > 5.0
 
 
+def test_prealign_seeds_pairing_end_to_end() -> None:
+    """The documented pipeline use: the similarity prealign feeds pair_control_points,
+    recovering the donor<->acceptor correspondence (Appendix E Stages 7-8)."""
+    from tether.imaging.register import pair_control_points
+
+    rng = np.random.default_rng(0)
+    # near-identity pair with the real ~7 px offset; c_mov[i] corresponds to c_ref[i].
+    reference, moving, c_mov, c_ref = _synthetic_pair(1.001, 0.2, 7.0, -2.0, rng)
+    est = estimate_similarity_prealign(reference, moving)
+    paired = pair_control_points(c_ref, c_mov, tol=2.0, prealign=est)
+    # Without the prealign the ~7 px offset exceeds the 2 px gate -> few/no pairs;
+    # with it, the mutual-NN pairing recovers the identity correspondence.
+    assert len(paired.reference_index) >= int(0.9 * len(c_ref))
+    assert np.array_equal(paired.reference_index, paired.moving_index)
+
+
 def test_same_shape_required() -> None:
     rng = np.random.default_rng(0)
     a = rng.standard_normal((64, 64))
