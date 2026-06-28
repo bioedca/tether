@@ -42,9 +42,52 @@ from tether.imaging._rounding import round_half_away
 
 __all__ = [
     "IntegratedTraces",
+    "aperture_in_frame",
     "aperture_masks",
     "integrate_traces",
 ]
+
+
+def aperture_in_frame(
+    coords: np.ndarray, *, shape: tuple[int, int], window: int = 21
+) -> np.ndarray:
+    """Mask of which ``window x window`` apertures fit inside a ``(H, W)`` frame.
+
+    A spot is in-frame iff its full square crop, centred at the away-from-zero
+    rounded centre ``(row=round(y), col=round(x))``, lies entirely inside the frame
+    -- the single source of truth for the extraction crop-box guardrail (Stage 13),
+    shared by :func:`integrate_traces` (its ``valid`` mask) and
+    :func:`tether.imaging.coloc.colocalize` (its skip-out-of-frame guardrail), so
+    the two agree by construction (``traces/extractTraces.m:9-25``).
+
+    Parameters
+    ----------
+    coords:
+        ``(N, 2)`` ``[x, y]`` = ``[col, row]`` spot coordinates (a single ``[x, y]``
+        is promoted to one row).
+    shape:
+        ``(H, W)`` frame shape in pixels.
+    window:
+        Odd aperture side length in px (default 21); the half-extent is
+        ``window // 2``.
+
+    Returns
+    -------
+    np.ndarray
+        ``(N,)`` bool; ``True`` where the aperture fits.
+    """
+    if window < 1 or window % 2 == 0:
+        raise ValueError(f"window must be a positive odd integer, got {window}")
+    coords = np.atleast_2d(np.asarray(coords, dtype=np.float64))
+    if coords.shape == (1, 0):  # atleast_2d of an empty input -> no rows
+        return np.empty(0, dtype=bool)
+    if coords.ndim != 2 or coords.shape[1] != 2:
+        raise ValueError(f"coords must be (N, 2) [x, y], got shape {coords.shape}")
+    height, width = (int(shape[0]), int(shape[1]))
+    half = window // 2
+    cols = round_half_away(coords[:, 0]).astype(int)  # x -> col
+    rows = round_half_away(coords[:, 1]).astype(int)  # y -> row
+    return (rows - half >= 0) & (rows + half < height) & (cols - half >= 0) & (cols + half < width)
 
 
 @dataclass(frozen=True)
@@ -177,11 +220,14 @@ def integrate_traces(
     background = np.zeros((n_mol, n_frames), dtype=np.float64)
     valid = np.zeros(n_mol, dtype=bool)
 
+    # The crop-box guardrail is the shared aperture_in_frame predicate, so a
+    # molecule integrated here is exactly one colocalize() kept (Stage 13).
+    fits = aperture_in_frame(coords, shape=(height, width), window=window)
     for i in range(n_mol):
+        if not fits[i]:
+            continue  # aperture falls outside the frame -> zero trace, valid=False
         col = int(round_half_away(coords[i, 0]))
         row = int(round_half_away(coords[i, 1]))
-        if row - half < 0 or row + half >= height or col - half < 0 or col + half >= width:
-            continue  # aperture falls outside the frame -> zero trace, valid=False
         crop = movie[:, row - half : row + half + 1, col - half : col + half + 1].astype(
             np.float64, copy=False
         )

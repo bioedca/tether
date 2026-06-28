@@ -805,7 +805,7 @@ validation front-loaded at M0.5.
 | Polynomial map degree | 2 (retry 3; similarity fallback if < ~6 points); 4 legacy | `deeplasi/functions/mapping/createMapPhaseCorr.m:20-47`, `createMap.m:57-58` |
 | Registration RMS-residual gate | ≤ 0.5 px (Tether addition; Deep-LASI uses visual QA only) | Tether improvement over `createMapPhaseCorr.m` |
 | Over-gate batch policy (headless) | `warn` = accept-with-flag + structured warning (default; never abort, never drop); `fail` = fail-the-movie | Tether (§7.1; ADR-0014) |
-| Colocalization distance | 3 px, donor-anchored | `deeplasi/functions/mapping/findColoc.m`, `traces/batchExtraction.m:182` |
+| Colocalization distance | 3 px, donor-anchored (ADR-0015) | `deeplasi/functions/mapping/findColoc.m`, `traces/batchExtraction.m:182` |
 | Bleach detection | native reimplementation of **tMAVEN's Bayesian single-step model** (signal→N(0)), run per channel; priors a = b = β = 1, μ = 1000; per-channel first-bleach validated vs `.mat` `pacc`/`pdon` (§9 M3) | [Verma2024]; `tmaven/tmaven/controllers/photobleaching/photobleaching.py`. (Kalafut2008 is a parameter-free *multi-step* method — classical alternative only; the `penalty ≈ 5` is Deep-LASI's `stepFinder` L1 mode, `TRACEdata.m:110`, not a Kalafut parameter) |
 | Correction tolerance window (γ half-width) | 3 frames each side of the bleach step (configurable) | `MASH-FRET/docs/.../panel-factor-corrections.md`; [McCann2010] (§7.2, §9 M3) |
 | γ-agreement tolerance (M3) | γ within ±10% of the Deep-LASI median on the shared-frame, estimator-isolated comparison | Tether (§7.2, §9 M3) |
