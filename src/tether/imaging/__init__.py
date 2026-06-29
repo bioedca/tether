@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from tether.imaging.aperture import (
     IntegratedTraces,
+    aperture_in_frame,
     aperture_masks,
     integrate_traces,
 )
@@ -30,6 +31,11 @@ from tether.imaging.calibrate import (
     registration_map_from_tmap,
     save_map,
     write_calibration,
+)
+from tether.imaging.coloc import (
+    DEFAULT_COLOC_DISTANCE_PX,
+    ColocalizedMolecules,
+    colocalize,
 )
 from tether.imaging.detect import (
     atrous_wavelet_planes,
@@ -57,9 +63,11 @@ from tether.imaging.split import (
 )
 
 __all__ = [
+    "DEFAULT_COLOC_DISTANCE_PX",
     "DEFAULT_RMS_GATE_PX",
     "LOW_CONFIDENCE_TAG",
     "ChannelGeometry",
+    "ColocalizedMolecules",
     "IntegratedTraces",
     "OverGateRegistrationWarning",
     "PairedControlPoints",
@@ -68,9 +76,11 @@ __all__ = [
     "RegistrationOverGateError",
     "SimilarityTransform2D",
     "TmapChannel",
+    "aperture_in_frame",
     "aperture_masks",
     "atrous_wavelet_planes",
     "b3_spline_kernel",
+    "colocalize",
     "detect_spots",
     "detection_image",
     "estimate_similarity_prealign",

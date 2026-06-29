@@ -27,6 +27,7 @@ import numpy as np  # noqa: E402
 
 from tether.imaging.aperture import (  # noqa: E402
     IntegratedTraces,
+    aperture_in_frame,
     aperture_masks,
     integrate_traces,
 )
@@ -204,3 +205,63 @@ def test_integration_matches_deeplasi_donor_oracle() -> None:
     # tightly (loose threshold here per §9 M0.5(b); tightened to the M1 bar later).
     assert np.all(corrs >= 0.95), f"per-molecule donor corr below 0.95: {corrs}"
     assert np.median(corrs) >= 0.97
+
+
+# --- aperture_in_frame: the shared crop-box predicate (Stage 13) -------------
+
+
+def test_aperture_in_frame_central_and_edge() -> None:
+    # window=21 -> half=10; in a 64x64 frame the in-frame box is [10, 53].
+    coords = np.array([[30.0, 30.0], [10.0, 10.0], [53.0, 53.0], [9.0, 30.0], [30.0, 54.0]])
+    fits = aperture_in_frame(coords, shape=(64, 64))
+    np.testing.assert_array_equal(fits, [True, True, True, False, False])
+
+
+def test_aperture_in_frame_matches_integrate_valid() -> None:
+    # The guardrail predicate must equal the integrator's own `valid` mask, so a
+    # colocalize()-kept molecule is exactly an integrate_traces()-valid one.
+    movie = _const_movie(np.full((21, 21), 100.0))
+    coords = np.array([[10, 10], [2, 10], [10, 19], [10, 2], [19, 10]], dtype=float)
+    fits = aperture_in_frame(coords, shape=movie.shape[1:])
+    valid = integrate_traces(movie, coords).valid
+    np.testing.assert_array_equal(fits, valid)
+
+
+def test_aperture_in_frame_rounds_away_from_zero() -> None:
+    # 10.5 rounds to 11 (away from zero), so its window [1, 21] just fits a 22-tall
+    # frame; 10.4 rounds to 10 and also fits -- both pin the rounding rule.
+    fits = aperture_in_frame(np.array([[10.5, 10.5], [10.4, 10.4]]), shape=(22, 22))
+    np.testing.assert_array_equal(fits, [True, True])
+    # In a 21-tall frame, 10.5 -> 11 needs row 21 (out); 10.4 -> 10 fits.
+    fits = aperture_in_frame(np.array([[10.5, 10.5], [10.4, 10.4]]), shape=(21, 21))
+    np.testing.assert_array_equal(fits, [False, True])
+
+
+def test_aperture_in_frame_single_xy_and_empty() -> None:
+    assert aperture_in_frame(np.array([30.0, 30.0]), shape=(64, 64)).tolist() == [True]
+    assert aperture_in_frame(np.empty((0, 2)), shape=(64, 64)).shape == (0,)
+    assert aperture_in_frame(np.array([]), shape=(64, 64)).shape == (0,)
+
+
+def test_aperture_in_frame_window_validation() -> None:
+    for window in (20, 0, -1, 21.5):  # even, <1, and a non-integer window
+        with pytest.raises(ValueError, match="positive odd integer"):
+            aperture_in_frame(np.array([[10.0, 10.0]]), shape=(64, 64), window=window)
+
+
+@pytest.mark.parametrize(
+    "bad", [(64,), (64, 64, 3), (64.5, 64.0), (0, 64), (-1, 64), (float("inf"), 64)]
+)
+def test_aperture_in_frame_shape_validation(bad: tuple[float, ...]) -> None:
+    # aperture_in_frame is the shared Stage 13 contract, so it must reject a
+    # malformed (H, W) itself -- not truncate, return all-False, or raise a raw
+    # IndexError/OverflowError downstream.
+    with pytest.raises(ValueError, match="H, W"):
+        aperture_in_frame(np.array([[10.0, 10.0]]), shape=bad)
+
+
+def test_aperture_in_frame_smaller_window_widens_inframe() -> None:
+    # A 7px window (half=3) keeps a spot a 21px window would reject.
+    coord = np.array([[5.0, 5.0]])
+    assert not aperture_in_frame(coord, shape=(64, 64), window=21)[0]
+    assert aperture_in_frame(coord, shape=(64, 64), window=7)[0]
