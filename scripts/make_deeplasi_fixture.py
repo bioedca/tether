@@ -71,18 +71,35 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _first_string(value: object) -> str:
+    """First string from a MATLAB char/cell field (mirrors ``deeplasi._scalar_str``)."""
+    item: object = np.asarray(value)
+    while isinstance(item, np.ndarray):
+        if item.size == 0:
+            return ""
+        if item.dtype.kind in {"U", "S"} and item.size > 1:
+            return "".join(item.astype(str).reshape(-1)).strip()
+        item = item.reshape(-1)[0]
+    return str(item).strip()
+
+
 def main() -> None:
     mat = sio.loadmat(
         str(MAT),
-        variable_names=["fret_pairs", *_TRACE_FIELDS, "exportedby"],
+        variable_names=["fret_pairs", *_TRACE_FIELDS, "movie_name", "exportedby"],
         squeeze_me=False,
         struct_as_record=True,
     )
+    # Read the real movie_name from the source and assert the expected single
+    # value, so a regenerated fixture can never silently drift from the export.
+    source_movie_name = _first_string(mat["movie_name"])
+    if source_movie_name != MOVIE_NAME:
+        raise SystemExit(f"source movie_name {source_movie_name!r} != expected {MOVIE_NAME!r}")
     slice_mat: dict[str, object] = {
         "fret_pairs": np.asarray(mat["fret_pairs"], dtype=np.float64)[:N_MOL],
-        # The real movie *filename* (committed verbatim); the real ``movie_path``
-        # is an absolute workstation *directory* — redacted, not committed.
-        "movie_name": MOVIE_NAME,
+        # Commit the real movie *filename* (asserted above); redact the real
+        # ``movie_path`` (an absolute workstation *directory*).
+        "movie_name": source_movie_name,
         "movie_path": REDACTED_MOVIE_PATH,
         "exportedby": str(np.asarray(mat["exportedby"]).ravel()[0]),
     }

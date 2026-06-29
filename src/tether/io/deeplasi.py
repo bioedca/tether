@@ -134,10 +134,15 @@ def _scalar_str(value: object) -> str:
     if value is None:
         return ""
     item: object = np.asarray(value)
-    # Unwrap nested 1-element char / object arrays (``<U…`` cells, object cells).
+    # Unwrap nested char / object cells. ``loadmat(chars_as_strings=True)`` joins
+    # char arrays into a single string, but be defensive: a multi-element char
+    # array (dtype 'U'/'S') is one string split across cells — join it rather
+    # than taking only the first character.
     while isinstance(item, np.ndarray):
         if item.size == 0:
             return ""
+        if item.dtype.kind in {"U", "S"} and item.size > 1:
+            return "".join(item.astype(str).reshape(-1)).strip()
         item = item.reshape(-1)[0]
     return str(item).strip()
 

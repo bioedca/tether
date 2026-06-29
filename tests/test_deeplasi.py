@@ -2,43 +2,53 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for the minimal Deep-LASI ``.mat`` / ``.txt`` validation reader (M1 S9).
 
-Two layers:
+Three layers:
 
-* **Committed-slice + synthetic** (always run): the reader on the tiny
+* **scipy-free** (always run, no scipy needed): the ``.txt`` reader (numpy only)
+  and the lazy-scipy *import contract* — importing ``tether.io.deeplasi`` /
+  ``tether.io`` must not require scipy (ADR-0017; the ``schema-guard`` minimal
+  env relies on it). Only ``.mat`` reads + the in-test ``savemat`` need scipy, so
+  those cases carry ``@requires_scipy``.
+* **Committed-slice + synthetic**: the reader on the tiny
   ``deeplasi_export_slice.mat`` / ``deeplasi_traces_slice.txt`` fixtures (a
   4-molecule × 80-frame slice of the real UCKOPSB export, ``scripts/
   make_deeplasi_fixture.py``), plus in-test ``savemat`` round-trips that prove
-  the 1-based→0-based coordinate conversion and the input guards without any
-  external data.
+  the 1-based→0-based coordinate conversion and the input guards.
 * **Data-present** (skipped when ``example-data/`` is absent — e.g. the default
   CI checkout): the reader on the full 250-molecule × 1700-frame export, locking
-  the coordinate convention and the ``.txt`` ≡ ``.mat`` ``donc`` / ``accc``
-  identity on the real files.
+  the coordinate convention, the ``movie_name`` filename, and the ``.txt`` ≡
+  ``.mat`` ``donc`` / ``accc`` identity on the real files.
 """
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
 import pytest
 
 pytest.importorskip("numpy")
-pytest.importorskip("scipy")
 
 import numpy as np  # noqa: E402
-import scipy.io as sio  # noqa: E402
 
 from tether.io.deeplasi import (  # noqa: E402
     DeepLasiExport,
     DeepLasiTraces,
+    _scalar_str,
     read_deeplasi_mat,
     read_deeplasi_txt,
+)
+
+# scipy is an *optional* dependency of this suite: the ``.txt`` reader and the
+# lazy-scipy import contract must be exercisable without it (only ``.mat`` reads
+# and the in-test ``savemat`` need scipy). Gate just those cases.
+requires_scipy = pytest.mark.skipif(
+    importlib.util.find_spec("scipy") is None, reason="scipy not installed"
 )
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SLICE_MAT = FIXTURES / "deeplasi_export_slice.mat"
 SLICE_TXT = FIXTURES / "deeplasi_traces_slice.txt"
-TDAT_V73 = FIXTURES / "tdat_coloc_slice.tdat"  # a real MATLAB v7.3 file
 
 # Ground truth captured from the committed 4x80 slice (molecule 0, frame 0).
 N_MOL, N_FRAMES = 4, 80
@@ -74,13 +84,52 @@ def _valid_mat_fields(n_mol: int = 2, n_frames: int = 5) -> dict[str, object]:
 
 
 def _write_mat(path: Path, fields: dict[str, object]) -> Path:
+    import scipy.io as sio
+
     sio.savemat(str(path), fields, format="5", do_compression=True)
     return path
+
+
+# --- scipy-free: lazy-import contract + char-array helper --------------------
+
+
+def test_deeplasi_imports_without_scipy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # ADR-0017 lazy-scipy contract: importing the module/package must not require
+    # scipy, and the numpy-only .txt reader must work with scipy blocked.
+    import sys
+
+    monkeypatch.setitem(sys.modules, "scipy", None)
+    monkeypatch.setitem(sys.modules, "scipy.io", None)
+    for name in ("tether.io.deeplasi", "tether.io"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+
+    mod = importlib.import_module("tether.io.deeplasi")  # must not import scipy
+    importlib.import_module("tether.io")  # the package re-export path, too
+
+    txt = tmp_path / "x.txt"
+    txt.write_text("1.0 2.0\n3.0 4.0\n", encoding="utf-8")
+    traces = mod.read_deeplasi_txt(txt)
+    assert traces.n_molecules == 1
+    assert traces.n_frames == 2
+
+
+def test_scalar_str_joins_char_array() -> None:
+    # A multi-element MATLAB char array is one string split across cells — joined,
+    # not truncated to its first character.
+    assert _scalar_str(np.array([["m", "o", "v", "i", "e"]])) == "movie"
+    # A single joined string (chars_as_strings=True) is returned whole.
+    assert _scalar_str(np.array(["movie.tif"])) == "movie.tif"
+    # An object cell wrapping a string unwraps fully.
+    assert _scalar_str(np.array([np.array(["nested.tif"])], dtype=object)) == "nested.tif"
+    # Missing / empty -> "" (provenance is best-effort).
+    assert _scalar_str(None) == ""
+    assert _scalar_str(np.array([], dtype="U1")) == ""
 
 
 # --- committed-slice .mat reader --------------------------------------------
 
 
+@requires_scipy
 def test_read_mat_returns_export() -> None:
     export = read_deeplasi_mat(SLICE_MAT)
     assert isinstance(export, DeepLasiExport)
@@ -88,6 +137,7 @@ def test_read_mat_returns_export() -> None:
     assert export.n_frames == N_FRAMES
 
 
+@requires_scipy
 def test_read_mat_array_shapes_and_dtype() -> None:
     e = read_deeplasi_mat(SLICE_MAT)
     for arr in (e.donor_xy, e.acceptor_xy):
@@ -107,12 +157,14 @@ def test_read_mat_array_shapes_and_dtype() -> None:
         assert arr.flags["C_CONTIGUOUS"]
 
 
+@requires_scipy
 def test_read_mat_coordinates_are_zero_based() -> None:
     e = read_deeplasi_mat(SLICE_MAT)
     np.testing.assert_allclose(e.donor_xy[0], DONOR_XY0, atol=1e-6)
     np.testing.assert_allclose(e.acceptor_xy[0], ACCEPTOR_XY0, atol=1e-6)
 
 
+@requires_scipy
 def test_read_mat_trace_values() -> None:
     e = read_deeplasi_mat(SLICE_MAT)
     assert e.donor_raw[0, 0] == pytest.approx(DONOR_RAW_00)
@@ -123,6 +175,7 @@ def test_read_mat_trace_values() -> None:
     assert e.acceptor_background[0, 0] == pytest.approx(BACC_00)
 
 
+@requires_scipy
 def test_read_mat_provenance() -> None:
     # movie_name is the real filename; movie_path is the redacted directory.
     e = read_deeplasi_mat(SLICE_MAT)
@@ -131,7 +184,7 @@ def test_read_mat_provenance() -> None:
     assert e.exported_by == EXPORTED_BY
 
 
-# --- committed-slice .txt reader --------------------------------------------
+# --- committed-slice .txt reader (numpy only) -------------------------------
 
 
 def test_read_txt_returns_traces() -> None:
@@ -151,6 +204,7 @@ def test_read_txt_deinterleaves_donor_first() -> None:
     assert t.acceptor_corrected[0, 0] == pytest.approx(ACCC_00, abs=1e-4)
 
 
+@requires_scipy
 def test_txt_matches_mat_corrected_traces() -> None:
     # The .txt is the donor-first-interleaved donc/accc, rounded to 5 decimals.
     e = read_deeplasi_mat(SLICE_MAT)
@@ -159,9 +213,10 @@ def test_txt_matches_mat_corrected_traces() -> None:
     np.testing.assert_allclose(t.acceptor_corrected, e.acceptor_corrected, atol=TXT_ROUNDING_ATOL)
 
 
-# --- synthetic round-trips: coordinate conversion + guards -------------------
+# --- synthetic .mat round-trips: coordinate conversion + guards --------------
 
 
+@requires_scipy
 def test_mat_coordinate_conversion_is_minus_one(tmp_path: Path) -> None:
     e = read_deeplasi_mat(_write_mat(tmp_path / "ok.mat", _valid_mat_fields()))
     # fret_pairs = [[1,1,3,3],[10,20,12,22]] (1-based) -> 0-based.
@@ -169,6 +224,7 @@ def test_mat_coordinate_conversion_is_minus_one(tmp_path: Path) -> None:
     np.testing.assert_array_equal(e.acceptor_xy, [[2.0, 2.0], [11.0, 21.0]])
 
 
+@requires_scipy
 def test_mat_single_molecule_keeps_2d_shapes(tmp_path: Path) -> None:
     # N=1 is the dimension-collapse risk (MATLAB squeezes length-1 axes); the
     # reader uses squeeze_me=False, so (1, 4) coords and (1, T) traces stay 2-D.
@@ -180,6 +236,7 @@ def test_mat_single_molecule_keeps_2d_shapes(tmp_path: Path) -> None:
     np.testing.assert_array_equal(e.donor_xy, [[0.0, 0.0]])
 
 
+@requires_scipy
 def test_mat_missing_field_raises(tmp_path: Path) -> None:
     fields = _valid_mat_fields()
     del fields["accc"]
@@ -187,6 +244,7 @@ def test_mat_missing_field_raises(tmp_path: Path) -> None:
         read_deeplasi_mat(_write_mat(tmp_path / "missing.mat", fields))
 
 
+@requires_scipy
 def test_mat_inconsistent_frame_count_raises(tmp_path: Path) -> None:
     fields = _valid_mat_fields(n_mol=2, n_frames=5)
     fields["acc"] = np.zeros((2, 4), dtype=np.float64)  # T mismatch
@@ -194,6 +252,7 @@ def test_mat_inconsistent_frame_count_raises(tmp_path: Path) -> None:
         read_deeplasi_mat(_write_mat(tmp_path / "ragged.mat", fields))
 
 
+@requires_scipy
 def test_mat_bad_fret_pairs_shape_raises(tmp_path: Path) -> None:
     fields = _valid_mat_fields()
     fields["fret_pairs"] = np.zeros((2, 3), dtype=np.float64)  # not N x 4
@@ -201,6 +260,7 @@ def test_mat_bad_fret_pairs_shape_raises(tmp_path: Path) -> None:
         read_deeplasi_mat(_write_mat(tmp_path / "badcoords.mat", fields))
 
 
+@requires_scipy
 def test_mat_trace_molecule_mismatch_raises(tmp_path: Path) -> None:
     fields = _valid_mat_fields(n_mol=2, n_frames=5)
     fields["don"] = np.zeros((3, 5), dtype=np.float64)  # N mismatch vs fret_pairs
@@ -208,20 +268,26 @@ def test_mat_trace_molecule_mismatch_raises(tmp_path: Path) -> None:
         read_deeplasi_mat(_write_mat(tmp_path / "nmismatch.mat", fields))
 
 
+@requires_scipy
 def test_read_mat_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         read_deeplasi_mat(tmp_path / "nope.mat")
 
 
-def test_read_mat_rejects_non_v5_hdf5() -> None:
-    # The .tdat fixture is a bare HDF5 file (no MATLAB header) — not a MAT file;
-    # the reader rejects it cleanly rather than leaking a raw scipy error.
-    if not TDAT_V73.is_file():
-        pytest.skip("HDF5 .tdat fixture absent")
+@requires_scipy
+def test_read_mat_rejects_bare_hdf5(tmp_path: Path) -> None:
+    # A bare HDF5 file (no MATLAB header) is not a MAT file; the reader rejects it
+    # cleanly. Crafted here so the case stays isolated (not coupled to the .tdat
+    # fixture, which is documented as a MATLAB-v7.3-style file elsewhere).
+    h5py = pytest.importorskip("h5py")
+    path = tmp_path / "bare.mat"
+    with h5py.File(path, "w") as fh:
+        fh["x"] = np.arange(32, dtype=np.float64)
     with pytest.raises(ValueError, match="MATLAB v5"):
-        read_deeplasi_mat(TDAT_V73)
+        read_deeplasi_mat(path)
 
 
+@requires_scipy
 def test_read_mat_rejects_garbage_text(tmp_path: Path) -> None:
     # A .txt mistakenly renamed to .mat (a realistic wrong-file mistake): scipy's
     # matfile_version raises IndexError on such short/garbage input — the reader
@@ -232,6 +298,7 @@ def test_read_mat_rejects_garbage_text(tmp_path: Path) -> None:
         read_deeplasi_mat(path)
 
 
+@requires_scipy
 def test_read_mat_rejects_v73(tmp_path: Path) -> None:
     # Craft a minimal file with the MATLAB v7.3 header signature (an HDF5 file
     # whose 512-byte userblock carries version 0x0200 + "IM" at bytes 124-128),
@@ -249,7 +316,7 @@ def test_read_mat_rejects_v73(tmp_path: Path) -> None:
         read_deeplasi_mat(path)
 
 
-# --- .txt guards -------------------------------------------------------------
+# --- .txt guards (numpy only) ------------------------------------------------
 
 
 def test_read_txt_missing_file_raises(tmp_path: Path) -> None:
@@ -296,6 +363,7 @@ def _find_full_export() -> tuple[Path, Path] | None:
     return None
 
 
+@requires_scipy
 def test_full_export_matches_when_present() -> None:
     found = _find_full_export()
     if found is None:
