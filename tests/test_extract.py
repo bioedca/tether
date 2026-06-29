@@ -169,12 +169,18 @@ def test_molecule_key_rejects_non_finite() -> None:
 
 def test_extract_molecules_integrates_both_channels() -> None:
     n_psf = int(aperture_masks()[0].sum())
-    mols = _molecules(np.array([[20.0, 20.0], [40.0, 30.0]]))
+    # Distinct donor vs acceptor coords: each channel must be integrated at its OWN
+    # positions (the acceptor channel has its spots only at acceptor_xy, so reading
+    # it at donor_xy would give background-only and fail the acceptor assertion).
+    mols = _molecules(
+        np.array([[20.0, 20.0], [40.0, 30.0]]), np.array([[30.0, 20.0], [50.0, 30.0]])
+    )
     traces = extract_molecules(_channel(mols.donor_xy), _channel(mols.acceptor_xy), mols)
     assert traces.n_molecules == 2
     assert traces.n_frames == 15
     # constant top-hat -> corrected == amp * n_psf, uncorrected == (bg+amp)*n_psf
     np.testing.assert_allclose(traces.donor.intensity, _AMP * n_psf)
+    np.testing.assert_allclose(traces.acceptor.intensity, _AMP * n_psf)
     np.testing.assert_allclose(traces.donor.total, (_BG + _AMP) * n_psf)
     assert traces.donor.valid.all() and traces.acceptor.valid.all()
 
@@ -375,8 +381,15 @@ def test_write_extraction_movies_are_write_once(tmp_path: Path) -> None:
     project = tmp_path / "p.tether"
     create_project(project)
     _extract_into(project, movie_id="dup", sha="s", donor=np.array([[20.0, 20.0]]))
+    before_molecules = read_molecules(project).shape
+    with h5py.File(project, "r") as f:
+        before_movies = f["movies"]["table"].shape
     with pytest.raises(ValueError, match="write-once"):
         _extract_into(project, movie_id="dup", sha="s2", donor=np.array([[30.0, 30.0]]))
+    # reject-before-mutate: the rejected re-extraction left the store unchanged
+    assert read_molecules(project).shape == before_molecules
+    with h5py.File(project, "r") as f:
+        assert f["movies"]["table"].shape == before_movies
 
 
 def test_write_extraction_rejects_foreign_target(tmp_path: Path) -> None:
@@ -412,7 +425,7 @@ def test_write_extraction_rejects_row_mismatch(tmp_path: Path) -> None:
     mols = _molecules(np.array([[20.0, 20.0], [40.0, 30.0]]))
     traces = extract_molecules(_channel(mols.donor_xy), _channel(mols.acceptor_xy), mols)
     fewer = _molecules(np.array([[20.0, 20.0]]))  # 1 molecule vs 2 trace rows
-    with pytest.raises(ValueError, match="row count mismatch"):
+    with pytest.raises(ValueError, match="trace shape mismatch"):
         write_extraction(
             project, movie=_movie("m", sha="s"), molecules=fewer, traces=traces, parsed=_PARSED
         )
@@ -430,7 +443,11 @@ def test_write_extraction_rejects_frame_count_mismatch(tmp_path: Path) -> None:
     movie = _movie("m", sha="s", n_frames=20)  # claims 20 frames; the traces are 12
     with pytest.raises(ValueError, match="must describe the same movie"):
         write_extraction(project, movie=movie, molecules=mols, traces=traces, parsed=_PARSED)
-    assert read_molecules(project).shape == (0,)  # nothing written
+    # reject-before-mutate: no molecule rows, no orphan /movies row, no trace datasets
+    assert read_molecules(project).shape == (0,)
+    with h5py.File(project, "r") as f:
+        assert f["movies"]["table"].shape == (0,)
+        assert "donor_corrected" not in f["traces"]
 
 
 def test_write_extraction_rejects_inconsistent_window_before_mutating(tmp_path: Path) -> None:
@@ -442,7 +459,7 @@ def test_write_extraction_rejects_inconsistent_window_before_mutating(tmp_path: 
     _extract_into(project, movie_id="A", sha="sA", donor=np.array([[20.0, 20.0]]))  # window 21
     mols = _molecules(np.array([[25.0, 25.0]]))
     traces = extract_molecules(_channel(mols.donor_xy), _channel(mols.acceptor_xy), mols, window=25)
-    with pytest.raises(ValueError, match="window 25 differs"):
+    with pytest.raises(ValueError, match="extraction parameters differ"):
         write_extraction(
             project, movie=_movie("B", sha="sB"), molecules=mols, traces=traces, parsed=_PARSED
         )
@@ -450,6 +467,62 @@ def test_write_extraction_rejects_inconsistent_window_before_mutating(tmp_path: 
     with h5py.File(project, "r") as f:
         assert f["movies"]["table"].shape == (1,)  # no orphan movie row
         assert f["patches"]["donor"].shape == (1, 21, 21)  # /patches untouched
+
+
+def test_write_extraction_rejects_inconsistent_aperture_params(tmp_path: Path) -> None:
+    # Not just window: a later movie with a different disk_radius (or ring/bg_window)
+    # is rejected, since its traces would be incomparable under one provenance record.
+    project = tmp_path / "p.tether"
+    create_project(project)
+    _extract_into(project, movie_id="A", sha="sA", donor=np.array([[20.0, 20.0]]))  # disk_radius 3
+    mols = _molecules(np.array([[25.0, 25.0]]))
+    traces = extract_molecules(
+        _channel(mols.donor_xy), _channel(mols.acceptor_xy), mols, disk_radius=2.0
+    )
+    with pytest.raises(ValueError, match="extraction parameters differ"):
+        write_extraction(
+            project, movie=_movie("B", sha="sB"), molecules=mols, traces=traces, parsed=_PARSED
+        )
+    assert read_molecules(project).shape == (1,)  # only movie A survives
+
+
+def test_write_extraction_rejects_malformed_trace_shape(tmp_path: Path) -> None:
+    # The full-shape contract: a tampered trace array (here a truncated acceptor
+    # total) is caught before any write, not silently stored at the wrong width.
+    import dataclasses
+
+    project = tmp_path / "p.tether"
+    create_project(project)
+    mols = _molecules(np.array([[20.0, 20.0]]))
+    traces = extract_molecules(_channel(mols.donor_xy), _channel(mols.acceptor_xy), mols)
+    bad_acc = dataclasses.replace(traces.acceptor, total=traces.acceptor.total[:, :5])
+    bad = dataclasses.replace(traces, acceptor=bad_acc)
+    with pytest.raises(ValueError, match="trace shape mismatch"):
+        write_extraction(
+            project, movie=_movie("m", sha="s"), molecules=mols, traces=bad, parsed=_PARSED
+        )
+    assert read_molecules(project).shape == (0,)  # nothing written
+
+
+def test_write_extraction_bad_settings_profile_rejected_before_mutating(tmp_path: Path) -> None:
+    # A non-JSON-serializable settings profile is serialized up front, so it fails
+    # before any append (no orphan /movies row) — the reject-before-mutate contract.
+    project = tmp_path / "p.tether"
+    create_project(project)
+    mols = _molecules(np.array([[20.0, 20.0]]))
+    traces = extract_molecules(_channel(mols.donor_xy), _channel(mols.acceptor_xy), mols)
+    with pytest.raises(TypeError):  # a numpy array is not JSON-serializable
+        write_extraction(
+            project,
+            movie=_movie("m", sha="s"),
+            molecules=mols,
+            traces=traces,
+            parsed=_PARSED,
+            settings={"threshold": np.arange(3)},
+        )
+    assert read_molecules(project).shape == (0,)
+    with h5py.File(project, "r") as f:
+        assert f["movies"]["table"].shape == (0,)
 
 
 def test_write_extraction_returns_compatible_project(tmp_path: Path) -> None:

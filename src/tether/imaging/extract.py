@@ -487,12 +487,15 @@ def _append_patches(group: Any, name: str, block: np.ndarray) -> None:
     ds[n0:] = block
 
 
-def _write_settings_once(f: Any, traces: MoleculeTraces, profile: Mapping[str, Any] | None) -> None:
+def _write_settings_once(f: Any, traces: MoleculeTraces, profile_json: str | None) -> None:
     """Stamp the effective extraction parameters into ``/settings/extraction`` (write-once).
 
     Experiment-level provenance (NFR-REPRO): the first extraction into a project
     records the aperture/integration parameters + app version; later movies leave it
-    untouched (the per-movie patch-window check enforces real consistency).
+    untouched (:func:`_check_against_existing` enforces the parameters stay consistent).
+    ``profile_json`` is the caller's optional settings profile, **pre-serialized** by
+    :func:`write_extraction` before any append so a non-serializable profile fails
+    reject-before-mutate.
     """
     import h5py  # noqa: PLC0415
 
@@ -515,12 +518,8 @@ def _write_settings_once(f: Any, traces: MoleculeTraces, profile: Mapping[str, A
     grp.attrs["molecule_key_quantum_px"] = float(MOLECULE_KEY_QUANTUM_PX)
     str_dt = h5py.string_dtype(encoding="utf-8")
     grp.attrs["app_version"] = np.array(_app_version(), dtype=str_dt)
-    if profile:
-        import json  # noqa: PLC0415
-
-        grp.attrs["profile_json"] = np.array(
-            json.dumps(dict(profile), sort_keys=True), dtype=str_dt
-        )
+    if profile_json is not None:
+        grp.attrs["profile_json"] = np.array(profile_json, dtype=str_dt)
 
 
 def write_extraction(
@@ -576,6 +575,8 @@ def write_extraction(
     list[str]
         The fresh ``molecule_id`` of each written molecule, in row order.
     """
+    import json  # noqa: PLC0415
+
     import h5py  # noqa: PLC0415
 
     from tether.io.schema import TABLE, assert_is_compatible_project  # noqa: PLC0415
@@ -586,14 +587,18 @@ def write_extraction(
     tags = ",".join(registration_map.molecule_tags) if registration_map is not None else ""
 
     with h5py.File(project_path, "r+") as f:
-        # Reject-before-mutate: every cross-movie precondition is checked up front,
+        # Reject-before-mutate: every cross-movie precondition is checked AND every
+        # late-failing input (the movie row, the molecule rows incl. molecule_key on
+        # the donor coords, the serialized settings profile) is precomputed up front,
         # so a rejected movie leaves the file untouched (h5py appends are not
         # transactional — a late raise would orphan a half-written movie's rows).
         _check_against_existing(f, project_path, movie, traces)
-        _append_compound_rows(f["movies"][TABLE], _build_movie_row(movie))
-        _write_settings_once(f, traces, settings)
-
+        movie_row = _build_movie_row(movie)
         rows, mol_ids = _build_molecule_rows(movie, molecules, parsed, tags, traces.n_frames)
+        profile_json = json.dumps(dict(settings), sort_keys=True) if settings else None
+
+        _append_compound_rows(f["movies"][TABLE], movie_row)
+        _write_settings_once(f, traces, profile_json)
         if molecules.n_molecules:
             _append_compound_rows(f["molecules"][TABLE], rows)
             traces_grp = f[_TRACES_GROUP]
@@ -612,17 +617,38 @@ def write_extraction(
 def _validate_alignment(
     movie: MovieMetadata, molecules: ColocalizedMolecules, traces: MoleculeTraces
 ) -> None:
-    """Refuse a movie/molecule/trace/patch mismatch, or any all-zero (invalid) trace."""
+    """Refuse a movie/molecule/trace/patch mismatch, or any all-zero (invalid) trace.
+
+    Validates the **full** shape contract (not just intensity row counts): all six
+    trace arrays must be ``(n_molecules, trace_width)`` and both patch stacks
+    ``(n_molecules, window, window)``, so a malformed :class:`MoleculeTraces` (a
+    ``total``/``background`` of a different width, an acceptor narrower than the
+    donor, a non-square patch) is rejected before it can break the positional
+    trace<->molecule join. The reference width is the actual integrated trace width
+    ``traces.n_frames``; ``movie.n_frames`` is separately asserted equal to it so the
+    ``/movies`` row and ``frame_range`` match the stored extent.
+    """
     n = molecules.n_molecules
-    shapes = {
-        "donor traces": traces.donor.intensity.shape[0],
-        "acceptor traces": traces.acceptor.intensity.shape[0],
-        "donor patches": traces.donor_patches.shape[0],
-        "acceptor patches": traces.acceptor_patches.shape[0],
+    expected_trace = (n, traces.n_frames)
+    trace_arrays = {
+        "donor intensity": traces.donor.intensity,
+        "donor total": traces.donor.total,
+        "donor background": traces.donor.background,
+        "acceptor intensity": traces.acceptor.intensity,
+        "acceptor total": traces.acceptor.total,
+        "acceptor background": traces.acceptor.background,
     }
-    bad = {k: v for k, v in shapes.items() if v != n}
+    bad = {k: v.shape for k, v in trace_arrays.items() if v.shape != expected_trace}
     if bad:
-        raise ValueError(f"row count mismatch vs {n} molecules: {bad}")
+        raise ValueError(f"trace shape mismatch vs {expected_trace}: {bad}")
+    expected_patch = (n, traces.window, traces.window)
+    patch_arrays = {
+        "donor patches": traces.donor_patches,
+        "acceptor patches": traces.acceptor_patches,
+    }
+    bad_patches = {k: v.shape for k, v in patch_arrays.items() if v.shape != expected_patch}
+    if bad_patches:
+        raise ValueError(f"patch shape mismatch vs {expected_patch}: {bad_patches}")
     if movie.n_frames != traces.n_frames:
         # The /movies row's n_frames and each molecule's frame_range must equal the
         # actual stored trace width, or frame_range would mark zero-pad columns as
@@ -652,6 +678,19 @@ def _movie_id_present(table: Any, movie_id: str) -> bool:
     )
 
 
+#: The aperture/integration parameters stamped into ``/settings/extraction`` that
+#: every movie of one experiment must share (so its traces are comparable under one
+#: provenance record). ``n_psf`` is derived (``window`` + ``disk_radius``) and not
+#: compared independently; ``molecule_key_quantum_px`` is a module constant.
+_CONSISTENT_PARAMS: tuple[str, ...] = (
+    "window",
+    "disk_radius",
+    "ring_inner",
+    "ring_outer",
+    "bg_window",
+)
+
+
 def _check_against_existing(
     f: Any, project_path: Path, movie: MovieMetadata, traces: MoleculeTraces
 ) -> None:
@@ -659,7 +698,10 @@ def _check_against_existing(
 
     Both cross-movie preconditions are validated up front so a rejected movie mutates
     nothing (h5py appends are not transactional): the movie is **write-once**, and the
-    extraction ``window`` must match the experiment's existing ``/patches`` window.
+    full set of extraction parameters (window + aperture radii + background window)
+    must match the experiment's first-stored ``/settings/extraction`` — a later movie
+    extracted with a different ``disk_radius`` / ``ring`` / ``bg_window`` would make
+    the accumulated traces incomparable under one provenance record.
     """
     from tether.io.schema import TABLE  # noqa: PLC0415
 
@@ -668,12 +710,19 @@ def _check_against_existing(
             f"movie_id {movie.movie_id!r} already in {project_path} "
             "(movies are write-once; extraction is not idempotent here)"
         )
-    donor_patches = f[_PATCHES_GROUP].get("donor")
-    if donor_patches is not None and donor_patches.shape[1] != traces.window:
+    stored = f[_SETTINGS_GROUP].get(_EXTRACTION_SETTINGS)
+    if stored is None:
+        return  # first extraction: nothing to be consistent with yet
+    diffs = {
+        name: (float(stored.attrs[name]), float(getattr(traces, name)))
+        for name in _CONSISTENT_PARAMS
+        if not np.isclose(float(stored.attrs[name]), float(getattr(traces, name)))
+    }
+    if diffs:
         raise ValueError(
-            f"extraction window {traces.window} differs from the experiment's "
-            f"{donor_patches.shape[1]}; the window must be consistent across an "
-            "experiment's movies"
+            f"extraction parameters differ from this experiment's first extraction "
+            f"in {project_path}: {diffs} (stored -> requested); the aperture / "
+            "integration parameters must be consistent across an experiment's movies"
         )
 
 
