@@ -27,6 +27,8 @@ uv run --no-project --with h5py --with tifffile --with numpy \
 | `tests/fixtures/tmap_coeffs.npz` | Deep-LASI `.tmap` registration coefficients (M0.5 S6 registration) | `…20250718…13-40.tmap` | 3,872,385 B | 5,905 B | `7db0cf80d161847e…` | decoded degree-2 coeffs only |
 | `tests/fixtures/acceptor_oracle.npz` | acceptor aperture-integration oracle via `.tmap` apply (M0.5 S5/S6) | `…010.tif` + `…010.mat` + `…13-40.tmap` | 891,955,083 B + 9,053,155 B + 3,872,385 B | 271,214 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` + `7db0cf80d161847e…` | 6 acceptor crops + `acc` oracle |
 | `tests/fixtures/bead_prealign_oracle.npz` | 4-DOF prealign oracle (M1 S5b registration) | `…20250721…15-36.tmap` + `map.tif` | 792,946 B + 3,884,619 B | 104,307 B | `b538b539ee75add3…` + `a993036a53d1d492…` | 2 bead-channel crops + `.tmap` ground truth |
+| `tests/fixtures/deeplasi_export_slice.mat` | Deep-LASI `.mat` reader slice (M1 S9 oracle) | `…010.mat` | 9,053,155 B | 8,127 B | `af1b5be33aa63f87…` | 4 mol × 80 frames: `fret_pairs` + 6 trace arrays; v5, real `movie_name` filename + redacted `movie_path` directory |
+| `tests/fixtures/deeplasi_traces_slice.txt` | Deep-LASI `…-donc-accc-w.txt` reader slice (M1 S9 oracle) | `…010-donc-accc-w.txt` | 7,739,364 B | 6,412 B | `0892ae965a947003…` | first 80 frames × 8 cols (4 mol, donor/acc interleaved) |
 
 **Accessed:** 2026-06-22 (date `example-data/` was gathered onto this
 workstation; see its `README.md`). **Origin:** Mondragón Lab (Northwestern)
@@ -156,6 +158,33 @@ synthetic bead field (`tests/test_register_prealign.py`); this fixture proves th
 estimator reports the **true similarity on real bead images**. **Accessed:**
 2026-06-27. **License:** GPL-3.0-or-later (Mondragón Lab, Northwestern).
 Regenerate with `scripts/make_bead_prealign_fixture.py`.
+
+## Deep-LASI export slice (M1 S9 extraction oracle)
+
+`deeplasi_export_slice.mat` and `deeplasi_traces_slice.txt` are the committed,
+plain-git inputs for the `tether.io.deeplasi` validation reader — the reader that
+supplies Deep-LASI's own result as the ground-truth oracle for the M1
+extraction-vs-Deep-LASI acceptance gate (PRD §9 M1, §8 NFR-VALID (a)). The full
+exports (≈ 9 MB `.mat` + ≈ 7.7 MB `.txt`) stay external; each slice keeps the
+**first 4 molecules × first 80 frames** of the real
+`DeepLASI_MAT_export_…010.mat` / `…-donc-accc-w.txt`:
+
+- `deeplasi_export_slice.mat` — `fret_pairs` (4×4 donor/acceptor pixel
+  coordinates) + the six `(4, 80)` trace arrays (`don`/`donc`/`bdon`,
+  `acc`/`accc`/`bacc`), re-saved as a compressed MATLAB **v5** `.mat` (the on-disk
+  format of the real export, `format='5'`). The real `movie_name` (the
+  source-movie **filename**) is committed verbatim; `movie_path` — which in the
+  real export is an **absolute workstation directory** (a distinct field) — is
+  **redacted** to `<redacted-directory>`. `exportedby` (`TRacer_v1`) is kept
+  verbatim.
+- `deeplasi_traces_slice.txt` — the matching first 80 frames × 8 columns (the same
+  4 molecules, donor/acceptor interleaved) at the source's 5-decimal text
+  precision. By construction it equals the `.mat` `donc`/`accc` to that rounding,
+  the same identity the data-present test locks across all 250 molecules of the
+  full export.
+
+**Accessed:** 2026-06-22. **License:** GPL-3.0-or-later (Mondragón Lab,
+Northwestern). Regenerate with `scripts/make_deeplasi_fixture.py`.
 
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 
