@@ -51,6 +51,13 @@ import numpy as np
 # the package with a deliberately minimal ``h5py`` + numpy env; pulling scipy into
 # the package import graph would break it. Keep scipy out of module scope.
 
+__all__ = [
+    "DeepLasiExport",
+    "DeepLasiTraces",
+    "read_deeplasi_mat",
+    "read_deeplasi_txt",
+]
+
 # The six (N, T) trace arrays and the coordinate array read from the ``.mat``.
 # Selective load (``variable_names``) keeps the read off the ~9 MB file's other
 # ~25 fields (FRET, direct-excitation, range/select/tags, bleach, β/γ — M3+).
