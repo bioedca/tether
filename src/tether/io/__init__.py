@@ -11,6 +11,12 @@ Deep-LASI correction-triplet remap on import (PRD Appendix B).
 
 from __future__ import annotations
 
+from tether.io.deeplasi import (
+    DeepLasiExport,
+    DeepLasiTraces,
+    read_deeplasi_mat,
+    read_deeplasi_txt,
+)
 from tether.io.filename import ConditionKey, ParsedFilename, parse_filename
 from tether.io.tdat import (
     Tdat,
@@ -22,11 +28,15 @@ from tether.io.tdat import (
 
 __all__ = [
     "ConditionKey",
+    "DeepLasiExport",
+    "DeepLasiTraces",
     "ParsedFilename",
     "Tdat",
     "TdatColocalization",
     "TdatCorrections",
     "parse_filename",
+    "read_deeplasi_mat",
+    "read_deeplasi_txt",
     "read_tdat",
     "remap_correction_factors",
 ]

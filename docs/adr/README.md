@@ -41,6 +41,7 @@ prose harmonization of the PRD (PRD §12.7).
 | [0014](0014-registration-map-rms-gate-and-over-gate.md) | Registration map: numeric RMS gate, over-gate flag-don't-drop, unified native/imported calibration | accepted | §7.1, App E §9–10, §11.2 |
 | [0015](0015-donor-anchored-colocalization.md) | Donor-anchored colocalization: keep dark/low-FRET acceptors, coordinate-domain apply, both-channel crop box | accepted | §7.1, App E §11–13, §11.2 |
 | [0016](0016-extraction-trace-store-layout.md) | Extraction store layout: zero-pad-to-max-T `/traces`, cached patches, the `molecule_key` content hash, the apparent-E substrate | accepted | §5.1, §7.10, App E §14–15, §11.2 |
+| [0017](0017-deeplasi-validation-reader.md) | Minimal Deep-LASI `.mat`/`.txt` validation reader: M1-scoped fields, 1-based→0-based coordinates, lazy scipy | accepted | §9 M1, §8 NFR-VALID (a), App A |
 
 _Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
 by the PRs that implement them._
