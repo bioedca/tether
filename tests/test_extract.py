@@ -333,6 +333,30 @@ def test_write_extraction_pads_new_short_movie_rows(tmp_path: Path) -> None:
     assert np.all(corrected[1, :12] != 0.0)
 
 
+def test_write_extraction_positional_join_preserved_across_movies(tmp_path: Path) -> None:
+    # The core invariant: /molecules row i <-> /traces row i, preserved across the
+    # append boundary. Each molecule's stored trace (over its own frame_range) equals
+    # its own integration, and its molecule_key carries its own movie's sha256.
+    project = tmp_path / "p.tether"
+    create_project(project)
+    _, tr_a, _ = _extract_into(
+        project, movie_id="A", sha="sA", donor=np.array([[20.0, 20.0], [40.0, 30.0]]), n_frames=10
+    )
+    _, tr_b, _ = _extract_into(
+        project, movie_id="B", sha="sB", donor=np.array([[25.0, 25.0]]), n_frames=14
+    )
+    table = read_molecules(project)
+    corrected = read_traces(project)["donor_corrected"]
+    assert table.shape == (3,) and corrected.shape == (3, 14)
+    expected = [tr_a.donor.intensity[0], tr_a.donor.intensity[1], tr_b.donor.intensity[0]]
+    for i, exp in enumerate(expected):
+        t0, t1 = (int(v) for v in table["frame_range"][i])
+        np.testing.assert_allclose(corrected[i, t0:t1], exp, rtol=1e-5, atol=1e-2)
+    # row 2 (movie B) keys off movie B's sha + its own coord, not movie A's
+    assert _as_str(table["molecule_key"][2]) == molecule_key("sB", np.array([25.0, 25.0]))
+    assert _as_str(table["molecule_key"][0]) == molecule_key("sA", np.array([20.0, 20.0]))
+
+
 # --- write_extraction: schema freeze + guards --------------------------------
 
 
