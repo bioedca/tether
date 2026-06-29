@@ -169,6 +169,17 @@ def test_mat_coordinate_conversion_is_minus_one(tmp_path: Path) -> None:
     np.testing.assert_array_equal(e.acceptor_xy, [[2.0, 2.0], [11.0, 21.0]])
 
 
+def test_mat_single_molecule_keeps_2d_shapes(tmp_path: Path) -> None:
+    # N=1 is the dimension-collapse risk (MATLAB squeezes length-1 axes); the
+    # reader uses squeeze_me=False, so (1, 4) coords and (1, T) traces stay 2-D.
+    e = read_deeplasi_mat(_write_mat(tmp_path / "one.mat", _valid_mat_fields(n_mol=1)))
+    assert e.n_molecules == 1
+    assert e.donor_xy.shape == (1, 2)
+    assert e.acceptor_xy.shape == (1, 2)
+    assert e.donor_raw.shape == (1, e.n_frames)
+    np.testing.assert_array_equal(e.donor_xy, [[0.0, 0.0]])
+
+
 def test_mat_missing_field_raises(tmp_path: Path) -> None:
     fields = _valid_mat_fields()
     del fields["accc"]
