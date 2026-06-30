@@ -106,6 +106,15 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
         default=0.5,
         help="registration RMS-residual gate in px (default: 0.5)",
     )
+    extract.add_argument(
+        "--tmap",
+        default=None,
+        metavar="PATH",
+        help=(
+            "apply an imported Deep-LASI .tmap instead of a native fit; splits at "
+            "the .tmap's own channel geometry (--donor-side is then ignored)"
+        ),
+    )
 
 
 def _run_extract(args: argparse.Namespace) -> int:
@@ -124,12 +133,16 @@ def _run_extract(args: argparse.Namespace) -> int:
             coloc_distance=args.coloc_distance,
             rms_gate=args.rms_gate,
         )
-        summary = extract_movie(args.movie, args.output, options=options, overwrite=args.overwrite)
+        summary = extract_movie(
+            args.movie, args.output, options=options, tmap=args.tmap, overwrite=args.overwrite
+        )
     except ExtractionError as exc:
         print(f"tether extract: {exc}", file=sys.stderr)
         return 1
 
     print(f"Extracted {summary.n_molecules} molecule(s) -> {summary.output_path}")
+    if summary.registration_source == "imported":
+        print(f"  registration: imported from {args.tmap}")
     if summary.low_confidence_registration:
         print(
             f"  warning: registration RMS {summary.rms_residual:.3f} px exceeds the "

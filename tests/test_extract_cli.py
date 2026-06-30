@@ -33,6 +33,7 @@ import tifffile  # noqa: E402
 from tether.cli import build_parser, main  # noqa: E402
 from tether.imaging.calibrate import LOW_CONFIDENCE_TAG  # noqa: E402
 from tether.imaging.extract import read_molecules, read_patches, read_traces  # noqa: E402
+from tether.imaging.register import PolyTransform2D, TmapChannel  # noqa: E402
 from tether.io.schema import assert_is_compatible_project  # noqa: E402
 from tether.project.extract import ExtractionError, ExtractOptions, extract_movie  # noqa: E402
 
@@ -277,3 +278,211 @@ def test_low_confidence_registration_flags_not_drops(tmp_path) -> None:
     assert summary.n_molecules == 3
     mols = read_molecules(out)
     assert all(LOW_CONFIDENCE_TAG in _as_str(t) for t in mols["tags"])
+
+
+# --- imported .tmap registration path (S9 PR-C1; §7.1 "native AND imported") --
+#
+# There is no committed .tmap (the MCOS format is impractical to author, and
+# read_tmap's real decode is covered data-present in test_register.py). The
+# imported branch is exercised by reconstructing TmapChannel objects in memory --
+# the same shape read_tmap returns -- encoding the same +1 px map the native fit
+# recovers, and monkeypatching the decode at the extract.py seam.
+
+
+def _synthetic_tmap_channels(
+    *, acceptor_rotation=None, acceptor_flip=None
+) -> dict[int, TmapChannel]:
+    """Decoded-.tmap channels for the synthetic movie: donor=left, acceptor=right.
+
+    The acceptor's reference->channel transform is the +1 px x translation that
+    relates the synthetic halves (1-based MATLAB frame), so an imported extraction
+    must match the native fit (apply-both parity, §7.1 / §9 M1). Crops are the L/R
+    halves of ``_SHAPE`` ([[y1, x1], [y2, x2]] as Deep-LASI stores them).
+
+    ``acceptor_rotation`` / ``acceptor_flip`` default to identity (empty, as the
+    real UCKOPSB .tmap stores them); pass a non-identity value to exercise the
+    refuse-non-identity-geometry guard.
+    """
+    eye = np.eye(3)
+    identity = PolyTransform2D(
+        a=np.array([0.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
+        b=np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0]),
+        norm_xy=eye,
+        norm_uv=eye,
+    )
+    ref_to_acceptor = PolyTransform2D(  # u = x + 1, v = y
+        a=np.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
+        b=np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0]),
+        norm_xy=eye,
+        norm_uv=eye,
+    )
+    acceptor_to_ref = PolyTransform2D(  # x = u - 1, y = v
+        a=np.array([-1.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
+        b=np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0]),
+        norm_xy=eye,
+        norm_uv=eye,
+    )
+    no_particles = np.zeros((0, 2))
+    donor = TmapChannel(
+        channel_id=0,
+        crop=np.array([[1, 1], [64, 48]]),  # left half
+        map_particles=no_particles,
+        ref_to_channel=identity,  # reference->reference; unused by the builder
+        channel_to_ref=identity,
+    )
+    acceptor = TmapChannel(
+        channel_id=1,
+        crop=np.array([[1, 49], [64, 96]]),  # right half
+        map_particles=no_particles,
+        ref_to_channel=ref_to_acceptor,
+        channel_to_ref=acceptor_to_ref,
+        rotation=np.array([]) if acceptor_rotation is None else np.asarray(acceptor_rotation),
+        flip=np.array([]) if acceptor_flip is None else np.asarray(acceptor_flip),
+    )
+    return {0: donor, 1: acceptor}
+
+
+def _stub_tmap(tmp_path) -> object:
+    """A stub .tmap file; its bytes are never decoded (read_tmap is monkeypatched)."""
+    path = tmp_path / "map.tmap"
+    path.write_bytes(b"stub .tmap; decode is monkeypatched at the extract seam")
+    return path
+
+
+def test_extract_imported_tmap_creates_valid_project(tmp_path, monkeypatch) -> None:
+    import tether.project.extract as ext
+
+    channels = _synthetic_tmap_channels()
+    monkeypatch.setattr(ext, "read_tmap", lambda _path: channels)
+    movie = _make_movie(tmp_path)
+    tmap = _stub_tmap(tmp_path)
+    out = tmp_path / "imported.tether"
+
+    summary = ext.extract_movie(movie, out, tmap=tmap, options=ExtractOptions(window=_WINDOW))
+
+    assert assert_is_compatible_project(out) == 1
+    assert summary.registration_source == "imported"
+    assert summary.n_molecules == 3
+    # An imported bead map is trusted: no sample control points -> unknown residual,
+    # so it is never flagged low-confidence (the molecule-domain scatter of a bead
+    # map is colocalization, not registration, error -- ADR-0014).
+    assert summary.n_control_points == 0
+    assert np.isnan(summary.rms_residual)
+    assert summary.low_confidence_registration is False
+    assert summary.molecule_tags == ()
+
+    mols = read_molecules(out)
+    got = {tuple(np.round(xy).astype(int)) for xy in mols["donor_xy"]}
+    assert got == {tuple(c.astype(int)) for c in _DONOR_CENTERS}
+    assert not any(LOW_CONFIDENCE_TAG in _as_str(t) for t in mols["tags"])
+
+    # /settings records the imported source + the .tmap filename (NFR-REPRO); the
+    # extraction pipeline itself stays native.
+    with h5py.File(out, "r") as f:
+        profile = json.loads(_as_str(f["/settings/extraction"].attrs["profile_json"]))
+        assert profile["registration_source"] == "imported"
+        assert profile["tmap_source"] == "map.tmap"
+        assert profile["registration_rms_px"] is None  # NaN -> null
+        assert profile["pipeline"] == "native"
+
+
+def test_imported_tmap_matches_native_apply_both_parity(tmp_path, monkeypatch) -> None:
+    # §7.1 / §9 M1: the imported .tmap warps to the same coordinates as a native
+    # fit, so the two extractions yield the same molecules.
+    movie = _make_movie(tmp_path)
+    native_out = tmp_path / "native.tether"
+    native = extract_movie(movie, native_out, options=ExtractOptions(window=_WINDOW))
+
+    import tether.project.extract as ext
+
+    monkeypatch.setattr(ext, "read_tmap", lambda _path: _synthetic_tmap_channels())
+    imported_out = tmp_path / "imported.tether"
+    imported = ext.extract_movie(
+        movie, imported_out, tmap=_stub_tmap(tmp_path), options=ExtractOptions(window=_WINDOW)
+    )
+
+    assert imported.n_molecules == native.n_molecules == 3
+    nat, imp = read_molecules(native_out), read_molecules(imported_out)
+    np.testing.assert_allclose(
+        np.array(sorted(imp["donor_xy"].tolist())),
+        np.array(sorted(nat["donor_xy"].tolist())),
+        atol=0.01,
+    )
+    # The donor-anchored acceptor read positions agree within a sub-pixel tolerance.
+    np.testing.assert_allclose(
+        np.array(sorted(imp["acceptor_xy"].tolist())),
+        np.array(sorted(nat["acceptor_xy"].tolist())),
+        atol=0.5,
+    )
+
+
+def test_cli_extract_with_tmap_succeeds(tmp_path, monkeypatch, capsys) -> None:
+    import tether.project.extract as ext
+
+    monkeypatch.setattr(ext, "read_tmap", lambda _path: _synthetic_tmap_channels())
+    movie = _make_movie(tmp_path)
+    tmap = _stub_tmap(tmp_path)
+    out = tmp_path / "cli_imported.tether"
+
+    rc = main(
+        ["extract", str(movie), "-o", str(out), "--tmap", str(tmap), "--window", str(_WINDOW)]
+    )
+
+    assert rc == 0
+    assert assert_is_compatible_project(out) == 1
+    output = capsys.readouterr().out
+    assert "Extracted 3 molecule(s)" in output
+    assert "imported from" in output
+
+
+def test_extract_tmap_not_found_errors(tmp_path, capsys) -> None:
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "out.tether"
+    rc = main(["extract", str(movie), "-o", str(out), "--tmap", str(tmp_path / "nope.tmap")])
+    assert rc == 1
+    assert "tmap not found" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_extract_undecodable_tmap_errors(tmp_path, monkeypatch, capsys) -> None:
+    # A decode failure maps to a clean .tmap-centric ExtractionError (-> exit 1),
+    # never a raw traceback, and nothing is written.
+    import tether.project.extract as ext
+
+    def _boom(_path):
+        raise ValueError("not a Deep-LASI .tmap (no 'm' cell)")
+
+    monkeypatch.setattr(ext, "read_tmap", _boom)
+    movie = _make_movie(tmp_path)
+    tmap = _stub_tmap(tmp_path)
+    out = tmp_path / "out.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), "--tmap", str(tmap)])
+    assert rc == 1
+    assert "could not use --tmap" in capsys.readouterr().err
+    assert not out.exists()
+
+
+@pytest.mark.parametrize(
+    "geometry",
+    [{"acceptor_rotation": np.array([90.0])}, {"acceptor_flip": np.array([1, 0])}],
+    ids=["rotation", "flip"],
+)
+def test_extract_imported_tmap_nonidentity_geometry_refused(
+    tmp_path, monkeypatch, capsys, geometry
+) -> None:
+    # A .tmap whose channel carries a non-identity rotation OR flip is refused
+    # loudly (the imported path applies only crop geometry so far), never silently
+    # mis-split. Both axes are covered so a flip regression can't slip through.
+    import tether.project.extract as ext
+
+    channels = _synthetic_tmap_channels(**geometry)
+    monkeypatch.setattr(ext, "read_tmap", lambda _path: channels)
+    movie = _make_movie(tmp_path)
+    tmap = _stub_tmap(tmp_path)
+    out = tmp_path / "out.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), "--tmap", str(tmap)])
+    assert rc == 1
+    assert "rotation/flip" in capsys.readouterr().err
+    assert not out.exists()

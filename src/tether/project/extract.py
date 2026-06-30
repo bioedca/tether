@@ -9,20 +9,33 @@ dual-channel TIFF movie into a populated ``.tether`` project::
     -> estimate_*_prealign + pair_control_points -> fit_registration_map
     -> colocalize (donor-anchored) -> extract_molecules -> write_extraction
 
-This is the **native** registration path: control points are paired from the
-sample movie's *own* detections (coarse phase-correlation prealign -> mutual
-nearest-neighbour pairing -> degree-2 polynomial fit), with the over-gate branch
-left at ``warn`` (accept-with-flag, never drop) so a sample movie whose residual
-exceeds the §11.2 RMS gate is tagged ``low-confidence-registration`` rather than
-rejected (ADR-0014).
+Two registration sources are supported (PRD §7.1 "a native bead/grid fit *and* an
+imported ``.tmap``"):
 
-Scope note (M1 S9 split): the **imported** registration path (apply a Deep-LASI
-``.tmap`` via :func:`tether.imaging.calibrate.registration_map_from_tmap`) and
-the extraction-vs-Deep-LASI acceptance oracle land in the follow-up PR (S9 PR-C),
-where the gated full-movie fixture and the full Deep-LASI ground-truth export
-that the oracle requires are wired together. This module deliberately exposes a
-typed :class:`ExtractOptions` so that follow-up can add an ``--tmap`` branch
-without reshaping the call site.
+* **native** (default) -- control points are paired from the sample movie's *own*
+  detections (coarse phase-correlation prealign -> mutual nearest-neighbour pairing
+  -> degree-2 polynomial fit), with the over-gate branch left at ``warn``
+  (accept-with-flag, never drop) so a sample movie whose residual exceeds the §11.2
+  RMS gate is tagged ``low-confidence-registration`` rather than rejected (ADR-0014);
+* **imported** -- pass ``tmap=<path>`` to apply Deep-LASI's own ``.tmap`` via
+  :func:`tether.imaging.register.read_tmap` ->
+  :func:`tether.imaging.calibrate.registration_map_from_tmap`. This skips the native
+  detect/prealign/pair/fit and splits + reads at the ``.tmap``'s stored per-channel
+  crop geometry (so ``options.donor_side`` is ignored). An imported bead-fitted map
+  is trusted as-is: with no sample-movie control points to measure against, its
+  residual is left unknown (NaN), so it never trips the over-gate flag (the
+  ~1.6 px molecule-domain scatter of a bead map is colocalization, not registration,
+  error -- see ADR-0014).
+
+The imported ``.tmap``'s per-channel ``Rotation``/``Flip`` are decoded but their
+*apply* is deferred: a ``.tmap`` whose channels carry a non-identity rotation/flip
+is **refused** (a clean ``ExtractionError``) rather than silently split at the wrong
+frame; the UCKOPSB calibration map stores neither, so only the crop is needed.
+
+Scope note (M1 S9 split): the extraction-vs-Deep-LASI acceptance oracle (recall /
+Pearson / RMS, PRD §8 NFR-VALID(a)) lands in the follow-up PR (S9 PR-C), with the
+gated full-movie fixture + full Deep-LASI export; that PR also lands the rotation/
+flip *apply* (validated against the real movie) -- ADR-0014/ADR-0019.
 """
 
 from __future__ import annotations
@@ -33,6 +46,7 @@ import os
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 # These imports are intentionally module-level: ``tether.project.extract`` is
@@ -42,7 +56,9 @@ from uuid import uuid4
 from tether import __version__
 from tether.imaging.calibrate import (
     OverGateRegistrationWarning,
+    RegistrationMap,
     fit_registration_map,
+    registration_map_from_tmap,
     write_calibration,
 )
 from tether.imaging.coloc import colocalize
@@ -52,11 +68,15 @@ from tether.imaging.register import (
     estimate_similarity_prealign,
     estimate_translation_prealign,
     pair_control_points,
+    read_tmap,
 )
 from tether.imaging.split import ChannelGeometry, split_channels
 from tether.io.filename import parse_filename
 from tether.io.movie import open_movie
 from tether.project.core import Project
+
+if TYPE_CHECKING:
+    import numpy as np
 
 # Channel-id convention for the native two-channel split: the donor is the
 # registration *reference* (channel 0), the acceptor the *moving* channel (1).
@@ -146,6 +166,7 @@ class ExtractionSummary:
     rms_residual: float
     low_confidence_registration: bool
     molecule_tags: tuple[str, ...]
+    registration_source: str  # "native" (paired fit) or "imported" (.tmap)
 
 
 def _half_split_geometry(
@@ -187,6 +208,7 @@ def _settings(
     n_control_points: int,
     rms_residual: float,
     source: str,
+    tmap_source: str | None,
 ) -> dict:
     """Assemble the JSON-serialisable ``/settings/extraction`` provenance dict."""
     settings = {"app_version": __version__, "pipeline": "native"}
@@ -195,7 +217,60 @@ def _settings(
     # JSON has no NaN; store an explicit ``None`` for an unmeasured residual.
     settings["registration_rms_px"] = float(rms_residual) if math.isfinite(rms_residual) else None
     settings["registration_source"] = source
+    # The imported-.tmap source filename (``None`` for the native path) -- the
+    # operator-visible provenance of which calibration file produced this extraction.
+    settings["tmap_source"] = tmap_source
     return settings
+
+
+def _detect_channels(
+    donor_stack: np.ndarray,
+    acceptor_stack: np.ndarray,
+    options: ExtractOptions,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Build the per-half detection images and detected spot sets.
+
+    Returns ``(donor_det, acceptor_det, donor_spots, acceptor_spots)``; the
+    detection images seed the native prealign, the spots feed both paths' colocalize.
+    """
+    donor_det = detection_image(donor_stack, block=options.detection_block)
+    acceptor_det = detection_image(acceptor_stack, block=options.detection_block)
+    donor_spots = detect_spots(donor_det, min_separation=options.min_separation)
+    acceptor_spots = detect_spots(acceptor_det, min_separation=options.min_separation)
+    return donor_det, acceptor_det, donor_spots, acceptor_spots
+
+
+def _imported_registration_map(tmap_path: str | os.PathLike[str]) -> RegistrationMap:
+    """Decode a ``.tmap`` and build the imported :class:`RegistrationMap`.
+
+    Wraps :func:`read_tmap` + :func:`registration_map_from_tmap` and translates any
+    decode/build failure into a clean, ``.tmap``-centric :class:`ExtractionError`
+    (the "never a raw traceback" contract). No sample-movie control points are
+    supplied, so the imported map's residual stays unknown (NaN) and the bead-fitted
+    calibration is trusted as-is -- it never trips the over-gate flag.
+    """
+    try:
+        channels = read_tmap(tmap_path)
+        unsupported = sorted(cid for cid, ch in channels.items() if not ch.has_simple_geometry)
+        if unsupported:
+            # The .tmap stores a per-channel rotation/flip that processImage applies
+            # before cropping; the imported path honors only the crop so far, so
+            # applying it would split at the wrong frame. Refuse loudly rather than
+            # silently mis-extract (the rotation/flip apply is deferred to a follow-up).
+            raise ExtractionError(
+                f".tmap channel(s) {unsupported} carry a non-identity rotation/flip, which "
+                "the imported registration path does not yet apply (only crop geometry is "
+                "honored); re-run without --tmap to use a native fit."
+            )
+        return registration_map_from_tmap(
+            channels,
+            app_version=__version__,
+            source_file=Path(tmap_path).name,
+        )
+    except ExtractionError:
+        raise
+    except Exception as exc:  # bad/foreign .tmap, ambiguous channels, ...
+        raise ExtractionError(f"could not use --tmap {Path(tmap_path).name}: {exc}") from exc
 
 
 def extract_movie(
@@ -203,6 +278,7 @@ def extract_movie(
     output_path: str | os.PathLike[str],
     *,
     options: ExtractOptions | None = None,
+    tmap: str | os.PathLike[str] | None = None,
     overwrite: bool = False,
 ) -> ExtractionSummary:
     """Extract traces from a dual-channel ``movie_path`` into a new ``.tether``.
@@ -217,6 +293,12 @@ def extract_movie(
         ``overwrite``).
     options:
         Pipeline tunables (defaults: :class:`ExtractOptions`).
+    tmap:
+        Optional path to a Deep-LASI ``.tmap``. When given, registration is
+        **imported** from it (the native detect/prealign/pair/fit is skipped); the
+        two channels are split + read at the ``.tmap``'s own stored crop geometry,
+        so ``options.donor_side`` is ignored. When ``None`` (default), a native fit
+        is paired from the movie's own detections.
     overwrite:
         Replace an existing ``output_path``.
 
@@ -229,9 +311,10 @@ def extract_movie(
     ------
     ExtractionError
         Any operator-actionable failure: invalid options, a missing or
-        unreadable/compressed movie, a pre-existing output without ``overwrite``,
-        an un-splittable frame, too few matched control points to register, or a
-        write failure. Never a raw primitive traceback.
+        unreadable/compressed movie, a missing or undecodable ``.tmap``, a
+        pre-existing output without ``overwrite``, an un-splittable frame, too few
+        matched control points to register (native path), or a write failure. Never
+        a raw primitive traceback.
     """
     options = options or ExtractOptions()
     movie_path = Path(movie_path)
@@ -239,8 +322,14 @@ def extract_movie(
 
     if not movie_path.exists():
         raise ExtractionError(f"movie not found: {movie_path}")
+    if tmap is not None and not Path(tmap).exists():
+        raise ExtractionError(f"tmap not found: {tmap}")
     if output_path.exists() and not overwrite:
         raise ExtractionError(f"output exists: {output_path} (use overwrite=True / --overwrite)")
+
+    # Decode the imported .tmap up front (it is independent of the movie); a bad
+    # map fails before any movie IO, so nothing is touched. ``None`` -> native fit.
+    imported_map = _imported_registration_map(tmap) if tmap is not None else None
 
     # --- Stages 1-15, all while the movie memmap is open -----------------------
     # Convert any primitive/IO failure (a bad/compressed TIFF, a prealign image
@@ -260,53 +349,70 @@ def extract_movie(
             # the authoritative interval arrives with the .tdat/.mat at import.
             frame_time = float(reader.frame_time) if reader.frame_time is not None else 0.0
 
-            donor_geom, acceptor_geom = _half_split_geometry(width, height, options.donor_side)
-            donor_stack, acceptor_stack = split_channels(reader.data, donor_geom, acceptor_geom)
-
-            donor_det = detection_image(donor_stack, block=options.detection_block)
-            acceptor_det = detection_image(acceptor_stack, block=options.detection_block)
-            donor_spots = detect_spots(donor_det, min_separation=options.min_separation)
-            acceptor_spots = detect_spots(acceptor_det, min_separation=options.min_separation)
-
-            if options.prealign == "similarity":
-                prealign = estimate_similarity_prealign(
-                    donor_det,
-                    acceptor_det,
-                    upsample_factor=options.prealign_upsample,
-                    low_sigma=options.prealign_low_sigma,
-                    high_sigma=options.prealign_high_sigma,
+            if imported_map is not None:
+                # Imported path: registration comes from the .tmap. Split + detect
+                # at its own stored channel crop geometry (donor = reference half,
+                # acceptor = moving half), so donor_side / prealign / pairing are
+                # not used. A map without crop geometry leaves the split undefined.
+                reg_map = imported_map
+                donor_geom = reg_map.reference_geometry
+                acceptor_geom = reg_map.moving_geometry
+                if donor_geom is None or acceptor_geom is None:
+                    raise ExtractionError(
+                        "imported .tmap lacks per-channel crop geometry; cannot split the movie"
+                    )
+                donor_stack, acceptor_stack = split_channels(reader.data, donor_geom, acceptor_geom)
+                _, _, donor_spots, acceptor_spots = _detect_channels(
+                    donor_stack, acceptor_stack, options
                 )
             else:
-                prealign = estimate_translation_prealign(
-                    donor_det, acceptor_det, upsample_factor=options.prealign_upsample
+                # Native path: pair control points from the movie's own detections.
+                donor_geom, acceptor_geom = _half_split_geometry(width, height, options.donor_side)
+                donor_stack, acceptor_stack = split_channels(reader.data, donor_geom, acceptor_geom)
+                donor_det, acceptor_det, donor_spots, acceptor_spots = _detect_channels(
+                    donor_stack, acceptor_stack, options
                 )
 
-            paired = pair_control_points(
-                donor_spots, acceptor_spots, tol=options.pair_tol, prealign=prealign
-            )
-            if len(paired.reference) < 2:
-                raise ExtractionError(
-                    f"registration failed: only {len(paired.reference)} control-point pair(s) "
-                    f"matched (need >= 2). Detected {len(donor_spots)} donor / "
-                    f"{len(acceptor_spots)} acceptor spots; check the channel split, detection "
-                    "sensitivity (--min-separation) or pairing tolerance (--pair-tol)."
-                )
+                if options.prealign == "similarity":
+                    prealign = estimate_similarity_prealign(
+                        donor_det,
+                        acceptor_det,
+                        upsample_factor=options.prealign_upsample,
+                        low_sigma=options.prealign_low_sigma,
+                        high_sigma=options.prealign_high_sigma,
+                    )
+                else:
+                    prealign = estimate_translation_prealign(
+                        donor_det, acceptor_det, upsample_factor=options.prealign_upsample
+                    )
 
-            # The over-gate verdict is reported once via ExtractionSummary; mute
-            # the library's duplicate warning so headless output isn't doubled.
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", OverGateRegistrationWarning)
-                reg_map = fit_registration_map(
-                    paired.reference,
-                    paired.moving,
-                    reference_channel=_DONOR_CHANNEL,
-                    moving_channel=_ACCEPTOR_CHANNEL,
-                    reference_geometry=donor_geom,
-                    moving_geometry=acceptor_geom,
-                    gate_px=options.rms_gate,
-                    on_over_gate="warn",
-                    app_version=__version__,
+                paired = pair_control_points(
+                    donor_spots, acceptor_spots, tol=options.pair_tol, prealign=prealign
                 )
+                if len(paired.reference) < 2:
+                    raise ExtractionError(
+                        f"registration failed: only {len(paired.reference)} control-point "
+                        f"pair(s) matched (need >= 2). Detected {len(donor_spots)} donor / "
+                        f"{len(acceptor_spots)} acceptor spots; check the channel split, "
+                        "detection sensitivity (--min-separation) or pairing tolerance "
+                        "(--pair-tol)."
+                    )
+
+                # The over-gate verdict is reported once via ExtractionSummary; mute
+                # the library's duplicate warning so headless output isn't doubled.
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", OverGateRegistrationWarning)
+                    reg_map = fit_registration_map(
+                        paired.reference,
+                        paired.moving,
+                        reference_channel=_DONOR_CHANNEL,
+                        moving_channel=_ACCEPTOR_CHANNEL,
+                        reference_geometry=donor_geom,
+                        moving_geometry=acceptor_geom,
+                        gate_px=options.rms_gate,
+                        on_over_gate="warn",
+                        app_version=__version__,
+                    )
 
             molecules = colocalize(
                 donor_spots,
@@ -362,6 +468,7 @@ def extract_movie(
         n_control_points=reg_map.n_control_points,
         rms_residual=reg_map.rms_residual,
         source=reg_map.source,
+        tmap_source=Path(tmap).name if tmap is not None else None,
     )
 
     # Build at a sibling temp path, then atomically replace the destination only
@@ -398,4 +505,5 @@ def extract_movie(
         rms_residual=float(reg_map.rms_residual),
         low_confidence_registration=bool(reg_map.low_confidence),
         molecule_tags=tuple(reg_map.molecule_tags),
+        registration_source=reg_map.source,
     )

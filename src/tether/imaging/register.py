@@ -46,7 +46,7 @@ Reference: Deep-LASI ``mapping/createMap.m``, ``mapping/createMapPhaseCorr.m``,
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 
@@ -556,6 +556,29 @@ class TmapChannel:
     map_particles: np.ndarray  # (M, 2) bead control points, as stored
     ref_to_channel: PolyTransform2D  # decoded MapToReference; apply: reference -> channel
     channel_to_ref: PolyTransform2D  # decoded MapFromReference; apply: channel -> reference
+    # processImage applies rotate -> flip -> crop; Tether's imported-.tmap path
+    # honors only the crop so far (the rotation/flip *apply* is deferred to a
+    # follow-up). These carry the stored values so a non-identity geometry can be
+    # refused loudly (see :attr:`has_simple_geometry`) rather than silently
+    # mis-split. Empty arrays (the UCKOPSB .tmap's value) and all-zeros mean "none".
+    rotation: np.ndarray = field(default_factory=lambda: np.array([]))
+    flip: np.ndarray = field(default_factory=lambda: np.array([]))
+
+    @property
+    def has_simple_geometry(self) -> bool:
+        """True iff splitting this channel needs only its crop (no rotation/flip).
+
+        Deep-LASI's ``processImage`` rotates and flips before cropping; Tether's
+        imported-``.tmap`` path applies only the crop so far, so a channel whose
+        stored ``Rotation``/``Flip`` are empty or all-zero is the supported case.
+        A non-trivial rotation/flip would make the imported map split at the wrong
+        frame, so callers must refuse such a ``.tmap`` rather than mis-extract.
+        """
+        rot = np.asarray(self.rotation).ravel()
+        flip = np.asarray(self.flip).ravel()
+        rot_ok = rot.size == 0 or bool(np.all(rot == 0))
+        flip_ok = flip.size == 0 or bool(np.all(flip == 0))
+        return rot_ok and flip_ok
 
     @property
     def origin(self) -> np.ndarray:
@@ -728,11 +751,14 @@ def read_tmap(path: str | Path) -> dict[int, TmapChannel]:
         struct = cells[0, idx][0, 0]
         channel_id = int(np.asarray(struct["ChannelID"]).ravel()[0])
         to_objid, from_objid = handles[channel_id]
+        names = struct.dtype.names or ()
         out[channel_id] = TmapChannel(
             channel_id=channel_id,
             crop=np.asarray(struct["Crop"]),
             map_particles=np.asarray(struct["MapParticles"], dtype=np.float64),
             ref_to_channel=_read_poly(arr, objid_to_cell[to_objid]),
             channel_to_ref=_read_poly(arr, objid_to_cell[from_objid]),
+            rotation=np.asarray(struct["Rotation"]) if "Rotation" in names else np.array([]),
+            flip=np.asarray(struct["Flip"]) if "Flip" in names else np.array([]),
         )
     return out
