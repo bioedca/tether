@@ -257,7 +257,11 @@ def _bandpass(image: np.ndarray, lnoise: float = 1.0, lobject: int = 7) -> np.nd
     Crocker & Grier (1996), *J. Colloid Interface Sci.* 179:298.
     """
     image = np.asarray(image, dtype=np.float64)
+    if lnoise <= 0:
+        raise ValueError(f"lnoise must be > 0, got {lnoise}")
     w = int(round(lobject))
+    if w < 1:
+        raise ValueError(f"lobject must round to an integer >= 1, got {lobject}")
     n = 2 * w + 1
     height, width = image.shape
     if height < n or width < n:

@@ -311,6 +311,16 @@ def test_bandpass_too_small_returns_zeros() -> None:
     assert np.all(band == 0)
 
 
+def test_bandpass_validates_length_scales() -> None:
+    img = np.zeros((40, 40))
+    with pytest.raises(ValueError, match="lnoise"):
+        _bandpass(img, lnoise=0.0)
+    with pytest.raises(ValueError, match="lnoise"):
+        _bandpass(img, lnoise=-1.0)
+    with pytest.raises(ValueError, match="lobject"):
+        _bandpass(img, lobject=0)
+
+
 # --- intensity-threshold detector (findPart.m mode 2) ------------------------
 
 
@@ -331,12 +341,15 @@ def test_detect_spots_intensity_recovers_synthetic_truth() -> None:
 def test_detect_spots_intensity_returns_xy_descending_brightness() -> None:
     image = np.zeros((64, 64))
     _gaussian_blob(image, row=30, col=30, amp=1.0)  # bright
-    _gaussian_blob(image, row=12, col=50, amp=0.45)  # dim
+    _gaussian_blob(image, row=12, col=50, amp=0.75)  # dim but above threshold
     image /= image.max()
     spots = detect_spots_intensity(image)
-    assert spots.shape[0] >= 1
-    assert spots[0, 0] == pytest.approx(30, abs=2.0)  # x of brightest
-    assert spots[0, 1] == pytest.approx(30, abs=2.0)  # y of brightest
+    # both blobs must be detected, AND the brighter one must come first
+    bright_idx = np.flatnonzero(np.hypot(spots[:, 0] - 30, spots[:, 1] - 30) <= 2.0)
+    dim_idx = np.flatnonzero(np.hypot(spots[:, 0] - 50, spots[:, 1] - 12) <= 2.0)
+    assert bright_idx.size == 1
+    assert dim_idx.size == 1
+    assert bright_idx[0] < dim_idx[0]
 
 
 def test_detect_spots_intensity_respects_guardrails() -> None:
