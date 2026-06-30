@@ -44,6 +44,7 @@ prose harmonization of the PRD (PRD §12.7).
 | [0017](0017-deeplasi-validation-reader.md) | Minimal Deep-LASI `.mat`/`.txt` validation reader: M1-scoped fields, 1-based→0-based coordinates, lazy scipy | accepted | §9 M1, §8 NFR-VALID (a), App A |
 | [0018](0018-extract-cli-native-pipeline.md) | `tether extract` CLI: native auto-registration pipeline; imported `.tmap` + Deep-LASI oracle deferred to the S9 follow-up | accepted | §7.11, §9 M1, App E, §11.2 |
 | [0019](0019-extract-cli-imported-tmap.md) | `tether extract --tmap`: imported registration path; trust the bead map (residual unknown), refuse a non-identity rotation/flip, defer the apply + oracle | accepted | §7.1, §7.11, §9 M1, App E §6–10 |
+| [0020](0020-extraction-oracle-and-deferred-m1-close.md) | The extraction-vs-Deep-LASI acceptance oracle; M1 close deferred (full-scale detection-faithfulness gap surfaced: ~20% recall) | accepted | §9 M1, §8 NFR-VALID (a), §7.11, §2.2, App A |
 
 _Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
 by the PRs that implement them._
