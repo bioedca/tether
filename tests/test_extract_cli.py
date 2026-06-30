@@ -486,3 +486,126 @@ def test_extract_imported_tmap_nonidentity_geometry_refused(
     assert rc == 1
     assert "rotation/flip" in capsys.readouterr().err
     assert not out.exists()
+
+
+# --- selectable detection mode + threshold (S9 PR-C3c; PRD §11.2, ADR-0021) --
+#
+# The three detectors themselves are unit-tested in test_detect.py; here we lock
+# that the extraction pipeline *selects* the mode/threshold and records the choice
+# into /settings/extraction (NFR-REPRO). The synthetic movie's three clean
+# Gaussians are detected identically by all three modes, so the molecule count is
+# a stable invariant across modes (the per-detector behaviour differs only on the
+# real, textured fixture, exercised by the gated oracle in PR-C3d).
+
+
+def _extraction_profile(path) -> dict:
+    """Read the JSON ``/settings/extraction`` provenance profile from a ``.tether``."""
+    with h5py.File(path, "r") as f:
+        return json.loads(_as_str(f["/settings/extraction"].attrs["profile_json"]))
+
+
+def test_extract_default_records_wavelet_mode(tmp_path) -> None:
+    # The default pipeline is the historical à trous detector, recorded verbatim.
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "default.tether"
+    summary = extract_movie(movie, out, options=ExtractOptions(window=_WINDOW))
+    assert summary.n_molecules == 3
+    profile = _extraction_profile(out)
+    assert profile["detection_mode"] == "wavelet"
+    assert profile["detection_threshold"] is None  # None -> JSON null
+
+
+@pytest.mark.parametrize("mode", ["intensity", "bandpass"])
+def test_extract_alternate_mode_is_recorded(tmp_path, mode) -> None:
+    # A non-default mode + explicit threshold round-trips into /settings and still
+    # produces a valid project with the same three synthetic molecules.
+    movie = _make_movie(tmp_path)
+    out = tmp_path / f"{mode}.tether"
+    summary = extract_movie(
+        movie,
+        out,
+        options=ExtractOptions(window=_WINDOW, detection_mode=mode, detection_threshold=0.4),
+    )
+    assert assert_is_compatible_project(out) == 1
+    assert summary.n_molecules == 3
+    profile = _extraction_profile(out)
+    assert profile["detection_mode"] == mode
+    assert profile["detection_threshold"] == pytest.approx(0.4)
+
+
+def test_extract_detection_mode_threshold_reach_the_detector(tmp_path, monkeypatch) -> None:
+    # Prove the selected mode/threshold actually flow to the detector (the test
+    # would otherwise pass even if _detect_channels ignored the options and ran
+    # the default). Spy on the dispatch seam and capture its kwargs.
+    import tether.project.extract as ext
+
+    calls = []
+    real = ext.detect_spots_by_mode
+
+    def spy(image, **kwargs):
+        calls.append(kwargs)
+        return real(image, **kwargs)
+
+    monkeypatch.setattr(ext, "detect_spots_by_mode", spy)
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "spy.tether"
+    ext.extract_movie(
+        movie,
+        out,
+        options=ExtractOptions(detection_mode="bandpass", detection_threshold=0.7),
+    )
+    # Called once per half (donor + acceptor), both with the selected mode/threshold.
+    assert len(calls) == 2
+    assert all(c["mode"] == "bandpass" for c in calls)
+    assert all(c["threshold"] == pytest.approx(0.7) for c in calls)
+
+
+def test_extract_rejects_bad_detection_mode(tmp_path, capsys) -> None:
+    # Programmatic: a bad mode fails fast with a clean ExtractionError.
+    with pytest.raises(ExtractionError, match="detection_mode"):
+        ExtractOptions(detection_mode="quantum")
+    # Via the CLI it routes through ExtractOptions -> exit 1 (not argparse's exit 2),
+    # the same operator-actionable contract as --donor-side.
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "out.tether"
+    rc = main(["extract", str(movie), "-o", str(out), "--detection-mode", "quantum"])
+    assert rc == 1
+    assert "detection_mode" in capsys.readouterr().err
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("bad", ["-0.1", "1.0", "1.5"])
+def test_extract_rejects_out_of_range_detection_threshold(tmp_path, capsys, bad) -> None:
+    # The detectors' domain is [0, 1); the boundary 1.0 and either side are refused.
+    with pytest.raises(ExtractionError, match="detection_threshold"):
+        ExtractOptions(detection_threshold=float(bad))
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "out.tether"
+    rc = main(["extract", str(movie), "-o", str(out), "--detection-threshold", bad])
+    assert rc == 1
+    assert "detection_threshold" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_cli_detection_mode_threshold_flags_flow(tmp_path) -> None:
+    # The CLI flags reach /settings/extraction end-to-end.
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "cli_mode.tether"
+    rc = main(
+        [
+            "extract",
+            str(movie),
+            "-o",
+            str(out),
+            "--window",
+            str(_WINDOW),
+            "--detection-mode",
+            "intensity",
+            "--detection-threshold",
+            "0.55",
+        ]
+    )
+    assert rc == 0
+    profile = _extraction_profile(out)
+    assert profile["detection_mode"] == "intensity"
+    assert profile["detection_threshold"] == pytest.approx(0.55)
