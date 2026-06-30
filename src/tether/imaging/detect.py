@@ -14,12 +14,16 @@ method (and threshold) it was actually detected with:
   intensity-threshold detector (`findPart.m:21-28`) — threshold the detection
   image at ``t * max``, Crocker-Grier band-pass (`external/bpass.m`), re-threshold
   at 3 % of the band-pass max, erode, and take connected-component centroids.
+* **mode 3 — bandpass** (:func:`detect_spots_bandpass`): the Crocker-Grier
+  band-pass / sort detector (`mapping/find_part_bpass_sort.m`) — threshold at
+  ``t * max``, band-pass (``bpass(I, 1, 9)``; note ``lobject = 9`` vs mode 2's 7),
+  keep only the band-pass values in the top ``1 - t`` fraction (a percentile sort),
+  take the regional maxima (``imregionalmax``), and their connected-component
+  centroids.
 
 :func:`detect_spots_by_mode` dispatches on :class:`ParticleDetectionMode`. All
 modes share the Stage-4 post-detection tail (snap -> border -> NMS ->
 ``[x, y]``), mirroring ``findPart.m``'s shared post-switch block (lines 63-103).
-The band-pass / radial-symmetry detector (mode 3, `find_part_bpass_sort.m`) is a
-planned follow-up (ADR-0021).
 
 The mode-1 wavelet path is a faithful port of
 (`deeplasi/functions/external/Wave_Partfind.m`, `mapping/findPart.m`):
@@ -56,9 +60,12 @@ The mode-1 wavelet path is a faithful port of
 
 **Coordinate convention.** :func:`detect_spots` returns an ``(N, 2)`` float array
 of ``[x, y]`` = ``[column, row]`` (Deep-LASI stores ``fliplr`` -> ``[x, y]``),
-0-based, sorted by descending brightness. The radial-symmetry localizer
-(Parthasarathy 2012, modes 3/4) is intentionally **not** ported here; mode 1 is
-the faithful class default.
+0-based, sorted by descending brightness. Mode 3, as actually written in
+``find_part_bpass_sort.m``, localizes with the connected-component **centroid**
+(``regionprops 'Centroid'``), so Tether ports it with the centroid too; the
+``radialcenter`` refinement named only in the ``findPart.m:30`` *comment* (and
+used by modes 4/5) is intentionally **not** ported here. Mode 1 is the faithful
+class default.
 """
 
 from __future__ import annotations
@@ -76,6 +83,7 @@ __all__ = [
     "b3_spline_kernel",
     "detect_spots",
     "detect_spots_intensity",
+    "detect_spots_bandpass",
     "detect_spots_by_mode",
     "ParticleDetectionMode",
 ]
@@ -89,12 +97,12 @@ class ParticleDetectionMode(StrEnum):
 
     A ``str`` enum so the choice serializes verbatim into ``/settings/extraction``
     and round-trips through the CLI/`.tether` store. ``WAVELET`` is the Deep-LASI
-    class default (`findPart.m` mode 1). ``BANDPASS`` (mode 3) is a planned
-    follow-up (ADR-0021) and is intentionally not yet a member.
+    class default (`findPart.m` mode 1).
     """
 
     WAVELET = "wavelet"  # mode 1 — à trous multiscale product (class default)
     INTENSITY = "intensity"  # mode 2 — intensity-threshold + Crocker-Grier bandpass
+    BANDPASS = "bandpass"  # mode 3 — Crocker-Grier bandpass + sort + imregionalmax
 
 
 def b3_spline_kernel(step: int) -> np.ndarray:
@@ -493,11 +501,122 @@ def detect_spots_intensity(
     )
 
 
+def detect_spots_bandpass(
+    detection_img: np.ndarray,
+    *,
+    threshold: float = 0.98,
+    lnoise: float = 1.0,
+    lobject: int = 9,
+    min_separation: float = 8.0,
+    border_margin: int = 1,
+    refine: bool = True,
+) -> np.ndarray:
+    """Band-pass / sort spot detection (Deep-LASI ``findPart.m`` mode 3).
+
+    Faithful port of `deeplasi/functions/mapping/find_part_bpass_sort.m`. With
+    ``t = threshold``:
+
+    1. zero pixels below ``t * max`` of the detection image (``:13-14``);
+    2. Crocker-Grier band-pass with ``lobject = 9`` (``bpass(I, 1, 9)``, ``:15``;
+       note this is **9**, vs the intensity mode's 7) via :func:`_bandpass`;
+    3. **percentile sort** — keep only band-pass values ``>=`` the
+       ``floor(N * t)``-th smallest (``N`` = pixel count), i.e. the top ``1 - t``
+       fraction; everything below is zeroed (``:16-17``);
+    4. ``imregionalmax`` — the regional maxima, connected plateaus strictly
+       greater than their 8-neighbourhood (`skimage.morphology.local_maxima`,
+       version-matched to the base ``conda-lock`` scikit-image 0.26; ``:22``);
+    5. 8-connected component centroids (``regionprops 'Centroid'``, ``:24-25``).
+
+    The shared Stage-4 tail (:func:`_finalize_candidates`) then snaps, applies the
+    border + min-separation guardrails, and orders by brightness.
+
+    ``threshold`` is **dual-use** here (faithful to the reference): it both floors
+    the intensity (step 1) and sets the percentile cut (step 3), so it trades
+    sensitivity against false positives more sharply than the intensity mode's
+    threshold. The ``find_part_bpass_sort.m`` standalone default ``t = 0.98``
+    (keep the top 2 % of band-pass values) is used here; in production Deep-LASI's
+    ``findPart`` passes the GUI ``DetectionThreshold`` instead
+    (``findPart.m:30``), which PR-C3c will decode from the ``.tdat`` and supply.
+    A ``threshold`` of exactly 0 is bumped to 0.01, matching ``:10-12`` (it would
+    otherwise index the 0-th sorted element and keep everything).
+
+    Parameters
+    ----------
+    detection_img:
+        ``(H, W)`` detection image (e.g. from :func:`detection_image`).
+    threshold:
+        Deep-LASI mode-3 ``t`` (PRD §11.2): see the dual-use note above
+        (default 0.98).
+    lnoise, lobject:
+        Crocker-Grier band-pass noise / object length scales (`bpass.m`; mode-3
+        defaults ``1`` / ``9``).
+    min_separation, border_margin, refine:
+        Shared Stage-4 guardrails (see :func:`detect_spots`).
+
+    Returns
+    -------
+    np.ndarray
+        ``(N, 2)`` ``float64`` ``[x, y]`` = ``[col, row]`` coordinates, 0-based,
+        sorted by descending brightness (empty ``(0, 2)`` if none).
+    """
+    detection_img = np.asarray(detection_img, dtype=np.float64)
+    if detection_img.ndim != 2:
+        raise ValueError(f"detection_img must be 2-D, got shape {detection_img.shape}")
+    if not 0.0 <= threshold < 1.0:
+        raise ValueError(f"threshold must be in [0, 1), got {threshold}")
+    # find_part_bpass_sort.m:10-12 — t == 0 is bumped to 0.01 (a 0-valued
+    # percentile index would address the 0-th sorted element / keep everything).
+    t = threshold if threshold != 0.0 else 0.01
+
+    peak = float(detection_img.max())
+    if peak <= 0:
+        return np.empty((0, 2), dtype=np.float64)
+    thresholded = np.where(detection_img < t * peak, 0.0, detection_img)
+
+    band = _bandpass(thresholded, lnoise=lnoise, lobject=lobject)
+    band_peak = float(band.max())
+    if band_peak <= 0:
+        # Degenerate band-pass (flat/empty): return nothing rather than the single
+        # image-centre centroid MATLAB's imregionalmax-of-a-constant would yield.
+        return np.empty((0, 2), dtype=np.float64)
+
+    # Percentile sort: cut below the floor(N*t)-th smallest band-pass value. MATLAB
+    # `sort` is ascending and 1-based: `BI(bi(floor(length(bi)*t)))`. Clamp the
+    # 1-based rank into [1, N] before the 0-based lookup.
+    flat = np.sort(band, axis=None)
+    n = flat.size
+    rank = min(max(int(np.floor(n * t)), 1), n)
+    cutoff = flat[rank - 1]
+    band2 = np.where(band < cutoff, 0.0, band)
+
+    # imregionalmax: connected plateaus strictly greater than their neighbourhood.
+    # skimage `local_maxima` default connectivity=None -> full (ndim) = 8-conn in
+    # 2-D, allow_borders=True -> matches MATLAB imregionalmax's 8-conn default.
+    from skimage.morphology import local_maxima  # noqa: PLC0415 (heavy, isolated)
+
+    regional = local_maxima(band2)
+    if not regional.any():
+        return np.empty((0, 2), dtype=np.float64)
+
+    # regionprops 'Centroid' == 8-connected component centroids of the binary mask.
+    structure = np.ones((3, 3), dtype=bool)
+    labels, n_labels = ndimage.label(regional, structure=structure)
+    centroids = ndimage.center_of_mass(regional.astype(np.float64), labels, range(1, n_labels + 1))
+    coords = np.atleast_2d(np.asarray(centroids, dtype=np.float64))  # (M, 2) (row, col)
+    return _finalize_candidates(
+        coords,
+        detection_img,
+        min_separation=min_separation,
+        border_margin=border_margin,
+        refine=refine,
+    )
+
+
 def detect_spots_by_mode(
     detection_img: np.ndarray,
     *,
     mode: ParticleDetectionMode | str = ParticleDetectionMode.WAVELET,
-    threshold: float = 0.5,
+    threshold: float | None = None,
     min_separation: float = 8.0,
     border_margin: int = 1,
     refine: bool = True,
@@ -505,16 +624,29 @@ def detect_spots_by_mode(
     """Dispatch spot detection on :class:`ParticleDetectionMode`.
 
     ``mode`` accepts a :class:`ParticleDetectionMode` or its string value
-    (``"wavelet"`` / ``"intensity"``); an unknown value raises ``ValueError`` at
-    the enum coercion. ``threshold`` is consumed only by the intensity mode. The
-    returned contract is identical across modes — ``(N, 2)`` ``[x, y]`` sorted by
-    descending brightness.
+    (``"wavelet"`` / ``"intensity"`` / ``"bandpass"``); an unknown value raises
+    ``ValueError`` at the enum coercion. ``threshold`` is the shared Deep-LASI
+    GUI ``DetectionThreshold`` knob — consumed by the intensity and band-pass
+    modes (ignored by wavelet); ``None`` (the default) lets each mode use its own
+    faithful default (intensity 0.5, band-pass 0.98), matching the differing
+    standalone defaults of the ported ``.m`` functions. The returned contract is
+    identical across modes — ``(N, 2)`` ``[x, y]`` sorted by descending
+    brightness.
     """
     mode = ParticleDetectionMode(mode)
+    threshold_kw = {} if threshold is None else {"threshold": threshold}
     if mode is ParticleDetectionMode.INTENSITY:
         return detect_spots_intensity(
             detection_img,
-            threshold=threshold,
+            **threshold_kw,
+            min_separation=min_separation,
+            border_margin=border_margin,
+            refine=refine,
+        )
+    if mode is ParticleDetectionMode.BANDPASS:
+        return detect_spots_bandpass(
+            detection_img,
+            **threshold_kw,
             min_separation=min_separation,
             border_margin=border_margin,
             refine=refine,

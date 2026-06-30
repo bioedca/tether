@@ -1,6 +1,6 @@
 # 0021 — Selectable particle-detection methods (match Deep-LASI's `findPart` modes)
 
-- **Status:** accepted (partial: mode 2 landed; modes 3 + config-decode + re-measurement follow)
+- **Status:** accepted (partial: modes 2 & 3 landed; config-decode + re-measurement follow)
 - **Date:** 2026-06-30
 - **Deciders:** bioedca
 - **PRD anchor:** §7.1, §9 M1, §11.2, Appendix E Stage 3 (FR-EXTRACT)
@@ -67,9 +67,20 @@ Centroid + intensity-weighted localization is the standard sub-pixel approach
 ([Lelek2021], [Cnossen2019]); the Crocker-Grier band-pass localizes
 sub-diffraction spheres "to within 10 nm in the focal plane" ([Crocker1996]).
 
+**PR-C3b (landed, this PR)** — the faithful **mode-3 band-pass detector**
+(`detect_spots_bandpass`, port of `find_part_bpass_sort.m`) + `BANDPASS` enum
+member, wired into `detect_spots_by_mode`: threshold at `t·max` → Crocker-Grier
+band-pass (`bpass(I, 1, 9)`; `lobject = 9`, vs mode 2's 7) → keep the top `1 − t`
+band-pass values (percentile sort) → regional maxima
+(`skimage.morphology.local_maxima` = `imregionalmax`, 8-conn) → 8-connected
+centroids, then the shared Stage-4 tail. The `t` is **dual-use** (intensity floor
++ percentile cut), faithful to the reference; default `t = 0.98` (the standalone
+`.m` default). Mode 3 localizes with the centroid, not `radialcenter` (the
+`findPart.m:30` comment naming `radialcenter` is aspirational; the actual `.m`
+uses `regionprops 'Centroid'`). Still additive at the imaging layer
+(`schema-guard` green; no lock change).
+
 **Deferred to follow-up PRs (the split):**
-- **PR-C3b** — mode 3 bandpass (`find_part_bpass_sort.m`) + add `BANDPASS` to the
-  enum.
 - **PR-C3c** — decode `ParticleDetectionMode` + `DetectionThreshold` from the
   `.tdat` MCOS `FileWrapper__` blob (extends `read_tdat`); wire the selector into
   `ExtractOptions`/`extract` (the only step that touches `/settings/extraction` —
