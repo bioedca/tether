@@ -1,6 +1,6 @@
 # 0021 — Selectable particle-detection methods (match Deep-LASI's `findPart` modes)
 
-- **Status:** accepted (partial: modes 2 & 3 + the CLI/pipeline selector landed; `.tdat` config-decode + re-measurement follow)
+- **Status:** accepted (partial: modes 2 & 3 + the CLI/pipeline selector + the `.tdat` detection-*mode* auto-apply landed; the per-channel `DetectionThreshold` MCOS decode and re-measurement are still to come)
 - **Date:** 2026-06-30
 - **Deciders:** bioedca
 - **PRD anchor:** §7.1, §9 M1, §11.2, Appendix E Stage 3 (FR-EXTRACT)
@@ -90,19 +90,30 @@ exposes `--detection-mode` / `--detection-threshold`. **Additive at `/settings`
 (an empty container group), so `schema-guard` stays green with no version bump**;
 no lock change. This resolves the "not reachable from the CLI" trade-off below.
 
+**PR-C3c-decode-A (landed, this PR) — the `.tdat` detection-*mode* auto-apply.**
+`read_tdat` now decodes `temp/ParticleDetectionMode` (a plain `double` leaf:
+`findPart` method 1 wavelet / 2 intensity / 3 bandpass; `TRACERdata.m:62` class
+default 1) into `Tdat.detection` (`TdatDetectionSettings`), with a lightweight
+`read_detection_settings` companion. `extract_movie` gains `tdat=<path>` and the
+CLI a `--tdat` flag that auto-applies the decoded mode (overriding
+`options.detection_mode`, recorded as `tdat_source` in `/settings/extraction`),
+so a re-extraction matches the method the movie was detected with (NFR-REPRO).
+`--tdat` is mutually exclusive with `--detection-mode`/`--detection-threshold`;
+unported modes (4 local-variance / 5 ZMW) are refused. Still additive at
+`/settings` (`schema-guard` green, no version/lock change). The committed
+`tdat_coloc_slice.tdat` fixture now carries the `ParticleDetectionMode` leaf.
+
 **Deferred to follow-up PRs (the further split):**
-- **PR-C3c-decode** — decode the per-movie detection config from the `.tdat`
-  (extends `read_tdat`) so an import can auto-apply the method/threshold a movie
-  was *actually* detected with. **Investigation finding (probed the real UCKOPSB
-  `.tdat`):** `ParticleDetectionMode` is a **plain `temp/` leaf** (`val = 2.0`
-  = intensity on this acquisition) — trivially readable, no MCOS needed; but
-  `DetectionThreshold` is a **per-channel `TIRFdata` property** reached only
-  through the `#subsystem#/MCOS FileWrapper__` blob (`temp/Channel[i]` →
-  `0xDD000000` object-reference markers, class_id 4), so it requires a genuine
-  MCOS decoder. The committed `tdat_coloc_slice.tdat` fixture **dropped the MCOS
-  blob** (6 leaves only), so this PR must also regenerate a fixture that retains
-  the MCOS bytes + the relevant `#refs#` property datasets. Kept separate from the
-  pipeline wiring (it is an IO-reader concern) per the atomic-PR rule (PLAN §0.2).
+- **PR-C3c-decode-B** — decode the **per-channel `DetectionThreshold`**, a
+  `TIRFdata` MCOS property reached only through the `#subsystem#/MCOS
+  FileWrapper__` blob (`temp/Channel[i]` → `0xDD000000` object-reference markers,
+  class_id 4), so it requires a genuine MCOS decoder. The committed
+  `tdat_coloc_slice.tdat` fixture **dropped the MCOS blob** (it keeps only the
+  plain leaves), so this PR must regenerate a fixture that retains the MCOS bytes +
+  the relevant `#refs#` property datasets — the fixture work belongs with the
+  decoder that consumes it. `TdatDetectionSettings.threshold` (today always `None`,
+  so each detector uses its own faithful default) is populated then. Kept separate
+  per the atomic-PR rule (PLAN §0.2).
 - **PR-C3d** — per-channel detect + bidirectional colocalization, oracle
   re-framed to evaluate the **colocalized** set apples-to-apples (USER
   CORRECTION #1), re-measure @1px; **only then** invoke the maintainer-approved

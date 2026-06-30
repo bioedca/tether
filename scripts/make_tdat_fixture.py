@@ -5,9 +5,11 @@
 The TIRFdata ``.tdat`` decode (PRD §7.8, Appendix A/B) needs a *real-data*
 fixture that exercises the MATLAB v7.3 access path, but the source ``.tdat`` is
 37 MB. This tool copies only the payload :func:`tether.io.read_tdat` reads — the
-real ``ParticlesColocalized`` coordinate matrix and the three
-``Default{Alpha,Beta,Gamma}`` scalars — into a tiny ``.tdat``-format file,
-dropping the ~37 MB of trace/patch arrays and the MCOS object blob. The output
+real ``ParticlesColocalized`` coordinate matrix, the three
+``Default{Alpha,Beta,Gamma}`` scalars, and the ``ParticleDetectionMode`` leaf —
+into a tiny ``.tdat``-format file, dropping the ~37 MB of trace/patch arrays and
+the MCOS object blob. (Retaining the MCOS ``Channel`` bytes needed to decode the
+per-channel ``DetectionThreshold`` is deferred to PR-C3c-decode-B.) The output
 reproduces the original access path exactly (``temp/ParticlesColocalized`` cell
 -> HDF5 object reference -> ``(17, N)`` ``findColoc`` matrix in ``#refs#``), so
 the committed test genuinely decodes a real file rather than a stub. The full
@@ -70,6 +72,11 @@ def main() -> None:
         gamma = _scalar(temp, "DefaultGamma")
         channels = np.asarray(temp["ChannelsWithData"][()], dtype=np.float64).reshape(-1, 1)
         mapping_ref = _scalar(temp, "MappingReferenceChannel")
+        # Mirror read_tdat's _detection_mode_code default: a source .tdat predating
+        # the field falls back to mode 1 (wavelet) rather than raising KeyError.
+        detection_mode = (
+            _scalar(temp, "ParticleDetectionMode") if "ParticleDetectionMode" in temp else 1.0
+        )
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(OUT, "w") as g:
@@ -93,10 +100,17 @@ def main() -> None:
             "MappingReferenceChannel", data=np.array([[mapping_ref]], dtype=np.float64)
         )
         ref_ch.attrs["MATLAB_class"] = np.bytes_("double")
+        # ParticleDetectionMode is a plain ``double`` leaf (findPart.m method code);
+        # carry it so the committed fixture exercises read_detection_settings too.
+        det_mode = temp_out.create_dataset(
+            "ParticleDetectionMode", data=np.array([[detection_mode]], dtype=np.float64)
+        )
+        det_mode.attrs["MATLAB_class"] = np.bytes_("double")
 
     print(f"wrote {OUT} ({OUT.stat().st_size} B)")
     print(f"  {table.shape[1]} molecules x {table.shape[0]} columns")
     print(f"  Deep-LASI factors: Alpha={alpha:g} Beta={beta:g} Gamma={gamma:g}")
+    print(f"  ParticleDetectionMode: {detection_mode:g}")
     print(f"source .tdat size:   {TDAT.stat().st_size} B")
     print(f"source .tdat sha256: {_sha256(TDAT)}")
 

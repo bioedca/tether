@@ -609,3 +609,173 @@ def test_cli_detection_mode_threshold_flags_flow(tmp_path) -> None:
     profile = _extraction_profile(out)
     assert profile["detection_mode"] == "intensity"
     assert profile["detection_threshold"] == pytest.approx(0.55)
+
+
+# --- imported .tdat detection-mode auto-apply (S9 PR-C3c-decode-A; ADR-0021) --
+#
+# A movie carries no record of which findPart method detected it; a sibling
+# Deep-LASI .tdat does (temp/ParticleDetectionMode). --tdat reads that mode and
+# applies it, so a native re-extraction matches the method the data was actually
+# detected with (NFR-REPRO). The .tdat-decode itself is unit-tested in
+# test_tdat.py; here we lock the extract wiring + provenance. The per-channel
+# DetectionThreshold MCOS decode is a follow-up (PR-C3c-decode-B).
+
+
+def _write_tdat(path, *, mode_code: float = 2.0) -> object:
+    """Write a minimal .tdat carrying only ``temp/ParticleDetectionMode``.
+
+    Enough for the detection-settings reader (mode 2 == intensity); the heavier
+    coordinate/correction decode is covered in test_tdat.py against the real fixture.
+    """
+    with h5py.File(path, "w") as f:
+        temp = f.create_group("temp")
+        ds = temp.create_dataset("ParticleDetectionMode", data=np.array([[mode_code]]))
+        ds.attrs["MATLAB_class"] = np.bytes_("double")
+    return path
+
+
+def test_extract_tdat_applies_decoded_mode(tmp_path) -> None:
+    # A .tdat with ParticleDetectionMode == 2 (intensity) overrides the default
+    # wavelet; the applied mode is reported and recorded with its provenance.
+    movie = _make_movie(tmp_path)
+    tdat = _write_tdat(tmp_path / "data.tdat", mode_code=2.0)
+    out = tmp_path / "tdat.tether"
+    summary = extract_movie(movie, out, tdat=tdat, options=ExtractOptions(window=_WINDOW))
+    assert assert_is_compatible_project(out) == 1
+    assert summary.n_molecules == 3
+    assert summary.detection_mode == "intensity"
+    profile = _extraction_profile(out)
+    assert profile["detection_mode"] == "intensity"
+    assert profile["tdat_source"] == "data.tdat"
+    # The detection threshold stays at the mode's faithful default until the MCOS
+    # decoder lands (PR-C3c-decode-B): None is recorded, not a fabricated value.
+    assert profile["detection_threshold"] is None
+
+
+def test_extract_tdat_preserves_caller_threshold(tmp_path) -> None:
+    # In decode-A the .tdat supplies only the mode (the per-channel DetectionThreshold
+    # MCOS decode is deferred), so a caller-supplied threshold must SURVIVE the apply,
+    # not be wiped to None. This is the only reachable branch of the
+    # _apply_tdat_detection threshold conditional until decode-B fills in a value, so
+    # a regression that nulled the threshold on the .tdat path would otherwise pass.
+    movie = _make_movie(tmp_path)
+    tdat = _write_tdat(tmp_path / "data.tdat", mode_code=2.0)  # intensity
+    out = tmp_path / "keep.tether"
+    summary = extract_movie(
+        movie, out, tdat=tdat, options=ExtractOptions(window=_WINDOW, detection_threshold=0.3)
+    )
+    assert summary.detection_mode == "intensity"  # mode comes from the .tdat
+    profile = _extraction_profile(out)
+    assert profile["detection_mode"] == "intensity"
+    assert profile["detection_threshold"] == pytest.approx(0.3)  # caller's threshold kept
+    assert profile["tdat_source"] == "data.tdat"
+
+
+def test_extract_accepts_zero_detection_threshold(tmp_path) -> None:
+    # 0.0 is the inclusive lower bound of the detectors' [0, 1) domain: it must be
+    # ACCEPTED (locks `0.0 <=`, not `0.0 <`). The round-trip uses the default wavelet
+    # mode (where the threshold is inert-but-recorded), so it is detector-independent.
+    ExtractOptions(detection_threshold=0.0)  # must not raise
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "zero.tether"
+    extract_movie(movie, out, options=ExtractOptions(window=_WINDOW, detection_threshold=0.0))
+    assert _extraction_profile(out)["detection_threshold"] == 0.0
+
+
+def test_cli_extract_with_tdat_succeeds(tmp_path, capsys) -> None:
+    movie = _make_movie(tmp_path)
+    tdat = _write_tdat(tmp_path / "data.tdat", mode_code=3.0)  # bandpass
+    out = tmp_path / "cli_tdat.tether"
+    rc = main(
+        ["extract", str(movie), "-o", str(out), "--window", str(_WINDOW), "--tdat", str(tdat)]
+    )
+    assert rc == 0
+    output = capsys.readouterr().out
+    assert "Extracted 3 molecule(s)" in output
+    assert "detection: mode 'bandpass' from" in output
+    assert _extraction_profile(out)["detection_mode"] == "bandpass"
+
+
+def test_extract_tdat_mode_reaches_the_detector(tmp_path, monkeypatch) -> None:
+    # Prove the .tdat-decoded mode actually flows to the detector, not just the
+    # provenance dict (the spy seam mirrors the --detection-mode flow test).
+    import tether.project.extract as ext
+
+    calls = []
+    real = ext.detect_spots_by_mode
+    monkeypatch.setattr(
+        ext, "detect_spots_by_mode", lambda image, **kw: (calls.append(kw), real(image, **kw))[1]
+    )
+    movie = _make_movie(tmp_path)
+    tdat = _write_tdat(tmp_path / "data.tdat", mode_code=2.0)
+    ext.extract_movie(movie, tmp_path / "spy.tether", tdat=tdat)
+    assert len(calls) == 2  # donor + acceptor halves
+    assert all(c["mode"] == "intensity" for c in calls)
+
+
+def test_cli_tdat_and_detection_mode_are_mutually_exclusive(tmp_path, capsys) -> None:
+    # --tdat and --detection-mode both set the detection method; combining them is
+    # ambiguous and refused (exit 1, nothing written).
+    movie = _make_movie(tmp_path)
+    tdat = _write_tdat(tmp_path / "data.tdat")
+    out = tmp_path / "out.tether"
+    rc = main(
+        ["extract", str(movie), "-o", str(out), "--tdat", str(tdat), "--detection-mode", "wavelet"]
+    )
+    assert rc == 1
+    assert "cannot be combined with --tdat" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_cli_tdat_and_detection_threshold_are_mutually_exclusive(tmp_path, capsys) -> None:
+    movie = _make_movie(tmp_path)
+    tdat = _write_tdat(tmp_path / "data.tdat")
+    out = tmp_path / "out.tether"
+    rc = main(
+        ["extract", str(movie), "-o", str(out), "--tdat", str(tdat), "--detection-threshold", "0.3"]
+    )
+    assert rc == 1
+    assert "cannot be combined with --tdat" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_extract_tdat_not_found_errors(tmp_path, capsys) -> None:
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "out.tether"
+    rc = main(["extract", str(movie), "-o", str(out), "--tdat", str(tmp_path / "nope.tdat")])
+    assert rc == 1
+    assert "tdat not found" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_extract_tdat_unsupported_mode_errors(tmp_path, capsys) -> None:
+    # A .tdat saved with an unported findPart mode (4 local-variance / 5 ZMW) is
+    # refused with a clean .tdat-centric error -- never silently mis-detected.
+    movie = _make_movie(tmp_path)
+    tdat = _write_tdat(tmp_path / "data.tdat", mode_code=4.0)
+    out = tmp_path / "out.tether"
+    rc = main(["extract", str(movie), "-o", str(out), "--tdat", str(tdat)])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "could not use --tdat" in err
+    assert "not supported" in err
+    assert not out.exists()
+
+
+def test_extract_tdat_composes_with_tmap(tmp_path, monkeypatch) -> None:
+    # --tdat (detection) and --tmap (registration) are independent and compose: the
+    # run imports registration from the .tmap AND the detection mode from the .tdat.
+    import tether.project.extract as ext
+
+    monkeypatch.setattr(ext, "read_tmap", lambda _path: _synthetic_tmap_channels())
+    movie = _make_movie(tmp_path)
+    tdat = _write_tdat(tmp_path / "data.tdat", mode_code=2.0)
+    out = tmp_path / "both.tether"
+    summary = ext.extract_movie(
+        movie, out, tmap=_stub_tmap(tmp_path), tdat=tdat, options=ExtractOptions(window=_WINDOW)
+    )
+    assert summary.registration_source == "imported"
+    assert summary.detection_mode == "intensity"
+    profile = _extraction_profile(out)
+    assert profile["tmap_source"] == "map.tmap"
+    assert profile["tdat_source"] == "data.tdat"

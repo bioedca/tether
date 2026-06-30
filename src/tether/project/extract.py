@@ -13,7 +13,10 @@ The spot detector is selectable (``options.detection_mode`` ∈ {``wavelet``,
 ``intensity``, ``bandpass``} with an optional ``options.detection_threshold``;
 PRD §11.2, ADR-0021) so a movie can be extracted with the Deep-LASI ``findPart``
 method it was actually detected with. The default ``wavelet`` reproduces the
-historical à trous detection unchanged.
+historical à trous detection unchanged. Passing ``tdat=<path>`` auto-applies the
+mode decoded from a Deep-LASI ``.tdat`` (``temp/ParticleDetectionMode``),
+overriding ``options.detection_mode`` (the per-channel ``DetectionThreshold`` MCOS
+decode is a follow-up).
 
 Two registration sources are supported (PRD §7.1 "a native bead/grid fit *and* an
 imported ``.tmap``"):
@@ -50,7 +53,7 @@ import hashlib
 import math
 import os
 import warnings
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -79,6 +82,7 @@ from tether.imaging.register import (
 from tether.imaging.split import ChannelGeometry, split_channels
 from tether.io.filename import parse_filename
 from tether.io.movie import open_movie
+from tether.io.tdat import read_detection_settings
 from tether.project.core import Project
 
 if TYPE_CHECKING:
@@ -190,6 +194,7 @@ class ExtractionSummary:
     low_confidence_registration: bool
     molecule_tags: tuple[str, ...]
     registration_source: str  # "native" (paired fit) or "imported" (.tmap)
+    detection_mode: str  # the ParticleDetectionMode actually run (post .tdat apply)
 
 
 def _half_split_geometry(
@@ -232,6 +237,7 @@ def _settings(
     rms_residual: float,
     source: str,
     tmap_source: str | None,
+    tdat_source: str | None,
 ) -> dict:
     """Assemble the JSON-serialisable ``/settings/extraction`` provenance dict."""
     settings = {"app_version": __version__, "pipeline": "native"}
@@ -243,7 +249,36 @@ def _settings(
     # The imported-.tmap source filename (``None`` for the native path) -- the
     # operator-visible provenance of which calibration file produced this extraction.
     settings["tmap_source"] = tmap_source
+    # The imported-.tdat source filename (``None`` unless --tdat supplied the
+    # detection mode) -- provenance of where the detection settings came from. The
+    # resolved options.detection_mode / detection_threshold above already record
+    # the values that were actually applied.
+    settings["tdat_source"] = tdat_source
     return settings
+
+
+def _apply_tdat_detection(
+    options: ExtractOptions, tdat_path: str | os.PathLike[str]
+) -> ExtractOptions:
+    """Override ``options`` detection settings with those decoded from a ``.tdat``.
+
+    Reads the Deep-LASI ``ParticleDetectionMode`` (and, once the MCOS ``Channel``
+    decoder lands, the per-channel ``DetectionThreshold``) and returns a copy of
+    ``options`` with ``detection_mode`` / ``detection_threshold`` replaced, so a
+    re-extraction reproduces the method the movie was actually detected with
+    (NFR-REPRO). The decoded mode is re-validated by :class:`ExtractOptions`. Any
+    decode failure becomes a clean ``.tdat``-centric :class:`ExtractionError`.
+    """
+    try:
+        detection = read_detection_settings(tdat_path)
+    except Exception as exc:  # not a TIRFdata, unsupported mode, unreadable file
+        raise ExtractionError(f"could not use --tdat {Path(tdat_path).name}: {exc}") from exc
+    # ``threshold`` is ``None`` until the MCOS decoder lands; keep the caller's
+    # threshold (each mode's faithful default) until then rather than wiping it.
+    threshold = (
+        detection.threshold if detection.threshold is not None else options.detection_threshold
+    )
+    return replace(options, detection_mode=detection.mode, detection_threshold=threshold)
 
 
 def _detect_channels(
@@ -316,6 +351,7 @@ def extract_movie(
     *,
     options: ExtractOptions | None = None,
     tmap: str | os.PathLike[str] | None = None,
+    tdat: str | os.PathLike[str] | None = None,
     overwrite: bool = False,
 ) -> ExtractionSummary:
     """Extract traces from a dual-channel ``movie_path`` into a new ``.tether``.
@@ -336,6 +372,14 @@ def extract_movie(
         two channels are split + read at the ``.tmap``'s own stored crop geometry,
         so ``options.donor_side`` is ignored. When ``None`` (default), a native fit
         is paired from the movie's own detections.
+    tdat:
+        Optional path to a Deep-LASI ``.tdat``. When given, the particle-detection
+        mode (and, once the MCOS ``Channel`` decoder lands, the per-channel
+        threshold) is read from it and **overrides** ``options.detection_mode`` /
+        ``options.detection_threshold``, and the source filename is recorded as
+        ``tdat_source`` in ``/settings/extraction`` -- so a re-extraction matches the
+        method the movie was actually detected with. Independent of ``tmap`` (the two
+        compose: import both registration and detection settings from Deep-LASI).
     overwrite:
         Replace an existing ``output_path``.
 
@@ -348,7 +392,8 @@ def extract_movie(
     ------
     ExtractionError
         Any operator-actionable failure: invalid options, a missing or
-        unreadable/compressed movie, a missing or undecodable ``.tmap``, a
+        unreadable/compressed movie, a missing or undecodable ``.tmap`` or
+        ``.tdat`` (or a ``.tdat`` with an unsupported detection mode), a
         pre-existing output without ``overwrite``, an un-splittable frame, too few
         matched control points to register (native path), or a write failure. Never
         a raw primitive traceback.
@@ -361,8 +406,16 @@ def extract_movie(
         raise ExtractionError(f"movie not found: {movie_path}")
     if tmap is not None and not Path(tmap).exists():
         raise ExtractionError(f"tmap not found: {tmap}")
+    if tdat is not None and not Path(tdat).exists():
+        raise ExtractionError(f"tdat not found: {tdat}")
     if output_path.exists() and not overwrite:
         raise ExtractionError(f"output exists: {output_path} (use overwrite=True / --overwrite)")
+
+    # A .tdat supplies the detection mode/threshold the movie was actually detected
+    # with; resolve it up front (before any movie IO) so a bad or unsupported-mode
+    # .tdat fails fast with a clean error and nothing is touched.
+    if tdat is not None:
+        options = _apply_tdat_detection(options, tdat)
 
     # Decode the imported .tmap up front (it is independent of the movie); a bad
     # map fails before any movie IO, so nothing is touched. ``None`` -> native fit.
@@ -506,6 +559,7 @@ def extract_movie(
         rms_residual=reg_map.rms_residual,
         source=reg_map.source,
         tmap_source=Path(tmap).name if tmap is not None else None,
+        tdat_source=Path(tdat).name if tdat is not None else None,
     )
 
     # Build at a sibling temp path, then atomically replace the destination only
@@ -543,4 +597,5 @@ def extract_movie(
         low_confidence_registration=bool(reg_map.low_confidence),
         molecule_tags=tuple(reg_map.molecule_tags),
         registration_source=reg_map.source,
+        detection_mode=options.detection_mode,
     )

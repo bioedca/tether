@@ -19,8 +19,8 @@ pytest.importorskip("numpy")
 import h5py  # noqa: E402  (guarded by importorskip above)
 import numpy as np  # noqa: E402
 
-from tether.io import read_tdat, remap_correction_factors  # noqa: E402
-from tether.io.tdat import Tdat  # noqa: E402
+from tether.io import read_detection_settings, read_tdat, remap_correction_factors  # noqa: E402
+from tether.io.tdat import Tdat, TdatDetectionSettings  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures" / "tdat_coloc_slice.tdat"
 
@@ -36,6 +36,7 @@ def _write_minimal_tdat(
     *,
     channels: list[float] | None = None,
     reference: float = 1.0,
+    detection_mode: float | None = None,
 ) -> None:
     """Write a minimal ``temp`` struct for decoder tests.
 
@@ -43,6 +44,8 @@ def _write_minimal_tdat(
     a cell object reference); ``None`` writes the MATLAB empty-array marker (a
     non-reference dims stub). ``channels`` / ``reference`` populate
     ``ChannelsWithData`` / ``MappingReferenceChannel`` (MATLAB 1-based).
+    ``detection_mode`` writes ``temp/ParticleDetectionMode`` when given; ``None``
+    omits the leaf (so the reader falls back to the wavelet class default).
     """
     if channels is None:
         channels = [1.0, 2.0]
@@ -62,6 +65,8 @@ def _write_minimal_tdat(
             "ChannelsWithData", data=np.array(channels, dtype=np.float64).reshape(-1, 1)
         )
         temp.create_dataset("MappingReferenceChannel", data=np.array([[reference]]))
+        if detection_mode is not None:
+            temp.create_dataset("ParticleDetectionMode", data=np.array([[detection_mode]]))
 
 
 def _coloc_row(
@@ -246,3 +251,94 @@ def test_corrections_dataclass_is_frozen() -> None:
     corr = remap_correction_factors(0.0, 0.0, 0.0)
     with pytest.raises(AttributeError):
         corr.alpha = 1.0  # type: ignore[misc]
+
+
+# --- particle-detection mode decode (PR-C3c-decode-A; ADR-0021) --------------
+#
+# temp/ParticleDetectionMode is a plain ``double`` leaf holding the Deep-LASI
+# findPart method code (1 wavelet, 2 intensity, 3 bandpass); it maps to the Tether
+# ParticleDetectionMode string so an import reproduces the detection method.
+# The per-channel DetectionThreshold (an MCOS property) is decoded in a follow-up.
+
+
+def test_detection_mode_decoded_from_fixture(tdat: Tdat) -> None:
+    # The real UCKOPSB acquisition was detected with mode 2 (intensity).
+    assert tdat.detection.mode == "intensity"
+    # threshold stays None (the MCOS Channel decode is PR-C3c-decode-B).
+    assert tdat.detection.threshold is None
+
+
+def test_read_detection_settings_matches_read_tdat(tdat: Tdat) -> None:
+    # The lightweight reader and the full read_tdat agree on the detection settings.
+    light = read_detection_settings(FIXTURE)
+    assert light == TdatDetectionSettings(mode="intensity", threshold=None)
+    assert light == tdat.detection
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [(1.0, "wavelet"), (2.0, "intensity"), (3.0, "bandpass")],
+)
+def test_detection_mode_code_maps_to_string(tmp_path: Path, code: float, expected: str) -> None:
+    path = tmp_path / f"mode{code:g}.tdat"
+    _write_minimal_tdat(path, table=particles_table(), detection_mode=code)
+    assert read_tdat(path).detection.mode == expected
+    assert read_detection_settings(path).mode == expected
+
+
+def test_detection_mode_absent_defaults_to_wavelet(tmp_path: Path) -> None:
+    # A .tdat without the leaf decodes to the Deep-LASI class default (TRACERdata.m).
+    path = tmp_path / "no_mode.tdat"
+    _write_minimal_tdat(path, table=particles_table(), detection_mode=None)
+    assert read_tdat(path).detection.mode == "wavelet"
+    assert read_detection_settings(path).mode == "wavelet"
+
+
+@pytest.mark.parametrize("code", [0.0, 4.0, 5.0, 99.0])
+def test_unsupported_detection_mode_raises(tmp_path: Path, code: float) -> None:
+    # Modes 4 (local-variance) / 5 (ZMW) are not ported; an out-of-range code is
+    # refused, never silently mapped to a wrong detector.
+    path = tmp_path / f"bad{code:g}.tdat"
+    _write_minimal_tdat(path, table=particles_table(), detection_mode=code)
+    with pytest.raises(ValueError, match="not supported"):
+        read_tdat(path)
+    with pytest.raises(ValueError, match="not supported"):
+        read_detection_settings(path)
+
+
+def test_non_integer_detection_mode_raises(tmp_path: Path) -> None:
+    # A fractional mode code is corruption, rejected (not truncated to a real mode).
+    path = tmp_path / "frac.tdat"
+    _write_minimal_tdat(path, table=particles_table(), detection_mode=2.5)
+    with pytest.raises(ValueError, match="integer mode code"):
+        read_detection_settings(path)
+
+
+def test_read_detection_settings_not_a_tdat_raises(tmp_path: Path) -> None:
+    bad = tmp_path / "not_a.tdat"
+    with h5py.File(bad, "w") as f:
+        f.create_dataset("something", data=[1, 2, 3])
+    with pytest.raises(ValueError, match="not a Deep-LASI TIRFdata"):
+        read_detection_settings(bad)
+
+
+def test_decoded_modes_are_exactly_the_detection_enum(tmp_path: Path) -> None:
+    # Cross-lock: the decoder's three mode strings are precisely the frozen
+    # ParticleDetectionMode members (so io's literals can't drift from the enum).
+    pytest.importorskip("scipy")
+    pytest.importorskip("skimage")
+    from tether.imaging.detect import ParticleDetectionMode  # noqa: PLC0415
+
+    decoded = set()
+    for code in (1.0, 2.0, 3.0):
+        path = tmp_path / f"m{code:g}.tdat"
+        _write_minimal_tdat(path, table=particles_table(), detection_mode=code)
+        decoded.add(read_detection_settings(path).mode)
+    assert decoded == {m.value for m in ParticleDetectionMode}
+
+
+def test_detection_settings_dataclass_is_frozen() -> None:
+    settings = TdatDetectionSettings(mode="wavelet")
+    assert settings.threshold is None
+    with pytest.raises(AttributeError):
+        settings.mode = "intensity"  # type: ignore[misc]

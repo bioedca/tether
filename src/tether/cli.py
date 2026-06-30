@@ -66,11 +66,12 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     extract.add_argument(
         "--detection-mode",
-        default="wavelet",
+        default=None,
         metavar="{wavelet,intensity,bandpass}",
         help=(
             "particle-detection method (Deep-LASI findPart mode; default: wavelet). "
-            "'intensity'/'bandpass' also honor --detection-threshold"
+            "'intensity'/'bandpass' also honor --detection-threshold. "
+            "Mutually exclusive with --tdat, which supplies the mode"
         ),
     )
     extract.add_argument(
@@ -81,7 +82,7 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
         help=(
             "detection threshold as a fraction of the detection-image max, in [0, 1) "
             "(intensity/bandpass modes only; default: each mode's own — intensity 0.5, "
-            "bandpass 0.98; ignored by wavelet)"
+            "bandpass 0.98; ignored by wavelet). Mutually exclusive with --tdat"
         ),
     )
     extract.add_argument(
@@ -135,6 +136,16 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
             "the .tmap's own channel geometry (--donor-side is then ignored)"
         ),
     )
+    extract.add_argument(
+        "--tdat",
+        default=None,
+        metavar="PATH",
+        help=(
+            "auto-apply the particle-detection mode decoded from a Deep-LASI .tdat "
+            "(temp/ParticleDetectionMode), so extraction matches the method the movie "
+            "was detected with; mutually exclusive with --detection-mode/-threshold"
+        ),
+    )
 
 
 def _run_extract(args: argparse.Namespace) -> int:
@@ -143,9 +154,22 @@ def _run_extract(args: argparse.Namespace) -> int:
     from tether.project.extract import ExtractionError, ExtractOptions, extract_movie
 
     try:
+        # --detection-mode/-threshold and --tdat are two ways to set the same
+        # detection settings; combining them is ambiguous (which wins?), so refuse
+        # it up front rather than silently letting one override the other.
+        if args.tdat is not None and (
+            args.detection_mode is not None or args.detection_threshold is not None
+        ):
+            raise ExtractionError(
+                "--detection-mode/--detection-threshold cannot be combined with --tdat "
+                "(the .tdat supplies the detection mode); pass one or the other"
+            )
         options = ExtractOptions(
             donor_side=args.donor_side,
-            detection_mode=args.detection_mode,
+            # --detection-mode defaults to None on the CLI so an explicit choice is
+            # distinguishable from no flag; resolve to the library default here. When
+            # --tdat is given, extract_movie overrides this with the decoded mode.
+            detection_mode=args.detection_mode or "wavelet",
             detection_threshold=args.detection_threshold,
             window=args.window,
             min_separation=args.min_separation,
@@ -156,7 +180,12 @@ def _run_extract(args: argparse.Namespace) -> int:
             rms_gate=args.rms_gate,
         )
         summary = extract_movie(
-            args.movie, args.output, options=options, tmap=args.tmap, overwrite=args.overwrite
+            args.movie,
+            args.output,
+            options=options,
+            tmap=args.tmap,
+            tdat=args.tdat,
+            overwrite=args.overwrite,
         )
     except ExtractionError as exc:
         print(f"tether extract: {exc}", file=sys.stderr)
@@ -165,6 +194,8 @@ def _run_extract(args: argparse.Namespace) -> int:
     print(f"Extracted {summary.n_molecules} molecule(s) -> {summary.output_path}")
     if summary.registration_source == "imported":
         print(f"  registration: imported from {args.tmap}")
+    if args.tdat is not None:
+        print(f"  detection: mode '{summary.detection_mode}' from {args.tdat}")
     if summary.low_confidence_registration:
         print(
             f"  warning: registration RMS {summary.rms_residual:.3f} px exceeds the "
