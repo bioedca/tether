@@ -9,8 +9,19 @@ MATLAB reference group ``#refs#/`` and are reached through HDF5 object reference
 while genuine MATLAB *objects* (the per-channel ``Channel`` instances, ``HMMdata``,
 ``table`` …) live in the ``#subsystem#/MCOS`` ``FileWrapper__`` blob.
 
-This reader recovers the two payloads M1 import needs **without** decoding the
-MCOS object blob, because both are plain numeric leaves of ``temp/``:
+This reader recovers the payloads M1 import needs **without** decoding the
+MCOS object blob, because each is a plain numeric leaf of ``temp/``:
+
+* **Particle-detection mode** — ``temp/ParticleDetectionMode`` is a plain
+  ``double`` scalar holding the Deep-LASI ``findPart`` ``method`` code the movie
+  was detected with (``mapping/findPart.m:18-62``: 1 wavelet, 2 intensity, 3
+  band-pass; ``classes/TRACERdata.m:62`` defaults it to 1). It maps to the Tether
+  :class:`~tether.imaging.detect.ParticleDetectionMode` string so a ``.tether``
+  re-extraction can reproduce the method the data was actually detected with
+  (PRD §11.2, ADR-0021). The companion per-channel ``DetectionThreshold`` is a
+  ``TIRFdata`` MCOS property (``temp/Channel[i]`` -> ``#subsystem#/MCOS``), so it
+  is **not** decoded here yet (PR-C3c-decode-B); :attr:`TdatDetectionSettings.threshold`
+  stays ``None`` and each detector falls back to its own faithful default.
 
 * **Colocalized coordinates** — ``temp/ParticlesColocalized`` is a MATLAB cell
   (one entry per movie in the stack) whose object reference resolves to the
@@ -57,6 +68,8 @@ __all__ = [
     "Tdat",
     "TdatColocalization",
     "TdatCorrections",
+    "TdatDetectionSettings",
+    "read_detection_settings",
     "read_tdat",
     "remap_correction_factors",
 ]
@@ -67,6 +80,17 @@ _N_COLS = 17
 _MAX_CHANNELS = 4
 _FLAG_START = 12  # bCh1..bCh4 occupy columns 12..15
 _NFILE_COL = 16
+
+# Deep-LASI findPart.m ``method`` code -> Tether ParticleDetectionMode string value
+# (mapping/findPart.m:18-30). The string values are the frozen
+# tether.imaging.detect.ParticleDetectionMode members (kept as literals so io does
+# not depend on the imaging layer; a test asserts they stay a subset of the enum).
+# Modes 4 (local-variance) and 5 (ZMW intensity) are not ported, so a .tdat saved
+# with one of them is refused rather than silently mis-detected.
+_DETECTION_MODE_BY_CODE = {1: "wavelet", 2: "intensity", 3: "bandpass"}
+# classes/TRACERdata.m:62 — ParticleDetectionMode defaults to 1 (wavelet); a .tdat
+# that predates the field (or a minimal one) decodes to that class default.
+_DEFAULT_DETECTION_MODE_CODE = 1
 
 
 @dataclass(frozen=True)
@@ -117,11 +141,34 @@ class TdatColocalization:
 
 
 @dataclass(frozen=True)
+class TdatDetectionSettings:
+    """Particle-detection config recovered from a ``.tdat`` (PRD §11.2, ADR-0021).
+
+    Attributes
+    ----------
+    mode:
+        the Tether :class:`~tether.imaging.detect.ParticleDetectionMode` string
+        (``"wavelet"`` / ``"intensity"`` / ``"bandpass"``) for the Deep-LASI
+        ``findPart`` method the movie was detected with.
+    threshold:
+        the per-channel ``DetectionThreshold`` as a fraction of the
+        detection-image max, or ``None`` when it is unknown. It is **always**
+        ``None`` here: the value is a ``TIRFdata`` MCOS property that the plain-leaf
+        reader does not decode (PR-C3c-decode-B adds the MCOS ``Channel`` decoder).
+        ``None`` lets each detector use its own faithful default (PRD §11.2).
+    """
+
+    mode: str
+    threshold: float | None = None
+
+
+@dataclass(frozen=True)
 class Tdat:
-    """The decoded payload of a Deep-LASI ``.tdat`` (coordinates + factors)."""
+    """The decoded payload of a Deep-LASI ``.tdat`` (coordinates + factors + detection)."""
 
     colocalization: TdatColocalization
     corrections: TdatCorrections
+    detection: TdatDetectionSettings
     channels_with_data: tuple[int, ...]  # 0-based channel indices
     reference_channel: int  # 0-based mapping/trace reference channel
 
@@ -150,6 +197,62 @@ def remap_correction_factors(
 def _scalar(group: h5py.Group, name: str) -> float:
     """Read a MATLAB scalar (stored as a 1×1 array) as a Python float."""
     return float(np.asarray(group[name][()]).reshape(-1)[0])
+
+
+def _detection_mode_code(temp: h5py.Group) -> int:
+    """Return the integer ``findPart`` mode code from ``temp/ParticleDetectionMode``.
+
+    A ``.tdat`` without the leaf decodes to the Deep-LASI class default (wavelet).
+    A present value must be an exact-integer ``double`` — a fractional or non-finite
+    code is corruption and is rejected, not silently truncated into a bogus mode.
+    """
+    if "ParticleDetectionMode" not in temp:
+        return _DEFAULT_DETECTION_MODE_CODE
+    value = _scalar(temp, "ParticleDetectionMode")
+    if not np.isfinite(value) or not float(value).is_integer():
+        raise ValueError(f"ParticleDetectionMode must be a finite integer mode code; got {value!r}")
+    return int(value)
+
+
+def _detection_settings(temp: h5py.Group) -> TdatDetectionSettings:
+    """Decode :class:`TdatDetectionSettings` from the ``temp`` struct.
+
+    Maps the Deep-LASI ``findPart`` ``method`` code to the Tether mode string; an
+    unported mode (4 local-variance / 5 ZMW, or any out-of-range code) is refused
+    so an import can never silently mis-detect with the wrong method. The
+    per-channel ``DetectionThreshold`` is an MCOS property and is left ``None``
+    (decoded in PR-C3c-decode-B).
+    """
+    code = _detection_mode_code(temp)
+    try:
+        mode = _DETECTION_MODE_BY_CODE[code]
+    except KeyError:
+        supported = sorted(_DETECTION_MODE_BY_CODE)
+        raise ValueError(
+            f"Deep-LASI ParticleDetectionMode {code} is not supported by Tether "
+            f"(only {supported} = wavelet/intensity/bandpass; modes 4 'local-variance' "
+            "and 5 'ZMW intensity' are not ported)"
+        ) from None
+    return TdatDetectionSettings(mode=mode, threshold=None)
+
+
+def read_detection_settings(path: str | PathLike[str]) -> TdatDetectionSettings:
+    """Decode just the particle-detection config from a ``.tdat``.
+
+    A lightweight companion to :func:`read_tdat` for the ``tether extract --tdat``
+    auto-apply path: it reads only ``temp/ParticleDetectionMode`` (no coordinate or
+    correction-factor decode), so a ``.tdat`` that lacks colocalization data still
+    yields its detection mode. Raises :class:`ValueError` for a non-TIRFdata
+    container or an unsupported mode.
+    """
+    path = Path(path)
+    with h5py.File(path, "r") as file:
+        if "temp" not in file:
+            raise ValueError(
+                f"{path.name!r} is not a Deep-LASI TIRFdata .tdat "
+                f"(no 'temp' struct; root keys: {sorted(file.keys())})"
+            )
+        return _detection_settings(file["temp"])
 
 
 def _one_based_channel_index(value: float, name: str) -> int:
@@ -209,12 +312,14 @@ def _coloc_tables(file: h5py.File, temp: h5py.Group) -> list[np.ndarray]:
 
 
 def read_tdat(path: str | PathLike[str]) -> Tdat:
-    """Decode a Deep-LASI ``.tdat`` into colocalized coordinates + correction factors.
+    """Decode a Deep-LASI ``.tdat`` into coordinates + correction factors + detection mode.
 
     Returns a :class:`Tdat`. Coordinates are 0-based ``[x, y]`` (PRD §11.1);
     correction factors are remapped to the Tether scheme (PRD Appendix B) with the
-    Deep-LASI originals retained. Raises :class:`ValueError` if the file is not a
-    recognizable TIRFdata container (no ``temp`` struct).
+    Deep-LASI originals retained; :attr:`Tdat.detection` carries the
+    :class:`TdatDetectionSettings` (the ``findPart`` mode the movie was detected
+    with). Raises :class:`ValueError` if the file is not a recognizable TIRFdata
+    container (no ``temp`` struct) or carries an unsupported detection mode.
     """
     path = Path(path)
     with h5py.File(path, "r") as file:
@@ -229,6 +334,7 @@ def read_tdat(path: str | PathLike[str]) -> Tdat:
             _scalar(temp, "DefaultBeta"),
             _scalar(temp, "DefaultGamma"),
         )
+        detection = _detection_settings(temp)
         channels_with_data = _one_based_channels(temp, "ChannelsWithData")
         reference_channel = _one_based_channel_index(
             _scalar(temp, "MappingReferenceChannel"), "MappingReferenceChannel"
@@ -239,6 +345,7 @@ def read_tdat(path: str | PathLike[str]) -> Tdat:
     return Tdat(
         colocalization=coloc,
         corrections=corrections,
+        detection=detection,
         channels_with_data=channels_with_data,
         reference_channel=reference_channel,
     )

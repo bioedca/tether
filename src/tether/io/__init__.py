@@ -22,6 +22,8 @@ from tether.io.tdat import (
     Tdat,
     TdatColocalization,
     TdatCorrections,
+    TdatDetectionSettings,
+    read_detection_settings,
     read_tdat,
     remap_correction_factors,
 )
@@ -34,9 +36,11 @@ __all__ = [
     "Tdat",
     "TdatColocalization",
     "TdatCorrections",
+    "TdatDetectionSettings",
     "parse_filename",
     "read_deeplasi_mat",
     "read_deeplasi_txt",
+    "read_detection_settings",
     "read_tdat",
     "remap_correction_factors",
 ]
