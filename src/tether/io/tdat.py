@@ -56,7 +56,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import h5py
 import numpy as np
@@ -82,12 +82,14 @@ _FLAG_START = 12  # bCh1..bCh4 occupy columns 12..15
 _NFILE_COL = 16
 
 # Deep-LASI findPart.m ``method`` code -> Tether ParticleDetectionMode string value
-# (mapping/findPart.m:18-30). The string values are the frozen
-# tether.imaging.detect.ParticleDetectionMode members (kept as literals so io does
-# not depend on the imaging layer; a test asserts they stay a subset of the enum).
-# Modes 4 (local-variance) and 5 (ZMW intensity) are not ported, so a .tdat saved
-# with one of them is refused rather than silently mis-detected.
-_DETECTION_MODE_BY_CODE = {1: "wavelet", 2: "intensity", 3: "bandpass"}
+# (mapping/findPart.m:18-30). ``DetectionMode`` is a Literal of the three valid mode
+# strings — a type only, NOT an import of tether.imaging.detect, so io stays decoupled
+# from the imaging layer while static checkers still get the narrow type; a test locks
+# these equal to the enum's member values. Modes 4 (local-variance) and 5 (ZMW
+# intensity) are not ported, so a .tdat saved with one of them is refused rather than
+# silently mis-detected.
+DetectionMode = Literal["wavelet", "intensity", "bandpass"]
+_DETECTION_MODE_BY_CODE: dict[int, DetectionMode] = {1: "wavelet", 2: "intensity", 3: "bandpass"}
 # classes/TRACERdata.m:62 — ParticleDetectionMode defaults to 1 (wavelet); a .tdat
 # that predates the field (or a minimal one) decodes to that class default.
 _DEFAULT_DETECTION_MODE_CODE = 1
@@ -158,7 +160,7 @@ class TdatDetectionSettings:
         ``None`` lets each detector use its own faithful default (PRD §11.2).
     """
 
-    mode: str
+    mode: DetectionMode
     threshold: float | None = None
 
 
@@ -236,6 +238,20 @@ def _detection_settings(temp: h5py.Group) -> TdatDetectionSettings:
     return TdatDetectionSettings(mode=mode, threshold=None)
 
 
+def _require_temp(file: h5py.File, path: Path) -> h5py.Group:
+    """Return the ``temp`` TIRFdata struct, or raise if this is not a ``.tdat``.
+
+    The single source of the "not a TIRFdata container" check + message, shared by
+    :func:`read_tdat` and :func:`read_detection_settings` so the two cannot drift.
+    """
+    if "temp" not in file:
+        raise ValueError(
+            f"{path.name!r} is not a Deep-LASI TIRFdata .tdat "
+            f"(no 'temp' struct; root keys: {sorted(file.keys())})"
+        )
+    return file["temp"]
+
+
 def read_detection_settings(path: str | PathLike[str]) -> TdatDetectionSettings:
     """Decode just the particle-detection config from a ``.tdat``.
 
@@ -247,12 +263,7 @@ def read_detection_settings(path: str | PathLike[str]) -> TdatDetectionSettings:
     """
     path = Path(path)
     with h5py.File(path, "r") as file:
-        if "temp" not in file:
-            raise ValueError(
-                f"{path.name!r} is not a Deep-LASI TIRFdata .tdat "
-                f"(no 'temp' struct; root keys: {sorted(file.keys())})"
-            )
-        return _detection_settings(file["temp"])
+        return _detection_settings(_require_temp(file, path))
 
 
 def _one_based_channel_index(value: float, name: str) -> int:
@@ -323,12 +334,7 @@ def read_tdat(path: str | PathLike[str]) -> Tdat:
     """
     path = Path(path)
     with h5py.File(path, "r") as file:
-        if "temp" not in file:
-            raise ValueError(
-                f"{path.name!r} is not a Deep-LASI TIRFdata .tdat "
-                f"(no 'temp' struct; root keys: {sorted(file.keys())})"
-            )
-        temp = file["temp"]
+        temp = _require_temp(file, path)
         corrections = remap_correction_factors(
             _scalar(temp, "DefaultAlpha"),
             _scalar(temp, "DefaultBeta"),

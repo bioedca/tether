@@ -1,6 +1,6 @@
 # 0021 — Selectable particle-detection methods (match Deep-LASI's `findPart` modes)
 
-- **Status:** accepted (partial: modes 2 & 3 + the CLI/pipeline selector + the `.tdat` detection-*mode* auto-apply landed; per-channel `DetectionThreshold` MCOS decode + re-measurement follow)
+- **Status:** accepted (partial: modes 2 & 3 + the CLI/pipeline selector + the `.tdat` detection-*mode* auto-apply landed; the per-channel `DetectionThreshold` MCOS decode and re-measurement are still to come)
 - **Date:** 2026-06-30
 - **Deciders:** bioedca
 - **PRD anchor:** §7.1, §9 M1, §11.2, Appendix E Stage 3 (FR-EXTRACT)

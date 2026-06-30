@@ -72,7 +72,11 @@ def main() -> None:
         gamma = _scalar(temp, "DefaultGamma")
         channels = np.asarray(temp["ChannelsWithData"][()], dtype=np.float64).reshape(-1, 1)
         mapping_ref = _scalar(temp, "MappingReferenceChannel")
-        detection_mode = _scalar(temp, "ParticleDetectionMode")
+        # Mirror read_tdat's _detection_mode_code default: a source .tdat predating
+        # the field falls back to mode 1 (wavelet) rather than raising KeyError.
+        detection_mode = (
+            _scalar(temp, "ParticleDetectionMode") if "ParticleDetectionMode" in temp else 1.0
+        )
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(OUT, "w") as g:
