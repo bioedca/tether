@@ -45,6 +45,7 @@ prose harmonization of the PRD (PRD §12.7).
 | [0018](0018-extract-cli-native-pipeline.md) | `tether extract` CLI: native auto-registration pipeline; imported `.tmap` + Deep-LASI oracle deferred to the S9 follow-up | accepted | §7.11, §9 M1, App E, §11.2 |
 | [0019](0019-extract-cli-imported-tmap.md) | `tether extract --tmap`: imported registration path; trust the bead map (residual unknown), refuse a non-identity rotation/flip, defer the apply + oracle | accepted | §7.1, §7.11, §9 M1, App E §6–10 |
 | [0020](0020-extraction-oracle-and-deferred-m1-close.md) | The extraction-vs-Deep-LASI acceptance oracle; M1 close deferred (full-scale detection-faithfulness gap surfaced: ~20% recall) | accepted | §9 M1, §8 NFR-VALID (a), §7.11, §2.2, App A |
+| [0021](0021-particle-detection-modes.md) | Selectable particle-detection methods (match Deep-LASI's `findPart` modes): mode-2 intensity-threshold + Crocker-Grier band-pass landed; modes 3 / config-decode / per-channel-coloc re-measurement deferred | accepted (partial) | §7.1, §9 M1, §11.2, App E |
 
 _Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
 by the PRs that implement them._

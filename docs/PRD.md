@@ -797,6 +797,8 @@ validation front-loaded at M0.5.
 | Detection block size (moving-average window) | 50 frames | `deeplasi/functions/classes/TRACERdata.m:42` (`MovingAverageWindowSize = 50` defined here; the projection mechanism is `TRACEdata.m` `CalcCumulated`) |
 | à trous scales / threshold | J = 6, σ = 2·MAD hard-threshold, AND of scales 1 & 4 | `deeplasi/functions/external/Wave_Partfind.m`; [Olivo-Marin2002] |
 | Sub-pixel localization | centroid + ≤ 3 px max-pixel snap (Gaussian σ = 1), mode 1 | `deeplasi/functions/mapping/findPart.m:88-101`; [Izeddin2012] |
+| Particle detection mode | `wavelet` (à trous mode 1; class default) — selectable `{wavelet, intensity}`; `bandpass` (mode 3) planned | `deeplasi/functions/mapping/findPart.m:1,18-62` (`method` dispatch); Tether multi-mode detector (ADR-0021) |
+| Detection threshold (intensity mode) | t = 0.5 (fraction of detection-image max); band-pass fine-threshold 3 % of bpass max; bpass `lnoise` = 1 / `lobject` = 7 | `deeplasi/functions/mapping/findPart.m:21-28,107-115`, `external/bpass.m`; [Crocker1996] |
 | Aperture (PSF disk / BG ring) | 21×21 grid; disk r = 3 (29 px); ring inner 6 / outer 8 (84 px); dead-zone 3 < d ≤ 6 | `deeplasi/functions/filtering/circ.m:5-32`, `classes/TRACERdata.m:92-100` |
 | Per-frame background | 10-frame uniform temporal moving average, ring mean | `deeplasi/functions/traces/extractTracesC.m:13-22` |
 | Integration | Sum (top-hat): I = TOT − bg·N_psf | `deeplasi/functions/traces/extractTracesC.m:20-33` |
