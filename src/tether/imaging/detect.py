@@ -1,8 +1,27 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""à trous wavelet spot detection (PRD Appendix E, Stages 2-4; §11.2).
+"""Spot detection (PRD Appendix E, Stages 2-4; §11.2).
 
-A faithful NumPy/SciPy port of Deep-LASI's class-default (mode 1) detection path
+Faithful NumPy/SciPy ports of Deep-LASI's selectable particle-detection methods
+(`deeplasi/functions/mapping/findPart.m`'s ``method`` dispatch). Deep-LASI offers
+several detectors behind the GUI ``Rbg_Detection`` radio group; Tether implements
+them behind :class:`ParticleDetectionMode` so a movie can be extracted with the
+method (and threshold) it was actually detected with:
+
+* **mode 1 — wavelet** (:func:`detect_spots`): the class-default à trous /
+  multiscale-product detector (`external/Wave_Partfind.m`), detailed below.
+* **mode 2 — intensity** (:func:`detect_spots_intensity`): the legacy
+  intensity-threshold detector (`findPart.m:21-28`) — threshold the detection
+  image at ``t * max``, Crocker-Grier band-pass (`external/bpass.m`), re-threshold
+  at 3 % of the band-pass max, erode, and take connected-component centroids.
+
+:func:`detect_spots_by_mode` dispatches on :class:`ParticleDetectionMode`. All
+modes share the Stage-4 post-detection tail (snap -> border -> NMS ->
+``[x, y]``), mirroring ``findPart.m``'s shared post-switch block (lines 63-103).
+The band-pass / radial-symmetry detector (mode 3, `find_part_bpass_sort.m`) is a
+planned follow-up (ADR-0021).
+
+The mode-1 wavelet path is a faithful port of
 (`deeplasi/functions/external/Wave_Partfind.m`, `mapping/findPart.m`):
 
 * **Stage 2 — detection image** (:func:`detection_image`): the "Cumulated" image,
@@ -44,8 +63,10 @@ the faithful class default.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 import numpy as np
-from scipy import ndimage
+from scipy import ndimage, signal
 
 from tether.imaging._rounding import round_half_away
 
@@ -54,10 +75,26 @@ __all__ = [
     "atrous_wavelet_planes",
     "b3_spline_kernel",
     "detect_spots",
+    "detect_spots_intensity",
+    "detect_spots_by_mode",
+    "ParticleDetectionMode",
 ]
 
 # Separable B3-spline scaling taps for the à trous transform (Wave_Partfind.m).
 _B3_TAPS: tuple[float, ...] = (1 / 16, 1 / 4, 3 / 8, 1 / 4, 1 / 16)
+
+
+class ParticleDetectionMode(StrEnum):
+    """Selectable spot-detection method (Deep-LASI ``findPart.m`` ``method``).
+
+    A ``str`` enum so the choice serializes verbatim into ``/settings/extraction``
+    and round-trips through the CLI/`.tether` store. ``WAVELET`` is the Deep-LASI
+    class default (`findPart.m` mode 1). ``BANDPASS`` (mode 3) is a planned
+    follow-up (ADR-0021) and is intentionally not yet a member.
+    """
+
+    WAVELET = "wavelet"  # mode 1 — à trous multiscale product (class default)
+    INTENSITY = "intensity"  # mode 2 — intensity-threshold + Crocker-Grier bandpass
 
 
 def b3_spline_kernel(step: int) -> np.ndarray:
@@ -208,6 +245,101 @@ def _refine_snap(
     return row, col
 
 
+def _bandpass(image: np.ndarray, lnoise: float = 1.0, lobject: int = 7) -> np.ndarray:
+    """Crocker-Grier band-pass filter (`deeplasi/functions/external/bpass.m`).
+
+    Suppresses pixel noise (Gaussian smooth, width ``lnoise``) and long-wavelength
+    background (boxcar of size ``2*lobject+1``) and returns ``max(gauss - boxcar,
+    0)``, same shape as ``image`` with a ``lobject``-px zero border — the
+    ``'valid'``-convolution margin re-padded with zeros, exactly as ``bpass.m``
+    does. The 1-D Gaussian and boxcar taps are built verbatim from ``bpass.m`` and
+    *not* renormalized. Used by the intensity-threshold detector (mode 2). See
+    Crocker & Grier (1996), *J. Colloid Interface Sci.* 179:298.
+    """
+    image = np.asarray(image, dtype=np.float64)
+    if lnoise <= 0:
+        raise ValueError(f"lnoise must be > 0, got {lnoise}")
+    w = int(round(lobject))
+    if w < 1:
+        raise ValueError(f"lobject must round to an integer >= 1, got {lobject}")
+    n = 2 * w + 1
+    height, width = image.shape
+    if height < n or width < n:
+        # Too small to band-pass without the kernel hanging off both edges.
+        return np.zeros_like(image)
+
+    idx = np.arange(n, dtype=np.float64)
+    gauss_1d = np.exp(-(((idx - w) / (2.0 * lnoise)) ** 2)) / (2.0 * lnoise * np.sqrt(np.pi))
+    gauss_2d = np.outer(gauss_1d, gauss_1d)
+    box_2d = np.full((n, n), 1.0 / (n * n), dtype=np.float64)
+
+    # MATLAB conv2(..., 'valid') == scipy.signal.convolve2d(..., mode='valid'):
+    # only the part needing no zero-padding, then re-padded to full size below.
+    smoothed = signal.convolve2d(image, gauss_2d, mode="valid")
+    background = signal.convolve2d(image, box_2d, mode="valid")
+    band = np.maximum(smoothed - background, 0.0)
+
+    out = np.zeros_like(image)
+    out[w : height - w, w : width - w] = band
+    return out
+
+
+def _finalize_candidates(
+    coords: np.ndarray,
+    detection_img: np.ndarray,
+    *,
+    min_separation: float,
+    border_margin: int,
+    refine: bool,
+) -> np.ndarray:
+    """Shared Stage-4 post-detection tail for every mode (`findPart.m:63-103`).
+
+    Takes candidate centroids ``coords`` as ``(M, 2)`` ``(row, col)`` and applies,
+    in order, the max-pixel snap (when ``refine``), the border guardrail, and
+    brightness-ordered non-maximum suppression. Returns ``(N, 2)`` ``[x, y]`` =
+    ``[col, row]`` sorted by descending brightness (empty ``(0, 2)`` if none
+    survive).
+
+    The snap runs **first** so the guardrails are authoritative over the FINAL
+    coordinates: the snap can move a centroid up to ~3 px, which could otherwise
+    push it back across the border or within ``min_separation`` of a neighbour.
+    """
+    coords = np.atleast_2d(np.asarray(coords, dtype=np.float64))
+    if coords.shape[0] == 0:
+        return np.empty((0, 2), dtype=np.float64)
+
+    if refine:
+        coords = np.array([_refine_snap(detection_img, r, c) for r, c in coords], dtype=np.float64)
+
+    height, width = detection_img.shape
+    in_bounds = (
+        (coords[:, 0] >= border_margin)
+        & (coords[:, 0] <= height - 1 - border_margin)
+        & (coords[:, 1] >= border_margin)
+        & (coords[:, 1] <= width - 1 - border_margin)
+    )
+    coords = coords[in_bounds]
+    if coords.shape[0] == 0:
+        return np.empty((0, 2), dtype=np.float64)
+
+    # Brightness = local 3x3 sum of the detection image at each (snapped) centroid.
+    # MATLAB away-from-zero rounding keeps the 3x3 window on the same pixel as
+    # Deep-LASI. The rounding *direction* here only re-orders NMS tie-breaks (never
+    # the returned coordinates), so its correctness is covered by the
+    # round_half_away unit tests rather than a fragile NMS-ordering assertion.
+    rows = np.clip(round_half_away(coords[:, 0]).astype(int), 1, height - 2)
+    cols = np.clip(round_half_away(coords[:, 1]).astype(int), 1, width - 2)
+    brightness = np.array(
+        [detection_img[r - 1 : r + 2, c - 1 : c + 2].sum() for r, c in zip(rows, cols, strict=True)]
+    )
+
+    kept = _suppress_neighbours(coords, brightness, min_separation)
+    coords = coords[kept]
+
+    # Return [x, y] = [col, row], descending brightness (suppression order).
+    return np.column_stack([coords[:, 1], coords[:, 0]])
+
+
 def detect_spots(
     detection_img: np.ndarray,
     *,
@@ -270,39 +402,127 @@ def detect_spots(
     centroids = ndimage.center_of_mass(mask.astype(np.float64), labels, keep_labels)
     coords = np.atleast_2d(np.asarray(centroids, dtype=np.float64))  # (M, 2) (row, col)
 
-    # Snap first (Stage 4), so the guardrails below are authoritative over the
-    # FINAL coordinates: the max-pixel snap can move a centroid up to ~3 px, which
-    # could otherwise push it back across the border or within min_separation of a
-    # neighbour. Applying border + NMS *after* the snap keeps the output contract.
-    if refine:
-        coords = np.array([_refine_snap(detection_img, r, c) for r, c in coords], dtype=np.float64)
-
-    # Border guardrail (Stage 4).
-    height, width = detection_img.shape
-    in_bounds = (
-        (coords[:, 0] >= border_margin)
-        & (coords[:, 0] <= height - 1 - border_margin)
-        & (coords[:, 1] >= border_margin)
-        & (coords[:, 1] <= width - 1 - border_margin)
+    return _finalize_candidates(
+        coords,
+        detection_img,
+        min_separation=min_separation,
+        border_margin=border_margin,
+        refine=refine,
     )
-    coords = coords[in_bounds]
-    if coords.shape[0] == 0:
+
+
+def detect_spots_intensity(
+    detection_img: np.ndarray,
+    *,
+    threshold: float = 0.5,
+    lnoise: float = 1.0,
+    lobject: int = 7,
+    fine_threshold: float = 0.03,
+    min_separation: float = 8.0,
+    border_margin: int = 1,
+    refine: bool = True,
+) -> np.ndarray:
+    """Intensity-threshold spot detection (Deep-LASI ``findPart.m`` mode 2).
+
+    Faithful port of `deeplasi/functions/mapping/findPart.m:21-28` and its nested
+    ``fourierImage`` thresholding (lines 107-115): zero pixels below
+    ``threshold * max`` of the detection image, apply the Crocker-Grier band-pass
+    (:func:`_bandpass`, ``lnoise``/``lobject``), binarize at ``fine_threshold`` of
+    the band-pass max (3 % default), erode with a 3x3 element
+    (``bwmorph(..., 'erode')``), and take the 8-connected component centroids
+    (``regionprops(..., 'Centroid')``). The shared Stage-4 tail
+    (:func:`_finalize_candidates`) then snaps, applies the border + min-separation
+    guardrails, and orders by brightness.
+
+    Parameters
+    ----------
+    detection_img:
+        ``(H, W)`` detection image (e.g. from :func:`detection_image`).
+    threshold:
+        Deep-LASI ``DetectionThreshold`` (PRD §11.2): the fraction of the image
+        max below which pixels are zeroed before the band-pass (default 0.5).
+    lnoise, lobject:
+        Crocker-Grier band-pass noise / object length scales (`bpass.m`; mode-2
+        defaults ``1`` / ``7``).
+    fine_threshold:
+        Band-pass binarization level, as a fraction of the band-pass max
+        (``findPart.m:24`` uses 3 %).
+    min_separation, border_margin, refine:
+        Shared Stage-4 guardrails (see :func:`detect_spots`).
+
+    Returns
+    -------
+    np.ndarray
+        ``(N, 2)`` ``float64`` ``[x, y]`` = ``[col, row]`` coordinates, 0-based,
+        sorted by descending brightness (empty ``(0, 2)`` if none).
+    """
+    detection_img = np.asarray(detection_img, dtype=np.float64)
+    if detection_img.ndim != 2:
+        raise ValueError(f"detection_img must be 2-D, got shape {detection_img.shape}")
+    if not 0.0 <= threshold < 1.0:
+        raise ValueError(f"threshold must be in [0, 1), got {threshold}")
+    if not 0.0 < fine_threshold < 1.0:
+        raise ValueError(f"fine_threshold must be in (0, 1), got {fine_threshold}")
+
+    peak = float(detection_img.max())
+    if peak <= 0:
+        return np.empty((0, 2), dtype=np.float64)
+    thresholded = np.where(detection_img < threshold * peak, 0.0, detection_img)
+
+    band = _bandpass(thresholded, lnoise=lnoise, lobject=lobject)
+    band_peak = float(band.max())
+    if band_peak <= 0:
         return np.empty((0, 2), dtype=np.float64)
 
-    # Brightness = local 3x3 sum of the detection image at each (snapped) centroid.
-    # MATLAB away-from-zero rounding (Wave_Partfind.m brightness sampling) keeps the
-    # 3x3 window on the same pixel as Deep-LASI and detect.py on one rounding rule.
-    # The rounding *direction* here only re-orders NMS tie-breaks (never the returned
-    # coordinates), so its correctness is covered by the round_half_away unit tests
-    # rather than a (fragile) end-to-end NMS-ordering assertion.
-    rows = np.clip(round_half_away(coords[:, 0]).astype(int), 1, height - 2)
-    cols = np.clip(round_half_away(coords[:, 1]).astype(int), 1, width - 2)
-    brightness = np.array(
-        [detection_img[r - 1 : r + 2, c - 1 : c + 2].sum() for r, c in zip(rows, cols, strict=True)]
+    # 3x3 structuring element == MATLAB bwmorph 'erode' / regionprops 8-connectivity.
+    structure = np.ones((3, 3), dtype=bool)
+    binary = band > fine_threshold * band_peak
+    eroded = ndimage.binary_erosion(binary, structure=structure)
+    labels, n_labels = ndimage.label(eroded, structure=structure)
+    if n_labels == 0:
+        return np.empty((0, 2), dtype=np.float64)
+
+    centroids = ndimage.center_of_mass(eroded.astype(np.float64), labels, range(1, n_labels + 1))
+    coords = np.atleast_2d(np.asarray(centroids, dtype=np.float64))  # (M, 2) (row, col)
+    return _finalize_candidates(
+        coords,
+        detection_img,
+        min_separation=min_separation,
+        border_margin=border_margin,
+        refine=refine,
     )
 
-    kept = _suppress_neighbours(coords, brightness, min_separation)
-    coords = coords[kept]
 
-    # Return [x, y] = [col, row], descending brightness (suppression order).
-    return np.column_stack([coords[:, 1], coords[:, 0]])
+def detect_spots_by_mode(
+    detection_img: np.ndarray,
+    *,
+    mode: ParticleDetectionMode | str = ParticleDetectionMode.WAVELET,
+    threshold: float = 0.5,
+    min_separation: float = 8.0,
+    border_margin: int = 1,
+    refine: bool = True,
+) -> np.ndarray:
+    """Dispatch spot detection on :class:`ParticleDetectionMode`.
+
+    ``mode`` accepts a :class:`ParticleDetectionMode` or its string value
+    (``"wavelet"`` / ``"intensity"``); an unknown value raises ``ValueError`` at
+    the enum coercion. ``threshold`` is consumed only by the intensity mode. The
+    returned contract is identical across modes — ``(N, 2)`` ``[x, y]`` sorted by
+    descending brightness.
+    """
+    mode = ParticleDetectionMode(mode)
+    if mode is ParticleDetectionMode.INTENSITY:
+        return detect_spots_intensity(
+            detection_img,
+            threshold=threshold,
+            min_separation=min_separation,
+            border_margin=border_margin,
+            refine=refine,
+        )
+    # ParticleDetectionMode.WAVELET — the Deep-LASI class default.
+    return detect_spots(
+        detection_img,
+        min_separation=min_separation,
+        border_margin=border_margin,
+        refine=refine,
+    )
