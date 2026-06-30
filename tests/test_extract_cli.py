@@ -463,12 +463,20 @@ def test_extract_undecodable_tmap_errors(tmp_path, monkeypatch, capsys) -> None:
     assert not out.exists()
 
 
-def test_extract_imported_tmap_rotation_refused(tmp_path, monkeypatch, capsys) -> None:
-    # A .tmap whose channel carries a non-identity rotation/flip is refused loudly
-    # (the imported path applies only crop geometry so far), never silently mis-split.
+@pytest.mark.parametrize(
+    "geometry",
+    [{"acceptor_rotation": np.array([90.0])}, {"acceptor_flip": np.array([1, 0])}],
+    ids=["rotation", "flip"],
+)
+def test_extract_imported_tmap_nonidentity_geometry_refused(
+    tmp_path, monkeypatch, capsys, geometry
+) -> None:
+    # A .tmap whose channel carries a non-identity rotation OR flip is refused
+    # loudly (the imported path applies only crop geometry so far), never silently
+    # mis-split. Both axes are covered so a flip regression can't slip through.
     import tether.project.extract as ext
 
-    channels = _synthetic_tmap_channels(acceptor_rotation=np.array([90.0]))
+    channels = _synthetic_tmap_channels(**geometry)
     monkeypatch.setattr(ext, "read_tmap", lambda _path: channels)
     movie = _make_movie(tmp_path)
     tmap = _stub_tmap(tmp_path)
