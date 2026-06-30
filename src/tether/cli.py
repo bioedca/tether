@@ -60,8 +60,8 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     extract.add_argument(
         "--donor-side",
-        choices=("left", "right"),
         default="left",
+        metavar="{left,right}",
         help="which horizontal half is the donor channel (default: left)",
     )
     extract.add_argument(
@@ -84,8 +84,8 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     extract.add_argument(
         "--prealign",
-        choices=("translation", "similarity"),
         default="translation",
+        metavar="{translation,similarity}",
         help="registration prealign degrees of freedom (default: translation)",
     )
     extract.add_argument(

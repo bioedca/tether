@@ -127,6 +127,11 @@ class ExtractOptions:
         for name in ("min_separation", "pair_tol", "coloc_distance", "rms_gate"):
             if not getattr(self, name) > 0:
                 raise ExtractionError(f"{name} must be > 0, got {getattr(self, name)}")
+        if not (0 < self.prealign_low_sigma < self.prealign_high_sigma):
+            raise ExtractionError(
+                "prealign sigmas must satisfy 0 < prealign_low_sigma < prealign_high_sigma, "
+                f"got {self.prealign_low_sigma}, {self.prealign_high_sigma}"
+            )
 
 
 @dataclass(frozen=True)
@@ -243,6 +248,10 @@ def extract_movie(
     # leaks a raw traceback; an ExtractionError raised inside (e.g. too few
     # control points) passes through unchanged.
     try:
+        # Hash up front (inside the try, so an IO error becomes a clean
+        # ExtractionError) and re-stat after extraction to catch a mid-run change,
+        # so the persisted MovieMetadata describes exactly the bytes extracted.
+        sha256, file_size, mtime = _hash_movie(movie_path)
         with open_movie(movie_path) as reader:
             n_frames, height, width = reader.shape
             pixel_dtype = str(reader.dtype)
@@ -319,13 +328,15 @@ def extract_movie(
                 ring_outer=options.ring_outer,
                 bg_window=options.bg_window,
             )
+        stat = movie_path.stat()
+        if int(stat.st_size) != file_size or float(stat.st_mtime) != mtime:
+            raise ExtractionError(f"movie changed during extraction: {movie_path}")
     except ExtractionError:
         raise
     except Exception as exc:  # primitive/IO failure -> clean operator message
         raise ExtractionError(f"could not extract from {movie_path.name}: {exc}") from exc
 
     # --- Persist atomically (movie memmap is now closed) -----------------------
-    sha256, file_size, mtime = _hash_movie(movie_path)
     parsed = parse_filename(movie_path.name)
     movie_id = f"mov-{uuid4()}"
     calibration_id = f"cal-{uuid4()}"

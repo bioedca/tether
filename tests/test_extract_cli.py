@@ -16,6 +16,8 @@ structure/round-trip, not scientific accuracy.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 pytest.importorskip("numpy")
@@ -116,13 +118,20 @@ def test_extract_movie_creates_valid_project(tmp_path) -> None:
     assert patches["donor"].shape == (3, _WINDOW, _WINDOW)
     assert patches["acceptor"].shape == (3, _WINDOW, _WINDOW)
 
-    # The registration was persisted and the single movie row links to it.
+    # The registration was persisted and the single movie row links to it; the
+    # effective tunables + app version are stamped into /settings/extraction.
     with h5py.File(out, "r") as f:
         assert summary.calibration_id in f["/calibration"]
         movies = f["/movies/table"]
         assert movies.shape[0] == 1
         assert _as_str(movies["calibration_id"][0]) == summary.calibration_id
         assert _as_str(movies["sha256"][0])  # non-empty content hash
+
+        profile = json.loads(_as_str(f["/settings/extraction"].attrs["profile_json"]))
+        assert profile["pipeline"] == "native"
+        assert profile["registration_source"] == "native"
+        assert profile["window"] == _WINDOW
+        assert profile["app_version"]  # version stamped (NFR-REPRO)
 
 
 def test_cli_main_extract_succeeds(tmp_path, capsys) -> None:
@@ -192,21 +201,62 @@ def test_extract_rejects_unreadable_movie(tmp_path, capsys) -> None:
     assert not out.exists()
 
 
+def test_extract_rejects_bad_donor_side(tmp_path, capsys) -> None:
+    # Bad --donor-side routes through ExtractOptions -> ExtractionError -> exit 1
+    # (not argparse's usage exit 2), the documented operator-actionable contract.
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "out.tether"
+    rc = main(["extract", str(movie), "-o", str(out), "--donor-side", "upside"])
+    assert rc == 1
+    assert "donor_side" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_extract_too_few_control_points_errors(tmp_path, capsys) -> None:
+    # One spot per half -> at most one matched pair -> registration cannot fit.
+    movie = tmp_path / "single_010.tif"
+    _write_movie(movie, np.array([[16.0, 32.0]]), np.array([[64.0, 32.0]]))
+    out = tmp_path / "out.tether"
+    rc = main(["extract", str(movie), "-o", str(out)])
+    assert rc == 1
+    assert "registration failed" in capsys.readouterr().err
+    assert not out.exists()
+
+
 # --- registration branches ---------------------------------------------------
 
 
-def test_extract_donor_side_right(tmp_path) -> None:
+def test_extract_donor_side_right_uses_right_half(tmp_path) -> None:
+    # With donor_side="right" the donor channel IS the right half, so the donor
+    # coordinates are that half's spots (the acceptor pattern), not the left's.
     movie = _make_movie(tmp_path)
     out = tmp_path / "right.tether"
     summary = extract_movie(movie, out, options=ExtractOptions(donor_side="right"))
     assert summary.n_molecules == 3
-    assert assert_is_compatible_project(out) == 1
+    mols = read_molecules(out)
+    got = {tuple(np.round(xy).astype(int)) for xy in mols["donor_xy"]}
+    right_half = {(int(x - 48), int(y)) for x, y in _ACCEPTOR_CENTERS}  # within-half coords
+    assert got == right_half
+    assert got != {tuple(c.astype(int)) for c in _DONOR_CENTERS}
 
 
-def test_extract_similarity_prealign(tmp_path) -> None:
+def test_extract_similarity_prealign_is_dispatched(tmp_path, monkeypatch) -> None:
+    # Verify the similarity branch is actually selected (the test would otherwise
+    # pass even if --prealign were ignored and the default translation path ran).
+    import tether.project.extract as ext
+
+    called = {}
+    real = ext.estimate_similarity_prealign
+
+    def spy(*args, **kwargs):
+        called["similarity"] = True
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(ext, "estimate_similarity_prealign", spy)
     movie = _make_movie(tmp_path)
     out = tmp_path / "sim.tether"
-    summary = extract_movie(movie, out, options=ExtractOptions(prealign="similarity"))
+    summary = ext.extract_movie(movie, out, options=ExtractOptions(prealign="similarity"))
+    assert called.get("similarity") is True
     assert summary.n_molecules == 3
 
 
