@@ -270,6 +270,9 @@ def test_evaluate_extraction_valid_lengths_excludes_zero_pad() -> None:
     res = evaluate_extraction(gt, xy.copy(), ext_donor, ext_acc, valid_lengths=np.array([40]))
     assert res.donor_pearson_median == pytest.approx(1.0)
     assert res.acceptor_pearson_median == pytest.approx(1.0)
+    # the pooled path also honours valid_lengths (excludes the zero pad)
+    assert res.donor_pearson_pooled == pytest.approx(1.0)
+    assert res.acceptor_pearson_pooled == pytest.approx(1.0)
 
 
 def test_pooled_pearson_handles_empty() -> None:
@@ -374,7 +377,7 @@ def _find_uckopsb() -> dict[str, Path] | None:
         "blocker (ADR-0020 / PLAN §15). Remove this xfail when the detector is fixed "
         "and the gated leg XPASSes, then close M1 + tag v0.1.0."
     ),
-    strict=False,
+    strict=True,
 )
 def test_extraction_meets_m1_acceptance_on_uckopsb(tmp_path) -> None:
     """§9 M1: native extraction via the imported .tmap reproduces Deep-LASI to tolerance.
