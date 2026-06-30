@@ -92,7 +92,7 @@ def match_coordinates(
     gt = np.atleast_2d(np.asarray(ground_truth_xy, dtype=np.float64))
     ext = np.atleast_2d(np.asarray(extracted_xy, dtype=np.float64))
     for name, arr in (("ground_truth_xy", gt), ("extracted_xy", ext)):
-        if arr.size and arr.shape[1] != 2:
+        if arr.size and (arr.ndim != 2 or arr.shape[1] != 2):
             raise ValueError(f"{name} must be (n, 2), got shape {arr.shape}")
     if gt.size == 0 or ext.size == 0:
         return []
@@ -259,25 +259,29 @@ class OracleResult:
         """The §9 M1 conjunction: recall AND Pearson (AND RMS when measured)."""
         return self.meets_recall and self.meets_pearson and self.meets_rms
 
-    def summary(self) -> dict[str, float | int | bool | str]:
-        """A compact JSON-friendly dict of the headline metrics (for logs/reports)."""
+    def summary(self) -> dict[str, float | int | bool | str | None]:
+        """A compact, strict-JSON-safe dict of the headline metrics (logs/reports).
+
+        Non-finite floats (an unmeasured RMS, or a degenerate metric) are emitted
+        as ``None`` rather than ``nan`` so ``json.dumps`` produces valid JSON.
+        """
+
+        def _f(value: float, ndigits: int) -> float | None:
+            return round(float(value), ndigits) if np.isfinite(value) else None
+
         return {
             "n_ground_truth": self.n_ground_truth,
             "n_extracted": self.n_extracted,
             "n_matched": self.n_matched,
-            "recall": round(self.recall, 4),
+            "recall": _f(self.recall, 4),
             "match_tol_px": self.match_tol_px,
-            "coord_rms_px": round(self.coord_rms_px, 4),
+            "coord_rms_px": _f(self.coord_rms_px, 4),
             "intensity": self.intensity,
-            "donor_pearson_median": round(self.donor_pearson_median, 5),
-            "acceptor_pearson_median": round(self.acceptor_pearson_median, 5),
-            "donor_pearson_pooled": round(self.donor_pearson_pooled, 5),
-            "acceptor_pearson_pooled": round(self.acceptor_pearson_pooled, 5),
-            "registration_rms_px": (
-                round(self.registration_rms_px, 4)
-                if np.isfinite(self.registration_rms_px)
-                else float("nan")
-            ),
+            "donor_pearson_median": _f(self.donor_pearson_median, 5),
+            "acceptor_pearson_median": _f(self.acceptor_pearson_median, 5),
+            "donor_pearson_pooled": _f(self.donor_pearson_pooled, 5),
+            "acceptor_pearson_pooled": _f(self.acceptor_pearson_pooled, 5),
+            "registration_rms_px": _f(self.registration_rms_px, 4),
             "meets_recall": self.meets_recall,
             "meets_pearson": self.meets_pearson,
             "meets_rms": self.meets_rms,
@@ -285,9 +289,18 @@ class OracleResult:
         }
 
 
-def _median_finite(values: np.ndarray) -> float:
-    finite = values[np.isfinite(values)]
-    return float(np.median(finite)) if finite.size else float("nan")
+def _acceptance_median(values: np.ndarray) -> float:
+    """Median per-molecule Pearson r for the acceptance gate.
+
+    A non-finite r (a constant/degenerate matched trace) is a *failure to agree*,
+    not a value to drop: it counts as ``0.0`` (no linear agreement) before the
+    median, so a run of mostly-invalid traces cannot pass the gate on a few good
+    ones (the masking CodeRabbit flagged on PR #52). Empty input -> ``nan``.
+    """
+    values = np.asarray(values, dtype=np.float64)
+    if values.size == 0:
+        return float("nan")
+    return float(np.median(np.where(np.isfinite(values), values, 0.0)))
 
 
 # --- the pure scorer ---------------------------------------------------------
@@ -362,8 +375,8 @@ def evaluate_extraction(
         intensity=intensity,
         donor_pearson=donor_r,
         acceptor_pearson=acceptor_r,
-        donor_pearson_median=_median_finite(donor_r),
-        acceptor_pearson_median=_median_finite(acceptor_r),
+        donor_pearson_median=_acceptance_median(donor_r),
+        acceptor_pearson_median=_acceptance_median(acceptor_r),
         donor_pearson_pooled=donor_pooled,
         acceptor_pearson_pooled=acceptor_pooled,
         matches=tuple(matches),

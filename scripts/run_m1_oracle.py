@@ -79,25 +79,30 @@ def main() -> int:
 
     tmpdir = Path(tempfile.mkdtemp(prefix="m1-oracle-"))
     out = tmpdir / "uckopsb.tether"
-    print("extracting via imported .tmap ...")
-    summary = extract_movie(paths["movie"], out, tmap=paths["tmap"])
-    print(f"  extracted molecules: {summary.n_molecules} (source={summary.registration_source})")
+    try:
+        print("extracting via imported .tmap ...")
+        summary = extract_movie(paths["movie"], out, tmap=paths["tmap"])
+        print(
+            f"  extracted molecules: {summary.n_molecules} (source={summary.registration_source})"
+        )
 
-    rms = _native_tmap_rms(paths["tmap"])
-    report: dict[str, object] = {
-        "registration_rms_px_native_tmap_fit": round(rms, 4),
-        "registration_rms_gate_0.5px": bool(rms <= 0.5),
-    }
-    for intensity in ("raw", "corrected"):
-        res = evaluate_project(out, paths["mat"], tol_px=args.tol_px, intensity=intensity)
-        report[intensity] = res.summary()
+        rms = _native_tmap_rms(paths["tmap"])
+        report: dict[str, object] = {
+            "registration_rms_px_native_tmap_fit": round(rms, 4),
+            "registration_rms_gate_0.5px": bool(rms <= 0.5),
+        }
+        for intensity in ("raw", "corrected"):
+            res = evaluate_project(out, paths["mat"], tol_px=args.tol_px, intensity=intensity)
+            report[intensity] = res.summary()
 
-    print(json.dumps(report, indent=2))
+        print(json.dumps(report, indent=2))
+    finally:
+        # Always remove the (potentially large) extraction unless --keep, even if
+        # extract_movie or an oracle evaluation raised above.
+        if not args.keep:
+            import shutil
 
-    if not args.keep:
-        import shutil
-
-        shutil.rmtree(tmpdir, ignore_errors=True)
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     raw = report["raw"]
     accepted = bool(raw["meets_recall"]) and bool(raw["meets_pearson"]) and bool(rms <= 0.5)  # type: ignore[index]

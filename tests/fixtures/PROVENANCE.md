@@ -211,6 +211,8 @@ as the durable measurement (the movie is never committed — PLAN §2.2):
   of Deep-LASI). The M1 detector was validated only on the 64×64×50 single-block fixture,
   so the multi-block max-projection at full scale diverged silently. **M1 close +
   `v0.1.0` are deferred** (ADR-0020); the gated acceptance test is `xfail` until the
-  detector is fixed and re-measured to recall ≥ 0.95 / Pearson ≥ 0.99.
-- **Accessed:** 2026-06-30. Re-measure with `scripts/run_m1_oracle.py` against the local
-  `example-data/bla-uckopsb-tbox-video10/`.
+  detector is fixed and re-measured to the **full** §9 M1 gate — recall ≥ 0.95 @ 1 px
+  **and** per-frame intensity Pearson r ≥ 0.99 **and** registration RMS ≤ 0.5 px (the
+  native `.tmap` fit, also locked by `test_register`).
+- **Accessed:** 2026-06-30. Re-measure all three gates with `scripts/run_m1_oracle.py`
+  against the local `example-data/bla-uckopsb-tbox-video10/`.

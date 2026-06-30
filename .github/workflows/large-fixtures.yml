@@ -57,6 +57,31 @@ jobs:
           # Materialise the LFS gated tier (tests/fixtures/large/**) so the
           # large-marked fixtures are real bytes, not pointer stubs.
           lfs: true
+      # The 281-mol large fixtures are committed via LFS, so this workflow MUST
+      # have them as real bytes (a `-m large` run would otherwise pass by SKIPPING
+      # — test_fixtures skips on a pointer stub). Fail loudly if LFS did not pull.
+      # (The ~0.9 GB UCKOPSB movie is NOT committed; its oracle leg is allowed to
+      # skip-if-absent — only these committed LFS artifacts are required here.)
+      - name: Verify committed LFS fixtures are materialized
+        shell: bash -e {0}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          required = [
+              Path("tests/fixtures/large/smd_281mol.hdf5"),
+              Path("tests/fixtures/large/model_281mol.hdf5"),
+          ]
+          missing = [
+              str(p)
+              for p in required
+              if not p.is_file()
+              or p.read_bytes()[:64].startswith(b"version https://git-lfs")
+          ]
+          if missing:
+              raise SystemExit("Git-LFS did not materialize: " + ", ".join(missing))
+          print("LFS fixtures materialized:", ", ".join(str(p) for p in required))
+          PY
       - name: Restore env + install tether
         uses: ./.github/actions/setup-env
       - name: Install xvfb (Linux headless GL for napari)

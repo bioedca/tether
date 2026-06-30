@@ -125,6 +125,8 @@ def test_match_coordinates_empty_and_shape_guards() -> None:
     assert match_coordinates(np.array([[1.0, 1.0]]), np.empty((0, 2))) == []
     with pytest.raises(ValueError, match="must be"):
         match_coordinates(np.array([[1.0, 2.0, 3.0]]), np.array([[1.0, 2.0, 3.0]]))
+    with pytest.raises(ValueError, match="must be"):  # 3-D input (not just wrong width)
+        match_coordinates(np.zeros((1, 2, 2)), np.zeros((1, 2, 2)))
     with pytest.raises(ValueError, match="tol_px must be positive"):
         match_coordinates(np.array([[0.0, 0.0]]), np.array([[0.0, 0.0]]), tol_px=0.0)
 
@@ -211,6 +213,36 @@ def test_evaluate_extraction_rms_gate() -> None:
     assert ok.meets_rms and ok.meets_acceptance()
     nan = evaluate_extraction(gt, xy.copy(), donor.copy(), acceptor.copy())  # imported-tmap → N/A
     assert nan.meets_rms  # nan ⇒ not measured ⇒ does not block
+
+
+def test_invalid_matched_traces_do_not_mask_failure() -> None:
+    # Two degenerate (constant → nan Pearson) matched traces + one perfect one must
+    # NOT pass on the single good trace: nan counts as no-agreement (0), not dropped.
+    xy = np.array([[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]])
+    good = _signal(1, 64, seed=13)[0]
+    donor = np.vstack([np.full(64, 7.0), np.full(64, 9.0), good])  # 2 flat, 1 varying
+    acceptor = donor.copy()
+    gt = _make_export(xy, donor, acceptor)
+    res = evaluate_extraction(gt, xy.copy(), donor.copy(), acceptor.copy())
+    assert res.recall == pytest.approx(1.0)  # all three coords match
+    # median over {nan→0, nan→0, 1.0} == 0.0 → gate fails (no masking)
+    assert res.donor_pearson_median == pytest.approx(0.0)
+    assert not res.meets_pearson
+    assert not res.meets_acceptance()
+
+
+def test_summary_is_strict_json_safe() -> None:
+    import json
+
+    xy = np.array([[10.0, 20.0]])
+    donor = _signal(1, 16, seed=14)
+    acceptor = _signal(1, 16, seed=15)
+    gt = _make_export(xy, donor, acceptor)
+    res = evaluate_extraction(gt, xy.copy(), donor.copy(), acceptor.copy())  # rms unmeasured
+    summary = res.summary()
+    assert summary["registration_rms_px"] is None  # nan → None, not NaN
+    # strict JSON (allow_nan=False) must not raise — no NaN/Infinity leaked
+    json.dumps(summary, allow_nan=False)
 
 
 def test_evaluate_extraction_corrected_intensity_label() -> None:
