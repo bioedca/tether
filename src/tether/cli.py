@@ -65,6 +65,26 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
         help="which horizontal half is the donor channel (default: left)",
     )
     extract.add_argument(
+        "--detection-mode",
+        default="wavelet",
+        metavar="{wavelet,intensity,bandpass}",
+        help=(
+            "particle-detection method (Deep-LASI findPart mode; default: wavelet). "
+            "'intensity'/'bandpass' also honor --detection-threshold"
+        ),
+    )
+    extract.add_argument(
+        "--detection-threshold",
+        type=float,
+        default=None,
+        metavar="FRAC",
+        help=(
+            "detection threshold as a fraction of the detection-image max, in [0, 1) "
+            "(intensity/bandpass modes only; default: each mode's own — intensity 0.5, "
+            "bandpass 0.98; ignored by wavelet)"
+        ),
+    )
+    extract.add_argument(
         "--window",
         type=int,
         default=21,
@@ -125,6 +145,8 @@ def _run_extract(args: argparse.Namespace) -> int:
     try:
         options = ExtractOptions(
             donor_side=args.donor_side,
+            detection_mode=args.detection_mode,
+            detection_threshold=args.detection_threshold,
             window=args.window,
             min_separation=args.min_separation,
             detection_block=args.detection_block,

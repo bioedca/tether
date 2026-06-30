@@ -1,6 +1,6 @@
 # 0021 — Selectable particle-detection methods (match Deep-LASI's `findPart` modes)
 
-- **Status:** accepted (partial: modes 2 & 3 landed; config-decode + re-measurement follow)
+- **Status:** accepted (partial: modes 2 & 3 + the CLI/pipeline selector landed; `.tdat` config-decode + re-measurement follow)
 - **Date:** 2026-06-30
 - **Deciders:** bioedca
 - **PRD anchor:** §7.1, §9 M1, §11.2, Appendix E Stage 3 (FR-EXTRACT)
@@ -80,11 +80,29 @@ centroids, then the shared Stage-4 tail. The `t` is **dual-use** (intensity floo
 uses `regionprops 'Centroid'`). Still additive at the imaging layer
 (`schema-guard` green; no lock change).
 
-**Deferred to follow-up PRs (the split):**
-- **PR-C3c** — decode `ParticleDetectionMode` + `DetectionThreshold` from the
-  `.tdat` MCOS `FileWrapper__` blob (extends `read_tdat`); wire the selector into
-  `ExtractOptions`/`extract` (the only step that touches `/settings/extraction` —
-  handled there with any version implication, keeping this PR schema-clean).
+**PR-C3c (landed, this PR) — the CLI/pipeline selector.** `ExtractOptions` gains
+`detection_mode ∈ {wavelet, intensity, bandpass}` + an optional
+`detection_threshold` (`[0, 1)`, a fraction of the detection-image max); the
+native pipeline routes both halves through `detect_spots_by_mode`, and the choice
+is recorded verbatim into `/settings/extraction` (NFR-REPRO). The default
+`wavelet` + `None` reproduces the prior à trous detection exactly. `tether extract`
+exposes `--detection-mode` / `--detection-threshold`. **Additive at `/settings`
+(an empty container group), so `schema-guard` stays green with no version bump**;
+no lock change. This resolves the "not reachable from the CLI" trade-off below.
+
+**Deferred to follow-up PRs (the further split):**
+- **PR-C3c-decode** — decode the per-movie detection config from the `.tdat`
+  (extends `read_tdat`) so an import can auto-apply the method/threshold a movie
+  was *actually* detected with. **Investigation finding (probed the real UCKOPSB
+  `.tdat`):** `ParticleDetectionMode` is a **plain `temp/` leaf** (`val = 2.0`
+  = intensity on this acquisition) — trivially readable, no MCOS needed; but
+  `DetectionThreshold` is a **per-channel `TIRFdata` property** reached only
+  through the `#subsystem#/MCOS FileWrapper__` blob (`temp/Channel[i]` →
+  `0xDD000000` object-reference markers, class_id 4), so it requires a genuine
+  MCOS decoder. The committed `tdat_coloc_slice.tdat` fixture **dropped the MCOS
+  blob** (6 leaves only), so this PR must also regenerate a fixture that retains
+  the MCOS bytes + the relevant `#refs#` property datasets. Kept separate from the
+  pipeline wiring (it is an IO-reader concern) per the atomic-PR rule (PLAN §0.2).
 - **PR-C3d** — per-channel detect + bidirectional colocalization, oracle
   re-framed to evaluate the **colocalized** set apples-to-apples (USER
   CORRECTION #1), re-measure @1px; **only then** invoke the maintainer-approved
@@ -97,9 +115,9 @@ uses `regionprops 'Centroid'`). Still additive at the imaging layer
   mode-1 limitation is no longer the only option; the path to a legitimate M1
   close is unblocked without gaming or weakening the gate.
 - Good: additive at the imaging layer — `schema-guard` green, no lock change.
-- Bad / trade-off: the selector is not yet reachable from the CLI (no
-  `ExtractOptions` field) — that is PR-C3c by design; the new functions are
-  public, tested API in the interim.
+- Resolved (PR-C3c): the selector is now reachable from `ExtractOptions` and the
+  `tether extract` CLI, recorded into `/settings/extraction`; still additive
+  (`schema-guard` green, no lock change) because `/settings` is a container group.
 - **Risk (carried to PR-C3d): detector precision.** The §9 gate checks recall +
   Pearson + RMS, *not* precision; intensity/bandpass detectors emit many spurious
   local maxima on textured backgrounds. Control it with native bidirectional

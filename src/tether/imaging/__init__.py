@@ -38,9 +38,13 @@ from tether.imaging.coloc import (
     colocalize,
 )
 from tether.imaging.detect import (
+    ParticleDetectionMode,
     atrous_wavelet_planes,
     b3_spline_kernel,
     detect_spots,
+    detect_spots_bandpass,
+    detect_spots_by_mode,
+    detect_spots_intensity,
     detection_image,
 )
 from tether.imaging.extract import (
@@ -85,6 +89,7 @@ __all__ = [
     "MovieMetadata",
     "OverGateRegistrationWarning",
     "PairedControlPoints",
+    "ParticleDetectionMode",
     "PolyTransform2D",
     "RegistrationMap",
     "RegistrationOverGateError",
@@ -96,6 +101,9 @@ __all__ = [
     "b3_spline_kernel",
     "colocalize",
     "detect_spots",
+    "detect_spots_bandpass",
+    "detect_spots_by_mode",
+    "detect_spots_intensity",
     "detection_image",
     "estimate_similarity_prealign",
     "estimate_translation_prealign",

@@ -5,9 +5,15 @@
 Orchestrates the M1 imaging primitives into a single headless call that turns a
 dual-channel TIFF movie into a populated ``.tether`` project::
 
-    open_movie -> split_channels -> detection_image / detect_spots (both halves)
+    open_movie -> split_channels -> detection_image / detect_spots_by_mode (both halves)
     -> estimate_*_prealign + pair_control_points -> fit_registration_map
     -> colocalize (donor-anchored) -> extract_molecules -> write_extraction
+
+The spot detector is selectable (``options.detection_mode`` ∈ {``wavelet``,
+``intensity``, ``bandpass``} with an optional ``options.detection_threshold``;
+PRD §11.2, ADR-0021) so a movie can be extracted with the Deep-LASI ``findPart``
+method it was actually detected with. The default ``wavelet`` reproduces the
+historical à trous detection unchanged.
 
 Two registration sources are supported (PRD §7.1 "a native bead/grid fit *and* an
 imported ``.tmap``"):
@@ -62,7 +68,7 @@ from tether.imaging.calibrate import (
     write_calibration,
 )
 from tether.imaging.coloc import colocalize
-from tether.imaging.detect import detect_spots, detection_image
+from tether.imaging.detect import ParticleDetectionMode, detect_spots_by_mode, detection_image
 from tether.imaging.extract import MovieMetadata, extract_molecules, write_extraction
 from tether.imaging.register import (
     estimate_similarity_prealign,
@@ -104,6 +110,8 @@ class ExtractOptions:
     """
 
     donor_side: str = "left"
+    detection_mode: str = "wavelet"
+    detection_threshold: float | None = None
     detection_block: int = 50
     min_separation: float = 8.0
     prealign: str = "translation"
@@ -125,6 +133,21 @@ class ExtractOptions:
         # ValueError from deep in a primitive (the "never a raw traceback" contract).
         if self.donor_side not in ("left", "right"):
             raise ExtractionError(f"donor_side must be 'left' or 'right', got {self.donor_side!r}")
+        valid_modes = tuple(m.value for m in ParticleDetectionMode)
+        if self.detection_mode not in valid_modes:
+            raise ExtractionError(
+                f"detection_mode must be one of {valid_modes}, got {self.detection_mode!r}"
+            )
+        # The detection threshold (Deep-LASI ``DetectionThreshold``) is consumed only
+        # by the intensity/bandpass detectors; ``None`` lets each mode use its own
+        # faithful default (intensity 0.5, bandpass 0.98 — PRD §11.2). When supplied
+        # it must lie in the detectors' own [0, 1) domain (a fraction of the
+        # detection-image max). It is recorded but inert under the wavelet mode.
+        if self.detection_threshold is not None and not 0.0 <= self.detection_threshold < 1.0:
+            raise ExtractionError(
+                "detection_threshold must be in [0, 1) (a fraction of the detection-image "
+                f"max), got {self.detection_threshold}"
+            )
         if self.prealign not in ("translation", "similarity"):
             raise ExtractionError(
                 f"prealign must be 'translation' or 'similarity', got {self.prealign!r}"
@@ -232,11 +255,25 @@ def _detect_channels(
 
     Returns ``(donor_det, acceptor_det, donor_spots, acceptor_spots)``; the
     detection images seed the native prealign, the spots feed both paths' colocalize.
+    Both halves are detected with the same selected mode/threshold
+    (``options.detection_mode`` / ``options.detection_threshold``, PRD §11.2); the
+    default ``wavelet`` + ``None`` reproduces the historical à trous detection
+    exactly (:func:`detect_spots_by_mode` forwards each mode's faithful default).
     """
     donor_det = detection_image(donor_stack, block=options.detection_block)
     acceptor_det = detection_image(acceptor_stack, block=options.detection_block)
-    donor_spots = detect_spots(donor_det, min_separation=options.min_separation)
-    acceptor_spots = detect_spots(acceptor_det, min_separation=options.min_separation)
+    donor_spots = detect_spots_by_mode(
+        donor_det,
+        mode=options.detection_mode,
+        threshold=options.detection_threshold,
+        min_separation=options.min_separation,
+    )
+    acceptor_spots = detect_spots_by_mode(
+        acceptor_det,
+        mode=options.detection_mode,
+        threshold=options.detection_threshold,
+        min_separation=options.min_separation,
+    )
     return donor_det, acceptor_det, donor_spots, acceptor_spots
 
 
