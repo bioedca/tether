@@ -194,3 +194,23 @@ paired `model_281mol.hdf5` (4-state consensus vbHMM) are tracked by Git-LFS via
 idealization-parity gate and are **not** pulled by the default CI checkout, so
 the required `test` matrix never depends on them (their load test is
 `@pytest.mark.large` and skips on an unmaterialized LFS pointer).
+
+## M1 extraction-vs-Deep-LASI acceptance measurement (M1 S9 PR-C2)
+
+The §9 M1 acceptance oracle (`tether.project.oracle`) was run on the **uncommitted**
+gated UCKOPSB pair via `scripts/run_m1_oracle.py` (imported `.tmap` leg), recorded here
+as the durable measurement (the movie is never committed — PLAN §2.2):
+
+- **Source:** `Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif` (1700×512×512, 891,955,083 B,
+  SHA-256 `c4293f00ed2ac72d…`) + `DeepLASI_MAP_…20250718…13-40.tmap`
+  (`7db0cf80d161847e…`) + `DeepLASI_MAT_export_…010.mat` (`af1b5be33aa63f87…`, 250 mol).
+- **Measured (raw integrated intensity, 1 px match):** recall **0.204** (51/250);
+  donor Pearson r median 0.988, acceptor 0.876; coord RMS of the 51 matched 0.289 px.
+- **Verdict: §9 M1 acceptance NOT met.** Diagnosed to the **detection stage** (coordinate
+  frames perfectly aligned; raw donor detection finds 199 spots, only 51/250 within 1 px
+  of Deep-LASI). The M1 detector was validated only on the 64×64×50 single-block fixture,
+  so the multi-block max-projection at full scale diverged silently. **M1 close +
+  `v0.1.0` are deferred** (ADR-0020); the gated acceptance test is `xfail` until the
+  detector is fixed and re-measured to recall ≥ 0.95 / Pearson ≥ 0.99.
+- **Accessed:** 2026-06-30. Re-measure with `scripts/run_m1_oracle.py` against the local
+  `example-data/bla-uckopsb-tbox-video10/`.

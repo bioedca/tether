@@ -1,0 +1,71 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# large-fixtures — the gated heavy-data tier (PRD §8 NFR-FIXTURES, §2.2; PLAN §2.2).
+# Runs the `@pytest.mark.large` suite, which the required `test` matrix in ci.yml
+# deliberately excludes (`-m "not large and not sidecar"`) so a structural CI run
+# never blocks on a Git-LFS pull. This workflow pulls the LFS gated fixtures and
+# runs the heavy validation that needs them:
+#   * the M1 extraction-vs-Deep-LASI acceptance oracle (tests/test_oracle.py) — the
+#     §9 M1 numbers (recall ≥ 95 % @ 1px, per-frame intensity Pearson r ≥ 0.99) on
+#     the UCKOPSB pair, via the imported `.tmap` registration leg; and
+#   * the ≥ 50-molecule (281-mol) idealization reference reads (test_idealize_model).
+#
+# DATA NOTE — the ~0.9 GB UCKOPSB movie is NOT committed (not even to LFS; it is
+# too large to host on the repo's LFS budget). The oracle leg therefore SKIPS on a
+# stock GitHub-hosted runner and runs only where the movie is staged — locally, or
+# on a self-hosted/provisioned runner — pointed at by `$TETHER_UCKOPSB_DIR` (or the
+# sibling `example-data/bla-uckopsb-tbox-video10/`). The §9 M1 acceptance numbers
+# are measured locally and recorded in the PR + `tests/fixtures/PROVENANCE.md`;
+# `scripts/run_m1_oracle.py` is the one-shot reproduction. The LFS-committed
+# 281-mol fixtures DO materialise here, so the large-tier idealization reads run.
+#
+# Trigger: manual (workflow_dispatch) + weekly (schedule), NOT pull_request — heavy
+# and data-gated. It is intentionally NOT a required status check (it can SKIP its
+# headline leg when the movie is absent, so it must never red-gate `main`).
+name: large-fixtures
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Mondays 05:23 UTC (off the hour to avoid the cron stampede).
+    - cron: "23 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  large:
+    name: large-fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        # Activate the restored micromamba base env (init-shell: bash).
+        shell: bash -el {0}
+    env:
+      QT_QPA_PLATFORM: offscreen
+      NAPARI_ASYNC: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          # Materialise the LFS gated tier (tests/fixtures/large/**) so the
+          # large-marked fixtures are real bytes, not pointer stubs.
+          lfs: true
+      - name: Restore env + install tether
+        uses: ./.github/actions/setup-env
+      - name: Install xvfb (Linux headless GL for napari)
+        shell: bash -e {0}
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Install test tooling
+        run: python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0"
+      # Run ONLY the gated tier. Tests skip-if-absent when their heavy data is not
+      # present (the UCKOPSB movie is not committed), so this job stays green by
+      # skipping rather than failing where data is unavailable.
+      - name: Run large-fixture tests
+        run: xvfb-run -a pytest -v -m large
