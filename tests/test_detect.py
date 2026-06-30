@@ -28,6 +28,7 @@ from tether.imaging.detect import (  # noqa: E402
     atrous_wavelet_planes,
     b3_spline_kernel,
     detect_spots,
+    detect_spots_bandpass,
     detect_spots_by_mode,
     detect_spots_intensity,
     detection_image,
@@ -395,13 +396,120 @@ def test_detect_spots_intensity_on_fixture_movie() -> None:
     assert np.all(spots >= 0) and np.all(spots <= 63)  # in bounds
 
 
+# --- band-pass / sort detector (findPart.m mode 3) ---------------------------
+
+
+def test_detect_spots_bandpass_recovers_synthetic_truth() -> None:
+    # Equal-amplitude blobs all clear the t*max intensity floor (t=0.98 keeps only
+    # pixels >= 98 % of max, so unequal blobs would be floored — see the dim-blob
+    # test below). Each blob collapses to one regional-max centroid.
+    image = np.zeros((64, 64))
+    truth = [(18, 20), (40, 44), (30, 12)]  # (row, col)
+    for row, col in truth:
+        _gaussian_blob(image, row=row, col=col, amp=1.0)
+    image /= image.max()
+    spots = detect_spots_bandpass(image)
+    for row, col in truth:
+        assert _count_near(spots, x=col, y=row, tol=2.0) >= 1
+    # a clean synthetic background yields no extra detections
+    assert spots.shape[0] == len(truth)
+
+
+def test_detect_spots_bandpass_returns_xy_descending_brightness() -> None:
+    # threshold=0.5 so the dim blob clears the intensity floor; ordering is by the
+    # detection-image 3x3 sum, so the brighter blob still comes first.
+    image = np.zeros((64, 64))
+    _gaussian_blob(image, row=30, col=30, amp=1.0)  # bright
+    _gaussian_blob(image, row=12, col=50, amp=0.75)  # dim but above 0.5*max
+    image /= image.max()
+    spots = detect_spots_bandpass(image, threshold=0.5)
+    bright_idx = np.flatnonzero(np.hypot(spots[:, 0] - 30, spots[:, 1] - 30) <= 2.0)
+    dim_idx = np.flatnonzero(np.hypot(spots[:, 0] - 50, spots[:, 1] - 12) <= 2.0)
+    assert bright_idx.size == 1
+    assert dim_idx.size == 1
+    assert bright_idx[0] < dim_idx[0]
+
+
+def test_detect_spots_bandpass_threshold_dual_use_floors_dim_blobs() -> None:
+    # The threshold is dual-use (intensity floor AND percentile cut). A dim blob
+    # whose peak is below t*max is zeroed before the band-pass at high t, but kept
+    # at a low t — faithful to find_part_bpass_sort.m's `I(I<t*mx)=0`.
+    image = np.zeros((64, 64))
+    _gaussian_blob(image, row=30, col=30, amp=1.0)  # bright
+    _gaussian_blob(image, row=12, col=50, amp=0.6)  # below 0.98*max
+    image /= image.max()
+    high = detect_spots_bandpass(image, threshold=0.98)
+    assert _count_near(high, x=30, y=30, tol=2.0) == 1  # bright kept
+    assert _count_near(high, x=50, y=12, tol=2.0) == 0  # dim floored away
+    low = detect_spots_bandpass(image, threshold=0.4)
+    assert _count_near(low, x=50, y=12, tol=2.0) == 1  # dim recovered at low t
+
+
+def test_detect_spots_bandpass_threshold_zero_is_bumped() -> None:
+    # find_part_bpass_sort.m:10-12 bumps t==0 to 0.01 (a 0-valued percentile rank
+    # would index the 0-th sorted element); t=0 must behave exactly like t=0.01.
+    image = np.zeros((64, 64))
+    for row, col in [(18, 20), (40, 44)]:
+        _gaussian_blob(image, row=row, col=col, amp=1.0)
+    image /= image.max()
+    np.testing.assert_array_equal(
+        detect_spots_bandpass(image, threshold=0.0),
+        detect_spots_bandpass(image, threshold=0.01),
+    )
+
+
+def test_detect_spots_bandpass_respects_guardrails() -> None:
+    image = np.zeros((64, 64))
+    for row, col in [(8, 8), (32, 32), (33, 35), (58, 58)]:
+        _gaussian_blob(image, row=row, col=col, amp=1.0)
+    image /= image.max()
+    spots = detect_spots_bandpass(image, border_margin=6, min_separation=10.0)
+    assert spots.shape[1] == 2
+    for x, y in spots:
+        assert 6 <= x <= 64 - 1 - 6 and 6 <= y <= 64 - 1 - 6
+    for i in range(spots.shape[0]):
+        for j in range(i + 1, spots.shape[0]):
+            assert np.hypot(*(spots[i] - spots[j])) >= 10.0
+
+
+def test_detect_spots_bandpass_validates_inputs() -> None:
+    image = np.zeros((30, 30))
+    with pytest.raises(ValueError, match="2-D"):
+        detect_spots_bandpass(image[np.newaxis])
+    with pytest.raises(ValueError, match="threshold"):
+        detect_spots_bandpass(image, threshold=1.0)
+    with pytest.raises(ValueError, match="threshold"):
+        detect_spots_bandpass(image, threshold=-0.1)
+
+
+def test_detect_spots_bandpass_empty_on_flat_image() -> None:
+    # Flat-zero detection image -> peak <= 0 -> no candidates (no spurious centre).
+    assert detect_spots_bandpass(np.zeros((30, 30))).shape == (0, 2)
+    # A non-zero but flat image band-passes to all-zero -> still empty.
+    assert detect_spots_bandpass(np.full((30, 30), 0.5)).shape == (0, 2)
+
+
+def test_detect_spots_bandpass_on_fixture_movie() -> None:
+    tifffile = pytest.importorskip("tifffile")
+    movie = tifffile.imread(FIXTURE)
+    image = detection_image(movie)
+    spots = detect_spots_bandpass(image)
+    assert spots.ndim == 2 and spots.shape[1] == 2
+    assert spots.dtype == np.float64
+    assert spots.shape[0] >= 1
+    assert np.all(np.isfinite(spots))
+    assert np.all(spots >= 0) and np.all(spots <= 63)  # in bounds
+
+
 # --- mode selector -----------------------------------------------------------
 
 
 def test_particle_detection_mode_values() -> None:
     assert ParticleDetectionMode.WAVELET.value == "wavelet"
     assert ParticleDetectionMode.INTENSITY.value == "intensity"
+    assert ParticleDetectionMode.BANDPASS.value == "bandpass"
     assert ParticleDetectionMode("intensity") is ParticleDetectionMode.INTENSITY
+    assert ParticleDetectionMode("bandpass") is ParticleDetectionMode.BANDPASS
     assert ParticleDetectionMode.WAVELET == "wavelet"  # str-enum serializes as value
 
 
@@ -413,7 +521,7 @@ def test_detect_spots_by_mode_matches_direct_calls() -> None:
     # default + explicit "wavelet" -> the à trous detector.
     np.testing.assert_array_equal(detect_spots_by_mode(image), detect_spots(image))
     np.testing.assert_array_equal(detect_spots_by_mode(image, mode="wavelet"), detect_spots(image))
-    # "intensity" (enum or str) -> the intensity-threshold detector.
+    # "intensity" (enum or str) -> the intensity-threshold detector (mode default).
     np.testing.assert_array_equal(
         detect_spots_by_mode(image, mode=ParticleDetectionMode.INTENSITY),
         detect_spots_intensity(image),
@@ -421,11 +529,34 @@ def test_detect_spots_by_mode_matches_direct_calls() -> None:
     np.testing.assert_array_equal(
         detect_spots_by_mode(image, mode="intensity"), detect_spots_intensity(image)
     )
+    # "bandpass" (enum or str) -> the band-pass / sort detector (mode default 0.98).
+    np.testing.assert_array_equal(
+        detect_spots_by_mode(image, mode=ParticleDetectionMode.BANDPASS),
+        detect_spots_bandpass(image),
+    )
+    np.testing.assert_array_equal(
+        detect_spots_by_mode(image, mode="bandpass"), detect_spots_bandpass(image)
+    )
+
+
+def test_detect_spots_by_mode_threshold_overrides_mode_default() -> None:
+    # threshold=None lets each mode use its own faithful default; an explicit
+    # value is the shared GUI knob, passed through to the mode.
+    image = np.zeros((64, 64))
+    for row, col in [(18, 20), (40, 44)]:
+        _gaussian_blob(image, row=row, col=col, amp=1.0)
+    image /= image.max()
+    np.testing.assert_array_equal(
+        detect_spots_by_mode(image, mode="bandpass", threshold=0.7),
+        detect_spots_bandpass(image, threshold=0.7),
+    )
+    np.testing.assert_array_equal(
+        detect_spots_by_mode(image, mode="intensity", threshold=0.3),
+        detect_spots_intensity(image, threshold=0.3),
+    )
 
 
 def test_detect_spots_by_mode_rejects_unknown_mode() -> None:
     image = np.zeros((20, 20))
-    with pytest.raises(ValueError):
-        detect_spots_by_mode(image, mode="bandpass")  # mode 3 not yet implemented
     with pytest.raises(ValueError):
         detect_spots_by_mode(image, mode="nonsense")
