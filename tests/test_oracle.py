@@ -470,9 +470,14 @@ def _find_uckopsb() -> dict[str, Path] | None:
     for src in candidates:
         movie = src / f"{base}.tif"
         mat = src / f"DeepLASI_MAT_export_{base}.mat"
+        # The `.tmap`/`.tdat` filenames don't share the movie's `base` string, so
+        # match by requiring the dataset directory to hold *exactly one* of each: an
+        # ambiguous directory (a second, unrelated map/config added) must not silently
+        # pair the movie with the wrong registration or detection settings — it falls
+        # through to a skip instead.
         tmaps = sorted(src.glob("DeepLASI_MAP_*.tmap")) if src.is_dir() else []
         tdats = sorted(src.glob("*.tdat")) if src.is_dir() else []
-        if movie.is_file() and mat.is_file() and tmaps and tdats:
+        if movie.is_file() and mat.is_file() and len(tmaps) == 1 and len(tdats) == 1:
             return {"movie": movie, "mat": mat, "tmap": tmaps[0], "tdat": tdats[0]}
     return None
 
