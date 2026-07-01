@@ -201,6 +201,7 @@ def _fake_result(
         means=means,
         variances=np.full(nstates, 0.01),
         tmatrix=np.eye(nstates),
+        norm_tmatrix=np.eye(nstates) * 0.9,
         elbo=elbo,
         dtype="FRET",
         idealized=idealized,
@@ -278,6 +279,9 @@ def test_idealize_writes_model_group_and_round_trips(tmp_path) -> None:
     assert back.input_hashes == stored.input_hashes
     assert back.nstates == 2
     np.testing.assert_allclose(back.means, stored.means)
+    np.testing.assert_allclose(back.tmatrix, stored.tmatrix)
+    np.testing.assert_allclose(back.norm_tmatrix, stored.norm_tmatrix)  # round-trips
+    assert back.norm_tmatrix is not None
     np.testing.assert_array_equal(back.state_paths, stored.state_paths)
     assert list_idealizations(proj) == ["vbconhmm"]
 
@@ -380,6 +384,10 @@ def test_refuses_overwrite_then_replaces(tmp_path) -> None:
     )
     assert stored.nstates == 3
     assert read_idealization(proj, "vbconhmm").nstates == 3
+    # the stage-then-swap leaves no transient group behind
+    assert list_idealizations(proj) == ["vbconhmm"]
+    with h5py.File(proj.path, "r") as f:
+        assert list(f["idealization"].keys()) == ["vbconhmm"]
 
 
 def test_distinct_model_names_coexist(tmp_path) -> None:
@@ -400,8 +408,7 @@ def test_analysis_window_bounds_the_fit_and_hash(tmp_path) -> None:
     proj, keys = _build_store(path, donor, acceptor)
     # trim the analysis window to [5, 20)
     lo, hi = 5, 20
-    with h5py.File(path, "r+") as f:
-        f["molecules"]["table"]["analysis_window"][0] = (lo, hi)
+    with h5py.File(path, "r+") as f:  # read-modify-write the compound table
         table = f["molecules"]["table"][:]
         table["analysis_window"][0] = (lo, hi)
         f["molecules"]["table"][:] = table

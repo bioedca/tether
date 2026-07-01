@@ -93,6 +93,8 @@ __all__ = [
 
 #: The frozen §5 container group model subgroups are written under.
 IDEALIZATION_GROUP = "idealization"
+#: Suffix of the transient subgroup a model is staged in before the atomic swap.
+_WRITING_SUFFIX = ".__writing__"
 #: Default idealization method (the consensus VB-HMM behind the M0.5 parity target).
 MODEL_TYPE_DEFAULT = "vbconhmm"
 #: State counts swept for auto (max-ELBO) model selection when ``nstates`` is None
@@ -126,6 +128,7 @@ class StoredIdealization:
     means: np.ndarray
     variances: np.ndarray | None
     tmatrix: np.ndarray | None
+    norm_tmatrix: np.ndarray | None
     elbo: float | None
     idealized: np.ndarray
     state_paths: np.ndarray
@@ -290,8 +293,12 @@ def idealize_molecules(
     intensity_quantity:
         Which ``/traces`` layer feeds the fit: ``"corrected"`` (default,
         background-subtracted — the apparent-E input) or ``"raw"``.
-    sidecar_python, nrestarts, scratch_dir, timeout:
+    sidecar_python, nrestarts, timeout:
         Forwarded to :func:`tether.idealize.run_vbfret`.
+    scratch_dir:
+        Where the transient SMD + per-fit model files are written. Handled
+        **locally** (not forwarded to ``run_vbfret``); ``None`` (default) uses a
+        temporary directory removed on exit.
     overwrite:
         Replace an existing ``/idealization/{model_name}``.
 
@@ -333,8 +340,10 @@ def idealize_molecules(
         raise ValueError("no molecules selected to idealize")
     _refuse_existing(path, model_name, overwrite)
 
-    donor = np.asarray(traces[donor_key], dtype="float64")[rows]
-    acceptor = np.asarray(traces[acceptor_key], dtype="float64")[rows]
+    # Slice the selected rows first, then cast the subset — avoids casting the whole
+    # (N, max_T) trace array to float64 when only a few molecules are idealized.
+    donor = np.asarray(traces[donor_key][rows], dtype="float64")
+    acceptor = np.asarray(traces[acceptor_key][rows], dtype="float64")
     pre, post = _windows(molecules, rows)
     sel_keys = [_to_str(molecules["molecule_key"][i]) for i in rows]
     sel_ids = [_to_str(molecules["molecule_id"][i]) for i in rows]
@@ -470,11 +479,15 @@ def _write_model(
 
     with h5py.File(path, "r+") as f:
         parent = f.require_group(IDEALIZATION_GROUP)
-        if model_name in parent:
-            if not overwrite:  # re-checked under the write handle (TOCTOU-safe)
-                raise FileExistsError(f"/idealization/{model_name} already exists in {path.name}")
-            del parent[model_name]
-        g = parent.create_group(model_name)
+        if model_name in parent and not overwrite:  # re-checked under the write handle
+            raise FileExistsError(f"/idealization/{model_name} already exists in {path.name}")
+        # Stage the whole model in a transient subgroup, then swap it in — so an
+        # overwrite never leaves /idealization/{model_name} missing if the write dies
+        # mid-way (the old model survives until the new one is complete).
+        staging = f"{model_name}{_WRITING_SUFFIX}"
+        if staging in parent:
+            del parent[staging]  # clean up a prior aborted write
+        g = parent.create_group(staging)
         g.attrs["type"] = model_type
         g.attrs["nstates"] = int(nstates)
         g.attrs["dtype"] = model.dtype
@@ -505,6 +518,11 @@ def _write_model(
         g.create_dataset("molecule_id", data=list(molecule_ids), dtype=str_dt)
         g.create_dataset("input_hash", data=list(input_hashes), dtype=str_dt)
 
+        # Atomic swap: the staged group is complete, so replace the old model now.
+        if model_name in parent:
+            del parent[model_name]
+        parent.move(staging, model_name)
+
     return StoredIdealization(
         model_name=model_name,
         model_type=model_type,
@@ -512,6 +530,9 @@ def _write_model(
         means=np.asarray(model.means, dtype="float64"),
         variances=None if model.variances is None else np.asarray(model.variances, dtype="float64"),
         tmatrix=None if model.tmatrix is None else np.asarray(model.tmatrix, dtype="float64"),
+        norm_tmatrix=(
+            None if model.norm_tmatrix is None else np.asarray(model.norm_tmatrix, dtype="float64")
+        ),
         elbo=elbo_val,
         idealized=idealized,
         state_paths=state_paths,
@@ -542,7 +563,8 @@ def list_idealizations(project: Project | str | PathLike[str]) -> list[str]:
     with h5py.File(path, "r") as f:
         if IDEALIZATION_GROUP not in f:
             return []
-        return sorted(f[IDEALIZATION_GROUP].keys())
+        # Skip any transient staging group left by a crashed overwrite.
+        return sorted(k for k in f[IDEALIZATION_GROUP] if not k.endswith(_WRITING_SUFFIX))
 
 
 def read_idealization(
@@ -579,6 +601,7 @@ def read_idealization(
             means=_opt("mean"),
             variances=_opt("var"),
             tmatrix=_opt("tmatrix"),
+            norm_tmatrix=_opt("norm_tmatrix"),
             elbo=float(g.attrs["elbo"]) if "elbo" in g.attrs else None,
             idealized=_opt("idealized"),
             state_paths=np.asarray(g["state_path"][()], dtype="int64"),

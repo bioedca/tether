@@ -100,7 +100,7 @@ semantics, staleness detection, and `schema-guard`-green additivity.
   staleness contract, testable headlessly (no sidecar).
 - Good: one-click "just idealize" works (auto max-ELBO) while a power user pins
   `nstates`; the choice + its evidence are stamped into the model.
-- Trade-off: auto mode runs the sidecar once per grip entry (N fits). Acceptable at M2
+- Trade-off: auto mode runs the sidecar once per grid entry (N fits). Acceptable at M2
   selection sizes; a future PR may prune the grid or early-stop on a declining ELBO.
 - Scope split: the GUI (`I`-key handler + Viterbi step overlay in the trace dock +
   computer-use live-smoke) is a separate M2 S6 PR-B — it cannot merge autonomously
