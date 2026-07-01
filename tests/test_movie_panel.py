@@ -203,7 +203,13 @@ def test_validate_xy_empty_and_readonly() -> None:
     out = _validate_xy([[1.0, 2.0]], "donor_xy")
     assert out.shape == (1, 2)
     assert not out.flags.writeable
-    assert _validate_xy([], "x").shape == (0, 2)
+    # an empty 1-D input normalises to a read-only (0, 2)
+    empty = _validate_xy([], "x")
+    assert empty.shape == (0, 2)
+    assert not empty.flags.writeable
+    # a malformed empty (wrong column count) is rejected, not silently normalised
+    with pytest.raises(ValueError, match="donor_xy"):
+        _validate_xy(np.empty((0, 3)), "donor_xy")
 
 
 # --- multi-movie overlays + switcher (headless GUI) --------------------------
@@ -321,3 +327,32 @@ def test_set_movie_stays_single_image_layer(qtbot) -> None:
         assert panel.active_index == 0
         assert [ly.name for ly in panel.layers] == ["movie"]
         assert panel.donor_layer is None
+
+
+@pytest.mark.gui
+@_needs_napari
+@_needs_gl
+def test_switching_to_plain_movie_blanks_overlays(qtbot, tmp_path) -> None:
+    # Once a movie has carried an overlay, switching to a plain (overlay=None)
+    # movie blanks the reusable Points layers to empty rather than removing them.
+    frames = (np.arange(6 * 40 * 24).reshape(6, 40, 24) % 300).astype("<u2")
+    second = _write_native_movie(tmp_path / "movie2.tif", frames)
+    ov = MovieOverlay(donor_xy=np.array([[10.0, 12.0]]), acceptor_xy=np.array([[30.0, 14.0]]))
+
+    with open_movie(FIXTURE) as m0, open_movie(second) as m1, NapariMoviePanel() as panel:
+        panel.add_movie(m0, overlay=ov, name="A")
+        panel.add_movie(m1, name="B")  # plain: no overlay
+        # overlay layers exist and are populated for the first (overlay) movie
+        assert len(panel.donor_layer.data) == 1
+        assert len(panel.acceptor_layer.data) == 1
+
+        panel.set_active_movie(1)
+        # layers are kept (reused set stays stable) but blanked to empty (0, 2)
+        assert panel.donor_layer is not None
+        assert len(panel.donor_layer.data) == 0
+        assert len(panel.acceptor_layer.data) == 0
+        assert len(panel.donor_aperture_layer.data) == 0
+        assert len(panel.acceptor_aperture_layer.data) == 0
+        # switching back restores the overlay
+        panel.set_active_movie(0)
+        assert len(panel.donor_layer.data) == 1

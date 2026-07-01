@@ -155,12 +155,14 @@ def _validate_xy(xy: object, name: str) -> np.ndarray:
     """Validate an ``(N, 2)`` ``[x, y]`` spot-coordinate array (empty allowed).
 
     Returns a read-only ``float64`` copy so the immutable :class:`MovieOverlay`
-    never aliases the caller's buffer. An empty input normalises to ``(0, 2)``.
+    never aliases the caller's buffer. An empty 1-D input (e.g. ``[]``) normalises
+    to a read-only ``(0, 2)``; any other non-``(N, 2)`` shape — including a
+    malformed empty like ``(0, 3)`` — is rejected rather than silently normalised.
     """
     arr = np.asarray(xy, dtype=np.float64)
-    if arr.size == 0:
-        return np.empty((0, 2), dtype=np.float64)
-    if arr.ndim != 2 or arr.shape[1] != 2:
+    if arr.ndim == 1 and arr.size == 0:
+        arr = np.empty((0, 2), dtype=np.float64)
+    elif arr.ndim != 2 or arr.shape[1] != 2:
         raise ValueError(f"{name} must be an (N, 2) [x, y] array, got shape {arr.shape}")
     if not np.isfinite(arr).all():
         raise ValueError(f"{name} must be finite")
@@ -411,13 +413,33 @@ class NapariMoviePanel:
         return self._movie_layer
 
     def clear_movies(self) -> None:
-        """Forget every registered movie (layers are reused by the next movie)."""
+        """Forget every registered movie and remove the panel-owned layers.
+
+        Removing the image + overlay layers (not just blanking them) resets the
+        viewer to a pristine state, so :meth:`set_movie` after an overlay session
+        restores the M0 single-image-layer contract rather than leaving empty
+        Points layers behind.
+        """
         self._movies.clear()
         self._active_index = -1
         if self._switcher is not None:
             self._switcher.blockSignals(True)
             self._switcher.clear()
             self._switcher.blockSignals(False)
+        for layer in (
+            self._movie_layer,
+            self._donor_layer,
+            self._acceptor_layer,
+            self._donor_aperture_layer,
+            self._acceptor_aperture_layer,
+        ):
+            if layer is not None and layer in self._viewer.layers:
+                self._viewer.layers.remove(layer)
+        self._movie_layer = None
+        self._donor_layer = None
+        self._acceptor_layer = None
+        self._donor_aperture_layer = None
+        self._acceptor_aperture_layer = None
 
     # --- internals -----------------------------------------------------------
 
