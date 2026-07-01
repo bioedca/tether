@@ -141,6 +141,33 @@ def test_cheatsheet_overlay_reflects_the_keymap(shell) -> None:
     assert "Space" not in rows
 
 
+def test_show_overflow_picker_dispatches_selected_class(shell, monkeypatch) -> None:
+    from tether.gui import shell as shell_mod
+    from tether.gui.curation import Command, CurationAction
+
+    # Drive the production menu path (TetherShell.show_overflow_picker) without a
+    # real modal loop by stubbing the picker's exec() to return a chosen class.
+    monkeypatch.setattr(shell_mod.OverflowCategoryPicker, "exec", lambda self: 11)
+    shell.show_overflow_picker()
+    assert shell.controller.last == Command(CurationAction.ASSIGN_CATEGORY, 11)
+    assert "Category 11" in shell.status_message
+
+
+def test_show_overflow_picker_cancel_dispatches_nothing(shell, monkeypatch) -> None:
+    from tether.gui import shell as shell_mod
+
+    monkeypatch.setattr(shell_mod.OverflowCategoryPicker, "exec", lambda self: None)
+    before = len(shell.controller.history)
+    shell.show_overflow_picker()
+    assert len(shell.controller.history) == before  # cancel -> no dispatch
+
+
+def test_show_cheatsheet_populates_the_overlay(shell) -> None:
+    overlay = shell.show_cheatsheet()
+    assert shell.cheatsheet is overlay
+    assert dict(overlay.rows).get("Space") == "Accept trace"
+
+
 def test_close_removes_the_event_filter(qapp, qtbot) -> None:
     from pyqtgraph.Qt import QtCore
 

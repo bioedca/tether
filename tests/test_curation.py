@@ -53,6 +53,20 @@ def test_command_defaults_and_equality() -> None:
     assert Command(A.ASSIGN_CATEGORY, 1) != Command(A.ASSIGN_CATEGORY, 2)
 
 
+def test_command_enforces_category_arg_contract() -> None:
+    # ASSIGN_CATEGORY requires an integer class >= 1 (0 is reserved for the
+    # uncategorized/CLEAR_CATEGORY null state); every other action carries no arg.
+    assert Command(A.ASSIGN_CATEGORY, 1).arg == 1
+    assert Command(A.ASSIGN_CATEGORY, 12).arg == 12  # overflow class
+    for bad in (None, 0, -1, 1.0, True):
+        with pytest.raises(ValueError, match="ASSIGN_CATEGORY"):
+            Command(A.ASSIGN_CATEGORY, bad)
+    with pytest.raises(ValueError, match="takes no arg"):
+        Command(A.ACCEPT, 3)
+    with pytest.raises(ValueError, match="takes no arg"):
+        Command(A.CLEAR_CATEGORY, 0)
+
+
 def test_controller_routes_every_action_to_its_handler() -> None:
     calls: list[tuple] = []
     handlers = CurationHandlers(
@@ -324,7 +338,9 @@ def test_zero_clears_to_uncategorized_distinct_from_space_accept(curation) -> No
     assert curation.controller.last == Command(A.CLEAR_CATEGORY)
     assert curation.controller.last.action is not A.ASSIGN_CATEGORY
     assert Command(A.CLEAR_CATEGORY) != Command(A.ACCEPT)
-    assert Command(A.CLEAR_CATEGORY) != Command(A.ASSIGN_CATEGORY, UNCATEGORIZED_CLASS)
+    # class 0 is unreachable via ASSIGN_CATEGORY (contract-enforced); CLEAR/ACCEPT
+    # are distinct from assigning any named category (>= 1).
+    assert Command(A.CLEAR_CATEGORY) != Command(A.ASSIGN_CATEGORY, 1)
     assert Command(A.ACCEPT) != Command(A.ASSIGN_CATEGORY, 1)
 
 
@@ -350,28 +366,36 @@ def test_unmapped_key_passes_through(curation) -> None:
 @pytest.mark.gui
 @_needs_qt
 def test_jump_consumes_and_refocuses_the_dock(qapp, qtbot) -> None:
+    from unittest.mock import Mock
+
     from pyqtgraph.Qt import QtCore, QtWidgets
 
     from tether.gui.curation import CurationController, CurationEventFilter
 
     k = QtCore.Qt.Key
-    dock = QtWidgets.QWidget()
+    dock = Mock()  # a refocus target: the filter only calls .setFocus() on it
     surface = QtWidgets.QListWidget()
-    qtbot.addWidget(dock)
     qtbot.addWidget(surface)
     controller = CurationController()
     filt = CurationEventFilter(controller, Keymap.default(), focus_dock=dock)
     filt.install(qapp)
     try:
-        # KeyPress dispatches JUMP; the paired KeyRelease is consumed (its press
-        # was) but never dispatches.
+        # A JUMP press dispatches AND refocuses the dock (the round-trip contract).
         assert filt.filter_event(surface, _key_event(k.Key_Return), focus_widget=surface) is True
+        dock.setFocus.assert_called_once()
+        # The paired release is consumed but neither dispatches nor refocuses again.
         release = _key_event(k.Key_Return, press=False)
         assert filt.filter_event(surface, release, focus_widget=surface) is True
         assert controller.history == [Command(A.JUMP)]  # release added nothing
-        # Numpad Enter (Key_Enter) is a JUMP alias and fires through the filter too.
+        dock.setFocus.assert_called_once()  # still just the one refocus
+        # Numpad Enter (Key_Enter) is a JUMP alias: dispatches and refocuses too.
         assert filt.filter_event(surface, _key_event(k.Key_Enter), focus_widget=surface) is True
         assert controller.history == [Command(A.JUMP), Command(A.JUMP)]
+        assert dock.setFocus.call_count == 2
+        # A non-JUMP key (Space = accept) does not refocus the dock.
+        dock.reset_mock()
+        assert filt.filter_event(surface, _key_event(k.Key_Space), focus_widget=surface) is True
+        dock.setFocus.assert_not_called()
     finally:
         filt.remove()
 

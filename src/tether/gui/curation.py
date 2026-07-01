@@ -104,10 +104,28 @@ class Command:
     ``arg`` carries the integer class for :attr:`CurationAction.ASSIGN_CATEGORY`
     (slot key ``n`` → class ``n``; the overflow picker → the chosen class, which
     may exceed :data:`CATEGORY_SLOTS`); it is ``None`` for every other action.
+
+    The contract is enforced at construction (and therefore on JSON load): an
+    ``ASSIGN_CATEGORY`` **must** carry an integer class ``>= 1`` — class ``0`` is
+    reserved for the *uncategorized* null state (:attr:`CurationAction.CLEAR_CATEGORY`)
+    — and every other action must carry no arg. This keeps an out-of-range or
+    ``0`` class from ever reaching a handler as a named-category assignment.
     """
 
     action: CurationAction
     arg: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.action is CurationAction.ASSIGN_CATEGORY:
+            # bool is an int subclass; reject it explicitly so True/False can't pose
+            # as a class. Class 0 is CLEAR_CATEGORY/uncategorized, never ASSIGN.
+            if type(self.arg) is not int or self.arg < 1:
+                raise ValueError(
+                    "ASSIGN_CATEGORY requires an integer class >= 1 "
+                    f"(0 is CLEAR_CATEGORY/uncategorized), got {self.arg!r}"
+                )
+        elif self.arg is not None:
+            raise ValueError(f"{self.action.value} takes no arg, got {self.arg!r}")
 
 
 def action_description(command: Command) -> str:

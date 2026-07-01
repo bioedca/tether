@@ -265,6 +265,10 @@ class TetherShell:
         return self._event_filter
 
     @property
+    def cheatsheet(self) -> CheatSheetOverlay:
+        return self._cheatsheet
+
+    @property
     def status_message(self) -> str:
         return self._window.statusBar().currentMessage()
 
@@ -282,12 +286,18 @@ class TetherShell:
     def _on_list_row_changed(self, row: int) -> None:
         if 0 <= row < len(self._traces):
             self._current_index = row
-            self._trace_dock.set_trace(self._traces[row])
+            trace = self._traces[row]
+            self._trace_dock.set_trace(trace)
+            # Navigation (via the ←/→/↑/↓ keys or a click) shows which molecule is
+            # active — so the live smoke sees NEXT/PREV firing, not just accept.
+            self._status(f"Molecule {trace.name or f'mol-{row}'} ({row + 1}/{len(self._traces)})")
 
     # --- dialogs -------------------------------------------------------------
 
-    def show_cheatsheet(self) -> None:
+    def show_cheatsheet(self) -> CheatSheetOverlay:
+        """Show the shipped keyboard cheat-sheet (refreshed from the live keymap)."""
         self._cheatsheet.show()
+        return self._cheatsheet
 
     def show_overflow_picker(self) -> OverflowCategoryPicker:
         """Open the overflow category picker; on accept, dispatch the assignment."""
