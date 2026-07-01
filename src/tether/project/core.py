@@ -25,9 +25,13 @@ from tether.io.schema import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import numpy as np
 
+    from tether.idealize.driver import IdealizationResult
     from tether.io.movie import MovieReader
+    from tether.project.idealize import StoredIdealization
 
 __all__ = ["Project"]
 
@@ -141,3 +145,69 @@ class Project:
         from tether.project import labels
 
         return labels.rejected_molecule_keys(self.path)
+
+    # --- idealization (PRD §7.4; the one-click-vbFRET seam behind the GUI) -----
+
+    def idealize(
+        self,
+        molecule_keys: list[str] | None = None,
+        *,
+        model_type: str = "vbconhmm",
+        nstates: int | None = None,
+        nstates_grid: tuple[int, ...] = (1, 2, 3, 4),
+        model_name: str | None = None,
+        intensity_quantity: str = "corrected",
+        sidecar_python: str | Path | None = None,
+        nrestarts: int | None = None,
+        scratch_dir: str | Path | None = None,
+        timeout: float | None = 1800.0,
+        overwrite: bool = False,
+        _runner: Callable[..., IdealizationResult] | None = None,
+    ) -> StoredIdealization:
+        """Idealize selected molecules into ``/idealization`` (:func:`idealize.idealize_molecules`).
+
+        The headless core behind the dock's ``I`` key: reads the selected molecules'
+        traces, fits vbFRET / consensus VB-HMM via the sidecar, and writes the model
+        back as additive data with a per-molecule input-provenance hash. The defaults
+        mirror :func:`tether.project.idealize.idealize_molecules` (its
+        ``MODEL_TYPE_DEFAULT`` / ``NSTATES_GRID_DEFAULT``); ``_runner`` is a private
+        test seam for injecting a fake sidecar.
+        """
+        from tether.project import idealize
+
+        # Only forward the private runner override when supplied, so the module
+        # default (`run_vbfret`) is used otherwise.
+        extra = {} if _runner is None else {"_runner": _runner}
+        return idealize.idealize_molecules(
+            self,
+            molecule_keys,
+            model_type=model_type,
+            nstates=nstates,
+            nstates_grid=nstates_grid,
+            model_name=model_name,
+            intensity_quantity=intensity_quantity,
+            sidecar_python=sidecar_python,
+            nrestarts=nrestarts,
+            scratch_dir=scratch_dir,
+            timeout=timeout,
+            overwrite=overwrite,
+            **extra,
+        )
+
+    def read_idealization(self, model_name: str) -> StoredIdealization:
+        """Read a persisted model (:func:`idealize.read_idealization`)."""
+        from tether.project import idealize
+
+        return idealize.read_idealization(self, model_name)
+
+    def list_idealizations(self) -> list[str]:
+        """Names of the models under ``/idealization`` (:func:`idealize.list_idealizations`)."""
+        from tether.project import idealize
+
+        return idealize.list_idealizations(self)
+
+    def stale_idealization_keys(self, model_name: str) -> list[str]:
+        """Molecules whose inputs changed since the fit (:func:`idealize.stale_molecule_keys`)."""
+        from tether.project import idealize
+
+        return idealize.stale_molecule_keys(self, model_name)
