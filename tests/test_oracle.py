@@ -291,20 +291,24 @@ def test_acceptor_channel_recall_when_supplied() -> None:
     donor = _signal(3, 24, seed=41)
     acceptor = _signal(3, 24, seed=42)
     gt = _make_export(xy, donor, acceptor)  # acceptor_xy == donor_xy + 8
-    # All three acceptor coords match; drop one beyond 1px so recall = 2/3.
-    ext_acc_xy = gt.acceptor_xy.copy()
+    # Four acceptor coords: three match the truths, one is spurious; drop a matching
+    # one beyond 1px → recall 2/3 (of the 3 truths), precision 2/4 (of 4 extracted).
+    ext_acc_xy = np.vstack([gt.acceptor_xy.copy(), np.array([[200.0, 200.0]])])
     ext_acc_xy[2] += np.array([5.0, 5.0])
     res = evaluate_extraction(
         gt, xy.copy(), donor.copy(), acceptor.copy(), extracted_acceptor_xy=ext_acc_xy
     )
-    assert res.n_acceptor_extracted == 3
+    assert res.n_acceptor_extracted == 4
     assert res.n_acceptor_matched == 2
-    assert res.acceptor_recall == pytest.approx(2 / 3)
+    assert res.acceptor_recall == pytest.approx(2 / 3)  # 2 of 3 truths
+    assert res.acceptor_precision == pytest.approx(2 / 4)  # 2 of 4 extracted
     assert np.isfinite(res.acceptor_coord_rms_px)
     # donor gate is untouched by the acceptor channel
     assert res.recall == pytest.approx(1.0)
-    assert res.meets_acceptance()  # per-channel acceptor recall is NOT a gate
-    assert res.summary()["acceptor_recall"] == pytest.approx(2 / 3, abs=1e-4)
+    assert res.meets_acceptance()  # per-channel acceptor metrics are NOT gates
+    summary = res.summary()
+    assert summary["acceptor_recall"] == pytest.approx(2 / 3, abs=1e-4)
+    assert summary["acceptor_precision"] == pytest.approx(0.5)
 
 
 def test_acceptor_channel_unmeasured_without_coords() -> None:
@@ -316,6 +320,7 @@ def test_acceptor_channel_unmeasured_without_coords() -> None:
     assert res.n_acceptor_extracted == 0
     assert res.n_acceptor_matched == 0
     assert np.isnan(res.acceptor_recall)
+    assert np.isnan(res.acceptor_precision)
     assert np.isnan(res.acceptor_coord_rms_px)
 
 

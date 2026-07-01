@@ -259,6 +259,7 @@ class OracleResult:
     n_acceptor_extracted: int = 0
     n_acceptor_matched: int = 0
     acceptor_recall: float = float("nan")
+    acceptor_precision: float = float("nan")
     acceptor_coord_rms_px: float = float("nan")
     registration_rms_px: float = float("nan")
     recall_threshold: float = RECALL_THRESHOLD
@@ -309,6 +310,7 @@ class OracleResult:
             "n_acceptor_extracted": self.n_acceptor_extracted,
             "n_acceptor_matched": self.n_acceptor_matched,
             "acceptor_recall": _f(self.acceptor_recall, 4),
+            "acceptor_precision": _f(self.acceptor_precision, 4),
             "acceptor_coord_rms_px": _f(self.acceptor_coord_rms_px, 4),
             "donor_pearson_median": _f(self.donor_pearson_median, 5),
             "acceptor_pearson_median": _f(self.acceptor_pearson_median, 5),
@@ -409,7 +411,7 @@ def evaluate_extraction(
     # keeps the §9 recall honest (the C3d over-detection concern).
     precision = (len(matches) / n_ext) if n_ext else float("nan")
 
-    n_acc_ext, acc_matches, acc_recall, acc_rms = _score_acceptor_channel(
+    n_acc_ext, acc_matches, acc_recall, acc_precision, acc_rms = _score_acceptor_channel(
         ground_truth.acceptor_xy, extracted_acceptor_xy, n_gt, tol_px
     )
 
@@ -443,6 +445,7 @@ def evaluate_extraction(
         n_acceptor_extracted=n_acc_ext,
         n_acceptor_matched=len(acc_matches),
         acceptor_recall=acc_recall,
+        acceptor_precision=acc_precision,
         acceptor_coord_rms_px=acc_rms,
         registration_rms_px=float(registration_rms_px),
     )
@@ -453,22 +456,24 @@ def _score_acceptor_channel(
     extracted_acceptor_xy: np.ndarray | None,
     n_gt: int,
     tol_px: float,
-) -> tuple[int, list[tuple[int, int, float]], float, float]:
-    """Per-channel acceptor coordinate recall vs the curated acceptor coordinates.
+) -> tuple[int, list[tuple[int, int, float]], float, float, float]:
+    """Per-channel acceptor coordinate recall + precision vs the curated coordinates.
 
-    Returns ``(n_acceptor_extracted, matches, acceptor_recall, acceptor_coord_rms)``;
-    all-unmeasured (``0``/``[]``/``nan``/``nan``) when ``extracted_acceptor_xy`` is
-    ``None``. The denominator is the same ``n_gt`` curated molecules as the donor
-    recall, so donor and acceptor recall are directly comparable.
+    Returns ``(n_acceptor_extracted, matches, acceptor_recall, acceptor_precision,
+    acceptor_coord_rms)``; all-unmeasured (``0``/``[]``/``nan``…) when
+    ``extracted_acceptor_xy`` is ``None``. The recall denominator is the same
+    ``n_gt`` curated molecules as the donor recall (so the two channels are directly
+    comparable); the precision denominator is the acceptor's own extracted count.
     """
     if extracted_acceptor_xy is None:
-        return 0, [], float("nan"), float("nan")
+        return 0, [], float("nan"), float("nan"), float("nan")
     ext_acc_xy = np.atleast_2d(np.asarray(extracted_acceptor_xy, dtype=np.float64))
     n_acc_ext = 0 if ext_acc_xy.size == 0 else ext_acc_xy.shape[0]
     acc_matches = match_coordinates(gt_acceptor_xy, ext_acc_xy, tol_px=tol_px)
     acc_recall = (len(acc_matches) / n_gt) if n_gt else float("nan")
+    acc_precision = (len(acc_matches) / n_acc_ext) if n_acc_ext else float("nan")
     acc_rms = coordinate_rms(gt_acceptor_xy, ext_acc_xy, acc_matches)
-    return n_acc_ext, acc_matches, acc_recall, acc_rms
+    return n_acc_ext, acc_matches, acc_recall, acc_precision, acc_rms
 
 
 # --- on-disk convenience -----------------------------------------------------
