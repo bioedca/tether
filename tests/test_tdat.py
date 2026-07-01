@@ -381,11 +381,19 @@ def test_object_reference_id_reads_scalar_marker() -> None:
         [0, 2, 1, 1, 12, 4],  # wrong leading marker word
         [0xDD000000],  # truncated: no ndims/dims/ids
         [0xDD000000, 2, 1, 1],  # ndims present but no object id + class id
+        [0xDD000000, 3, 1, 1, 1, 12, 4],  # ndims != 2 (MATLAB refs are always 2-D)
+        [0xDD000000, 2, 2, 1, 5, 8, 4],  # non-scalar dims [2, 1] -> hides extra ids
     ],
 )
 def test_object_reference_id_rejects_malformed(marker: list[int]) -> None:
     with pytest.raises(ValueError, match="MCOS object reference"):
         object_reference_id(marker)
+
+
+def test_object_reference_id_rejects_non_integer_marker() -> None:
+    # A float-typed marker is not a valid uint32 object reference.
+    with pytest.raises(ValueError, match="MCOS object reference"):
+        object_reference_id(np.array([0xDD000000, 2, 1, 1, 1, 4], dtype=np.float64))
 
 
 def test_mcos_decoder_absent_subsystem_returns_none(tmp_path: Path) -> None:
@@ -506,6 +514,82 @@ def test_malformed_mcos_blob_degrades_to_no_threshold(tmp_path: Path) -> None:
     assert result.detection.threshold is None  # threshold degraded; coords intact
     assert result.colocalization.n_molecules == 2
     assert read_detection_settings(path).threshold is None
+
+
+def _build_two_channel_mcos_metadata() -> bytes:
+    """FileWrapper metadata for two objects (ids 1, 2), each with ``ChannelID`` +
+    ``DetectionThreshold`` -- so a test can prove the reader selects the reference
+    channel by ``ChannelID``, not by ``Channel``-cell position."""
+    names = b"\x08\x1e\x00\x10\x1e\x00ChannelID\x00DetectionThreshold\x00"
+    names = names.ljust(36, b"\x00")  # pad the names region to a 4-byte boundary (off1 = 68)
+    header = struct.pack("<8I", 4, 2, 68, 68, 68, 140, 212, 212)
+    obj_rows = [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 2, 0]  # null, obj1 seg1, obj2 seg2
+    # skip, seg 0 (0 props), seg 1 [(ChannelID,1,0),(DetectionThreshold,1,1)], pad,
+    # seg 2 [(ChannelID,1,2),(DetectionThreshold,1,3)], pad
+    seg_words = [0, 0, 2, 1, 1, 0, 2, 1, 1, 0, 2, 1, 1, 2, 2, 1, 3, 0]
+    blob = header + names + struct.pack("<18I", *obj_rows) + struct.pack("<18I", *seg_words)
+    assert len(blob) == 212
+    return blob
+
+
+def _write_two_channel_mcos_tdat(
+    path: Path, marker_object_ids: list[int], reference: float
+) -> None:
+    """Write a two-channel MCOS ``.tdat``: object 1 = ChannelID 1 / threshold 0.11,
+    object 2 = ChannelID 2 / threshold 0.22, with ``Channel`` markers in the given
+    object-id order and ``MappingReferenceChannel`` = ``reference``."""
+    meta = np.frombuffer(_build_two_channel_mcos_metadata(), dtype=np.uint8)
+    cell_values = {2: 1.0, 3: 0.11, 4: 2.0, 5: 0.22}  # obj1 id/thr, obj2 id/thr (value + 2)
+    with h5py.File(path, "w") as f:
+        refs = f.create_group("#refs#")
+        meta_ds = refs.create_dataset("meta", data=meta)
+        meta_ds.attrs["MATLAB_class"] = np.bytes_("uint8")
+        subsystem = f.create_group("#subsystem#")
+        fw = subsystem.create_dataset("MCOS", shape=(1, 6), dtype=h5py.ref_dtype)
+        fw.attrs["MATLAB_class"] = np.bytes_("FileWrapper__")
+        fw[0, 0] = meta_ds.ref
+        for cell, value in cell_values.items():
+            leaf = refs.create_dataset(f"c{cell}", data=np.array([[value]], dtype=np.float64))
+            leaf.attrs["MATLAB_class"] = np.bytes_("double")
+            fw[0, cell] = leaf.ref
+        temp = f.create_group("temp")
+        shape = (len(marker_object_ids), 1)
+        channel = temp.create_dataset("Channel", shape=shape, dtype=h5py.ref_dtype)
+        channel.attrs["MATLAB_class"] = np.bytes_("cell")
+        for k, object_id in enumerate(marker_object_ids):
+            data = np.array([0xDD000000, 2, 1, 1, object_id, 4], dtype=np.uint32)
+            marker = refs.create_dataset(f"ch{k}", data=data)
+            marker.attrs["MATLAB_class"] = np.bytes_("TIRFdata")
+            channel[k, 0] = marker.ref
+        table = refs.create_dataset("a", data=particles_table().T)
+        table.attrs["MATLAB_class"] = np.bytes_("double")
+        pc = temp.create_dataset("ParticlesColocalized", shape=(1, 1), dtype=h5py.ref_dtype)
+        pc[0, 0] = table.ref
+        pc.attrs["MATLAB_class"] = np.bytes_("cell")
+        for name in ("DefaultAlpha", "DefaultBeta", "DefaultGamma"):
+            temp.create_dataset(name, data=np.array([[0.0]]))
+        temp.create_dataset("ChannelsWithData", data=np.array([[1.0], [2.0]]))
+        temp.create_dataset("MappingReferenceChannel", data=np.array([[reference]]))
+        temp.create_dataset("ParticleDetectionMode", data=np.array([[2.0]]))
+
+
+@pytest.mark.parametrize(
+    ("marker_object_ids", "reference", "expected"),
+    [
+        ([1, 2], 2.0, 0.22),  # reference channel is the SECOND marker
+        ([2, 1], 1.0, 0.11),  # reversed marker order; reference is still the SECOND marker
+    ],
+)
+def test_reference_threshold_matched_by_channel_id_not_position(
+    tmp_path: Path, marker_object_ids: list[int], reference: float, expected: float
+) -> None:
+    # The reference channel's threshold is selected by matching ChannelID to
+    # MappingReferenceChannel, NOT by Channel-cell order: in both cases the
+    # reference channel is the SECOND marker, so a "take the first channel" bug fails.
+    path = tmp_path / "twoch.tdat"
+    _write_two_channel_mcos_tdat(path, marker_object_ids, reference)
+    assert read_detection_settings(path).threshold == pytest.approx(expected)
+    assert read_tdat(path).detection.threshold == pytest.approx(expected)
 
 
 # --- data-present-only: MCOS decode faithfulness vs the real 37 MB .tdat ------

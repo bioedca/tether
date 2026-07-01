@@ -67,19 +67,27 @@ def object_reference_id(marker: object) -> int:
     """Return the MCOS object id from an object-reference marker vector.
 
     ``marker`` is the ``[0xDD000000, ndims, dim1…, obj_id…, class_id]`` ``uint32``
-    vector stored where a MATLAB v7.3 file references an MCOS object. Only scalar
-    (1×1) object references are read here, so the first object id is returned.
-    Raises :class:`ValueError` if ``marker`` is not a well-formed reference.
+    vector stored where a MATLAB v7.3 file references an MCOS object. Only **scalar**
+    (1×1) object references are read here; a non-integer, non-scalar, or otherwise
+    malformed marker raises :class:`ValueError` so callers degrade to a default
+    rather than decode the wrong object.
     """
-    m = np.asarray(marker).reshape(-1).astype(np.int64)
+    raw = np.asarray(marker).reshape(-1)
+    if not np.issubdtype(raw.dtype, np.integer):
+        raise ValueError(f"MCOS object reference must be integer-typed; got {raw.dtype}")
+    m = raw.astype(np.int64, copy=False)
     if m.size < 1 or int(m[0]) != _OBJECT_REF_MARKER:
         first = int(m[0]) if m.size else None
         raise ValueError(f"not an MCOS object reference (first word {first!r})")
     ndims = int(m[1]) if m.size > 1 else 0
-    # header word + ndims + dims + at least one object id + class id
-    if ndims < 2 or m.size < 2 + ndims + 2:
+    # a MATLAB object reference is always 2-D (header word + ndims + dims + object
+    # id(s) + class id); reject anything else before indexing.
+    if ndims != 2 or m.size < 2 + ndims + 2:
         raise ValueError(f"malformed MCOS object reference (ndims={ndims}, len={m.size})")
-    return int(m[2 + ndims])  # first object id, immediately after the dims
+    dims = m[2 : 2 + ndims]
+    if not np.all(dims == 1):  # a non-scalar reference would hide extra object ids
+        raise ValueError(f"MCOS object reference must be scalar; dims={dims.tolist()}")
+    return int(m[2 + ndims])  # the single object id, immediately after the dims
 
 
 class McosDecoder:
