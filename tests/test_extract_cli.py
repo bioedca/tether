@@ -17,6 +17,7 @@ structure/round-trip, not scientific accuracy.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -611,21 +612,26 @@ def test_cli_detection_mode_threshold_flags_flow(tmp_path) -> None:
     assert profile["detection_threshold"] == pytest.approx(0.55)
 
 
-# --- imported .tdat detection-mode auto-apply (S9 PR-C3c-decode-A; ADR-0021) --
+# --- imported .tdat detection-mode/threshold auto-apply (S9 PR-C3c-decode-A/B) --
 #
-# A movie carries no record of which findPart method detected it; a sibling
-# Deep-LASI .tdat does (temp/ParticleDetectionMode). --tdat reads that mode and
-# applies it, so a native re-extraction matches the method the data was actually
-# detected with (NFR-REPRO). The .tdat-decode itself is unit-tested in
-# test_tdat.py; here we lock the extract wiring + provenance. The per-channel
-# DetectionThreshold MCOS decode is a follow-up (PR-C3c-decode-B).
+# A movie carries no record of which findPart method/threshold detected it; a
+# sibling Deep-LASI .tdat does (temp/ParticleDetectionMode + the per-channel MCOS
+# DetectionThreshold). --tdat reads both and applies them, so a native
+# re-extraction matches how the data was actually detected (NFR-REPRO). The
+# .tdat-decode itself is unit-tested in test_tdat.py; here we lock the extract
+# wiring + provenance for both a plain-leaf .tdat (mode only, no MCOS blob) and the
+# committed MCOS-carrying fixture (mode + decoded threshold).
+
+_TDAT_FIXTURE = Path(__file__).parent / "fixtures" / "tdat_coloc_slice.tdat"
+_TDAT_FIXTURE_THRESHOLD = 0.330097  # reference (donor) channel DetectionThreshold
 
 
 def _write_tdat(path, *, mode_code: float = 2.0) -> object:
-    """Write a minimal .tdat carrying only ``temp/ParticleDetectionMode``.
+    """Write a minimal .tdat carrying only ``temp/ParticleDetectionMode`` (no MCOS).
 
-    Enough for the detection-settings reader (mode 2 == intensity); the heavier
-    coordinate/correction decode is covered in test_tdat.py against the real fixture.
+    Enough for the detection-settings reader (mode 2 == intensity); with no MCOS
+    ``Channel`` blob the decoded threshold is ``None``. The heavier
+    coordinate/correction/threshold decode is covered in test_tdat.py.
     """
     with h5py.File(path, "w") as f:
         temp = f.create_group("temp")
@@ -647,17 +653,17 @@ def test_extract_tdat_applies_decoded_mode(tmp_path) -> None:
     profile = _extraction_profile(out)
     assert profile["detection_mode"] == "intensity"
     assert profile["tdat_source"] == "data.tdat"
-    # The detection threshold stays at the mode's faithful default until the MCOS
-    # decoder lands (PR-C3c-decode-B): None is recorded, not a fabricated value.
+    # This .tdat carries no MCOS ``Channel`` blob, so no threshold is decoded: the
+    # detector keeps its faithful default and None is recorded, not a fabricated
+    # value. (The MCOS-carrying case is test_extract_tdat_applies_decoded_threshold.)
     assert profile["detection_threshold"] is None
 
 
 def test_extract_tdat_preserves_caller_threshold(tmp_path) -> None:
-    # In decode-A the .tdat supplies only the mode (the per-channel DetectionThreshold
-    # MCOS decode is deferred), so a caller-supplied threshold must SURVIVE the apply,
-    # not be wiped to None. This is the only reachable branch of the
-    # _apply_tdat_detection threshold conditional until decode-B fills in a value, so
-    # a regression that nulled the threshold on the .tdat path would otherwise pass.
+    # A plain-leaf .tdat (no MCOS blob) supplies only the mode, decoding
+    # threshold=None, so a caller-supplied threshold must SURVIVE the apply, not be
+    # wiped to None -- guarding the ``else`` branch of the _apply_tdat_detection
+    # threshold conditional against a regression that nulled it on the .tdat path.
     movie = _make_movie(tmp_path)
     tdat = _write_tdat(tmp_path / "data.tdat", mode_code=2.0)  # intensity
     out = tmp_path / "keep.tether"
@@ -669,6 +675,25 @@ def test_extract_tdat_preserves_caller_threshold(tmp_path) -> None:
     assert profile["detection_mode"] == "intensity"
     assert profile["detection_threshold"] == pytest.approx(0.3)  # caller's threshold kept
     assert profile["tdat_source"] == "data.tdat"
+
+
+def test_extract_tdat_applies_decoded_threshold(tmp_path) -> None:
+    # An MCOS-carrying .tdat (the committed UCKOPSB fixture) supplies BOTH the mode
+    # and the mapping-reference channel's decoded DetectionThreshold; the threshold
+    # overrides the caller's and is recorded with its provenance (NFR-REPRO).
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "tdat_threshold.tether"
+    summary = extract_movie(
+        movie,
+        out,
+        tdat=_TDAT_FIXTURE,
+        options=ExtractOptions(window=_WINDOW, detection_threshold=0.3),  # overridden by the .tdat
+    )
+    assert summary.detection_mode == "intensity"
+    profile = _extraction_profile(out)
+    assert profile["detection_mode"] == "intensity"
+    assert profile["detection_threshold"] == pytest.approx(_TDAT_FIXTURE_THRESHOLD)
+    assert profile["tdat_source"] == "tdat_coloc_slice.tdat"
 
 
 def test_extract_accepts_zero_detection_threshold(tmp_path) -> None:

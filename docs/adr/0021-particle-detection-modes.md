@@ -1,6 +1,6 @@
 # 0021 — Selectable particle-detection methods (match Deep-LASI's `findPart` modes)
 
-- **Status:** accepted (partial: modes 2 & 3 + the CLI/pipeline selector + the `.tdat` detection-*mode* auto-apply landed; the per-channel `DetectionThreshold` MCOS decode and re-measurement are still to come)
+- **Status:** accepted (partial: modes 2 & 3 + the CLI/pipeline selector + the `.tdat` detection-*mode* and per-channel `DetectionThreshold` MCOS decode auto-apply landed; the per-channel colocalized detect + @1px re-measurement (PR-C3d) is still to come)
 - **Date:** 2026-06-30
 - **Deciders:** bioedca
 - **PRD anchor:** §7.1, §9 M1, §11.2, Appendix E Stage 3 (FR-EXTRACT)
@@ -103,17 +103,29 @@ unported modes (4 local-variance / 5 ZMW) are refused. Still additive at
 `/settings` (`schema-guard` green, no version/lock change). The committed
 `tdat_coloc_slice.tdat` fixture now carries the `ParticleDetectionMode` leaf.
 
-**Deferred to follow-up PRs (the further split):**
-- **PR-C3c-decode-B** — decode the **per-channel `DetectionThreshold`**, a
-  `TIRFdata` MCOS property reached only through the `#subsystem#/MCOS
-  FileWrapper__` blob (`temp/Channel[i]` → `0xDD000000` object-reference markers,
-  class_id 4), so it requires a genuine MCOS decoder. The committed
-  `tdat_coloc_slice.tdat` fixture **dropped the MCOS blob** (it keeps only the
-  plain leaves), so this PR must regenerate a fixture that retains the MCOS bytes +
-  the relevant `#refs#` property datasets — the fixture work belongs with the
-  decoder that consumes it. `TdatDetectionSettings.threshold` (today always `None`,
-  so each detector uses its own faithful default) is populated then. Kept separate
-  per the atomic-PR rule (PLAN §0.2).
+**PR-C3c-decode-B (landed, this PR) — the per-channel `DetectionThreshold` MCOS
+decode.** New `tether.io.mcos` (`McosDecoder` + `object_reference_id`) decodes the
+MATLAB v7.3 `#subsystem#/MCOS FileWrapper__` blob — its metadata header, name
+table, class/object tables, and type-2 property segments — enough to resolve a
+named property of a given object to its heap value cell (`value + 2`). This is the
+genuine MCOS decoder the `TIRFdata.DetectionThreshold` property (`temp/Channel[i]`
+→ `0xDD000000` object-reference markers, class_id 4) requires. `read_tdat` /
+`read_detection_settings` now populate `TdatDetectionSettings.threshold` with the
+**mapping-reference** channel's `DetectionThreshold` (the channel spots are
+detected on; matched by its own `ChannelID` == `temp/MappingReferenceChannel`),
+validated into the detector `[0, 1)` contract. On the UCKOPSB slice that is the
+donor's `0.330097` (mode 2 intensity); the acceptor's is `0.0`. The threshold
+flows through the existing `--tdat` auto-apply (`_apply_tdat_detection`) untouched.
+`make_tdat_fixture.py` regenerates `tdat_coloc_slice.tdat` retaining the real MCOS
+`FileWrapper__` metadata + `Channel` markers + small heap cells verbatim (dropping
+bulk images/traces as null cells, preserving indices), so the committed test
+decodes through the identical path; a data-present test additionally locks the
+decode against the unmodified 37 MB source. A plain-leaf `.tdat` (no MCOS blob)
+decodes `threshold=None`, so each detector keeps its faithful default
+(backward-compatible). Still additive at `/settings` (`schema-guard` green, no
+version/lock change).
+
+**Deferred to a follow-up PR:**
 - **PR-C3d** — per-channel detect + bidirectional colocalization, oracle
   re-framed to evaluate the **colocalized** set apples-to-apples (USER
   CORRECTION #1), re-measure @1px; **only then** invoke the maintainer-approved
