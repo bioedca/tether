@@ -96,17 +96,19 @@ def _build_store(
     *,
     movie_id: str = "mov-1",
     sha: str = "a" * 64,
+    coords: np.ndarray | None = None,
 ) -> tuple[Project, list[str]]:
     """Write a ``.tether`` with controlled donor/acceptor *corrected* traces.
 
     Bypasses the movie-integration pipeline: builds :class:`MoleculeTraces`
     directly so the ``/traces/{donor,acceptor}_corrected`` values (the fit input)
-    are exactly ``donor_intensity`` / ``acceptor_intensity``.
+    are exactly ``donor_intensity`` / ``acceptor_intensity``. Pass ``coords`` to
+    control donor positions (e.g. two in one quantum bin → a shared molecule_key).
     """
     donor_intensity = np.asarray(donor_intensity, dtype="float64")
     acceptor_intensity = np.asarray(acceptor_intensity, dtype="float64")
     n, t = donor_intensity.shape
-    coords = _distinct_coords(n)
+    coords = _distinct_coords(n) if coords is None else np.asarray(coords, dtype="float64")
     mols = ColocalizedMolecules(
         donor_xy=coords,
         acceptor_xy=coords,
@@ -161,16 +163,38 @@ def _step_trace(n: int, t: int, *, low: float = 200.0, high: float = 800.0) -> n
 # --- the fake sidecar --------------------------------------------------------
 
 
-def _fake_result(smd_path, *, nstates: int, elbo: float, model_type: str) -> IdealizationResult:
-    """A canned model whose ``idealized`` aligns to the SMD (NaN outside window)."""
+def _fake_result(
+    smd_path,
+    *,
+    nstates: int,
+    elbo,
+    model_type: str,
+    multistate: bool = False,
+    degenerate: bool = False,
+) -> IdealizationResult:
+    """A canned model whose ``idealized`` aligns to the SMD (NaN outside window).
+
+    ``multistate`` fills the window with a mid-trace switch between two distinct
+    means (so the state path has >1 level); ``degenerate`` returns a model with no
+    ``idealized`` array (the failed-fit path).
+    """
     smd = read_smd(smd_path)
     n, t = smd.n_molecules, smd.n_frames
     means = np.linspace(0.2, 0.8, nstates) if nstates > 1 else np.array([0.5])
-    idealized = np.full((n, t), np.nan)
     pre = smd.pre_list if smd.pre_list is not None else np.zeros(n, dtype=int)
     post = smd.post_list if smd.post_list is not None else np.full(n, t, dtype=int)
-    for i in range(n):
-        idealized[i, int(pre[i]) : int(post[i])] = means[0]
+    if degenerate:
+        idealized = None
+    else:
+        idealized = np.full((n, t), np.nan)
+        for i in range(n):
+            lo, hi = int(pre[i]), int(post[i])
+            if multistate and means.size > 1 and hi - lo >= 2:
+                mid = (lo + hi) // 2
+                idealized[i, lo:mid] = means[0]
+                idealized[i, mid:hi] = means[-1]
+            else:
+                idealized[i, lo:hi] = means[0]
     model = StateModel(
         model_type=model_type,
         nstates=nstates,
@@ -192,7 +216,7 @@ def _fake_result(smd_path, *, nstates: int, elbo: float, model_type: str) -> Ide
     )
 
 
-def _make_runner(elbo_by_nstates: dict[int, float], calls: list):
+def _make_runner(elbo_by_nstates: dict, calls: list, **fake_kwargs):
     def runner(smd_path, *, nstates, model_type="vbconhmm", **_kw):
         # Capture the SMD *now* (the caller cleans up its temp scratch dir on return,
         # so a post-hoc read of the path would find nothing).
@@ -209,6 +233,7 @@ def _make_runner(elbo_by_nstates: dict[int, float], calls: list):
             nstates=int(nstates),
             elbo=elbo_by_nstates[int(nstates)],
             model_type=model_type,
+            **fake_kwargs,
         )
 
     return runner
@@ -446,6 +471,136 @@ def test_project_delegators(tmp_path) -> None:
     assert proj.list_idealizations() == ["vbconhmm"]
     assert proj.read_idealization("vbconhmm").molecule_keys == keys
     assert proj.stale_idealization_keys("vbconhmm") == []
+
+
+# --- unique molecule_id join + multistate round-trip -------------------------
+
+
+def test_molecule_ids_are_unique_and_round_trip(tmp_path) -> None:
+    path = tmp_path / "e.tether"
+    proj, keys = _build_store(path, _step_trace(3, 20), _step_trace(3, 20))
+    stored = idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    store_ids = [_to_str(x) for x in read_molecules(path)["molecule_id"]]
+    assert stored.molecule_ids == store_ids
+    assert len(set(stored.molecule_ids)) == len(stored.molecule_ids)  # unique
+    assert read_idealization(proj, "vbconhmm").molecule_ids == store_ids
+
+
+def _to_str(v) -> str:
+    return v.decode() if isinstance(v, bytes) else str(v)
+
+
+def test_multistate_state_path_round_trips(tmp_path) -> None:
+    proj, _ = _build_store(tmp_path / "e.tether", _step_trace(2, 30), _step_trace(2, 30))
+    stored = idealize_molecules(
+        proj, nstates=2, _runner=_make_runner({2: -1.0}, [], multistate=True)
+    )
+    in_window = stored.state_paths[stored.state_paths != NO_STATE]
+    assert len(np.unique(in_window)) >= 2  # a genuine 2-state path, not a flat line
+    np.testing.assert_array_equal(
+        read_idealization(proj, "vbconhmm").state_paths, stored.state_paths
+    )
+
+
+# --- analysis-window unset fallback ------------------------------------------
+
+
+def test_windows_fallback_to_frame_range_when_unset(tmp_path) -> None:
+    n, t = 1, 24
+    donor, acceptor = _step_trace(n, t), _step_trace(n, t) * 0.6
+    path = tmp_path / "e.tether"
+    proj, _ = _build_store(path, donor, acceptor)
+    with h5py.File(path, "r+") as f:  # zero the analysis window -> "unset"
+        table = f["molecules"]["table"][:]
+        table["analysis_window"][0] = (0, 0)
+        f["molecules"]["table"][:] = table
+        frame_range = tuple(int(v) for v in table["frame_range"][0])
+    calls: list = []
+    stored = idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, calls))
+    smd = calls[-1]["smd"]
+    assert (int(smd.pre_list[0]), int(smd.post_list[0])) == frame_range
+    lo, hi = frame_range
+    assert stored.input_hashes[0] == input_trace_hash(
+        donor[0, lo:hi], acceptor[0, lo:hi], "corrected"
+    )
+
+
+# --- staleness: removed molecule + duplicate molecule_key --------------------
+
+
+def test_stale_reports_removed_molecule(tmp_path) -> None:
+    n, t = 3, 20
+    path = tmp_path / "e.tether"
+    proj, keys = _build_store(path, _step_trace(n, t), _step_trace(n, t))
+    idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    with h5py.File(path, "r+") as f:  # drop the last molecule row from /molecules
+        f["molecules"]["table"].resize((n - 1,))
+    assert stale_molecule_keys(proj, "vbconhmm") == [keys[-1]]
+
+
+def test_duplicate_molecule_key_staleness_is_per_row(tmp_path) -> None:
+    # Two donor coords in one 0.1 px quantum bin -> a SHARED molecule_key, but each
+    # row keeps a unique molecule_id. Distinct traces so the input hashes differ.
+    coords = np.array([[20.0, 20.0], [20.03, 20.0]])
+    t = 24
+    donor = np.stack([_step_trace(1, t)[0], _step_trace(1, t, low=300.0, high=900.0)[0]])
+    acceptor = donor * 0.5
+    path = tmp_path / "e.tether"
+    proj, keys = _build_store(path, donor, acceptor, coords=coords)
+    assert keys[0] == keys[1]  # the §7.10 shared-key case
+    ids = [_to_str(x) for x in read_molecules(path)["molecule_id"]]
+    assert ids[0] != ids[1]  # but unique ids
+
+    idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    # nothing changed -> no spurious stale from collapsing the shared key
+    assert stale_molecule_keys(proj, "vbconhmm") == []
+    # change only ROW 1's trace -> the shared key is reported (row-1 change caught,
+    # not masked by row 0 as a molecule_key join would)
+    with h5py.File(path, "r+") as f:
+        f["traces"]["donor_corrected"][1, :] += 500.0
+    assert stale_molecule_keys(proj, "vbconhmm") == [keys[0]]
+
+
+# --- ELBO edge cases: NaN, all-infinite, ties, empty grid --------------------
+
+
+def test_auto_nstates_ignores_nonfinite_elbo(tmp_path) -> None:
+    proj, _ = _build_store(tmp_path / "e.tether", _step_trace(2, 20), _step_trace(2, 20))
+    # nstates=1 reports NaN (a degenerate fit); it must never win over finite fits.
+    runner = _make_runner({1: float("nan"), 2: -5.0, 3: -2.0}, [])
+    stored = idealize_molecules(proj, nstates=None, nstates_grid=(1, 2, 3), _runner=runner)
+    assert stored.nstates == 3
+    assert stored.elbo == -2.0
+    assert stored.elbo_by_nstates[1] == float("-inf")  # NaN normalized to the sentinel
+    assert read_idealization(proj, "vbconhmm").elbo_by_nstates[1] == float("-inf")
+
+
+def test_all_infinite_elbo_prefers_smallest_nstates(tmp_path) -> None:
+    proj, _ = _build_store(tmp_path / "e.tether", _step_trace(2, 20), _step_trace(2, 20))
+    runner = _make_runner({2: None, 3: None, 4: None}, [])  # every fit reports no ELBO
+    stored = idealize_molecules(proj, nstates=None, nstates_grid=(2, 3, 4), _runner=runner)
+    assert stored.nstates == 2  # parsimony: smallest state count when nothing is finite
+
+
+def test_tie_break_prefers_smaller_nstates(tmp_path) -> None:
+    proj, _ = _build_store(tmp_path / "e.tether", _step_trace(2, 20), _step_trace(2, 20))
+    runner = _make_runner({2: -5.0, 3: -5.0}, [])  # equal ELBO
+    stored = idealize_molecules(proj, nstates=None, nstates_grid=(2, 3), _runner=runner)
+    assert stored.nstates == 2
+
+
+def test_empty_nstates_grid_raises(tmp_path) -> None:
+    proj, _ = _build_store(tmp_path / "e.tether", _step_trace(1, 12), _step_trace(1, 12))
+    with pytest.raises(ValueError, match="nstates_grid must be non-empty"):
+        idealize_molecules(proj, nstates=None, nstates_grid=(), _runner=_make_runner({}, []))
+
+
+def test_degenerate_fit_raises(tmp_path) -> None:
+    proj, _ = _build_store(tmp_path / "e.tether", _step_trace(1, 12), _step_trace(1, 12))
+    runner = _make_runner({2: -1.0}, [], degenerate=True)
+    with pytest.raises(ValueError, match="no state path"):
+        idealize_molecules(proj, nstates=2, _runner=runner)
+    assert list_idealizations(proj) == []  # nothing persisted
 
 
 # NOTE: a *live* store-integrated sidecar test is intentionally not added here.

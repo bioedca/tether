@@ -72,7 +72,11 @@ writes one additive **`/idealization/{model_name}`** subgroup. Each molecule's
 `input_hash` (`input_trace_hash`) is the SHA-256 of its exact windowed donor+acceptor
 input; `stale_molecule_keys` recomputes it from the *current* store and reports the
 molecules whose inputs diverged — the §5 staleness signal the M3 re-idealize flow and
-the dock consume. When `nstates` is `None` the fit is repeated over `nstates_grid` and
+the dock consume. The staleness join is on the **unique `molecule_id`** (a per-row
+UUID), *not* the `molecule_key`: a `molecule_key` can name several rows (§7.10
+quantized-coordinate collisions), so a key-join would recompute one row's hash for all
+its namesakes (a spurious stale on one row, a missed real change on another). The model
+therefore persists `molecule_id` alongside `molecule_key` and `input_hash`. When `nstates` is `None` the fit is repeated over `nstates_grid` and
 the **maximum-ELBO** model is kept — the standard, statistically-consistent VB-HMM
 state-count selection for smFRET (max evidence beats max likelihood [Bronson2009];
 ELBO-maximization carries theoretical guarantees [CheriefAbdellatif2018]); the per-`k`

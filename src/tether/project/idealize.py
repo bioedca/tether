@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -113,7 +114,10 @@ class StoredIdealization:
     ``idealized`` is ``(n_molecules, n_frames)`` float FRET level (NaN outside each
     molecule's analysis window); ``state_paths`` is the matching int64 state index
     (:data:`tether.idealize.NO_STATE` outside the window). Row ``i`` of every
-    per-molecule array corresponds to ``molecule_keys[i]`` and ``input_hashes[i]``.
+    per-molecule array corresponds to ``molecule_keys[i]`` / ``molecule_ids[i]`` /
+    ``input_hashes[i]``. ``molecule_ids`` is the **unique** per-row identity (the
+    ``molecule_key`` is *not* unique — §7.10 quantized-coordinate collisions), so it
+    is the correct staleness join key.
     """
 
     model_name: str
@@ -126,6 +130,7 @@ class StoredIdealization:
     idealized: np.ndarray
     state_paths: np.ndarray
     molecule_keys: list[str]
+    molecule_ids: list[str]
     input_hashes: list[str]
     intensity_quantity: str
     nstates_selected_by: str  # "max-elbo" | "fixed"
@@ -223,8 +228,12 @@ def _select_by_elbo(
     """Fit at each ``nstates`` in the grid and keep the max-ELBO model [Bronson2009].
 
     Returns ``(winning_result, chosen_nstates, elbo_by_nstates)``. A fit whose model
-    reports no ELBO is scored ``-inf`` so it never wins over a comparable fit; if no
-    fit reports a finite ELBO the largest state count is kept (deterministic).
+    reports a **non-finite** ELBO (``None``, ``NaN`` or ``inf`` — a degenerate/failed
+    fit) is scored ``-inf`` so it never wins over a comparable finite fit; a raw NaN
+    must never reach :func:`max` (NaN comparisons are always ``False``, which would
+    make the winner order-dependent and could select the degenerate model). Ties in
+    ELBO break toward the **smallest** state count (parsimony), so an all-``-inf``
+    grid deterministically keeps the simplest model.
     """
     if not nstates_grid:
         raise ValueError("nstates_grid must be non-empty for auto state-count selection")
@@ -233,10 +242,12 @@ def _select_by_elbo(
     for k in nstates_grid:
         res = runner(smd_path, nstates=int(k), **run_kwargs)
         results[int(k)] = res
+        elbo = res.model.elbo
         elbo_by_nstates[int(k)] = (
-            float(res.model.elbo) if res.model.elbo is not None else float("-inf")
+            float(elbo) if elbo is not None and np.isfinite(elbo) else float("-inf")
         )
-    chosen = max(elbo_by_nstates, key=lambda k: (elbo_by_nstates[k], k))
+    # Highest ELBO wins; ties (incl. an all--inf grid) break toward the smallest k.
+    chosen = max(elbo_by_nstates, key=lambda k: (elbo_by_nstates[k], -k))
     return results[chosen], chosen, elbo_by_nstates
 
 
@@ -414,13 +425,18 @@ def _idealized_and_paths(result: IdealizationResult) -> tuple[np.ndarray, np.nda
     """The ``(n_sel, n_frames)`` float idealized levels + int64 state paths.
 
     The SMD was built from exactly the selected molecules in order, so the model's
-    ``idealized`` rows already align with the selection. A model without an
-    ``idealized`` array (a degenerate fit) yields empty arrays rather than raising.
+    ``idealized`` rows already align with the selection. A model **without** an
+    ``idealized`` array (a degenerate/failed fit) is refused rather than persisted:
+    writing it would leave a ``(0, 0)`` idealized/state_path beside length-``n_sel``
+    key/id/hash datasets — a misaligned, useless model. Failing loud is safer.
     """
     idealized = result.model.idealized
     means = result.model.means
     if idealized is None or means.size == 0:
-        return (np.empty((0, 0), dtype="float64"), np.empty((0, 0), dtype="int64"))
+        raise ValueError(
+            "idealization produced no state path (degenerate/failed fit): the model "
+            "has no 'idealized' array; refusing to persist an empty model"
+        )
     idealized = np.asarray(idealized, dtype="float64")
     paths = states_from_idealized(idealized, means)
     return idealized, paths
@@ -447,6 +463,9 @@ def _write_model(
     model = result.model
     idealized, state_paths = _idealized_and_paths(result)
     created = datetime.now(UTC).isoformat()
+    # A non-finite ELBO (NaN/inf from a degenerate fit) is recorded as absent rather
+    # than written as an out-of-range float attr / non-standard JSON (Infinity/NaN).
+    elbo_val = float(model.elbo) if model.elbo is not None and math.isfinite(model.elbo) else None
     str_dt = h5py.string_dtype(encoding="utf-8")
 
     with h5py.File(path, "r+") as f:
@@ -464,10 +483,14 @@ def _write_model(
         g.attrs["n_molecules"] = len(molecule_keys)
         g.attrs["app_version"] = _app_version()
         g.attrs["created_utc"] = created
-        if model.elbo is not None:
-            g.attrs["elbo"] = float(model.elbo)
+        if elbo_val is not None:
+            g.attrs["elbo"] = elbo_val
         if elbo_by_nstates is not None:
-            g.attrs["elbo_by_nstates"] = json.dumps({str(k): v for k, v in elbo_by_nstates.items()})
+            # Serialize a non-finite score (the -inf sentinel) as JSON null, so the
+            # attr is always valid JSON; read_idealization maps null back to -inf.
+            g.attrs["elbo_by_nstates"] = json.dumps(
+                {str(k): (v if math.isfinite(v) else None) for k, v in elbo_by_nstates.items()}
+            )
 
         g.create_dataset("mean", data=np.asarray(model.means, dtype="float64"))
         if model.variances is not None:
@@ -489,10 +512,11 @@ def _write_model(
         means=np.asarray(model.means, dtype="float64"),
         variances=None if model.variances is None else np.asarray(model.variances, dtype="float64"),
         tmatrix=None if model.tmatrix is None else np.asarray(model.tmatrix, dtype="float64"),
-        elbo=None if model.elbo is None else float(model.elbo),
+        elbo=elbo_val,
         idealized=idealized,
         state_paths=state_paths,
         molecule_keys=list(molecule_keys),
+        molecule_ids=list(molecule_ids),
         input_hashes=list(input_hashes),
         intensity_quantity=intensity_quantity,
         nstates_selected_by=selected_by,
@@ -540,7 +564,11 @@ def read_idealization(
 
         elbo_json = g.attrs.get("elbo_by_nstates")
         elbo_by_nstates = (
-            {int(k): float(v) for k, v in json.loads(elbo_json).items()}
+            # A JSON null is the -inf sentinel a non-finite score was serialized as.
+            {
+                int(k): (float(v) if v is not None else float("-inf"))
+                for k, v in json.loads(elbo_json).items()
+            }
             if elbo_json is not None
             else None
         )
@@ -555,6 +583,7 @@ def read_idealization(
             idealized=_opt("idealized"),
             state_paths=np.asarray(g["state_path"][()], dtype="int64"),
             molecule_keys=[_to_str(k) for k in g["molecule_key"][()]],
+            molecule_ids=[_to_str(x) for x in g["molecule_id"][()]],
             input_hashes=[_to_str(h) for h in g["input_hash"][()]],
             intensity_quantity=_to_str(g.attrs.get("intensity_quantity", "corrected")),
             nstates_selected_by=_to_str(g.attrs.get("nstates_selected_by", "fixed")),
@@ -568,11 +597,18 @@ def stale_molecule_keys(project: Project | str | PathLike[str], model_name: str)
     """Molecules whose current trace no longer matches the model's input hash.
 
     Recomputes each stored molecule's :func:`input_trace_hash` from the *current*
-    ``/traces`` + ``/molecules`` window and returns the keys whose recomputed hash
-    diverges from the one recorded in ``/idealization/{model_name}`` — i.e. the
-    molecules whose inputs changed since the fit (a re-extraction or a correction),
-    so the idealization is stale for them (PRD §5 staleness tracking). A molecule
-    in the model but no longer in the store is reported as stale.
+    ``/traces`` + ``/molecules`` window and returns the ``molecule_key`` of every
+    molecule whose recomputed hash diverges from the one recorded in
+    ``/idealization/{model_name}`` — i.e. whose inputs changed since the fit (a
+    re-extraction or a correction), so the idealization is stale for it (PRD §5
+    staleness tracking). A molecule in the model but no longer in the store is
+    reported as stale.
+
+    The join is on the **unique** ``molecule_id`` (a per-row UUID), *not* the
+    ``molecule_key`` — a ``molecule_key`` can name several rows (§7.10 quantized
+    coordinate collisions), so joining on the key would recompute one row's hash for
+    all its namesakes (spurious stale on one, a missed real change on another). Keys
+    are returned de-duplicated in first-seen order.
     """
     from tether.project.core import Project as _Project
 
@@ -582,8 +618,7 @@ def stale_molecule_keys(project: Project | str | PathLike[str], model_name: str)
 
     molecules = read_molecules(path)
     traces = read_traces(path)
-    keys = [_to_str(k) for k in molecules["molecule_key"]]
-    first_row = {k: i for i, k in reversed(list(enumerate(keys)))}
+    row_by_id = {_to_str(mid): i for i, mid in enumerate(molecules["molecule_id"])}
     donor_all = np.asarray(traces.get(donor_key), dtype="float64") if donor_key in traces else None
     acceptor_all = (
         np.asarray(traces.get(acceptor_key), dtype="float64") if acceptor_key in traces else None
@@ -592,10 +627,14 @@ def stale_molecule_keys(project: Project | str | PathLike[str], model_name: str)
     fr_all = molecules["frame_range"]
 
     stale: list[str] = []
-    for key, recorded in zip(stored.molecule_keys, stored.input_hashes, strict=True):
-        row = first_row.get(key)
+    for key, mid, recorded in zip(
+        stored.molecule_keys, stored.molecule_ids, stored.input_hashes, strict=True
+    ):
+        row = row_by_id.get(mid)
         if row is None or donor_all is None or acceptor_all is None:
-            stale.append(key)
+            # the fitted row is gone from the store (or the trace layer vanished)
+            if key not in stale:
+                stale.append(key)
             continue
         lo, hi = int(pre_all[row][0]), int(pre_all[row][1])
         if hi <= lo:
@@ -603,6 +642,6 @@ def stale_molecule_keys(project: Project | str | PathLike[str], model_name: str)
         current = input_trace_hash(
             donor_all[row, lo:hi], acceptor_all[row, lo:hi], stored.intensity_quantity
         )
-        if current != recorded:
+        if current != recorded and key not in stale:
             stale.append(key)
     return stale
