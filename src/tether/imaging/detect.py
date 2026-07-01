@@ -426,7 +426,7 @@ def detect_spots_intensity(
     lnoise: float = 1.0,
     lobject: int = 7,
     fine_threshold: float = 0.03,
-    min_separation: float = 8.0,
+    min_separation: float = 3.0,
     border_margin: int = 1,
     refine: bool = True,
 ) -> np.ndarray:
@@ -456,7 +456,16 @@ def detect_spots_intensity(
         Band-pass binarization level, as a fraction of the band-pass max
         (``findPart.m:24`` uses 3 %).
     min_separation, border_margin, refine:
-        Shared Stage-4 guardrails (see :func:`detect_spots`).
+        Shared Stage-4 guardrails (see :func:`detect_spots`). The default here is
+        **3 px, not the wavelet mode's 8** (ADR-0022): Deep-LASI's ``findPart``
+        shared tail applies *no* effective minimum-separation NMS — its
+        ``XY = XY(max(D>z),:)`` filter (``findPart.m:66-69``) is a no-op in a
+        populated field (its intended ``D<5`` line is commented out) — so an 8 px
+        keep-brightest imported from ``Wave_Partfind`` is unfaithful and merges real
+        molecules sitting < 8 px apart. 3 px (the PSF disk radius, the finest scale
+        at which two spots are separable) reproduces the intended behaviour while
+        deduplicating coincident centroids; on the UCKOPSB pair it lifts donor recall
+        from 0.87 (8 px) to 0.98 (2 px tolerance).
 
     Returns
     -------
@@ -507,7 +516,7 @@ def detect_spots_bandpass(
     threshold: float = 0.98,
     lnoise: float = 1.0,
     lobject: int = 9,
-    min_separation: float = 8.0,
+    min_separation: float = 3.0,
     border_margin: int = 1,
     refine: bool = True,
 ) -> np.ndarray:
@@ -551,7 +560,9 @@ def detect_spots_bandpass(
         Crocker-Grier band-pass noise / object length scales (`bpass.m`; mode-3
         defaults ``1`` / ``9``).
     min_separation, border_margin, refine:
-        Shared Stage-4 guardrails (see :func:`detect_spots`).
+        Shared Stage-4 guardrails (see :func:`detect_spots`). Default 3 px, not the
+        wavelet mode's 8 (ADR-0022; see :func:`detect_spots_intensity` — ``findPart``
+        applies no effective separation NMS).
 
     Returns
     -------
@@ -617,7 +628,7 @@ def detect_spots_by_mode(
     *,
     mode: ParticleDetectionMode | str = ParticleDetectionMode.WAVELET,
     threshold: float | None = None,
-    min_separation: float = 8.0,
+    min_separation: float | None = None,
     border_margin: int = 1,
     refine: bool = True,
 ) -> np.ndarray:
@@ -629,17 +640,21 @@ def detect_spots_by_mode(
     GUI ``DetectionThreshold`` knob — consumed by the intensity and band-pass
     modes (ignored by wavelet); ``None`` (the default) lets each mode use its own
     faithful default (intensity 0.5, band-pass 0.98), matching the differing
-    standalone defaults of the ported ``.m`` functions. The returned contract is
-    identical across modes — ``(N, 2)`` ``[x, y]`` sorted by descending
-    brightness.
+    standalone defaults of the ported ``.m`` functions. ``min_separation`` likewise
+    defaults to ``None`` → each mode's own faithful minimum-separation NMS (wavelet 8,
+    intensity/band-pass 3 px; ADR-0022 — ``findPart`` applies no effective separation,
+    so the intensity/band-pass modes must not inherit the wavelet's 8 px). The
+    returned contract is identical across modes — ``(N, 2)`` ``[x, y]`` sorted by
+    descending brightness.
     """
     mode = ParticleDetectionMode(mode)
     threshold_kw = {} if threshold is None else {"threshold": threshold}
+    sep_kw = {} if min_separation is None else {"min_separation": min_separation}
     if mode is ParticleDetectionMode.INTENSITY:
         return detect_spots_intensity(
             detection_img,
             **threshold_kw,
-            min_separation=min_separation,
+            **sep_kw,
             border_margin=border_margin,
             refine=refine,
         )
@@ -647,14 +662,14 @@ def detect_spots_by_mode(
         return detect_spots_bandpass(
             detection_img,
             **threshold_kw,
-            min_separation=min_separation,
+            **sep_kw,
             border_margin=border_margin,
             refine=refine,
         )
     # ParticleDetectionMode.WAVELET — the Deep-LASI class default.
     return detect_spots(
         detection_img,
-        min_separation=min_separation,
+        **sep_kw,
         border_margin=border_margin,
         refine=refine,
     )

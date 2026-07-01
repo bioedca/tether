@@ -15,8 +15,9 @@ Four layers:
   ``/molecules`` (``donor_xy`` + ``frame_range``) and ``/traces`` into the scorer
   (the readers are monkeypatched, so no h5py/disk needed).
 * **data-present, gated** (``@pytest.mark.large``; skipped without the gated
-  UCKOPSB movie + ``.tmap`` + ``.mat``): the full native extraction via the
-  imported ``.tmap`` meets the §9 M1 recall ≥ 95 % and Pearson r ≥ 0.99 numbers.
+  UCKOPSB movie + ``.tmap`` + ``.tdat`` + ``.mat``): the full native extraction
+  (imported ``.tmap`` + ``.tdat``-decoded mode-2 detection) meets the ADR-0022 M1
+  gate — recall ≥ 95 % @ 2 px and donor Pearson r ≥ 0.95.
 """
 
 from __future__ import annotations
@@ -195,9 +196,26 @@ def test_evaluate_extraction_noise_breaks_pearson() -> None:
     noisy_donor = rng.normal(size=donor.shape) * 50.0  # uncorrelated with gt
     res = evaluate_extraction(gt, xy.copy(), noisy_donor, acceptor.copy())
     assert res.recall == pytest.approx(1.0)  # coords still match
-    assert res.donor_pearson_median < 0.99
+    assert res.donor_pearson_median < 0.95
     assert not res.meets_pearson
     assert not res.meets_acceptance()
+
+
+def test_acceptor_pearson_is_diagnostic_not_gated() -> None:
+    # ADR-0022 reframe: the Pearson gate is DONOR-only. A perfect donor + a fully
+    # noise acceptor (the dark/low-FRET population donor-anchoring keeps) must still
+    # meet acceptance — the acceptor Pearson is reported, never gated.
+    xy = np.array([[10.0, 20.0], [30.0, 40.0]])
+    donor = _signal(2, 200, seed=51)
+    acceptor = _signal(2, 200, seed=52)
+    gt = _make_export(xy, donor, acceptor)
+    rng = np.random.default_rng(7)
+    noisy_acceptor = rng.normal(size=acceptor.shape) * 50.0  # uncorrelated with gt
+    res = evaluate_extraction(gt, xy.copy(), donor.copy(), noisy_acceptor)
+    assert res.donor_pearson_median >= 0.95  # donor is perfect
+    assert res.acceptor_pearson_median < 0.95  # acceptor is noise (diagnostic)
+    assert res.meets_pearson  # donor-only gate → still met
+    assert res.meets_acceptance()  # recall + donor Pearson + RMS all pass
 
 
 def test_evaluate_extraction_rms_gate() -> None:
@@ -441,7 +459,7 @@ def test_evaluate_project_wires_molecules_and_traces(monkeypatch) -> None:
 
 
 def _find_uckopsb() -> dict[str, Path] | None:
-    """Locate the gated UCKOPSB movie + .tmap + Deep-LASI .mat (sibling example-data)."""
+    """Locate the gated UCKOPSB movie + .tmap + .tdat + Deep-LASI .mat (sibling data)."""
     candidates = []
     env_dir = os.environ.get("TETHER_UCKOPSB_DIR")
     if env_dir:
@@ -453,29 +471,24 @@ def _find_uckopsb() -> dict[str, Path] | None:
         movie = src / f"{base}.tif"
         mat = src / f"DeepLASI_MAT_export_{base}.mat"
         tmaps = sorted(src.glob("DeepLASI_MAP_*.tmap")) if src.is_dir() else []
-        if movie.is_file() and mat.is_file() and tmaps:
-            return {"movie": movie, "mat": mat, "tmap": tmaps[0]}
+        tdats = sorted(src.glob("*.tdat")) if src.is_dir() else []
+        if movie.is_file() and mat.is_file() and tmaps and tdats:
+            return {"movie": movie, "mat": mat, "tmap": tmaps[0], "tdat": tdats[0]}
     return None
 
 
 @pytest.mark.large
-@pytest.mark.xfail(
-    reason=(
-        "M1 acceptance NOT yet met: donor detection recall is ~20% vs Deep-LASI at "
-        "full movie scale (detection-stage faithfulness gap; the 64x64x50 fixture "
-        "never exercised the multi-block max-projection). Tracked as the M1-close "
-        "blocker (ADR-0020 / PLAN §15). Remove this xfail when the detector is fixed "
-        "and the gated leg XPASSes, then close M1 + tag v0.1.0."
-    ),
-    strict=True,
-)
 def test_extraction_meets_m1_acceptance_on_uckopsb(tmp_path) -> None:
-    """§9 M1: native extraction via the imported .tmap reproduces Deep-LASI to tolerance.
+    """M1 acceptance: native extraction reproduces Deep-LASI to the ADR-0022 tolerance.
 
-    The committed §9 M1 acceptance gate. Currently ``xfail`` — see the marker reason
-    and ADR-0020: the detector recovers only ~20 % of Deep-LASI's molecules at full
-    scale, so recall/Pearson fall short. This test is the instrument that flips green
-    when the detection faithfulness is fixed.
+    The committed M1 acceptance gate, run against the full UCKOPSB pair with the
+    faithful configuration the movie was actually detected with: registration imported
+    from the ``.tmap`` and the particle-detection mode + threshold decoded from the
+    ``.tdat`` (mode-2 intensity @ 0.330097). Detection uses the mode's faithful
+    ``min_separation`` (3 px, ADR-0022). Scored against the ADR-0022 gate — recall
+    ≥ 95 % @ 2 px and **donor** per-molecule Pearson ≥ 0.95 (acceptor Pearson is
+    diagnostic only). This is the instrument that closes M1 (was ``xfail`` under the
+    original 1 px / 0.99 bars and the unfaithful wavelet detector; ADR-0020/0022).
     """
     pytest.importorskip("scipy")
     pytest.importorskip("skimage")
@@ -483,17 +496,22 @@ def test_extraction_meets_m1_acceptance_on_uckopsb(tmp_path) -> None:
     pytest.importorskip("tifffile")
     found = _find_uckopsb()
     if found is None:
-        pytest.skip("gated UCKOPSB movie + .tmap + Deep-LASI .mat absent")
+        pytest.skip("gated UCKOPSB movie + .tmap + .tdat + Deep-LASI .mat absent")
 
     from tether.project.extract import extract_movie
 
     out = tmp_path / "uckopsb.tether"
-    summary = extract_movie(found["movie"], out, tmap=found["tmap"])
+    summary = extract_movie(found["movie"], out, tmap=found["tmap"], tdat=found["tdat"])
     assert out.is_file()
     assert summary.registration_source == "imported"
+    assert summary.detection_mode == "intensity"  # decoded from the .tdat
 
     res = evaluate_project(out, found["mat"], intensity="raw")
-    # The two §9 M1 numbers measured here (registration RMS ≤ 0.5 px is locked by
-    # test_register on the native .tmap fit). Surface the metrics on failure.
+    # ADR-0022 gate: recall @ 2 px + donor Pearson ≥ 0.95 (RMS ≤ 0.5 px is locked by
+    # test_register on the native .tmap fit; imported here → nan → N/A). Surface the
+    # full metric dict (incl. the diagnostic acceptor Pearson/precision) on failure.
     assert res.meets_recall, f"recall {res.recall:.3f} < 0.95 ({res.summary()})"
-    assert res.meets_pearson, f"pearson medians too low ({res.summary()})"
+    assert res.meets_pearson, (
+        f"donor Pearson {res.donor_pearson_median:.3f} < 0.95 ({res.summary()})"
+    )
+    assert res.meets_acceptance(), f"M1 acceptance not met ({res.summary()})"

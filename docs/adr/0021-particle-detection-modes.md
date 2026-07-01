@@ -1,6 +1,6 @@
 # 0021 — Selectable particle-detection methods (match Deep-LASI's `findPart` modes)
 
-- **Status:** accepted (partial: modes 2 & 3 + the CLI/pipeline selector + the `.tdat` detection-*mode* and per-channel `DetectionThreshold` MCOS decode auto-apply landed; the per-channel colocalized detect + @1px re-measurement (PR-C3d) is still to come)
+- **Status:** accepted (modes 2 & 3 + the CLI/pipeline selector + the `.tdat` detection-*mode* and per-channel `DetectionThreshold` MCOS decode auto-apply landed). The deferred PR-C3d item (its "score the colocalized set" / "last-resort 2 px" framing) is **superseded by [ADR-0022](0022-m1-acceptance-reframe-and-close.md)**, which reframed the M1 gate and closed M1 with a donor-anchored pipeline.
 - **Date:** 2026-06-30
 - **Deciders:** bioedca
 - **PRD anchor:** §7.1, §9 M1, §11.2, Appendix E Stage 3 (FR-EXTRACT)
