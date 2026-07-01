@@ -185,7 +185,9 @@ def set_curation_label(
         The source experiment file the label came from; defaults to the project
         file name (the file being curated), for multi-curator merge-back (§7.10).
     timestamp:
-        ISO-8601 stamp; defaults to the current UTC time. Injectable for tests.
+        An **offset-aware** ISO-8601 stamp; defaults to the current UTC time.
+        Validated before any write (rejected if unparseable or naive). Injectable
+        for tests.
 
     Returns
     -------
@@ -198,8 +200,9 @@ def set_curation_label(
         If no ``/molecules`` row carries ``molecule_key`` (never a silent no-op).
     ValueError
         If ``label`` is not a valid :class:`CurationLabel`, ``source`` is not in
-        :data:`LABEL_SOURCES`, ``weight`` is not finite and non-negative, or the
-        matched rows disagree on ``condition_id`` (an ambiguous label scope).
+        :data:`LABEL_SOURCES`, ``weight`` is not finite and non-negative,
+        ``timestamp`` is not an offset-aware ISO-8601 string, or the matched rows
+        disagree on ``condition_id`` (an ambiguous label scope).
     """
     import h5py  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415
@@ -212,6 +215,15 @@ def set_curation_label(
         raise ValueError(f"weight must be finite and >= 0, got {weight}")
     labeler = labeler if labeler is not None else default_labeler()
     timestamp = timestamp if timestamp is not None else _utc_now_iso()
+    # Validate a caller-supplied timestamp before any file I/O: a bad value would be
+    # permanently persisted into the append-only /labels log, breaking the provenance
+    # contract (§5.1) and hard to repair. Require an offset-aware ISO-8601 instant.
+    try:
+        parsed_ts = datetime.fromisoformat(timestamp)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"timestamp must be an ISO-8601 string, got {timestamp!r}") from exc
+    if parsed_ts.tzinfo is None:
+        raise ValueError(f"timestamp must include an explicit UTC offset, got {timestamp!r}")
     path = Path(path)
     source_file = source_file if source_file is not None else path.name
 

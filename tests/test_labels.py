@@ -286,6 +286,18 @@ def test_invalid_source_weight_label_raise_no_partial_write(tmp_path: Path) -> N
     assert L.curation_label_of(path, "key-A") == int(L.CurationLabel.UNCURATED)
 
 
+def test_invalid_timestamp_rejected_before_write(tmp_path: Path) -> None:
+    # A bad timestamp must be refused before it is persisted into the append-only
+    # log (provenance contract, §5.1) — unparseable and naive both rejected.
+    path = _seed(tmp_path, [("key-A", "c")])
+    with pytest.raises(ValueError, match="timestamp"):
+        L.accept(path, "key-A", timestamp="not-a-timestamp")
+    with pytest.raises(ValueError, match="offset"):
+        L.accept(path, "key-A", timestamp="2026-07-01T12:00:00")  # naive, no offset
+    assert L.read_labels(path).shape[0] == 0
+    assert L.curation_label_of(path, "key-A") == int(L.CurationLabel.UNCURATED)
+
+
 # --- schema freeze: the frozen fields stay signed <i4 and round-trip ---------
 
 

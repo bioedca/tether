@@ -14,7 +14,7 @@ mutates the M0-frozen schema, only the *data* inside it.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from tether.io.filename import ParsedFilename, parse_filename
 from tether.io.schema import (
@@ -25,6 +25,8 @@ from tether.io.schema import (
 )
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from tether.io.movie import MovieReader
 
 __all__ = ["Project"]
@@ -104,20 +106,20 @@ class Project:
 
     # --- curation (PRD §7.5; the scriptable seam behind the GUI keymap) -------
 
-    def accept(self, molecule_key: str, **provenance: Any) -> Any:
+    def accept(self, molecule_key: str, **provenance: object) -> np.ndarray:
         """Accept a molecule, logging the ``/labels`` event (:func:`labels.accept`)."""
         from tether.project import labels
 
         return labels.accept(self.path, molecule_key, **provenance)
 
-    def reject(self, molecule_key: str, **provenance: Any) -> Any:
+    def reject(self, molecule_key: str, **provenance: object) -> np.ndarray:
         """Reject a molecule (reversible sticky tag, :func:`labels.reject`)."""
         from tether.project import labels
 
         return labels.reject(self.path, molecule_key, **provenance)
 
-    def unreject(self, molecule_key: str, **provenance: Any) -> Any:
-        """Un-reject (clear) a molecule (:func:`labels.unreject`)."""
+    def unreject(self, molecule_key: str, **provenance: object) -> np.ndarray | None:
+        """Un-reject a molecule; ``None`` if it was not rejected (:func:`labels.unreject`)."""
         from tether.project import labels
 
         return labels.unreject(self.path, molecule_key, **provenance)
@@ -128,7 +130,7 @@ class Project:
 
         return labels.curation_label_of(self.path, molecule_key)
 
-    def read_labels(self) -> Any:
+    def read_labels(self) -> np.ndarray:
         """The ``/labels/table`` provenance log (:func:`labels.read_labels`)."""
         from tether.project import labels
 
