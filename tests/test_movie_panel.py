@@ -28,10 +28,13 @@ import numpy as np
 import pytest
 
 from tether.gui.movie_panel import (
+    MovieOverlay,
     NapariMoviePanel,
     _display_array,
     _first_frame_contrast,
     _NativeDisplayArray,
+    _to_rowcol,
+    _validate_xy,
 )
 from tether.io.movie import open_movie
 
@@ -158,3 +161,163 @@ def test_panel_displays_movie_headless(qtbot) -> None:  # qtbot: ensure a QAppli
 def test_panel_rejects_non_movie_reader(qtbot) -> None:  # qtbot: ensure a QApplication
     with NapariMoviePanel() as panel, pytest.raises(TypeError, match="MovieReader"):
         panel.set_movie(np.zeros((3, 4, 4), dtype=np.uint16))  # type: ignore[arg-type]
+
+
+# --- overlay value objects (pure numpy, no Qt) -------------------------------
+
+
+def test_movie_overlay_validates_normalises_and_is_readonly() -> None:
+    ov = MovieOverlay(donor_xy=[[1.0, 2.0], [3.0, 4.0]], acceptor_xy=[[5.0, 6.0]])
+    assert ov.donor_xy.shape == (2, 2)
+    assert ov.acceptor_xy.shape == (1, 2)
+    assert ov.aperture_radius == 3.0  # Deep-LASI PSF disk radius default
+    # immutable value object: stored arrays are read-only copies of the input
+    assert not ov.donor_xy.flags.writeable
+    assert not ov.acceptor_xy.flags.writeable
+    # empty channels normalise to a 2-D (0, 2) array (an empty overlay is valid)
+    empty = MovieOverlay(donor_xy=[], acceptor_xy=np.empty((0, 2)))
+    assert empty.donor_xy.shape == (0, 2)
+    assert empty.acceptor_xy.shape == (0, 2)
+
+
+def test_movie_overlay_rejects_bad_input() -> None:
+    with pytest.raises(ValueError, match="donor_xy"):
+        MovieOverlay(donor_xy=[[1.0, 2.0, 3.0]], acceptor_xy=[])  # not (N, 2)
+    with pytest.raises(ValueError, match="finite"):
+        MovieOverlay(donor_xy=[[np.nan, 2.0]], acceptor_xy=[])
+    for bad in (0.0, -1.0, np.inf, np.nan):
+        with pytest.raises(ValueError, match="aperture_radius"):
+            MovieOverlay(donor_xy=[], acceptor_xy=[], aperture_radius=bad)
+
+
+def test_to_rowcol_transposes_xy_and_handles_empty() -> None:
+    # [x, y] = [col, row] -> napari [row, col]
+    np.testing.assert_array_equal(
+        _to_rowcol(np.array([[1.0, 2.0], [3.0, 4.0]])), [[2.0, 1.0], [4.0, 3.0]]
+    )
+    assert _to_rowcol(np.empty((0, 2))).shape == (0, 2)
+    assert _to_rowcol([]).shape == (0, 2)
+
+
+def test_validate_xy_empty_and_readonly() -> None:
+    out = _validate_xy([[1.0, 2.0]], "donor_xy")
+    assert out.shape == (1, 2)
+    assert not out.flags.writeable
+    assert _validate_xy([], "x").shape == (0, 2)
+
+
+# --- multi-movie overlays + switcher (headless GUI) --------------------------
+
+_GREEN = (0.0, 0.667, 0.0, 1.0)  # donor #00aa00
+_RED = (0.863, 0.176, 0.176, 1.0)  # acceptor #dc2d2d
+
+
+def _write_native_movie(path: Path, frames: np.ndarray) -> Path:
+    """Write a small **native**-endian TIFF (a second, distinct movie fixture)."""
+    tifffile = pytest.importorskip("tifffile")
+    tifffile.imwrite(path, np.ascontiguousarray(frames, dtype="<u2"), photometric="minisblack")
+    return path
+
+
+@pytest.mark.gui
+@_needs_napari
+@_needs_gl
+def test_overlays_present_for_multiple_movies(qtbot, tmp_path) -> None:
+    # A second movie with a different shape + intensity range, native-endian (so
+    # the display path also exercises the zero-copy branch of _display_array).
+    frames = ((np.arange(8 * 48 * 32).reshape(8, 48, 32) % 500) + 100).astype("<u2")
+    second = _write_native_movie(tmp_path / "movie2.tif", frames)
+
+    ov0 = MovieOverlay(
+        donor_xy=np.array([[10.0, 12.0], [20.0, 22.0]]),
+        acceptor_xy=np.array([[40.0, 12.0]]),
+        aperture_radius=3.0,
+    )
+    ov1 = MovieOverlay(
+        donor_xy=np.array([[5.0, 6.0]]),
+        acceptor_xy=np.array([[25.0, 7.0], [30.0, 8.0], [35.0, 9.0]]),
+        aperture_radius=4.0,
+    )
+    with open_movie(FIXTURE) as m0, open_movie(second) as m1, NapariMoviePanel() as panel:
+        assert (
+            panel.add_movie(m0, overlay=ov0, name="movie-A"),
+            panel.add_movie(m1, overlay=ov1, name="movie-B"),
+        ) == (0, 1)
+        assert panel.n_movies == 2
+        assert panel.movie_names == ["movie-A", "movie-B"]
+        assert panel.active_index == 0  # first movie active by default
+
+        # all four overlay layers + the image are present for the first movie
+        assert {ly.name for ly in panel.layers} >= {
+            "movie",
+            "donor",
+            "acceptor",
+            "donor aperture",
+            "acceptor aperture",
+        }
+        # donor/acceptor centres are the overlay coords, transposed to (row, col)
+        np.testing.assert_array_equal(panel.donor_layer.data, ov0.donor_xy[:, ::-1])
+        np.testing.assert_array_equal(panel.acceptor_layer.data, ov0.acceptor_xy[:, ::-1])
+        # aperture rings sit at the same centres, sized to the PSF-disk diameter
+        np.testing.assert_array_equal(panel.donor_aperture_layer.data, ov0.donor_xy[:, ::-1])
+        assert np.allclose(np.asarray(panel.donor_aperture_layer.size), 2 * 3.0)
+        # familiar smFRET channel colours; the aperture face is transparent
+        assert np.allclose(panel.donor_layer.border_color[0], _GREEN, atol=5e-3)
+        assert np.allclose(panel.acceptor_layer.border_color[0], _RED, atol=5e-3)
+        assert np.allclose(panel.donor_aperture_layer.face_color[0], [0.0, 0.0, 0.0, 0.0])
+        assert tuple(panel.movie_layer.data.shape) == m0.shape
+
+        # switch to the second movie: overlays + image follow, no layer pile-up
+        panel.set_active_movie(1)
+        assert panel.active_index == 1
+        np.testing.assert_array_equal(panel.donor_layer.data, ov1.donor_xy[:, ::-1])
+        np.testing.assert_array_equal(panel.acceptor_layer.data, ov1.acceptor_xy[:, ::-1])
+        assert len(panel.donor_layer.data) == 1
+        assert len(panel.acceptor_layer.data) == 3
+        assert np.allclose(np.asarray(panel.donor_aperture_layer.size), 2 * 4.0)
+        assert tuple(panel.movie_layer.data.shape) == m1.shape
+        # exactly one layer of each kind (switch swaps in place, never appends)
+        for kind in ("movie", "donor", "acceptor", "donor aperture", "acceptor aperture"):
+            assert sum(1 for ly in panel.layers if ly.name == kind) == 1
+
+
+@pytest.mark.gui
+@_needs_napari
+@_needs_gl
+def test_switcher_changes_active_movie(qtbot, tmp_path) -> None:
+    frames = (np.arange(6 * 40 * 24).reshape(6, 40, 24) % 300).astype("<u2")
+    second = _write_native_movie(tmp_path / "movie2.tif", frames)
+
+    with open_movie(FIXTURE) as m0, open_movie(second) as m1, NapariMoviePanel() as panel:
+        panel.add_movie(m0, name="A")  # plain movies (no overlay): a single image layer
+        panel.add_movie(m1, name="B")
+        assert {ly.name for ly in panel.layers} == {"movie"}
+
+        combo = panel.switcher
+        assert [combo.itemText(i) for i in range(combo.count())] == ["A", "B"]
+        assert combo.currentIndex() == 0  # tracks the active movie
+
+        # driving the switcher changes the active movie + the displayed image
+        combo.setCurrentIndex(1)
+        assert panel.active_index == 1
+        assert tuple(panel.movie_layer.data.shape) == m1.shape
+
+        # a programmatic switch syncs the combo back
+        panel.set_active_movie(0)
+        assert combo.currentIndex() == 0
+        assert tuple(panel.movie_layer.data.shape) == m0.shape
+
+
+@pytest.mark.gui
+@_needs_napari
+@_needs_gl
+def test_set_movie_stays_single_image_layer(qtbot) -> None:
+    # The M0 single-movie contract survives the multi-movie refactor: set_movie
+    # shows exactly one image layer and no overlay layers.
+    with open_movie(FIXTURE) as reader, NapariMoviePanel() as panel:
+        layer = panel.set_movie(reader)
+        assert layer is panel.movie_layer
+        assert panel.n_movies == 1
+        assert panel.active_index == 0
+        assert [ly.name for ly in panel.layers] == ["movie"]
+        assert panel.donor_layer is None
