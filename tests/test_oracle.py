@@ -241,8 +241,82 @@ def test_summary_is_strict_json_safe() -> None:
     res = evaluate_extraction(gt, xy.copy(), donor.copy(), acceptor.copy())  # rms unmeasured
     summary = res.summary()
     assert summary["registration_rms_px"] is None  # nan → None, not NaN
+    assert summary["acceptor_recall"] is None  # acceptor not supplied → unmeasured
+    assert summary["precision"] == pytest.approx(1.0)  # 1 matched / 1 extracted
     # strict JSON (allow_nan=False) must not raise — no NaN/Infinity leaked
     json.dumps(summary, allow_nan=False)
+
+
+# --- reporting: donor-channel precision --------------------------------------
+
+
+def test_precision_exposes_over_detection_flood() -> None:
+    """A recall met by an over-detecting flood shows a low precision (C3d honesty)."""
+    xy = np.array([[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]])  # 3 truths
+    donor = _signal(3, 32, seed=31)
+    acceptor = _signal(3, 32, seed=32)
+    gt = _make_export(xy, donor, acceptor)
+    # Extract the 3 real spots + 3 spurious ones far from any truth (a flood).
+    spurious = np.array([[100.0, 100.0], [120.0, 120.0], [140.0, 140.0]])
+    ext_xy = np.vstack([xy, spurious])
+    ext_donor = np.vstack([donor, _signal(3, 32, seed=33)])
+    ext_acc = np.vstack([acceptor, _signal(3, 32, seed=34)])
+    res = evaluate_extraction(gt, ext_xy, ext_donor, ext_acc)
+    assert res.recall == pytest.approx(1.0)  # all 3 truths recovered
+    assert res.n_extracted == 6
+    assert res.n_matched == 3
+    assert res.precision == pytest.approx(0.5)  # 3 of 6 extracted are real
+    assert res.summary()["precision"] == pytest.approx(0.5)
+    # precision is reporting-only: it never blocks acceptance
+    assert res.meets_recall
+
+
+def test_precision_nan_when_nothing_extracted() -> None:
+    xy = np.array([[10.0, 20.0]])
+    donor = _signal(1, 8, seed=35)
+    acceptor = _signal(1, 8, seed=36)
+    gt = _make_export(xy, donor, acceptor)
+    res = evaluate_extraction(gt, np.empty((0, 2)), np.empty((0, 8)), np.empty((0, 8)))
+    assert res.n_extracted == 0
+    assert np.isnan(res.precision)
+    assert res.summary()["precision"] is None
+
+
+# --- reporting: per-channel acceptor recall ----------------------------------
+
+
+def test_acceptor_channel_recall_when_supplied() -> None:
+    """Per-channel acceptor coordinate recall vs ground_truth.acceptor_xy."""
+    xy = np.array([[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]])
+    donor = _signal(3, 24, seed=41)
+    acceptor = _signal(3, 24, seed=42)
+    gt = _make_export(xy, donor, acceptor)  # acceptor_xy == donor_xy + 8
+    # All three acceptor coords match; drop one beyond 1px so recall = 2/3.
+    ext_acc_xy = gt.acceptor_xy.copy()
+    ext_acc_xy[2] += np.array([5.0, 5.0])
+    res = evaluate_extraction(
+        gt, xy.copy(), donor.copy(), acceptor.copy(), extracted_acceptor_xy=ext_acc_xy
+    )
+    assert res.n_acceptor_extracted == 3
+    assert res.n_acceptor_matched == 2
+    assert res.acceptor_recall == pytest.approx(2 / 3)
+    assert np.isfinite(res.acceptor_coord_rms_px)
+    # donor gate is untouched by the acceptor channel
+    assert res.recall == pytest.approx(1.0)
+    assert res.meets_acceptance()  # per-channel acceptor recall is NOT a gate
+    assert res.summary()["acceptor_recall"] == pytest.approx(2 / 3, abs=1e-4)
+
+
+def test_acceptor_channel_unmeasured_without_coords() -> None:
+    xy = np.array([[10.0, 20.0]])
+    donor = _signal(1, 12, seed=43)
+    acceptor = _signal(1, 12, seed=44)
+    gt = _make_export(xy, donor, acceptor)
+    res = evaluate_extraction(gt, xy.copy(), donor.copy(), acceptor.copy())
+    assert res.n_acceptor_extracted == 0
+    assert res.n_acceptor_matched == 0
+    assert np.isnan(res.acceptor_recall)
+    assert np.isnan(res.acceptor_coord_rms_px)
 
 
 def test_evaluate_extraction_corrected_intensity_label() -> None:
@@ -316,9 +390,17 @@ def test_evaluate_project_wires_molecules_and_traces(monkeypatch) -> None:
     acceptor = _signal(2, 50, seed=22)
     gt = _make_export(xy, donor, acceptor)
 
-    # /molecules structured array: donor_xy + frame_range (full native extent)
-    mols = np.zeros(2, dtype=[("donor_xy", "<f8", (2,)), ("frame_range", "<i8", (2,))])
+    # /molecules structured array: donor_xy + acceptor_xy + frame_range (full extent)
+    mols = np.zeros(
+        2,
+        dtype=[
+            ("donor_xy", "<f8", (2,)),
+            ("acceptor_xy", "<f8", (2,)),
+            ("frame_range", "<i8", (2,)),
+        ],
+    )
     mols["donor_xy"] = xy
+    mols["acceptor_xy"] = gt.acceptor_xy  # == xy + 8 (matches ground truth)
     mols["frame_range"] = np.array([[0, 50], [0, 50]])
     traces = {
         "donor_raw": donor.astype("<f4"),
@@ -345,6 +427,9 @@ def test_evaluate_project_wires_molecules_and_traces(monkeypatch) -> None:
     assert res.n_matched == 2
     assert res.donor_pearson_median == pytest.approx(1.0, abs=1e-4)  # f4 round-trip
     assert res.acceptor_pearson_median == pytest.approx(1.0, abs=1e-4)
+    # evaluate_project now plumbs the stored acceptor_xy into the per-channel metric
+    assert res.acceptor_recall == pytest.approx(1.0)
+    assert res.n_acceptor_matched == 2
 
 
 # --- data-present, gated: the full §9 M1 acceptance on the real UCKOPSB pair --
