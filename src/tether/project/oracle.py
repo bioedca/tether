@@ -27,6 +27,18 @@ robust **per-molecule** distribution (the gated metric) and a single **pooled** 
 are reported, since pooling across molecules inflates r with between-molecule
 variance and is the weaker statistic.
 
+Beyond the three gated numbers, the result carries two **reporting-only** metrics
+(never part of :meth:`OracleResult.meets_acceptance` — the frozen gate is not
+touched): the donor-channel **precision** (matched / extracted), so a recall met by
+an over-detecting flood is visible rather than mistaken for a faithful match; and,
+when acceptor coordinates are supplied, the per-channel **acceptor** coordinate
+recall vs ``ground_truth.acceptor_xy`` — validating detection in *both* channels,
+not donor-only. (Empirically the acceptor channel recalls far fewer of the curated
+molecules than the donor: the dark / low-FRET acceptor population Tether's
+donor-anchored extraction deliberately keeps — Vogel 2012, Wanninger 2023 — so a
+*bidirectional* colocalization filter would collapse recall; the honest apples-to-
+apples framing scores the donor-anchored set and reports precision as the caveat.)
+
 Coordinates everywhere are ``[x, y] = [col, row]`` 0-based pixels, matching the
 rest of :mod:`tether.imaging` and :class:`~tether.io.deeplasi.DeepLasiExport`.
 """
@@ -232,6 +244,23 @@ class OracleResult:
     donor_pearson_pooled: float
     acceptor_pearson_pooled: float
     matches: tuple[tuple[int, int, float], ...]
+    #: Donor-channel precision: matched / extracted — the fraction of extracted
+    #: molecules that correspond to a curated Deep-LASI molecule. **Reporting only,
+    #: never a §9 M1 gate** (the frozen gate is recall + Pearson + RMS), but it makes
+    #: a false-positive flood visible so a recall met by over-detection is not read as
+    #: a faithful match (the C3d precision honesty concern). ``nan`` when nothing was
+    #: extracted.
+    precision: float = float("nan")
+    #: Per-channel **acceptor** coordinate recall vs ``ground_truth.acceptor_xy`` —
+    #: populated only when ``extracted_acceptor_xy`` is supplied (else ``nan`` / 0).
+    #: Validates that detection is faithful in *both* channels (USER CORRECTION #1:
+    #: "Tether donor det vs DL ``donor_xy``, acceptor vs ``acceptor_xy``"), a
+    #: diagnostic that does not enter :meth:`meets_acceptance`.
+    n_acceptor_extracted: int = 0
+    n_acceptor_matched: int = 0
+    acceptor_recall: float = float("nan")
+    acceptor_precision: float = float("nan")
+    acceptor_coord_rms_px: float = float("nan")
     registration_rms_px: float = float("nan")
     recall_threshold: float = RECALL_THRESHOLD
     pearson_threshold: float = PEARSON_THRESHOLD
@@ -274,9 +303,15 @@ class OracleResult:
             "n_extracted": self.n_extracted,
             "n_matched": self.n_matched,
             "recall": _f(self.recall, 4),
+            "precision": _f(self.precision, 4),
             "match_tol_px": self.match_tol_px,
             "coord_rms_px": _f(self.coord_rms_px, 4),
             "intensity": self.intensity,
+            "n_acceptor_extracted": self.n_acceptor_extracted,
+            "n_acceptor_matched": self.n_acceptor_matched,
+            "acceptor_recall": _f(self.acceptor_recall, 4),
+            "acceptor_precision": _f(self.acceptor_precision, 4),
+            "acceptor_coord_rms_px": _f(self.acceptor_coord_rms_px, 4),
             "donor_pearson_median": _f(self.donor_pearson_median, 5),
             "acceptor_pearson_median": _f(self.acceptor_pearson_median, 5),
             "donor_pearson_pooled": _f(self.donor_pearson_pooled, 5),
@@ -316,20 +351,30 @@ def evaluate_extraction(
     intensity: str = "raw",
     valid_lengths: np.ndarray | None = None,
     registration_rms_px: float = float("nan"),
+    extracted_acceptor_xy: np.ndarray | None = None,
 ) -> OracleResult:
     """Score one native extraction against a Deep-LASI export (PRD §9 M1).
+
+    The recall / Pearson / RMS conjunction is the frozen §9 M1 gate. Two further
+    metrics are computed for **reporting** (never gates): the donor-channel
+    :attr:`~OracleResult.precision` (matched / extracted), so a recall met by an
+    over-detecting flood is visible rather than mistaken for a faithful match; and,
+    when ``extracted_acceptor_xy`` is supplied, the per-channel **acceptor**
+    coordinate recall vs ``ground_truth.acceptor_xy`` (USER CORRECTION #1 — validate
+    detection in *both* channels, not donor-only).
 
     Parameters
     ----------
     ground_truth:
-        Parsed Deep-LASI ``.mat`` export (donor coordinates + per-frame traces).
+        Parsed Deep-LASI ``.mat`` export (donor + acceptor coordinates + per-frame
+        traces).
     extracted_donor_xy:
         ``(n_ext, 2)`` Tether donor ``[x, y]`` coordinates.
     extracted_donor_trace, extracted_acceptor_trace:
         ``(n_ext, n_frames)`` Tether per-frame integrated intensities matching
         ``intensity`` (e.g. ``donor_raw`` / ``acceptor_raw``).
     tol_px:
-        Match tolerance (default 1 px, the §9 M1 number).
+        Match tolerance (default 1 px, the §9 M1 number); applied to both channels.
     intensity:
         Label recorded on the result (``"raw"`` or ``"corrected"``) — which
         Deep-LASI trace the caller paired against (``ground_truth.donor_<intensity>``).
@@ -339,6 +384,12 @@ def evaluate_extraction(
     registration_rms_px:
         Native bead-fit residual to carry onto the result (``nan`` if N/A, e.g.
         the imported-``.tmap`` path).
+    extracted_acceptor_xy:
+        Optional ``(n_acc, 2)`` acceptor ``[x, y]`` coordinates to score per-channel
+        against ``ground_truth.acceptor_xy`` — either the coordinate-domain mapped
+        acceptor read positions (a registration check) or an independent acceptor
+        detection (a detector check). ``None`` (default) leaves the acceptor-channel
+        fields unmeasured (``nan`` / 0). Does **not** enter :meth:`meets_acceptance`.
     """
     if intensity not in ("raw", "corrected"):
         raise ValueError(f"intensity must be 'raw' or 'corrected', got {intensity!r}")
@@ -346,13 +397,19 @@ def evaluate_extraction(
     gt_acceptor = getattr(ground_truth, f"acceptor_{intensity}")
     gt_xy = ground_truth.donor_xy
 
-    ext_donor_xy = np.atleast_2d(np.asarray(extracted_donor_xy, dtype=np.float64))
-    n_ext = 0 if ext_donor_xy.size == 0 else ext_donor_xy.shape[0]
     n_gt = int(gt_xy.shape[0])
 
-    matches = match_coordinates(gt_xy, ext_donor_xy, tol_px=tol_px)
-    recall = (len(matches) / n_gt) if n_gt else float("nan")
-    rms = coordinate_rms(gt_xy, ext_donor_xy, matches)
+    # Donor channel: recall / precision / RMS via the shared per-channel scorer.
+    # Precision is reporting only — the fraction of extracted molecules that land on
+    # a curated Deep-LASI molecule. A donor-anchored, sensitive detector keeps genuine
+    # low-FRET molecules Deep-LASI's curation dropped *and* false positives, so a high
+    # recall can coexist with a low precision — surfacing it keeps the §9 recall honest
+    # (the C3d over-detection concern).
+    n_ext, matches, recall, precision, rms = _score_channel(gt_xy, extracted_donor_xy, n_gt, tol_px)
+
+    n_acc_ext, acc_matches, acc_recall, acc_precision, acc_rms = _score_acceptor_channel(
+        ground_truth.acceptor_xy, extracted_acceptor_xy, n_gt, tol_px
+    )
 
     donor_r = _per_molecule_pearson(gt_donor, extracted_donor_trace, matches, valid_lengths)
     acceptor_r = _per_molecule_pearson(
@@ -380,8 +437,54 @@ def evaluate_extraction(
         donor_pearson_pooled=donor_pooled,
         acceptor_pearson_pooled=acceptor_pooled,
         matches=tuple(matches),
+        precision=precision,
+        n_acceptor_extracted=n_acc_ext,
+        n_acceptor_matched=len(acc_matches),
+        acceptor_recall=acc_recall,
+        acceptor_precision=acc_precision,
+        acceptor_coord_rms_px=acc_rms,
         registration_rms_px=float(registration_rms_px),
     )
+
+
+def _score_channel(
+    gt_xy: np.ndarray,
+    extracted_xy: np.ndarray,
+    n_gt: int,
+    tol_px: float,
+) -> tuple[int, list[tuple[int, int, float]], float, float, float]:
+    """Coordinate recall + precision + RMS of one channel vs curated coordinates.
+
+    Returns ``(n_extracted, matches, recall, precision, coord_rms)``. ``recall`` uses
+    the curated ``n_gt`` denominator (so donor and acceptor recall are directly
+    comparable); ``precision`` uses this channel's own extracted count. Shared by the
+    donor and acceptor paths so the two channels' scoring cannot drift apart.
+    """
+    ext_xy = np.atleast_2d(np.asarray(extracted_xy, dtype=np.float64))
+    n_ext = 0 if ext_xy.size == 0 else ext_xy.shape[0]
+    matches = match_coordinates(gt_xy, ext_xy, tol_px=tol_px)
+    recall = (len(matches) / n_gt) if n_gt else float("nan")
+    precision = (len(matches) / n_ext) if n_ext else float("nan")
+    rms = coordinate_rms(gt_xy, ext_xy, matches)
+    return n_ext, matches, recall, precision, rms
+
+
+def _score_acceptor_channel(
+    gt_acceptor_xy: np.ndarray,
+    extracted_acceptor_xy: np.ndarray | None,
+    n_gt: int,
+    tol_px: float,
+) -> tuple[int, list[tuple[int, int, float]], float, float, float]:
+    """Per-channel acceptor coordinate recall + precision vs the curated coordinates.
+
+    Delegates to :func:`_score_channel`; returns all-unmeasured
+    (``0``/``[]``/``nan``…) when ``extracted_acceptor_xy`` is ``None`` (the optional
+    acceptor path), else the acceptor channel's ``(n_extracted, matches, recall,
+    precision, coord_rms)``.
+    """
+    if extracted_acceptor_xy is None:
+        return 0, [], float("nan"), float("nan"), float("nan")
+    return _score_channel(gt_acceptor_xy, extracted_acceptor_xy, n_gt, tol_px)
 
 
 # --- on-disk convenience -----------------------------------------------------
@@ -409,6 +512,10 @@ def evaluate_project(
     traces = read_traces(Path(project_path))
 
     donor_xy = np.asarray(mols["donor_xy"], dtype=np.float64)
+    # The stored acceptor coordinates are the donor-anchored, coordinate-domain mapped
+    # read positions (§ M1 S7); scored per-channel against the curated acceptor_xy they
+    # give a registration/coordinate-domain acceptor check alongside the donor recall.
+    acceptor_xy = np.asarray(mols["acceptor_xy"], dtype=np.float64)
     frame_range = np.asarray(mols["frame_range"])
     valid_lengths = (frame_range[:, 1] - frame_range[:, 0]).astype(np.int64)
 
@@ -424,4 +531,5 @@ def evaluate_project(
         intensity=intensity,
         valid_lengths=valid_lengths,
         registration_rms_px=registration_rms_px,
+        extracted_acceptor_xy=acceptor_xy,
     )
