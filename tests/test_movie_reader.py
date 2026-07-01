@@ -20,7 +20,7 @@ pytest.importorskip("numpy")
 import numpy as np  # noqa: E402
 import tifffile  # noqa: E402
 
-from tether.io.movie import MovieReader, open_movie  # noqa: E402
+from tether.io.movie import MovieReader, _read_frame_time, open_movie  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "movie_be_64x64x50.tif"
 SHAPE = (50, 64, 64)
@@ -90,6 +90,35 @@ def test_frame_time_absent_on_raw_movie() -> None:
     # The reference TIFF carries no frame-time tag; it arrives from the .tdat/.mat.
     with MovieReader(FIXTURE) as movie:
         assert movie.frame_time is None
+
+
+class _FakeTiff:
+    """Minimal ``imagej_metadata`` carrier for unit-testing ``_read_frame_time``."""
+
+    def __init__(self, meta: object) -> None:
+        self.imagej_metadata = meta
+
+
+def test_read_frame_time_accepts_finite_positive() -> None:
+    assert _read_frame_time(_FakeTiff({"finterval": 0.1})) == pytest.approx(0.1)
+
+
+def test_read_frame_time_rejects_nonfinite() -> None:
+    # A non-finite finterval (inf/nan, as a float or a corrupt string) is rejected
+    # at the boundary so it can never poison a downstream seconds axis.
+    for bad in (float("inf"), float("nan"), "inf", "nan", "-inf"):
+        assert _read_frame_time(_FakeTiff({"finterval": bad})) is None
+
+
+def test_read_frame_time_rejects_nonpositive() -> None:
+    for bad in (0.0, -0.1):
+        assert _read_frame_time(_FakeTiff({"finterval": bad})) is None
+
+
+def test_read_frame_time_absent_or_unparseable() -> None:
+    assert _read_frame_time(_FakeTiff({})) is None
+    assert _read_frame_time(_FakeTiff(None)) is None
+    assert _read_frame_time(_FakeTiff({"finterval": "not-a-number"})) is None
 
 
 def test_use_after_close_raises() -> None:

@@ -23,6 +23,7 @@ than silently loading the stack.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -208,7 +209,14 @@ class MovieReader:
 
 
 def _read_frame_time(tif: tifffile.TiffFile) -> float | None:
-    """Best-effort seconds-per-frame from ImageJ ``finterval``; None if absent/invalid."""
+    """Best-effort seconds-per-frame from ImageJ ``finterval``; None if absent/invalid.
+
+    Requires a **finite, positive** interval: a non-finite value (``inf``/``nan``,
+    e.g. from a corrupt ``finterval`` such as the literal string ``"inf"``) is
+    rejected here at the metadata boundary rather than propagated as a poisoned
+    seconds axis to downstream consumers (``float("inf") > 0`` is ``True``, so the
+    bare ``> 0`` test alone would let it through).
+    """
     meta = tif.imagej_metadata or {}
     val = meta.get("finterval")
     if val is None:
@@ -217,7 +225,7 @@ def _read_frame_time(tif: tifffile.TiffFile) -> float | None:
         ft = float(val)
     except (TypeError, ValueError):
         return None
-    return ft if ft > 0 else None
+    return ft if math.isfinite(ft) and ft > 0 else None
 
 
 def open_movie(path: str | PathLike[str]) -> MovieReader:
