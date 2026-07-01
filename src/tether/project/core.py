@@ -141,3 +141,34 @@ class Project:
         from tether.project import labels
 
         return labels.rejected_molecule_keys(self.path)
+
+    # --- idealization (PRD §7.4; the one-click-vbFRET seam behind the GUI) -----
+
+    def idealize(self, molecule_keys: list[str] | None = None, **kwargs: object):
+        """Idealize selected molecules into ``/idealization`` (:func:`idealize.idealize_molecules`).
+
+        The headless core behind the dock's ``I`` key: reads the selected molecules'
+        traces, fits vbFRET / consensus VB-HMM via the sidecar, and writes the model
+        back as additive data with a per-molecule input-provenance hash.
+        """
+        from tether.project import idealize
+
+        return idealize.idealize_molecules(self, molecule_keys, **kwargs)  # type: ignore[arg-type]
+
+    def read_idealization(self, model_name: str):
+        """Read a persisted model (:func:`idealize.read_idealization`)."""
+        from tether.project import idealize
+
+        return idealize.read_idealization(self, model_name)
+
+    def list_idealizations(self) -> list[str]:
+        """Names of the models under ``/idealization`` (:func:`idealize.list_idealizations`)."""
+        from tether.project import idealize
+
+        return idealize.list_idealizations(self)
+
+    def stale_idealization_keys(self, model_name: str) -> list[str]:
+        """Molecules whose inputs changed since the fit (:func:`idealize.stale_molecule_keys`)."""
+        from tether.project import idealize
+
+        return idealize.stale_molecule_keys(self, model_name)
