@@ -118,7 +118,11 @@ def test_read_frame_time_rejects_nonpositive() -> None:
 def test_read_frame_time_absent_or_unparseable() -> None:
     assert _read_frame_time(_FakeTiff({})) is None
     assert _read_frame_time(_FakeTiff(None)) is None
+    # "not-a-number" trips the ValueError arm of the float() guard; a non-scalar
+    # finterval (list/dict) trips the TypeError arm — both fall back to None.
     assert _read_frame_time(_FakeTiff({"finterval": "not-a-number"})) is None
+    assert _read_frame_time(_FakeTiff({"finterval": [0.1]})) is None
+    assert _read_frame_time(_FakeTiff({"finterval": {}})) is None
 
 
 def test_use_after_close_raises() -> None:
