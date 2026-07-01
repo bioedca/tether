@@ -4,16 +4,23 @@
 
 The TIRFdata ``.tdat`` decode (PRD §7.8, Appendix A/B) needs a *real-data*
 fixture that exercises the MATLAB v7.3 access path, but the source ``.tdat`` is
-37 MB. This tool copies only the payload :func:`tether.io.read_tdat` reads — the
-real ``ParticlesColocalized`` coordinate matrix, the three
-``Default{Alpha,Beta,Gamma}`` scalars, and the ``ParticleDetectionMode`` leaf —
-into a tiny ``.tdat``-format file, dropping the ~37 MB of trace/patch arrays and
-the MCOS object blob. (Retaining the MCOS ``Channel`` bytes needed to decode the
-per-channel ``DetectionThreshold`` is deferred to PR-C3c-decode-B.) The output
-reproduces the original access path exactly (``temp/ParticlesColocalized`` cell
--> HDF5 object reference -> ``(17, N)`` ``findColoc`` matrix in ``#refs#``), so
-the committed test genuinely decodes a real file rather than a stub. The full
-``.tdat`` stays external (PLAN §2.1/§2.2).
+37 MB. This tool copies only the payload :mod:`tether.io.tdat` reads — the real
+``ParticlesColocalized`` coordinate matrix, the three ``Default{Alpha,Beta,Gamma}``
+scalars, the ``ParticleDetectionMode`` leaf, and the MCOS ``Channel`` object blob
+needed to decode the per-channel ``DetectionThreshold`` — into a tiny
+``.tdat``-format file, dropping the ~37 MB of trace/patch arrays.
+
+The MCOS retention is faithful, not a stub: the real ``#subsystem#/MCOS``
+``FileWrapper__`` metadata blob and ``temp/Channel`` object-reference markers are
+copied **verbatim**, along with every FileWrapper heap cell small enough to be a
+scalar/short-vector value (the large per-channel images and trace arrays are
+dropped as null cells, preserving cell indices). So :mod:`tether.io.mcos` decodes
+the committed fixture through the exact same path — object-reference marker ->
+object table -> property segment -> heap cell ``value + 2`` — that it walks on the
+real file. The output reproduces the original coordinate access path exactly
+(``temp/ParticlesColocalized`` cell -> HDF5 object reference -> ``(17, N)``
+``findColoc`` matrix in ``#refs#``), so the committed test genuinely decodes a
+real file rather than a stub. The full ``.tdat`` stays external (PLAN §2.1/§2.2).
 
 Regenerate with::
 
@@ -62,6 +69,66 @@ def _scalar(group: h5py.Group, name: str) -> float:
     return float(np.asarray(group[name][()]).reshape(-1)[0])
 
 
+# FileWrapper heap cells at or below this size are copied verbatim (scalars, short
+# vectors, colour/crop metadata, the per-channel DetectionThreshold); larger cells
+# (per-channel cumulated images, 1700-frame trace arrays, 21x21 masks) drop out as
+# null cells, keeping the fixture tiny while preserving cell indices so the
+# decoder's ``value + 2`` heap lookup still lands. The metadata blob (cell 0) is
+# always kept.
+_MCOS_CELL_MAX_BYTES = 512
+
+
+def _copy_leaf(store: h5py.Group, name: str, source: h5py.Dataset) -> h5py.Reference:
+    """Copy a leaf dataset into ``store`` under ``name``, preserving MATLAB_class."""
+    out = store.create_dataset(name, data=np.asarray(source[()]))
+    cls = source.attrs.get("MATLAB_class")
+    if cls is not None:
+        out.attrs["MATLAB_class"] = cls
+    return out.ref
+
+
+def _copy_mcos_subsystem(f_src: h5py.File, g_out: h5py.File, store: h5py.Group) -> int:
+    """Copy the ``#subsystem#/MCOS`` FileWrapper (metadata + small heap cells) verbatim.
+
+    Returns the number of FileWrapper cells retained. Object-valued cells (nested
+    cell/struct refs) and oversized cells are dropped as null cells — the decoder
+    only follows the scalar value cells the ``DetectionThreshold`` path needs.
+    """
+    src_cells = np.asarray(f_src["#subsystem#"]["MCOS"][()]).reshape(-1)
+    subsystem = g_out.create_group("#subsystem#")
+    mcos = subsystem.create_dataset("MCOS", shape=(1, src_cells.size), dtype=h5py.ref_dtype)
+    mcos.attrs["MATLAB_class"] = np.bytes_("FileWrapper__")
+    retained = 0
+    for i, ref in enumerate(src_cells):
+        if not ref:
+            continue
+        target = f_src[ref]
+        if not isinstance(target, h5py.Dataset):
+            continue
+        # Cell 0 is the metadata blob (kept verbatim regardless of size); the rest
+        # only if they are small leaf values, not nested objects or bulk arrays.
+        if i != 0 and (target.dtype == object or target.nbytes > _MCOS_CELL_MAX_BYTES):
+            continue
+        mcos[0, i] = _copy_leaf(store, f"mcos_{i}", target)
+        retained += 1
+    return retained
+
+
+def _copy_channels(f_src: h5py.File, temp_out: h5py.Group, store: h5py.Group) -> int:
+    """Copy ``temp/Channel`` object-reference markers into the fixture verbatim."""
+    src_channel = f_src["temp"]["Channel"]
+    markers = np.asarray(src_channel[()]).reshape(-1)
+    channel = temp_out.create_dataset("Channel", shape=src_channel.shape, dtype=h5py.ref_dtype)
+    channel.attrs["MATLAB_class"] = np.bytes_("cell")
+    copied = 0
+    for k, ref in enumerate(markers):
+        if not ref:
+            continue
+        channel[k, 0] = _copy_leaf(store, f"channel_{k}", f_src[ref])
+        copied += 1
+    return copied
+
+
 def main() -> None:
     with h5py.File(TDAT, "r") as f:
         temp = f["temp"]
@@ -78,39 +145,44 @@ def main() -> None:
             _scalar(temp, "ParticleDetectionMode") if "ParticleDetectionMode" in temp else 1.0
         )
 
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    with h5py.File(OUT, "w") as g:
-        refs = g.create_group("#refs#")
-        coloc = refs.create_dataset("a", data=table)
-        coloc.attrs["MATLAB_class"] = np.bytes_("double")
-        temp_out = g.create_group("temp")
-        pc = temp_out.create_dataset("ParticlesColocalized", shape=(1, 1), dtype=h5py.ref_dtype)
-        pc[0, 0] = coloc.ref
-        pc.attrs["MATLAB_class"] = np.bytes_("cell")
-        for name, value in (
-            ("DefaultAlpha", alpha),
-            ("DefaultBeta", beta),
-            ("DefaultGamma", gamma),
-        ):
-            scalar = temp_out.create_dataset(name, data=np.array([[value]], dtype=np.float64))
-            scalar.attrs["MATLAB_class"] = np.bytes_("double")
-        cwd = temp_out.create_dataset("ChannelsWithData", data=channels)
-        cwd.attrs["MATLAB_class"] = np.bytes_("double")
-        ref_ch = temp_out.create_dataset(
-            "MappingReferenceChannel", data=np.array([[mapping_ref]], dtype=np.float64)
-        )
-        ref_ch.attrs["MATLAB_class"] = np.bytes_("double")
-        # ParticleDetectionMode is a plain ``double`` leaf (findPart.m method code);
-        # carry it so the committed fixture exercises read_detection_settings too.
-        det_mode = temp_out.create_dataset(
-            "ParticleDetectionMode", data=np.array([[detection_mode]], dtype=np.float64)
-        )
-        det_mode.attrs["MATLAB_class"] = np.bytes_("double")
+        OUT.parent.mkdir(parents=True, exist_ok=True)
+        with h5py.File(OUT, "w") as g:
+            refs = g.create_group("#refs#")
+            coloc = refs.create_dataset("a", data=table)
+            coloc.attrs["MATLAB_class"] = np.bytes_("double")
+            temp_out = g.create_group("temp")
+            pc = temp_out.create_dataset("ParticlesColocalized", shape=(1, 1), dtype=h5py.ref_dtype)
+            pc[0, 0] = coloc.ref
+            pc.attrs["MATLAB_class"] = np.bytes_("cell")
+            for name, value in (
+                ("DefaultAlpha", alpha),
+                ("DefaultBeta", beta),
+                ("DefaultGamma", gamma),
+            ):
+                scalar = temp_out.create_dataset(name, data=np.array([[value]], dtype=np.float64))
+                scalar.attrs["MATLAB_class"] = np.bytes_("double")
+            cwd = temp_out.create_dataset("ChannelsWithData", data=channels)
+            cwd.attrs["MATLAB_class"] = np.bytes_("double")
+            ref_ch = temp_out.create_dataset(
+                "MappingReferenceChannel", data=np.array([[mapping_ref]], dtype=np.float64)
+            )
+            ref_ch.attrs["MATLAB_class"] = np.bytes_("double")
+            # ParticleDetectionMode is a plain ``double`` leaf (findPart.m method code);
+            # carry it so the committed fixture exercises read_detection_settings too.
+            det_mode = temp_out.create_dataset(
+                "ParticleDetectionMode", data=np.array([[detection_mode]], dtype=np.float64)
+            )
+            det_mode.attrs["MATLAB_class"] = np.bytes_("double")
+            # Retain the MCOS Channel blob so the fixture decodes per-channel
+            # DetectionThreshold (PR-C3c-decode-B) through the real access path.
+            mcos_cells = _copy_mcos_subsystem(f, g, refs)
+            n_channels = _copy_channels(f, temp_out, refs)
 
     print(f"wrote {OUT} ({OUT.stat().st_size} B)")
     print(f"  {table.shape[1]} molecules x {table.shape[0]} columns")
     print(f"  Deep-LASI factors: Alpha={alpha:g} Beta={beta:g} Gamma={gamma:g}")
     print(f"  ParticleDetectionMode: {detection_mode:g}")
+    print(f"  MCOS cells retained: {mcos_cells}; Channel markers: {n_channels}")
     print(f"source .tdat size:   {TDAT.stat().st_size} B")
     print(f"source .tdat sha256: {_sha256(TDAT)}")
 

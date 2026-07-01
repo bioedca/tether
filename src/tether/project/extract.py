@@ -13,10 +13,11 @@ The spot detector is selectable (``options.detection_mode`` ∈ {``wavelet``,
 ``intensity``, ``bandpass``} with an optional ``options.detection_threshold``;
 PRD §11.2, ADR-0021) so a movie can be extracted with the Deep-LASI ``findPart``
 method it was actually detected with. The default ``wavelet`` reproduces the
-historical à trous detection unchanged. Passing ``tdat=<path>`` auto-applies the
-mode decoded from a Deep-LASI ``.tdat`` (``temp/ParticleDetectionMode``),
-overriding ``options.detection_mode`` (the per-channel ``DetectionThreshold`` MCOS
-decode is a follow-up).
+historical à trous detection unchanged. Passing ``tdat=<path>`` auto-applies both
+the mode (``temp/ParticleDetectionMode``) and the mapping-reference channel's
+``DetectionThreshold`` (decoded from the ``.tdat`` MCOS ``Channel`` blob),
+overriding ``options.detection_mode`` / ``options.detection_threshold`` so a
+re-extraction matches how the movie was actually detected.
 
 Two registration sources are supported (PRD §7.1 "a native bead/grid fit *and* an
 imported ``.tmap``"):
@@ -262,19 +263,20 @@ def _apply_tdat_detection(
 ) -> ExtractOptions:
     """Override ``options`` detection settings with those decoded from a ``.tdat``.
 
-    Reads the Deep-LASI ``ParticleDetectionMode`` (and, once the MCOS ``Channel``
-    decoder lands, the per-channel ``DetectionThreshold``) and returns a copy of
-    ``options`` with ``detection_mode`` / ``detection_threshold`` replaced, so a
-    re-extraction reproduces the method the movie was actually detected with
-    (NFR-REPRO). The decoded mode is re-validated by :class:`ExtractOptions`. Any
-    decode failure becomes a clean ``.tdat``-centric :class:`ExtractionError`.
+    Reads the Deep-LASI ``ParticleDetectionMode`` and the mapping-reference
+    channel's per-channel ``DetectionThreshold`` (from the MCOS ``Channel`` blob)
+    and returns a copy of ``options`` with ``detection_mode`` /
+    ``detection_threshold`` replaced, so a re-extraction reproduces the method the
+    movie was actually detected with (NFR-REPRO). The decoded mode is re-validated
+    by :class:`ExtractOptions`. Any decode failure becomes a clean
+    ``.tdat``-centric :class:`ExtractionError`.
     """
     try:
         detection = read_detection_settings(tdat_path)
     except Exception as exc:  # not a TIRFdata, unsupported mode, unreadable file
         raise ExtractionError(f"could not use --tdat {Path(tdat_path).name}: {exc}") from exc
-    # ``threshold`` is ``None`` until the MCOS decoder lands; keep the caller's
-    # threshold (each mode's faithful default) until then rather than wiping it.
+    # A .tdat slimmed to plain leaves (no MCOS blob) decodes threshold=None; keep
+    # the caller's threshold (each mode's faithful default) rather than wiping it.
     threshold = (
         detection.threshold if detection.threshold is not None else options.detection_threshold
     )

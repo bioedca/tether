@@ -23,7 +23,7 @@ uv run --no-project --with h5py --with tifffile --with numpy \
 | `tests/fixtures/large/smd_281mol.hdf5` | 281-molecule population SMD (parity gate) | `model-source-smd-281mol.hdf5` | 3,925,718 B | 3,925,718 B | `286130c45a679263…` | verbatim · **LFS** |
 | `tests/fixtures/large/model_281mol.hdf5` | 4-state vbHMM model (parity gate) | `model.hdf5` | 2,621,011 B | 2,621,011 B | `8f78fa48ad0311fd…` | verbatim · **LFS** |
 | `tests/fixtures/aperture_oracle.npz` | aperture Sum-integration oracle (M0.5 S5) | `…010.tif` + `…010.mat` | 891,955,083 B + 9,053,155 B | 460,472 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` | 6 donor crops + `don` oracle |
-| `tests/fixtures/tdat_coloc_slice.tdat` | TIRFdata colocalization slice (M0.5 S6 decode) | `…010.tif…00-00.tdat` | 37,039,831 B | 41,344 B | `b6a911d48bc27cd1…` | coloc table only |
+| `tests/fixtures/tdat_coloc_slice.tdat` | TIRFdata colocalization + detection slice (M0.5 S6 / M1 S9 decode) | `…010.tif…00-00.tdat` | 37,039,831 B | 131,296 B | `b6a911d48bc27cd1…` | coloc table + `ParticleDetectionMode` + MCOS `Channel` blob (per-channel `DetectionThreshold`) |
 | `tests/fixtures/tmap_coeffs.npz` | Deep-LASI `.tmap` registration coefficients (M0.5 S6 registration) | `…20250718…13-40.tmap` | 3,872,385 B | 5,905 B | `7db0cf80d161847e…` | decoded degree-2 coeffs only |
 | `tests/fixtures/acceptor_oracle.npz` | acceptor aperture-integration oracle via `.tmap` apply (M0.5 S5/S6) | `…010.tif` + `…010.mat` + `…13-40.tmap` | 891,955,083 B + 9,053,155 B + 3,872,385 B | 271,214 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` + `7db0cf80d161847e…` | 6 acceptor crops + `acc` oracle |
 | `tests/fixtures/bead_prealign_oracle.npz` | 4-DOF prealign oracle (M1 S5b registration) | `…20250721…15-36.tmap` + `map.tif` | 792,946 B + 3,884,619 B | 104,307 B | `b538b539ee75add3…` + `a993036a53d1d492…` | 2 bead-channel crops + `.tmap` ground truth |
@@ -66,10 +66,18 @@ the M0.5 S6 `.tdat`/`.tmap` decode. Regenerate with
 from the 37 MB UCKOPSB `.tdat`, holding the real `ParticlesColocalized` matrix
 (250 molecules × 17 columns) reached through the same cell → object-reference →
 `#refs#` path as the original, plus the three `Default{Alpha,Beta,Gamma}` scalars
-(all `0` for this acquisition). The ~37 MB of trace/patch arrays and the MCOS
-object blob are dropped, so it stays in plain git yet faithfully exercises the
-M0.5 S6 `tether.io.read_tdat` decoder (coordinates + the Appendix-B factor remap)
-in the required test matrix. Regenerate with `scripts/make_tdat_fixture.py`.
+(all `0` for this acquisition), the `ParticleDetectionMode` leaf (mode 2,
+intensity), and the MCOS `Channel` object blob needed to decode the per-channel
+`DetectionThreshold` (M1 S9 PR-C3c-decode-B). The MCOS retention is faithful, not
+a stub: the real `#subsystem#/MCOS FileWrapper__` metadata and `temp/Channel`
+object-reference markers are copied **verbatim**, along with every FileWrapper
+heap cell small enough to be a scalar/short-vector value; the ~37 MB of
+trace/patch arrays and the large per-channel images are dropped as null cells,
+preserving cell indices so `tether.io.mcos` decodes it through the identical
+`value + 2` heap path it walks on the real file. It stays in plain git yet
+faithfully exercises the `tether.io.read_tdat` / `read_detection_settings`
+decoders (coordinates + the Appendix-B factor remap + detection mode/threshold) in
+the required test matrix. Regenerate with `scripts/make_tdat_fixture.py`.
 
 ## Deep-LASI `.tmap` registration coefficients
 

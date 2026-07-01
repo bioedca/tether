@@ -18,10 +18,15 @@ MCOS object blob, because each is a plain numeric leaf of ``temp/``:
   band-pass; ``classes/TRACERdata.m:62`` defaults it to 1). It maps to the Tether
   :class:`~tether.imaging.detect.ParticleDetectionMode` string so a ``.tether``
   re-extraction can reproduce the method the data was actually detected with
-  (PRD §11.2, ADR-0021). The companion per-channel ``DetectionThreshold`` is a
-  ``TIRFdata`` MCOS property (``temp/Channel[i]`` -> ``#subsystem#/MCOS``), so it
-  is **not** decoded here yet (PR-C3c-decode-B); :attr:`TdatDetectionSettings.threshold`
-  stays ``None`` and each detector falls back to its own faithful default.
+  (PRD §11.2, ADR-0021). The companion per-channel ``DetectionThreshold`` (the
+  ``findPart`` ``t``, a fraction of the detection-image max — ``TIRFdata.m:63``,
+  ``findPart.m:20/24/30``) is a ``TIRFdata`` MCOS property
+  (``temp/Channel[i]`` -> ``#subsystem#/MCOS FileWrapper__``), decoded via
+  :mod:`tether.io.mcos`. :attr:`TdatDetectionSettings.threshold` carries the
+  **mapping/detection reference channel**'s value
+  (``temp/MappingReferenceChannel``, the channel spots are detected on); a
+  ``.tdat`` slimmed to plain leaves (no MCOS blob) leaves it ``None`` so each
+  detector falls back to its own faithful default.
 
 * **Colocalized coordinates** — ``temp/ParticlesColocalized`` is a MATLAB cell
   (one entry per movie in the stack) whose object reference resolves to the
@@ -60,6 +65,8 @@ from typing import TYPE_CHECKING, Literal
 
 import h5py
 import numpy as np
+
+from tether.io.mcos import McosDecoder, object_reference_id
 
 if TYPE_CHECKING:
     from os import PathLike
@@ -153,11 +160,11 @@ class TdatDetectionSettings:
         (``"wavelet"`` / ``"intensity"`` / ``"bandpass"``) for the Deep-LASI
         ``findPart`` method the movie was detected with.
     threshold:
-        the per-channel ``DetectionThreshold`` as a fraction of the
-        detection-image max, or ``None`` when it is unknown. It is **always**
-        ``None`` here: the value is a ``TIRFdata`` MCOS property that the plain-leaf
-        reader does not decode (PR-C3c-decode-B adds the MCOS ``Channel`` decoder).
-        ``None`` lets each detector use its own faithful default (PRD §11.2).
+        the **mapping/detection reference channel**'s ``DetectionThreshold`` as a
+        fraction of the detection-image max (``findPart`` ``t``), or ``None`` when
+        the ``.tdat`` carries no MCOS ``Channel`` blob (e.g. a plain-leaf slice) or
+        the reference channel stores no value. ``None`` lets each detector use its
+        own faithful default (PRD §11.2). Decoded via :mod:`tether.io.mcos`.
     """
 
     mode: DetectionMode
@@ -216,14 +223,63 @@ def _detection_mode_code(temp: h5py.Group) -> int:
     return int(value)
 
 
-def _detection_settings(temp: h5py.Group) -> TdatDetectionSettings:
+def _threshold_in_range(value: float) -> float | None:
+    """Return a decoded ``DetectionThreshold`` only if it is a usable ``[0, 1)`` fraction.
+
+    Deep-LASI stores the threshold as a fraction of the detection-image max
+    (``findPart`` ``t``), the same contract the Tether detectors enforce. A value
+    outside ``[0, 1)`` is not a usable threshold, so it degrades to ``None`` (the
+    detector keeps its own faithful default) rather than being forced onto a
+    detector that would reject it.
+    """
+    return value if 0.0 <= value < 1.0 else None
+
+
+def _reference_channel_threshold(file: h5py.File, temp: h5py.Group) -> float | None:
+    """Decode the mapping-reference channel's ``DetectionThreshold`` from the MCOS blob.
+
+    Deep-LASI detects on the ``temp/MappingReferenceChannel`` channel, so its
+    per-channel ``DetectionThreshold`` (a ``TIRFdata`` MCOS property) is the one an
+    import reproduces. Returns ``None`` when the ``.tdat`` has no MCOS ``Channel``
+    blob (a plain-leaf slice), the reference channel can't be matched, or it stores
+    no usable threshold — leaving the detector's own default in force.
+
+    The threshold is an **optional** enhancement to the (MCOS-independent)
+    coordinate/correction decode, so any decode failure on an unexpected or
+    malformed MCOS layout degrades to ``None`` rather than sinking the whole
+    ``read_tdat`` — the reverse-engineered ``FileWrapper__`` layout was validated
+    against one acquisition, and a sibling's object graph may differ.
+    """
+    if "Channel" not in temp:
+        return None
+    try:
+        decoder = McosDecoder.from_file(file)
+        if decoder is None:
+            return None
+        reference_camera = _scalar(temp, "MappingReferenceChannel")
+        for ref in np.asarray(temp["Channel"][()]).reshape(-1):
+            if not ref:  # unpopulated Channel slot
+                continue
+            object_id = object_reference_id(np.asarray(file[ref][()]).reshape(-1))
+            # Match by the object's own ChannelID rather than cell position, so the
+            # reference channel is identified self-descriptively.
+            if decoder.property_scalar(object_id, "ChannelID") != reference_camera:
+                continue
+            threshold = decoder.property_scalar(object_id, "DetectionThreshold")
+            return None if threshold is None else _threshold_in_range(threshold)
+    except Exception:  # noqa: BLE001 — best-effort optional decode; never sink read_tdat
+        return None
+    return None
+
+
+def _detection_settings(file: h5py.File, temp: h5py.Group) -> TdatDetectionSettings:
     """Decode :class:`TdatDetectionSettings` from the ``temp`` struct.
 
     Maps the Deep-LASI ``findPart`` ``method`` code to the Tether mode string; an
     unported mode (4 local-variance / 5 ZMW, or any out-of-range code) is refused
     so an import can never silently mis-detect with the wrong method. The
-    per-channel ``DetectionThreshold`` is an MCOS property and is left ``None``
-    (decoded in PR-C3c-decode-B).
+    per-channel ``DetectionThreshold`` of the mapping-reference channel is decoded
+    from the MCOS ``Channel`` blob when present (:func:`_reference_channel_threshold`).
     """
     code = _detection_mode_code(temp)
     try:
@@ -235,7 +291,7 @@ def _detection_settings(temp: h5py.Group) -> TdatDetectionSettings:
             f"(only {supported} = wavelet/intensity/bandpass; modes 4 'local-variance' "
             "and 5 'ZMW intensity' are not ported)"
         ) from None
-    return TdatDetectionSettings(mode=mode, threshold=None)
+    return TdatDetectionSettings(mode=mode, threshold=_reference_channel_threshold(file, temp))
 
 
 def _require_temp(file: h5py.File, path: Path) -> h5py.Group:
@@ -263,7 +319,7 @@ def read_detection_settings(path: str | PathLike[str]) -> TdatDetectionSettings:
     """
     path = Path(path)
     with h5py.File(path, "r") as file:
-        return _detection_settings(_require_temp(file, path))
+        return _detection_settings(file, _require_temp(file, path))
 
 
 def _one_based_channel_index(value: float, name: str) -> int:
@@ -340,7 +396,7 @@ def read_tdat(path: str | PathLike[str]) -> Tdat:
             _scalar(temp, "DefaultBeta"),
             _scalar(temp, "DefaultGamma"),
         )
-        detection = _detection_settings(temp)
+        detection = _detection_settings(file, temp)
         channels_with_data = _one_based_channels(temp, "ChannelsWithData")
         reference_channel = _one_based_channel_index(
             _scalar(temp, "MappingReferenceChannel"), "MappingReferenceChannel"
