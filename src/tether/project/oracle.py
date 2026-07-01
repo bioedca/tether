@@ -397,19 +397,15 @@ def evaluate_extraction(
     gt_acceptor = getattr(ground_truth, f"acceptor_{intensity}")
     gt_xy = ground_truth.donor_xy
 
-    ext_donor_xy = np.atleast_2d(np.asarray(extracted_donor_xy, dtype=np.float64))
-    n_ext = 0 if ext_donor_xy.size == 0 else ext_donor_xy.shape[0]
     n_gt = int(gt_xy.shape[0])
 
-    matches = match_coordinates(gt_xy, ext_donor_xy, tol_px=tol_px)
-    recall = (len(matches) / n_gt) if n_gt else float("nan")
-    rms = coordinate_rms(gt_xy, ext_donor_xy, matches)
-    # Donor-channel precision (reporting only): the fraction of extracted molecules
-    # that land on a curated Deep-LASI molecule. A donor-anchored, sensitive detector
-    # keeps genuine low-FRET molecules Deep-LASI's curation dropped *and* false
-    # positives, so a high recall can coexist with a low precision — surfacing it
-    # keeps the §9 recall honest (the C3d over-detection concern).
-    precision = (len(matches) / n_ext) if n_ext else float("nan")
+    # Donor channel: recall / precision / RMS via the shared per-channel scorer.
+    # Precision is reporting only — the fraction of extracted molecules that land on
+    # a curated Deep-LASI molecule. A donor-anchored, sensitive detector keeps genuine
+    # low-FRET molecules Deep-LASI's curation dropped *and* false positives, so a high
+    # recall can coexist with a low precision — surfacing it keeps the §9 recall honest
+    # (the C3d over-detection concern).
+    n_ext, matches, recall, precision, rms = _score_channel(gt_xy, extracted_donor_xy, n_gt, tol_px)
 
     n_acc_ext, acc_matches, acc_recall, acc_precision, acc_rms = _score_acceptor_channel(
         ground_truth.acceptor_xy, extracted_acceptor_xy, n_gt, tol_px
@@ -451,6 +447,28 @@ def evaluate_extraction(
     )
 
 
+def _score_channel(
+    gt_xy: np.ndarray,
+    extracted_xy: np.ndarray,
+    n_gt: int,
+    tol_px: float,
+) -> tuple[int, list[tuple[int, int, float]], float, float, float]:
+    """Coordinate recall + precision + RMS of one channel vs curated coordinates.
+
+    Returns ``(n_extracted, matches, recall, precision, coord_rms)``. ``recall`` uses
+    the curated ``n_gt`` denominator (so donor and acceptor recall are directly
+    comparable); ``precision`` uses this channel's own extracted count. Shared by the
+    donor and acceptor paths so the two channels' scoring cannot drift apart.
+    """
+    ext_xy = np.atleast_2d(np.asarray(extracted_xy, dtype=np.float64))
+    n_ext = 0 if ext_xy.size == 0 else ext_xy.shape[0]
+    matches = match_coordinates(gt_xy, ext_xy, tol_px=tol_px)
+    recall = (len(matches) / n_gt) if n_gt else float("nan")
+    precision = (len(matches) / n_ext) if n_ext else float("nan")
+    rms = coordinate_rms(gt_xy, ext_xy, matches)
+    return n_ext, matches, recall, precision, rms
+
+
 def _score_acceptor_channel(
     gt_acceptor_xy: np.ndarray,
     extracted_acceptor_xy: np.ndarray | None,
@@ -459,21 +477,14 @@ def _score_acceptor_channel(
 ) -> tuple[int, list[tuple[int, int, float]], float, float, float]:
     """Per-channel acceptor coordinate recall + precision vs the curated coordinates.
 
-    Returns ``(n_acceptor_extracted, matches, acceptor_recall, acceptor_precision,
-    acceptor_coord_rms)``; all-unmeasured (``0``/``[]``/``nan``…) when
-    ``extracted_acceptor_xy`` is ``None``. The recall denominator is the same
-    ``n_gt`` curated molecules as the donor recall (so the two channels are directly
-    comparable); the precision denominator is the acceptor's own extracted count.
+    Delegates to :func:`_score_channel`; returns all-unmeasured
+    (``0``/``[]``/``nan``…) when ``extracted_acceptor_xy`` is ``None`` (the optional
+    acceptor path), else the acceptor channel's ``(n_extracted, matches, recall,
+    precision, coord_rms)``.
     """
     if extracted_acceptor_xy is None:
         return 0, [], float("nan"), float("nan"), float("nan")
-    ext_acc_xy = np.atleast_2d(np.asarray(extracted_acceptor_xy, dtype=np.float64))
-    n_acc_ext = 0 if ext_acc_xy.size == 0 else ext_acc_xy.shape[0]
-    acc_matches = match_coordinates(gt_acceptor_xy, ext_acc_xy, tol_px=tol_px)
-    acc_recall = (len(acc_matches) / n_gt) if n_gt else float("nan")
-    acc_precision = (len(acc_matches) / n_acc_ext) if n_acc_ext else float("nan")
-    acc_rms = coordinate_rms(gt_acceptor_xy, ext_acc_xy, acc_matches)
-    return n_acc_ext, acc_matches, acc_recall, acc_precision, acc_rms
+    return _score_channel(gt_acceptor_xy, extracted_acceptor_xy, n_gt, tol_px)
 
 
 # --- on-disk convenience -----------------------------------------------------
