@@ -47,6 +47,7 @@ prose harmonization of the PRD (PRD §12.7).
 | [0020](0020-extraction-oracle-and-deferred-m1-close.md) | The extraction-vs-Deep-LASI acceptance oracle; M1 close deferred (full-scale detection-faithfulness gap surfaced: ~20% recall) | accepted | §9 M1, §8 NFR-VALID (a), §7.11, §2.2, App A |
 | [0021](0021-particle-detection-modes.md) | Selectable particle-detection methods (match Deep-LASI's `findPart` modes 1–3) + `.tdat` mode/threshold decode; the deferred PR-C3d framing superseded by 0022 | accepted | §7.1, §9 M1, §11.2, App E |
 | [0022](0022-m1-acceptance-reframe-and-close.md) | M1 acceptance reframe (2 px recall, donor-only Pearson ≥0.95, acceptor Pearson diagnostic, faithful per-mode separation, donor-anchored) → **closes M1** (`v0.1.0`) | accepted | §7.1, §9 M1, §8 NFR-VALID (a), §11.2 |
+| [0023](0023-curation-label-codec-and-labels-log.md) | Curation-label codec `{UNCURATED 0, ACCEPT +1, REJECT −1}` shared by `curation_label`+`label_value`; append-only `/labels` provenance log with reversible sticky reject + toggleable exclusion; category→`/labels` deferred to M4 | accepted | §5.1, §7.5, §7.3 |
 
 _Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
 by the PRs that implement them._

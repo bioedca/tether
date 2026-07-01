@@ -25,6 +25,8 @@ from tether.io.schema import (
 )
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from tether.io.movie import MovieReader
 
 __all__ = ["Project"]
@@ -101,3 +103,41 @@ class Project:
         from tether.io.movie import open_movie
 
         return open_movie(movie_path)
+
+    # --- curation (PRD §7.5; the scriptable seam behind the GUI keymap) -------
+
+    def accept(self, molecule_key: str, **provenance: object) -> np.ndarray:
+        """Accept a molecule, logging the ``/labels`` event (:func:`labels.accept`)."""
+        from tether.project import labels
+
+        return labels.accept(self.path, molecule_key, **provenance)
+
+    def reject(self, molecule_key: str, **provenance: object) -> np.ndarray:
+        """Reject a molecule (reversible sticky tag, :func:`labels.reject`)."""
+        from tether.project import labels
+
+        return labels.reject(self.path, molecule_key, **provenance)
+
+    def unreject(self, molecule_key: str, **provenance: object) -> np.ndarray | None:
+        """Un-reject a molecule; ``None`` if it was not rejected (:func:`labels.unreject`)."""
+        from tether.project import labels
+
+        return labels.unreject(self.path, molecule_key, **provenance)
+
+    def curation_label(self, molecule_key: str) -> int:
+        """The molecule's current ``curation_label`` (:func:`labels.curation_label_of`)."""
+        from tether.project import labels
+
+        return labels.curation_label_of(self.path, molecule_key)
+
+    def read_labels(self) -> np.ndarray:
+        """The ``/labels/table`` provenance log (:func:`labels.read_labels`)."""
+        from tether.project import labels
+
+        return labels.read_labels(self.path)
+
+    def rejected_molecule_keys(self) -> set[str]:
+        """The molecules currently rejected (:func:`labels.rejected_molecule_keys`)."""
+        from tether.project import labels
+
+        return labels.rejected_molecule_keys(self.path)
