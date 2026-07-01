@@ -14,8 +14,11 @@ overlays, with a movie switcher for multi-movie experiments").
   donor/acceptor spot coordinates — and :meth:`set_active_movie` switches which is
   shown; :attr:`switcher` is a ready :class:`~qtpy.QtWidgets.QComboBox` a host can
   place to drive the switch. The napari Qt window is exposed as :attr:`qt_window`
-  so the Tether shell can embed it (the shell embed + trace↔movie round-trip
-  navigation land at M2 S4).
+  so the Tether shell can embed it (the shell embed lands at M2 S4).
+* :meth:`center_on` and :meth:`connect_spot_click` are the napari half of the
+  M2 S4 trace↔movie round-trip (PRD §7.3, §5.2): centre the camera on a spot
+  (trace → movie) and receive a canvas click (movie → trace). The resolver that
+  drives them lives in :mod:`tether.gui.roundtrip`.
 
 **Overlays.** Molecule spot positions are frame-independent, so a plain **2-D**
 Points layer (``[row, col]``) rides over every frame of the ``(T, H, W)`` movie as
@@ -24,9 +27,9 @@ red, matching the pyqtgraph trace dock, PRD Appendix C D1) plus a ring drawn at 
 integration-aperture PSF-disk radius (default 3 px, PRD Appendix E / §11.2). A
 movie switch replaces the single image layer and updates the overlay layers in
 place, so switching never piles up layers and only the active movie's ``memmap``
-is displayed. Resolving a molecule's per-channel coordinate into the displayed
-full-frame space is the caller's job (M2 S4 wires it) — the panel is purely
-presentational.
+is displayed. Resolving a molecule to a displayed spot (and back) is the
+round-trip resolver's job (:mod:`tether.gui.roundtrip`); the panel stays
+presentational, exposing only the camera-centre / click seam it drives.
 
 **Byte order.** The reference acquisitions are big-endian ``>u2`` (PRD Appendix A);
 :class:`MovieReader` preserves that on-disk order so the lazy ``memmap`` stays
@@ -52,7 +55,7 @@ import numpy as np
 from tether.io.movie import MovieReader
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     import napari
     from qtpy.QtWidgets import QComboBox
@@ -255,6 +258,9 @@ class NapariMoviePanel:
         self._donor_aperture_layer = None
         self._acceptor_aperture_layer = None
         self._switcher: QComboBox | None = None  # lazily created on first access
+        # Viewer-level mouse-drag callbacks registered by connect_spot_click, kept
+        # so they can be detached on close (the pytest-qt QApplication is shared).
+        self._spot_click_callbacks: list = []
 
     # --- accessors -----------------------------------------------------------
 
@@ -550,6 +556,58 @@ class NapariMoviePanel:
             border_color=border,
         )
 
+    # --- round-trip navigation (M2 S4, PRD §7.3, §5.2) -----------------------
+
+    def center_on(self, row: float, col: float, *, zoom: float | None = None) -> None:
+        """Centre the camera on a ``(row, col)`` world coordinate (trace → movie jump).
+
+        The napari half of the trace → movie leg: given a molecule's spot in napari
+        ``[row, col]`` world coordinates (from
+        :meth:`~tether.gui.roundtrip.RoundTripIndex.camera_target`), pan the camera
+        so the spot is centred, optionally setting ``zoom`` (canvas px per world px).
+
+        ``napari.components.Camera.center`` is always a 3-tuple ``(depth, row, col)``
+        even in the 2-D display; the leading depth component is preserved and only
+        the in-plane ``(row, col)`` is replaced, so this works whether the viewer is
+        2-D or 3-D without assuming the tuple length.
+        """
+        center = tuple(float(v) for v in self._viewer.camera.center)
+        self._viewer.camera.center = (*center[:-2], float(row), float(col))
+        if zoom is not None:
+            self._viewer.camera.zoom = float(zoom)
+
+    def connect_spot_click(self, callback: Callable[[tuple[float, float]], None]) -> None:
+        """Call ``callback((row, col))`` on a canvas **click** (movie → trace leg).
+
+        Registers a viewer-level napari ``mouse_drag`` callback — at the viewer, not
+        a layer, so it survives the image/overlay layer swaps of a movie switch. The
+        callback fires only on a **click** (press with no drag): the generator yields
+        once on press, consumes any ``mouse_move`` events, and invokes ``callback``
+        on release **iff** the pointer never moved — so panning the movie never
+        selects a molecule. ``event.position`` is the napari ``(…, row, col)`` world
+        coordinate; its last two components are passed on.
+        """
+
+        def _on_mouse_drag(_viewer: object, event: object) -> object:
+            start = tuple(float(v) for v in event.position)  # type: ignore[attr-defined]
+            dragged = False
+            yield
+            while event.type == "mouse_move":  # type: ignore[attr-defined]
+                dragged = True
+                yield
+            if not dragged:
+                callback((start[-2], start[-1]))
+
+        self._viewer.mouse_drag_callbacks.append(_on_mouse_drag)
+        self._spot_click_callbacks.append(_on_mouse_drag)
+
+    def disconnect_spot_clicks(self) -> None:
+        """Detach every callback registered by :meth:`connect_spot_click`."""
+        for cb in self._spot_click_callbacks:
+            if cb in self._viewer.mouse_drag_callbacks:
+                self._viewer.mouse_drag_callbacks.remove(cb)
+        self._spot_click_callbacks.clear()
+
     # --- lifecycle -----------------------------------------------------------
 
     def show(self) -> None:
@@ -562,6 +620,7 @@ class NapariMoviePanel:
 
     def close(self) -> None:
         """Close the viewer and release its window (and the switcher, if built)."""
+        self.disconnect_spot_clicks()
         if self._switcher is not None:
             self._switcher.deleteLater()
             self._switcher = None
