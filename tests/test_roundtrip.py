@@ -60,6 +60,12 @@ def _sites() -> list[MoleculeSite]:
     ]
 
 
+@pytest.fixture
+def index() -> RoundTripIndex:
+    """The resolver over :func:`_sites` (shared by the RoundTripIndex tests)."""
+    return RoundTripIndex(_sites())
+
+
 # --- MoleculeSite value object (pure) ----------------------------------------
 
 
@@ -88,8 +94,7 @@ def test_molecule_site_rejects_bad_input() -> None:
 # --- RoundTripIndex: trace → movie -------------------------------------------
 
 
-def test_camera_target_returns_movie_and_donor_rowcol() -> None:
-    index = RoundTripIndex(_sites())
+def test_camera_target_returns_movie_and_donor_rowcol(index: RoundTripIndex) -> None:
     assert index.n_molecules == 4
     # camera target = the molecule's own movie + its donor spot, transposed
     # [x, y] = [col, row] -> napari (row, col).
@@ -101,8 +106,7 @@ def test_camera_target_returns_movie_and_donor_rowcol() -> None:
     assert (row, col) == (50.0, 50.0)  # donor [50, 50] -> (row 50, col 50)
 
 
-def test_camera_target_out_of_range_raises() -> None:
-    index = RoundTripIndex(_sites())
+def test_camera_target_out_of_range_raises(index: RoundTripIndex) -> None:
     with pytest.raises(IndexError):
         index.camera_target(99)
 
@@ -110,8 +114,7 @@ def test_camera_target_out_of_range_raises() -> None:
 # --- RoundTripIndex: movie → trace (per-movie KDTree) ------------------------
 
 
-def test_nearest_molecule_resolves_donor_and_acceptor_clicks() -> None:
-    index = RoundTripIndex(_sites())
+def test_nearest_molecule_resolves_donor_and_acceptor_clicks(index: RoundTripIndex) -> None:
     # click near mol0's donor spot (row 20, col 10)
     assert index.nearest_molecule("m0", (20.3, 10.2)) == 0
     # click near mol0's acceptor spot (row 20, col 40) -> same molecule
@@ -120,16 +123,14 @@ def test_nearest_molecule_resolves_donor_and_acceptor_clicks() -> None:
     assert index.nearest_molecule("m0", (55.0, 12.0)) == 1
 
 
-def test_nearest_molecule_is_per_movie_isolated() -> None:
+def test_nearest_molecule_is_per_movie_isolated(index: RoundTripIndex) -> None:
     # mol0 (m0) and mol2 (m1) sit at identical coordinates: a click resolves within
     # the queried movie only, never leaking across movies (PRD §5.2 per-movie tree).
-    index = RoundTripIndex(_sites())
     assert index.nearest_molecule("m0", (20.0, 10.0)) == 0
     assert index.nearest_molecule("m1", (20.0, 10.0)) == 2
 
 
-def test_nearest_molecule_max_distance_and_unknown_movie() -> None:
-    index = RoundTripIndex(_sites())
+def test_nearest_molecule_max_distance_and_unknown_movie(index: RoundTripIndex) -> None:
     # a click far from every spot is rejected when a max distance is set
     assert index.nearest_molecule("m0", (0.0, 63.0), max_distance=5.0) is None
     # ... but still resolves to the nearest when no cap is given
@@ -138,14 +139,22 @@ def test_nearest_molecule_max_distance_and_unknown_movie() -> None:
     assert index.nearest_molecule("does-not-exist", (20.0, 10.0)) is None
 
 
-def test_index_movie_ids_are_the_populated_movies() -> None:
-    index = RoundTripIndex(_sites())
+def test_index_movie_ids_are_the_populated_movies(index: RoundTripIndex) -> None:
     assert sorted(index.movie_ids) == ["m0", "m1"]
 
 
-def test_roundtrip_both_directions_across_two_movies() -> None:
+def test_nearest_molecule_rejects_bad_position(index: RoundTripIndex) -> None:
+    # a napari nD position must be reduced to (row, col) at the panel boundary; the
+    # resolver rejects a 3-tuple rather than silently querying the wrong axes ...
+    with pytest.raises(ValueError, match="row, col"):
+        index.nearest_molecule("m0", (0.0, 20.0, 10.0))
+    # ... and a non-finite click is rejected too
+    with pytest.raises(ValueError, match="finite"):
+        index.nearest_molecule("m0", (np.nan, 10.0))
+
+
+def test_roundtrip_both_directions_across_two_movies(index: RoundTripIndex) -> None:
     """The §9 M2 gate at the resolver level: select→jump and click→trace, ≥2 movies."""
-    index = RoundTripIndex(_sites())
     for mol_index, expected_movie in ((0, "m0"), (2, "m1"), (3, "m1")):
         # select → jump: the molecule resolves to its own movie + spot ...
         movie_id, (row, col) = index.camera_target(mol_index)
@@ -165,6 +174,7 @@ class _FakePanel:
         self.switched_to: list[int] = []
         self.centered_on: list[tuple[float, float]] = []
         self.click_callback = None
+        self.connect_calls = 0
 
     @property
     def active_index(self) -> int:
@@ -180,6 +190,7 @@ class _FakePanel:
 
     def connect_spot_click(self, callback) -> None:
         self.click_callback = callback
+        self.connect_calls += 1
 
 
 def test_navigator_focus_molecule_switches_and_centers() -> None:
@@ -244,6 +255,25 @@ def test_navigator_connect_wires_panel_callback() -> None:
     nav = RoundTripNavigator(index, panel, movie_ids=["m0", "m1"])
     nav.connect()
     assert panel.click_callback == nav.handle_spot_click
+
+
+def test_navigator_connect_is_idempotent() -> None:
+    # re-binding the navigator must not register a second callback (which would
+    # fire on_select twice per click).
+    index = RoundTripIndex(_sites())
+    panel = _FakePanel(active=0)
+    nav = RoundTripNavigator(index, panel, movie_ids=["m0", "m1"])
+    nav.connect()
+    nav.connect()
+    assert panel.connect_calls == 1
+
+
+def test_navigator_rejects_duplicate_movie_ids() -> None:
+    # the one-to-one movie_id -> panel-index contract: a duplicate would misroute
+    index = RoundTripIndex(_sites())
+    panel = _FakePanel(active=0)
+    with pytest.raises(ValueError, match="unique"):
+        RoundTripNavigator(index, panel, movie_ids=["m0", "m0"])
 
 
 # --- GUI smoke: real napari panel, ≥2 movies ---------------------------------

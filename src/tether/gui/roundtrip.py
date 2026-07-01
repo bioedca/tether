@@ -185,12 +185,18 @@ class RoundTripIndex:
         movie carries no molecules or (with ``max_distance`` set) the nearest spot is
         farther than ``max_distance``.
         """
+        point = np.asarray(position, dtype=np.float64)
+        if point.shape != (2,) or not np.isfinite(point).all():
+            # The panel reduces a napari nD event.position to (row, col) at the
+            # boundary (connect_spot_click), so the resolver requires exactly a
+            # 2-D click — never silently truncate an (depth, row, col) to
+            # (depth, row) and query the wrong axes.
+            raise ValueError(f"position must be a finite (row, col) coordinate, got {position!r}")
         entry = self._trees.get(movie_id)
         if entry is None:
             return None
         tree, mol_indices = entry
         upper = float(max_distance) if max_distance is not None else np.inf
-        point = np.asarray(position, dtype=np.float64)[:2]
         distance, tree_index = tree.query(point, distance_upper_bound=upper)
         # SciPy signals "nothing within distance_upper_bound" with an infinite
         # distance and an out-of-range index (== tree size).
@@ -262,14 +268,17 @@ class RoundTripNavigator:
         self._index = index
         self._panel = panel
         self._movie_ids = list(movie_ids)
-        # movie_id → panel registration index (the first registration wins if a
-        # movie were ever registered twice; ids are expected unique).
-        self._panel_index: dict[str, int] = {}
-        for panel_index, movie_id in enumerate(self._movie_ids):
-            self._panel_index.setdefault(movie_id, panel_index)
+        # The one-to-one movie_id → panel-index mapping is the navigator's contract;
+        # a duplicate id would silently misroute focus/clicks, so reject it loudly.
+        if len(set(self._movie_ids)) != len(self._movie_ids):
+            raise ValueError(f"movie_ids must be unique, got {self._movie_ids!r}")
+        self._panel_index: dict[str, int] = {
+            movie_id: panel_index for panel_index, movie_id in enumerate(self._movie_ids)
+        }
         self._on_select = on_select
         self._on_focus = on_focus
         self._max_click_distance = max_click_distance
+        self._connected = False
 
     # --- accessors -----------------------------------------------------------
 
@@ -309,8 +318,15 @@ class RoundTripNavigator:
     # --- movie → trace -------------------------------------------------------
 
     def connect(self) -> None:
-        """Wire the panel's spot-click to :meth:`handle_spot_click`."""
+        """Wire the panel's spot-click to :meth:`handle_spot_click` (idempotent).
+
+        A second call is a no-op, so re-binding the navigator never registers a
+        duplicate callback that would fire ``on_select`` twice per click.
+        """
+        if self._connected:
+            return
         self._panel.connect_spot_click(self.handle_spot_click)
+        self._connected = True
 
     def handle_spot_click(self, position: tuple[float, float]) -> int | None:
         """Resolve a click on the active movie to a molecule and fire ``on_select``.
