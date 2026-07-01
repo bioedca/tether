@@ -118,7 +118,7 @@ class ExtractOptions:
     detection_mode: str = "wavelet"
     detection_threshold: float | None = None
     detection_block: int = 50
-    min_separation: float = 8.0
+    min_separation: float | None = None
     prealign: str = "translation"
     prealign_upsample: int = 10
     prealign_low_sigma: float = 3.0
@@ -153,6 +153,12 @@ class ExtractOptions:
                 "detection_threshold must be in [0, 1) (a fraction of the detection-image "
                 f"max), got {self.detection_threshold}"
             )
+        # ``min_separation`` is optional: ``None`` (default) lets each detection mode
+        # use its own faithful minimum-separation NMS (wavelet 8, intensity/bandpass
+        # 3 px; ADR-0022). When supplied it overrides that for every mode and must be
+        # positive.
+        if self.min_separation is not None and not self.min_separation > 0:
+            raise ExtractionError(f"min_separation must be > 0, got {self.min_separation}")
         if self.prealign not in ("translation", "similarity"):
             raise ExtractionError(
                 f"prealign must be 'translation' or 'similarity', got {self.prealign!r}"
@@ -172,7 +178,7 @@ class ExtractOptions:
         for name in ("detection_block", "prealign_upsample", "bg_window"):
             if getattr(self, name) < 1:
                 raise ExtractionError(f"{name} must be >= 1, got {getattr(self, name)}")
-        for name in ("min_separation", "pair_tol", "coloc_distance", "rms_gate"):
+        for name in ("pair_tol", "coloc_distance", "rms_gate"):
             if not getattr(self, name) > 0:
                 raise ExtractionError(f"{name} must be > 0, got {getattr(self, name)}")
         if not (0 < self.prealign_low_sigma < self.prealign_high_sigma):

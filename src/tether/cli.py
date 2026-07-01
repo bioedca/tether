@@ -94,8 +94,11 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
     extract.add_argument(
         "--min-separation",
         type=float,
-        default=8.0,
-        help="minimum spot separation in px (default: 8)",
+        default=None,
+        help=(
+            "minimum spot separation in px; unset uses each detection mode's faithful "
+            "default (wavelet 8, intensity/bandpass 3)"
+        ),
     )
     extract.add_argument(
         "--detection-block",

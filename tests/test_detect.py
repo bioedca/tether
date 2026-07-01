@@ -196,6 +196,39 @@ def test_detect_spots_min_separation_keeps_brightest() -> None:
     assert _count_near(kept_15, x=42, y=30) == 0  # suppressed -> brightest only
 
 
+def test_by_mode_min_separation_defaults_are_faithful_per_mode() -> None:
+    # ADR-0022: detect_spots_by_mode(min_separation=None) resolves to EACH mode's
+    # own faithful default — intensity/bandpass 3 px, wavelet 8 px — not a shared
+    # 8 px. Deep-LASI findPart applies no effective separation (findPart.m:66-69 is
+    # a no-op); the 8 px was a wavelet-mode artifact that merged real molecules
+    # < 8 px apart. The real-data recall impact (0.87 -> 0.98) is locked by the
+    # gated acceptance test; here we pin the per-mode default *dispatch*.
+    rng = np.random.default_rng(4)
+    image = rng.normal(100, 3, size=(64, 64))
+    for row, col, amp in [(20, 20, 900), (30, 44, 780), (48, 18, 850)]:
+        _gaussian_blob(image, row, col, amp=amp)
+    det = image / image.max()
+
+    # None -> intensity/bandpass 3 px, wavelet 8 px (identical to the explicit call).
+    np.testing.assert_allclose(
+        detect_spots_by_mode(det, mode="intensity"),
+        detect_spots_intensity(det, min_separation=3.0),
+    )
+    np.testing.assert_allclose(
+        detect_spots_by_mode(det, mode="bandpass"),
+        detect_spots_bandpass(det, min_separation=3.0),
+    )
+    np.testing.assert_allclose(
+        detect_spots_by_mode(det, mode="wavelet"),
+        detect_spots(det, min_separation=8.0),
+    )
+    # An explicit min_separation still overrides the per-mode default for every mode.
+    np.testing.assert_allclose(
+        detect_spots_by_mode(det, mode="intensity", min_separation=5.0),
+        detect_spots_intensity(det, min_separation=5.0),
+    )
+
+
 def test_detect_spots_border_removal() -> None:
     rng = np.random.default_rng(1)
     image = rng.normal(100, 4, size=(64, 64))
