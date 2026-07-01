@@ -29,11 +29,17 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 from tether.fret.efficiency import apparent_fret
+
+if TYPE_CHECKING:
+    # Type-only imports (never executed at runtime, so the module stays Qt-free to
+    # import): give the accessors real pyqtgraph/Qt types for consumers/IDEs.
+    import pyqtgraph as pg
+    from pyqtgraph.Qt import QtWidgets
 
 __all__ = ["TimeMode", "TraceDock", "TraceView", "trace_from_smd"]
 
@@ -52,7 +58,7 @@ _FRET_RANGE = (0.0, 1.0)
 _N_HIST_BINS = 40
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class TraceView:
     """One molecule's donor/acceptor time-series to display (Qt-free).
 
@@ -79,8 +85,12 @@ class TraceView:
     name: str | None = None
 
     def __post_init__(self) -> None:
-        donor = np.asarray(self.donor, dtype=np.float64)
-        acceptor = np.asarray(self.acceptor, dtype=np.float64)
+        # Defensive copies (``np.array`` always copies), so the stored arrays never
+        # alias the caller's buffer — e.g. ``trace_from_smd`` passes a *view* into an
+        # SMD ``raw`` array. Frozen read-only below makes the "immutable value object"
+        # claim true: neither an upstream mutation nor ``trace.donor[i] = x`` changes it.
+        donor = np.array(self.donor, dtype=np.float64)
+        acceptor = np.array(self.acceptor, dtype=np.float64)
         if donor.ndim != 1 or acceptor.ndim != 1:
             raise ValueError("donor and acceptor must be 1-D per-frame arrays")
         if donor.shape != acceptor.shape:
@@ -98,7 +108,8 @@ class TraceView:
             raise ValueError(
                 f"frame_time must be a finite positive number when given, got {self.frame_time!r}"
             )
-        # Normalise the stored arrays to contiguous float64 (frozen: via object.__setattr__).
+        donor.setflags(write=False)
+        acceptor.setflags(write=False)
         object.__setattr__(self, "donor", donor)
         object.__setattr__(self, "acceptor", acceptor)
 
@@ -252,54 +263,54 @@ class TraceDock:
     # --- accessors -----------------------------------------------------------
 
     @property
-    def widget(self) -> Any:
+    def widget(self) -> QtWidgets.QWidget:
         """The embeddable ``QWidget`` (checkbox toggle + plot grid)."""
         return self._widget
 
     @property
-    def graphics(self) -> Any:
+    def graphics(self) -> pg.GraphicsLayoutWidget:
         """The underlying ``pyqtgraph.GraphicsLayoutWidget``."""
         return self._graphics
 
     @property
-    def time_checkbox(self) -> Any:
+    def time_checkbox(self) -> QtWidgets.QCheckBox:
         """The seconds/frame-index toggle ``QCheckBox``."""
         return self._time_checkbox
 
     @property
-    def intensity_plot(self) -> Any:
+    def intensity_plot(self) -> pg.PlotItem:
         return self._intensity_plot
 
     @property
-    def fret_plot(self) -> Any:
+    def fret_plot(self) -> pg.PlotItem:
         return self._fret_plot
 
     @property
-    def intensity_histogram(self) -> Any:
+    def intensity_histogram(self) -> pg.PlotItem:
         return self._intensity_hist
 
     @property
-    def fret_histogram(self) -> Any:
+    def fret_histogram(self) -> pg.PlotItem:
         return self._fret_hist
 
     @property
-    def donor_curve(self) -> Any:
+    def donor_curve(self) -> pg.PlotDataItem:
         return self._donor_curve
 
     @property
-    def acceptor_curve(self) -> Any:
+    def acceptor_curve(self) -> pg.PlotDataItem:
         return self._acceptor_curve
 
     @property
-    def total_curve(self) -> Any:
+    def total_curve(self) -> pg.PlotDataItem:
         return self._total_curve
 
     @property
-    def fret_curve(self) -> Any:
+    def fret_curve(self) -> pg.PlotDataItem:
         return self._fret_curve
 
     @property
-    def idealization_curve(self) -> Any:
+    def idealization_curve(self) -> pg.PlotDataItem:
         """Reserved step overlay for the idealized path (empty until M2 S6)."""
         return self._idealization_curve
 
@@ -398,9 +409,15 @@ class TraceDock:
     def _draw_bars(
         self, plot: Any, existing: Any, counts: np.ndarray, centers: np.ndarray, width: float
     ) -> Any:
-        """Replace ``existing`` horizontal bars on ``plot`` with a fresh marginal."""
+        """Update ``existing`` horizontal bars on ``plot`` in place, or create them.
+
+        Reusing the ``BarGraphItem`` via ``setOpts`` (rather than remove + recreate)
+        avoids tearing down and rebuilding two graphics items on every trace step —
+        the dock is stepped through many molecules quickly.
+        """
         if existing is not None:
-            plot.removeItem(existing)
+            existing.setOpts(x0=0.0, width=counts, y=centers, height=width * 0.9)
+            return existing
         bars = self._pg.BarGraphItem(
             x0=0.0, width=counts, y=centers, height=width * 0.9, brush=(120, 120, 120, 160)
         )

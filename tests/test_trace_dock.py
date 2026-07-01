@@ -99,6 +99,28 @@ def test_trace_from_smd_slices_donor_acceptor() -> None:
     assert trace.name == "mol-1"
 
 
+def test_traceview_arrays_are_readonly_copies() -> None:
+    # The value object is documented immutable: it must not alias the caller's
+    # buffer (trace_from_smd passes a view into an SMD raw array) and its stored
+    # arrays must be read-only.
+    src_donor = np.array([1.0, 2.0, 3.0])
+    trace = TraceView(donor=src_donor, acceptor=np.array([3.0, 2.0, 1.0]))
+    src_donor[0] = 999.0
+    assert trace.donor[0] == 1.0  # no aliasing
+    with pytest.raises(ValueError):  # read-only
+        trace.donor[0] = 0.0
+
+
+def test_traceview_is_hashable_and_identity_compared() -> None:
+    # frozen dataclass + numpy fields would make the default __eq__/__hash__ crash
+    # (ValueError / TypeError); eq=False gives safe identity semantics instead.
+    trace = TraceView(donor=np.zeros(2), acceptor=np.zeros(2))
+    assert hash(trace) == hash(trace)
+    assert trace == trace
+    assert trace != TraceView(donor=np.zeros(2), acceptor=np.zeros(2))
+    assert trace in {trace}
+
+
 # --- GUI smokes (@pytest.mark.gui, need a real QApplication via qtbot) --------
 
 
