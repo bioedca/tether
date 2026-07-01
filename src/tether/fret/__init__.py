@@ -10,3 +10,7 @@ vectorized FFT donor-acceptor cross-correlation.
 """
 
 from __future__ import annotations
+
+from tether.fret.efficiency import apparent_fret
+
+__all__ = ["apparent_fret"]
