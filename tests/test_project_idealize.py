@@ -3,11 +3,12 @@
 """Store-integrated one-click idealization (M2 S6, PR-A; FR-IDEALIZE; ADR-0024).
 
 Locks the headless half of "one-click vbFRET from the dock": read selected
-molecules' traces from a ``.tether`` -> SMD -> (fake or live) vbFRET -> write
+molecules' traces from a ``.tether`` -> SMD -> vbFRET -> write
 ``/idealization/{model}`` back as **additive data** with a per-molecule
-input-provenance hash. The sidecar is faked in the default matrix (a canned
-:class:`~tether.idealize.IdealizationResult`); the single live end-to-end leg is
-``@pytest.mark.sidecar`` (deselected from CI).
+input-provenance hash. The sidecar is faked with a canned
+:class:`~tether.idealize.IdealizationResult`, so the whole suite is headless and
+runs in the base CI matrix; the live ``run_vbfret`` parity is gated separately by
+``test_parity_sidecar``.
 """
 
 from __future__ import annotations
@@ -447,54 +448,11 @@ def test_project_delegators(tmp_path) -> None:
     assert proj.stale_idealization_keys("vbconhmm") == []
 
 
-# --- live end-to-end (sidecar; deselected from the CI matrix) -----------------
-
-import os  # noqa: E402
-
-_SIDECAR = os.environ.get("TETHER_SIDECAR_PYTHON")
-requires_sidecar = pytest.mark.skipif(
-    not _SIDECAR, reason="set TETHER_SIDECAR_PYTHON to a tMAVEN sidecar interpreter"
-)
-
-
-def _two_state_channels(n: int, t: int) -> tuple[np.ndarray, np.ndarray]:
-    """Clean 2-state donor/acceptor: apparent E steps 0.25 -> 0.75 mid-trace.
-
-    A small deterministic ripple keeps the VB fit from a degenerate single-state
-    collapse without introducing RNG nondeterminism.
-    """
-    total = 1000.0
-    e = np.concatenate([np.full(t // 2, 0.25), np.full(t - t // 2, 0.75)])
-    ripple = 15.0 * np.sin(np.arange(t) * 0.7)
-    donor = np.empty((n, t))
-    acceptor = np.empty((n, t))
-    for i in range(n):
-        acceptor[i] = e * total + ripple * (1 + 0.1 * i)
-        donor[i] = (1.0 - e) * total - ripple * (1 + 0.1 * i)
-    return donor, acceptor
-
-
-@pytest.mark.sidecar
-@requires_sidecar
-def test_live_store_integrated_idealize_writes_well_formed_model(tmp_path) -> None:
-    """The real store->SMD->sidecar->store path runs live and writes a valid model.
-
-    The unique new surface is the store integration; the raw fit's §11.2 parity is
-    already gated by ``test_parity_sidecar`` at the ``run_vbfret`` layer, so this is
-    a fast single-fit smoke on a tiny synthetic 2-state input (small ``nrestarts``).
-    """
-    n, t = 2, 40
-    donor, acceptor = _two_state_channels(n, t)
-    proj, keys = _build_store(tmp_path / "e.tether", donor, acceptor, sha="5" * 64)
-
-    stored = idealize_molecules(proj, nstates=2, nrestarts=2, timeout=600.0)
-
-    assert stored.elbo is not None and np.isfinite(stored.elbo)
-    assert stored.nstates == 2
-    assert stored.idealized.shape == (n, t)
-    assert stored.molecule_keys == keys
-    assert list_idealizations(proj) == ["vbconhmm"]
-    # every in-window frame resolved to a finite level; the round-trip reads back
-    finite = stored.idealized[np.isfinite(stored.idealized)]
-    assert finite.size > 0
-    assert read_idealization(proj, "vbconhmm").molecule_keys == keys
+# NOTE: a *live* store-integrated sidecar test is intentionally not added here.
+# `tether.project.idealize` is a base-env module (Python >= 3.11; it uses
+# `datetime.UTC`) that spawns the sidecar as a subprocess; it cannot import in the
+# isolated sidecar interpreter (older Python) that `sidecar.yml` collects
+# `test_*sidecar*.py` under, and the base `test` matrix has no sidecar interpreter.
+# The raw fit's §11.2 parity is already gated by `test_parity_sidecar` at the
+# `run_vbfret` layer, and the store-integration is fully covered above (faked
+# sidecar). See ADR-0024.
