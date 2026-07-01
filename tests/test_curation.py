@@ -406,8 +406,11 @@ def test_cheatsheet_reflects_current_bindings() -> None:
     k = QtCore.Qt.Key
     km = Keymap.default()
     default_rows = dict(km.cheatsheet())
+    # "Space" and letter keys render identically on every platform; Backspace /
+    # Delete render as native symbols (Del/⌫/⌦), so assert Reject by action value
+    # rather than a platform-specific key label.
     assert default_rows.get("Space") == "Accept trace"
-    assert "Del" in default_rows and default_rows["Del"] == "Reject trace"
+    assert "Reject trace" in default_rows.values()
 
     km.rebind(Command(A.ACCEPT), int(k.Key_A))
     rebound_rows = dict(km.cheatsheet())
