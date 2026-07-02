@@ -542,34 +542,42 @@ class TetherShell:
         if hist is None:
             self._status("Histogram: nothing to pool")
             return None
-        dock = self._ensure_histogram_dock()
+        dock = self._histogram_dock
+        newly_built = dock is None
+        if newly_built:
+            from tether.gui.histogram_dock import HistogramDock
+
+            dock = HistogramDock()
         try:
             dock.set_histogram(hist)
         except Exception as exc:  # noqa: BLE001 - a malformed result must not crash
             # Mirrors _poll_idealize: an injected seam returning a shape-invalid
             # Histogram1D surfaces as a status message, never an uncaught exception
-            # out of the &Analysis menu action.
+            # out of the &Analysis menu action. A dock that fails its very first draw
+            # is discarded, so no blank dock is ever adopted/attached to the window
+            # (consistent with the no-seam / seam-raises / None-result paths); an
+            # already-shown dock is kept, so a later failure leaves the last good view.
             self._status(f"Histogram failed: {exc}")
+            if newly_built:
+                dock.close()
             return None
+        if newly_built:
+            self._histogram_dock = dock
+            self._attach_histogram_dock()
         self._histogram_dock_widget.show()
         self._histogram_dock_widget.raise_()
         n_mol = hist.n_molecules if hist.n_molecules is not None else 0
         self._status(f"Population histogram — {n_mol} molecule(s), {hist.n_samples} frame(s)")
         return dock
 
-    def _ensure_histogram_dock(self) -> Any:
-        """Build the bottom histogram dock on first use; reuse it thereafter."""
+    def _attach_histogram_dock(self) -> None:
+        """Dock the (already-built, successfully-drawn) histogram into the window."""
         from pyqtgraph.Qt import QtCore, QtWidgets
 
-        from tether.gui.histogram_dock import HistogramDock
-
-        if self._histogram_dock is None:
-            self._histogram_dock = HistogramDock()
-            dock_widget = QtWidgets.QDockWidget("Population histogram", self._window)
-            dock_widget.setWidget(self._histogram_dock.widget)
-            self._window.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, dock_widget)
-            self._histogram_dock_widget = dock_widget
-        return self._histogram_dock
+        dock_widget = QtWidgets.QDockWidget("Population histogram", self._window)
+        dock_widget.setWidget(self._histogram_dock.widget)
+        self._window.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, dock_widget)
+        self._histogram_dock_widget = dock_widget
 
     # --- handlers (route each command to a visible status message) -----------
 

@@ -867,6 +867,37 @@ def test_show_histogram_surfaces_malformed_result_without_crashing(qapp, qtbot) 
     try:
         assert s.show_histogram() is None
         assert "Histogram failed" in s.status_message
+        # A dock that fails its very first draw is discarded — none is adopted or
+        # attached to the window, matching the no-seam / seam-raises / None paths.
+        assert s.histogram_dock is None
+    finally:
+        s.close()
+
+
+def test_show_histogram_keeps_existing_dock_on_later_failure(qapp, qtbot) -> None:
+    from tether.analysis.histogram import DEFAULT_RANGE, Histogram1D
+    from tether.gui.shell import TetherShell
+
+    good = _population_histogram()
+    bad = Histogram1D(
+        counts=np.zeros(5),
+        bin_edges=np.zeros(5),
+        density=True,
+        value_range=DEFAULT_RANGE,
+        n_samples=0,
+        n_molecules=0,
+        per_molecule_equal_weight=False,
+    )
+    seq = iter([good, bad])
+    s = TetherShell(histogram=lambda: next(seq))
+    qtbot.addWidget(s.window)
+    try:
+        dock = s.show_histogram()  # first: good -> dock built + attached
+        assert dock is not None
+        # second: malformed -> must not crash and must KEEP the already-shown dock.
+        assert s.show_histogram() is None
+        assert "Histogram failed" in s.status_message
+        assert s.histogram_dock is dock
     finally:
         s.close()
 
