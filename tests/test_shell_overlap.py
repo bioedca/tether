@@ -232,3 +232,28 @@ def test_shell_overlap_seam_failure_does_not_crash(qtbot) -> None:
         qtbot.addWidget(shell.window)
         shell.set_molecules(_keyed_traces(1))  # must not raise
         assert "Overlap view failed" in shell.status_message
+        assert shell.overlap_dock is None  # a seam that raised built no dock
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_shell_overlap_bad_patch_does_not_crash(qtbot) -> None:
+    from tether.gui.shell import TetherShell
+
+    # The seam resolves but returns a shape-invalid patch — OverlapDock.set_molecule
+    # raises, and the shell must catch it (like show_histogram) rather than crash the
+    # selection slot, attaching no half-built dock.
+    seam = {
+        "m0": OverlapInfo(
+            nn_distance=4.0,
+            overlaps=True,
+            aperture_radius=3.0,
+            patch=np.zeros((2, 2, 2)),
+            name="m0",
+        )
+    }
+    with TetherShell(overlap=seam.get) as shell:
+        qtbot.addWidget(shell.window)
+        shell.set_molecules(_keyed_traces(1))  # must not raise
+        assert "Overlap view failed" in shell.status_message
+        assert shell.overlap_dock is None  # a first-draw failure attaches no dock

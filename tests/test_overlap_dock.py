@@ -146,3 +146,26 @@ def test_dock_rejects_non_2d_patch(qtbot) -> None:
         qtbot.addWidget(dock.widget)
         with pytest.raises(ValueError, match="2-D"):
             dock.set_molecule(bad)
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_rejected_patch_leaves_prior_molecule_intact(qtbot) -> None:
+    from tether.gui.overlap_dock import OverlapDock
+
+    good = OverlapInfo(
+        nn_distance=6.0, overlaps=False, aperture_radius=3.0, patch=_patch(fill=300.0), name="good"
+    )
+    bad = OverlapInfo(
+        nn_distance=1.0, overlaps=True, aperture_radius=3.0, patch=np.zeros((3, 3, 3)), name="bad"
+    )
+    with OverlapDock() as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_molecule(good)
+        with pytest.raises(ValueError, match="2-D"):
+            dock.set_molecule(bad)
+        # Validation runs before any mutation, so the rejected molecule never
+        # overwrote the good one — the dock still shows "good", not a half-update.
+        assert dock.info is good
+        assert "good" in dock.readout
+        assert "NN 6.0 px" in dock.readout

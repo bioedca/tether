@@ -154,19 +154,25 @@ class OverlapDock:
         ``None`` ``info.patch`` (analysis-only project, no cached patch) still draws
         the readout and leaves the patch panel blank — never a fabricated image.
         """
-        self._info = info
         if info is None:
+            self._info = None
             self._label.setText(_PLACEHOLDER)
             self._image.clear()
             return
-        self._label.setText(_readout(info))
-        if info.patch is None:
-            self._label.setText(f"{self._label.text()} · {_NO_PATCH}")
+        # Validate the patch BEFORE mutating any dock state, so a rejected input
+        # leaves the previously-shown molecule intact rather than a half-updated
+        # view (new readout over a stale image).
+        patch: np.ndarray | None = None
+        if info.patch is not None:
+            patch = np.asarray(info.patch, dtype=np.float64)
+            if patch.ndim != 2:
+                raise ValueError(f"patch must be a 2-D (w, w) image, got shape {patch.shape}")
+        self._info = info
+        if patch is None:
+            self._label.setText(f"{_readout(info)} · {_NO_PATCH}")
             self._image.clear()
             return
-        patch = np.asarray(info.patch, dtype=np.float64)
-        if patch.ndim != 2:
-            raise ValueError(f"patch must be a 2-D (w, w) image, got shape {patch.shape}")
+        self._label.setText(_readout(info))
         # Explicit levels so a flat patch (e.g. an all-zero placeholder trace) does
         # not trip pyqtgraph's auto-level on a zero-width range.
         lo = float(patch.min())

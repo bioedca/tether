@@ -445,13 +445,25 @@ class TetherShell:
             self._status(f"Overlap view failed: {exc}")
             return
         dock = self._overlap_dock
-        if dock is None:
+        newly_built = dock is None
+        if newly_built:
             from tether.gui.overlap_dock import OverlapDock
 
             dock = OverlapDock()
+        try:
+            dock.set_molecule(info)
+        except Exception as exc:  # noqa: BLE001 - a malformed payload must not crash
+            # Mirror show_histogram: a seam that resolves but returns a shape-invalid
+            # patch surfaces as a status message, never an uncaught exception out of
+            # a selection change. A dock that fails its very first draw is discarded
+            # so no blank dock is ever attached; an already-shown dock is kept.
+            self._status(f"Overlap view failed: {exc}")
+            if newly_built:
+                dock.close()
+            return
+        if newly_built:
             self._overlap_dock = dock
             self._attach_overlap_dock()
-        dock.set_molecule(info)
 
     def _attach_overlap_dock(self) -> None:
         """Dock the (lazily-built) overlap view into the right of the window."""
