@@ -674,3 +674,57 @@ def test_make_store_handoff_delegates_to_project_handoff(monkeypatch) -> None:
     assert applied_call["intensity_quantity"] == "raw"
     assert applied_call["model_name"] == "mymodel"
     assert applied_call["overwrite"] is False  # non-destructive by default
+
+
+def test_import_return_leg_apply_failure_is_reported(make_shell, monkeypatch) -> None:
+    from tether.gui import reconcile as reconcile_mod
+    from tether.gui.reconcile import ReconcileDecision
+
+    monkeypatch.setattr(
+        reconcile_mod.ReconcileDialog,
+        "exec",
+        lambda self: ReconcileDecision(accept_windows=("id-a",)),
+    )
+    fake = _FakeHandoff(report=_shell_report(), fail={"apply": RuntimeError("clobber")})
+    shell = make_shell(handoff=fake)
+    assert shell.import_return_leg("ret.hdf5") is None
+    assert len(fake.apply_calls) == 1  # apply was attempted…
+    assert "import failed: clobber" in shell.status_message  # …and its failure surfaced
+
+
+def test_import_return_leg_threads_model_path_through_both_legs(make_shell, monkeypatch) -> None:
+    from tether.gui import reconcile as reconcile_mod
+    from tether.gui.reconcile import ReconcileDecision
+
+    monkeypatch.setattr(
+        reconcile_mod.ReconcileDialog,
+        "exec",
+        lambda self: ReconcileDecision(import_idealization=True),
+    )
+    fake = _FakeHandoff(
+        report=_shell_report(), applied=_applied(idealization_written="tmaven-import")
+    )
+    shell = make_shell(handoff=fake)
+    shell.import_return_leg("ret.hdf5", model_path="m.hdf5")
+    # The same model_path threads through BOTH legs (preview gates the checkbox, apply imports).
+    assert fake.preview_calls == [("ret.hdf5", "m.hdf5")]
+    assert fake.apply_calls[0][2] == "m.hdf5"
+
+
+def test_applied_summary_covers_every_branch() -> None:
+    from tether.gui.shell import _applied_summary
+
+    assert "nothing to apply" in _applied_summary(_applied())
+    assert "/idealization/tmaven-import" in _applied_summary(
+        _applied(idealization_written="tmaven-import")
+    )
+    assert "1 window" in _applied_summary(_applied(windows_applied=["a"]))
+    assert "2 class(es)" in _applied_summary(_applied(classes_applied=["a", "b"]))
+    assert "deferred to M4" in _applied_summary(_applied(classes_deferred=["a"]))
+    assert "unfit trace(s) dropped" in _applied_summary(_applied(import_unfit_dropped=["a"]))
+    assert "re-staled" in _applied_summary(_applied(stale_after=["a"]))
+    # A rich commit chains multiple clauses in one line.
+    combo = _applied_summary(
+        _applied(windows_applied=["a"], classes_deferred=["b"], stale_after=["a"])
+    )
+    assert "1 window" in combo and "deferred to M4" in combo and "re-staled" in combo

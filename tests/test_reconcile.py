@@ -192,3 +192,28 @@ def test_exec_returns_none_on_cancel(qtbot, monkeypatch) -> None:
     dlg.window_checkbox("id-a").setChecked(True)
     monkeypatch.setattr(dlg.dialog, "exec", lambda: QtWidgets.QDialog.DialogCode.Rejected)
     assert dlg.exec() is None
+
+
+def test_dual_change_row_collects_both_facets(qtbot) -> None:
+    # A single returning trace can carry BOTH a window edit and an applicable class
+    # change; the two per-facet boxes are independent and each is collected under the
+    # same molecule_id — so the id lands in both accept lists.
+    dlg = _dialog(qtbot, _report([_trace(0, "a", window=_window(), cls=_applicable_class())]))
+    assert dlg.window_checkbox("id-a").isEnabled() is True
+    assert dlg.class_checkbox("id-a").isEnabled() is True
+    dlg.window_checkbox("id-a").setChecked(True)
+    dlg.class_checkbox("id-a").setChecked(True)
+    decision = dlg.decision()
+    assert decision.accept_windows == ("id-a",)
+    assert decision.accept_classes == ("id-a",)
+
+
+def test_decision_excludes_enabled_but_unchecked_box(qtbot) -> None:
+    # Both traces have a live window box; only one is checked. decision() must honor
+    # isChecked(), not merely isEnabled() — the enabled-but-unchecked box is excluded.
+    dlg = _dialog(
+        qtbot,
+        _report([_trace(0, "a", window=_window()), _trace(1, "b", window=_window())]),
+    )
+    dlg.window_checkbox("id-a").setChecked(True)  # id-b stays enabled but unchecked
+    assert dlg.decision().accept_windows == ("id-a",)
