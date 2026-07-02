@@ -130,7 +130,9 @@ class StoredIdealization:
     tmatrix: np.ndarray | None
     norm_tmatrix: np.ndarray | None
     elbo: float | None
-    idealized: np.ndarray
+    # ``None`` only when read back from a model that carries no idealized dataset;
+    # idealize_molecules always writes one (it refuses a degenerate fit).
+    idealized: np.ndarray | None
     state_paths: np.ndarray
     molecule_keys: list[str]
     molecule_ids: list[str]

@@ -382,19 +382,21 @@ class TetherShell:
             self._status("Idealize: load a project with extracted molecules first")
             return
         # The fit runs on the GUI thread (an async worker is a follow-up); a wait
-        # cursor signals the block. Any failure is surfaced, never swallowed.
+        # cursor signals the block. The idealizer call AND the overlay draw are both
+        # guarded so any failure — a raising fit or a length-mismatched result that
+        # set_idealization rejects — surfaces as a status message, never a crash.
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
         try:
             idealized = self._idealizer(trace.molecule_key)
+            if idealized is None:
+                self._status(f"Idealize: no idealization produced for {trace.molecule_key}")
+                return
+            self._trace_dock.set_idealization(idealized)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
             self._status(f"Idealize failed for {trace.molecule_key}: {exc}")
             return
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
-        if idealized is None:
-            self._status(f"Idealize: no idealization produced for {trace.molecule_key}")
-            return
-        self._trace_dock.set_idealization(idealized)
         self._status(f"Idealized {trace.molecule_key} (one-click vbFRET)")
 
     def _step(self, delta: int) -> None:

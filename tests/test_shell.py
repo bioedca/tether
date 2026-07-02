@@ -316,6 +316,26 @@ def test_i_key_reports_when_no_idealization_produced(qapp, qtbot) -> None:
         s.close()
 
 
+def test_i_key_surfaces_length_mismatch_without_crashing(qapp, qtbot) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui.shell import TetherShell
+
+    k = QtCore.Qt.Key
+    # A misbehaving idealizer returns a wrong-length array (traces are 20 frames);
+    # set_idealization rejects it and the shell must report, not crash (the draw is
+    # inside the guarded block, so its ValueError surfaces as a status message).
+    s = TetherShell(idealizer=lambda _key: np.zeros(5))
+    qtbot.addWidget(s.window)
+    try:
+        s.set_molecules(_keyed_traces(1))
+        s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
+        assert "Idealize failed" in s.status_message
+        assert s.trace_dock.idealized_path is None
+    finally:
+        s.close()
+
+
 # --- make_store_idealizer (the store-backed production seam) ------------------
 
 
@@ -356,16 +376,19 @@ def test_make_store_idealizer_runs_pipeline_and_returns_row(monkeypatch) -> None
         calls["keys"] = list(keys)
         calls["model_name"] = model_name
         calls["overwrite"] = overwrite
+        calls["kw"] = kw
         idealized = np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
         return _stub_stored(idealized, ["k0", "k1"])
 
     monkeypatch.setattr("tether.project.idealize.idealize_molecules", fake_idealize)
-    idealizer = make_store_idealizer("proj.tether", model_name="vbfret")
+    # Extra kwargs (nstates, intensity_quantity, …) must reach idealize_molecules.
+    idealizer = make_store_idealizer("proj.tether", model_name="vbfret", nstates=3)
     row = idealizer("k1")
     np.testing.assert_allclose(row, [0.4, 0.5, 0.6])  # the selected key's row
     assert calls["keys"] == ["k1"]  # only the requested molecule is fitted
     assert calls["model_name"] == "vbfret"
     assert calls["overwrite"] is True  # re-pressing I re-idealizes into the model
+    assert calls["kw"] == {"nstates": 3}  # **kwargs passthrough
 
 
 def test_make_store_idealizer_returns_none_when_key_absent(monkeypatch) -> None:

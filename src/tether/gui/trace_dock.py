@@ -424,12 +424,16 @@ class TraceDock:
         """
         if self._trace is None:
             raise RuntimeError("set_trace before its idealization overlay")
-        arr = np.asarray(idealized, dtype=np.float64)
+        # Copy + freeze (like TraceView) so the overlay never aliases the caller's
+        # buffer: a later mutation of the passed array must not change what the dock
+        # re-lays on the next toggle, and idealized_path hands back a read-only view.
+        arr = np.array(idealized, dtype=np.float64, copy=True)
         if arr.ndim != 1 or arr.size != self._trace.n_frames:
             raise ValueError(
                 "idealized must be a 1-D per-frame array of length "
                 f"{self._trace.n_frames}, got shape {arr.shape}"
             )
+        arr.setflags(write=False)
         self._idealized = arr
         self._render_idealization()
 
