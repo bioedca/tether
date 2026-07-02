@@ -73,6 +73,7 @@ from tether.idealize.driver import (
 )
 from tether.idealize.smd import write_smd
 from tether.imaging.extract import read_molecules, read_traces
+from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
 
 if TYPE_CHECKING:
     from os import PathLike
@@ -102,12 +103,10 @@ MODEL_TYPE_DEFAULT = "vbconhmm"
 #: (PRD §11.2 idealization tunable; the vbFRET-family model-selection range).
 NSTATES_GRID_DEFAULT: tuple[int, ...] = (1, 2, 3, 4)
 
-#: The ``/traces`` channel/quantity the fit consumes, by ``intensity_quantity`` key.
-#: ``corrected`` = background-subtracted disk intensity (the apparent-E input at M2).
-_QUANTITY_KEYS = {
-    "corrected": ("donor_corrected", "acceptor_corrected"),
-    "raw": ("donor_raw", "acceptor_raw"),
-}
+#: The ``/traces`` channel/quantity the fit consumes, by ``intensity_quantity`` key
+#: (the canonical mapping — ``corrected`` = background-subtracted disk intensity, the
+#: apparent-E input at M2).
+_QUANTITY_KEYS = INTENSITY_QUANTITY_LAYERS
 
 #: Canonical model attrs :func:`write_idealization_model` owns; a caller's ``extra_attrs``
 #: may not override them (else return-leg provenance could clobber ``type``/``nstates``/…).
