@@ -58,6 +58,7 @@ from tether.project.idealize import (  # noqa: E402
     list_idealizations,
     read_idealization,
     stale_molecule_keys,
+    write_idealization_model,
 )
 
 _PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
@@ -253,14 +254,20 @@ def test_hand_off_writes_smd_with_superset_and_windows(tmp_path):
     np.testing.assert_array_equal(smd.classes, np.zeros(4, dtype="int64"))
     # SMD raw == the store's corrected traces (donor, acceptor)
     np.testing.assert_allclose(smd.raw[:, :, 0], _step_trace(4, 30))
+    np.testing.assert_allclose(smd.raw[:, :, 1], _step_trace(4, 30) * 0.5)
 
 
-def test_hand_off_subset_in_order(tmp_path):
-    proj, keys = _build_store(tmp_path / "p.tether", _step_trace(5, 20), _step_trace(5, 20) * 0.5)
+def test_hand_off_subset_in_requested_order(tmp_path):
+    donor = _step_trace(5, 20)
+    proj, keys = _build_store(tmp_path / "p.tether", donor, donor * 0.5)
     out = tmp_path / "sub.hdf5"
     manifest = hand_off_to_tmaven(proj, [keys[3], keys[1]], out_path=out)
+    # exported in the *requested* key order, not store order
     assert manifest.molecule_keys == [keys[3], keys[1]]
-    assert read_smd(out).raw.shape[0] == 2
+    smd = read_smd(out)
+    assert smd.raw.shape[0] == 2
+    np.testing.assert_allclose(smd.raw[0, :, 0], donor[3])
+    np.testing.assert_allclose(smd.raw[1, :, 0], donor[1])
 
 
 def test_hand_off_empty_store_raises(tmp_path):
@@ -341,6 +348,19 @@ def test_reconcile_surfaces_window_edit(tmp_path):
     assert tr.window_change == WindowChange(old=(0, n_frames), new=(0, 25))
     # the untouched traces carry no window change
     assert all(t.window_change is None for t in report.matched if t.store_row != 1)
+
+
+def test_reconcile_degenerate_returning_window_no_change(tmp_path):
+    """A degenerate returned window (post <= pre) normalizes to the store window — no diff."""
+    donor, acceptor = _step_trace(3, 40), _step_trace(3, 40) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    pre = np.zeros(3, dtype="int64")
+    post = np.full(3, 40, dtype="int64")
+    post[1] = 0  # degenerate window on molecule 1
+    ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, pre=pre, post=post)
+
+    report = read_return_leg(proj, ret)
+    assert report.window_changes == []  # no spurious change from the degenerate window
 
 
 def test_reconcile_class_zero_to_uncategorized(tmp_path):
@@ -554,6 +574,19 @@ def test_import_model_without_idealized_raises(tmp_path):
         apply_reconcile(proj, ret, model_path=bad, model_name="x", import_idealization=True)
 
 
+def test_import_model_empty_means_raises(tmp_path):
+    donor, acceptor = _step_trace(2, 20), _step_trace(2, 20) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor)
+    bad = tmp_path / "nomeans.hdf5"
+    with h5py.File(bad, "w") as f:
+        g = f.create_group("model")
+        g.create_dataset("mean", data=np.array([]))  # no state means
+        g.create_dataset("idealized", data=np.full((2, 20), 0.5))
+    with pytest.raises(ValueError, match="no state means"):
+        apply_reconcile(proj, ret, model_path=bad, model_name="x", import_idealization=True)
+
+
 def test_import_drops_traces_outside_ran(tmp_path):
     """A matched-but-not-fit trace (outside `ran`) is dropped + reported, not written NaN."""
     donor, acceptor = _step_trace(3, 30), _step_trace(3, 30) * 0.5
@@ -626,6 +659,53 @@ def test_apply_classes_generator_spec_not_exhausted(tmp_path):
     # before _deferred_class_ids reads it (finding: accept_classes consumed twice)
     assert applied.classes_deferred == [mid0]
     assert applied.classes_applied == []
+
+
+# --------------------------------------------------------------------------- #
+# shared /idealization writer guards
+# --------------------------------------------------------------------------- #
+def _writer_kwargs(**overrides):
+    base = {
+        "model_name": "m",
+        "model_type": "vb",
+        "nstates": 1,
+        "dtype": "FRET",
+        "means": np.array([0.5]),
+        "variances": None,
+        "tmatrix": None,
+        "norm_tmatrix": None,
+        "elbo": None,
+        "idealized": np.full((1, 10), 0.5),
+        "state_paths": np.zeros((1, 10), dtype="int64"),
+        "molecule_keys": ["k0"],
+        "molecule_ids": ["i0"],
+        "input_hashes": ["h0"],
+        "intensity_quantity": "corrected",
+        "selected_by": "imported",
+        "elbo_by_nstates": None,
+        "app_version": "0",
+        "created_utc": "2026-01-01T00:00:00+00:00",
+        "overwrite": False,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_writer_rejects_misaligned_rows(tmp_path):
+    p = tmp_path / "p.tether"
+    create_project(p, overwrite=True)
+    with pytest.raises(ValueError, match="disagree with molecule_keys"):
+        write_idealization_model(
+            p,
+            **_writer_kwargs(idealized=np.full((2, 10), 0.5)),  # 2 rows vs 1 key
+        )
+
+
+def test_writer_rejects_reserved_extra_attr(tmp_path):
+    p = tmp_path / "p.tether"
+    create_project(p, overwrite=True)
+    with pytest.raises(ValueError, match="canonical model attrs"):
+        write_idealization_model(p, **_writer_kwargs(extra_attrs={"nstates": 99}))
 
 
 # --------------------------------------------------------------------------- #

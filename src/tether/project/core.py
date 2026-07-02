@@ -25,7 +25,7 @@ from tether.io.schema import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
     import numpy as np
 
@@ -262,8 +262,8 @@ class Project:
         model_path: str | Path | None = None,
         intensity_quantity: str = "corrected",
         model_name: str | None = None,
-        accept_windows: bool | list[str] = False,
-        accept_classes: bool | list[str] = False,
+        accept_windows: bool | Iterable[str] = False,
+        accept_classes: bool | Iterable[str] = False,
         import_idealization: bool = False,
         overwrite: bool = False,
     ) -> AppliedReconcile:

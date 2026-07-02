@@ -109,6 +109,23 @@ _QUANTITY_KEYS = {
     "raw": ("donor_raw", "acceptor_raw"),
 }
 
+#: Canonical model attrs :func:`write_idealization_model` owns; a caller's ``extra_attrs``
+#: may not override them (else return-leg provenance could clobber ``type``/``nstates``/…).
+_RESERVED_MODEL_ATTRS = frozenset(
+    {
+        "type",
+        "nstates",
+        "dtype",
+        "intensity_quantity",
+        "nstates_selected_by",
+        "n_molecules",
+        "app_version",
+        "created_utc",
+        "elbo",
+        "elbo_by_nstates",
+    }
+)
+
 
 @dataclass(frozen=True)
 class StoredIdealization:
@@ -489,16 +506,47 @@ def write_idealization_model(
     container group — a subgroup here is per-record data, never a structural change,
     so ``schema-guard`` stays green (ADR-0024, ADR-0025).
 
-    The model is staged in a transient ``{model_name}.__writing__`` subgroup and
-    then atomically swapped in, so an ``overwrite`` never leaves
-    ``/idealization/{model_name}`` missing if the write dies mid-way (the old model
-    survives until the new one is complete). ``elbo`` must already be finite-guarded
-    by the caller (``None`` for a non-finite/absent value; it is recorded as absent
-    rather than written as an out-of-range float attr). ``extra_attrs`` carries any
-    writer-specific provenance (e.g. the importer's source SMD/model paths and the
-    reconcile match counts).
+    The model is staged in a transient ``{model_name}.__writing__`` subgroup and only
+    then swapped in (delete the old entry, rename the staged one). A crash **before**
+    the swap leaves the prior model intact plus a leftover ``.__writing__`` group that
+    :func:`list_idealizations` ignores and the next write cleans up. The swap itself is
+    delete-then-rename and is **not fully atomic**: a crash in the brief window between
+    removing the old model and renaming the staged one can leave only the staged group
+    (recoverable by re-running the write) — HDF5 has no atomic in-file rename-over, so
+    this bounds the exposure rather than eliminating it. ``elbo`` must already be
+    finite-guarded by the caller (``None`` for a non-finite/absent value; recorded as
+    absent rather than as an out-of-range float attr). ``extra_attrs`` carries any
+    writer-specific provenance (e.g. the importer's source SMD/model paths + match
+    counts) and **may not override a canonical attr** (:data:`_RESERVED_MODEL_ATTRS`).
+
+    Raises ``ValueError`` if the row-aligned inputs (``molecule_ids`` / ``input_hashes``
+    / ``idealized`` / ``state_paths``) disagree with ``molecule_keys`` in length, or if
+    ``extra_attrs`` names a reserved attr — failing loud *before* any write rather than
+    persisting partially-aligned or clobbered data.
     """
     import h5py
+
+    n = len(molecule_keys)
+    idealized = np.asarray(idealized)
+    state_paths = np.asarray(state_paths)
+    row_counts = {
+        "molecule_ids": len(molecule_ids),
+        "input_hashes": len(input_hashes),
+        "idealized": int(idealized.shape[0]) if idealized.ndim else 0,
+        "state_path": int(state_paths.shape[0]) if state_paths.ndim else 0,
+    }
+    mismatched = {k: v for k, v in row_counts.items() if v != n}
+    if mismatched:
+        raise ValueError(
+            f"row-aligned model inputs disagree with molecule_keys ({n}): {mismatched}; "
+            "refusing to persist partially-aligned model data"
+        )
+    if extra_attrs:
+        clashing = _RESERVED_MODEL_ATTRS & extra_attrs.keys()
+        if clashing:
+            raise ValueError(
+                f"extra_attrs may not override canonical model attrs: {sorted(clashing)}"
+            )
 
     str_dt = h5py.string_dtype(encoding="utf-8")
     with h5py.File(path, "r+") as f:

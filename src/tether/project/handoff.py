@@ -102,7 +102,7 @@ _QUANTITY_KEYS = {
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class HandoffManifest:
-    """What :func:`hand_off_to_tmaven` exported, in export (store) order.
+    """What :func:`hand_off_to_tmaven` exported, in SMD-row (export) order.
 
     ``molecule_keys[i]`` / ``molecule_ids[i]`` identify the store molecule written to
     SMD row ``i``; ``path`` is the SMD the standalone tMAVEN GUI opens.
@@ -338,8 +338,9 @@ def hand_off_to_tmaven(
     project:
         A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
     molecule_keys:
-        Molecules to export (``None`` = every extracted molecule); store order, with a
-        duplicate ``molecule_key`` (§7.10) exporting each matching row.
+        Molecules to export. ``None`` = every extracted molecule in store order; a list
+        is exported in the **requested key order**, with a duplicate ``molecule_key``
+        (§7.10) expanding to each matching store row (those in store order).
     out_path:
         Destination ``.hdf5`` SMD path.
     intensity_quantity:
@@ -431,8 +432,11 @@ def _reconcile(
     for i, s in match.matched:
         window_change = None
         if smd.pre_list is not None and smd.post_list is not None:
-            new_win = (int(smd.pre_list[i]), int(smd.post_list[i]))
             old_win = _store_window(molecules, s)
+            # Normalize the returned window through the same hi<=lo -> frame_range
+            # fallback the hash/apply use, so a degenerate returned window is treated as
+            # the effective store window (no spurious change, no no-op degenerate write).
+            new_win = _returning_window(smd, i, molecules, s)
             if new_win != old_win:
                 window_change = WindowChange(old=old_win, new=new_win)
         class_change = None
@@ -651,6 +655,13 @@ def _import_model(
             f"{model_path.name} has no 'idealized' array; nothing to import as an "
             "/idealization state path"
         )
+    means = np.asarray(model.means, dtype="float64").reshape(-1)
+    if means.size == 0:
+        # Match the in-app persistence guard (idealize._idealized_and_paths): a model
+        # with no state means is degenerate — states_from_idealized cannot assign states.
+        raise ValueError(
+            f"{model_path.name} has no state means; refusing to import a degenerate model"
+        )
     idealized_src = np.asarray(model.idealized, dtype="float64")
     if idealized_src.shape[0] != state.smd.n_molecules:
         raise ValueError(
@@ -696,7 +707,6 @@ def _import_model(
             )
         )
 
-    means = np.asarray(model.means, dtype="float64")
     state_paths = states_from_idealized(idealized_rows, means)
     elbo = float(model.elbo) if model.elbo is not None and np.isfinite(model.elbo) else None
 
