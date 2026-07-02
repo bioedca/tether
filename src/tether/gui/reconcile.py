@@ -214,14 +214,12 @@ class ReconcileDialog:
         accept_windows = tuple(
             t.molecule_id
             for t in self._rows
-            if self._window_boxes[t.molecule_id].isEnabled()
-            and self._window_boxes[t.molecule_id].isChecked()
+            if (box := self._window_boxes[t.molecule_id]).isEnabled() and box.isChecked()
         )
         accept_classes = tuple(
             t.molecule_id
             for t in self._rows
-            if self._class_boxes[t.molecule_id].isEnabled()
-            and self._class_boxes[t.molecule_id].isChecked()
+            if (box := self._class_boxes[t.molecule_id]).isEnabled() and box.isChecked()
         )
         return ReconcileDecision(
             accept_windows=accept_windows,

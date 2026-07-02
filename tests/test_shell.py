@@ -644,6 +644,9 @@ def test_make_store_handoff_delegates_to_project_handoff(monkeypatch) -> None:
         overwrite,
     ):
         calls["apply"] = {
+            "project": project,
+            "smd": smd,
+            "model_path": model_path,
             "accept_windows": accept_windows,
             "accept_classes": accept_classes,
             "import_idealization": import_idealization,
@@ -668,6 +671,9 @@ def test_make_store_handoff_delegates_to_project_handoff(monkeypatch) -> None:
     )
     assert seam.apply("ret.hdf5", decision, model_path="m.hdf5") == "applied"
     applied_call = calls["apply"]
+    assert applied_call["project"] == "proj.tether"
+    assert applied_call["smd"] == "ret.hdf5"
+    assert applied_call["model_path"] == "m.hdf5"
     assert applied_call["accept_windows"] == ("id-a",)
     assert applied_call["accept_classes"] == ("id-b",)
     assert applied_call["import_idealization"] is True
