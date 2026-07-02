@@ -11,7 +11,8 @@ Two layers, mirroring ``test_movie_panel``:
   ``qtbot`` and assert the display contract: donor(green)/acceptor(red)/total +
   FRET(blue) curves render a committed fixture trace, the FRET axis is labelled
   **"apparent E"** and pinned to ``0–1``, the seconds/frame-index toggle works,
-  and the idealization overlay is a reserved (empty, hidden) placeholder.
+  and the idealization step overlay is drawn by ``set_idealization`` (empty/hidden
+  until a molecule is idealized, cleared when the trace changes).
   pyqtgraph is CPU-rendered (no GL context), so these run headless
   (``QT_QPA_PLATFORM=offscreen``) on all three OSes. Pixel rendering is left to
   the live computer-use smoke.
@@ -228,18 +229,151 @@ def test_dock_toggle_disabled_without_frame_time(qtbot) -> None:
 
 @pytest.mark.gui
 @_needs_qt
-def test_dock_idealization_overlay_reserved_empty_hidden(qtbot) -> None:
+def test_dock_idealization_overlay_empty_and_hidden_before_idealize(qtbot) -> None:
     from tether.gui.trace_dock import TraceDock
 
     trace = TraceView(donor=np.ones(4), acceptor=np.ones(4))
     with TraceDock() as dock:
         qtbot.addWidget(dock.widget)
         dock.set_trace(trace)
-        # The step overlay exists but carries no data and stays hidden until M2 S6.
+        # The step overlay exists but carries no data and stays hidden until a
+        # molecule is idealized via set_idealization.
         assert dock.idealization_curve is not None
         assert not dock.idealization_curve.isVisible()
+        assert dock.idealized_path is None
         xdata, _ = dock.idealization_curve.getData()
         assert xdata is None or len(xdata) == 0
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_set_idealization_draws_centered_step(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    # A full-window two-level idealized path over a 6-frame trace (frame_time 0.1s).
+    trace = TraceView(donor=np.ones(6), acceptor=np.ones(6), frame_time=0.1)
+    path = np.array([0.3, 0.3, 0.3, 0.7, 0.7, 0.7])
+    with TraceDock() as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(trace)
+        dock.set_idealization(path)
+
+        assert dock.idealization_curve.isVisible()
+        assert dock.idealization_curve.opts["stepMode"] == "center"
+        xe, ye = dock.idealization_curve.getData()
+        # stepMode="center": n levels bracketed by n+1 edges centred on the frames.
+        np.testing.assert_allclose(ye, path)
+        assert len(xe) == len(ye) + 1
+        # Seconds axis: frames 0..5 at 0.1s spacing -> half-step-overhung edges.
+        np.testing.assert_allclose(xe, [-0.05, 0.05, 0.15, 0.25, 0.35, 0.45, 0.55])
+        np.testing.assert_allclose(dock.idealized_path, path)
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_set_idealization_draws_only_finite_window(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    # NaN outside the analysis window (frames 1..4); only that span is drawn.
+    trace = TraceView(donor=np.ones(6), acceptor=np.ones(6), frame_time=0.1)
+    path = np.array([np.nan, 0.3, 0.3, 0.7, 0.7, np.nan])
+    with TraceDock() as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(trace)
+        dock.set_idealization(path)
+
+        xe, ye = dock.idealization_curve.getData()
+        np.testing.assert_allclose(ye, [0.3, 0.3, 0.7, 0.7])
+        assert len(xe) == len(ye) + 1
+        # Edges bracket the in-window frames (0.1..0.4 s), not the NaN ends.
+        np.testing.assert_allclose(xe, [0.05, 0.15, 0.25, 0.35, 0.45])
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_idealization_overlay_relays_on_time_toggle(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    trace = TraceView(donor=np.ones(6), acceptor=np.ones(6), frame_time=0.1)
+    path = np.array([0.3, 0.3, 0.3, 0.7, 0.7, 0.7])
+    with TraceDock() as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(trace)
+        dock.set_idealization(path)
+        np.testing.assert_allclose(
+            dock.idealization_curve.getData()[0], [-0.05, 0.05, 0.15, 0.25, 0.35, 0.45, 0.55]
+        )
+        # Toggling to the frame-index axis re-lays the overlay in frame units.
+        dock.set_time_mode("frames")
+        xe, ye = dock.idealization_curve.getData()
+        np.testing.assert_allclose(ye, path)
+        np.testing.assert_allclose(xe, [-0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5])
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_set_idealization_all_nan_hides(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    trace = TraceView(donor=np.ones(4), acceptor=np.ones(4))
+    with TraceDock() as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(trace)
+        dock.set_idealization(np.full(4, np.nan))
+        assert not dock.idealization_curve.isVisible()
+        xe, _ = dock.idealization_curve.getData()
+        assert xe is None or len(xe) == 0
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_set_idealization_validates_trace_and_length(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    with TraceDock() as dock:
+        qtbot.addWidget(dock.widget)
+        # No trace shown yet -> the overlay is always trace-relative.
+        with pytest.raises(RuntimeError, match="set_trace"):
+            dock.set_idealization(np.zeros(4))
+        dock.set_trace(TraceView(donor=np.ones(4), acceptor=np.ones(4)))
+        with pytest.raises(ValueError, match="length 4"):
+            dock.set_idealization(np.zeros(3))
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_new_trace_clears_stale_idealization(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    a = TraceView(donor=np.ones(6), acceptor=np.ones(6), frame_time=0.1)
+    b = TraceView(donor=np.ones(5), acceptor=np.ones(5), frame_time=0.1)
+    with TraceDock() as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(a)
+        dock.set_idealization(np.array([0.3, 0.3, 0.3, 0.7, 0.7, 0.7]))
+        assert dock.idealization_curve.isVisible()
+        # Switching molecules drops the previous idealization (never bleeds over).
+        dock.set_trace(b)
+        assert dock.idealized_path is None
+        assert not dock.idealization_curve.isVisible()
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_clear_idealization_keeps_trace(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    trace = TraceView(donor=np.ones(6), acceptor=np.ones(6), frame_time=0.1)
+    with TraceDock() as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(trace)
+        dock.set_idealization(np.array([0.3, 0.3, 0.3, 0.7, 0.7, 0.7]))
+        dock.clear_idealization()
+        # Overlay gone, but the trace + FRET curve remain displayed.
+        assert dock.idealized_path is None
+        assert not dock.idealization_curve.isVisible()
+        assert dock.trace is trace
+        assert len(dock.fret_curve.getData()[1]) == trace.n_frames
 
 
 @pytest.mark.gui
@@ -251,8 +385,11 @@ def test_dock_clear_blanks_everything(qtbot) -> None:
     with TraceDock() as dock:
         qtbot.addWidget(dock.widget)
         dock.set_trace(trace)
+        dock.set_idealization(np.array([0.3, 0.3, 0.7, 0.7]))
         dock.clear()
         assert dock.trace is None
+        assert dock.idealized_path is None
+        assert not dock.idealization_curve.isVisible()
         for curve in (dock.donor_curve, dock.acceptor_curve, dock.total_curve, dock.fret_curve):
             xdata, _ = curve.getData()
             assert xdata is None or len(xdata) == 0
