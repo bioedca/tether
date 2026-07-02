@@ -13,6 +13,7 @@ computer-use smoke; these assert wiring/behaviour only.
 from __future__ import annotations
 
 import importlib.util
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -450,3 +451,226 @@ def test_make_store_idealizer_returns_none_when_idealized_missing(monkeypatch) -
         lambda *a, **k: _stub_stored(None, ["k0"]),
     )
     assert make_store_idealizer("proj.tether")("k0") is None
+
+
+# --- hand-off round trip (export + return-leg import), M2 S7 PR-B -------------
+
+
+class _FakeHandoff:
+    """A recording :class:`HandoffSeam` stand-in so the menu wiring needs no store."""
+
+    def __init__(self, *, report=None, manifest=None, applied=None, fail=None):
+        self.report = report
+        self.manifest = manifest
+        self.applied = applied
+        self._fail = fail or {}
+        self.hand_off_calls: list = []
+        self.preview_calls: list = []
+        self.apply_calls: list = []
+
+    def hand_off(self, molecule_keys, out_path):
+        self.hand_off_calls.append((molecule_keys, out_path))
+        if "hand_off" in self._fail:
+            raise self._fail["hand_off"]
+        return self.manifest
+
+    def preview(self, smd_path, *, model_path=None):
+        self.preview_calls.append((smd_path, model_path))
+        if "preview" in self._fail:
+            raise self._fail["preview"]
+        return self.report
+
+    def apply(self, smd_path, decision, *, model_path=None):
+        self.apply_calls.append((smd_path, decision, model_path))
+        if "apply" in self._fail:
+            raise self._fail["apply"]
+        return self.applied
+
+
+def _manifest(n=2):
+    from tether.project.handoff import HandoffManifest
+
+    return HandoffManifest(
+        path=Path("out.hdf5"),
+        intensity_quantity="corrected",
+        molecule_keys=[f"k{i}" for i in range(n)],
+        molecule_ids=[f"id{i}" for i in range(n)],
+    )
+
+
+def _applied(**kwargs):
+    from tether.project.handoff import AppliedReconcile
+
+    return AppliedReconcile(**kwargs)
+
+
+def _shell_report():
+    from tether.project.handoff import ReconcileReport, TraceReconcile, WindowChange
+
+    trace = TraceReconcile(
+        returned_index=0,
+        store_row=0,
+        molecule_key="a",
+        molecule_id="id-a",
+        window_change=WindowChange(old=(0, 100), new=(0, 50)),
+        class_change=None,
+    )
+    return ReconcileReport(
+        matched=[trace],
+        unmatched_returned=[],
+        intensity_quantity="corrected",
+        smd_path=Path("ret.hdf5"),
+        model_path=None,
+        model_name="tmaven-import",
+        imported_model_type=None,
+        imported_nstates=None,
+    )
+
+
+@pytest.fixture
+def make_shell(qapp, qtbot):
+    """Factory that builds shells (optionally with a handoff seam) and closes them."""
+    from tether.gui.shell import TetherShell
+
+    created: list = []
+
+    def _make(**kwargs):
+        s = TetherShell(**kwargs)
+        qtbot.addWidget(s.window)
+        created.append(s)
+        return s
+
+    yield _make
+    for s in created:
+        s.close()
+
+
+def test_handoff_menu_exposes_export_and_import(make_shell) -> None:
+    labels = [a.text() for a in make_shell().handoff_menu.actions()]
+    assert any("tMAVEN" in t for t in labels)
+    assert any("Import" in t for t in labels)
+
+
+def test_hand_off_without_project_reports(make_shell) -> None:
+    shell = make_shell()  # no handoff seam wired
+    assert shell.hand_off_to_tmaven("out.hdf5") is None
+    assert "load a project" in shell.status_message
+
+
+def test_hand_off_invokes_seam_and_reports_count(make_shell) -> None:
+    fake = _FakeHandoff(manifest=_manifest(2))
+    shell = make_shell(handoff=fake)
+    manifest = shell.hand_off_to_tmaven("out.hdf5")
+    assert manifest is fake.manifest
+    assert fake.hand_off_calls == [(None, "out.hdf5")]  # every extracted molecule
+    assert "Handed off 2 molecule" in shell.status_message
+
+
+def test_hand_off_failure_is_reported(make_shell) -> None:
+    fake = _FakeHandoff(fail={"hand_off": RuntimeError("disk full")})
+    shell = make_shell(handoff=fake)
+    assert shell.hand_off_to_tmaven("out.hdf5") is None
+    assert "Hand-off failed: disk full" in shell.status_message
+
+
+def test_import_return_leg_applies_decision(make_shell, monkeypatch) -> None:
+    from tether.gui import reconcile as reconcile_mod
+    from tether.gui.reconcile import ReconcileDecision
+
+    decision = ReconcileDecision(accept_windows=("id-a",))
+    monkeypatch.setattr(reconcile_mod.ReconcileDialog, "exec", lambda self: decision)
+    fake = _FakeHandoff(report=_shell_report(), applied=_applied(windows_applied=["id-a"]))
+    shell = make_shell(handoff=fake)
+    applied = shell.import_return_leg("ret.hdf5")
+    assert applied is fake.applied
+    assert fake.preview_calls == [("ret.hdf5", None)]
+    assert len(fake.apply_calls) == 1
+    smd, got_decision, model_path = fake.apply_calls[0]
+    assert smd == "ret.hdf5"
+    assert got_decision == decision  # the dialog's decision is passed straight through
+    assert model_path is None
+    assert "1 window" in shell.status_message
+
+
+def test_import_return_leg_cancel_does_not_apply(make_shell, monkeypatch) -> None:
+    from tether.gui import reconcile as reconcile_mod
+
+    monkeypatch.setattr(reconcile_mod.ReconcileDialog, "exec", lambda self: None)
+    fake = _FakeHandoff(report=_shell_report())
+    shell = make_shell(handoff=fake)
+    assert shell.import_return_leg("ret.hdf5") is None
+    assert fake.apply_calls == []  # nothing is committed on cancel
+    assert "cancelled" in shell.status_message
+
+
+def test_import_return_leg_without_project_reports(make_shell) -> None:
+    shell = make_shell()
+    assert shell.import_return_leg("ret.hdf5") is None
+    assert "load a project" in shell.status_message
+
+
+def test_import_return_leg_preview_failure_reported(make_shell) -> None:
+    fake = _FakeHandoff(fail={"preview": FileNotFoundError("no smd")})
+    shell = make_shell(handoff=fake)
+    assert shell.import_return_leg("ret.hdf5") is None
+    assert "preview failed" in shell.status_message
+    assert fake.apply_calls == []
+
+
+def test_make_store_handoff_delegates_to_project_handoff(monkeypatch) -> None:
+    from tether.gui.reconcile import ReconcileDecision
+    from tether.gui.shell import make_store_handoff
+
+    calls: dict = {}
+
+    def fake_hand_off(project, keys, *, out_path, intensity_quantity):
+        calls["hand_off"] = (project, keys, out_path, intensity_quantity)
+        return "manifest"
+
+    def fake_read(project, smd, *, model_path, intensity_quantity, model_name):
+        calls["preview"] = (project, smd, model_path, intensity_quantity, model_name)
+        return "report"
+
+    def fake_apply(
+        project,
+        smd,
+        *,
+        model_path,
+        intensity_quantity,
+        model_name,
+        accept_windows,
+        accept_classes,
+        import_idealization,
+        overwrite,
+    ):
+        calls["apply"] = {
+            "accept_windows": accept_windows,
+            "accept_classes": accept_classes,
+            "import_idealization": import_idealization,
+            "intensity_quantity": intensity_quantity,
+            "model_name": model_name,
+            "overwrite": overwrite,
+        }
+        return "applied"
+
+    monkeypatch.setattr("tether.project.handoff.hand_off_to_tmaven", fake_hand_off)
+    monkeypatch.setattr("tether.project.handoff.read_return_leg", fake_read)
+    monkeypatch.setattr("tether.project.handoff.apply_reconcile", fake_apply)
+
+    seam = make_store_handoff("proj.tether", intensity_quantity="raw", model_name="mymodel")
+    assert seam.hand_off(None, "out.hdf5") == "manifest"
+    assert calls["hand_off"] == ("proj.tether", None, "out.hdf5", "raw")
+    assert seam.preview("ret.hdf5", model_path="m.hdf5") == "report"
+    assert calls["preview"] == ("proj.tether", "ret.hdf5", "m.hdf5", "raw", "mymodel")
+
+    decision = ReconcileDecision(
+        accept_windows=("id-a",), accept_classes=("id-b",), import_idealization=True
+    )
+    assert seam.apply("ret.hdf5", decision, model_path="m.hdf5") == "applied"
+    applied_call = calls["apply"]
+    assert applied_call["accept_windows"] == ("id-a",)
+    assert applied_call["accept_classes"] == ("id-b",)
+    assert applied_call["import_idealization"] is True
+    assert applied_call["intensity_quantity"] == "raw"
+    assert applied_call["model_name"] == "mymodel"
+    assert applied_call["overwrite"] is False  # non-destructive by default
