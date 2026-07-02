@@ -27,6 +27,7 @@ subclass one) so importing this module costs no Qt, matching the rest of
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from tether.gui.curation import (
@@ -42,12 +43,15 @@ from tether.gui.curation import (
 if TYPE_CHECKING:
     from collections.abc import Callable
     from os import PathLike
+    from typing import Protocol
 
     import numpy as np
     from pyqtgraph.Qt import QtWidgets
 
+    from tether.gui.reconcile import ReconcileDecision
     from tether.gui.trace_dock import TraceView
     from tether.project.core import Project
+    from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
 
     #: Maps a molecule_key to that molecule's per-frame idealized FRET path (NaN
     #: outside its analysis window), or ``None`` when nothing was produced. The
@@ -55,11 +59,36 @@ if TYPE_CHECKING:
     #: is the store-backed default that runs the real one-click vbFRET pipeline.
     Idealizer = Callable[[str], np.ndarray | None]
 
+    class HandoffSeam(Protocol):
+        """The store hand-off operations the shell's ``&Hand-off`` menu drives.
+
+        :func:`make_store_handoff` is the store-backed default; a test can inject a
+        fake so the menu wiring is exercised without an on-disk ``.tether``.
+        """
+
+        def hand_off(
+            self, molecule_keys: list[str] | None, out_path: str | PathLike[str]
+        ) -> HandoffManifest: ...
+
+        def preview(
+            self, smd_path: str | PathLike[str], *, model_path: str | PathLike[str] | None = None
+        ) -> ReconcileReport: ...
+
+        def apply(
+            self,
+            smd_path: str | PathLike[str],
+            decision: ReconcileDecision,
+            *,
+            model_path: str | PathLike[str] | None = None,
+        ) -> AppliedReconcile: ...
+
+
 __all__ = [
     "CheatSheetOverlay",
     "OverflowCategoryPicker",
     "TetherShell",
     "launch",
+    "make_store_handoff",
     "make_store_idealizer",
 ]
 
@@ -67,6 +96,9 @@ _APP_NAME = "Tether"
 
 #: How often (ms) the main thread polls the background idealize fit for completion.
 _IDEALIZE_POLL_MS = 25
+
+#: File filter for the hand-off SMD / model open+save dialogs (tMAVEN uses HDF5).
+_SMD_FILTER = "tMAVEN SMD (*.hdf5 *.smd);;All files (*)"
 
 
 class OverflowCategoryPicker:
@@ -198,7 +230,11 @@ class TetherShell:
     """
 
     def __init__(
-        self, *, categories: list[str] | None = None, idealizer: Idealizer | None = None
+        self,
+        *,
+        categories: list[str] | None = None,
+        idealizer: Idealizer | None = None,
+        handoff: HandoffSeam | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtWidgets
 
@@ -213,6 +249,10 @@ class TetherShell:
         # None (the synthetic/no-project default) makes ``I`` report that a project
         # must be loaded; make_store_idealizer(project) wires the real pipeline.
         self._idealizer = idealizer
+        # The standalone-tMAVEN hand-off seam (export + return-leg import). None (no
+        # project) makes the &Hand-off menu report that a project must be loaded;
+        # make_store_handoff(project) wires the real tether.project.handoff pipeline.
+        self._handoff = handoff
         # The fit runs on a background worker (the sidecar can block for a cold-JIT
         # first run); a main-thread QTimer polls the future so the GUI stays live and
         # the overlay draw + status update always happen on the main thread.
@@ -264,6 +304,15 @@ class TetherShell:
         act_help.triggered.connect(self.show_cheatsheet)
         act_pick = menu.addAction("Assign category (&overflow)…")
         act_pick.triggered.connect(self.show_overflow_picker)
+
+        # Hand-off menu: the standalone-tMAVEN round trip (§7.4) — export the
+        # selection as an SMD, and re-import a returning SMD (+ optional model)
+        # through the per-trace reconcile prompt.
+        self._handoff_menu = self._window.menuBar().addMenu("&Hand-off")
+        self._act_hand_off = self._handoff_menu.addAction("Hand to &tMAVEN…")
+        self._act_hand_off.triggered.connect(self._hand_off_dialog)
+        self._act_import = self._handoff_menu.addAction("&Import return leg…")
+        self._act_import.triggered.connect(self._import_dialog)
 
         self._window.statusBar().showMessage("Ready — Space accept · Backspace reject · Enter jump")
 
@@ -343,6 +392,97 @@ class TetherShell:
         if chosen is not None:
             self._controller.dispatch(Command(CurationAction.ASSIGN_CATEGORY, chosen))
         return picker
+
+    # --- hand-off (standalone-tMAVEN round trip, §7.4/§5.3) ------------------
+
+    @property
+    def handoff_menu(self) -> QtWidgets.QMenu:
+        """The ``&Hand-off`` menu (export + return-leg import)."""
+        return self._handoff_menu
+
+    def hand_off_to_tmaven(
+        self, out_path: str | PathLike[str], *, molecule_keys: list[str] | None = None
+    ) -> HandoffManifest | None:
+        """Export molecules to an SMD the standalone tMAVEN GUI opens (``None`` = all).
+
+        Returns the manifest, or ``None`` (with a status message) when no project is
+        loaded or the export fails — the shell must never crash on a hand-off.
+        """
+        if self._handoff is None:
+            self._status("Hand-off: load a project with extracted molecules first")
+            return None
+        try:
+            manifest = self._handoff.hand_off(molecule_keys, out_path)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Hand-off failed: {exc}")
+            return None
+        self._status(f"Handed off {manifest.n_molecules} molecule(s) to {Path(out_path).name}")
+        return manifest
+
+    def import_return_leg(
+        self, smd_path: str | PathLike[str], *, model_path: str | PathLike[str] | None = None
+    ) -> AppliedReconcile | None:
+        """Preview a returning SMD, show the reconcile prompt, apply the accepted subset.
+
+        Returns what was committed, or ``None`` when no project is loaded, the preview
+        fails, the user cancels, or the commit fails (each surfaced as a status message,
+        never a crash). ``model_path`` (a returning tMAVEN model) enables the dialog's
+        idealization-import option; the same path threads through preview and apply.
+        """
+        from tether.gui.reconcile import ReconcileDialog
+
+        if self._handoff is None:
+            self._status("Import: load a project with extracted molecules first")
+            return None
+        try:
+            report = self._handoff.preview(smd_path, model_path=model_path)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Return-leg preview failed: {exc}")
+            return None
+        decision = ReconcileDialog(report, parent=self._window).exec()
+        if decision is None:
+            self._status("Return-leg import cancelled")
+            return None
+        try:
+            applied = self._handoff.apply(smd_path, decision, model_path=model_path)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Return-leg import failed: {exc}")
+            return None
+        self._status(_applied_summary(applied))
+        return applied
+
+    def _hand_off_dialog(self) -> None:  # pragma: no cover - interactive file dialog
+        """Menu entry: pick a destination SMD, then hand off every extracted molecule."""
+        from pyqtgraph.Qt import QtWidgets
+
+        if self._handoff is None:
+            self._status("Hand-off: load a project with extracted molecules first")
+            return
+        out_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self._window, "Hand to tMAVEN (SMD)", "", _SMD_FILTER
+        )
+        if out_path:
+            self.hand_off_to_tmaven(out_path)
+        else:
+            self._status("Hand-off cancelled")
+
+    def _import_dialog(self) -> None:  # pragma: no cover - interactive file dialog
+        """Menu entry: pick the returning SMD (+ optional model), then reconcile."""
+        from pyqtgraph.Qt import QtWidgets
+
+        if self._handoff is None:
+            self._status("Import: load a project with extracted molecules first")
+            return
+        smd_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self._window, "Import returning SMD", "", _SMD_FILTER
+        )
+        if not smd_path:
+            self._status("Return-leg import cancelled")
+            return
+        model_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self._window, "tMAVEN model to import (optional — Cancel to skip)", "", _SMD_FILTER
+        )
+        self.import_return_leg(smd_path, model_path=model_path or None)
 
     # --- handlers (route each command to a visible status message) -----------
 
@@ -528,6 +668,118 @@ def make_store_idealizer(
         return stored.idealized[row]
 
     return _idealize
+
+
+def _applied_summary(applied: AppliedReconcile) -> str:
+    """A one-line status summary of what an :meth:`TetherShell.import_return_leg` committed."""
+    parts: list[str] = []
+    if applied.idealization_written is not None:
+        parts.append(f"imported model /idealization/{applied.idealization_written}")
+    if applied.windows_applied:
+        parts.append(f"{len(applied.windows_applied)} window(s)")
+    if applied.classes_applied:
+        parts.append(f"{len(applied.classes_applied)} class(es)")
+    if applied.classes_deferred:
+        parts.append(f"{len(applied.classes_deferred)} class(es) deferred to M4")
+    if applied.import_unfit_dropped:
+        parts.append(f"{len(applied.import_unfit_dropped)} unfit trace(s) dropped")
+    if applied.stale_after:
+        parts.append(f"{len(applied.stale_after)} idealization(s) re-staled")
+    if not parts:
+        return "Return-leg import: nothing to apply"
+    return "Return-leg import applied — " + ", ".join(parts)
+
+
+class _StoreHandoff:
+    """Store-backed :class:`HandoffSeam` over :mod:`tether.project.handoff`.
+
+    Binds one project + intensity quantity so all three legs use the same ``/traces``
+    layer; see :func:`make_store_handoff`. Each op imports its ``handoff`` function
+    lazily so constructing the seam (and importing this module) stays light.
+    """
+
+    def __init__(
+        self,
+        project: Project | str | PathLike[str],
+        *,
+        intensity_quantity: str,
+        model_name: str | None,
+        overwrite: bool,
+    ) -> None:
+        self._project = project
+        self._intensity_quantity = intensity_quantity
+        self._model_name = model_name
+        self._overwrite = overwrite
+
+    def hand_off(
+        self, molecule_keys: list[str] | None, out_path: str | PathLike[str]
+    ) -> HandoffManifest:
+        from tether.project.handoff import hand_off_to_tmaven
+
+        return hand_off_to_tmaven(
+            self._project,
+            molecule_keys,
+            out_path=out_path,
+            intensity_quantity=self._intensity_quantity,
+        )
+
+    def preview(
+        self, smd_path: str | PathLike[str], *, model_path: str | PathLike[str] | None = None
+    ) -> ReconcileReport:
+        from tether.project.handoff import read_return_leg
+
+        return read_return_leg(
+            self._project,
+            smd_path,
+            model_path=model_path,
+            intensity_quantity=self._intensity_quantity,
+            model_name=self._model_name,
+        )
+
+    def apply(
+        self,
+        smd_path: str | PathLike[str],
+        decision: ReconcileDecision,
+        *,
+        model_path: str | PathLike[str] | None = None,
+    ) -> AppliedReconcile:
+        from tether.project.handoff import apply_reconcile
+
+        return apply_reconcile(
+            self._project,
+            smd_path,
+            model_path=model_path,
+            intensity_quantity=self._intensity_quantity,
+            model_name=self._model_name,
+            accept_windows=decision.accept_windows,
+            accept_classes=decision.accept_classes,
+            import_idealization=decision.import_idealization,
+            overwrite=self._overwrite,
+        )
+
+
+def make_store_handoff(
+    project: Project | str | PathLike[str],
+    *,
+    intensity_quantity: str = "corrected",
+    model_name: str | None = None,
+    overwrite: bool = False,
+) -> HandoffSeam:
+    """Build the store-backed :class:`HandoffSeam` for a :class:`TetherShell`.
+
+    Binds one ``.tether`` project + intensity quantity across all three legs so the
+    outbound SMD and the return-leg intensity match use the **same** ``/traces`` layer
+    (§5.3). ``model_name`` is the ``/idealization`` entry an accepted idealization
+    import writes (``None`` → the ``tmaven-import`` default); ``overwrite`` guards
+    clobbering it — the default ``False`` keeps the re-import non-destructive (a repeat
+    import into the same name is refused, not silently overwritten, §7.4).
+    """
+    return _StoreHandoff(
+        project,
+        intensity_quantity=intensity_quantity,
+        model_name=model_name,
+        overwrite=overwrite,
+    )
 
 
 def launch() -> None:  # pragma: no cover - interactive smoke entry point
