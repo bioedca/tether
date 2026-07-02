@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
     from tether.idealize.driver import IdealizationResult
     from tether.io.movie import MovieReader
+    from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
     from tether.project.idealize import StoredIdealization
 
 __all__ = ["Project"]
@@ -211,3 +212,73 @@ class Project:
         from tether.project import idealize
 
         return idealize.stale_molecule_keys(self, model_name)
+
+    # --- tMAVEN hand-off + non-destructive re-import (PRD §7.4, §5.3) ----------
+
+    def hand_off_to_tmaven(
+        self,
+        molecule_keys: list[str] | None = None,
+        *,
+        out_path: str | Path,
+        intensity_quantity: str = "corrected",
+        overwrite: bool = True,
+    ) -> HandoffManifest:
+        """Export selected molecules to an SMD the standalone tMAVEN GUI opens
+        (:func:`handoff.hand_off_to_tmaven`)."""
+        from tether.project import handoff
+
+        return handoff.hand_off_to_tmaven(
+            self,
+            molecule_keys,
+            out_path=out_path,
+            intensity_quantity=intensity_quantity,
+            overwrite=overwrite,
+        )
+
+    def read_return_leg(
+        self,
+        smd_path: str | Path,
+        *,
+        model_path: str | Path | None = None,
+        intensity_quantity: str = "corrected",
+        model_name: str | None = None,
+    ) -> ReconcileReport:
+        """Preview a returning tMAVEN SMD: intensity-match + reconcile diff
+        (:func:`handoff.read_return_leg`)."""
+        from tether.project import handoff
+
+        return handoff.read_return_leg(
+            self,
+            smd_path,
+            model_path=model_path,
+            intensity_quantity=intensity_quantity,
+            model_name=model_name,
+        )
+
+    def apply_reconcile(
+        self,
+        smd_path: str | Path,
+        *,
+        model_path: str | Path | None = None,
+        intensity_quantity: str = "corrected",
+        model_name: str | None = None,
+        accept_windows: bool | list[str] = False,
+        accept_classes: bool | list[str] = False,
+        import_idealization: bool = False,
+        overwrite: bool = False,
+    ) -> AppliedReconcile:
+        """Commit accepted return-leg changes, non-destructively
+        (:func:`handoff.apply_reconcile`)."""
+        from tether.project import handoff
+
+        return handoff.apply_reconcile(
+            self,
+            smd_path,
+            model_path=model_path,
+            intensity_quantity=intensity_quantity,
+            model_name=model_name,
+            accept_windows=accept_windows,
+            accept_classes=accept_classes,
+            import_idealization=import_idealization,
+            overwrite=overwrite,
+        )
