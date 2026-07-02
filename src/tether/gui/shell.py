@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     import numpy as np
     from pyqtgraph.Qt import QtWidgets
 
+    from tether.analysis.histogram import Histogram1D
     from tether.gui.reconcile import ReconcileDecision
     from tether.gui.trace_dock import TraceView
     from tether.project.core import Project
@@ -58,6 +59,13 @@ if TYPE_CHECKING:
     #: shell's ``I`` handler draws the result on the dock; :func:`make_store_idealizer`
     #: is the store-backed default that runs the real one-click vbFRET pipeline.
     Idealizer = Callable[[str], np.ndarray | None]
+
+    #: Recompute + return the pooled population apparent-E :class:`Histogram1D` the
+    #: shell's ``&Analysis`` menu draws, or ``None`` when there is nothing to show.
+    #: :func:`make_store_histogram` is the store-backed default that runs the real
+    #: :func:`tether.analysis.histogram.population_apparent_e_histogram` each call,
+    #: so the histogram reflects the current curation state (§7.5/§7.7).
+    HistogramSeam = Callable[[], Histogram1D | None]
 
     class HandoffSeam(Protocol):
         """The store hand-off operations the shell's ``&Hand-off`` menu drives.
@@ -89,6 +97,7 @@ __all__ = [
     "TetherShell",
     "launch",
     "make_store_handoff",
+    "make_store_histogram",
     "make_store_idealizer",
 ]
 
@@ -235,6 +244,7 @@ class TetherShell:
         categories: list[str] | None = None,
         idealizer: Idealizer | None = None,
         handoff: HandoffSeam | None = None,
+        histogram: HistogramSeam | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtWidgets
 
@@ -253,6 +263,13 @@ class TetherShell:
         # project) makes the &Hand-off menu report that a project must be loaded;
         # make_store_handoff(project) wires the real tether.project.handoff pipeline.
         self._handoff = handoff
+        # The population-histogram seam. None (no project) makes the &Analysis menu
+        # report that a project must be loaded; make_store_histogram(project) wires
+        # the real population_apparent_e_histogram. The dock is built lazily on the
+        # first show_histogram so the default shell stays light.
+        self._histogram_seam = histogram
+        self._histogram_dock: Any | None = None
+        self._histogram_dock_widget: Any | None = None
         # The fit runs on a background worker (the sidecar can block for a cold-JIT
         # first run); a main-thread QTimer polls the future so the GUI stays live and
         # the overlay draw + status update always happen on the main thread.
@@ -313,6 +330,11 @@ class TetherShell:
         self._act_hand_off.triggered.connect(self._hand_off_dialog)
         self._act_import = self._handoff_menu.addAction("&Import return leg…")
         self._act_import.triggered.connect(self._import_dialog)
+
+        # Analysis menu: the population apparent-E histogram (§7.7, Appendix C A1).
+        self._analysis_menu = self._window.menuBar().addMenu("&Analysis")
+        self._act_histogram = self._analysis_menu.addAction("Population &histogram…")
+        self._act_histogram.triggered.connect(self.show_histogram)
 
         self._window.statusBar().showMessage("Ready — Space accept · Backspace reject · Enter jump")
 
@@ -484,6 +506,71 @@ class TetherShell:
         )
         self.import_return_leg(smd_path, model_path=model_path or None)
 
+    # --- analysis (population apparent-E histogram, §7.7) --------------------
+
+    @property
+    def analysis_menu(self) -> QtWidgets.QMenu:
+        """The ``&Analysis`` menu (population histogram)."""
+        return self._analysis_menu
+
+    @property
+    def histogram_dock(self) -> Any | None:
+        """The population-histogram dock, or ``None`` until first shown."""
+        return self._histogram_dock
+
+    def show_histogram(self) -> Any | None:
+        """Compute + display the population apparent-E histogram (§7.7, §9 M2).
+
+        Runs the injected ``histogram`` seam (:func:`make_store_histogram` wires the
+        real :func:`~tether.analysis.histogram.population_apparent_e_histogram` over
+        the bound project, recomputed each call so it tracks curation), draws the
+        result in a bottom :class:`~tether.gui.histogram_dock.HistogramDock` (built
+        lazily on first use), and returns the dock. No wired seam, a failing
+        computation, or a ``None`` result each surface as a status message and
+        return ``None`` — the shell never crashes on analysis. An *empty* histogram
+        (zero accepted molecules) is still drawn: a flat baseline is the honest "no
+        data" answer, not an error.
+        """
+        if self._histogram_seam is None:
+            self._status("Histogram: load a project with extracted molecules first")
+            return None
+        try:
+            hist = self._histogram_seam()
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Histogram failed: {exc}")
+            return None
+        if hist is None:
+            self._status("Histogram: nothing to pool")
+            return None
+        dock = self._ensure_histogram_dock()
+        try:
+            dock.set_histogram(hist)
+        except Exception as exc:  # noqa: BLE001 - a malformed result must not crash
+            # Mirrors _poll_idealize: an injected seam returning a shape-invalid
+            # Histogram1D surfaces as a status message, never an uncaught exception
+            # out of the &Analysis menu action.
+            self._status(f"Histogram failed: {exc}")
+            return None
+        self._histogram_dock_widget.show()
+        self._histogram_dock_widget.raise_()
+        n_mol = hist.n_molecules if hist.n_molecules is not None else 0
+        self._status(f"Population histogram — {n_mol} molecule(s), {hist.n_samples} frame(s)")
+        return dock
+
+    def _ensure_histogram_dock(self) -> Any:
+        """Build the bottom histogram dock on first use; reuse it thereafter."""
+        from pyqtgraph.Qt import QtCore, QtWidgets
+
+        from tether.gui.histogram_dock import HistogramDock
+
+        if self._histogram_dock is None:
+            self._histogram_dock = HistogramDock()
+            dock_widget = QtWidgets.QDockWidget("Population histogram", self._window)
+            dock_widget.setWidget(self._histogram_dock.widget)
+            self._window.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, dock_widget)
+            self._histogram_dock_widget = dock_widget
+        return self._histogram_dock
+
     # --- handlers (route each command to a visible status message) -----------
 
     def _build_handlers(self) -> CurationHandlers:
@@ -621,6 +708,8 @@ class TetherShell:
             self._idealize_future = None
             QtWidgets.QApplication.restoreOverrideCursor()
         self._idealize_executor.shutdown(wait=False)
+        if self._histogram_dock is not None:
+            self._histogram_dock.close()
         self._trace_dock.close()
         self._window.close()
 
@@ -668,6 +757,25 @@ def make_store_idealizer(
         return stored.idealized[row]
 
     return _idealize
+
+
+def make_store_histogram(project: Project | str | PathLike[str], **kwargs: Any) -> HistogramSeam:
+    """Build the store-backed population-histogram seam for a :class:`TetherShell`.
+
+    Returns a ``() -> Histogram1D`` that runs
+    :func:`tether.analysis.histogram.population_apparent_e_histogram` over
+    ``project`` **each time it is called**, so re-opening the histogram reflects the
+    current curation state (rejected molecules excluded by default, §7.5). Keyword
+    arguments (``molecule_keys`` / ``intensity_quantity`` / ``bins`` /
+    ``value_range`` / ``density`` / ``per_molecule_equal_weight`` /
+    ``include_rejected``) pass straight through to that function.
+    """
+    from tether.analysis.histogram import population_apparent_e_histogram
+
+    def _histogram() -> Histogram1D:
+        return population_apparent_e_histogram(project, **kwargs)
+
+    return _histogram
 
 
 def _applied_summary(applied: AppliedReconcile) -> str:
@@ -825,7 +933,17 @@ def launch() -> None:  # pragma: no cover - interactive smoke entry point
         path[trace.n_frames // 2 :] = 0.7
         return path
 
-    shell = TetherShell(idealizer=_demo_idealizer)
+    def _demo_histogram() -> Any:
+        # Pool the synthetic traces' apparent E for the &Analysis smoke ONLY — the
+        # real menu uses make_store_histogram(project) over population_apparent_e_histogram.
+        from dataclasses import replace
+
+        from tether.analysis.histogram import apparent_e_histogram
+
+        pooled = np.concatenate([t.apparent_e for t in traces])
+        return replace(apparent_e_histogram(pooled), n_molecules=len(traces))
+
+    shell = TetherShell(idealizer=_demo_idealizer, histogram=_demo_histogram)
     shell.set_molecules(traces)
     shell.show()
     app.exec()

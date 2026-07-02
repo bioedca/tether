@@ -734,3 +734,179 @@ def test_applied_summary_covers_every_branch() -> None:
         _applied(windows_applied=["a"], classes_deferred=["b"], stale_after=["a"])
     )
     assert "1 window" in combo and "deferred to M4" in combo and "re-staled" in combo
+
+
+# --- population apparent-E histogram (M2 S8 PR-B, §7.7) ----------------------
+
+
+def _population_histogram(*, n_molecules=3, density=True):
+    """A real Histogram1D over a small pooled sample, tagged with n_molecules."""
+    from dataclasses import replace
+
+    from tether.analysis.histogram import apparent_e_histogram
+
+    pooled = np.array([0.2, 0.5, 0.5, 0.8])
+    return replace(apparent_e_histogram(pooled, density=density), n_molecules=n_molecules)
+
+
+def test_make_store_histogram_delegates_and_passes_kwargs(monkeypatch) -> None:
+    from tether.gui.shell import make_store_histogram
+
+    calls = {}
+    sentinel = _population_histogram()
+
+    def fake_population(project, **kw):
+        calls["project"] = project
+        calls["kw"] = kw
+        calls["n"] = calls.get("n", 0) + 1
+        return sentinel
+
+    monkeypatch.setattr(
+        "tether.analysis.histogram.population_apparent_e_histogram", fake_population
+    )
+    seam = make_store_histogram("proj.tether", intensity_quantity="raw", bins=51)
+    # Each call recomputes (tracks curation) — a memoizing seam would show stale data;
+    # kwargs thread straight through.
+    assert seam() is sentinel
+    assert seam() is sentinel
+    assert calls["n"] == 2  # two seam() calls -> two underlying recomputations
+    assert calls["project"] == "proj.tether"
+    assert calls["kw"] == {"intensity_quantity": "raw", "bins": 51}
+
+
+def test_show_histogram_without_seam_reports(shell) -> None:
+    assert shell.show_histogram() is None
+    assert "load a project" in shell.status_message
+    assert shell.histogram_dock is None  # dock is never built without data
+
+
+def test_show_histogram_draws_and_returns_dock(qapp, qtbot) -> None:
+    from tether.gui.shell import TetherShell
+
+    hist = _population_histogram()
+    s = TetherShell(histogram=lambda: hist)
+    qtbot.addWidget(s.window)
+    try:
+        dock = s.show_histogram()
+        assert dock is not None
+        assert dock is s.histogram_dock  # built lazily, then reused
+        assert dock.histogram is hist
+        np.testing.assert_allclose(dock.curve.getData()[1], hist.counts)
+        assert "3 molecule(s)" in s.status_message
+        # A second open reuses the same dock instance.
+        assert s.show_histogram() is dock
+    finally:
+        s.close()
+
+
+def test_show_histogram_surfaces_seam_failure(qapp, qtbot) -> None:
+    from tether.gui.shell import TetherShell
+
+    def _boom():
+        raise RuntimeError("no traces")
+
+    s = TetherShell(histogram=_boom)
+    qtbot.addWidget(s.window)
+    try:
+        assert s.show_histogram() is None
+        assert "Histogram failed" in s.status_message
+        assert "no traces" in s.status_message
+    finally:
+        s.close()
+
+
+def test_show_histogram_reports_when_seam_returns_none(qapp, qtbot) -> None:
+    from tether.gui.shell import TetherShell
+
+    s = TetherShell(histogram=lambda: None)
+    qtbot.addWidget(s.window)
+    try:
+        assert s.show_histogram() is None
+        assert "nothing to pool" in s.status_message
+        assert s.histogram_dock is None
+    finally:
+        s.close()
+
+
+def test_show_histogram_draws_empty_population(qapp, qtbot) -> None:
+    from dataclasses import replace
+
+    from tether.analysis.histogram import apparent_e_histogram
+    from tether.gui.shell import TetherShell
+
+    empty = replace(apparent_e_histogram(np.empty(0)), n_molecules=0)
+    s = TetherShell(histogram=lambda: empty)
+    qtbot.addWidget(s.window)
+    try:
+        dock = s.show_histogram()  # an empty pool still draws a flat baseline
+        assert dock is not None
+        assert float(np.asarray(dock.curve.getData()[1]).sum()) == 0.0
+        assert "0 molecule(s)" in s.status_message
+    finally:
+        s.close()
+
+
+def test_show_histogram_surfaces_malformed_result_without_crashing(qapp, qtbot) -> None:
+    from tether.analysis.histogram import DEFAULT_RANGE, Histogram1D
+    from tether.gui.shell import TetherShell
+
+    # A well-typed but shape-invalid Histogram1D (bin_edges must be counts + 1): the
+    # dock's set_histogram raises — the shell must catch it, not crash the menu action
+    # (mirrors test_i_key_surfaces_length_mismatch_without_crashing for the I key).
+    bad = Histogram1D(
+        counts=np.zeros(5),
+        bin_edges=np.zeros(5),  # should be length 6
+        density=True,
+        value_range=DEFAULT_RANGE,
+        n_samples=0,
+        n_molecules=0,
+        per_molecule_equal_weight=False,
+    )
+    s = TetherShell(histogram=lambda: bad)
+    qtbot.addWidget(s.window)
+    try:
+        assert s.show_histogram() is None
+        assert "Histogram failed" in s.status_message
+    finally:
+        s.close()
+
+
+def test_analysis_menu_action_triggers_histogram(qapp, qtbot) -> None:
+    from tether.gui.shell import TetherShell
+
+    hist = _population_histogram()
+    s = TetherShell(histogram=lambda: hist)
+    qtbot.addWidget(s.window)
+    try:
+        actions = s.analysis_menu.actions()
+        assert [a.text() for a in actions] == ["Population &histogram…"]
+        actions[0].trigger()  # the menu entry runs show_histogram
+        assert s.histogram_dock is not None
+        assert s.histogram_dock.histogram is hist
+    finally:
+        s.close()
+
+
+def test_close_closes_histogram_dock(qapp, qtbot) -> None:
+    from tether.gui.shell import TetherShell
+
+    s = TetherShell(histogram=lambda: _population_histogram())
+    qtbot.addWidget(s.window)
+    s.show_histogram()
+    dock = s.histogram_dock
+    assert dock is not None
+
+    # Pin the teardown wiring: shell.close() must actually close the built dock,
+    # not merely avoid raising (isVisible is not observable — the window is never
+    # shown headless), so spy on the dock's close.
+    closed = []
+    original_close = dock.close
+
+    def _spy_close() -> None:
+        closed.append(True)
+        original_close()
+
+    dock.close = _spy_close
+
+    s.close()
+    assert closed == [True]
