@@ -10,5 +10,19 @@ is scriptable without a display.
 from __future__ import annotations
 
 from tether.project.core import Project
+from tether.project.lock import (
+    CorruptLockError,
+    LockedError,
+    LockError,
+    LockIdentity,
+    LockInfo,
+)
 
-__all__ = ["Project"]
+__all__ = [
+    "CorruptLockError",
+    "LockError",
+    "LockIdentity",
+    "LockInfo",
+    "LockedError",
+    "Project",
+]
