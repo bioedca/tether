@@ -116,6 +116,10 @@ def cross_correlation(
         raise ValueError("donor and acceptor must be finite (no NaN/inf gaps)")
     if normalize != "pearson":
         raise ValueError(f"normalize must be 'pearson', got {normalize!r}")
+    if max_lag is not None:  # validate before the FFT so a bad arg doesn't waste the correlation
+        max_lag = int(max_lag)
+        if max_lag < 0:
+            raise ValueError(f"max_lag must be non-negative, got {max_lag}")
 
     d0 = d - d.mean()
     a0 = a - a.mean()
@@ -132,10 +136,7 @@ def cross_correlation(
     undefined = float(d.max()) == float(d.min()) or float(a.max()) == float(a.min())
     values = np.full(full.shape, np.nan, dtype=np.float64) if undefined else full / denom
 
-    if max_lag is not None:
-        max_lag = int(max_lag)
-        if max_lag < 0:
-            raise ValueError(f"max_lag must be non-negative, got {max_lag}")
+    if max_lag is not None:  # already validated above; here just truncate the curve
         keep = np.abs(lags) <= max_lag
         lags = lags[keep]
         values = values[keep]
