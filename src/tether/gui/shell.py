@@ -26,6 +26,7 @@ subclass one) so importing this module costs no Qt, matching the rest of
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 from tether.gui.curation import (
@@ -63,6 +64,9 @@ __all__ = [
 ]
 
 _APP_NAME = "Tether"
+
+#: How often (ms) the main thread polls the background idealize fit for completion.
+_IDEALIZE_POLL_MS = 25
 
 
 class OverflowCategoryPicker:
@@ -209,6 +213,13 @@ class TetherShell:
         # None (the synthetic/no-project default) makes ``I`` report that a project
         # must be loaded; make_store_idealizer(project) wires the real pipeline.
         self._idealizer = idealizer
+        # The fit runs on a background worker (the sidecar can block for a cold-JIT
+        # first run); a main-thread QTimer polls the future so the GUI stays live and
+        # the overlay draw + status update always happen on the main thread.
+        self._idealize_executor = ThreadPoolExecutor(max_workers=1)
+        self._idealize_future: Any | None = None
+        self._idealize_timer: Any | None = None
+        self._idealize_key: str | None = None
 
         self._window = QtWidgets.QMainWindow()
         self._window.setWindowTitle(_APP_NAME)
@@ -360,19 +371,29 @@ class TetherShell:
         )
         self._status(f"Category {integer_class} ({name})")
 
+    @property
+    def is_idealizing(self) -> bool:
+        """Whether a background one-click-idealize fit is currently running."""
+        return self._idealize_future is not None
+
     def _idealize_current(self) -> None:
         """One-click idealize the selected molecule and draw its step overlay (``I``, §7.4).
 
         The thin GUI layer over :func:`tether.project.idealize.idealize_molecules`
-        (M2 S6 PR-A): resolve the selected list row to its ``molecule_key``, run the
-        injected :data:`Idealizer` (the store-backed one built by
-        :func:`make_store_idealizer` runs the real export→vbFRET→import→write
-        pipeline), then draw the returned Viterbi path on the dock. A missing
-        selection, no wired idealizer (synthetic/no project), an empty result, or a
-        failing fit each surface as a status message rather than crashing the shell.
+        (M2 S6 PR-A): resolve the selected list row to its ``molecule_key`` and run
+        the injected :data:`Idealizer` (the store-backed one built by
+        :func:`make_store_idealizer` runs the real SMD→vbFRET→write pipeline). The
+        fit runs on a **background worker** and a main-thread timer polls it, so the
+        GUI stays responsive during a long (cold-JIT) fit; when it finishes the
+        Viterbi path is drawn on the dock — always on the main thread. A missing
+        selection, no wired idealizer, an already-running fit, an empty result, or a
+        failing/length-mismatched fit each surface as a status message, never a crash.
         """
         from pyqtgraph.Qt import QtCore, QtWidgets
 
+        if self._idealize_future is not None:
+            self._status("Idealize: a fit is already running")
+            return
         row = self._molecule_list.currentRow()
         trace = self._traces[row] if 0 <= row < len(self._traces) else None
         if trace is None:
@@ -381,23 +402,55 @@ class TetherShell:
         if trace.molecule_key is None or self._idealizer is None:
             self._status("Idealize: load a project with extracted molecules first")
             return
-        # The fit runs on the GUI thread (an async worker is a follow-up); a wait
-        # cursor signals the block. The idealizer call AND the overlay draw are both
-        # guarded so any failure — a raising fit or a length-mismatched result that
-        # set_idealization rejects — surfaces as a status message, never a crash.
+        key = trace.molecule_key
+        self._idealize_key = key
+        self._status(f"Idealizing {key} (one-click vbFRET)…")
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
-        try:
-            idealized = self._idealizer(trace.molecule_key)
-            if idealized is None:
-                self._status(f"Idealize: no idealization produced for {trace.molecule_key}")
-                return
-            self._trace_dock.set_idealization(idealized)
-        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
-            self._status(f"Idealize failed for {trace.molecule_key}: {exc}")
+        self._idealize_future = self._idealize_executor.submit(self._idealizer, key)
+        self._idealize_timer = QtCore.QTimer()
+        self._idealize_timer.setInterval(_IDEALIZE_POLL_MS)
+        self._idealize_timer.timeout.connect(self._poll_idealize)
+        self._idealize_timer.start()
+
+    def _poll_idealize(self) -> None:
+        """Main-thread poll: when the background fit is done, draw it or report why."""
+        future = self._idealize_future
+        if future is None or not future.done():
             return
-        finally:
-            QtWidgets.QApplication.restoreOverrideCursor()
-        self._status(f"Idealized {trace.molecule_key} (one-click vbFRET)")
+        key = self._idealize_key
+        self._finish_idealize()  # stop the timer, clear state, restore the cursor
+        try:
+            idealized = future.result()
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Idealize failed for {key}: {exc}")
+            return
+        if idealized is None:
+            self._status(f"Idealize: no idealization produced for {key}")
+            return
+        row = self._molecule_list.currentRow()
+        current = self._traces[row].molecule_key if 0 <= row < len(self._traces) else None
+        if current != key:
+            # The curator navigated away while the fit ran; the result is for a
+            # different molecule, so don't draw it on the one now on screen.
+            self._status(f"Idealization for {key} ready (selection moved on)")
+            return
+        try:
+            self._trace_dock.set_idealization(idealized)
+        except Exception as exc:  # noqa: BLE001 - a mismatched result must not crash
+            self._status(f"Idealize failed for {key}: {exc}")
+            return
+        self._status(f"Idealized {key} (one-click vbFRET)")
+
+    def _finish_idealize(self) -> None:
+        """Tear down the poll timer + fit state and restore the wait cursor."""
+        from pyqtgraph.Qt import QtWidgets
+
+        if self._idealize_timer is not None:
+            self._idealize_timer.stop()
+            self._idealize_timer = None
+        self._idealize_future = None
+        self._idealize_key = None
+        QtWidgets.QApplication.restoreOverrideCursor()
 
     def _step(self, delta: int) -> None:
         if not self._traces:
@@ -415,8 +468,19 @@ class TetherShell:
         self._window.show()
 
     def close(self) -> None:
-        """Remove the app-level filter and close the window."""
+        """Remove the app-level filter, abandon any running fit, and close the window."""
+        from pyqtgraph.Qt import QtWidgets
+
         self._event_filter.remove()
+        if self._idealize_timer is not None:
+            self._idealize_timer.stop()
+            self._idealize_timer = None
+        if self._idealize_future is not None:
+            # A running fit is abandoned (its result is discarded), and the wait
+            # cursor it set is restored so it never leaks past close.
+            self._idealize_future = None
+            QtWidgets.QApplication.restoreOverrideCursor()
+        self._idealize_executor.shutdown(wait=False)
         self._trace_dock.close()
         self._window.close()
 

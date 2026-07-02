@@ -234,6 +234,8 @@ def test_i_key_idealizes_current_and_draws_overlay(qapp, qtbot) -> None:
         s.set_molecules(traces)  # selects row 0
         consumed = s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
         assert consumed is True  # the Tether-only I key is handled, not passed through
+        # The fit runs on a background worker; wait for the result to land on main.
+        qtbot.waitUntil(lambda: not s.is_idealizing, timeout=5000)
         assert s.trace_dock.idealization_curve.isVisible()
         np.testing.assert_allclose(s.trace_dock.idealized_path, [0.3] * 10 + [0.7] * 10)
         assert "Idealized" in s.status_message and "m0" in s.status_message
@@ -293,6 +295,7 @@ def test_i_key_surfaces_idealizer_failure(qapp, qtbot) -> None:
         s.set_molecules(traces)
         # A failing fit must surface as a status message, not crash the shell.
         s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
+        qtbot.waitUntil(lambda: not s.is_idealizing, timeout=5000)
         assert "Idealize failed" in s.status_message and "sidecar exploded" in s.status_message
         assert s.trace_dock.idealized_path is None
     finally:
@@ -310,6 +313,7 @@ def test_i_key_reports_when_no_idealization_produced(qapp, qtbot) -> None:
     try:
         s.set_molecules(_keyed_traces(1))
         s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
+        qtbot.waitUntil(lambda: not s.is_idealizing, timeout=5000)
         assert "no idealization produced" in s.status_message
         assert s.trace_dock.idealized_path is None
     finally:
@@ -323,16 +327,53 @@ def test_i_key_surfaces_length_mismatch_without_crashing(qapp, qtbot) -> None:
 
     k = QtCore.Qt.Key
     # A misbehaving idealizer returns a wrong-length array (traces are 20 frames);
-    # set_idealization rejects it and the shell must report, not crash (the draw is
-    # inside the guarded block, so its ValueError surfaces as a status message).
+    # set_idealization rejects it on the main thread and the shell must report the
+    # failure, not crash (the draw is guarded in the poll handler).
     s = TetherShell(idealizer=lambda _key: np.zeros(5))
     qtbot.addWidget(s.window)
     try:
         s.set_molecules(_keyed_traces(1))
         s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
+        qtbot.waitUntil(lambda: not s.is_idealizing, timeout=5000)
         assert "Idealize failed" in s.status_message
         assert s.trace_dock.idealized_path is None
     finally:
+        s.close()
+
+
+def test_i_key_runs_off_the_gui_thread_and_rejects_concurrent_fits(qapp, qtbot) -> None:
+    import threading
+
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui.shell import TetherShell
+
+    k = QtCore.Qt.Key
+    traces = _keyed_traces(1)
+    gate = threading.Event()
+
+    def _blocking_idealizer(molecule_key):
+        # Block in the worker until the test releases it — proving the fit runs OFF
+        # the GUI thread (the event loop keeps running while this waits).
+        gate.wait(timeout=5.0)
+        return np.full(traces[0].n_frames, 0.5)
+
+    s = TetherShell(idealizer=_blocking_idealizer)
+    qtbot.addWidget(s.window)
+    try:
+        s.set_molecules(traces)
+        s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
+        # The fit is in flight on the worker while the GUI thread stays responsive.
+        assert s.is_idealizing
+        # A second I while a fit runs is rejected, not queued or crashed.
+        s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
+        assert "already running" in s.status_message
+        gate.set()  # let the worker finish
+        qtbot.waitUntil(lambda: not s.is_idealizing, timeout=5000)
+        assert "Idealized" in s.status_message
+        assert s.trace_dock.idealization_curve.isVisible()
+    finally:
+        gate.set()
         s.close()
 
 
