@@ -49,6 +49,7 @@ prose harmonization of the PRD (PRD §12.7).
 | [0022](0022-m1-acceptance-reframe-and-close.md) | M1 acceptance reframe (2 px recall, donor-only Pearson ≥0.95, acceptor Pearson diagnostic, faithful per-mode separation, donor-anchored) → **closes M1** (`v0.1.0`) | accepted | §7.1, §9 M1, §8 NFR-VALID (a), §11.2 |
 | [0023](0023-curation-label-codec-and-labels-log.md) | Curation-label codec `{UNCURATED 0, ACCEPT +1, REJECT −1}` shared by `curation_label`+`label_value`; append-only `/labels` provenance log with reversible sticky reject + toggleable exclusion; category→`/labels` deferred to M4 | accepted | §5.1, §7.5, §7.3 |
 | [0024](0024-idealization-store-layout-staleness-and-nstates.md) | `/idealization/{model}` additive store layout + per-molecule input-provenance hash (staleness) + auto state-count by max-ELBO [Bronson2009]; store-integrated one-click vbFRET (M2 S6 headless core; GUI I-key/overlay is PR-B) | accepted | §5, §7.4, §4.2/§4.3, §11.2 |
+| [0025](0025-tmaven-handoff-and-return-leg-reconcile.md) | Bidirectional tMAVEN hand-off SMD export + non-destructive return-leg re-import (exact intensity match, unmatched reported) → new `/idealization/{model}` + per-trace reconcile diff (window re-stales; `class 0↔uncategorized`, class>0 M4-deferred) (M2 S7 headless core; reconcile dialog is PR-B) | accepted | §7.4, §5.3, App D.1 |
 
 _Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
 by the PRs that implement them._

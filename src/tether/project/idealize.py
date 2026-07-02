@@ -89,6 +89,7 @@ __all__ = [
     "list_idealizations",
     "read_idealization",
     "stale_molecule_keys",
+    "write_idealization_model",
 ]
 
 #: The frozen §5 container group model subgroups are written under.
@@ -107,6 +108,23 @@ _QUANTITY_KEYS = {
     "corrected": ("donor_corrected", "acceptor_corrected"),
     "raw": ("donor_raw", "acceptor_raw"),
 }
+
+#: Canonical model attrs :func:`write_idealization_model` owns; a caller's ``extra_attrs``
+#: may not override them (else return-leg provenance could clobber ``type``/``nstates``/…).
+_RESERVED_MODEL_ATTRS = frozenset(
+    {
+        "type",
+        "nstates",
+        "dtype",
+        "intensity_quantity",
+        "nstates_selected_by",
+        "n_molecules",
+        "app_version",
+        "created_utc",
+        "elbo",
+        "elbo_by_nstates",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -453,6 +471,134 @@ def _idealized_and_paths(result: IdealizationResult) -> tuple[np.ndarray, np.nda
     return idealized, paths
 
 
+def write_idealization_model(
+    path: Path,
+    *,
+    model_name: str,
+    model_type: str,
+    nstates: int,
+    dtype: str,
+    means: np.ndarray,
+    variances: np.ndarray | None,
+    tmatrix: np.ndarray | None,
+    norm_tmatrix: np.ndarray | None,
+    elbo: float | None,
+    idealized: np.ndarray,
+    state_paths: np.ndarray,
+    molecule_keys: list[str],
+    molecule_ids: list[str],
+    input_hashes: list[str],
+    intensity_quantity: str,
+    selected_by: str,
+    elbo_by_nstates: dict[int, float] | None,
+    app_version: str,
+    created_utc: str,
+    overwrite: bool,
+    extra_attrs: dict[str, object] | None = None,
+) -> None:
+    """Persist one ``/idealization/{model_name}`` subgroup as additive data.
+
+    The **single writer** of the ``/idealization`` model layout, shared by the
+    in-app fitter (:func:`idealize_molecules`, ``selected_by`` ``"max-elbo"``/
+    ``"fixed"``) and the tMAVEN return-leg importer
+    (:func:`tether.project.handoff.apply_reconcile`, ``selected_by="imported"``) so
+    both stamp the exact same datasets/attrs against the M0-frozen ``/idealization``
+    container group — a subgroup here is per-record data, never a structural change,
+    so ``schema-guard`` stays green (ADR-0024, ADR-0025).
+
+    The model is staged in a transient ``{model_name}.__writing__`` subgroup and only
+    then swapped in (delete the old entry, rename the staged one). A crash **before**
+    the swap leaves the prior model intact plus a leftover ``.__writing__`` group that
+    :func:`list_idealizations` ignores and the next write cleans up. The swap itself is
+    delete-then-rename and is **not fully atomic**: a crash in the brief window between
+    removing the old model and renaming the staged one can leave only the staged group
+    (recoverable by re-running the write) — HDF5 has no atomic in-file rename-over, so
+    this bounds the exposure rather than eliminating it. ``elbo`` must already be
+    finite-guarded by the caller (``None`` for a non-finite/absent value; recorded as
+    absent rather than as an out-of-range float attr). ``extra_attrs`` carries any
+    writer-specific provenance (e.g. the importer's source SMD/model paths + match
+    counts) and **may not override a canonical attr** (:data:`_RESERVED_MODEL_ATTRS`).
+
+    Raises ``ValueError`` if the row-aligned inputs (``molecule_ids`` / ``input_hashes``
+    / ``idealized`` / ``state_paths``) disagree with ``molecule_keys`` in length, or if
+    ``extra_attrs`` names a reserved attr — failing loud *before* any write rather than
+    persisting partially-aligned or clobbered data.
+    """
+    import h5py
+
+    n = len(molecule_keys)
+    idealized = np.asarray(idealized)
+    state_paths = np.asarray(state_paths)
+    row_counts = {
+        "molecule_ids": len(molecule_ids),
+        "input_hashes": len(input_hashes),
+        "idealized": int(idealized.shape[0]) if idealized.ndim else 0,
+        "state_path": int(state_paths.shape[0]) if state_paths.ndim else 0,
+    }
+    mismatched = {k: v for k, v in row_counts.items() if v != n}
+    if mismatched:
+        raise ValueError(
+            f"row-aligned model inputs disagree with molecule_keys ({n}): {mismatched}; "
+            "refusing to persist partially-aligned model data"
+        )
+    if extra_attrs:
+        clashing = _RESERVED_MODEL_ATTRS & extra_attrs.keys()
+        if clashing:
+            raise ValueError(
+                f"extra_attrs may not override canonical model attrs: {sorted(clashing)}"
+            )
+
+    str_dt = h5py.string_dtype(encoding="utf-8")
+    with h5py.File(path, "r+") as f:
+        parent = f.require_group(IDEALIZATION_GROUP)
+        if model_name in parent and not overwrite:  # re-checked under the write handle
+            raise FileExistsError(f"/idealization/{model_name} already exists in {path.name}")
+        staging = f"{model_name}{_WRITING_SUFFIX}"
+        if staging in parent:
+            del parent[staging]  # clean up a prior aborted write
+        g = parent.create_group(staging)
+        g.attrs["type"] = model_type
+        g.attrs["nstates"] = int(nstates)
+        g.attrs["dtype"] = dtype
+        g.attrs["intensity_quantity"] = intensity_quantity
+        g.attrs["nstates_selected_by"] = selected_by
+        g.attrs["n_molecules"] = len(molecule_keys)
+        g.attrs["app_version"] = app_version
+        g.attrs["created_utc"] = created_utc
+        if elbo is not None:
+            g.attrs["elbo"] = elbo
+        if elbo_by_nstates is not None:
+            # Serialize a non-finite score (the -inf sentinel) as JSON null, so the
+            # attr is always valid JSON; read_idealization maps null back to -inf.
+            g.attrs["elbo_by_nstates"] = json.dumps(
+                {str(k): (v if math.isfinite(v) else None) for k, v in elbo_by_nstates.items()}
+            )
+        for key, value in (extra_attrs or {}).items():
+            g.attrs[key] = value
+
+        g.create_dataset("mean", data=np.asarray(means, dtype="float64"))
+        if variances is not None:
+            g.create_dataset("var", data=np.asarray(variances, dtype="float64"))
+        if tmatrix is not None:
+            g.create_dataset("tmatrix", data=np.asarray(tmatrix, dtype="float64"))
+        if norm_tmatrix is not None:
+            g.create_dataset("norm_tmatrix", data=np.asarray(norm_tmatrix, dtype="float64"))
+        g.create_dataset(
+            "idealized", data=np.asarray(idealized, dtype="float64"), compression="gzip"
+        )
+        g.create_dataset(
+            "state_path", data=np.asarray(state_paths, dtype="int64"), compression="gzip"
+        )
+        g.create_dataset("molecule_key", data=list(molecule_keys), dtype=str_dt)
+        g.create_dataset("molecule_id", data=list(molecule_ids), dtype=str_dt)
+        g.create_dataset("input_hash", data=list(input_hashes), dtype=str_dt)
+
+        # Atomic swap: the staged group is complete, so replace the old model now.
+        if model_name in parent:
+            del parent[model_name]
+        parent.move(staging, model_name)
+
+
 def _write_model(
     path: Path,
     *,
@@ -468,73 +614,54 @@ def _write_model(
     elbo_by_nstates: dict[int, float] | None,
     overwrite: bool,
 ) -> StoredIdealization:
-    """Write one model subgroup as additive data (schema-guard stays green)."""
-    import h5py
-
+    """Write a fitted model subgroup (via :func:`write_idealization_model`) and
+    return the in-memory :class:`StoredIdealization`."""
     model = result.model
     idealized, state_paths = _idealized_and_paths(result)
     created = datetime.now(UTC).isoformat()
+    app_version = _app_version()
     # A non-finite ELBO (NaN/inf from a degenerate fit) is recorded as absent rather
     # than written as an out-of-range float attr / non-standard JSON (Infinity/NaN).
     elbo_val = float(model.elbo) if model.elbo is not None and math.isfinite(model.elbo) else None
-    str_dt = h5py.string_dtype(encoding="utf-8")
+    means = np.asarray(model.means, dtype="float64")
+    variances = None if model.variances is None else np.asarray(model.variances, dtype="float64")
+    tmatrix = None if model.tmatrix is None else np.asarray(model.tmatrix, dtype="float64")
+    norm_tmatrix = (
+        None if model.norm_tmatrix is None else np.asarray(model.norm_tmatrix, dtype="float64")
+    )
 
-    with h5py.File(path, "r+") as f:
-        parent = f.require_group(IDEALIZATION_GROUP)
-        if model_name in parent and not overwrite:  # re-checked under the write handle
-            raise FileExistsError(f"/idealization/{model_name} already exists in {path.name}")
-        # Stage the whole model in a transient subgroup, then swap it in — so an
-        # overwrite never leaves /idealization/{model_name} missing if the write dies
-        # mid-way (the old model survives until the new one is complete).
-        staging = f"{model_name}{_WRITING_SUFFIX}"
-        if staging in parent:
-            del parent[staging]  # clean up a prior aborted write
-        g = parent.create_group(staging)
-        g.attrs["type"] = model_type
-        g.attrs["nstates"] = int(nstates)
-        g.attrs["dtype"] = model.dtype
-        g.attrs["intensity_quantity"] = intensity_quantity
-        g.attrs["nstates_selected_by"] = selected_by
-        g.attrs["n_molecules"] = len(molecule_keys)
-        g.attrs["app_version"] = _app_version()
-        g.attrs["created_utc"] = created
-        if elbo_val is not None:
-            g.attrs["elbo"] = elbo_val
-        if elbo_by_nstates is not None:
-            # Serialize a non-finite score (the -inf sentinel) as JSON null, so the
-            # attr is always valid JSON; read_idealization maps null back to -inf.
-            g.attrs["elbo_by_nstates"] = json.dumps(
-                {str(k): (v if math.isfinite(v) else None) for k, v in elbo_by_nstates.items()}
-            )
-
-        g.create_dataset("mean", data=np.asarray(model.means, dtype="float64"))
-        if model.variances is not None:
-            g.create_dataset("var", data=np.asarray(model.variances, dtype="float64"))
-        if model.tmatrix is not None:
-            g.create_dataset("tmatrix", data=np.asarray(model.tmatrix, dtype="float64"))
-        if model.norm_tmatrix is not None:
-            g.create_dataset("norm_tmatrix", data=np.asarray(model.norm_tmatrix, dtype="float64"))
-        g.create_dataset("idealized", data=idealized, compression="gzip")
-        g.create_dataset("state_path", data=state_paths, dtype="int64", compression="gzip")
-        g.create_dataset("molecule_key", data=list(molecule_keys), dtype=str_dt)
-        g.create_dataset("molecule_id", data=list(molecule_ids), dtype=str_dt)
-        g.create_dataset("input_hash", data=list(input_hashes), dtype=str_dt)
-
-        # Atomic swap: the staged group is complete, so replace the old model now.
-        if model_name in parent:
-            del parent[model_name]
-        parent.move(staging, model_name)
+    write_idealization_model(
+        path,
+        model_name=model_name,
+        model_type=model_type,
+        nstates=int(nstates),
+        dtype=model.dtype,
+        means=means,
+        variances=variances,
+        tmatrix=tmatrix,
+        norm_tmatrix=norm_tmatrix,
+        elbo=elbo_val,
+        idealized=idealized,
+        state_paths=state_paths,
+        molecule_keys=molecule_keys,
+        molecule_ids=molecule_ids,
+        input_hashes=input_hashes,
+        intensity_quantity=intensity_quantity,
+        selected_by=selected_by,
+        elbo_by_nstates=elbo_by_nstates,
+        app_version=app_version,
+        created_utc=created,
+        overwrite=overwrite,
+    )
 
     return StoredIdealization(
         model_name=model_name,
         model_type=model_type,
         nstates=int(nstates),
-        means=np.asarray(model.means, dtype="float64"),
-        variances=None if model.variances is None else np.asarray(model.variances, dtype="float64"),
-        tmatrix=None if model.tmatrix is None else np.asarray(model.tmatrix, dtype="float64"),
-        norm_tmatrix=(
-            None if model.norm_tmatrix is None else np.asarray(model.norm_tmatrix, dtype="float64")
-        ),
+        means=means,
+        variances=variances,
+        tmatrix=tmatrix,
+        norm_tmatrix=norm_tmatrix,
         elbo=elbo_val,
         idealized=idealized,
         state_paths=state_paths,
@@ -544,7 +671,7 @@ def _write_model(
         intensity_quantity=intensity_quantity,
         nstates_selected_by=selected_by,
         elbo_by_nstates=elbo_by_nstates,
-        app_version=_app_version(),
+        app_version=app_version,
         created_utc=created,
     )
 
