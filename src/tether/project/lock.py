@@ -54,6 +54,7 @@ import glob as _glob
 import json
 import os
 import socket
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -220,17 +221,32 @@ class LockInfo:
     def from_dict(cls, data: dict[str, object]) -> LockInfo:
         """Reconstruct from a parsed JSON mapping.
 
-        Raises :class:`KeyError` / ``TypeError`` on a missing/ill-typed field and
-        ``ValueError`` on an unparseable ``timestamp`` — callers map all of these to
-        :class:`CorruptLockError`, so a malformed record is treated as a corrupt lock
-        up front rather than crashing a later staleness check with a raw ``ValueError``.
+        Raises :class:`KeyError` on a missing field, ``TypeError`` on an ill-typed
+        one, and ``ValueError`` on an unparseable ``timestamp`` — callers map all of
+        these to :class:`CorruptLockError`, so a malformed record is treated as a
+        corrupt lock up front rather than escaping as a valid-looking foreign lock or
+        crashing a later staleness check. Fields are **type-checked**, not coerced:
+        ``str(None)`` / ``str([...])`` would otherwise smuggle a ``null`` or array
+        into a valid-looking string.
         """
+        host, user, timestamp, nonce = (
+            data["host"],
+            data["user"],
+            data["timestamp"],
+            data["nonce"],
+        )
+        pid = data["pid"]
+        if not all(isinstance(v, str) for v in (host, user, timestamp, nonce)):
+            raise TypeError("lock fields host/user/timestamp/nonce must be strings")
+        # bool is an int subclass but is not a valid PID.
+        if not isinstance(pid, int) or isinstance(pid, bool):
+            raise TypeError("lock field pid must be an integer")
         info = cls(
-            host=str(data["host"]),
-            user=str(data["user"]),
-            pid=int(data["pid"]),  # type: ignore[arg-type]
-            timestamp=str(data["timestamp"]),
-            nonce=str(data["nonce"]),
+            host=host,  # type: ignore[arg-type]
+            user=user,  # type: ignore[arg-type]
+            pid=pid,
+            timestamp=timestamp,  # type: ignore[arg-type]
+            nonce=nonce,  # type: ignore[arg-type]
         )
         info.acquired_at()  # validate the timestamp is offset-parseable now, not later
         return info
@@ -326,6 +342,25 @@ def _read_tolerant(lp: Path) -> tuple[LockInfo | None, bool]:
         return None, True
 
 
+def _read_settled(
+    lp: Path, *, attempts: int = 5, delay: float = 0.01
+) -> tuple[LockInfo | None, bool]:
+    """:func:`_read_tolerant`, but retry a *corrupt* read a few times first.
+
+    Used only right after losing an :func:`_exclusive_create` race: the winner has
+    created the file but may not have finished writing its JSON, so a single read
+    could see a transient partial file and misclassify it as corrupt. A genuinely
+    corrupt lock simply fails every attempt and is reported corrupt as before.
+    """
+    info, corrupt = _read_tolerant(lp)
+    for _ in range(attempts - 1):
+        if not corrupt:
+            break
+        time.sleep(delay)
+        info, corrupt = _read_tolerant(lp)
+    return info, corrupt
+
+
 # --- public lifecycle --------------------------------------------------------
 
 
@@ -403,10 +438,11 @@ def acquire(
         raise LockedError(None, corrupt=True, path=lp)
     if existing is None:
         # Atomically claim the unlocked path; if a local writer beats us, fall
-        # through to re-evaluate their now-present lock.
+        # through to re-evaluate their now-present lock. Settle-read the winner's
+        # file so an unfinished write is not misread as a corrupt lock.
         if _exclusive_create(lp, info):
             return info
-        existing, corrupt = _read_tolerant(lp)
+        existing, corrupt = _read_settled(lp)
         if corrupt:
             raise LockedError(None, corrupt=True, path=lp)
     if existing is not None and existing.identity != identity:

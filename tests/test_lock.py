@@ -213,6 +213,48 @@ def test_unparseable_timestamp_lock_is_corrupt(tmp_path: Path) -> None:
         lock.assert_writable(path, identity=HOST_A)
 
 
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {
+            "host": None,
+            "user": "u",
+            "pid": 1,
+            "timestamp": "2020-01-01T00:00:00+00:00",
+            "nonce": "n",
+        },
+        {
+            "host": ["h"],
+            "user": "u",
+            "pid": 1,
+            "timestamp": "2020-01-01T00:00:00+00:00",
+            "nonce": "n",
+        },
+        {
+            "host": "h",
+            "user": "u",
+            "pid": True,
+            "timestamp": "2020-01-01T00:00:00+00:00",
+            "nonce": "n",
+        },
+        {
+            "host": "h",
+            "user": "u",
+            "pid": "1",
+            "timestamp": "2020-01-01T00:00:00+00:00",
+            "nonce": "n",
+        },
+    ],
+)
+def test_ill_typed_field_lock_is_corrupt(tmp_path: Path, bad: dict) -> None:
+    # Fields are type-checked, not coerced: a null/array/bool/str-pid must be a
+    # corrupt lock, never a valid-looking foreign lock (e.g. host "None").
+    path = _seed(tmp_path, [("k0", "c0")])
+    lock.lock_path(path).write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(CorruptLockError):
+        lock.read_lock(path)
+
+
 def test_steal_lock_over_corrupt_reports_none_prior(tmp_path: Path) -> None:
     # steal_lock cannot name an owner for an unparseable prior lock, so it reports
     # the ousted owner as None while still overwriting it with a valid record.
@@ -351,6 +393,21 @@ def test_create_overwrite_refused_when_foreign_locked(tmp_path: Path) -> None:
     lock.acquire(path, identity=HOST_A)  # a foreign writer holds the canonical
     with pytest.raises(LockedError):
         Project.create(path, overwrite=True, identity=HOST_B)
+    # The refusal happened BEFORE create_project ran — the seeded data is intact
+    # (the exact truncation-ordering the guard protects).
+    assert L.curation_label_of(path, "m1") == int(L.CurationLabel.UNCURATED)
+
+
+def test_forked_child_cannot_release_parent_lock(tmp_path: Path, monkeypatch) -> None:
+    # A handle that acquired a lock, then is inherited across fork(), must not let
+    # the child release the parent's lock: the inherited _held_lock is dropped when
+    # the auto-resolved identity re-resolves on the PID change.
+    path = _seed(tmp_path, [("m1", "cond")])
+    parent = Project(path)  # auto-resolved identity
+    held = parent.acquire_lock()
+    monkeypatch.setattr(os, "getpid", lambda: held.pid + 1)  # now acting as the child
+    assert parent.release_lock() is False  # child does not delete the parent's lock
+    assert lock.read_lock(path) is not None  # the parent's lock survives
 
 
 # --- split-file curation (§9 M2: read-only browse + curate into own split) ----

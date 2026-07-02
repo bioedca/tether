@@ -145,13 +145,17 @@ class Project:
         is stable and cheap, but is **re-resolved when the PID no longer matches** —
         so a handle inherited across ``fork()`` never lets a child impersonate the
         parent as the lock owner (the "single live process is one owner" contract).
+        On such a fork the inherited :attr:`_held_lock` is also dropped, so a child
+        cannot :meth:`release_lock` (or refresh) the parent's lock.
         """
         from tether.project import lock
 
-        if self._identity is None or (
-            not self._identity_injected and self._identity.pid != os.getpid()
-        ):
+        if self._identity is None:
             self._identity = lock.local_identity()
+        elif not self._identity_injected and self._identity.pid != os.getpid():
+            # Forked child: the inherited identity/held-lock belong to the parent.
+            self._identity = lock.local_identity()
+            self._held_lock = None
         return self._identity
 
     def _assert_writable(self) -> None:
@@ -230,10 +234,13 @@ class Project:
         """Release the lock this handle holds; ``False`` if it holds none / lost it.
 
         Nonce-checked (:func:`lock.release`): never deletes a lock that was stolen
-        away in the meantime.
+        away in the meantime. Resolving the identity first drops an inherited
+        ``_held_lock`` in a forked child (see :meth:`_acting_identity`), so a child
+        never releases the parent's lock.
         """
         from tether.project import lock
 
+        self._acting_identity()  # fork-safety: clears a child's inherited held lock
         if self._held_lock is None:
             return False
         released = lock.release(self.path, self._held_lock)
