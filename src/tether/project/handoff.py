@@ -55,6 +55,7 @@ from tether.project.idealize import (
     input_trace_hash,
     write_idealization_model,
 )
+from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -89,12 +90,9 @@ DEFAULT_MATCH_RTOL = 0.0
 #: the integer↔category map available before the M4 editable list (§7.4, §7.6).
 UNCATEGORIZED_CLASS = 0
 
-#: ``/traces`` layer keys per ``intensity_quantity`` (mirrors
-#: :data:`tether.project.idealize._QUANTITY_KEYS`; kept in step with it).
-_QUANTITY_KEYS = {
-    "corrected": ("donor_corrected", "acceptor_corrected"),
-    "raw": ("donor_raw", "acceptor_raw"),
-}
+#: ``/traces`` layer keys per ``intensity_quantity`` (the canonical mapping shared
+#: with idealization and analysis).
+_QUANTITY_KEYS = INTENSITY_QUANTITY_LAYERS
 
 
 # --------------------------------------------------------------------------- #

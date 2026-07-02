@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS as QUANTITY_KEYS
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from os import PathLike
 
@@ -23,15 +25,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     ProjectRef = Project | str | PathLike[str]
 
 __all__ = ["QUANTITY_KEYS", "resolve_quantity", "windowed_channels"]
-
-#: The ``/traces`` (donor, acceptor) layer names by ``intensity_quantity`` key.
-#: ``corrected`` = background-subtracted disk intensity (the apparent-E input at
-#: M2 — photophysical α/γ corrections are M3). Mirrors the frozen schema (§5) and
-#: ``tether.project.idealize._QUANTITY_KEYS``.
-QUANTITY_KEYS = {
-    "corrected": ("donor_corrected", "acceptor_corrected"),
-    "raw": ("donor_raw", "acceptor_raw"),
-}
 
 
 def resolve_quantity(quantity: str) -> tuple[str, str]:
