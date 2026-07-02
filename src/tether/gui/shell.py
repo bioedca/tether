@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from pyqtgraph.Qt import QtWidgets
 
     from tether.analysis.histogram import Histogram1D
+    from tether.analysis.overlap import OverlapInfo
     from tether.gui.reconcile import ReconcileDecision
     from tether.gui.trace_dock import TraceView
     from tether.project.core import Project
@@ -66,6 +67,12 @@ if TYPE_CHECKING:
     #: :func:`tether.analysis.histogram.population_apparent_e_histogram` each call,
     #: so the histogram reflects the current curation state (§7.5/§7.7).
     HistogramSeam = Callable[[], Histogram1D | None]
+
+    #: Resolve a molecule_key to its static-overlap-view payload — the cached patch
+    #: + nearest-neighbour distance + apertures-overlap flag — or ``None`` for an
+    #: unknown key. :func:`make_store_overlap` is the store-backed default that
+    #: computes it once from ``/molecules`` coordinates + ``/patches`` (§7.3/§5.1).
+    OverlapSeam = Callable[[str], OverlapInfo | None]
 
     class HandoffSeam(Protocol):
         """The store hand-off operations the shell's ``&Hand-off`` menu drives.
@@ -99,6 +106,7 @@ __all__ = [
     "make_store_handoff",
     "make_store_histogram",
     "make_store_idealizer",
+    "make_store_overlap",
 ]
 
 _APP_NAME = "Tether"
@@ -234,8 +242,10 @@ class TetherShell:
     shows keys firing), and exposes the dialogs. The ``I`` key runs one-click
     idealize on the selected molecule through the injected ``idealizer`` seam
     (:func:`make_store_idealizer` wires the real store-backed vbFRET pipeline) and
-    draws the returned Viterbi path on the dock. Use as a context manager or call
-    :meth:`close`.
+    draws the returned Viterbi path on the dock. When an ``overlap`` seam is wired
+    (:func:`make_store_overlap`), a right-hand static overlap dock shows the selected
+    molecule's cached patch + nearest-neighbour distance, refreshed on selection
+    (§7.3). Use as a context manager or call :meth:`close`.
     """
 
     def __init__(
@@ -245,6 +255,7 @@ class TetherShell:
         idealizer: Idealizer | None = None,
         handoff: HandoffSeam | None = None,
         histogram: HistogramSeam | None = None,
+        overlap: OverlapSeam | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtWidgets
 
@@ -270,6 +281,14 @@ class TetherShell:
         self._histogram_seam = histogram
         self._histogram_dock: Any | None = None
         self._histogram_dock_widget: Any | None = None
+        # The static overlap-view seam: molecule_key -> patch + NN distance. None (no
+        # project) leaves the dock unbuilt; make_store_overlap(project) wires the real
+        # per-molecule neighbour report. The dock is built lazily on the first
+        # selection with an overlap seam so the default shell stays light, and it is
+        # refreshed from _on_list_row_changed as the curator moves between molecules.
+        self._overlap_seam = overlap
+        self._overlap_dock: Any | None = None
+        self._overlap_dock_widget: Any | None = None
         # The fit runs on a background worker (the sidecar can block for a cold-JIT
         # first run); a main-thread QTimer polls the future so the GUI stays live and
         # the overlay draw + status update always happen on the main thread.
@@ -399,6 +418,61 @@ class TetherShell:
             # Navigation (via the ←/→/↑/↓ keys or a click) shows which molecule is
             # active — so the live smoke sees NEXT/PREV firing, not just accept.
             self._status(f"Molecule {trace.name or f'mol-{row}'} ({row + 1}/{len(self._traces)})")
+            # Refresh the overlap view last, so a seam failure surfaces (overwriting
+            # the navigation status) rather than being clobbered by it; a successful
+            # refresh sets no status, leaving the molecule message in place.
+            self._refresh_overlap(trace)
+
+    @property
+    def overlap_dock(self) -> Any | None:
+        """The static overlap-view dock, or ``None`` until first shown."""
+        return self._overlap_dock
+
+    def _refresh_overlap(self, trace: TraceView) -> None:
+        """Update the overlap view for the selected molecule (§7.3, no-op when unwired).
+
+        Runs the injected ``overlap`` seam (:func:`make_store_overlap` computes the
+        per-molecule neighbour report + patch once), building the dock lazily on the
+        first selection that resolves. A molecule with no ``molecule_key`` (the
+        synthetic/no-project shell) or a seam failure surfaces as a status message
+        and leaves the last view in place — never a crash out of a selection change.
+        """
+        if self._overlap_seam is None or trace.molecule_key is None:
+            return
+        try:
+            info = self._overlap_seam(trace.molecule_key)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Overlap view failed: {exc}")
+            return
+        dock = self._overlap_dock
+        newly_built = dock is None
+        if newly_built:
+            from tether.gui.overlap_dock import OverlapDock
+
+            dock = OverlapDock()
+        try:
+            dock.set_molecule(info)
+        except Exception as exc:  # noqa: BLE001 - a malformed payload must not crash
+            # Mirror show_histogram: a seam that resolves but returns a shape-invalid
+            # patch surfaces as a status message, never an uncaught exception out of
+            # a selection change. A dock that fails its very first draw is discarded
+            # so no blank dock is ever attached; an already-shown dock is kept.
+            self._status(f"Overlap view failed: {exc}")
+            if newly_built:
+                dock.close()
+            return
+        if newly_built:
+            self._overlap_dock = dock
+            self._attach_overlap_dock()
+
+    def _attach_overlap_dock(self) -> None:
+        """Dock the (lazily-built) overlap view into the right of the window."""
+        from pyqtgraph.Qt import QtCore, QtWidgets
+
+        dock_widget = QtWidgets.QDockWidget("Overlap", self._window)
+        dock_widget.setWidget(self._overlap_dock.widget)
+        self._window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock_widget)
+        self._overlap_dock_widget = dock_widget
 
     # --- dialogs -------------------------------------------------------------
 
@@ -718,6 +792,8 @@ class TetherShell:
         self._idealize_executor.shutdown(wait=False)
         if self._histogram_dock is not None:
             self._histogram_dock.close()
+        if self._overlap_dock is not None:
+            self._overlap_dock.close()
         self._trace_dock.close()
         self._window.close()
 
@@ -784,6 +860,91 @@ def make_store_histogram(project: Project | str | PathLike[str], **kwargs: Any) 
         return population_apparent_e_histogram(project, **kwargs)
 
     return _histogram
+
+
+def _stored_disk_radius(path: str | PathLike[str]) -> float | None:
+    """The experiment's stored aperture ``disk_radius`` (``/settings/extraction``).
+
+    Returns ``None`` when the project carries no extraction settings (e.g. an
+    analysis-only import), so the caller can fall back to the documented default
+    rather than a fabricated radius.
+    """
+    import h5py
+
+    try:
+        with h5py.File(path, "r") as handle:
+            group = handle.get("/settings/extraction")
+            if group is not None and "disk_radius" in group.attrs:
+                return float(group.attrs["disk_radius"])
+    except OSError:
+        return None
+    return None
+
+
+def make_store_overlap(
+    project: Project | str | PathLike[str],
+    *,
+    aperture_radius: float | None = None,
+) -> OverlapSeam:
+    """Build the store-backed static-overlap-view seam for a :class:`TetherShell`.
+
+    Reads ``/molecules`` (donor coordinates + ``movie_id``) and the cached
+    ``/patches`` **once**, computes each molecule's nearest-neighbour distance +
+    apertures-overlap flag via :func:`tether.analysis.overlap.neighbor_report`
+    (confined per movie, §5.2), and returns a ``molecule_key -> OverlapInfo`` lookup
+    the shell refreshes on selection. The geometry is static — spot coordinates
+    never change with curation — so it is computed once, not per call (unlike the
+    histogram seam). ``aperture_radius`` defaults to the experiment's stored
+    extraction ``disk_radius``, falling back to
+    :data:`~tether.analysis.overlap.DEFAULT_APERTURE_RADIUS` when absent, so the
+    overlap threshold is never a hardcoded literal. An analysis-only project with no
+    ``/patches`` still yields the NN readouts, with a ``None`` patch (§7.4).
+    """
+    import numpy as np
+
+    from tether.analysis.overlap import DEFAULT_APERTURE_RADIUS, OverlapInfo, neighbor_report
+    from tether.imaging.extract import read_molecules, read_patches
+
+    path = getattr(project, "path", project)
+
+    def _decode(value: object) -> str:
+        return value.decode() if isinstance(value, bytes) else str(value)
+
+    mols = read_molecules(path)
+    keys = [_decode(k) for k in mols["molecule_key"]]
+    coords = np.asarray(mols["donor_xy"], dtype=np.float64)
+    movie_ids = np.array([_decode(m) for m in mols["movie_id"]])
+
+    if aperture_radius is None:
+        stored = _stored_disk_radius(path)
+        radius = stored if stored is not None else DEFAULT_APERTURE_RADIUS
+    else:
+        radius = float(aperture_radius)
+
+    report = neighbor_report(coords, aperture_radius=radius, groups=movie_ids)
+
+    try:
+        patches = read_patches(path).get("donor")
+    except (KeyError, OSError):
+        patches = None  # analysis-only project — no cached patch to show
+
+    index_of = {key: i for i, key in enumerate(keys)}
+
+    def _overlap(molecule_key: str) -> OverlapInfo | None:
+        i = index_of.get(molecule_key)
+        if i is None:
+            return None
+        neighbor = report.neighbor_of(i)
+        return OverlapInfo(
+            nn_distance=report.distance_of(i),
+            overlaps=report.overlaps_at(i),
+            aperture_radius=radius,
+            patch=(np.asarray(patches[i]) if patches is not None else None),
+            name=molecule_key,
+            nn_molecule_key=(keys[neighbor] if neighbor is not None else None),
+        )
+
+    return _overlap
 
 
 def _applied_summary(applied: AppliedReconcile) -> str:
