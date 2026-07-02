@@ -39,11 +39,28 @@ from tether.gui.curation import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from os import PathLike
+
+    import numpy as np
     from pyqtgraph.Qt import QtWidgets
 
     from tether.gui.trace_dock import TraceView
+    from tether.project.core import Project
 
-__all__ = ["CheatSheetOverlay", "OverflowCategoryPicker", "TetherShell", "launch"]
+    #: Maps a molecule_key to that molecule's per-frame idealized FRET path (NaN
+    #: outside its analysis window), or ``None`` when nothing was produced. The
+    #: shell's ``I`` handler draws the result on the dock; :func:`make_store_idealizer`
+    #: is the store-backed default that runs the real one-click vbFRET pipeline.
+    Idealizer = Callable[[str], np.ndarray | None]
+
+__all__ = [
+    "CheatSheetOverlay",
+    "OverflowCategoryPicker",
+    "TetherShell",
+    "launch",
+    "make_store_idealizer",
+]
 
 _APP_NAME = "Tether"
 
@@ -169,11 +186,16 @@ class TetherShell:
     ``qtbot`` provide one). Installs the curation event filter on the application
     so the four bare keys reach the controller from any of the child surfaces,
     routes each dispatched command to a status-bar message (so the live smoke
-    shows keys firing), and exposes the dialogs. Use as a context manager or call
+    shows keys firing), and exposes the dialogs. The ``I`` key runs one-click
+    idealize on the selected molecule through the injected ``idealizer`` seam
+    (:func:`make_store_idealizer` wires the real store-backed vbFRET pipeline) and
+    draws the returned Viterbi path on the dock. Use as a context manager or call
     :meth:`close`.
     """
 
-    def __init__(self, *, categories: list[str] | None = None) -> None:
+    def __init__(
+        self, *, categories: list[str] | None = None, idealizer: Idealizer | None = None
+    ) -> None:
         from pyqtgraph.Qt import QtCore, QtWidgets
 
         from tether.gui.trace_dock import TraceDock
@@ -183,6 +205,10 @@ class TetherShell:
         )
         self._traces: list[TraceView] = []
         self._current_index = -1
+        # The one-click-idealize seam: a molecule_key -> idealized-path callable.
+        # None (the synthetic/no-project default) makes ``I`` report that a project
+        # must be loaded; make_store_idealizer(project) wires the real pipeline.
+        self._idealizer = idealizer
 
         self._window = QtWidgets.QMainWindow()
         self._window.setWindowTitle(_APP_NAME)
@@ -314,7 +340,7 @@ class TetherShell:
             accept=lambda: self._status("Accepted (uncategorized)"),
             reject=lambda: self._status("Rejected"),
             jump=lambda: self._status("Jump to movie spot"),
-            idealize=lambda: self._status("Idealize (one-click vbFRET — M2 S6)"),
+            idealize=self._idealize_current,
             next=lambda: self._step(+1),
             prev=lambda: self._step(-1),
             assign_category=self._assign_category,
@@ -333,6 +359,43 @@ class TetherShell:
             else "?"
         )
         self._status(f"Category {integer_class} ({name})")
+
+    def _idealize_current(self) -> None:
+        """One-click idealize the selected molecule and draw its step overlay (``I``, §7.4).
+
+        The thin GUI layer over :func:`tether.project.idealize.idealize_molecules`
+        (M2 S6 PR-A): resolve the selected list row to its ``molecule_key``, run the
+        injected :data:`Idealizer` (the store-backed one built by
+        :func:`make_store_idealizer` runs the real export→vbFRET→import→write
+        pipeline), then draw the returned Viterbi path on the dock. A missing
+        selection, no wired idealizer (synthetic/no project), an empty result, or a
+        failing fit each surface as a status message rather than crashing the shell.
+        """
+        from pyqtgraph.Qt import QtCore, QtWidgets
+
+        row = self._molecule_list.currentRow()
+        trace = self._traces[row] if 0 <= row < len(self._traces) else None
+        if trace is None:
+            self._status("Idealize: select a molecule first")
+            return
+        if trace.molecule_key is None or self._idealizer is None:
+            self._status("Idealize: load a project with extracted molecules first")
+            return
+        # The fit runs on the GUI thread (an async worker is a follow-up); a wait
+        # cursor signals the block. Any failure is surfaced, never swallowed.
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+        try:
+            idealized = self._idealizer(trace.molecule_key)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Idealize failed for {trace.molecule_key}: {exc}")
+            return
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        if idealized is None:
+            self._status(f"Idealize: no idealization produced for {trace.molecule_key}")
+            return
+        self._trace_dock.set_idealization(idealized)
+        self._status(f"Idealized {trace.molecule_key} (one-click vbFRET)")
 
     def _step(self, delta: int) -> None:
         if not self._traces:
@@ -362,6 +425,45 @@ class TetherShell:
         self.close()
 
 
+def make_store_idealizer(
+    project: Project | str | PathLike[str],
+    *,
+    model_name: str = "vbfret",
+    overwrite: bool = True,
+    **kwargs: Any,
+) -> Idealizer:
+    """Build the store-backed one-click-idealize callable for a :class:`TetherShell`.
+
+    Returns a ``molecule_key -> idealized-path`` function that runs the real
+    :func:`tether.project.idealize.idealize_molecules` pipeline for that molecule
+    (build an SMD → vbFRET via the sidecar → write ``/idealization/{model_name}`` as
+    additive data with the per-molecule input-provenance hash) and hands back its
+    per-frame Viterbi path for the dock overlay. ``overwrite=True`` so re-pressing
+    ``I`` re-idealizes into the same model. Extra keyword arguments
+    (``nstates`` / ``nstates_grid`` / ``intensity_quantity`` / ``sidecar_python`` /
+    ``timeout`` …) pass straight through to :func:`idealize_molecules`.
+
+    **MVP scope.** Idealizes the single selected molecule into a shared model,
+    overwriting that model's prior contents; batch / accumulating idealization and
+    model management are a later session (the deferred store↔shell hookup).
+    """
+    from tether.project.idealize import idealize_molecules
+
+    def _idealize(molecule_key: str) -> np.ndarray | None:
+        stored = idealize_molecules(
+            project, [molecule_key], model_name=model_name, overwrite=overwrite, **kwargs
+        )
+        if stored.idealized is None:
+            return None
+        try:
+            row = stored.molecule_keys.index(molecule_key)
+        except ValueError:  # the requested key was not fitted (should not happen)
+            return None
+        return stored.idealized[row]
+
+    return _idealize
+
+
 def launch() -> None:  # pragma: no cover - interactive smoke entry point
     """Launch the shell with synthetic traces (computer-use live-smoke entry).
 
@@ -383,9 +485,29 @@ def launch() -> None:  # pragma: no cover - interactive smoke entry point
         n = 200
         donor = 500 + 200 * np.sin(np.linspace(0, 6, n)) + rng.normal(0, 20, n)
         acceptor = 500 - 200 * np.sin(np.linspace(0, 6, n)) + rng.normal(0, 20, n)
-        traces.append(TraceView(donor=donor, acceptor=acceptor, frame_time=0.1, name=f"mol-{i}"))
+        traces.append(
+            TraceView(
+                donor=donor,
+                acceptor=acceptor,
+                frame_time=0.1,
+                name=f"mol-{i}",
+                molecule_key=f"mol-{i}",
+            )
+        )
 
-    shell = TetherShell()
+    keyed = {t.molecule_key: t for t in traces}
+
+    def _demo_idealizer(molecule_key: str) -> np.ndarray | None:
+        # A SYNTHETIC two-level step for the interactive/computer-use smoke ONLY —
+        # not a real vbFRET fit. The real one-click uses make_store_idealizer(project).
+        trace = keyed.get(molecule_key)
+        if trace is None:
+            return None
+        path = np.full(trace.n_frames, 0.3)
+        path[trace.n_frames // 2 :] = 0.7
+        return path
+
+    shell = TetherShell(idealizer=_demo_idealizer)
     shell.set_molecules(traces)
     shell.show()
     app.exec()

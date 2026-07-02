@@ -12,10 +12,11 @@ toggle**, and an idealization **step overlay** drawn over the FRET panel.
 
 At the MVP the FRET axis reads **"apparent E"**: the uncorrected proximity ratio
 ``A / (D + A)`` (see :func:`tether.fret.apparent_fret`); leakage/gamma
-corrections land at M3. The idealization overlay is a **reserved placeholder**
-here (empty, hidden) — one-click vbFRET populates it at M2 S6. tMAVEN
-visual-parity of this plot is verified with the M6 seven-plot gallery (§10), not
-in this PR.
+corrections land at M3. The idealization **step overlay** is populated by
+one-click vbFRET (M2 S6) through :meth:`TraceDock.set_idealization`; it stays
+empty/hidden until a molecule is idealized, and is cleared when a new trace is
+shown so a stale path never bleeds onto the next molecule. tMAVEN visual-parity
+of this plot is verified with the M6 seven-plot gallery (§10), not in this PR.
 
 **Lazy Qt import.** As in :mod:`tether.gui.movie_panel`, pyqtgraph and its Qt
 binding are imported lazily inside :meth:`TraceDock.__init__`, so importing this
@@ -76,13 +77,19 @@ class TraceView:
         Seconds per frame (from the movie metadata). ``None`` when unknown, in
         which case the dock can only show a frame-index axis.
     name
-        Optional label (e.g. molecule key) for the dock title / legend.
+        Optional display label for the dock title / legend.
+    molecule_key
+        Optional ``/molecules`` identity (§5.1) of the molecule this trace came
+        from. Carried so the shell's one-click idealize (``I``) can resolve the
+        selected trace back to its store row; ``None`` for a synthetic trace with
+        no backing store.
     """
 
     donor: np.ndarray
     acceptor: np.ndarray
     frame_time: float | None = None
     name: str | None = None
+    molecule_key: str | None = None
 
     def __post_init__(self) -> None:
         # Defensive copies (``np.array`` always copies), so the stored arrays never
@@ -162,6 +169,26 @@ def _marginal_histogram(
     return counts, centers, width
 
 
+def _step_edges(centers: np.ndarray, step: float) -> np.ndarray:
+    """``n`` frame x-positions → ``n + 1`` edges centred on each (for ``stepMode="center"``).
+
+    Each edge sits halfway between adjacent centres, with a half-``step`` overhang at
+    both ends, so the idealized level for frame ``i`` is drawn as a horizontal segment
+    centred on that frame — aligned with the FRET curve's per-frame samples. ``step``
+    is the (uniform) axis spacing (``frame_time`` in seconds mode, ``1.0`` in frames).
+    """
+    centers = np.asarray(centers, dtype=np.float64)
+    n = centers.size
+    if n == 1:
+        half = step / 2.0
+        return np.array([centers[0] - half, centers[0] + half])
+    edges = np.empty(n + 1, dtype=np.float64)
+    edges[1:-1] = 0.5 * (centers[:-1] + centers[1:])
+    edges[0] = centers[0] - (edges[1] - centers[0])
+    edges[-1] = centers[-1] + (centers[-1] - edges[-2])
+    return edges
+
+
 class TraceDock:
     """A pyqtgraph per-trace viewer: intensity + apparent-E + marginal histograms.
 
@@ -182,6 +209,10 @@ class TraceDock:
 
         self._pg = pg
         self._trace: TraceView | None = None
+        # The current idealization step path (per-frame FRET level, NaN outside the
+        # analysis window), or None when nothing is idealized. Kept so a seconds/
+        # frame-index toggle re-lays the overlay on the new x-axis (see _render).
+        self._idealized: np.ndarray | None = None
         # Preference; the *effective* mode also depends on whether the current
         # trace carries a frame_time (a frame-index-only trace forces "frames").
         self._time_mode: TimeMode = "seconds" if seconds_by_default else "frames"
@@ -311,8 +342,13 @@ class TraceDock:
 
     @property
     def idealization_curve(self) -> pg.PlotDataItem:
-        """Reserved step overlay for the idealized path (empty until M2 S6)."""
+        """The idealized-path step overlay (empty/hidden until :meth:`set_idealization`)."""
         return self._idealization_curve
+
+    @property
+    def idealized_path(self) -> np.ndarray | None:
+        """The current per-frame idealization overlay array, or ``None`` if unset."""
+        return self._idealized
 
     @property
     def trace(self) -> TraceView | None:
@@ -338,6 +374,9 @@ class TraceDock:
         if not isinstance(trace, TraceView):
             raise TypeError(f"set_trace expects a TraceView, got {type(trace).__name__}")
         self._trace = trace
+        # A new molecule invalidates any prior idealization overlay (_render below
+        # hides it via _render_idealization); one-click idealize repopulates it.
+        self._idealized = None
 
         # The seconds toggle is only meaningful when a frame_time is known.
         self._time_checkbox.blockSignals(True)
@@ -365,11 +404,40 @@ class TraceDock:
     def clear(self) -> None:
         """Remove the current trace and blank every curve/histogram."""
         self._trace = None
+        self._idealized = None
         for curve in (self._donor_curve, self._acceptor_curve, self._total_curve, self._fret_curve):
             curve.setData([], [])
         self._idealization_curve.setData([], [])
         self._idealization_curve.setVisible(False)
         self._remove_bars()
+
+    def set_idealization(self, idealized: np.ndarray) -> None:
+        """Draw the idealized FRET **step overlay** over the FRET panel (§7.4).
+
+        ``idealized`` is the per-frame idealized FRET level for the *current* trace
+        (the row :func:`tether.project.idealize.idealize_molecules` returns), NaN
+        outside the molecule's analysis window. It must be a 1-D array matching the
+        displayed trace length. Only the (contiguous) in-window finite span is
+        drawn, as a centred step aligned to the FRET curve's x-axis; a toggle
+        between the seconds and frame-index axes re-lays it. Raises if no trace is
+        shown yet or the length disagrees — the overlay is always trace-relative.
+        """
+        if self._trace is None:
+            raise RuntimeError("set_trace before its idealization overlay")
+        arr = np.asarray(idealized, dtype=np.float64)
+        if arr.ndim != 1 or arr.size != self._trace.n_frames:
+            raise ValueError(
+                "idealized must be a 1-D per-frame array of length "
+                f"{self._trace.n_frames}, got shape {arr.shape}"
+            )
+        self._idealized = arr
+        self._render_idealization()
+
+    def clear_idealization(self) -> None:
+        """Hide the idealization step overlay (keeps the trace displayed)."""
+        self._idealized = None
+        self._idealization_curve.setData([], [])
+        self._idealization_curve.setVisible(False)
 
     # --- internals -----------------------------------------------------------
 
@@ -405,6 +473,42 @@ class TraceDock:
         self._intensity_bars = self._draw_bars(
             self._intensity_hist, self._intensity_bars, i_counts, i_centers, i_width
         )
+        # Re-lay the idealization overlay on the (possibly new) x-axis so a
+        # seconds/frame-index toggle moves it in lock-step with the FRET curve.
+        self._render_idealization()
+
+    def _axis_step(self) -> float:
+        """The x-axis spacing between adjacent frames in the effective time mode."""
+        if (
+            self.time_mode == "seconds"
+            and self._trace is not None
+            and self._trace.frame_time is not None
+        ):
+            return float(self._trace.frame_time)
+        return 1.0
+
+    def _render_idealization(self) -> None:
+        """Draw ``self._idealized`` as a centred step over the FRET panel, or hide it.
+
+        Uses ``stepMode="center"`` (pyqtgraph 0.14: ``len(x) == len(y) + 1``), so the
+        in-window finite levels are bracketed by ``n + 1`` edges centred on the same
+        frame positions as the FRET curve. Nothing to draw (no overlay, no trace, or
+        an all-NaN path) hides the reserved curve.
+        """
+        arr = self._idealized
+        if arr is None or self._trace is None or not np.isfinite(arr).any():
+            self._idealization_curve.setData([], [])
+            self._idealization_curve.setVisible(False)
+            return
+        # vbFRET idealizes one contiguous analysis window, so the finite span is a
+        # single block; take first..last finite frame as that window.
+        finite = np.flatnonzero(np.isfinite(arr))
+        lo, hi = int(finite[0]), int(finite[-1]) + 1
+        x = self._trace.time_axis(self.time_mode)[lo:hi]
+        y = arr[lo:hi]
+        edges = _step_edges(x, self._axis_step())
+        self._idealization_curve.setData(edges, y)
+        self._idealization_curve.setVisible(True)
 
     def _draw_bars(
         self, plot: Any, existing: Any, counts: np.ndarray, centers: np.ndarray, width: float
@@ -448,14 +552,22 @@ class TraceDock:
 
 
 def trace_from_smd(
-    raw: np.ndarray, index: int, *, frame_time: float | None = None, name: str | None = None
+    raw: np.ndarray,
+    index: int,
+    *,
+    frame_time: float | None = None,
+    name: str | None = None,
+    molecule_key: str | None = None,
 ) -> TraceView:
     """Build a :class:`TraceView` from an SMD ``raw`` array's molecule ``index``.
 
     ``raw`` is the ``(n_molecules, n_frames, 2)`` array from
     :func:`tether.idealize.smd.read_smd` (``[..., 0]`` donor, ``[..., 1]``
-    acceptor). A convenience for wiring a stored/handed-off trace into the dock.
+    acceptor). A convenience for wiring a stored/handed-off trace into the dock;
+    pass ``molecule_key`` to keep the trace's store identity for one-click idealize.
     """
     donor = np.asarray(raw)[index, :, 0]
     acceptor = np.asarray(raw)[index, :, 1]
-    return TraceView(donor=donor, acceptor=acceptor, frame_time=frame_time, name=name)
+    return TraceView(
+        donor=donor, acceptor=acceptor, frame_time=frame_time, name=name, molecule_key=molecule_key
+    )
