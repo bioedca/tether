@@ -13,6 +13,7 @@ OneDrive conflict-copy detect-and-surface. All headless (no Qt).
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -200,6 +201,18 @@ def test_missing_field_lock_is_corrupt(tmp_path: Path) -> None:
         lock.read_lock(path)
 
 
+def test_unparseable_timestamp_lock_is_corrupt(tmp_path: Path) -> None:
+    # A malformed timestamp is caught at parse time (the corrupt-lock contract),
+    # not later as a raw ValueError inside a staleness check.
+    path = _seed(tmp_path, [("k0", "c0")])
+    bad = {"host": "h", "user": "u", "pid": 1, "timestamp": "not-a-time", "nonce": "n"}
+    lock.lock_path(path).write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(CorruptLockError):
+        lock.read_lock(path)
+    with pytest.raises(LockedError):
+        lock.assert_writable(path, identity=HOST_A)
+
+
 def test_steal_lock_over_corrupt_reports_none_prior(tmp_path: Path) -> None:
     # steal_lock cannot name an owner for an unparseable prior lock, so it reports
     # the ousted owner as None while still overwriting it with a valid record.
@@ -319,6 +332,27 @@ def test_unguarded_write_allowed_when_no_lock(tmp_path: Path) -> None:
     assert L.curation_label_of(path, "m1") == int(L.CurationLabel.ACCEPT)
 
 
+def test_auto_identity_reresolves_after_pid_change(tmp_path: Path, monkeypatch) -> None:
+    # A handle inherited across fork() must not let the child impersonate the parent:
+    # an auto-resolved identity is re-resolved when the PID no longer matches.
+    path = _seed(tmp_path, [("m1", "cond")])
+    proj = Project(path)  # auto-resolved identity
+    first = proj._acting_identity()
+    monkeypatch.setattr(os, "getpid", lambda: first.pid + 1)  # simulate the forked child
+    second = proj._acting_identity()
+    assert second.pid == first.pid + 1
+    # An *injected* identity is fixed — never re-resolved on a PID change.
+    injected = Project(path, identity=HOST_A)
+    assert injected._acting_identity() == HOST_A
+
+
+def test_create_overwrite_refused_when_foreign_locked(tmp_path: Path) -> None:
+    path = _seed(tmp_path, [("m1", "cond")])
+    lock.acquire(path, identity=HOST_A)  # a foreign writer holds the canonical
+    with pytest.raises(LockedError):
+        Project.create(path, overwrite=True, identity=HOST_B)
+
+
 # --- split-file curation (§9 M2: read-only browse + curate into own split) ----
 
 
@@ -366,3 +400,14 @@ def test_split_missing_key_resolution_raises(tmp_path: Path) -> None:
     # A molecule not copied into the split cannot be curated there (never a silent no-op).
     with pytest.raises(KeyError):
         split.accept("m2")
+
+
+def test_split_overwrite_refused_when_destination_locked(tmp_path: Path) -> None:
+    # A destructive overwrite of the split destination is refused if another writer
+    # holds its lock (never clobber a foreign-locked split, §5.4).
+    canonical = _seed(tmp_path, [("m1", "cond")], name="canonical.tether")
+    split_path = tmp_path / "split.tether"
+    Project.create(split_path)  # the split already exists...
+    lock.acquire(split_path, identity=HOST_A)  # ...and is locked by another writer
+    with pytest.raises(LockedError):
+        lock.create_split_curation(canonical, split_path, ["m1"], overwrite=True, identity=HOST_B)

@@ -218,15 +218,22 @@ class LockInfo:
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> LockInfo:
-        """Reconstruct from a parsed JSON mapping; raises :class:`KeyError`/``TypeError``
-        on a missing/ill-typed field (callers map that to :class:`CorruptLockError`)."""
-        return cls(
+        """Reconstruct from a parsed JSON mapping.
+
+        Raises :class:`KeyError` / ``TypeError`` on a missing/ill-typed field and
+        ``ValueError`` on an unparseable ``timestamp`` — callers map all of these to
+        :class:`CorruptLockError`, so a malformed record is treated as a corrupt lock
+        up front rather than crashing a later staleness check with a raw ``ValueError``.
+        """
+        info = cls(
             host=str(data["host"]),
             user=str(data["user"]),
             pid=int(data["pid"]),  # type: ignore[arg-type]
             timestamp=str(data["timestamp"]),
             nonce=str(data["nonce"]),
         )
+        info.acquired_at()  # validate the timestamp is offset-parseable now, not later
+        return info
 
 
 # --- helpers -----------------------------------------------------------------
@@ -280,6 +287,25 @@ def _atomic_write(lp: Path, info: LockInfo) -> None:
     tmp = lp.with_name(f"{lp.name}.tmp-{info.nonce}")
     tmp.write_text(json.dumps(info.to_dict(), indent=2), encoding="utf-8")
     os.replace(tmp, lp)  # atomic on both POSIX and Windows for same-directory paths
+
+
+def _exclusive_create(lp: Path, info: LockInfo) -> bool:
+    """Atomically claim an *unlocked* path via ``O_CREAT | O_EXCL``.
+
+    Returns ``True`` if we created the lock (won the claim), ``False`` if the file
+    already existed (a concurrent local writer beat us). ``O_EXCL`` closes the
+    first-writer TOCTOU on a single host, where two Tether processes could otherwise
+    both observe the path unlocked and both write. Cross-machine on an
+    eventually-consistent share this is not atomic — that is exactly why liveness is
+    judged by the wall-clock staleness timeout, not by racing the file (PRD §5.4).
+    """
+    try:
+        fd = os.open(lp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(info.to_dict(), indent=2))
+    return True
 
 
 def _read_tolerant(lp: Path) -> tuple[LockInfo | None, bool]:
@@ -360,12 +386,33 @@ def acquire(
     is overwritten
     unconditionally (prefer :func:`steal_lock`, which also returns the ousted
     owner so the caller can warn).
+
+    A fresh claim on an unlocked path uses an atomic ``O_CREAT | O_EXCL`` create
+    (:func:`_exclusive_create`) so two concurrent local writers cannot both claim it;
+    if the race is lost, the winner's lock is re-evaluated as a foreign lock.
     """
     identity = identity if identity is not None else local_identity()
-    if not steal:
-        assert_writable(project_path, identity=identity, timeout_s=timeout_s, now=now)
+    lp = lock_path(project_path)
     info = _new_info(identity, now=now)
-    _atomic_write(lock_path(project_path), info)
+    if steal:
+        _atomic_write(lp, info)
+        return info
+
+    existing, corrupt = _read_tolerant(lp)
+    if corrupt:
+        raise LockedError(None, corrupt=True, path=lp)
+    if existing is None:
+        # Atomically claim the unlocked path; if a local writer beats us, fall
+        # through to re-evaluate their now-present lock.
+        if _exclusive_create(lp, info):
+            return info
+        existing, corrupt = _read_tolerant(lp)
+        if corrupt:
+            raise LockedError(None, corrupt=True, path=lp)
+    if existing is not None and existing.identity != identity:
+        raise LockedError(existing, stale=existing.is_stale(timeout_s=timeout_s, now=now), path=lp)
+    # Unlocked again (raced away) or already ours: (re)write and refresh.
+    _atomic_write(lp, info)
     return info
 
 
@@ -394,6 +441,13 @@ def release(project_path: str | Path, info: LockInfo) -> bool:
     Only removes the sidecar when the on-disk ``nonce`` still matches ``info`` — so
     a holder never deletes a lock that was stolen from them in the meantime, and a
     double release is harmless.
+
+    A narrow read-then-``unlink`` window remains (a steal landing between the nonce
+    check and the ``unlink`` would delete the successor's lock). Closing it fully
+    needs OS advisory locking, which is deliberately out of scope: PRD §5.4 adopts a
+    one-owner-at-a-time, wall-clock-staleness model precisely because atomic locking
+    is impossible on an eventually-consistent share, so a sub-millisecond same-host
+    race is not the threat this guard defends against.
     """
     lp = lock_path(project_path)
     current, corrupt = _read_tolerant(lp)
@@ -499,7 +553,9 @@ def create_split_curation(
     molecule_keys:
         Restrict the copied ``/molecules`` rows to these keys; ``None`` copies all.
     overwrite:
-        Passed to :func:`~tether.io.schema.create_project` for ``split_path``.
+        Passed to :func:`~tether.io.schema.create_project` for ``split_path``; an
+        overwrite is refused (``LockedError``) if the split is locked by another
+        writer.
     identity:
         The split's writer identity (defaults to the local process); the returned
         handle owns the split, so its writes are never lock-guarded against the
@@ -518,6 +574,12 @@ def create_split_curation(
 
     canonical_path = Path(canonical_path)
     split_path = Path(split_path)
+
+    # Respect the destination split's own single-writer lock before a destructive
+    # overwrite: never clobber a split another writer holds (§5.4). A fresh path has
+    # no lock, so this is a no-op for the common case.
+    if overwrite:
+        assert_writable(split_path, identity=identity)
 
     # Browse the canonical /molecules read-only (never opened for write).
     with h5py.File(canonical_path, "r") as f:

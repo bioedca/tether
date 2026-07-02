@@ -13,6 +13,7 @@ mutates the M0-frozen schema, only the *data* inside it.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -56,6 +57,10 @@ class Project:
         #: overridable (e.g. to model another host/machine in tests, or a shared
         #: workstation login).
         self._identity: LockIdentity | None = identity
+        #: Whether ``identity`` was explicitly supplied. An injected identity is
+        #: fixed; an auto-resolved one is re-resolved if the PID changes (see
+        #: :meth:`_acting_identity`) so a forked child never inherits the parent's.
+        self._identity_injected: bool = identity is not None
         #: The lock this handle currently holds (set by :meth:`acquire_lock` /
         #: :meth:`steal_lock`, cleared by :meth:`release_lock`); ``None`` when the
         #: handle holds no lock.
@@ -72,8 +77,15 @@ class Project:
 
         Thin wrapper over :func:`tether.io.schema.create_project`; refuses to
         clobber an existing file unless ``overwrite=True``. ``identity`` sets the
-        handle's single-writer identity (§5.4; defaults to the local process).
+        handle's single-writer identity (§5.4; defaults to the local process). An
+        ``overwrite=True`` that would truncate an existing project is refused
+        (``LockedError``) when a **foreign** ``.lock`` is held, so the single-writer
+        invariant is not bypassed by a destructive re-create.
         """
+        if overwrite:
+            from tether.project import lock
+
+            lock.assert_writable(path, identity=identity)
         create_project(path, overwrite=overwrite)
         return cls(path, identity=identity)
 
@@ -126,14 +138,19 @@ class Project:
     # --- single-writer lock (PRD §5.4, §7.10; the concurrency seam) -----------
 
     def _acting_identity(self) -> LockIdentity:
-        """This handle's single-writer identity, resolved to the local process once.
+        """This handle's single-writer identity, resolved to the local process.
 
-        Cached on first use so the "is this lock ours?" judgment is stable for the
-        lifetime of the handle (and cheap — it avoids re-resolving the hostname).
+        An **injected** identity is returned verbatim (tests / an explicit override).
+        An **auto-resolved** identity is cached so the "is this lock ours?" judgment
+        is stable and cheap, but is **re-resolved when the PID no longer matches** —
+        so a handle inherited across ``fork()`` never lets a child impersonate the
+        parent as the lock owner (the "single live process is one owner" contract).
         """
         from tether.project import lock
 
-        if self._identity is None:
+        if self._identity is None or (
+            not self._identity_injected and self._identity.pid != os.getpid()
+        ):
             self._identity = lock.local_identity()
         return self._identity
 
