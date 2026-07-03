@@ -5,7 +5,9 @@
 A thin headless front door over :mod:`tether.project`. ``tether --version``
 reports the git-derived app version (NFR-REPRO: "the app version is derived from
 git"); ``tether extract`` runs the M1 native extraction pipeline (movie ->
-``.tether``) — see :mod:`tether.project.extract`.
+``.tether``) — see :mod:`tether.project.extract`; ``tether batch`` runs the
+extract -> correct -> idealize pipeline over many movies — see
+:mod:`tether.project.batch`.
 
 The CLI deliberately uses the standard-library :mod:`argparse` rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
@@ -37,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     _add_extract_parser(subparsers)
+    _add_batch_parser(subparsers)
     return parser
 
 
@@ -209,6 +212,112 @@ def _run_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_batch_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``batch`` subcommand (many movies -> per-movie ``.tether``)."""
+    batch = subparsers.add_parser(
+        "batch",
+        help="run the extract -> correct -> idealize pipeline over many movies",
+        description=(
+            "Headless batch runner (FR-BATCH): process each movie into its own "
+            ".tether under --out-dir, isolating failures (continue-on-error) and "
+            "checkpointing per stage so a re-run resumes only the incomplete stages. "
+            "Prints an end-of-run summary and writes a JSONL structured log."
+        ),
+    )
+    batch.add_argument("movies", nargs="+", help="one or more dual-channel TIFF movies")
+    batch.add_argument(
+        "-d",
+        "--out-dir",
+        required=True,
+        help="directory for the per-movie .tether projects (created if absent)",
+    )
+    batch.add_argument(
+        "--tmap",
+        default=None,
+        metavar="PATH",
+        help="a shared imported Deep-LASI .tmap applied to every movie",
+    )
+    batch.add_argument(
+        "--tdat",
+        default=None,
+        metavar="PATH",
+        help="a shared Deep-LASI .tdat detection config applied to every movie",
+    )
+    batch.add_argument(
+        "--policy",
+        default="warn",
+        choices=("warn", "fail"),
+        help=(
+            "over-gate registration policy: 'warn' (default) keeps an over-gate "
+            "movie with a flag; 'fail' fails it"
+        ),
+    )
+    batch.add_argument(
+        "--no-idealize",
+        action="store_true",
+        help="skip the idealization stage (extract + correct only)",
+    )
+    batch.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="re-extract a movie whose output exists but is not a completed extraction",
+    )
+    batch.add_argument(
+        "--log",
+        default=None,
+        metavar="PATH",
+        help="write a JSONL structured log here (default: <out-dir>/batch-log.jsonl)",
+    )
+
+
+def _run_batch(args: argparse.Namespace) -> int:
+    """Handle ``tether batch``; exit 1 if any movie had a failed stage."""
+    # Lazy: keep the imaging/IO/HDF5 stack off the ``--version`` path.
+    from pathlib import Path
+
+    from tether.project.batch import BatchLog, MovieJob, run_batch
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Each movie maps to <out-dir>/<stem>.tether. Two movies with the same basename
+    # (e.g. `movie_010.tif` from different condition folders) would collide on one
+    # output, and the batch runner's provenance checkpoint would silently treat the
+    # second as "already done" using the first's data — reject them up front.
+    jobs = []
+    seen: dict[str, str] = {}
+    for movie in args.movies:
+        stem = Path(movie).stem
+        if stem in seen:
+            print(
+                f"tether batch: movies {seen[stem]!r} and {movie!r} both map to "
+                f"{(out_dir / (stem + '.tether')).as_posix()!r}; rename one or use a "
+                "separate --out-dir",
+                file=sys.stderr,
+            )
+            return 2
+        seen[stem] = movie
+        jobs.append(
+            MovieJob(
+                movie_path=movie,
+                output_path=out_dir / f"{stem}.tether",
+                tmap=args.tmap,
+                tdat=args.tdat,
+            )
+        )
+    log_path = Path(args.log) if args.log else out_dir / "batch-log.jsonl"
+    with BatchLog(path=log_path) as log:
+        summary = run_batch(
+            jobs,
+            policy=args.policy,
+            idealize=not args.no_idealize,
+            overwrite=args.overwrite,
+            log=log,
+        )
+    print(summary.format_report())
+    print(f"  structured log: {log_path}", file=sys.stderr)
+    return 0 if summary.n_failed == 0 else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI. Returns a process exit code (``0`` on success).
 
@@ -223,6 +332,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if command == "extract":
         return _run_extract(args)
+    if command == "batch":
+        return _run_batch(args)
     parser.error(f"unknown command: {command}")  # pragma: no cover
     return 2  # pragma: no cover
 
