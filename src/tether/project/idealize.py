@@ -182,8 +182,9 @@ def input_trace_hash(donor: np.ndarray, acceptor: np.ndarray, quantity: str) -> 
     the fit (already trimmed to ``[pre, post)``). The quantity name is folded in so
     the same numbers read from a different trace layer hash differently. Inputs are
     cast to C-contiguous ``float64`` first, so the digest is stable regardless of the
-    on-disk float width (``/traces`` is ``float32``). This is the staleness stamp of
-    PRD §5: a re-extraction/correction that changes the trace changes the hash.
+    on-disk float width (``/traces`` is ``float32``). This is the **input-trace
+    identity** component of the composite staleness stamp (:func:`input_provenance_hash`,
+    PRD §5.1): a re-extraction that changes the trace changes the hash.
     """
     d = np.ascontiguousarray(np.asarray(donor, dtype="float64"))
     a = np.ascontiguousarray(np.asarray(acceptor, dtype="float64"))
