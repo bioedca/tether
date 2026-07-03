@@ -40,11 +40,19 @@ from tether.imaging.split import ChannelGeometry  # noqa: E402
 from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import build_manifest, create_project, diff_manifest, introspect  # noqa: E402
 from tether.project.core import Project  # noqa: E402
+from tether.project.correct import (  # noqa: E402
+    METHOD_APPARENT_TOGGLE,
+    METHOD_CORRECTED,
+    compute_corrected_fret,
+)
 from tether.project.idealize import (  # noqa: E402
     idealize_molecules,
+    input_provenance_hash,
     input_trace_hash,
     list_idealizations,
+    live_molecule_keys,
     read_idealization,
+    reidealize,
     stale_molecule_keys,
 )
 
@@ -243,6 +251,25 @@ def _make_runner(elbo_by_nstates: dict, calls: list, **fake_kwargs):
 # --- input-provenance hash ---------------------------------------------------
 
 
+def _uncorrected_hash(donor_win, acceptor_win, *, pre, post, quantity="corrected") -> str:
+    """The composite provenance hash for a freshly-extracted molecule (no corrections).
+
+    ``_build_store`` runs no correction pass, so ``/molecules`` carries the extraction
+    defaults (``alpha``/``gamma`` = NaN, ``correction_method`` = ``""``), which fold in
+    as the apparent-E identity ``(α=0, γ=1)``.
+    """
+    return input_provenance_hash(
+        donor_win,
+        acceptor_win,
+        quantity=quantity,
+        alpha=float("nan"),
+        gamma=float("nan"),
+        correction_method="",
+        pre=pre,
+        post=post,
+    )
+
+
 def test_input_trace_hash_is_deterministic_and_input_sensitive() -> None:
     d = np.array([1.0, 2.0, 3.0])
     a = np.array([4.0, 5.0, 6.0])
@@ -293,10 +320,9 @@ def test_input_hash_matches_windowed_corrected_trace(tmp_path) -> None:
     proj, keys = _build_store(tmp_path / "e.tether", donor, acceptor)
     calls: list = []
     stored = idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, calls))
-    # full window [0, t): the recorded hash must equal a fresh hash of the input
+    # full window [0, t): the recorded composite hash equals a fresh one over the input
     for i in range(len(keys)):
-        expected = input_trace_hash(donor[i], acceptor[i], "corrected")
-        assert stored.input_hashes[i] == expected
+        assert stored.input_hashes[i] == _uncorrected_hash(donor[i], acceptor[i], pre=0, post=t)
 
 
 # --- auto state-count (max ELBO) ---------------------------------------------
@@ -422,9 +448,9 @@ def test_analysis_window_bounds_the_fit_and_hash(tmp_path) -> None:
     assert np.all(stored.state_paths[0, :lo] == NO_STATE)
     assert np.all(stored.state_paths[0, hi:] == NO_STATE)
     assert np.all(stored.state_paths[0, lo:hi] != NO_STATE)
-    # the input hash covers only the windowed slice
-    assert stored.input_hashes[0] == input_trace_hash(
-        donor[0, lo:hi], acceptor[0, lo:hi], "corrected"
+    # the input hash covers only the windowed slice + the window bounds
+    assert stored.input_hashes[0] == _uncorrected_hash(
+        donor[0, lo:hi], acceptor[0, lo:hi], pre=lo, post=hi
     )
 
 
@@ -443,6 +469,149 @@ def test_stale_keys_flag_changed_inputs(tmp_path) -> None:
         f["traces"]["donor_corrected"][0, :] += 500.0
     stale = stale_molecule_keys(proj, "vbconhmm")
     assert stale == [keys[0]]
+
+
+# --- staleness: correction factors + per-factor re-flag scope (§5.1) ----------
+
+
+def _set_factors(path, *, alpha=None, gamma=None, method=None, rows=None) -> None:
+    """Directly write per-molecule correction factors into ``/molecules`` (test control).
+
+    Bypasses the photobleach→α→γ pipeline to set an *effective applied* correction on
+    chosen ``rows`` (all rows when ``rows is None``), so a staleness scope can be
+    exercised without the full estimator chain.
+    """
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"]["table"][:]
+        idx = range(table.shape[0]) if rows is None else rows
+        for i in idx:
+            if alpha is not None:
+                table["alpha"][i] = alpha
+            if gamma is not None:
+                table["gamma"][i] = gamma
+            if method is not None:
+                table["correction_method"][i] = method
+        f["molecules"]["table"][:] = table
+
+
+def test_applying_corrections_restales_whole_cohort(tmp_path) -> None:
+    # The primary M3 scenario: an idealization fit on the apparent-E substrate goes
+    # stale once real corrections are applied (the corrected-FRET inputs changed).
+    n, t = 3, 24
+    path = tmp_path / "e.tether"
+    proj, keys = _build_store(path, _step_trace(n, t), _step_trace(n, t) * 0.5)
+    idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    assert stale_molecule_keys(proj, "vbconhmm") == []
+
+    # set finite α/γ and stamp the methods via the real correction writer
+    _set_factors(path, alpha=0.05, gamma=1.2)
+    summary = compute_corrected_fret(path)
+    assert summary.n_corrected == n
+    assert sorted(stale_molecule_keys(proj, "vbconhmm")) == sorted(keys)
+
+
+def test_global_alpha_shift_restales_whole_cohort(tmp_path) -> None:
+    n, t = 3, 24
+    path = tmp_path / "e.tether"
+    proj, keys = _build_store(path, _step_trace(n, t), _step_trace(n, t) * 0.5)
+    _set_factors(path, alpha=0.05, gamma=1.2, method=METHOD_CORRECTED)
+    idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    assert stale_molecule_keys(proj, "vbconhmm") == []
+
+    # applied α is purely global -> an α recalibration re-stales EVERY molecule (§5.1)
+    _set_factors(path, alpha=0.09)
+    assert sorted(stale_molecule_keys(proj, "vbconhmm")) == sorted(keys)
+
+
+def test_gamma_median_shift_restales_fallback_only(tmp_path) -> None:
+    n, t = 4, 24
+    path = tmp_path / "e.tether"
+    proj, keys = _build_store(path, _step_trace(n, t), _step_trace(n, t) * 0.5)
+    _set_factors(path, alpha=0.05, method=METHOD_CORRECTED)
+    # rows 0,1 carry their OWN γ; rows 2,3 run on the population-median fallback (1.20)
+    _set_factors(path, gamma=1.10, rows=[0])
+    _set_factors(path, gamma=1.30, rows=[1])
+    _set_factors(path, gamma=1.20, rows=[2, 3])
+    idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    assert stale_molecule_keys(proj, "vbconhmm") == []
+
+    # the fallback median shifts 1.20 -> 1.25: only the fallback molecules' applied γ
+    # moves, so ONLY they re-stale — the own-γ molecules are untouched (§5.1)
+    _set_factors(path, gamma=1.25, rows=[2, 3])
+    stale = stale_molecule_keys(proj, "vbconhmm")
+    assert sorted(stale) == sorted([keys[2], keys[3]])
+    assert keys[0] not in stale
+    assert keys[1] not in stale
+
+
+def test_apparent_toggle_flip_restales(tmp_path) -> None:
+    n, t = 2, 20
+    path = tmp_path / "e.tether"
+    proj, keys = _build_store(path, _step_trace(n, t), _step_trace(n, t) * 0.5)
+    _set_factors(path, alpha=0.05, gamma=1.2, method=METHOD_CORRECTED)
+    idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    assert stale_molecule_keys(proj, "vbconhmm") == []
+
+    # flip to apparent E: effective factors fall to (α=0, γ=1) -> every molecule re-stales
+    _set_factors(path, method=METHOD_APPARENT_TOGGLE)
+    assert sorted(stale_molecule_keys(proj, "vbconhmm")) == sorted(keys)
+
+
+def test_stored_factor_change_under_apparent_does_not_restale(tmp_path) -> None:
+    # A stored α/γ change while a molecule stays on apparent E must NOT re-stale it:
+    # the effective applied correction (0, 1) is unchanged (the corrected-E is unused).
+    n, t = 2, 20
+    path = tmp_path / "e.tether"
+    proj, _keys = _build_store(path, _step_trace(n, t), _step_trace(n, t) * 0.5)
+    _set_factors(path, alpha=0.0, gamma=1.0, method=METHOD_APPARENT_TOGGLE)
+    idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    assert stale_molecule_keys(proj, "vbconhmm") == []
+
+    _set_factors(path, alpha=0.2, gamma=3.0)  # method stays apparent-toggle
+    assert stale_molecule_keys(proj, "vbconhmm") == []
+
+
+# --- staleness: TDP/dwell exclusion + one-click re-idealize (§5.1) ------------
+
+
+def test_live_keys_exclude_stale_molecules(tmp_path) -> None:
+    n, t = 3, 24
+    path = tmp_path / "e.tether"
+    proj, keys = _build_store(path, _step_trace(n, t), _step_trace(n, t) * 0.5)
+    idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    assert live_molecule_keys(proj, "vbconhmm") == keys  # all live initially
+
+    with h5py.File(path, "r+") as f:  # mutate row 1 -> stale
+        f["traces"]["donor_corrected"][1, :] += 400.0
+    assert stale_molecule_keys(proj, "vbconhmm") == [keys[1]]
+    # STALE molecules are excluded from the analysis (TDP/dwell) set
+    assert live_molecule_keys(proj, "vbconhmm") == [keys[0], keys[2]]
+
+
+def test_reidealize_refreshes_stale_model(tmp_path) -> None:
+    n, t = 3, 24
+    path = tmp_path / "e.tether"
+    proj, keys = _build_store(path, _step_trace(n, t), _step_trace(n, t) * 0.5)
+    idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    _set_factors(path, alpha=0.05, gamma=1.2, method=METHOD_CORRECTED)
+    assert sorted(stale_molecule_keys(proj, "vbconhmm")) == sorted(keys)  # all stale
+
+    refreshed = reidealize(proj, "vbconhmm", _runner=_make_runner({2: -1.0}, []))
+    assert refreshed.nstates == 2  # re-fit at the same fixed state count
+    assert stale_molecule_keys(proj, "vbconhmm") == []
+    assert live_molecule_keys(proj, "vbconhmm") == keys
+
+
+def test_project_live_and_reidealize_delegators(tmp_path) -> None:
+    n, t = 2, 20
+    proj, keys = _build_store(tmp_path / "e.tether", _step_trace(n, t), _step_trace(n, t) * 0.5)
+    proj.idealize(nstates=2, _runner=_make_runner({2: -3.0}, []))
+    assert proj.live_idealization_keys("vbconhmm") == keys
+
+    _set_factors(proj.path, alpha=0.05, gamma=1.2, method=METHOD_CORRECTED)
+    assert sorted(proj.stale_idealization_keys("vbconhmm")) == sorted(keys)
+    proj.reidealize("vbconhmm", _runner=_make_runner({2: -3.0}, []))
+    assert proj.stale_idealization_keys("vbconhmm") == []
 
 
 # --- schema freeze -----------------------------------------------------------
@@ -527,8 +696,8 @@ def test_windows_fallback_to_frame_range_when_unset(tmp_path) -> None:
     smd = calls[-1]["smd"]
     assert (int(smd.pre_list[0]), int(smd.post_list[0])) == frame_range
     lo, hi = frame_range
-    assert stored.input_hashes[0] == input_trace_hash(
-        donor[0, lo:hi], acceptor[0, lo:hi], "corrected"
+    assert stored.input_hashes[0] == _uncorrected_hash(
+        donor[0, lo:hi], acceptor[0, lo:hi], pre=lo, post=hi
     )
 
 

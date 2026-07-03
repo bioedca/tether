@@ -384,6 +384,19 @@ class Project:
 
         return idealize.stale_molecule_keys(self, model_name)
 
+    def live_idealization_keys(self, model_name: str) -> list[str]:
+        """Non-stale molecules TDP/dwell analysis includes (:func:`idealize.live_molecule_keys`)."""
+        from tether.project import idealize
+
+        return idealize.live_molecule_keys(self, model_name)
+
+    def reidealize(self, model_name: str, **kwargs: object) -> StoredIdealization:
+        """Re-fit a stale model over current inputs (:func:`idealize.reidealize`)."""
+        from tether.project import idealize
+
+        self._assert_writable()
+        return idealize.reidealize(self, model_name, **kwargs)  # type: ignore[arg-type]
+
     # --- tMAVEN hand-off + non-destructive re-import (PRD §7.4, §5.3) ----------
 
     def hand_off_to_tmaven(
