@@ -98,12 +98,42 @@ def run(smd_path, group, model_type, nstates, model_out, nrestarts=None):
     }
 
 
+def probe():
+    """Liveness check: confirm the sidecar env can build the tMAVEN driver.
+
+    Imports and instantiates ``maven_class`` (which builds plain objects and does not
+    spawn a Qt app — the M0.5 S1 recon) so a sidecar env that is *present but broken*
+    (``tmaven`` missing or unimportable) is caught by the batch runner's startup probe
+    before it commits to idealizing. Runs no fit.
+    """
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    os.environ.setdefault("NAPARI_ASYNC", "0")
+
+    from tmaven.maven import maven_class
+
+    maven_class()
+    return {"ok": True, "probe": True, "detail": "tmaven maven_class ready"}
+
+
 def main(argv):
     args = argv[1:]  # drop the script name (argv[0])
+    if args and args[0] == "--probe":
+        try:
+            status = probe()
+        except Exception as exc:
+            sys.stdout.write(
+                STATUS_PREFIX + json.dumps({"ok": False, "probe": True, "error": str(exc)}) + "\n"
+            )
+            sys.stdout.flush()
+            return 1
+        sys.stdout.write(STATUS_PREFIX + json.dumps(status) + "\n")
+        sys.stdout.flush()
+        return 0
     if len(args) not in (5, 6):
         sys.stderr.write(
             "usage: _sidecar_runner.py <smd_path> <group> <model_type> "
             "<nstates> <model_out> [nrestarts]\n"
+            "   or: _sidecar_runner.py --probe\n"
         )
         return 2
     smd_path, group, model_type, nstates, model_out = args[:5]

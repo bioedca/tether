@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from tether import __version__
@@ -72,3 +74,76 @@ def test_batch_isolates_failure_and_exits_nonzero(tmp_path, capsys) -> None:
     assert "1 movie(s), 0 ok, 1 failed" in report
     assert "not_a_movie_010.tif" in report
     assert (out / "batch-log.jsonl").exists()
+
+
+# --- Sidecar supervision wiring (PR7-B) --------------------------------------
+
+
+def _capture_run_batch(monkeypatch):
+    """Replace batch.run_batch with a capture stub; return the captured-kwargs dict."""
+    import tether.project.batch as batch_mod
+
+    captured: dict[str, object] = {}
+
+    def _fake(jobs, **kwargs):
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(format_report=lambda: "(report)", n_failed=0)
+
+    monkeypatch.setattr(batch_mod, "run_batch", _fake)
+    return captured
+
+
+def test_batch_builds_supervision_from_flags(tmp_path, monkeypatch) -> None:
+    captured = _capture_run_batch(monkeypatch)
+    m = tmp_path / "movie_001.tif"
+    m.write_bytes(b"x")
+    rc = main(
+        [
+            "batch",
+            str(m),
+            "--out-dir",
+            str(tmp_path / "out"),
+            "--max-restarts",
+            "5",
+            "--sidecar-timeout",
+            "60",
+            "--sidecar-python",
+            "/x/py",
+            "--no-defer",
+        ]
+    )
+    assert rc == 0
+    sup = captured["kwargs"]["supervision"]
+    assert sup.max_restarts == 5
+    assert sup.timeout == 60.0
+    assert str(sup.sidecar_python) == "/x/py"
+    assert sup.defer_if_unavailable is False
+
+
+def test_batch_supervision_defaults(tmp_path, monkeypatch) -> None:
+    captured = _capture_run_batch(monkeypatch)
+    m = tmp_path / "movie_001.tif"
+    m.write_bytes(b"x")
+    rc = main(["batch", str(m), "--out-dir", str(tmp_path / "out")])
+    assert rc == 0
+    sup = captured["kwargs"]["supervision"]
+    assert sup.max_restarts == 3  # §11.2 default
+    assert sup.defer_if_unavailable is True
+
+
+def test_batch_no_idealize_disables_supervision(tmp_path, monkeypatch) -> None:
+    captured = _capture_run_batch(monkeypatch)
+    m = tmp_path / "movie_001.tif"
+    m.write_bytes(b"x")
+    rc = main(["batch", str(m), "--out-dir", str(tmp_path / "out"), "--no-idealize"])
+    assert rc == 0
+    assert captured["kwargs"]["supervision"] is None
+    assert captured["kwargs"]["idealize"] is False
+
+
+def test_batch_rejects_negative_max_restarts(tmp_path, capsys) -> None:
+    m = tmp_path / "movie_001.tif"
+    m.write_bytes(b"x")
+    rc = main(["batch", str(m), "--out-dir", str(tmp_path / "out"), "--max-restarts", "-1"])
+    assert rc == 2
+    assert "max_restarts must be >= 0" in capsys.readouterr().err

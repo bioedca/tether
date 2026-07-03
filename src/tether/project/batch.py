@@ -25,12 +25,17 @@ Design (ADR-0030):
   ``/molecules.alpha`` and would otherwise raise); the corrected-E pass then degrades
   the missing factors to apparent E, never a NaN factor (PRD §7.2).
 
-Scope — this module is **M3 PR7-A**: the queue, per-movie isolation, per-stage
-checkpoint, the structured log/summary, the warn-vs-fail over-gate policy (PRD §11.2,
-ADR-0014), and a ``/settings/batch`` provenance stamp. Here the idealize stage is a
-single checkpointed, error-isolated call. **Sidecar supervision** — per-IPC-call
-timeout tuning, auto-restart up to N, liveness, and the idealization-deferred-at-
-startup mode (§7.11 "Sidecar supervision") — is **M3 PR7-B**.
+Scope — **M3 PR7-A** landed the queue, per-movie isolation, per-stage checkpoint, the
+structured log/summary, the warn-vs-fail over-gate policy (PRD §11.2, ADR-0014), and a
+``/settings/batch`` provenance stamp. **M3 PR7-B** (this addition, ADR-0031) layers
+**sidecar supervision** over the idealize stage via an opt-in ``supervision``
+(:class:`tether.idealize.supervisor.SidecarSupervision`): a startup liveness probe that
+puts the whole run into **idealization-deferred mode** when the sidecar env is
+absent/corrupt (extract + correct still run and checkpoint; a later run resumes only the
+deferred idealize stage), and **auto-restart up to N** on a transient sidecar failure
+(a crash/timeout, not a cleanly-reported fit error), failing **only that movie's**
+idealization when the restart budget is spent. With ``supervision=None`` (the default)
+the idealize stage stays PR7-A's single, error-isolated call.
 """
 
 from __future__ import annotations
@@ -43,7 +48,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from tether.idealize.supervisor import ProbeResult, SidecarSupervision
 
 __all__ = [
     "STAGE_EXTRACT",
@@ -56,6 +64,7 @@ __all__ = [
     "STATUS_BLOCKED",
     "STATUS_NOT_REQUESTED",
     "STATUS_WARNING",
+    "STATUS_DEFERRED",
     "POLICY_WARN",
     "POLICY_FAIL",
     "POLICIES",
@@ -81,6 +90,7 @@ STATUS_FAILED = "failed"  #: the stage raised, or an over-gate movie under ``fai
 STATUS_BLOCKED = "blocked"  #: an upstream stage did not complete, so this could not run
 STATUS_NOT_REQUESTED = "not-requested"  #: idealize when ``idealize=False``
 STATUS_WARNING = "warning"  #: a non-fatal issue (e.g. provenance stamping failed)
+STATUS_DEFERRED = "deferred"  #: idealize skipped this run — sidecar unavailable at startup
 
 #: Statuses that count as "this stage is satisfied" for downstream gating + checkpoint.
 _OK_STATUSES = frozenset({STATUS_DONE, STATUS_SKIPPED})
@@ -449,6 +459,13 @@ def _safe_event(log: BatchLog, **kwargs: Any) -> None:
         log.event(**kwargs)
 
 
+def _default_probe(supervision: SidecarSupervision) -> ProbeResult:
+    """Run the startup sidecar liveness probe for ``run_batch`` (the default seam)."""
+    from tether.idealize.supervisor import probe_sidecar  # noqa: PLC0415
+
+    return probe_sidecar(supervision.sidecar_python, timeout=supervision.probe_timeout)
+
+
 @dataclass
 class _Recorder:
     """Collects a movie's stage results and mirrors each to the log."""
@@ -479,12 +496,14 @@ def run_batch(
     extract_options: Any = None,
     idealize: bool = True,
     idealize_kwargs: dict[str, Any] | None = None,
+    supervision: SidecarSupervision | None = None,
     overwrite: bool = False,
     stamp_provenance: bool = True,
     log: BatchLog | None = None,
     _extract: Callable[..., Any] | None = None,
     _correct: Callable[[str | Path], str] | None = None,
     _idealize: Callable[..., Any] | None = None,
+    _probe: Callable[[SidecarSupervision], ProbeResult] | None = None,
 ) -> BatchSummary:
     """Run the extract → correct → idealize pipeline over ``jobs``, movie-isolated.
 
@@ -507,7 +526,15 @@ def run_batch(
         Whether to run the idealize stage (``False`` marks it *not-requested*).
     idealize_kwargs
         Extra keyword arguments forwarded to the idealize runner (e.g. ``model_type``,
-        ``sidecar_python``, ``timeout``).
+        ``sidecar_python``, ``timeout``). When ``supervision`` is given it **owns**
+        ``timeout`` and ``sidecar_python`` (so the startup probe and every idealize call
+        use the same env/timeout); any values for those two keys here are overridden.
+    supervision
+        Opt-in sidecar supervision (PR7-B): a
+        :class:`tether.idealize.supervisor.SidecarSupervision` enabling a startup
+        liveness probe (→ idealization-deferred mode when the sidecar is absent/corrupt)
+        and per-movie auto-restart on transient sidecar failures. ``None`` (default)
+        keeps the idealize stage a single error-isolated call.
     overwrite
         Re-extract a movie whose ``output_path`` exists but is not a completed
         extraction (a completed extraction is always skipped via checkpoint).
@@ -519,6 +546,10 @@ def run_batch(
         Injectable stage runners (test seams). Default to
         :func:`tether.project.extract.extract_movie`, :func:`run_correct_stage`, and
         :func:`tether.project.idealize.idealize_molecules` respectively.
+    _probe
+        Injectable startup-liveness probe (test seam) taking the ``supervision`` and
+        returning a :class:`~tether.idealize.supervisor.ProbeResult`. Defaults to a real
+        sidecar probe. Only consulted when ``supervision.defer_if_unavailable``.
 
     Returns
     -------
@@ -548,6 +579,32 @@ def run_batch(
     log = log if log is not None else BatchLog()
     idealize_kwargs = idealize_kwargs or {}
 
+    # Sidecar supervision (PR7-B). A startup liveness probe decides whether to *defer*
+    # idealization for the whole run when the sidecar env is absent/corrupt; each
+    # movie's idealize call is then auto-restarted up to N on a transient failure.
+    idealize_deferred = False
+    if idealize and supervision is not None:
+        # Supervision owns the sidecar interpreter + per-call timeout: the startup probe
+        # and every idealize call must target the SAME env, so these take precedence
+        # over any values in idealize_kwargs.
+        idealize_kwargs = {
+            **idealize_kwargs,
+            "timeout": supervision.timeout,
+            "sidecar_python": supervision.sidecar_python,
+        }
+        if supervision.defer_if_unavailable:
+            probe = _probe if _probe is not None else _default_probe
+            probe_result = probe(supervision)
+            if not probe_result.available:
+                idealize_deferred = True
+                _safe_event(
+                    log,
+                    movie="(batch)",
+                    stage=STAGE_IDEALIZE,
+                    status=STATUS_DEFERRED,
+                    detail=f"sidecar unavailable — idealization deferred: {probe_result.detail}",
+                )
+
     results: list[MovieResult] = []
     try:
         for job in jobs:
@@ -573,6 +630,8 @@ def run_batch(
                     idealize=idealize,
                     idealize_kwargs=idealize_kwargs,
                     runner=_idealize,
+                    supervision=supervision,
+                    deferred=idealize_deferred,
                 )
                 if stamp_provenance and job.output_path.exists():
                     try:
@@ -667,8 +726,18 @@ def _do_idealize(
     idealize: bool,
     idealize_kwargs: dict[str, Any],
     runner: Callable[..., Any],
+    supervision: SidecarSupervision | None = None,
+    deferred: bool = False,
 ) -> bool:
-    """Run (or skip/block/decline) the idealize stage; returns whether it is satisfied."""
+    """Run (or skip/block/decline/defer) the idealize stage; returns whether it is satisfied.
+
+    With ``supervision`` set, the runner call is wrapped by
+    :func:`tether.idealize.supervisor.supervise_idealize`, which auto-restarts a
+    transient sidecar failure up to ``supervision.max_restarts`` and re-raises the
+    spent budget as ``RestartsExhausted`` (caught here → this movie's idealization
+    fails in isolation). ``deferred`` (a failed startup probe) records the stage
+    ``deferred`` so a later run resumes it via the per-stage checkpoint.
+    """
     if not idealize:
         return rec.record(
             STAGE_IDEALIZE, STATUS_NOT_REQUESTED, detail="idealization not requested"
@@ -677,8 +746,35 @@ def _do_idealize(
         return rec.record(STAGE_IDEALIZE, STATUS_BLOCKED, detail="correct did not complete").ok
     if _is_idealized(job.output_path):
         return rec.record(STAGE_IDEALIZE, STATUS_SKIPPED, detail="already idealized").ok
+    if deferred:
+        return rec.record(
+            STAGE_IDEALIZE,
+            STATUS_DEFERRED,
+            detail="sidecar unavailable at startup — deferred to a later run",
+        ).ok
     try:
-        stored = runner(job.output_path, **idealize_kwargs)
-    except Exception as exc:  # SidecarError and any lower-level failure (isolated)
+        if supervision is not None:
+            from tether.idealize.supervisor import supervise_idealize  # noqa: PLC0415
+
+            def _on_restart(n: int, exc: Exception) -> None:
+                _safe_event(
+                    rec.log,
+                    movie=job.label,
+                    stage=STAGE_IDEALIZE,
+                    status=STATUS_WARNING,
+                    detail=f"sidecar restart {n}/{supervision.max_restarts}",
+                    error=str(exc),
+                )
+
+            stored = supervise_idealize(
+                runner,
+                job.output_path,
+                supervision=supervision,
+                on_restart=_on_restart,
+                **idealize_kwargs,
+            )
+        else:
+            stored = runner(job.output_path, **idealize_kwargs)
+    except Exception as exc:  # SidecarError / RestartsExhausted / any lower-level failure
         return rec.record(STAGE_IDEALIZE, STATUS_FAILED, error=str(exc)).ok
     return rec.record(STAGE_IDEALIZE, STATUS_DONE, detail=_idealize_detail(stored)).ok
