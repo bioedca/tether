@@ -52,7 +52,7 @@ from tether.imaging.extract import read_molecules, read_traces
 from tether.io.schema import TABLE
 from tether.project.idealize import (
     MODEL_TYPE_DEFAULT,
-    input_trace_hash,
+    input_provenance_hash,
     write_idealization_model,
 )
 from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
@@ -698,10 +698,20 @@ def _import_model(
         ids.append(_to_str(state.molecules["molecule_id"][s]))
         # The model was fit over the returning window, so hash the store trace over
         # that window (== the returning raw over it, since a match means raw is equal).
+        # The composite provenance hash also folds the molecule's effective applied
+        # α/γ + window bounds, so a fresh import matches stale_molecule_keys' recompute
+        # exactly and never reads as stale (§5.1; ADR-0029).
         lo, hi = _returning_window(state.smd, i, state.molecules, s)
         hashes.append(
-            input_trace_hash(
-                state.donor_all[s, lo:hi], state.acceptor_all[s, lo:hi], intensity_quantity
+            input_provenance_hash(
+                state.donor_all[s, lo:hi],
+                state.acceptor_all[s, lo:hi],
+                quantity=intensity_quantity,
+                alpha=float(state.molecules["alpha"][s]),
+                gamma=float(state.molecules["gamma"][s]),
+                correction_method=_to_str(state.molecules["correction_method"][s]),
+                pre=lo,
+                post=hi,
             )
         )
 
