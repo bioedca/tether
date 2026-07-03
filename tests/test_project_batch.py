@@ -26,6 +26,8 @@ pytest.importorskip("h5py")
 import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 
+from tether.idealize.driver import SidecarError  # noqa: E402
+from tether.idealize.supervisor import ProbeResult, SidecarSupervision  # noqa: E402
 from tether.io.schema import create_project  # noqa: E402
 from tether.project.batch import (  # noqa: E402
     POLICY_FAIL,
@@ -34,10 +36,12 @@ from tether.project.batch import (  # noqa: E402
     STAGE_EXTRACT,
     STAGE_IDEALIZE,
     STATUS_BLOCKED,
+    STATUS_DEFERRED,
     STATUS_DONE,
     STATUS_FAILED,
     STATUS_NOT_REQUESTED,
     STATUS_SKIPPED,
+    STATUS_WARNING,
     BatchLog,
     MovieJob,
     run_batch,
@@ -549,3 +553,185 @@ def test_integration_real_correct_stage_withheld_alpha(tmp_path: Path) -> None:
         assert "/settings/batch" in f
         table = f["molecules/table"][:]
         assert np.all(np.isnan(table["alpha"]))  # withheld → NaN sentinel, never fabricated
+
+
+# --- Sidecar supervision (PR7-B, ADR-0031) -----------------------------------
+#
+# All supervision is driven through injected seams (a fake startup `_probe` and idealize
+# runners that raise SidecarError with a chosen `transient` flag) — no real sidecar env.
+
+
+def _probe_available(supervision):
+    return ProbeResult(available=True, detail="ready")
+
+
+def _probe_unavailable(supervision):
+    return ProbeResult(available=False, detail="no sidecar interpreter")
+
+
+def _idealize_flaky(*, transient_fails: int = 0, deterministic: bool = False):
+    """Idealize stub that raises before writing, then succeeds; counts calls per movie."""
+    calls: dict[str, int] = {}
+
+    def run(output_path, **kwargs):
+        stem = Path(output_path).stem
+        calls[stem] = calls.get(stem, 0) + 1
+        if deterministic:
+            raise SidecarError(f"bad fit: {stem}", transient=False)
+        if calls[stem] <= transient_fails:
+            raise SidecarError(f"sidecar crash {calls[stem]}: {stem}", transient=True)
+        _add_group(Path(output_path), "idealization/vbconhmm")
+        return SimpleNamespace(model_name="vbconhmm", nstates=2, molecule_keys=["m1"])
+
+    run.calls = calls  # type: ignore[attr-defined]
+    return run
+
+
+def test_sidecar_unavailable_defers_idealization(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "a", "b")
+    # A failed startup probe defers idealization: the idealize runner is never invoked
+    # (the raising stub proves it), yet extract + correct complete and the run is clean.
+    summary = _run(
+        jobs,
+        supervision=SidecarSupervision(),
+        _probe=_probe_unavailable,
+        _idealize=_raising_idealize,
+    )
+    for r in summary.results:
+        assert r.stages[STAGE_EXTRACT].status == STATUS_DONE
+        assert r.stages[STAGE_CORRECT].status == STATUS_DONE
+        assert r.stages[STAGE_IDEALIZE].status == STATUS_DEFERRED
+        assert r.ok  # deferred is not a movie failure
+    assert summary.n_failed == 0
+    report = summary.format_report()
+    assert "idealize=deferred" in report
+    assert "FAIL" not in report
+
+
+def test_deferred_idealization_resumes_when_sidecar_returns(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        supervision=SidecarSupervision(),
+        _probe=_probe_unavailable,
+        _idealize=_raising_idealize,
+    )
+    assert first.results[0].stages[STAGE_IDEALIZE].status == STATUS_DEFERRED
+
+    # Resume with a live sidecar: extract + correct are skipped via checkpoint (the
+    # raising stubs prove it), and only the deferred idealize stage runs.
+    second = _run(
+        jobs,
+        supervision=SidecarSupervision(),
+        _probe=_probe_available,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_idealize_stub(),
+    )
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_CORRECT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_DONE
+
+
+def test_transient_sidecar_failure_is_restarted(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    stub = _idealize_flaky(transient_fails=2)
+    log = BatchLog()
+    summary = _run(
+        jobs, supervision=SidecarSupervision(), _probe=_probe_available, _idealize=stub, log=log
+    )
+    r = summary.results[0]
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_DONE
+    assert stub.calls["x"] == 3  # 1 initial attempt + 2 restarts, then success
+    warns = [
+        rec
+        for rec in log.records
+        if rec["stage"] == STAGE_IDEALIZE and rec["status"] == STATUS_WARNING
+    ]
+    assert len(warns) == 2
+    assert "restart 1/3" in warns[0]["detail"]
+    assert "restart 2/3" in warns[1]["detail"]
+
+
+def test_restart_exhaustion_fails_only_that_movie(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "bad", "good")
+
+    def _idealize(output_path, **kwargs):
+        stem = Path(output_path).stem
+        if stem == "bad":
+            raise SidecarError(f"sidecar crash: {stem}", transient=True)
+        _add_group(Path(output_path), "idealization/vbconhmm")
+        return SimpleNamespace(model_name="vbconhmm", nstates=2, molecule_keys=["m1"])
+
+    summary = _run(
+        jobs,
+        supervision=SidecarSupervision(max_restarts=2),
+        _probe=_probe_available,
+        _idealize=_idealize,
+    )
+    by = {r.job.label: r for r in summary.results}
+    assert by["bad"].stages[STAGE_IDEALIZE].status == STATUS_FAILED
+    assert "after 2 restart(s)" in by["bad"].stages[STAGE_IDEALIZE].error
+    # The failing movie is isolated: the other movie idealizes fine and the queue survives.
+    assert by["good"].stages[STAGE_IDEALIZE].status == STATUS_DONE
+    assert by["good"].ok
+    assert summary.n_failed == 1
+
+
+def test_deterministic_sidecar_error_not_restarted(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    stub = _idealize_flaky(deterministic=True)
+    summary = _run(
+        jobs,
+        supervision=SidecarSupervision(max_restarts=3),
+        _probe=_probe_available,
+        _idealize=stub,
+    )
+    r = summary.results[0]
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_FAILED
+    assert stub.calls["x"] == 1  # a sidecar-reported fit error is not retried
+    assert "bad fit" in r.stages[STAGE_IDEALIZE].error
+
+
+def test_available_sidecar_runs_idealize_normally(tmp_path: Path) -> None:
+    summary = _run(_jobs(tmp_path, "x"), supervision=SidecarSupervision(), _probe=_probe_available)
+    assert summary.results[0].stages[STAGE_IDEALIZE].status == STATUS_DONE
+
+
+def test_supervision_owns_timeout_and_sidecar_python(tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+
+    def _idealize(output_path, **kwargs):
+        seen.update(kwargs)
+        _add_group(Path(output_path), "idealization/vbconhmm")
+        return SimpleNamespace(model_name="vbconhmm", nstates=2, molecule_keys=["m1"])
+
+    _run(
+        _jobs(tmp_path, "x"),
+        supervision=SidecarSupervision(timeout=42.0, sidecar_python="/x/py"),
+        _probe=_probe_available,
+        _idealize=_idealize,
+        idealize_kwargs={"timeout": 999, "sidecar_python": "/other", "model_type": "vbconhmm"},
+    )
+    # Supervision wins for the two keys it owns; unrelated kwargs pass through untouched.
+    assert seen["timeout"] == 42.0
+    assert seen["sidecar_python"] == "/x/py"
+    assert seen["model_type"] == "vbconhmm"
+
+
+def test_no_defer_skips_probe_and_runs_idealize(tmp_path: Path) -> None:
+    probed = {"called": False}
+
+    def _probe(supervision):
+        probed["called"] = True
+        return ProbeResult(available=False, detail="unused")
+
+    summary = _run(
+        _jobs(tmp_path, "x"),
+        supervision=SidecarSupervision(defer_if_unavailable=False),
+        _probe=_probe,
+        _idealize=_idealize_stub(),
+    )
+    assert probed["called"] is False  # no probe when deferral is disabled
+    assert summary.results[0].stages[STAGE_IDEALIZE].status == STATUS_DONE

@@ -268,6 +268,38 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction) -> None:
         metavar="PATH",
         help="write a JSONL structured log here (default: <out-dir>/batch-log.jsonl)",
     )
+    # --- Sidecar supervision (FR-BATCH PR7-B) --------------------------------
+    batch.add_argument(
+        "--max-restarts",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "auto-restart a movie's idealization up to N times on a transient sidecar "
+            "failure (crash/timeout); default 3 (§11.2). 0 disables restarts"
+        ),
+    )
+    batch.add_argument(
+        "--sidecar-timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="per-idealization-call sidecar timeout in seconds (default 1800)",
+    )
+    batch.add_argument(
+        "--sidecar-python",
+        default=None,
+        metavar="PATH",
+        help="sidecar interpreter for idealization (default: $TETHER_SIDECAR_PYTHON)",
+    )
+    batch.add_argument(
+        "--no-defer",
+        action="store_true",
+        help=(
+            "do not defer idealization when the sidecar is unavailable at startup; "
+            "let each movie's idealize stage fail in isolation instead"
+        ),
+    )
 
 
 def _run_batch(args: argparse.Namespace) -> int:
@@ -276,6 +308,28 @@ def _run_batch(args: argparse.Namespace) -> int:
     from pathlib import Path
 
     from tether.project.batch import BatchLog, MovieJob, run_batch
+
+    idealize = not args.no_idealize
+    # The overnight batch tool supervises the idealization sidecar by default (PR7-B):
+    # a startup liveness probe → idealization-deferred mode when the sidecar env is
+    # absent/corrupt, plus per-movie auto-restart on transient failures. Unset overrides
+    # fall back to the SidecarSupervision (§11.2) defaults.
+    supervision = None
+    if idealize:
+        from tether.idealize.supervisor import SidecarSupervision
+
+        sup_kwargs: dict[str, object] = {"defer_if_unavailable": not args.no_defer}
+        if args.max_restarts is not None:
+            sup_kwargs["max_restarts"] = args.max_restarts
+        if args.sidecar_timeout is not None:
+            sup_kwargs["timeout"] = args.sidecar_timeout
+        if args.sidecar_python is not None:
+            sup_kwargs["sidecar_python"] = args.sidecar_python
+        try:
+            supervision = SidecarSupervision(**sup_kwargs)
+        except ValueError as exc:
+            print(f"tether batch: {exc}", file=sys.stderr)
+            return 2
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -309,7 +363,8 @@ def _run_batch(args: argparse.Namespace) -> int:
         summary = run_batch(
             jobs,
             policy=args.policy,
-            idealize=not args.no_idealize,
+            idealize=idealize,
+            supervision=supervision,
             overwrite=args.overwrite,
             log=log,
         )

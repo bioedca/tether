@@ -54,7 +54,18 @@ _RUNNER = Path(__file__).with_name("_sidecar_runner.py")
 
 
 class SidecarError(RuntimeError):
-    """The sidecar process failed (non-zero exit, crash, or reported error)."""
+    """The sidecar process failed (non-zero exit, crash, or reported error).
+
+    ``transient`` distinguishes a **process-level** failure a fresh process may
+    recover (a crash or timeout — the default) from a **deterministic** one the
+    sidecar cleanly reported (a fit error on this data), which a restart cannot fix.
+    :func:`tether.idealize.supervisor.supervise_idealize` retries only transient
+    failures.
+    """
+
+    def __init__(self, *args: object, transient: bool = True) -> None:
+        super().__init__(*args)
+        self.transient = transient
 
 
 @dataclass
@@ -219,19 +230,35 @@ def resolve_sidecar_python(sidecar_python: str | PathLike[str] | None) -> Path:
     """Resolve the sidecar interpreter from the argument or environment.
 
     Raises a clear :class:`SidecarError` (not a bare ``KeyError``) when neither
-    is set, so callers get an actionable message.
+    is set, so callers get an actionable message. Both failures are **deterministic
+    configuration errors** (``transient=False``): no auto-restart can conjure an
+    interpreter mid-run, so :func:`tether.idealize.supervisor.supervise_idealize`
+    must fail fast rather than burn the restart budget on them.
     """
     candidate = sidecar_python or os.environ.get(SIDECAR_ENV_VAR)
     if not candidate:
         raise SidecarError(
             "no sidecar interpreter: pass sidecar_python= or set "
             f"{SIDECAR_ENV_VAR} to a Python in an env built from "
-            "sidecar/conda-lock.yml with tMAVEN installed"
+            "sidecar/conda-lock.yml with tMAVEN installed",
+            transient=False,
         )
     path = Path(candidate)
     if not path.exists():
-        raise SidecarError(f"sidecar interpreter does not exist: {path}")
+        raise SidecarError(f"sidecar interpreter does not exist: {path}", transient=False)
     return path
+
+
+def _sidecar_env() -> dict[str, str]:
+    """Subprocess environment for launching the sidecar (headless Qt, sync loader).
+
+    Shared by :func:`run_vbfret` and :func:`tether.idealize.supervisor.probe_sidecar`
+    so both launch paths stay in sync.
+    """
+    env = dict(os.environ)
+    env.setdefault("QT_QPA_PLATFORM", "offscreen")
+    env.setdefault("NAPARI_ASYNC", "0")
+    return env
 
 
 def run_vbfret(
@@ -291,9 +318,7 @@ def run_vbfret(
     if nrestarts is not None:
         cmd.append(str(int(nrestarts)))
 
-    env = dict(os.environ)
-    env.setdefault("QT_QPA_PLATFORM", "offscreen")
-    env.setdefault("NAPARI_ASYNC", "0")
+    env = _sidecar_env()
 
     try:
         proc = subprocess.run(
@@ -307,20 +332,50 @@ def run_vbfret(
     except subprocess.TimeoutExpired as exc:
         # subprocess.run kills the child on timeout; surface it as a SidecarError
         # (the documented failure mode) with the stderr tail, like the paths below.
+        # A hung/killed process is a transient (restart-worthy) failure.
         raise SidecarError(
             f"sidecar idealization timed out after {timeout}s\n"
-            f"--- stderr (tail) ---\n{_tail(exc.stderr or '')}"
+            f"--- stderr (tail) ---\n{_tail(exc.stderr or '')}",
+            transient=True,
         ) from exc
     status = _parse_status(proc.stdout)
-    if proc.returncode != 0 or status is None or not status.get("ok"):
-        detail = (status or {}).get("error") if status else None
-        raise SidecarError(
-            "sidecar idealization failed "
-            f"(exit {proc.returncode}): {detail or 'no status emitted'}\n"
-            f"--- stderr (tail) ---\n{_tail(proc.stderr)}"
-        )
+    sidecar_ok = status is not None and status.get("ok") is True
 
-    model = read_model(model_out)
+    if sidecar_ok and proc.returncode != 0:
+        # The sidecar reported success and flushed its status *before* a non-zero exit
+        # (a teardown-phase crash of the native PyQt5/Numba stack after the fit). run()
+        # writes and closes the model file before that flush, so the on-disk model is
+        # complete — salvage it rather than discard a finished (up to 1800 s) fit to a
+        # restart. Only a genuinely unreadable model is a transient process failure.
+        try:
+            model = read_model(model_out)
+        except (OSError, KeyError, ValueError) as exc:
+            raise SidecarError(
+                "sidecar reported success but exited non-zero with no readable model "
+                f"(exit {proc.returncode})\n"
+                f"--- stderr (tail) ---\n{_tail(proc.stderr)}",
+                transient=True,
+            ) from exc
+    elif not sidecar_ok:
+        # A status the sidecar itself emitted with ok=False is a *deterministic* fit
+        # failure (bad data, a model that cannot fit these traces) — re-launching the
+        # same input only repeats it, so it is not transient. A missing/garbled status
+        # (a crash before any output) is a process-level failure — transient and worth a
+        # supervised restart (:mod:`tether.idealize.supervisor`).
+        reported_error = status is not None and status.get("ok") is False
+        detail = status.get("error") if status is not None else None
+        if status is None:
+            reason = "no status emitted"
+        else:
+            reason = detail or "sidecar reported failure without detail"
+        raise SidecarError(
+            f"sidecar idealization failed (exit {proc.returncode}): {reason}\n"
+            f"--- stderr (tail) ---\n{_tail(proc.stderr)}",
+            transient=not reported_error,
+        )
+    else:
+        model = read_model(model_out)
+
     smd = read_smd(smd_path, group)
     molecule_keys = smd.molecule_keys
 
@@ -345,14 +400,22 @@ def run_vbfret(
 
 
 def _parse_status(stdout: str) -> dict | None:
-    """Recover the runner's JSON status line (last one wins) from stdout."""
+    """Recover the runner's JSON status line (last one wins) from stdout.
+
+    Only a JSON **object** counts: a stray ``STATUS_PREFIX`` line carrying a non-object
+    payload (a bare number/string/array) is ignored, so every caller can safely
+    ``status.get(...)`` — this keeps :func:`tether.idealize.supervisor.probe_sidecar`'s
+    "never raises" contract intact.
+    """
     status: dict | None = None
     for line in stdout.splitlines():
         if line.startswith(STATUS_PREFIX):
             try:
-                status = json.loads(line[len(STATUS_PREFIX) :])
+                parsed = json.loads(line[len(STATUS_PREFIX) :])
             except json.JSONDecodeError:
                 continue
+            if isinstance(parsed, dict):
+                status = parsed
     return status
 
 
