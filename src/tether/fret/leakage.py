@@ -249,7 +249,14 @@ def estimate_leakage_alpha(
     )
     qualifying = [t.alpha for t in per_trace if t.alpha is not None]
     n_qualifying = len(qualifying)
-    alpha = float(np.median(qualifying)) if n_qualifying >= int(min_qualifying_traces) else None
+    # ``qualifying and`` guards ``np.median([])`` (→ nan + RuntimeWarning) when the
+    # set is empty — including the degenerate ``min_qualifying_traces <= 0`` a caller
+    # could pass, where ``n_qualifying >= min`` alone would be vacuously true.
+    alpha = (
+        float(np.median(qualifying))
+        if qualifying and n_qualifying >= int(min_qualifying_traces)
+        else None
+    )
     return LeakageEstimate(
         alpha=alpha,
         n_qualifying=n_qualifying,

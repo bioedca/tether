@@ -210,6 +210,19 @@ def test_estimate_length_mismatch_raises() -> None:
         estimate_leakage_alpha([np.zeros(5)], [np.zeros(5)], [1, 2], [3])
 
 
+def test_estimate_empty_qualifying_never_medians_empty() -> None:
+    # A degenerate min_qualifying_traces <= 0 must NOT let np.median([]) run (nan +
+    # RuntimeWarning) when no trace qualifies: an empty set → None, always.
+    import warnings
+
+    donor_t, acc_t, acc_pbs, don_pbs = _cohort([0.1, 0.1], n=60, acc=30, don=40)  # short tails
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any RuntimeWarning from np.median([]) fails here
+        est = estimate_leakage_alpha(donor_t, acc_t, acc_pbs, don_pbs, min_qualifying_traces=0)
+    assert est.n_qualifying == 0
+    assert est.alpha is None
+
+
 def test_defaults_match_prd_11_2() -> None:
     assert LEAKAGE_CEILING == 0.3
     assert DEFAULT_MIN_WINDOW_FRAMES == 20
