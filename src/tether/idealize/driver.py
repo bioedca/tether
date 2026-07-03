@@ -249,6 +249,18 @@ def resolve_sidecar_python(sidecar_python: str | PathLike[str] | None) -> Path:
     return path
 
 
+def _sidecar_env() -> dict[str, str]:
+    """Subprocess environment for launching the sidecar (headless Qt, sync loader).
+
+    Shared by :func:`run_vbfret` and :func:`tether.idealize.supervisor.probe_sidecar`
+    so both launch paths stay in sync.
+    """
+    env = dict(os.environ)
+    env.setdefault("QT_QPA_PLATFORM", "offscreen")
+    env.setdefault("NAPARI_ASYNC", "0")
+    return env
+
+
 def run_vbfret(
     smd_path: str | PathLike[str],
     *,
@@ -306,9 +318,7 @@ def run_vbfret(
     if nrestarts is not None:
         cmd.append(str(int(nrestarts)))
 
-    env = dict(os.environ)
-    env.setdefault("QT_QPA_PLATFORM", "offscreen")
-    env.setdefault("NAPARI_ASYNC", "0")
+    env = _sidecar_env()
 
     try:
         proc = subprocess.run(

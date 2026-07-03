@@ -31,7 +31,6 @@ real sidecar env — CI has none (PRD §4.3).
 
 from __future__ import annotations
 
-import os
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -41,6 +40,7 @@ from tether.idealize.driver import (
     _RUNNER,
     SidecarError,
     _parse_status,
+    _sidecar_env,
     _tail,
     resolve_sidecar_python,
 )
@@ -167,9 +167,7 @@ def probe_sidecar(
         return ProbeResult(available=False, detail=str(exc))
 
     cmd = [str(py), str(_RUNNER), "--probe"]
-    env = dict(os.environ)
-    env.setdefault("QT_QPA_PLATFORM", "offscreen")
-    env.setdefault("NAPARI_ASYNC", "0")
+    env = _sidecar_env()
 
     runner = _run if _run is not None else _default_probe_run
     try:
