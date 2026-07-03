@@ -614,6 +614,21 @@ def test_project_live_and_reidealize_delegators(tmp_path) -> None:
     assert proj.stale_idealization_keys("vbconhmm") == []
 
 
+def test_project_reidealize_rejects_locked_project(tmp_path) -> None:
+    # reidealize is a canonical mutator, so a foreign single-writer lock must refuse
+    # it at the _assert_writable boundary (§5.4), like every other Project mutator.
+    from tether.project import lock
+    from tether.project.lock import LockedError, LockIdentity
+
+    n, t = 2, 20
+    proj, _keys = _build_store(tmp_path / "e.tether", _step_trace(n, t), _step_trace(n, t) * 0.5)
+    proj.idealize(nstates=2, _runner=_make_runner({2: -3.0}, []))
+    # a DIFFERENT writer (host/user/pid) holds the lock -> this handle may not write
+    lock.acquire(proj.path, identity=LockIdentity(host="OTHER-HOST", user="other", pid=999))
+    with pytest.raises(LockedError):
+        proj.reidealize("vbconhmm", _runner=_make_runner({2: -3.0}, []))
+
+
 # --- schema freeze -----------------------------------------------------------
 
 

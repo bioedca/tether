@@ -390,12 +390,29 @@ class Project:
 
         return idealize.live_molecule_keys(self, model_name)
 
-    def reidealize(self, model_name: str, **kwargs: object) -> StoredIdealization:
+    def reidealize(
+        self,
+        model_name: str,
+        *,
+        sidecar_python: str | Path | None = None,
+        nrestarts: int | None = None,
+        scratch_dir: str | Path | None = None,
+        timeout: float | None = 1800.0,
+        _runner: Callable[..., IdealizationResult] | None = None,
+    ) -> StoredIdealization:
         """Re-fit a stale model over current inputs (:func:`idealize.reidealize`)."""
         from tether.project import idealize
 
         self._assert_writable()
-        return idealize.reidealize(self, model_name, **kwargs)  # type: ignore[arg-type]
+        return idealize.reidealize(
+            self,
+            model_name,
+            sidecar_python=sidecar_python,
+            nrestarts=nrestarts,
+            scratch_dir=scratch_dir,
+            timeout=timeout,
+            _runner=_runner,
+        )
 
     # --- tMAVEN hand-off + non-destructive re-import (PRD §7.4, §5.3) ----------
 

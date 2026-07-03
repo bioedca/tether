@@ -847,7 +847,7 @@ def read_idealization(
 def stale_molecule_keys(project: Project | str | PathLike[str], model_name: str) -> list[str]:
     """Molecules whose current trace no longer matches the model's input hash.
 
-    Recomputes each stored molecule's :func:`input_trace_hash` from the *current*
+    Recomputes each stored molecule's :func:`input_provenance_hash` from the *current*
     ``/traces`` + ``/molecules`` window and returns the ``molecule_key`` of every
     molecule whose recomputed hash diverges from the one recorded in
     ``/idealization/{model_name}`` — i.e. whose inputs changed since the fit (a
@@ -861,10 +861,22 @@ def stale_molecule_keys(project: Project | str | PathLike[str], model_name: str)
     all its namesakes (spurious stale on one, a missed real change on another). Keys
     are returned de-duplicated in first-seen order.
     """
+    return _stale_keys_for(project, read_idealization(project, model_name))
+
+
+def _stale_keys_for(
+    project: Project | str | PathLike[str], stored: StoredIdealization
+) -> list[str]:
+    """Staleness recompute for an **already-loaded** model (the shared body of
+    :func:`stale_molecule_keys` and :func:`live_molecule_keys`, so the model is read
+    once). Recomputes each row's :func:`input_provenance_hash` from the current
+    ``/traces`` + ``/molecules`` and returns the diverging molecule keys, de-duplicated
+    in first-seen order (a row absent from the store, or a vanished trace layer, is
+    reported stale).
+    """
     from tether.project.core import Project as _Project
 
     path = project.path if isinstance(project, _Project) else Path(project)
-    stored = read_idealization(project, model_name)
     donor_key, acceptor_key = _resolve_quantity(stored.intensity_quantity)
 
     molecules = read_molecules(path)
@@ -920,7 +932,7 @@ def live_molecule_keys(project: Project | str | PathLike[str], model_name: str) 
     conservative, key-level granularity :func:`stale_molecule_keys` reports at).
     """
     stored = read_idealization(project, model_name)
-    stale = set(stale_molecule_keys(project, model_name))
+    stale = set(_stale_keys_for(project, stored))  # one read, shared with the staleness pass
     live: list[str] = []
     for key in stored.molecule_keys:
         if key not in stale and key not in live:
