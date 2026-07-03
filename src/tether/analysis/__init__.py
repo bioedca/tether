@@ -14,6 +14,13 @@ Landed so far (M2 S8, FR-ANALYZE):
 - :func:`~tether.analysis.crosscorr.cross_correlation` /
   :func:`~tether.analysis.crosscorr.population_cross_correlation` — the
   Pearson-normalized donor–acceptor cross-correlation with a lag-1 magnitude.
+
+Added at M3 (FR-ANALYZE, PRD §7.7):
+
+- :func:`~tether.analysis.histogram.bootstrap_histogram_ci` /
+  :func:`~tether.analysis.histogram.population_apparent_e_histogram_ci` — the
+  molecule-level bootstrap confidence interval for the histogram (BOBA-FRET
+  [König2013]), the FRET histogram's error bars.
 """
 
 from __future__ import annotations
@@ -24,20 +31,32 @@ from tether.analysis.crosscorr import (
     population_cross_correlation,
 )
 from tether.analysis.histogram import (
+    DEFAULT_BOOTSTRAP_RESAMPLES,
+    DEFAULT_CI_LEVEL,
     DEFAULT_NBINS,
     DEFAULT_RANGE,
+    DEFAULT_SEED,
     Histogram1D,
+    HistogramBootstrapCI,
     apparent_e_histogram,
+    bootstrap_histogram_ci,
     population_apparent_e_histogram,
+    population_apparent_e_histogram_ci,
 )
 
 __all__ = [
+    "DEFAULT_BOOTSTRAP_RESAMPLES",
+    "DEFAULT_CI_LEVEL",
     "DEFAULT_NBINS",
     "DEFAULT_RANGE",
+    "DEFAULT_SEED",
     "CrossCorrelation",
     "Histogram1D",
+    "HistogramBootstrapCI",
     "apparent_e_histogram",
+    "bootstrap_histogram_ci",
     "cross_correlation",
     "population_apparent_e_histogram",
+    "population_apparent_e_histogram_ci",
     "population_cross_correlation",
 ]
