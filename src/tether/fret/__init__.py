@@ -12,5 +12,19 @@ vectorized FFT donor-acceptor cross-correlation.
 from __future__ import annotations
 
 from tether.fret.efficiency import apparent_fret
+from tether.fret.photobleach import (
+    PhotobleachResult,
+    active_mask,
+    detect_photobleach,
+    ensemble_pbtime,
+    point_pbtime,
+)
 
-__all__ = ["apparent_fret"]
+__all__ = [
+    "PhotobleachResult",
+    "active_mask",
+    "apparent_fret",
+    "detect_photobleach",
+    "ensemble_pbtime",
+    "point_pbtime",
+]
