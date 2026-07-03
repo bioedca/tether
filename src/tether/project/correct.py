@@ -122,7 +122,10 @@ class CorrectionSummary:
     total_failure
         ``True`` when **no** molecule carries a correction (``n_corrected +
         n_manual == 0``) — the whole project falls to apparent E (PRD §7.2). Also
-        ``True`` for the degenerate empty project.
+        ``True`` for the degenerate empty project. **Note** this is also ``True``
+        under ``apparent_e_only`` (nothing is corrected *by design*, not by
+        failure): a consumer surfacing a "correction failed" banner must first
+        check ``apparent_e_only`` and treat the deliberate-toggle case differently.
     apparent_e_only
         Whether the apparent-E toggle was in force for this pass.
     source
@@ -212,6 +215,10 @@ def compute_corrected_fret(
         alpha_col = table["alpha"]
         gamma_col = table["gamma"]
 
+        # Loop-invariant: whether a manual factor was supplied at all (depends only
+        # on the arguments, not the molecule).
+        has_override = alpha_override is not None or gamma_override is not None
+
         for i in range(table.shape[0]):
             start, end = int(frame_range[i][0]), int(frame_range[i][1])
             if end <= start:
@@ -224,7 +231,6 @@ def compute_corrected_fret(
             eff_alpha = alpha_override if alpha_override is not None else float(alpha_col[i])
             eff_gamma = gamma_override if gamma_override is not None else float(gamma_col[i])
             factors_ok = np.isfinite(eff_alpha) and np.isfinite(eff_gamma) and eff_gamma > 0.0
-            has_override = alpha_override is not None or gamma_override is not None
 
             if apparent_e_only:
                 # Explicit request to view apparent E wins over any available factor.
