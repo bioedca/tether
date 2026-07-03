@@ -97,7 +97,9 @@ def test_tail_alpha_recovers_known_alpha() -> None:
     res = tail_alpha(donor, acceptor, acceptor_pb=30, donor_pb=110)
     assert res.reason == "ok"
     assert res.alpha is not None
-    assert res.alpha == pytest.approx(0.1, abs=0.02)
+    # The ratio-of-means estimator over an 80-frame tail is accurate to ~5e-4 here;
+    # a tight tolerance catches any systematic bias, not just gross error.
+    assert res.alpha == pytest.approx(0.1, abs=0.005)
     assert (res.start, res.stop, res.n_frames) == (30, 110, 80)
 
 
@@ -147,7 +149,7 @@ def test_tail_alpha_custom_min_window_accepts_shorter_tail() -> None:
     donor, acceptor = _leaky_trace(n=60, acceptor_pb=30, donor_pb=45, alpha=0.1)
     res = tail_alpha(donor, acceptor, acceptor_pb=30, donor_pb=45, min_window_frames=10)
     assert res.reason == "ok"
-    assert res.alpha == pytest.approx(0.1, abs=0.03)
+    assert res.alpha == pytest.approx(0.1, abs=0.01)
 
 
 def test_tail_alpha_shape_mismatch_raises() -> None:
@@ -183,7 +185,7 @@ def test_estimate_is_median_over_qualifying() -> None:
     assert est.n_traces == 10
     assert est.n_qualifying == 10
     assert est.alpha is not None
-    assert est.alpha == pytest.approx(float(np.median(alphas)), abs=0.02)
+    assert est.alpha == pytest.approx(float(np.median(alphas)), abs=0.005)
 
 
 def test_estimate_withholds_below_min_qualifying() -> None:

@@ -141,7 +141,9 @@ def compute_leakage_alpha(
     Raises
     ------
     ValueError
-        If ``intensity_quantity`` is not a known ``/traces`` layer.
+        If ``intensity_quantity`` is not a known ``/traces`` layer, or if a
+        molecule's ``bleach_frames`` are still the undetected sentinel (run
+        :func:`~tether.project.photobleach.compute_photobleach` first).
     KeyError
         If the project lacks the selected donor/acceptor trace layer.
     """
@@ -176,15 +178,26 @@ def compute_leakage_alpha(
             start, end = int(frame_range[i][0]), int(frame_range[i][1])
             if end <= start:
                 continue  # no valid native frames
-            donor_traces.append(np.asarray(donor_all[i, start:end], dtype=np.float64))
-            acceptor_traces.append(np.asarray(acceptor_all[i, start:end], dtype=np.float64))
+            donor_pb_abs = int(bleach_frames[i][0])
+            acceptor_pb_abs = int(bleach_frames[i][1])
+            # A real first-bleach frame is >= start >= 0; a negative value is the
+            # extraction "undetected" sentinel (-1), i.e. compute_photobleach has not
+            # run for this molecule. Fail fast with a clear prerequisite message
+            # rather than silently withholding α (every tail would collapse to a
+            # zero-length window), mirroring the "run extraction first" guard above.
+            if donor_pb_abs < 0 or acceptor_pb_abs < 0:
+                raise ValueError(
+                    f"/molecules row {i} has no photobleach frames "
+                    f"(bleach_frames={(donor_pb_abs, acceptor_pb_abs)}, the undetected "
+                    "sentinel); run compute_photobleach() before compute_leakage_alpha()"
+                )
             # bleach_frames are absolute (start + local pb, PR #74); convert to the
             # local frame index within this trace slice and clamp to [0, n_local].
             n_local = end - start
-            donor_pb = int(bleach_frames[i][0]) - start
-            acceptor_pb = int(bleach_frames[i][1]) - start
-            donor_pbs.append(int(np.clip(donor_pb, 0, n_local)))
-            acceptor_pbs.append(int(np.clip(acceptor_pb, 0, n_local)))
+            donor_traces.append(np.asarray(donor_all[i, start:end], dtype=np.float64))
+            acceptor_traces.append(np.asarray(acceptor_all[i, start:end], dtype=np.float64))
+            donor_pbs.append(int(np.clip(donor_pb_abs - start, 0, n_local)))
+            acceptor_pbs.append(int(np.clip(acceptor_pb_abs - start, 0, n_local)))
             processed_rows.append(i)
 
         estimate = estimate_leakage_alpha(

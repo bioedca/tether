@@ -136,15 +136,9 @@ def _leaky_trace(
     return donor, acceptor
 
 
-def _cohort_store(
-    path: Path, *, n_mol: int, alpha: float, n: int = 120, acc: int = 30, don: int = 110
-) -> None:
-    """Build a store of ``n_mol`` leaky traces + set their bleach_frames directly.
-
-    The per-channel bleach frames are the detector's (PR #74) job and are separately
-    tested; here they are set directly so the leakage estimate is exercised in
-    isolation over a controlled tail.
-    """
+def _cohort_traces(
+    n_mol: int, *, alpha: float, n: int, acc: int, don: int
+) -> tuple[np.ndarray, np.ndarray]:
     donor = np.stack(
         [
             _leaky_trace(n=n, acceptor_pb=acc, donor_pb=don, alpha=alpha, seed=i + 1)[0]
@@ -157,11 +151,35 @@ def _cohort_store(
             for i in range(n_mol)
         ]
     )
+    return donor, acceptor
+
+
+def _cohort_store(
+    path: Path,
+    *,
+    n_mol: int,
+    alpha: float,
+    n: int = 120,
+    acc: int = 30,
+    don: int = 110,
+    start: int = 0,
+) -> None:
+    """Build a store of ``n_mol`` leaky traces + set their bleach_frames directly.
+
+    The per-channel bleach frames are the detector's (PR #74) job and are separately
+    tested; here they are set directly so the leakage estimate is exercised in
+    isolation over a controlled tail. ``acc``/``don`` are **absolute** frames;
+    ``start`` sets a non-zero ``frame_range`` start to exercise the absolute→local
+    conversion in the store (``start`` must be < ``acc``).
+    """
+    donor, acceptor = _cohort_traces(n_mol, alpha=alpha, n=n, acc=acc, don=don)
     _build_store(path, donor, acceptor)
     with h5py.File(path, "r+") as f:
         table = f["molecules"][TABLE][:]
         for i in range(n_mol):
-            table["bleach_frames"][i] = (don, acc)  # (donor_pb, acceptor_pb), absolute (start=0)
+            if start:
+                table["frame_range"][i] = (start, n)
+            table["bleach_frames"][i] = (don, acc)  # (donor_pb, acceptor_pb), absolute
         f["molecules"][TABLE][:] = table
 
 
@@ -252,3 +270,57 @@ def test_rejects_unknown_intensity_quantity(tmp_path: Path) -> None:
     _cohort_store(path, n_mol=4, alpha=0.1)
     with pytest.raises(ValueError, match="intensity_quantity"):
         compute_leakage_alpha(path, intensity_quantity="nonsense")
+
+
+def test_requires_photobleach_frames(tmp_path: Path) -> None:
+    # A store fresh from extraction has bleach_frames at the -1 undetected sentinel;
+    # running leakage before compute_photobleach must fail fast, not silently withhold.
+    path = tmp_path / "leak.tether"
+    donor, acceptor = _cohort_traces(4, alpha=0.1, n=120, acc=30, don=110)
+    _build_store(path, donor, acceptor)  # NB: bleach_frames left unset (-1, -1)
+    with pytest.raises(ValueError, match="compute_photobleach"):
+        compute_leakage_alpha(path)
+
+
+def test_nonzero_frame_range_start_converts_correctly(tmp_path: Path) -> None:
+    # A non-zero frame_range start exercises the absolute→local bleach-frame
+    # conversion; the same α must be recovered as with start=0.
+    path = tmp_path / "leak.tether"
+    _cohort_store(path, n_mol=12, alpha=0.1, n=120, acc=30, don=110, start=10)
+    summary = compute_leakage_alpha(path)
+    assert summary.applied is True
+    assert summary.n_qualifying == 12
+    assert summary.alpha == pytest.approx(0.1, abs=0.02)
+
+
+def test_never_bleach_donor_tail_extends_to_end(tmp_path: Path) -> None:
+    # donor_pb == trace end (donor never bleaches) → the tail runs to the end;
+    # the clamp keeps donor_pb_local == n_local and α is still recovered.
+    path = tmp_path / "leak.tether"
+    _cohort_store(path, n_mol=12, alpha=0.1, n=120, acc=30, don=120)
+    summary = compute_leakage_alpha(path)
+    assert summary.applied is True
+    assert summary.n_qualifying == 12
+    assert summary.alpha == pytest.approx(0.1, abs=0.02)
+
+
+def test_all_traces_rejected_yields_no_qualifying(tmp_path: Path) -> None:
+    # Every tail is too short (10 < min_window_frames 20): n_qualifying must be 0
+    # (distinct from the min_qualifying gate), α withheld, np.median([]) never called.
+    path = tmp_path / "leak.tether"
+    _cohort_store(path, n_mol=12, alpha=0.1, n=120, acc=30, don=40)
+    summary = compute_leakage_alpha(path)
+    assert summary.n_molecules == 12
+    assert summary.n_qualifying == 0
+    assert summary.alpha is None
+    assert summary.applied is False
+    assert np.all(np.isnan(read_molecules(path)["alpha"]))
+
+
+def test_missing_trace_layer_raises_keyerror(tmp_path: Path) -> None:
+    path = tmp_path / "leak.tether"
+    _cohort_store(path, n_mol=4, alpha=0.1)
+    with h5py.File(path, "r+") as f:
+        del f["traces"]["donor_corrected"]
+    with pytest.raises(KeyError, match="run extraction first"):
+        compute_leakage_alpha(path)
