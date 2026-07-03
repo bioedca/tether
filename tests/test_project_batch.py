@@ -262,12 +262,51 @@ def test_structured_log_records_and_jsonl(tmp_path: Path) -> None:
         records = list(log.records)
 
     triples = [(r["movie"], r["stage"], r["status"]) for r in records]
-    assert ("x.tif", STAGE_EXTRACT, STATUS_DONE) in triples
-    assert ("x.tif", STAGE_CORRECT, STATUS_DONE) in triples
-    assert ("x.tif", STAGE_IDEALIZE, STATUS_DONE) in triples
+    assert ("x", STAGE_EXTRACT, STATUS_DONE) in triples  # label = output .tether stem
+    assert ("x", STAGE_CORRECT, STATUS_DONE) in triples
+    assert ("x", STAGE_IDEALIZE, STATUS_DONE) in triples
 
     on_disk = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
     assert on_disk == records
+
+
+def test_log_appends_across_runs_preserving_prior_records(tmp_path: Path) -> None:
+    # A resumed batch reuses the same log path; prior records must survive (append,
+    # not truncate) — the append-only audit trail (§7.11).
+    import json
+
+    log_path = tmp_path / "batch-log.jsonl"
+    jobs = _jobs(tmp_path, "x")
+    with BatchLog(path=log_path) as log:
+        _run(jobs, log=log)
+    n_first = len(log_path.read_text(encoding="utf-8").splitlines())
+    # Resume: every stage is now checkpointed, so this pass records skips — but the
+    # earlier records must remain in the file.
+    with BatchLog(path=log_path) as log:
+        run_batch(
+            jobs,
+            _extract=_raising_extract,
+            _correct=_raising_correct,
+            _idealize=_raising_idealize,
+            log=log,
+        )
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) > n_first  # prior records preserved + new ones appended
+    assert all(json.loads(line) for line in lines)  # every line is valid JSON
+
+
+def test_queue_survives_a_failing_log_sink(tmp_path: Path) -> None:
+    # If the log sink itself raises (disk full, permission change) the queue must not
+    # abort — every movie still gets a result (§7.11 "isolate each movie").
+    class _ExplodingLog(BatchLog):
+        def event(self, **kwargs):  # type: ignore[override]
+            raise OSError("log sink dead")
+
+    jobs = _jobs(tmp_path, "a", "b", "c")
+    summary = _run(jobs, log=_ExplodingLog())
+    assert summary.n_movies == 3  # loop completed despite every log write raising
+    for r in summary.results:
+        assert STAGE_EXTRACT in r.stages  # the stage result was still recorded
 
 
 def test_log_captures_failure_error(tmp_path: Path) -> None:
@@ -284,14 +323,14 @@ def test_log_captures_failure_error(tmp_path: Path) -> None:
 
 
 def test_report_enumerates_movies_and_names_failures(tmp_path: Path) -> None:
-    jobs = _jobs(tmp_path, "a", "b", "c")
-    summary = _run(jobs, _correct=_correct_stub(fail=frozenset({"b"})))
+    jobs = _jobs(tmp_path, "movie_a", "movie_b", "movie_c")
+    summary = _run(jobs, _correct=_correct_stub(fail=frozenset({"movie_b"})))
     report = summary.format_report()
 
-    for stem in ("a", "b", "c"):
-        assert f"{stem}.tif" in report
+    for stem in ("movie_a", "movie_b", "movie_c"):
+        assert stem in report  # every movie enumerated (label = output stem)
     assert "3 movie(s), 2 ok, 1 failed" in report
-    assert "correct boom: b" in report  # the failure is named
+    assert "correct boom: movie_b" in report  # the failure is named
     assert "policy=warn" in report
 
 
@@ -368,7 +407,13 @@ def test_moviejob_coerces_paths_and_label() -> None:
     assert isinstance(job.movie_path, Path)
     assert isinstance(job.output_path, Path)
     assert job.tmap is None
-    assert job.label == "movie_010.tif"
+    assert job.label == "movie_010"  # per-job-unique: the output .tether stem
+
+
+def test_label_disambiguates_same_named_movies_in_different_folders() -> None:
+    a = MovieJob(movie_path="condA/movie.tif", output_path="out/condA_movie.tether")
+    b = MovieJob(movie_path="condB/movie.tif", output_path="out/condB_movie.tether")
+    assert a.label != b.label  # same movie basename, distinct output → distinct labels
 
 
 # --- Integration: the REAL correct stage on a synthetic store -----------------

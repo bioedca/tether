@@ -279,15 +279,31 @@ def _run_batch(args: argparse.Namespace) -> int:
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    jobs = [
-        MovieJob(
-            movie_path=movie,
-            output_path=out_dir / (Path(movie).stem + ".tether"),
-            tmap=args.tmap,
-            tdat=args.tdat,
+    # Each movie maps to <out-dir>/<stem>.tether. Two movies with the same basename
+    # (e.g. `movie_010.tif` from different condition folders) would collide on one
+    # output, and the batch runner's provenance checkpoint would silently treat the
+    # second as "already done" using the first's data — reject them up front.
+    jobs = []
+    seen: dict[str, str] = {}
+    for movie in args.movies:
+        stem = Path(movie).stem
+        if stem in seen:
+            print(
+                f"tether batch: movies {seen[stem]!r} and {movie!r} both map to "
+                f"{(out_dir / (stem + '.tether')).as_posix()!r}; rename one or use a "
+                "separate --out-dir",
+                file=sys.stderr,
+            )
+            return 2
+        seen[stem] = movie
+        jobs.append(
+            MovieJob(
+                movie_path=movie,
+                output_path=out_dir / f"{stem}.tether",
+                tmap=args.tmap,
+                tdat=args.tdat,
+            )
         )
-        for movie in args.movies
-    ]
     log_path = Path(args.log) if args.log else out_dir / "batch-log.jsonl"
     with BatchLog(path=log_path) as log:
         summary = run_batch(

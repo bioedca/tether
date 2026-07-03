@@ -55,6 +55,7 @@ __all__ = [
     "STATUS_FAILED",
     "STATUS_BLOCKED",
     "STATUS_NOT_REQUESTED",
+    "STATUS_WARNING",
     "POLICY_WARN",
     "POLICY_FAIL",
     "POLICIES",
@@ -79,6 +80,7 @@ STATUS_SKIPPED = "skipped"  #: checkpoint hit — the stage's output already exi
 STATUS_FAILED = "failed"  #: the stage raised, or an over-gate movie under ``fail``
 STATUS_BLOCKED = "blocked"  #: an upstream stage did not complete, so this could not run
 STATUS_NOT_REQUESTED = "not-requested"  #: idealize when ``idealize=False``
+STATUS_WARNING = "warning"  #: a non-fatal issue (e.g. provenance stamping failed)
 
 #: Statuses that count as "this stage is satisfied" for downstream gating + checkpoint.
 _OK_STATUSES = frozenset({STATUS_DONE, STATUS_SKIPPED})
@@ -94,7 +96,6 @@ _BATCH_SETTINGS = "batch"
 _BATCH_SOURCE = "batch-runner"
 _EXTRACTION_SETTINGS = "extraction"
 _CORRECTION_SETTINGS = "correction"
-_IDEALIZATION_GROUP = "idealization"
 
 _LOG = logging.getLogger("tether.batch")
 
@@ -135,8 +136,14 @@ class MovieJob:
 
     @property
     def label(self) -> str:
-        """A short human name for logs/summary (the movie file name)."""
-        return self.movie_path.name
+        """A short, per-job-unique name for logs/summary.
+
+        Derived from the output ``.tether`` stem rather than the movie file name:
+        batch datasets commonly reuse identical movie basenames across condition
+        folders, and ``output_path`` is the job's identity (the CLI rejects colliding
+        output stems), so this stays unambiguous in the log and end-of-run summary.
+        """
+        return self.output_path.stem
 
 
 @dataclass(frozen=True)
@@ -240,7 +247,9 @@ class BatchLog:
         self._fh: IO[str] | None = None
         if self._path is not None:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._fh = self._path.open("w", encoding="utf-8")
+            # Append, not truncate: a resumed batch reuses the same log path and its
+            # prior stage records are part of the append-only audit trail (§7.11).
+            self._fh = self._path.open("a", encoding="utf-8")
 
     def event(
         self,
@@ -264,7 +273,12 @@ class BatchLog:
         if self._fh is not None:
             self._fh.write(json.dumps(record) + "\n")
             self._fh.flush()
-        level = logging.ERROR if status == STATUS_FAILED else logging.INFO
+        if status == STATUS_FAILED:
+            level = logging.ERROR
+        elif status == STATUS_WARNING:
+            level = logging.WARNING
+        else:
+            level = logging.INFO
         msg = f"{movie} · {stage}: {status}"
         if error:
             msg += f" — {error}"
@@ -321,24 +335,19 @@ def _is_corrected(path: Path) -> bool:
 def _is_idealized(path: Path) -> bool:
     """True when ``/idealization`` holds at least one *completed* fitted model.
 
-    ``idealize_molecules`` stages a model under a transient ``{model}.__writing__``
-    subgroup and only then atomically swaps it in; a crash mid-swap can leave just that
-    staging group behind. Those are ignored here so a crashed idealization is correctly
-    re-run on resume rather than falsely reported done (mirrors idealize.py's own
-    ``_WRITING_SUFFIX`` filtering).
+    Delegates to the public :func:`tether.project.idealize.list_idealizations`, which
+    already filters out the transient ``{model}.__writing__`` staging group a crashed
+    overwrite can leave behind — so a crashed idealization is correctly re-run on resume
+    rather than falsely reported done, and the checkpoint does not depend on a private
+    idealize symbol. Any read error reads as "not idealized" so the stage is
+    re-attempted rather than falsely skipped.
     """
     if not path.exists():
         return False
     try:
-        import h5py  # noqa: PLC0415
+        from tether.project.idealize import list_idealizations  # noqa: PLC0415
 
-        from tether.project.idealize import _WRITING_SUFFIX  # noqa: PLC0415
-
-        with h5py.File(path, "r") as f:
-            grp = f.get(f"/{_IDEALIZATION_GROUP}")
-            if grp is None:
-                return False
-            return any(not str(k).endswith(_WRITING_SUFFIX) for k in grp)
+        return bool(list_idealizations(path))
     except Exception:
         return False
 
@@ -432,6 +441,12 @@ def _stamp_batch_settings(
 
 
 # --- The runner --------------------------------------------------------------
+
+
+def _safe_event(log: BatchLog, **kwargs: Any) -> None:
+    """Emit a log event, swallowing a failing log sink so the queue is never aborted."""
+    with contextlib.suppress(Exception):
+        log.event(**kwargs)
 
 
 @dataclass
@@ -537,39 +552,50 @@ def run_batch(
     try:
         for job in jobs:
             rec = _Recorder(job=job, log=log)
-            extract_ok = _do_extract(
-                job,
-                rec,
-                policy=policy,
-                options=extract_options,
-                overwrite=overwrite,
-                runner=_extract,
-            )
-            correct_ok = _do_correct(job, rec, upstream_ok=extract_ok, runner=_correct)
-            _do_idealize(
-                job,
-                rec,
-                upstream_ok=correct_ok,
-                idealize=idealize,
-                idealize_kwargs=idealize_kwargs,
-                runner=_idealize,
-            )
-            if stamp_provenance and job.output_path.exists():
-                try:
-                    _stamp_batch_settings(
-                        job.output_path,
-                        policy=policy,
-                        idealize_requested=idealize,
-                        stages=rec.stages,
-                    )
-                except Exception as exc:  # provenance must never fail a movie
-                    log.event(
-                        movie=job.label,
-                        stage="provenance",
-                        status="warning",
-                        error=str(exc),
-                    )
-            results.append(MovieResult(job=job, stages=dict(rec.stages)))
+            # Isolate the ENTIRE per-job body — not just each runner call. A failure of
+            # the log sink itself (disk full, permission change, share drop) inside a
+            # `rec.record()` must not abort the queue; it is caught here so the loop
+            # continues to the next movie (§7.11 "isolate each movie").
+            try:
+                extract_ok = _do_extract(
+                    job,
+                    rec,
+                    policy=policy,
+                    options=extract_options,
+                    overwrite=overwrite,
+                    runner=_extract,
+                )
+                correct_ok = _do_correct(job, rec, upstream_ok=extract_ok, runner=_correct)
+                _do_idealize(
+                    job,
+                    rec,
+                    upstream_ok=correct_ok,
+                    idealize=idealize,
+                    idealize_kwargs=idealize_kwargs,
+                    runner=_idealize,
+                )
+                if stamp_provenance and job.output_path.exists():
+                    try:
+                        _stamp_batch_settings(
+                            job.output_path,
+                            policy=policy,
+                            idealize_requested=idealize,
+                            stages=rec.stages,
+                        )
+                    except Exception as exc:  # provenance must never fail a movie
+                        _safe_event(
+                            log,
+                            movie=job.label,
+                            stage="provenance",
+                            status=STATUS_WARNING,
+                            error=str(exc),
+                        )
+            except Exception as exc:  # a log-sink / infra failure must not kill the queue
+                _safe_event(
+                    log, movie=job.label, stage="batch", status=STATUS_FAILED, error=str(exc)
+                )
+            finally:
+                results.append(MovieResult(job=job, stages=dict(rec.stages)))
     finally:
         if own_log:
             log.close()

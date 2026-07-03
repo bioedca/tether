@@ -37,6 +37,26 @@ def test_batch_requires_out_dir(tmp_path) -> None:
     assert exc.value.code == 2
 
 
+def test_batch_rejects_duplicate_movie_basenames(tmp_path, capsys) -> None:
+    # Two movies with the same basename in different folders would map to the same
+    # <out-dir>/<stem>.tether and silently collide on the checkpoint; the CLI must
+    # reject them (exit 2) rather than process one as the other.
+    (tmp_path / "condA").mkdir()
+    (tmp_path / "condB").mkdir()
+    m1 = tmp_path / "condA" / "movie_010.tif"
+    m2 = tmp_path / "condB" / "movie_010.tif"
+    m1.write_bytes(b"x")
+    m2.write_bytes(b"y")
+    out = tmp_path / "out"
+
+    rc = main(["batch", str(m1), str(m2), "--out-dir", str(out), "--no-idealize"])
+
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "movie_010.tether" in err
+    assert "rename one" in err
+
+
 def test_batch_isolates_failure_and_exits_nonzero(tmp_path, capsys) -> None:
     # A non-TIFF "movie" makes the extract stage fail; the batch must isolate it
     # (continue-on-error), print an end-of-run summary naming the failure, write a
