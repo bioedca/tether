@@ -346,16 +346,35 @@ def bootstrap_histogram_ci(
             seed=int(seed),
         )
 
+    # Bin each molecule once on the fixed grid (raw/weighted counts), then resample
+    # by summing the drawn rows. Because histograms are additive over disjoint frame
+    # groups, this is numerically identical to re-binning each replicate's pooled
+    # frames — but O(n_resamples · n_mol · nbins) on the hot path instead of
+    # O(n_resamples · total_frames), which matters at the default 1000 resamples on
+    # large populations (CodeRabbit review, PR #79). Density is normalized per
+    # replicate *after* summing, exactly as ``apparent_e_histogram`` does.
+    widths = np.diff(point.bin_edges)
+    mol_counts = np.empty((n_mol, nbins), dtype=np.float64)
+    for i in range(n_mol):
+        rep = apparent_e_histogram(
+            per_molecule_values[i],
+            bins=bins,
+            value_range=value_range,
+            density=False,
+            weights=per_molecule_weights[i] if has_weights else None,
+        )
+        mol_counts[i] = rep.counts
+
     rng = np.random.default_rng(seed)
     boot = np.empty((n_resamples, nbins), dtype=np.float64)
     for b in range(n_resamples):
         idx = rng.integers(0, n_mol, size=n_mol)  # high exclusive → indices in [0, n_mol)
-        vals_b = np.concatenate([per_molecule_values[i] for i in idx])
-        w_b = np.concatenate([per_molecule_weights[i] for i in idx]) if has_weights else None
-        rep = apparent_e_histogram(
-            vals_b, bins=bins, value_range=value_range, density=density, weights=w_b
-        )
-        boot[b] = rep.counts
+        counts_b = mol_counts[idx].sum(axis=0)
+        if density:
+            total = float(counts_b.sum())
+            if total > 0.0:
+                counts_b = counts_b / widths / total
+        boot[b] = counts_b
 
     alpha = (1.0 - ci_level) / 2.0
     ci_low = np.percentile(boot, 100.0 * alpha, axis=0)
