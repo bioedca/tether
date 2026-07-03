@@ -319,15 +319,26 @@ def _is_corrected(path: Path) -> bool:
 
 
 def _is_idealized(path: Path) -> bool:
-    """True when a non-empty ``/idealization`` group is present (any fitted model)."""
+    """True when ``/idealization`` holds at least one *completed* fitted model.
+
+    ``idealize_molecules`` stages a model under a transient ``{model}.__writing__``
+    subgroup and only then atomically swaps it in; a crash mid-swap can leave just that
+    staging group behind. Those are ignored here so a crashed idealization is correctly
+    re-run on resume rather than falsely reported done (mirrors idealize.py's own
+    ``_WRITING_SUFFIX`` filtering).
+    """
     if not path.exists():
         return False
     try:
         import h5py  # noqa: PLC0415
 
+        from tether.project.idealize import _WRITING_SUFFIX  # noqa: PLC0415
+
         with h5py.File(path, "r") as f:
             grp = f.get(f"/{_IDEALIZATION_GROUP}")
-            return grp is not None and len(grp.keys()) > 0
+            if grp is None:
+                return False
+            return any(not str(k).endswith(_WRITING_SUFFIX) for k in grp)
     except Exception:
         return False
 

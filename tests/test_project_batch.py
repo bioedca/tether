@@ -306,7 +306,7 @@ def test_settings_batch_provenance_stamped(tmp_path: Path) -> None:
         grp = f["/settings/batch"]
         assert grp.attrs["source"] == "batch-runner"
         assert grp.attrs["policy"] == "warn"
-        assert grp.attrs["idealize_requested"] == np.True_ or bool(grp.attrs["idealize_requested"])
+        assert bool(grp.attrs["idealize_requested"]) is True
         assert grp.attrs["extract_status"] == STATUS_DONE
         assert grp.attrs["correct_status"] == STATUS_DONE
         assert grp.attrs["idealize_status"] == STATUS_DONE
@@ -322,6 +322,42 @@ def test_provenance_can_be_disabled(tmp_path: Path) -> None:
     _run(jobs, stamp_provenance=False)
     with h5py.File(jobs[0].output_path, "r") as f:
         assert "/settings/batch" not in f
+
+
+def test_settings_batch_records_idealize_false(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    _run(jobs, idealize=False, _idealize=_raising_idealize)
+    with h5py.File(jobs[0].output_path, "r") as f:
+        grp = f["/settings/batch"]
+        assert bool(grp.attrs["idealize_requested"]) is False
+        assert grp.attrs["idealize_status"] == STATUS_NOT_REQUESTED
+
+
+def test_idealize_checkpoint_ignores_crashed_staging_group(tmp_path: Path) -> None:
+    # idealize_molecules stages a model under `{model}.__writing__` before its atomic
+    # swap; a crash mid-swap can leave only that staging group. It must NOT read as
+    # "already idealized" — the stage must re-run on resume, not be falsely skipped.
+    jobs = _jobs(tmp_path, "x")
+
+    def staging_only(output_path, **kwargs):
+        _add_group(Path(output_path), "idealization/vbconhmm.__writing__")
+        raise RuntimeError("sidecar crashed before the atomic swap")
+
+    first = _run(jobs, _idealize=staging_only)
+    assert first.results[0].stages[STAGE_IDEALIZE].status == STATUS_FAILED
+
+    # Resume: extract + correct are checkpointed; idealize must RE-RUN (a staging-only
+    # /idealization is not a completed model), not skip.
+    second = run_batch(
+        jobs,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_idealize_stub(),
+    )
+    assert second.results[0].stages[STAGE_IDEALIZE].status == STATUS_DONE
+    with h5py.File(jobs[0].output_path, "r") as f:
+        keys = set(f["/idealization"].keys())
+    assert "vbconhmm" in keys  # the real model now exists
 
 
 # --- MovieJob path coercion --------------------------------------------------
