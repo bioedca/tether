@@ -208,14 +208,37 @@ def test_rejects_unknown_intensity_quantity(tmp_path: Path) -> None:
         compute_photobleach(path, intensity_quantity="nonsense")
 
 
+def _all_names(f: h5py.File) -> list[str]:
+    names: list[str] = []
+    f.visit(names.append)  # every group/dataset name in the tree, not just the root
+    return sorted(names)
+
+
 def test_schema_guard_no_new_groups(tmp_path: Path) -> None:
-    # The writer must only populate frozen fields — never add a group/dataset.
+    # The writer must only populate frozen fields — never add a group/dataset,
+    # including one nested inside /molecules or /traces (hence the full-tree walk).
     donor, acceptor, _, _ = _traces_with_known_bleach()
     path = tmp_path / "pb.tether"
     _build_store(path, donor, acceptor)
     with h5py.File(path, "r") as f:
-        before = sorted(f.keys())
+        before = _all_names(f)
     compute_photobleach(path)
     with h5py.File(path, "r") as f:
-        after = sorted(f.keys())
+        after = _all_names(f)
     assert before == after
+
+
+def test_dark_summed_trace_leaves_default_window(tmp_path: Path) -> None:
+    # A molecule whose summed signal is bleached from frame 0 (sum_pb == 0) must
+    # NOT get a zero-length (0, 0) window — that reads as "unset" downstream and
+    # would widen to the full extent. The window stays at the extraction default
+    # and the (0, 0) bleach_frames record the dark trace (CodeRabbit #74).
+    rng = np.random.default_rng(11)
+    n = 80
+    dark = rng.normal(0.0, 5.0, size=(1, n))  # donor & acceptor both ~0 throughout
+    path = tmp_path / "pb.tether"
+    _build_store(path, dark, dark.copy())
+    compute_photobleach(path)
+    table = read_molecules(path)
+    assert tuple(int(x) for x in table["analysis_window"][0]) == (0, n)  # default, not (0, 0)
+    assert tuple(int(x) for x in table["bleach_frames"][0]) == (0, 0)  # bleached from frame 0

@@ -156,8 +156,17 @@ def compute_photobleach(
             n_acceptor += int(acceptor_pb < end)
 
             # Auto-default the window only if it is still the untouched extraction
-            # default (== frame_range); a curator's manual narrowing wins.
-            if int(analysis_window[i][0]) == start and int(analysis_window[i][1]) == end:
+            # default (== frame_range); a curator's manual narrowing wins. Skip a
+            # summed signal bleached from the first frame (sum_pb == start): a
+            # zero-length (start, start) window is indistinguishable from "unset"
+            # downstream (readers treat hi <= lo as unset and widen to frame_range),
+            # so it would wrongly re-expand to the full extent. Leaving the default
+            # and letting the (start, start) bleach_frames flag the dark trace is the
+            # honest encoding (an empty window is not representable in this schema).
+            still_default = (
+                int(analysis_window[i][0]) == start and int(analysis_window[i][1]) == end
+            )
+            if still_default and sum_pb > start:
                 analysis_window[i] = (start, sum_pb)
                 n_windows += int(sum_pb < end)
 
