@@ -1,12 +1,15 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for structured conditions + referential validation (M4 S1, PRD §5.1/§7.6).
+"""Tests for structured conditions + referential validation (M4, PRD §5.1/§7.6).
 
-Covers the first M4 gate (PLAN §8, FR-ANNOTATE): a condition aggregates molecules
-across ≥ 2 files; near-miss strings stay separate (keep-separate-by-default); a
-molecule's ``condition_id`` is valid only when it resolves to a ``/conditions`` row
-built from that key (referential validation). All headless (no Qt); every write is
-additive data under the M0-frozen schema.
+Covers the M4 annotation gates (PLAN §8, FR-ANNOTATE): a condition aggregates
+molecules across ≥ 2 files; near-miss strings stay separate (keep-separate-by-
+default); a molecule's ``condition_id`` is valid only when it resolves to a
+``/conditions`` row built from that key (referential validation); the transactional
+re-key + human-confirmed merge; and the **editable per-condition category list**
+(M4 PR-3) — its per-trace vocabulary persists per condition and travels across the
+condition's files. All headless (no Qt); every write is additive data under the
+M0-frozen schema.
 """
 
 from __future__ import annotations
@@ -551,3 +554,253 @@ def test_project_rekey_refuses_foreign_lock(tmp_path: Path) -> None:
     proj = Project(path, identity=HOST_A)
     with pytest.raises(LockedError):
         proj.rekey_condition(_BOGUS, parse_filename(_FILE_A10).key)
+
+
+# --- editable per-condition category list (M4 PR-3, §9 M4) --------------------
+
+
+def _seed_two_file_condition(tmp_path: Path) -> tuple[Path, str]:
+    """A ``.tether`` whose one condition aggregates molecules from two files.
+
+    Returns ``(path, condition_id)`` with ``/conditions`` materialized, so a category
+    list can be attached to a *real* condition (the writers require it to exist).
+    """
+    path = _seed_extracted(tmp_path, [("k0", _FILE_A10), ("k1", _FILE_A11)])
+    C.sync_conditions(path)
+    return path, parse_filename(_FILE_A10).condition_id
+
+
+def _set_molecule_category(path: Path, molecule_key: str, category: str) -> None:
+    """Directly stamp a molecule's frozen ``/molecules.category`` name (test seam)."""
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"][TABLE]
+        data = table[:]
+        keys = [C._to_str(k) for k in data["molecule_key"]]
+        data["category"][keys.index(molecule_key)] = category
+        table[:] = data
+
+
+def test_category_list_empty_by_default(tmp_path: Path) -> None:
+    """No presets (§5.1): a fresh condition has an empty vocabulary; read is lenient."""
+    path, cid = _seed_two_file_condition(tmp_path)
+
+    cats = C.read_category_list(path, cid)
+    assert isinstance(cats, C.CategoryList)
+    assert cats.condition_id == cid
+    assert cats.categories == ()
+    assert len(cats) == 0
+    assert cats.lookup == {}
+    # Lenient: a read on an id with no vocabulary (even unregistered) is empty, not error.
+    assert C.read_category_list(path, "cond-doesnotexist").categories == ()
+
+
+def test_set_and_read_category_list_roundtrip(tmp_path: Path) -> None:
+    """set → read preserves order; the integer code ↔ name lookup is positional (§5.1)."""
+    path, cid = _seed_two_file_condition(tmp_path)
+
+    result = C.set_category_list(path, cid, ["dynamic", "static", "noise"])
+    assert result.categories == ("dynamic", "static", "noise")
+    assert result.lookup == {0: "dynamic", 1: "static", 2: "noise"}
+    assert result.code_of("static") == 1
+    assert "noise" in result
+
+    # Persisted: a fresh read returns the same ordered vocabulary + codes.
+    reread = C.read_category_list(path, cid)
+    assert reread.categories == ("dynamic", "static", "noise")
+    assert reread.lookup == {0: "dynamic", 1: "static", 2: "noise"}
+    with pytest.raises(KeyError):
+        reread.code_of("absent")
+
+
+def test_category_list_edits_persist_per_condition_and_travel_across_files(
+    tmp_path: Path,
+) -> None:
+    """§9 M4: category-list edits persist per condition and travel across its files."""
+    path, cid = _seed_two_file_condition(tmp_path)
+
+    # The one condition genuinely aggregates molecules from two distinct files.
+    agg = C.aggregate_molecules_by_condition(path)
+    assert set(agg) == {cid}
+    assert sorted(agg[cid]) == ["k0", "k1"]
+    with h5py.File(path, "r") as f:
+        assert {C._to_str(s) for s in f["molecules"][TABLE]["source_filename"][:]} == {
+            _FILE_A10,
+            _FILE_A11,
+        }
+
+    C.set_category_list(path, cid, ["bound", "unbound"])
+
+    # The vocabulary is scoped to the condition_id, so every molecule of that
+    # condition — from either file — resolves the same edited list (it "travels").
+    reopened = C.read_category_list(path, cid)
+    assert reopened.categories == ("bound", "unbound")
+    proj = Project.open(path)
+    assert proj.category_list(cid).categories == ("bound", "unbound")
+
+
+def test_add_category_appends_with_next_code(tmp_path: Path) -> None:
+    path, cid = _seed_two_file_condition(tmp_path)
+    C.set_category_list(path, cid, ["a"])
+
+    updated = C.add_category(path, cid, "b")
+    assert updated.categories == ("a", "b")
+    assert updated.code_of("b") == 1
+    # Whitespace is stripped on the way in.
+    assert C.add_category(path, cid, "  c  ").categories == ("a", "b", "c")
+
+
+def test_add_duplicate_category_rejected(tmp_path: Path) -> None:
+    path, cid = _seed_two_file_condition(tmp_path)
+    C.set_category_list(path, cid, ["a", "b"])
+    with pytest.raises(ValueError, match="already present"):
+        C.add_category(path, cid, "b")
+    with pytest.raises(ValueError, match="non-empty"):
+        C.add_category(path, cid, "   ")
+
+
+def test_rename_category_preserves_code_and_keeps_molecule_labels(tmp_path: Path) -> None:
+    """Rename is list-only: it keeps the code and never rewrites a molecule's stored name."""
+    path, cid = _seed_two_file_condition(tmp_path)
+    C.set_category_list(path, cid, ["godd", "static"])
+    _set_molecule_category(path, "k0", "godd")  # a molecule references the typo'd name
+
+    renamed = C.rename_category(path, cid, "godd", "good")
+    assert renamed.categories == ("good", "static")
+    assert renamed.code_of("good") == 0  # position (code) preserved
+
+    # List-only: the molecule keeps its stored category string (not silently re-labeled).
+    with h5py.File(path, "r") as f:
+        cats = [C._to_str(c) for c in f["molecules"][TABLE]["category"][:]]
+    assert "godd" in cats
+
+
+def test_rename_absent_or_collision_rejected(tmp_path: Path) -> None:
+    path, cid = _seed_two_file_condition(tmp_path)
+    C.set_category_list(path, cid, ["a", "b"])
+    with pytest.raises(KeyError):
+        C.rename_category(path, cid, "missing", "c")
+    with pytest.raises(ValueError, match="already present"):
+        C.rename_category(path, cid, "a", "b")
+    # Renaming to its own (stripped) name is a no-op, allowed.
+    assert C.rename_category(path, cid, "a", " a ").categories == ("a", "b")
+
+
+def test_remove_category_shifts_codes_and_keeps_molecule_labels(tmp_path: Path) -> None:
+    path, cid = _seed_two_file_condition(tmp_path)
+    C.set_category_list(path, cid, ["a", "b", "c"])
+    _set_molecule_category(path, "k1", "b")
+
+    updated = C.remove_category(path, cid, "b")
+    assert updated.categories == ("a", "c")
+    assert updated.lookup == {0: "a", 1: "c"}  # "c" shifted from code 2 → 1
+
+    # The shrink (3 → 2) is persisted on disk, not just in the returned object.
+    reread = C.read_category_list(path, cid)
+    assert reread.categories == ("a", "c")
+    assert reread.lookup == {0: "a", 1: "c"}
+
+    with h5py.File(path, "r") as f:
+        cats = [C._to_str(c) for c in f["molecules"][TABLE]["category"][:]]
+    assert "b" in cats  # the molecule's stored label is untouched
+
+    with pytest.raises(KeyError):
+        C.remove_category(path, cid, "missing")
+
+
+def test_set_reorders_and_clears(tmp_path: Path) -> None:
+    path, cid = _seed_two_file_condition(tmp_path)
+    C.set_category_list(path, cid, ["a", "b", "c"])
+
+    reordered = C.set_category_list(path, cid, ["c", "a", "b"])  # a permutation
+    assert reordered.lookup == {0: "c", 1: "a", 2: "b"}
+    # A same-length permutation is persisted (fresh read, not the returned object).
+    assert C.read_category_list(path, cid).lookup == {0: "c", 1: "a", 2: "b"}
+
+    cleared = C.set_category_list(path, cid, [])  # clearing is a valid edit
+    assert cleared.categories == ()
+    assert C.read_category_list(path, cid).categories == ()
+
+
+def test_set_rejects_empty_duplicate_and_bare_string(tmp_path: Path) -> None:
+    path, cid = _seed_two_file_condition(tmp_path)
+    with pytest.raises(ValueError, match="non-empty"):
+        C.set_category_list(path, cid, ["a", "   "])
+    with pytest.raises(ValueError, match="duplicate"):
+        C.set_category_list(path, cid, ["a", "a"])
+    with pytest.raises(TypeError):
+        C.set_category_list(path, cid, "abc")  # a bare string is almost surely a bug
+
+
+def test_writers_require_a_registered_condition(tmp_path: Path) -> None:
+    """A category list is scoped to a real /conditions row (§5.1) — writers refuse otherwise."""
+    path, _cid = _seed_two_file_condition(tmp_path)
+    unknown = "cond-000000000000"
+    with pytest.raises(KeyError):
+        C.set_category_list(path, unknown, ["a"])
+    with pytest.raises(KeyError):
+        C.add_category(path, unknown, "a")
+    with pytest.raises(KeyError):
+        C.rename_category(path, unknown, "a", "b")
+    with pytest.raises(KeyError):
+        C.remove_category(path, unknown, "a")
+
+
+def test_condition_id_guarded_as_link_name(tmp_path: Path) -> None:
+    """Empty / path-like condition ids are refused before naming an HDF5 dataset."""
+    path, _cid = _seed_two_file_condition(tmp_path)
+    for bad in ("", "a/b"):
+        with pytest.raises(ValueError):
+            C.read_category_list(path, bad)
+        with pytest.raises(ValueError):
+            C.set_category_list(path, bad, ["a"])
+
+
+def test_category_list_is_additive_data_schema_guard_stays_green(tmp_path: Path) -> None:
+    """The vocabulary is additive data under /conditions — invisible to schema-guard."""
+    from tether.io.schema import build_manifest, diff_manifest, introspect
+
+    path, cid = _seed_two_file_condition(tmp_path)
+    C.set_category_list(path, cid, ["a", "b"])
+
+    # A real project with a vocabulary carries the additive sub-group + dataset.
+    with h5py.File(path, "r") as f:
+        real = introspect(f)
+    assert f"/{C._CONDITIONS}/{C._CATEGORIES_GROUP}" in real["groups"]
+    assert f"/{C._CONDITIONS}/{C._CATEGORIES_GROUP}/{cid}" in real["datasets"]
+
+    # But the *declared* schema (what schema-guard checks) is unchanged: a fresh
+    # project has no categories group, and the real file's extras are pure additions
+    # (no freeze violation) against that declared baseline.
+    declared = build_manifest()
+    assert f"/{C._CONDITIONS}/{C._CATEGORIES_GROUP}" not in declared["groups"]
+    assert diff_manifest(declared, real) == []
+
+
+def test_project_category_wrappers_match_module(tmp_path: Path) -> None:
+    path, cid = _seed_two_file_condition(tmp_path)
+    proj = Project.open(path)
+
+    assert proj.set_category_list(cid, ["a", "b"]).categories == ("a", "b")
+    assert proj.add_category(cid, "c").categories == ("a", "b", "c")
+    assert proj.rename_category(cid, "a", "A").categories == ("A", "b", "c")
+    assert proj.remove_category(cid, "b").categories == ("A", "c")
+    assert proj.category_list(cid).categories == C.read_category_list(path, cid).categories
+
+
+def test_project_category_writes_refuse_foreign_lock_reads_allowed(tmp_path: Path) -> None:
+    """Category writes honor the single-writer lock; a non-owner may still read (§5.4)."""
+    path, cid = _seed_two_file_condition(tmp_path)
+    C.set_category_list(path, cid, ["a"])
+    lock.acquire(path, identity=HOST_B)
+    proj = Project(path, identity=HOST_A)
+
+    with pytest.raises(LockedError):
+        proj.set_category_list(cid, ["x"])
+    with pytest.raises(LockedError):
+        proj.add_category(cid, "x")
+    with pytest.raises(LockedError):
+        proj.rename_category(cid, "a", "x")
+    with pytest.raises(LockedError):
+        proj.remove_category(cid, "a")
+    # Reads never take the write gate.
+    assert proj.category_list(cid).categories == ("a",)
