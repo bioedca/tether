@@ -32,8 +32,14 @@ if TYPE_CHECKING:
     import numpy as np
 
     from tether.idealize.driver import IdealizationResult
+    from tether.io.filename import ConditionKey
     from tether.io.movie import MovieReader
-    from tether.project.conditions import ConditionSyncSummary, ConditionValidationReport
+    from tether.project.conditions import (
+        ConditionSyncSummary,
+        ConditionValidationReport,
+        RekeyPreview,
+        RekeyResult,
+    )
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
     from tether.project.idealize import StoredIdealization
     from tether.project.lock import LockIdentity, LockInfo
@@ -354,6 +360,46 @@ class Project:
         from tether.project import conditions
 
         return conditions.aggregate_molecules_by_condition(self.path)
+
+    def preview_rekey(self, from_condition_id: str, to_key: ConditionKey) -> RekeyPreview:
+        """Read-only preview of a condition re-key (:func:`conditions.preview_rekey`)."""
+        from tether.project import conditions
+
+        return conditions.preview_rekey(self.path, from_condition_id, to_key)
+
+    def rekey_condition(
+        self,
+        from_condition_id: str,
+        to_key: ConditionKey,
+        *,
+        confirm: bool = False,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> RekeyResult:
+        """Transactionally re-key a condition; a merge needs ``confirm=True`` (§5.1).
+
+        Delegates to :func:`conditions.rekey_condition`; refuses the write if the file
+        is locked by another writer (:meth:`_assert_writable`, §5.4).
+        """
+        from tether.project import conditions
+
+        self._assert_writable()
+        return conditions.rekey_condition(
+            self.path,
+            from_condition_id,
+            to_key,
+            confirm=confirm,
+            labeler=labeler,
+            reason=reason,
+            timestamp=timestamp,
+        )
+
+    def read_condition_audit(self) -> np.ndarray:
+        """The append-only re-key/merge audit log (:func:`conditions.read_condition_audit`)."""
+        from tether.project import conditions
+
+        return conditions.read_condition_audit(self.path)
 
     # --- idealization (PRD §7.4; the one-click-vbFRET seam behind the GUI) -----
 
