@@ -104,9 +104,18 @@ def _as_filter_set(values: Iterable[str] | None) -> frozenset[str] | None:
     empty list/tuple/set does — rather than silently becoming a match-nothing filter
     (the never-silent contract; see the module docstring's filter semantics). Returns
     ``None`` for both ``None`` and an empty collection.
+
+    A bare ``str``/``bytes`` is rejected with :class:`TypeError`: it *is* iterable, so
+    ``tags="blink"`` would otherwise iterate characters and silently match nothing —
+    the same never-silent trap the emptiness handling avoids.
     """
     if values is None:
         return None
+    if isinstance(values, str | bytes):
+        raise TypeError(
+            f"filter values must be an iterable of strings, not a bare "
+            f"{type(values).__name__} (wrap a single value in a list, e.g. [value])"
+        )
     return frozenset(str(v) for v in values) or None
 
 
@@ -256,6 +265,9 @@ def query_molecules(
     ------
     ValueError
         If ``key`` names a field that is not a :class:`ConditionKey` field.
+    TypeError
+        If ``condition_ids``, ``categories``, or ``tags`` is a bare ``str``/``bytes``
+        instead of an iterable of strings (wrap a single value in a list).
     """
     from tether.imaging.extract import read_molecules  # noqa: PLC0415
     from tether.project.conditions import read_condition_keys  # noqa: PLC0415

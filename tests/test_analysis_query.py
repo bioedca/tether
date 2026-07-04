@@ -260,6 +260,17 @@ def test_empty_filters_are_inert(tmp_path: Path) -> None:
     assert set(query_molecules(path, key={}).molecule_keys) == everything
 
 
+def test_bare_string_filter_raises(tmp_path: Path) -> None:
+    # A bare str is iterable, so "blink" would silently match per-character (nothing);
+    # reject it up front rather than degrade silently (the never-silent contract).
+    path = _annotated_project(tmp_path)
+    for kwargs in ({"tags": "low-conf"}, {"categories": "docked"}, {"condition_ids": _CID_A}):
+        with pytest.raises(TypeError, match="iterable of strings"):
+            query_molecules(path, **kwargs)  # type: ignore[arg-type]
+    # The correct wrapped form still works.
+    assert set(query_molecules(path, tags=["low-conf"]).molecule_keys) == {"k0", "k1"}
+
+
 def test_accepts_project_handle_and_path(tmp_path: Path) -> None:
     path = _cross_file_project(tmp_path)
     from_path = query_molecules(path, condition_ids=[_CID_A]).molecule_keys
