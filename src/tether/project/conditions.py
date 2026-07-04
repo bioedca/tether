@@ -71,6 +71,7 @@ __all__ = [
     "preview_rekey",
     "read_category_list",
     "read_condition_audit",
+    "read_condition_keys",
     "read_conditions",
     "register_condition",
     "rekey_condition",
@@ -529,6 +530,22 @@ def read_conditions(path: str | Path) -> np.ndarray:
 
     with h5py.File(Path(path), "r") as f:
         return f[_CONDITIONS][TABLE][:]
+
+
+def read_condition_keys(path: str | Path) -> dict[str, ConditionKey]:
+    """Map each materialized ``condition_id`` → its identity :class:`ConditionKey` (PRD §5.1).
+
+    Reconstructs the key every ``/conditions`` row was built from (inverse of the row
+    builder, ``NaN`` numeric cells mapping back to ``None`` via :func:`_opt_float`), so
+    a caller can filter conditions by **key fields** — e.g. "every condition with
+    ligand tRNA" — without re-parsing filenames (the cross-movie query,
+    :mod:`tether.analysis.query`). A row whose fields no longer hash to its own id (an
+    *inconsistent* row, :func:`validate_conditions`) is still included under its stored
+    id — the reconstructed key reflects what the fields currently say. Append order is
+    preserved. Read-only.
+    """
+    rows = read_conditions(path)
+    return {_to_str(rows["condition_id"][i]): _row_to_key(rows[i]) for i in range(rows.shape[0])}
 
 
 def aggregate_molecules_by_condition(path: str | Path) -> dict[str, list[str]]:

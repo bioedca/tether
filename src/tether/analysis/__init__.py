@@ -21,6 +21,12 @@ Added at M3 (FR-ANALYZE, PRD §7.7):
   :func:`~tether.analysis.histogram.population_apparent_e_histogram_ci` — the
   molecule-level bootstrap confidence interval for the histogram (BOBA-FRET
   [König2013]), the FRET histogram's error bars.
+
+Added at M4 (FR-ANNOTATE, PRD §5.1/§7.7):
+
+- :func:`~tether.analysis.query.query_molecules` — the cross-movie condition
+  query/filter (by key fields + tags + category), aggregating a condition's
+  molecules across all its movies/files.
 """
 
 from __future__ import annotations
@@ -43,6 +49,11 @@ from tether.analysis.histogram import (
     population_apparent_e_histogram,
     population_apparent_e_histogram_ci,
 )
+from tether.analysis.query import (
+    ConditionQueryResult,
+    MoleculeMatch,
+    query_molecules,
+)
 
 __all__ = [
     "DEFAULT_BOOTSTRAP_RESAMPLES",
@@ -50,13 +61,16 @@ __all__ = [
     "DEFAULT_NBINS",
     "DEFAULT_RANGE",
     "DEFAULT_SEED",
+    "ConditionQueryResult",
     "CrossCorrelation",
     "Histogram1D",
     "HistogramBootstrapCI",
+    "MoleculeMatch",
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
     "cross_correlation",
     "population_apparent_e_histogram",
     "population_apparent_e_histogram_ci",
     "population_cross_correlation",
+    "query_molecules",
 ]
