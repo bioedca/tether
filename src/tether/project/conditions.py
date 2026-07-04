@@ -850,6 +850,21 @@ def _require_safe_condition_id(condition_id: str) -> str:
     return condition_id
 
 
+def _validate_name(name: object, *, label: str = "category name") -> str:
+    """Type-check + whitespace-strip + non-empty-check a single category name.
+
+    The one place the name-entry rules live, shared by :func:`_normalize_categories`
+    (per list element), :func:`add_category`, and :func:`rename_category` so they
+    stay in sync if the rules ever change (e.g. a max-length or character-set rule).
+    """
+    if not isinstance(name, str):
+        raise TypeError(f"{label} must be a string, got {type(name).__name__}")
+    stripped = name.strip()
+    if not stripped:
+        raise ValueError(f"{label} must be non-empty (after stripping whitespace)")
+    return stripped
+
+
 def _normalize_categories(categories: object) -> tuple[str, ...]:
     """Validate + normalize a category list: strip, reject empty/duplicate names.
 
@@ -863,11 +878,7 @@ def _normalize_categories(categories: object) -> tuple[str, ...]:
     names: list[str] = []
     seen: set[str] = set()
     for raw in categories:
-        if not isinstance(raw, str):
-            raise TypeError(f"category names must be strings, got {type(raw).__name__}")
-        name = raw.strip()
-        if not name:
-            raise ValueError("category names must be non-empty (after stripping whitespace)")
+        name = _validate_name(raw)
         if name in seen:
             raise ValueError(f"duplicate category name: {name!r}")
         seen.add(name)
@@ -971,11 +982,7 @@ def add_category(path: str | Path, condition_id: str, name: str) -> CategoryList
     import h5py  # noqa: PLC0415
 
     _require_safe_condition_id(condition_id)
-    if not isinstance(name, str):
-        raise TypeError(f"category name must be a string, got {type(name).__name__}")
-    stripped = name.strip()
-    if not stripped:
-        raise ValueError("category name must be non-empty (after stripping whitespace)")
+    stripped = _validate_name(name)
     with h5py.File(Path(path), "r+") as f:
         _assert_condition_exists(f, condition_id)
         current = _read_category_names(f, condition_id)
@@ -998,11 +1005,7 @@ def rename_category(path: str | Path, condition_id: str, old: str, new: str) -> 
     import h5py  # noqa: PLC0415
 
     _require_safe_condition_id(condition_id)
-    if not isinstance(new, str):
-        raise TypeError(f"new category name must be a string, got {type(new).__name__}")
-    new_stripped = new.strip()
-    if not new_stripped:
-        raise ValueError("new category name must be non-empty (after stripping whitespace)")
+    new_stripped = _validate_name(new, label="new category name")
     with h5py.File(Path(path), "r+") as f:
         _assert_condition_exists(f, condition_id)
         current = _read_category_names(f, condition_id)

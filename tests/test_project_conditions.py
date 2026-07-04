@@ -731,6 +731,18 @@ def test_set_rejects_empty_duplicate_and_bare_string(tmp_path: Path) -> None:
         C.set_category_list(path, cid, "abc")  # a bare string is almost surely a bug
 
 
+def test_non_string_category_names_rejected(tmp_path: Path) -> None:
+    """Every name-entry point type-checks: a non-string name is a TypeError."""
+    path, cid = _seed_two_file_condition(tmp_path)
+    C.set_category_list(path, cid, ["a"])
+    with pytest.raises(TypeError):
+        C.add_category(path, cid, 5)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        C.rename_category(path, cid, "a", 5)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        C.set_category_list(path, cid, ["a", 5])  # type: ignore[list-item]
+
+
 def test_writers_require_a_registered_condition(tmp_path: Path) -> None:
     """A category list is scoped to a real /conditions row (§5.1) — writers refuse otherwise."""
     path, _cid = _seed_two_file_condition(tmp_path)
