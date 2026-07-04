@@ -214,17 +214,20 @@ def register_condition(
     self-consistent. Two calls with the same key produce **one** row (the M4
     aggregation invariant). Returns a copy of the resulting row.
 
-    This is the low-level single-condition writer; :func:`sync_conditions`
-    materializes a whole project's conditions from ``/molecules`` in one pass.
+    This is the low-level single-condition writer (one file open + one id-column
+    scan); to materialize *many* conditions, call :func:`sync_conditions`, which
+    batches the scan — do not loop this per condition over a large table.
     """
     import h5py  # noqa: PLC0415
 
     condition_id = key.condition_id()
     with h5py.File(Path(path), "r+") as f:
         table = f[_CONDITIONS][TABLE]
-        ids = [_to_str(c) for c in table["condition_id"][:]]
-        if condition_id in ids:
-            i = ids.index(condition_id)
+        # One pass over the id column, short-circuiting at the first match; the
+        # single-condition path is not meant for bulk loops (use sync_conditions).
+        existing = table["condition_id"][:]
+        i = next((j for j, c in enumerate(existing) if _to_str(c) == condition_id), None)
+        if i is not None:
             row = table[i]
             if date is not None:
                 row["date"] = date
