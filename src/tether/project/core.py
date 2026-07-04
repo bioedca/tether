@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from tether.io.filename import ConditionKey
     from tether.io.movie import MovieReader
     from tether.project.conditions import (
+        CategoryList,
         ConditionSyncSummary,
         ConditionValidationReport,
         RekeyPreview,
@@ -400,6 +401,58 @@ class Project:
         from tether.project import conditions
 
         return conditions.read_condition_audit(self.path)
+
+    # --- editable per-condition category list (PRD §5.1; FR-ANNOTATE) ---------
+
+    def category_list(self, condition_id: str) -> CategoryList:
+        """A condition's editable per-trace category vocabulary (§5.1).
+
+        Delegates to :func:`conditions.read_category_list`; read-only, returns an
+        empty list when the condition has no categories yet.
+        """
+        from tether.project import conditions
+
+        return conditions.read_category_list(self.path, condition_id)
+
+    def set_category_list(self, condition_id: str, categories: object) -> CategoryList:
+        """Replace a condition's whole ordered category list (:func:`conditions.set_category_list`).
+
+        Refuses the write if the file is locked by another writer (:meth:`_assert_writable`, §5.4).
+        """
+        from tether.project import conditions
+
+        self._assert_writable()
+        return conditions.set_category_list(self.path, condition_id, categories)
+
+    def add_category(self, condition_id: str, name: str) -> CategoryList:
+        """Append one category to a condition's list (:func:`conditions.add_category`).
+
+        Refuses the write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import conditions
+
+        self._assert_writable()
+        return conditions.add_category(self.path, condition_id, name)
+
+    def rename_category(self, condition_id: str, old: str, new: str) -> CategoryList:
+        """Rename a category in place, preserving its code (:func:`conditions.rename_category`).
+
+        Refuses the write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import conditions
+
+        self._assert_writable()
+        return conditions.rename_category(self.path, condition_id, old, new)
+
+    def remove_category(self, condition_id: str, name: str) -> CategoryList:
+        """Remove a category from a condition's list (:func:`conditions.remove_category`).
+
+        Refuses the write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import conditions
+
+        self._assert_writable()
+        return conditions.remove_category(self.path, condition_id, name)
 
     # --- idealization (PRD §7.4; the one-click-vbFRET seam behind the GUI) -----
 

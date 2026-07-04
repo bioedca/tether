@@ -60,17 +60,23 @@ if TYPE_CHECKING:
     import numpy as np
 
 __all__ = [
+    "CategoryList",
     "ConditionSyncSummary",
     "ConditionValidationReport",
     "ConfirmationRequired",
     "RekeyPreview",
     "RekeyResult",
+    "add_category",
     "aggregate_molecules_by_condition",
     "preview_rekey",
+    "read_category_list",
     "read_condition_audit",
     "read_conditions",
     "register_condition",
     "rekey_condition",
+    "remove_category",
+    "rename_category",
+    "set_category_list",
     "sync_conditions",
     "validate_conditions",
 ]
@@ -78,6 +84,14 @@ __all__ = [
 _MOLECULES = "molecules"
 _CONDITIONS = "conditions"
 _SETTINGS = "settings"
+
+#: The editable per-condition category list lives in a lazily-created sub-group of
+#: the frozen ``/conditions`` group — one 1-D variable-length string dataset per
+#: condition, ``/conditions/categories/<condition_id>`` (additive *data*, so
+#: ``schema-guard`` stays green: the sub-group is absent from a fresh project, like
+#: ``/settings/condition_audit``). The schema builder's docstring reserves the
+#: ``/conditions`` group for exactly this (PRD §5.1).
+_CATEGORIES_GROUP = "categories"
 
 #: The append-only re-key/merge audit log, a lazily-created dataset under the
 #: frozen ``/settings`` container (additive data — ``schema-guard`` stays green,
@@ -763,3 +777,263 @@ def read_condition_audit(path: str | Path) -> np.ndarray:
         if _AUDIT_NAME not in settings:
             return np.zeros(0, dtype=_audit_dtype())
         return settings[_AUDIT_NAME][:]
+
+
+# --- editable per-condition category list (PRD §5.1, FR-ANNOTATE) -------------
+
+
+@dataclass(frozen=True)
+class CategoryList:
+    """A condition's editable, ordered per-trace category vocabulary (PRD §5.1).
+
+    The fully user-editable per-trace category list — **no presets** — scoped to
+    one ``condition_id`` and shared by every molecule in that condition, across all
+    its movies/days/files (a condition spans ≥ 2 files, §5.1). The **integer code**
+    of a category is its 0-based position in :attr:`categories` (the "int ↔ category
+    lookup", exposed as :attr:`lookup` / :meth:`code_of`).
+
+    Molecules store their chosen category by **name** in the frozen
+    ``/molecules.category`` string field, so this list is the editable *vocabulary*:
+    reordering, renaming, or removing an entry re-numbers the codes but never
+    silently rewrites an existing molecule's stored category (that is a separate,
+    explicit labeling step — mirroring the keep-separate/never-silent ethos of the
+    condition re-key, :func:`rekey_condition`).
+    """
+
+    #: The condition this vocabulary belongs to.
+    condition_id: str
+    #: The ordered category names; the index of each is its integer code.
+    categories: tuple[str, ...]
+
+    @property
+    def n_categories(self) -> int:
+        """How many categories the list holds."""
+        return len(self.categories)
+
+    def __len__(self) -> int:
+        return len(self.categories)
+
+    def __iter__(self):  # noqa: ANN204 - iterates the ordered names
+        return iter(self.categories)
+
+    def __contains__(self, category: object) -> bool:
+        return category in self.categories
+
+    @property
+    def lookup(self) -> dict[int, str]:
+        """The integer code → category-name map (code = 0-based position, §5.1)."""
+        return dict(enumerate(self.categories))
+
+    def code_of(self, category: str) -> int:
+        """The integer code (0-based position) of ``category``.
+
+        Raises :class:`KeyError` if ``category`` is not in the list.
+        """
+        try:
+            return self.categories.index(category)
+        except ValueError:
+            raise KeyError(category) from None
+
+
+def _require_safe_condition_id(condition_id: str) -> str:
+    """Guard a ``condition_id`` used as an HDF5 link name (non-empty, no ``/``).
+
+    Real ids are ``cond-<hex>`` (:meth:`~tether.io.filename.ConditionKey.condition_id`),
+    but the public functions take an arbitrary string, so refuse an empty id or one
+    containing ``/`` (which HDF5 would treat as a group path) before it names a
+    dataset.
+    """
+    if not condition_id:
+        raise ValueError("condition_id must be a non-empty condition id")
+    if "/" in condition_id:
+        raise ValueError(f"condition_id must not contain '/': {condition_id!r}")
+    return condition_id
+
+
+def _validate_name(name: object, *, label: str = "category name") -> str:
+    """Type-check + whitespace-strip + non-empty-check a single category name.
+
+    The one place the name-entry rules live, shared by :func:`_normalize_categories`
+    (per list element), :func:`add_category`, and :func:`rename_category` so they
+    stay in sync if the rules ever change (e.g. a max-length or character-set rule).
+    """
+    if not isinstance(name, str):
+        raise TypeError(f"{label} must be a string, got {type(name).__name__}")
+    stripped = name.strip()
+    if not stripped:
+        raise ValueError(f"{label} must be non-empty (after stripping whitespace)")
+    return stripped
+
+
+def _normalize_categories(categories: object) -> tuple[str, ...]:
+    """Validate + normalize a category list: strip, reject empty/duplicate names.
+
+    Each name is whitespace-stripped and must be non-empty; exact duplicates (after
+    stripping) are rejected so the code ↔ name map stays one-to-one. Order is
+    preserved (it defines the integer codes). Returns the normalized tuple.
+    """
+    if isinstance(categories, str):
+        # A bare string is almost certainly a mistake (it would iterate characters).
+        raise TypeError("categories must be a sequence of names, not a single string")
+    names: list[str] = []
+    seen: set[str] = set()
+    for raw in categories:
+        name = _validate_name(raw)
+        if name in seen:
+            raise ValueError(f"duplicate category name: {name!r}")
+        seen.add(name)
+        names.append(name)
+    return tuple(names)
+
+
+def _assert_condition_exists(f: object, condition_id: str) -> None:
+    """Require ``condition_id`` to resolve to a ``/conditions`` row (else ``KeyError``).
+
+    Enforces that a category list is *scoped to a real condition* — writers refuse
+    to attach a vocabulary to an unregistered id (materialize it first via
+    :func:`register_condition` / :func:`sync_conditions`).
+    """
+    table = f[_CONDITIONS][TABLE]  # type: ignore[index]
+    if _find_condition_index(table, condition_id) is None:
+        raise KeyError(f"no /conditions row with condition_id {condition_id!r}")
+
+
+def _read_category_names(f: object, condition_id: str) -> tuple[str, ...]:
+    """Read a condition's ordered category names ``()`` when unset (no group/dataset)."""
+    conditions = f[_CONDITIONS]  # type: ignore[index]
+    if _CATEGORIES_GROUP not in conditions:
+        return ()
+    group = conditions[_CATEGORIES_GROUP]
+    if condition_id not in group:
+        return ()
+    return tuple(_to_str(v) for v in group[condition_id][:])
+
+
+def _write_category_names(f: object, condition_id: str, names: tuple[str, ...]) -> None:
+    """Persist a condition's ordered category names (create-or-resize the vlen dataset).
+
+    Lazily creates the ``/conditions/categories`` sub-group and the per-condition
+    resizable vlen-string dataset on first use (additive data). An emptied list
+    resizes the dataset to 0 rows (kept, not deleted, to avoid HDF5 free-space churn).
+    """
+    import h5py  # noqa: PLC0415
+
+    conditions = f[_CONDITIONS]  # type: ignore[index]
+    group = (
+        conditions[_CATEGORIES_GROUP]
+        if _CATEGORIES_GROUP in conditions
+        else conditions.create_group(_CATEGORIES_GROUP, track_order=True)
+    )
+    if condition_id in group:
+        ds = group[condition_id]
+        ds.resize((len(names),))
+    else:
+        ds = group.create_dataset(
+            condition_id,
+            shape=(len(names),),
+            maxshape=(None,),
+            dtype=h5py.string_dtype(encoding="utf-8"),
+        )
+    if names:
+        ds[:] = list(names)
+
+
+def read_category_list(path: str | Path, condition_id: str) -> CategoryList:
+    """Read a condition's editable per-trace category list (PRD §5.1). Read-only.
+
+    Returns an empty :class:`CategoryList` when the condition has no vocabulary yet
+    (the "no presets" default) or the id is not present. Lenient about the id's
+    existence — unlike the writers, a read never fails on an unregistered condition.
+    """
+    import h5py  # noqa: PLC0415
+
+    _require_safe_condition_id(condition_id)
+    with h5py.File(Path(path), "r") as f:
+        names = _read_category_names(f, condition_id)
+    return CategoryList(condition_id=condition_id, categories=names)
+
+
+def set_category_list(path: str | Path, condition_id: str, categories: object) -> CategoryList:
+    """Replace a condition's whole ordered category list (PRD §5.1).
+
+    The general editor — set, reorder (pass a permutation), or clear (pass ``[]``) a
+    condition's vocabulary in one write. Names are stripped and must be non-empty and
+    unique; order defines the integer codes. Requires ``condition_id`` to be a
+    materialized ``/conditions`` row (:class:`KeyError` otherwise). Returns the
+    resulting :class:`CategoryList`.
+    """
+    import h5py  # noqa: PLC0415
+
+    _require_safe_condition_id(condition_id)
+    names = _normalize_categories(categories)
+    with h5py.File(Path(path), "r+") as f:
+        _assert_condition_exists(f, condition_id)
+        _write_category_names(f, condition_id, names)
+    return CategoryList(condition_id=condition_id, categories=names)
+
+
+def add_category(path: str | Path, condition_id: str, name: str) -> CategoryList:
+    """Append one category to a condition's list; return the updated list (PRD §5.1).
+
+    The new category's integer code is the (previous) list length. Rejects a name
+    that (after stripping) is empty or already present (:class:`ValueError`), and an
+    unregistered ``condition_id`` (:class:`KeyError`).
+    """
+    import h5py  # noqa: PLC0415
+
+    _require_safe_condition_id(condition_id)
+    stripped = _validate_name(name)
+    with h5py.File(Path(path), "r+") as f:
+        _assert_condition_exists(f, condition_id)
+        current = _read_category_names(f, condition_id)
+        if stripped in current:
+            raise ValueError(f"category already present: {stripped!r}")
+        names = (*current, stripped)
+        _write_category_names(f, condition_id, names)
+    return CategoryList(condition_id=condition_id, categories=names)
+
+
+def rename_category(path: str | Path, condition_id: str, old: str, new: str) -> CategoryList:
+    """Rename ``old`` → ``new`` in place, preserving its integer code (PRD §5.1).
+
+    A list-level edit only: it keeps the category's position (so its code is
+    unchanged) but does **not** rewrite the ``/molecules.category`` values that
+    reference ``old`` — re-labeling molecules is a separate explicit step (never
+    silent, §5.1). Rejects an absent ``old`` or an already-present ``new``
+    (:class:`KeyError` / :class:`ValueError`), and an unregistered condition.
+    """
+    import h5py  # noqa: PLC0415
+
+    _require_safe_condition_id(condition_id)
+    new_stripped = _validate_name(new, label="new category name")
+    with h5py.File(Path(path), "r+") as f:
+        _assert_condition_exists(f, condition_id)
+        current = _read_category_names(f, condition_id)
+        if old not in current:
+            raise KeyError(f"category not in list: {old!r}")
+        if new_stripped != old and new_stripped in current:
+            raise ValueError(f"category already present: {new_stripped!r}")
+        names = tuple(new_stripped if c == old else c for c in current)
+        _write_category_names(f, condition_id, names)
+    return CategoryList(condition_id=condition_id, categories=names)
+
+
+def remove_category(path: str | Path, condition_id: str, name: str) -> CategoryList:
+    """Remove ``name`` from a condition's list; return the updated list (PRD §5.1).
+
+    A list-level edit only: later categories shift down one code, and molecules that
+    referenced ``name`` keep their stored ``/molecules.category`` string (they are
+    not silently re-labeled, §5.1). Rejects an absent ``name`` (:class:`KeyError`)
+    and an unregistered condition.
+    """
+    import h5py  # noqa: PLC0415
+
+    _require_safe_condition_id(condition_id)
+    with h5py.File(Path(path), "r+") as f:
+        _assert_condition_exists(f, condition_id)
+        current = _read_category_names(f, condition_id)
+        if name not in current:
+            raise KeyError(f"category not in list: {name!r}")
+        names = tuple(c for c in current if c != name)
+        _write_category_names(f, condition_id, names)
+    return CategoryList(condition_id=condition_id, categories=names)
