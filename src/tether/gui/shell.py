@@ -256,6 +256,7 @@ class TetherShell:
         handoff: HandoffSeam | None = None,
         histogram: HistogramSeam | None = None,
         overlap: OverlapSeam | None = None,
+        conditions: Project | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtWidgets
 
@@ -289,6 +290,11 @@ class TetherShell:
         self._overlap_seam = overlap
         self._overlap_dock: Any | None = None
         self._overlap_dock_widget: Any | None = None
+        # The condition-validation seam: the .tether Project whose provisional
+        # per-molecule condition_ids the &Conditions menu confirms/corrects (§7.6).
+        # None (no project) makes the menu report that a project must be loaded; a real
+        # Project wires ConditionValidationDialog over the headless re-key core (§5.1).
+        self._conditions = conditions
         # The fit runs on a background worker (the sidecar can block for a cold-JIT
         # first run); a main-thread QTimer polls the future so the GUI stays live and
         # the overlay draw + status update always happen on the main thread.
@@ -354,6 +360,13 @@ class TetherShell:
         self._analysis_menu = self._window.menuBar().addMenu("&Analysis")
         self._act_histogram = self._analysis_menu.addAction("Population &histogram…")
         self._act_histogram.triggered.connect(self.show_histogram)
+
+        # Conditions menu: the M4 annotation step — confirm/correct the provisional
+        # per-molecule condition_id, with the transactional re-key + human-confirmed
+        # merge (§5.1/§7.6).
+        self._conditions_menu = self._window.menuBar().addMenu("&Conditions")
+        self._act_validate_conditions = self._conditions_menu.addAction("Validate &conditions…")
+        self._act_validate_conditions.triggered.connect(self._validate_conditions_dialog)
 
         self._window.statusBar().showMessage("Ready — Space accept · Backspace reject · Enter jump")
 
@@ -579,6 +592,27 @@ class TetherShell:
             self._window, "tMAVEN model to import (optional — Cancel to skip)", "", _SMD_FILTER
         )
         self.import_return_leg(smd_path, model_path=model_path or None)
+
+    # --- conditions (M4 annotation: confirm/correct provisional ids, §7.6) ---
+
+    @property
+    def conditions_menu(self) -> QtWidgets.QMenu:
+        """The ``&Conditions`` menu (condition validation / confirm-correct / merge)."""
+        return self._conditions_menu
+
+    def _validate_conditions_dialog(self) -> None:  # pragma: no cover - interactive dialog
+        """Menu entry: open the condition validation / confirm-correct / merge dialog (§7.6)."""
+        from tether.gui.conditions import ConditionValidationDialog
+
+        if self._conditions is None:
+            self._status("Conditions: load a project first")
+            return
+        try:
+            ConditionValidationDialog(self._conditions, parent=self._window).exec()
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Conditions validation failed: {exc}")
+            return
+        self._status("Conditions validation closed")
 
     # --- analysis (population apparent-E histogram, §7.7) --------------------
 
@@ -1112,7 +1146,43 @@ def launch() -> None:  # pragma: no cover - interactive smoke entry point
         pooled = np.concatenate([t.apparent_e for t in traces])
         return replace(apparent_e_histogram(pooled), n_molecules=len(traces))
 
-    shell = TetherShell(idealizer=_demo_idealizer, histogram=_demo_histogram)
+    # A tiny on-disk demo project so the &Conditions menu opens a populated dialog for
+    # the live smoke: two acquisitions of one condition (T-box) across two files + a
+    # near-miss (Tbox), left unsynced so the rows show as «dangling» until the curator
+    # clicks "Confirm provisional (materialize)" or corrects one via "Correct…".
+    import tempfile
+    from pathlib import Path
+
+    import h5py
+
+    from tether.io.filename import parse_filename
+    from tether.io.schema import MOLECULES_DTYPE, TABLE, create_project
+    from tether.project.core import Project
+
+    demo_dir = Path(tempfile.mkdtemp(prefix="tether-demo-"))
+    demo_path = create_project(demo_dir / "demo.tether")
+    specs = [
+        ("k0", "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif", "movie-A10"),
+        ("k1", "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_011.tif", "movie-A11"),
+        ("k2", "Bla_UCKOPSB_Tbox_35pM_tRNA_600nM_010.tif", "movie-NM"),
+    ]
+    demo_rows = np.zeros(len(specs), dtype=MOLECULES_DTYPE)
+    for name in MOLECULES_DTYPE.names:
+        if MOLECULES_DTYPE[name].kind == "O":
+            demo_rows[name] = ""
+    demo_rows["molecule_id"] = [f"mol-{i}" for i in range(len(specs))]
+    demo_rows["molecule_key"] = [k for k, _, _ in specs]
+    demo_rows["movie_id"] = [m for _, _, m in specs]
+    demo_rows["source_filename"] = [s for _, s, _ in specs]
+    demo_rows["condition_id"] = [parse_filename(s).condition_id for _, s, _ in specs]
+    with h5py.File(demo_path, "r+") as f:
+        demo_table = f["molecules"][TABLE]
+        demo_table.resize((len(specs),))
+        demo_table[:] = demo_rows
+
+    shell = TetherShell(
+        idealizer=_demo_idealizer, histogram=_demo_histogram, conditions=Project(demo_path)
+    )
     shell.set_molecules(traces)
     shell.show()
     app.exec()
