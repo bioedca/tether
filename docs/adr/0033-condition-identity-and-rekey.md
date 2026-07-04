@@ -30,7 +30,7 @@ Two decisions were left unhomed by the M4 work so far:
    silently collapsing conditions.
 
 The design tension for (2): HDF5 `r+` is **not** journaled, yet re-keying "all affected
-molecules" must be all-or-nothing (a half re-keyed store is undetectably corrupt), and a
+molecules" must move together (a store where only *some* moved is inconsistent), and a
 merge that folds ~100 videos into one condition must **never** happen silently (§5.1). This
 must hold under the M0 schema freeze (additive data only) and behind the headless
 `tether.project` core (the GUI is a thin layer, §7.11).
@@ -38,9 +38,10 @@ must hold under the M0 schema freeze (additive data only) and behind the headles
 ## Decision
 
 **Identity = a content hash of the exact key (keep-separate by default).** A condition's id
-is `cond-<12 hex>` = SHA-256 of the canonical JSON of the six-field
-`ConditionKey` (construct/variant, dye, ligand + concentration, buffer, temperature, laser
-power); `date`/`replicate`/source-file deliberately vary *within* a condition and are not
+is `cond-<12 hex>` = SHA-256 of the canonical JSON of the
+`ConditionKey` (construct/variant, dye, ligand + concentration **value and unit**, buffer,
+temperature, laser power — the exact fields `ConditionKey.to_canonical()` serializes);
+`date`/`replicate`/source-file deliberately vary *within* a condition and are not
 identity. Because the id hashes the **exact** key, two movies that parse to slightly
 different strings ("T-box" vs "Tbox") get **different** ids and stay **separate** conditions
 — never fuzzy-matched or auto-merged. Referential validation is exact: a `condition_id` is
@@ -56,9 +57,11 @@ confirm=False, …)` that, in one `h5py` `r+` session:
    (idempotent, insert-only) so the re-keyed molecules resolve — never left dangling;
 2. **re-keys every affected `/molecules` row in a single full-table write**
    (`data = table[:]; data["condition_id"][mask] = to_id; table[:] = data`): one `H5Dwrite`
-   moves all affected rows together, so no molecule is ever left half re-keyed (the
-   "transactional" guarantee available without a journal — and any residual partial state
-   is still **detectable** by `validate_conditions` and repairable, never silent);
+   moves all affected rows together (not N separate per-row writes), so a re-key is never
+   applied to only *some* of the affected molecules. HDF5/h5py gives no true crash-atomicity
+   for raw data, so this is a **single-write update with post-crash detectability**, not a
+   durability transaction: any partial state a crash could leave is still **detectable and
+   repairable** by `validate_conditions` (dangling/inconsistent), never silent;
 3. **appends one provenance-stamped row** to an append-only `/settings/condition_audit` log
    (event · from/to id · count · labeler · timestamp · reason · app version).
 

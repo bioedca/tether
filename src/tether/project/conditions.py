@@ -638,9 +638,11 @@ def rekey_condition(
     1. materializes the destination ``/conditions`` row from ``to_key`` (idempotent), so
        the re-keyed molecules resolve and never dangle;
     2. re-keys **all** affected ``/molecules`` rows to ``to_key.condition_id()`` in a
-       **single full-table write** — HDF5 ``r+`` is not journaled, but rewriting the whole
-       ``/molecules`` table in one ``H5Dwrite`` means no molecule is ever left half
-       re-keyed (the "transactional" guarantee: the affected rows move together); and
+       **single full-table write** — HDF5 ``r+`` is not journaled, so this is a single-write
+       update with post-crash *detectability*, not a durability transaction: rewriting the
+       whole ``/molecules`` table in one ``H5Dwrite`` moves the affected rows together (not
+       one at a time), so a re-key is never applied to only *some* of them, and any partial
+       state a crash could leave is still detectable/repairable via :func:`validate_conditions`; and
     3. appends one provenance-stamped row to the append-only ``/settings/condition_audit``
        log (event · from/to id · count · labeler · timestamp · reason · app version).
 
