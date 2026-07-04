@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
     from tether.idealize.driver import IdealizationResult
     from tether.io.movie import MovieReader
+    from tether.project.conditions import ConditionSyncSummary, ConditionValidationReport
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
     from tether.project.idealize import StoredIdealization
     from tether.project.lock import LockIdentity, LockInfo
@@ -316,6 +317,43 @@ class Project:
         from tether.project import labels
 
         return labels.rejected_molecule_keys(self.path)
+
+    # --- conditions (PRD §5.1, §7.6; the annotation/referential-validation seam) --
+
+    def sync_conditions(self) -> ConditionSyncSummary:
+        """Materialize the ``/conditions`` rows ``/molecules`` reference (§5.1).
+
+        Delegates to :func:`conditions.sync_conditions`; refuses the write if the
+        file is locked by another writer (:meth:`_assert_writable`, §5.4).
+        """
+        from tether.project import conditions
+
+        self._assert_writable()
+        return conditions.sync_conditions(self.path)
+
+    def read_conditions(self) -> np.ndarray:
+        """The structured ``/conditions/table`` (:func:`conditions.read_conditions`)."""
+        from tether.project import conditions
+
+        return conditions.read_conditions(self.path)
+
+    def validate_conditions(self) -> ConditionValidationReport:
+        """Referential-integrity report of ``/molecules`` → ``/conditions`` (§5.1).
+
+        Delegates to :func:`conditions.validate_conditions`.
+        """
+        from tether.project import conditions
+
+        return conditions.validate_conditions(self.path)
+
+    def molecules_by_condition(self) -> dict[str, list[str]]:
+        """Each ``condition_id`` → its aggregated ``molecule_key`` list (§5.1).
+
+        Delegates to :func:`conditions.aggregate_molecules_by_condition`.
+        """
+        from tether.project import conditions
+
+        return conditions.aggregate_molecules_by_condition(self.path)
 
     # --- idealization (PRD §7.4; the one-click-vbFRET seam behind the GUI) -----
 
