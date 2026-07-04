@@ -154,6 +154,16 @@ def test_materialize_confirms_provisional_ids(qtbot, tmp_path: Path) -> None:
     assert dlg.status_of(cid_nm) == "ok"
 
 
+def test_select_condition_raises_keyerror_when_absent(qtbot, tmp_path: Path) -> None:
+    project = _faithful(tmp_path, [("k0", _FILE_A10)])
+    dlg = _dialog(qtbot, project)
+    cid = parse_filename(_FILE_A10).condition_id
+    dlg.select_condition(cid)
+    assert dlg.selected_condition_id() == cid
+    with pytest.raises(KeyError):
+        dlg.select_condition("cond-absent")
+
+
 # --- the §9 M4 gate: mis-parsed id re-keys ALL affected molecules + audit ----
 
 

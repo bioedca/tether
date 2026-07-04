@@ -292,7 +292,11 @@ class ConditionValidationDialog:
 
     def select_condition(self, condition_id: str) -> None:
         """Select the table row for ``condition_id`` (raises ``KeyError`` if not shown)."""
-        self._table.selectRow(self._row_ids.index(condition_id))
+        try:
+            row = self._row_ids.index(condition_id)
+        except ValueError:
+            raise KeyError(condition_id) from None
+        self._table.selectRow(row)
 
     def selected_condition_id(self) -> str | None:
         """The ``condition_id`` of the selected row, or ``None`` if nothing is selected."""

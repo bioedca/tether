@@ -607,7 +607,11 @@ class TetherShell:
         if self._conditions is None:
             self._status("Conditions: load a project first")
             return
-        ConditionValidationDialog(self._conditions, parent=self._window).exec()
+        try:
+            ConditionValidationDialog(self._conditions, parent=self._window).exec()
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Conditions validation failed: {exc}")
+            return
         self._status("Conditions validation closed")
 
     # --- analysis (population apparent-E histogram, §7.7) --------------------
