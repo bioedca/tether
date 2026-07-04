@@ -6,9 +6,11 @@ Extraction writes every molecule a *provisional* ``condition_id`` parsed from it
 filename (:mod:`tether.io.filename`) but leaves the ``/conditions`` table empty:
 the structured condition rows that ``condition_id`` *references* are materialized
 here, at the M4 annotation step. This module is the headless writer/validator
-behind that step — the GUI confirm/correct + transactional re-key is the *next* M4
-PR — and, like the rest of :mod:`tether.project`, it is Qt-free and scriptable
-(§7.11).
+behind that step — including the **transactional re-key + human-confirmed merge**
+(:func:`rekey_condition`, :func:`preview_rekey`) that corrects a mis-parsed
+``condition_id``; the GUI confirm/correct + merge *dialogs* are the next M4 PR, a
+thin layer over this core. Like the rest of :mod:`tether.project`, it is Qt-free
+and scriptable (§7.11).
 
 Condition identity (PRD §5.1)
 -----------------------------
@@ -30,12 +32,13 @@ stored key fields canonically hash back to its own ``condition_id``
 reports the two ways that fails: a molecule referencing a **missing** condition
 (*dangling*), and a ``/conditions`` row whose fields no longer hash to its id
 (*inconsistent* — the signal that a human edit needs the transactional re-key of
-the next M4 PR).
+:func:`rekey_condition`).
 
 **Keep-separate by default (PRD §5.1).** Because the id is a content hash of the
 *exact* key, two movies that parse to slightly different strings ("near-miss")
 yield *different* ids and stay separate conditions — never silently merged. An
-explicit, human-confirmed merge is the next M4 PR; nothing here fuzzy-matches.
+explicit, human-confirmed merge (:func:`rekey_condition` with ``confirm=True``)
+is required to collapse them; nothing here fuzzy-matches.
 
 All writes are additive **data** into the M0-frozen ``/conditions/table`` (same
 dtype; rows resized/assigned) — no group/dataset/dtype/field change — so the
@@ -46,6 +49,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -58,15 +62,30 @@ if TYPE_CHECKING:
 __all__ = [
     "ConditionSyncSummary",
     "ConditionValidationReport",
+    "ConfirmationRequired",
+    "RekeyPreview",
+    "RekeyResult",
     "aggregate_molecules_by_condition",
+    "preview_rekey",
+    "read_condition_audit",
     "read_conditions",
     "register_condition",
+    "rekey_condition",
     "sync_conditions",
     "validate_conditions",
 ]
 
 _MOLECULES = "molecules"
 _CONDITIONS = "conditions"
+_SETTINGS = "settings"
+
+#: The append-only re-key/merge audit log, a lazily-created dataset under the
+#: frozen ``/settings`` container (additive data — ``schema-guard`` stays green,
+#: mirrors the ``/settings/batch`` provenance idiom). Each row records one
+#: committed re-key/merge event.
+_AUDIT_NAME = "condition_audit"
+_REKEY_EVENT = "rekey"  # a correction into an empty destination (nothing collapses)
+_MERGE_EVENT = "merge"  # two conditions collapse into one (requires confirmation)
 
 
 # --- summaries ----------------------------------------------------------------
@@ -85,7 +104,7 @@ class ConditionSyncSummary:
     #: Distinct referenced ids that could **not** be materialized — a stored
     #: ``condition_id`` with no existing row and no filename that parses back to
     #: it (a drifted/hand-assigned id). :func:`validate_conditions` flags the
-    #: molecules as *dangling*; the M4 re-key PR resolves them.
+    #: molecules as *dangling*; :func:`rekey_condition` resolves them.
     n_unresolved: int
 
 
@@ -108,6 +127,61 @@ class ConditionValidationReport:
     def ok(self) -> bool:
         """``True`` iff every molecule reference resolves and every row is self-consistent."""
         return not self.dangling and not self.inconsistent
+
+
+@dataclass(frozen=True)
+class RekeyPreview:
+    """What a re-key of ``from_condition_id`` → ``to_key`` *would* do (read-only, PRD §5.1).
+
+    Surfaces exactly what :func:`rekey_condition` would change so the GUI (next M4
+    PR) can show the user *before* they confirm, and never touches the file.
+    """
+
+    #: The (wrong) ``condition_id`` currently stored on the affected molecules.
+    from_condition_id: str
+    #: The corrected id = ``to_key.condition_id()`` the molecules would move to.
+    to_condition_id: str
+    #: The ``molecule_key`` set that would be re-keyed (currently on ``from_condition_id``).
+    molecule_keys: tuple[str, ...]
+    #: ``True`` iff the destination id already has (disjoint) members — the re-key
+    #: would **merge** two conditions into one, so :func:`rekey_condition` requires
+    #: ``confirm=True`` (§5.1 "never silent on ~100-video conditions").
+    is_merge: bool
+    #: The destination's current members (the molecules already on ``to_condition_id``);
+    #: empty for a plain correction, non-empty for a merge.
+    destination_molecule_keys: tuple[str, ...]
+
+    @property
+    def n_molecules(self) -> int:
+        """How many molecules the re-key would move."""
+        return len(self.molecule_keys)
+
+
+@dataclass(frozen=True)
+class RekeyResult:
+    """Outcome of a committed :func:`rekey_condition`."""
+
+    #: The (wrong) ``condition_id`` that was re-keyed away from.
+    from_condition_id: str
+    #: The corrected destination id the molecules now carry.
+    to_condition_id: str
+    #: How many ``/molecules`` rows were re-keyed.
+    n_molecules: int
+    #: ``True`` iff the destination already had members (a merge, not a plain correction).
+    is_merge: bool
+    #: The logged event kind (``"merge"`` if :attr:`is_merge` else ``"rekey"``).
+    event: str
+    #: 0-based row position of this event in ``/settings/condition_audit``.
+    audit_index: int
+
+
+class ConfirmationRequired(RuntimeError):
+    """A re-key would **merge** two conditions and ``confirm=True`` was not passed (§5.1).
+
+    Raised by :func:`rekey_condition` when the destination condition already has
+    members, so the re-key would collapse two conditions into one — the human-in-the
+    -loop guard that keeps a ~100-video condition merge from happening silently.
+    """
 
 
 # --- vlen / numeric field helpers --------------------------------------------
@@ -192,6 +266,130 @@ def _new_row_from_key(
     return row
 
 
+# --- condition-row + audit-log helpers ---------------------------------------
+
+
+def _find_condition_index(cond_table: object, condition_id: str) -> int | None:
+    """Row index of the ``/conditions`` row carrying ``condition_id`` (or ``None``).
+
+    One pass over the id column, short-circuiting at the first match.
+    """
+    existing = cond_table["condition_id"][:]  # type: ignore[index]
+    return next((j for j, c in enumerate(existing) if _to_str(c) == condition_id), None)
+
+
+def _append_condition_row(cond_table: object, row: np.ndarray) -> int:
+    """Append one built ``/conditions`` row; return its new row index."""
+    n0 = cond_table.shape[0]  # type: ignore[attr-defined]
+    cond_table.resize((n0 + 1,))  # type: ignore[attr-defined]
+    cond_table[n0:] = row  # type: ignore[index]
+    return n0
+
+
+def _ensure_condition_row(cond_table: object, key: ConditionKey) -> int:
+    """Insert a ``/conditions`` row built from ``key`` if absent; return its index.
+
+    Idempotent (the re-key destination may already be materialized). Only inserts —
+    never edits an existing row — so a re-key never clobbers condition provenance.
+    """
+    i = _find_condition_index(cond_table, key.condition_id())
+    if i is not None:
+        return i
+    return _append_condition_row(cond_table, _new_row_from_key(key))
+
+
+def _app_version() -> str:
+    """Best-effort Tether version for the audit provenance stamp (NFR-REPRO)."""
+    try:
+        from tether import __version__  # noqa: PLC0415
+
+        return str(__version__)
+    except Exception:  # pragma: no cover - defensive; version is normally present
+        return "0.0.0+unknown"
+
+
+def _utc_now_iso() -> str:
+    """An ISO-8601 UTC timestamp with explicit offset (sortable, unambiguous)."""
+    return datetime.now(UTC).isoformat()
+
+
+def _validate_timestamp(timestamp: str) -> None:
+    """Require an offset-aware ISO-8601 instant before it enters the append-only log.
+
+    Mirrors :func:`tether.project.labels.set_curation_label`'s guard: a bad value
+    would be permanently persisted into the audit provenance and is hard to repair.
+    """
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"timestamp must be an ISO-8601 string, got {timestamp!r}") from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f"timestamp must include an explicit UTC offset, got {timestamp!r}")
+
+
+def _audit_dtype() -> np.dtype:
+    """The append-only re-key/merge audit-log compound dtype (a ``/settings`` artifact)."""
+    import h5py  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+
+    s = h5py.string_dtype(encoding="utf-8")
+    return np.dtype(
+        [
+            ("event", s),  # _REKEY_EVENT | _MERGE_EVENT
+            ("from_condition_id", s),
+            ("to_condition_id", s),
+            ("n_molecules", "<i8"),
+            ("labeler", s),
+            ("timestamp", s),
+            ("reason", s),
+            ("app_version", s),
+        ]
+    )
+
+
+def _append_condition_audit(
+    f: object,
+    *,
+    event: str,
+    from_id: str,
+    to_id: str,
+    n_molecules: int,
+    labeler: str,
+    timestamp: str,
+    reason: str,
+) -> int:
+    """Append one re-key/merge event to ``/settings/condition_audit``; return its index.
+
+    Creates the resizable audit dataset lazily on first use (additive under the
+    frozen ``/settings`` container — no structural change to the §5 skeleton, so
+    ``schema-guard`` stays green; it is absent from a fresh project so the golden
+    manifest is unaffected). Append-only history, like ``/labels`` (never rewritten).
+    """
+    import numpy as np  # noqa: PLC0415
+
+    settings = f[_SETTINGS]  # type: ignore[index]
+    dtype = _audit_dtype()
+    if _AUDIT_NAME not in settings:
+        settings.create_dataset(_AUDIT_NAME, shape=(0,), maxshape=(None,), dtype=dtype)
+    ds = settings[_AUDIT_NAME]
+    row = np.zeros(1, dtype=dtype)
+    for name in dtype.names:  # zero-fill vlen-string fields (h5py refuses int 0)
+        if dtype[name].kind == "O":
+            row[name] = ""
+    row["event"] = event
+    row["from_condition_id"] = from_id
+    row["to_condition_id"] = to_id
+    row["n_molecules"] = int(n_molecules)
+    row["labeler"] = labeler
+    row["timestamp"] = timestamp
+    row["reason"] = reason
+    row["app_version"] = _app_version()
+    n0 = ds.shape[0]
+    ds.resize((n0 + 1,))
+    ds[n0:] = row
+    return n0
+
+
 # --- writers ------------------------------------------------------------------
 
 
@@ -225,8 +423,7 @@ def register_condition(
         table = f[_CONDITIONS][TABLE]
         # One pass over the id column, short-circuiting at the first match; the
         # single-condition path is not meant for bulk loops (use sync_conditions).
-        existing = table["condition_id"][:]
-        i = next((j for j, c in enumerate(existing) if _to_str(c) == condition_id), None)
+        i = _find_condition_index(table, condition_id)
         if i is not None:
             row = table[i]
             if date is not None:
@@ -249,9 +446,7 @@ def register_condition(
             leakage_alpha=float(leakage_alpha) if leakage_alpha is not None else float("nan"),
             leakage_alpha_source=leakage_alpha_source or "",
         )
-        n0 = table.shape[0]
-        table.resize((n0 + 1,))
-        table[n0:] = row
+        _append_condition_row(table, row)
         return row[0].copy()
 
 
@@ -385,3 +580,186 @@ def validate_conditions(path: str | Path) -> ConditionValidationReport:
         dangling={cid: tuple(keys) for cid, keys in dangling.items()},
         inconsistent=inconsistent,
     )
+
+
+# --- transactional re-key + human-confirmed merge (PRD §5.1) ------------------
+
+
+def preview_rekey(path: str | Path, from_condition_id: str, to_key: ConditionKey) -> RekeyPreview:
+    """Read-only: describe re-keying every molecule on ``from_condition_id`` → ``to_key``.
+
+    The GUI (next M4 PR) calls this first to show the user exactly what
+    :func:`rekey_condition` would change — the affected ``molecule_key`` set, whether
+    it **merges** into an already-populated destination, and the destination's current
+    members — *before* they confirm. Never mutates the file.
+    """
+    import h5py  # noqa: PLC0415
+
+    to_id = to_key.condition_id()
+    with h5py.File(Path(path), "r") as f:
+        table = f[_MOLECULES][TABLE]
+        cids = [_to_str(c) for c in table["condition_id"][:]]
+        mkeys = [_to_str(m) for m in table["molecule_key"][:]]
+
+    affected = tuple(mk for mk, cid in zip(mkeys, cids, strict=True) if cid == from_condition_id)
+    # to_id != from_condition_id ⇒ the destination set and the affected set are
+    # disjoint (a molecule holds exactly one condition_id), so a non-empty destination
+    # is a genuine two-conditions-into-one merge.
+    dest = tuple(
+        mk
+        for mk, cid in zip(mkeys, cids, strict=True)
+        if cid == to_id and to_id != from_condition_id
+    )
+    return RekeyPreview(
+        from_condition_id=from_condition_id,
+        to_condition_id=to_id,
+        molecule_keys=affected,
+        is_merge=len(dest) > 0,
+        destination_molecule_keys=dest,
+    )
+
+
+def rekey_condition(
+    path: str | Path,
+    from_condition_id: str,
+    to_key: ConditionKey,
+    *,
+    confirm: bool = False,
+    labeler: str | None = None,
+    reason: str = "",
+    timestamp: str | None = None,
+) -> RekeyResult:
+    """Transactionally re-key every molecule on ``from_condition_id`` → ``to_key`` (PRD §5.1).
+
+    The corrective counterpart to :func:`validate_conditions`: when a molecule's
+    provisional ``condition_id`` is wrong (a mis-parse → *dangling*/*inconsistent*), a
+    human supplies the corrected :class:`~tether.io.filename.ConditionKey` and this
+
+    1. materializes the destination ``/conditions`` row from ``to_key`` (idempotent), so
+       the re-keyed molecules resolve and never dangle;
+    2. re-keys **all** affected ``/molecules`` rows to ``to_key.condition_id()`` in a
+       **single full-table write** — HDF5 ``r+`` is not journaled, so this is a single-write
+       update with post-crash *detectability*, not a durability transaction: rewriting the
+       whole ``/molecules`` table in one ``H5Dwrite`` moves the affected rows together (not
+       one at a time), so a re-key is never applied to only *some* of them, and any partial
+       state a crash could leave is still detectable/repairable via :func:`validate_conditions`; and
+    3. appends one provenance-stamped row to the append-only ``/settings/condition_audit``
+       log (event · from/to id · count · labeler · timestamp · reason · app version).
+
+    **Human-confirmed merge (§5.1, "never silent on ~100-video conditions").** When the
+    destination id already has members, the re-key would *collapse two conditions into
+    one*; it then raises :class:`ConfirmationRequired` unless ``confirm=True``. A plain
+    correction into an empty destination (nothing collapses) needs no confirmation. Use
+    :func:`preview_rekey` to inspect the effect (and ``is_merge``) beforehand.
+
+    Parameters
+    ----------
+    path:
+        The ``.tether`` project to re-key (opened ``r+``).
+    from_condition_id:
+        The (wrong) ``condition_id`` currently stored on the molecules to move.
+    to_key:
+        The corrected condition key; its :meth:`~tether.io.filename.ConditionKey.condition_id`
+        is the destination id and its fields build the destination ``/conditions`` row
+        (so that row is self-consistent by construction).
+    confirm:
+        Must be ``True`` to proceed when the operation is a merge (see above).
+    labeler:
+        Who performed the re-key; defaults to :func:`~tether.project.labels.default_labeler`.
+    reason:
+        Free-text audit note (e.g. ``"filename mis-parse: Tbox→T-box"``).
+    timestamp:
+        Offset-aware ISO-8601 stamp; defaults to now (UTC). Validated before any write.
+
+    Returns
+    -------
+    RekeyResult
+        The committed outcome (counts, merge flag, audit row index).
+
+    Raises
+    ------
+    ValueError
+        If ``from_condition_id`` is empty, ``to_key`` hashes back to it (a no-op
+        re-key), or ``timestamp`` is not an offset-aware ISO-8601 string.
+    KeyError
+        If no ``/molecules`` row carries ``from_condition_id`` (never a silent no-op).
+    ConfirmationRequired
+        If the operation is a merge and ``confirm`` is not ``True``.
+    """
+    import h5py  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+
+    from tether.project.labels import default_labeler  # noqa: PLC0415
+
+    if not from_condition_id:
+        raise ValueError("from_condition_id must be a non-empty condition id")
+    to_id = to_key.condition_id()
+    if to_id == from_condition_id:
+        raise ValueError(f"to_key already hashes to {from_condition_id!r}; nothing to re-key")
+    labeler = labeler if labeler is not None else default_labeler()
+    timestamp = timestamp if timestamp is not None else _utc_now_iso()
+    _validate_timestamp(timestamp)  # reject a bad stamp before it enters the audit log
+    path = Path(path)
+
+    with h5py.File(path, "r+") as f:
+        mol_table = f[_MOLECULES][TABLE]
+        data = mol_table[:]  # full structured copy (single read → single write-back)
+        cids = np.array([_to_str(c) for c in data["condition_id"]], dtype=object)
+        affected_mask = cids == from_condition_id
+        n_affected = int(np.count_nonzero(affected_mask))
+        if n_affected == 0:
+            raise KeyError(f"no molecule with condition_id {from_condition_id!r} in {path.name}")
+        n_dest = int(np.count_nonzero(cids == to_id))  # disjoint (to_id != from_id)
+        is_merge = n_dest > 0
+        if is_merge and not confirm:
+            raise ConfirmationRequired(
+                f"re-keying {from_condition_id!r} into {to_id!r} would merge "
+                f"{n_affected} molecule(s) into a condition already holding {n_dest}; "
+                f"pass confirm=True to merge (PRD §5.1)"
+            )
+        event = _MERGE_EVENT if is_merge else _REKEY_EVENT
+
+        # 1) Destination /conditions row exists (from the corrected key) before any
+        #    molecule references it — so the re-key never leaves a dangling reference.
+        _ensure_condition_row(f[_CONDITIONS][TABLE], to_key)
+
+        # 2) The re-key itself: one full-table write, all affected rows together.
+        data["condition_id"][affected_mask] = to_id
+        mol_table[:] = data
+
+        # 3) Append the audit event (append-only history).
+        audit_index = _append_condition_audit(
+            f,
+            event=event,
+            from_id=from_condition_id,
+            to_id=to_id,
+            n_molecules=n_affected,
+            labeler=labeler,
+            timestamp=timestamp,
+            reason=reason,
+        )
+
+    return RekeyResult(
+        from_condition_id=from_condition_id,
+        to_condition_id=to_id,
+        n_molecules=n_affected,
+        is_merge=is_merge,
+        event=event,
+        audit_index=audit_index,
+    )
+
+
+def read_condition_audit(path: str | Path) -> np.ndarray:
+    """Read the append-only ``/settings/condition_audit`` re-key/merge log (a copy).
+
+    Returns a length-0 array of the audit dtype when no re-key has run yet (the
+    dataset is created lazily on the first :func:`rekey_condition`).
+    """
+    import h5py  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+
+    with h5py.File(Path(path), "r") as f:
+        settings = f[_SETTINGS]
+        if _AUDIT_NAME not in settings:
+            return np.zeros(0, dtype=_audit_dtype())
+        return settings[_AUDIT_NAME][:]

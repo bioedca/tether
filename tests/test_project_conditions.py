@@ -305,3 +305,249 @@ def test_project_sync_conditions_refuses_foreign_lock(tmp_path: Path) -> None:
     proj = Project(path, identity=HOST_A)
     with pytest.raises(LockedError):
         proj.sync_conditions()
+
+
+# --- transactional re-key + human-confirmed merge (M4 PR-2, §9 M4) ------------
+
+_BOGUS = "cond-deadbeef0000"  # a drifted/hand-assigned id no filename parses back to
+
+
+def _condition_id_of(path: Path, molecule_key: str) -> str:
+    """The ``condition_id`` currently stored on ``molecule_key`` (test helper)."""
+    with h5py.File(path, "r") as f:
+        table = f["molecules"][TABLE]
+        keys = [C._to_str(k) for k in table["molecule_key"][:]]
+        cids = [C._to_str(c) for c in table["condition_id"][:]]
+    return cids[keys.index(molecule_key)]
+
+
+def test_rekey_corrects_a_mis_parsed_id_transactionally(tmp_path: Path) -> None:
+    """§9 M4: a mis-parsed id re-keys all affected molecules with an audit entry.
+
+    A molecule stored with a drifted id (``_BOGUS``) but whose filename parses to the
+    real key: re-keying to that key moves it, materializes its ``/conditions`` row, and
+    clears the dangling reference — validated end to end.
+    """
+    path = _seed_raw(tmp_path, [("k0", _FILE_A10, _BOGUS)])
+    correct_key = parse_filename(_FILE_A10).key
+    correct_id = correct_key.condition_id()
+
+    # Before: the drifted reference dangles (no /conditions row built from it).
+    assert C.validate_conditions(path).dangling == {_BOGUS: ("k0",)}
+
+    result = C.rekey_condition(path, _BOGUS, correct_key, reason="filename mis-parse")
+
+    assert result.from_condition_id == _BOGUS
+    assert result.to_condition_id == correct_id
+    assert result.n_molecules == 1
+    assert result.is_merge is False
+    assert result.event == "rekey"
+    # The molecule moved, its destination /conditions row exists, and it resolves now.
+    assert _condition_id_of(path, "k0") == correct_id
+    ids = {C._to_str(c) for c in C.read_conditions(path)["condition_id"]}
+    assert correct_id in ids
+    assert C.validate_conditions(path).ok
+
+    audit = C.read_condition_audit(path)
+    assert audit.shape[0] == 1
+    assert C._to_str(audit["event"][0]) == "rekey"
+    assert C._to_str(audit["from_condition_id"][0]) == _BOGUS
+    assert C._to_str(audit["to_condition_id"][0]) == correct_id
+    assert int(audit["n_molecules"][0]) == 1
+    assert C._to_str(audit["reason"][0]) == "filename mis-parse"
+    assert C._to_str(audit["labeler"][0])  # a non-empty default labeler
+    assert C._to_str(audit["timestamp"][0])  # a non-empty stamp
+    assert C._to_str(audit["app_version"][0])  # provenance stamp present
+
+
+def test_rekey_moves_all_affected_together_and_leaves_others(tmp_path: Path) -> None:
+    """The re-key is all-or-nothing over the affected set; unrelated molecules untouched."""
+    # The near-miss "Tbox" parses to a *different* key/id than "T-box", so k3 is a
+    # genuinely separate condition (an empty T-box destination → a plain correction).
+    other_id = parse_filename(_FILE_NEARMISS).condition_id
+    path = _seed_raw(
+        tmp_path,
+        [
+            ("k0", _FILE_A10, _BOGUS),
+            ("k1", _FILE_A10, _BOGUS),
+            ("k2", _FILE_A10, _BOGUS),
+            ("k3", _FILE_NEARMISS, other_id),  # a different, self-consistent condition
+        ],
+    )
+    correct_key = parse_filename(_FILE_A10).key
+    correct_id = correct_key.condition_id()
+
+    result = C.rekey_condition(path, _BOGUS, correct_key)
+
+    assert result.n_molecules == 3
+    for mk in ("k0", "k1", "k2"):
+        assert _condition_id_of(path, mk) == correct_id
+    assert _condition_id_of(path, "k3") == other_id  # the unrelated molecule is untouched
+
+    # The full-table write round-trips every other field (molecule_key preserved).
+    with h5py.File(path, "r") as f:
+        keys = {C._to_str(k) for k in f["molecules"][TABLE]["molecule_key"][:]}
+    assert keys == {"k0", "k1", "k2", "k3"}
+
+    audit = C.read_condition_audit(path)
+    assert audit.shape[0] == 1  # one event, not one-per-molecule
+    assert int(audit["n_molecules"][0]) == 3
+
+
+def test_merge_requires_confirmation(tmp_path: Path) -> None:
+    """§9 M4: collapsing two conditions into one is human-confirmed (never silent, §5.1).
+
+    A near-miss "Tbox" molecule (its own condition) re-keyed into the real "T-box"
+    condition (already holding two molecules) is a *merge* — refused without confirm,
+    committed with it (audit event ``"merge"``).
+    """
+    path = _seed_extracted(
+        tmp_path,
+        [("k0", _FILE_A10), ("k1", _FILE_A11), ("k2", _FILE_NEARMISS)],
+    )
+    C.sync_conditions(path)  # → two conditions: T-box (k0,k1) and near-miss Tbox (k2)
+
+    near_id = parse_filename(_FILE_NEARMISS).condition_id
+    tbox_key = parse_filename(_FILE_A10).key
+    tbox_id = tbox_key.condition_id()
+    assert near_id != tbox_id
+
+    # Without confirm the merge is refused and nothing changes.
+    with pytest.raises(C.ConfirmationRequired):
+        C.rekey_condition(path, near_id, tbox_key)
+    assert _condition_id_of(path, "k2") == near_id  # untouched
+    assert C.read_condition_audit(path).shape[0] == 0  # no event logged
+
+    # With confirm the near-miss molecule joins the T-box condition.
+    result = C.rekey_condition(path, near_id, tbox_key, confirm=True)
+    assert result.is_merge is True
+    assert result.event == "merge"
+    assert result.n_molecules == 1
+    assert _condition_id_of(path, "k2") == tbox_id
+    assert sorted(C.aggregate_molecules_by_condition(path)[tbox_id]) == ["k0", "k1", "k2"]
+    # The now-empty near-miss /conditions row is a valid orphan — still self-consistent.
+    assert C.validate_conditions(path).ok
+    assert C._to_str(C.read_condition_audit(path)["event"][0]) == "merge"
+
+
+def test_preview_rekey_is_read_only_and_reports_merge(tmp_path: Path) -> None:
+    """``preview_rekey`` describes the effect (incl. ``is_merge``) without mutating."""
+    path = _seed_extracted(
+        tmp_path,
+        [("k0", _FILE_A10), ("k1", _FILE_A11), ("k2", _FILE_NEARMISS)],
+    )
+    C.sync_conditions(path)
+    near_id = parse_filename(_FILE_NEARMISS).condition_id
+    tbox_key = parse_filename(_FILE_A10).key
+
+    before_mol = _condition_id_of(path, "k2")
+    before_cond = C.read_conditions(path).shape[0]
+
+    preview = C.preview_rekey(path, near_id, tbox_key)
+    assert preview.from_condition_id == near_id
+    assert preview.to_condition_id == tbox_key.condition_id()
+    assert preview.molecule_keys == ("k2",)
+    assert preview.n_molecules == 1
+    assert preview.is_merge is True
+    assert sorted(preview.destination_molecule_keys) == ["k0", "k1"]
+
+    # Read-only: nothing was written (no audit, no moved molecule, no new row).
+    assert _condition_id_of(path, "k2") == before_mol
+    assert C.read_conditions(path).shape[0] == before_cond
+    assert C.read_condition_audit(path).shape[0] == 0
+
+
+def test_preview_plain_correction_not_a_merge(tmp_path: Path) -> None:
+    """A correction into an empty destination is not a merge (no confirm needed)."""
+    path = _seed_raw(tmp_path, [("k0", _FILE_A10, _BOGUS)])
+    correct_key = parse_filename(_FILE_A10).key
+
+    preview = C.preview_rekey(path, _BOGUS, correct_key)
+    assert preview.is_merge is False
+    assert preview.destination_molecule_keys == ()
+    assert preview.molecule_keys == ("k0",)
+
+
+def test_rekey_to_same_id_rejected(tmp_path: Path) -> None:
+    path = _seed_extracted(tmp_path, [("k0", _FILE_A10)])
+    key = parse_filename(_FILE_A10).key
+    with pytest.raises(ValueError, match="nothing to re-key"):
+        C.rekey_condition(path, key.condition_id(), key)
+
+
+def test_rekey_absent_source_id_raises(tmp_path: Path) -> None:
+    """Re-keying an id no molecule carries is never a silent no-op."""
+    path = _seed_extracted(tmp_path, [("k0", _FILE_A10)])
+    key = parse_filename(_FILE_NEARMISS).key
+    with pytest.raises(KeyError):
+        C.rekey_condition(path, "cond-nonexistent0", key)
+
+
+def test_rekey_empty_source_id_raises(tmp_path: Path) -> None:
+    path = _seed_extracted(tmp_path, [("k0", _FILE_A10)])
+    with pytest.raises(ValueError, match="non-empty"):
+        C.rekey_condition(path, "", parse_filename(_FILE_A10).key)
+
+
+def test_rekey_rejects_naive_timestamp(tmp_path: Path) -> None:
+    """A caller-supplied timestamp must be offset-aware before it enters the audit log."""
+    path = _seed_raw(tmp_path, [("k0", _FILE_A10, _BOGUS)])
+    key = parse_filename(_FILE_A10).key
+    with pytest.raises(ValueError, match="offset"):
+        C.rekey_condition(path, _BOGUS, key, timestamp="2026-07-04T12:00:00")
+    # Nothing was written despite the failed call.
+    assert C.read_condition_audit(path).shape[0] == 0
+    assert _condition_id_of(path, "k0") == _BOGUS
+
+
+def test_condition_audit_is_append_only_across_rekeys(tmp_path: Path) -> None:
+    """Successive re-keys append in order; earlier events are never rewritten."""
+    other_id = parse_filename(_FILE_NEARMISS).condition_id
+    path = _seed_raw(
+        tmp_path,
+        [("k0", _FILE_A10, _BOGUS), ("k1", _FILE_NEARMISS, other_id)],
+    )
+    a10_key = parse_filename(_FILE_A10).key
+    a11_key = parse_filename(_FILE_A11).key  # same key as A10 → same id (T-box)
+
+    C.rekey_condition(path, _BOGUS, a10_key)  # k0 → T-box (event 0)
+    # k1 is on the near-miss id; re-key it to T-box too (a merge, event 1).
+    C.rekey_condition(path, other_id, a11_key, confirm=True)
+
+    audit = C.read_condition_audit(path)
+    assert audit.shape[0] == 2
+    assert C._to_str(audit["from_condition_id"][0]) == _BOGUS
+    assert C._to_str(audit["event"][0]) == "rekey"
+    assert C._to_str(audit["from_condition_id"][1]) == other_id
+    assert C._to_str(audit["event"][1]) == "merge"
+
+
+def test_read_condition_audit_empty_before_any_rekey(tmp_path: Path) -> None:
+    path = _seed_extracted(tmp_path, [("k0", _FILE_A10)])
+    audit = C.read_condition_audit(path)
+    assert audit.shape[0] == 0
+    assert "event" in audit.dtype.names  # typed empty, not an untyped array
+
+
+def test_project_rekey_wrappers_match_module(tmp_path: Path) -> None:
+    path = _seed_raw(tmp_path, [("k0", _FILE_A10, _BOGUS)])
+    correct_key = parse_filename(_FILE_A10).key
+    proj = Project.open(path)
+
+    preview = proj.preview_rekey(_BOGUS, correct_key)
+    assert preview.molecule_keys == ("k0",)
+    assert preview.is_merge is False
+
+    result = proj.rekey_condition(_BOGUS, correct_key, reason="via wrapper")
+    assert result.to_condition_id == correct_key.condition_id()
+    assert proj.read_condition_audit().shape[0] == 1
+    assert proj.validate_conditions().ok
+
+
+def test_project_rekey_refuses_foreign_lock(tmp_path: Path) -> None:
+    """The re-key write wrapper honors the single-writer lock (§5.4)."""
+    path = _seed_raw(tmp_path, [("k0", _FILE_A10, _BOGUS)])
+    lock.acquire(path, identity=HOST_B)
+    proj = Project(path, identity=HOST_A)
+    with pytest.raises(LockedError):
+        proj.rekey_condition(_BOGUS, parse_filename(_FILE_A10).key)
