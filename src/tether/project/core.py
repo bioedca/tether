@@ -344,6 +344,16 @@ class Project:
 
         return conditions.read_conditions(self.path)
 
+    def read_condition_keys(self) -> dict[str, ConditionKey]:
+        """Each materialized ``condition_id`` → its identity :class:`ConditionKey` (§5.1).
+
+        Delegates to :func:`conditions.read_condition_keys`; the map behind querying a
+        condition by key fields across its movies (:func:`tether.analysis.query_molecules`).
+        """
+        from tether.project import conditions
+
+        return conditions.read_condition_keys(self.path)
+
     def validate_conditions(self) -> ConditionValidationReport:
         """Referential-integrity report of ``/molecules`` → ``/conditions`` (§5.1).
 
