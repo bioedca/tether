@@ -14,10 +14,23 @@ Landed so far (M5, FR-ML):
   features (the trace-derived block: SNR, FRET mean/variance, anticorrelation,
   total intensity). The store-integrated writer is
   :func:`tether.project.features.compute_features`.
+- :func:`~tether.ml.similarity.build_similarity_index` /
+  :class:`~tether.ml.similarity.SimilarityIndex` — feature-space nearest-neighbour
+  retrieval ("find traces like these") over the standardized ``/features`` vectors;
+  rank/sort only, never auto-drop. The store-integrated entry point is
+  :func:`tether.project.features.similar_molecules`.
 """
 
 from __future__ import annotations
 
 from tether.ml.features import FEATURE_NAMES, TraceFeatures, compute_trace_features
+from tether.ml.similarity import Neighbor, SimilarityIndex, build_similarity_index
 
-__all__ = ["FEATURE_NAMES", "TraceFeatures", "compute_trace_features"]
+__all__ = [
+    "FEATURE_NAMES",
+    "Neighbor",
+    "SimilarityIndex",
+    "TraceFeatures",
+    "build_similarity_index",
+    "compute_trace_features",
+]
