@@ -78,7 +78,12 @@ class Neighbor:
     rank: int
 
 
-@dataclass(frozen=True)
+# ``eq=False`` -> identity equality/hash. This is a handle-like object whose fields include
+# numpy arrays, a dict, and a cKDTree; dataclass-generated ``__eq__``/``__hash__`` would compare
+# and hash those (an ndarray ``==`` is elementwise -> ambiguous truth value; an ndarray/dict is
+# unhashable), so a plain ``index_a == index_b`` or ``hash(index)`` would raise. Identity semantics
+# are the right contract here and keep the object safely comparable/hashable.
+@dataclass(frozen=True, eq=False)
 class SimilarityIndex:
     """A standardized feature-space nearest-neighbour index over a molecule set.
 
@@ -330,6 +335,11 @@ def build_similarity_index(features: StoredFeatures) -> SimilarityIndex:
         scale = np.ones(len(names), dtype=np.float64)
         standardized = np.empty((0, len(names)), dtype=np.float64)
         tree = None
+
+    # Freeze the fitted standardization + indexed vectors: a caller mutating them in place
+    # would silently corrupt every subsequent query's standardization.
+    for arr in (mean, scale, standardized):
+        arr.flags.writeable = False
 
     return SimilarityIndex(
         feature_names=names,

@@ -233,3 +233,26 @@ def test_neighbor_and_index_are_frozen() -> None:
     assert isinstance(n, Neighbor)
     with pytest.raises(Exception):  # noqa: B017 - frozen dataclass rejects mutation
         n.distance = 0.0  # type: ignore[misc]
+
+
+def test_index_is_hashable_and_uses_identity_semantics() -> None:
+    # The index holds ndarray/dict/cKDTree fields; identity (eq=False) equality/hash keeps
+    # it safely hashable and comparable instead of raising on those fields.
+    stored = _stored(["m0", "m1"], [[0.0, 0.0], [1.0, 1.0]])
+    a = build_similarity_index(stored)
+    b = build_similarity_index(stored)
+    assert hash(a) == hash(a)  # does not raise (would, if it hashed the ndarray/dict fields)
+    assert a == a  # identity
+    assert a != b  # two builds are distinct objects, not structurally compared
+    assert a in {a, b}  # usable in a set/dict
+
+
+def test_fitted_mean_scale_are_read_only() -> None:
+    # Freezing the fitted standardization stops a caller from silently corrupting queries.
+    index = build_similarity_index(
+        _stored(["m0", "m1", "m2"], [[0.0, 0.0], [1.0, 2.0], [3.0, 5.0]])
+    )
+    with pytest.raises(ValueError, match="read-only"):
+        index.mean[0] = 999.0
+    with pytest.raises(ValueError, match="read-only"):
+        index.scale[0] = 999.0
