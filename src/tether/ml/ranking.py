@@ -45,7 +45,7 @@ References
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -131,25 +131,32 @@ def precision_at_k(relevance: object, k: int) -> float:
 class RankedTraces:
     """A ranking of a molecule set — a *permutation*, never a filter (PRD §7.5).
 
-    ``molecule_ids`` is the ranked order (index ``0`` = best / most likely good);
-    ``scores[i]`` is the quality score of ``molecule_ids[i]`` (higher = better for a
-    ``descending`` ranking; ``NaN`` marks an unscored molecule ranked last). The
-    never-auto-drop invariant is a *construction guarantee*: the ids are unique and no
-    molecule is ever removed, so a :class:`RankedTraces` always ranks **every** molecule it
-    was built from.
+    ``molecule_ids`` is the ranked order (index ``0`` = best / most likely good), coerced to
+    ``str`` at construction so a directly-built ranking matches what :func:`rank_by_score` /
+    :func:`file_order_ranking` store; ``scores[i]`` is the quality score of
+    ``molecule_ids[i]`` (higher = better for a ``descending`` ranking; ``NaN`` marks an
+    unscored molecule ranked last). The never-auto-drop invariant is a *construction
+    guarantee*: the ids are unique and no molecule is ever removed, so a
+    :class:`RankedTraces` always ranks **every** molecule it was built from.
     """
 
     molecule_ids: tuple[str, ...]
     scores: tuple[float, ...]
+    #: Derived ``molecule_id -> 1-based rank`` lookup, built once so :meth:`rank_of` is O(1)
+    #: (the :mod:`tether.ml.similarity` ``_row_of`` precedent). Excluded from eq/hash/repr so
+    #: the value's identity stays its ``(molecule_ids, scores)`` content.
+    _rank_by_id: dict[str, int] = field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        if len(self.molecule_ids) != len(self.scores):
+        ids = tuple(str(m) for m in self.molecule_ids)
+        object.__setattr__(self, "molecule_ids", ids)
+        if len(ids) != len(self.scores):
             raise ValueError(
-                f"molecule_ids ({len(self.molecule_ids)}) and scores ({len(self.scores)}) "
-                "must be the same length"
+                f"molecule_ids ({len(ids)}) and scores ({len(self.scores)}) must be the same length"
             )
-        if len(set(self.molecule_ids)) != len(self.molecule_ids):
+        if len(set(ids)) != len(ids):
             raise ValueError("molecule_ids must be unique (a ranking is a permutation)")
+        object.__setattr__(self, "_rank_by_id", {mid: i + 1 for i, mid in enumerate(ids)})
 
     @property
     def n(self) -> int:
@@ -165,8 +172,8 @@ class RankedTraces:
     def rank_of(self, molecule_id: str) -> int:
         """The 1-based rank of ``molecule_id`` (``1`` = best); raises if it is not ranked."""
         try:
-            return self.molecule_ids.index(str(molecule_id)) + 1
-        except ValueError:
+            return self._rank_by_id[str(molecule_id)]
+        except KeyError:
             raise KeyError(f"molecule_id {molecule_id!r} is not in this ranking") from None
 
     def ranked_relevance(self, is_good: Mapping[str, bool]) -> np.ndarray:

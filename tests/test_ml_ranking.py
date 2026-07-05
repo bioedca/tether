@@ -160,6 +160,18 @@ def test_ranked_traces_rejects_dup_ids_and_length_mismatch() -> None:
         RankedTraces(molecule_ids=("a", "b"), scores=(1.0,))
 
 
+def test_ranked_traces_normalizes_non_string_ids_and_rank_of_is_type_agnostic() -> None:
+    # A directly-constructed ranking coerces ids to str (matching rank_by_score /
+    # file_order_ranking), so rank_of finds a molecule regardless of the caller's id type.
+    ranked = RankedTraces(molecule_ids=(1, 2, 3), scores=(0.5, 0.9, 0.1))
+    assert ranked.molecule_ids == ("1", "2", "3")
+    assert ranked.rank_of(2) == 2 and ranked.rank_of("2") == 2
+    assert ranked.top(2) == ["1", "2"]
+    # Uniqueness is checked after normalization: 1 and "1" collide.
+    with pytest.raises(ValueError, match="unique"):
+        RankedTraces(molecule_ids=(1, "1"), scores=(0.5, 0.9))
+
+
 def test_ranked_relevance_uses_ranking_order_and_skips_unlabeled() -> None:
     ranked = rank_by_score(["a", "b", "c", "d"], [0.9, 0.8, 0.7, 0.6])
     is_good = {"a": True, "c": False, "d": True}  # "b" is unlabeled -> skipped
