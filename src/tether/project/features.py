@@ -270,6 +270,13 @@ def _write_features_table(
     feature names + schema version) on the dataset so the cache is self-describing
     and traceable. Replaces any prior table when ``overwrite`` (the recompute path);
     refuses to clobber otherwise.
+
+    Note: the recompute path is ``del`` + ``create_dataset``. HDF5 does not return
+    the freed block to the filesystem, so heavy re-derivation slowly grows the
+    ``.tether`` (the same characteristic as the ``/idealization`` model writer);
+    it is reclaimed by an occasional ``h5repack``, not per-write. Feature recompute
+    is an infrequent event (a re-extraction, a correction change, or a retrain
+    boundary), so the growth is bounded in practice.
     """
     import h5py
 

@@ -143,10 +143,17 @@ def compute_trace_features(donor: np.ndarray, acceptor: np.ndarray) -> TraceFeat
     Raises
     ------
     ValueError
-        ``donor`` and ``acceptor`` differ in length.
+        ``donor`` or ``acceptor`` is not 1-D, or they differ in length.
     """
-    d = np.asarray(donor, dtype=np.float64).ravel()
-    a = np.asarray(acceptor, dtype=np.float64).ravel()
+    # Validate ndim BEFORE any flatten: a bare ``.ravel()`` would collapse a 2-D
+    # input to 1-D, so two differently-shaped multi-D inputs with the same element
+    # count (e.g. (2, 3) and (3, 2)) would pass the length check and be silently
+    # misaligned into one feature vector — the opposite of this module's "never
+    # fabricate a value for malformed input" contract. Fail loudly instead.
+    d = np.asarray(donor, dtype=np.float64)
+    a = np.asarray(acceptor, dtype=np.float64)
+    if d.ndim != 1 or a.ndim != 1:
+        raise ValueError(f"donor and acceptor must be 1-D, got shapes {d.shape} and {a.shape}")
     if d.shape != a.shape:
         raise ValueError(f"donor and acceptor must be the same length, got {d.shape} vs {a.shape}")
     n = int(d.shape[0])

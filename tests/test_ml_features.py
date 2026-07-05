@@ -131,6 +131,16 @@ def test_length_mismatch_raises() -> None:
         compute_trace_features(np.arange(4.0), np.arange(5.0))
 
 
+def test_non_1d_input_raises_not_silently_flattened() -> None:
+    # Two multi-D inputs with equal element count but different shapes must fail
+    # loudly — a bare .ravel() would flatten both to length 6 and silently misalign
+    # them into one feature vector (the "never fabricate for malformed input" rule).
+    with pytest.raises(ValueError, match="1-D"):
+        compute_trace_features(np.zeros((2, 3)), np.zeros((3, 2)))
+    with pytest.raises(ValueError, match="1-D"):
+        compute_trace_features(np.zeros((2, 3)), np.zeros((2, 3)))
+
+
 def test_determinism() -> None:
     rng = np.random.default_rng(3)
     donor = rng.normal(500.0, 40.0, size=25)
