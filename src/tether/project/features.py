@@ -39,8 +39,10 @@ from tether.io.schema import TABLE
 from tether.ml.features import FEATURE_NAMES, compute_trace_features
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from os import PathLike
 
+    from tether.ml.similarity import Neighbor, SimilarityIndex
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
@@ -48,9 +50,12 @@ if TYPE_CHECKING:
 __all__ = [
     "FEATURES_GROUP",
     "StoredFeatures",
+    "build_project_similarity_index",
     "compute_features",
     "feature_matrix",
     "read_features",
+    "similar_molecules",
+    "similar_to_molecules",
 ]
 
 #: The frozen §5 container group the feature table is written under.
@@ -360,3 +365,63 @@ def feature_matrix(project: ProjectRef) -> StoredFeatures:
         app_version=app_version,
         created_utc=created_utc,
     )
+
+
+def build_project_similarity_index(project: ProjectRef) -> SimilarityIndex:
+    """Read ``/features/table`` and build a feature-space similarity index (FR-ML).
+
+    The store-integrated entry to :func:`tether.ml.similarity.build_similarity_index`:
+    the curation dock builds this once per condition/video and reuses it across queries.
+    Read-only; raises :class:`KeyError` if no feature table has been written.
+    """
+    from tether.ml.similarity import build_similarity_index
+
+    return build_similarity_index(feature_matrix(project))
+
+
+def similar_molecules(
+    project: ProjectRef, molecule_id: str, *, k: int | None = None
+) -> list[Neighbor]:
+    """Rank a project's molecules by feature similarity to ``molecule_id`` ("like this").
+
+    Reads the stored engineered features (:func:`feature_matrix`), standardizes them, and
+    returns the nearest feature-space neighbours of ``molecule_id`` ranked by distance —
+    the store-integrated "find traces like these". Ranking only: no molecule is dropped
+    or modified.
+
+    Parameters
+    ----------
+    project:
+        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+    molecule_id:
+        The reference molecule's unique id (a ``molecule_id`` from ``/features/table``).
+    k:
+        Return only the ``k`` nearest neighbours (``None`` = the full ranking).
+
+    Raises
+    ------
+    KeyError
+        No ``/features/table`` exists, or ``molecule_id`` is not in the feature set.
+    ValueError
+        ``molecule_id`` has undefined (non-finite) features, or ``k`` is not positive.
+    """
+    return build_project_similarity_index(project).query(molecule_id, k=k)
+
+
+def similar_to_molecules(
+    project: ProjectRef, molecule_ids: Sequence[str], *, k: int | None = None
+) -> list[Neighbor]:
+    """Rank a project's molecules by similarity to the nearest of ``molecule_ids``.
+
+    The multi-reference "find traces like these": a candidate ranks by its minimum
+    distance to any reference. All references are excluded from the result. Read-only.
+
+    Raises
+    ------
+    KeyError
+        No ``/features/table`` exists, or a reference is not in the feature set.
+    ValueError
+        ``molecule_ids`` is empty, a reference has non-finite features, or ``k`` is not
+        positive.
+    """
+    return build_project_similarity_index(project).query_many(molecule_ids, k=k)
