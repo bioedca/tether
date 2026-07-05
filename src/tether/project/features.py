@@ -5,8 +5,11 @@
 The **headless** writer behind the M5 quality ranker's feature layer (PLAN §9 M5):
 it reads a project's extracted molecules + traces, reduces each to its
 trace-derived :class:`~tether.ml.features.TraceFeatures`
-(:func:`tether.ml.features.compute_trace_features`), and writes the result as a
-compound ``/features/table`` dataset.
+(:func:`tether.ml.features.compute_trace_features`) plus its spatial-crowding
+:class:`~tether.ml.features.SpatialFeatures`
+(:func:`tether.ml.features.compute_spatial_features`, a population function over the
+same-movie neighbours), and writes both blocks as a compound ``/features/table``
+dataset in :data:`~tether.ml.features.FEATURE_NAMES` order.
 
 ``/features`` is one of the M0-frozen empty **container** groups
 (:mod:`tether.io.schema`); a ``table`` dataset written under it is additive
@@ -36,7 +39,15 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from tether.io.schema import TABLE
-from tether.ml.features import FEATURE_NAMES, compute_trace_features
+from tether.ml.features import (
+    DEFAULT_APERTURE_RADIUS,
+    FEATURE_NAMES,
+    SPATIAL_FEATURE_NAMES,
+    TRACE_FEATURE_NAMES,
+    SpatialFeatures,
+    compute_spatial_features,
+    compute_trace_features,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -172,6 +183,48 @@ def _windowed_rows(
     return out
 
 
+def _read_aperture_radius(path: Path) -> float:
+    """The PSF-disk aperture radius (px) for the overlap test, read from the store.
+
+    Uses the frozen extraction setting ``/settings/extraction.disk_radius`` (the
+    §11.2 aperture radius integration actually used), falling back to the module
+    default for an imported / analysis-only project that carries no extraction
+    settings. The overlap geometry itself (``2 · radius``) is settled, not a tunable.
+    """
+    import h5py
+
+    with h5py.File(path, "r") as f:
+        settings = f.get("settings")
+        if settings is not None and "extraction" in settings:
+            radius = settings["extraction"].attrs.get("disk_radius")
+            if radius is not None and np.isfinite(float(radius)) and float(radius) > 0.0:
+                return float(radius)
+    return float(DEFAULT_APERTURE_RADIUS)
+
+
+def _spatial_features_by_id(path: Path) -> dict[str, SpatialFeatures]:
+    """Spatial (crowding) features for every molecule, keyed by unique ``molecule_id``.
+
+    Computed over the **full** ``/molecules`` population (grouped by ``movie_id``) so a
+    molecule's neighbour context is complete regardless of which subset is being
+    featured — a rejected or unselected neighbour still contaminates the aperture. The
+    caller joins the result onto its selected rows by ``molecule_id`` (the unique
+    per-row key; a ``molecule_key`` can name several rows, §7.10).
+    """
+    from tether.imaging.extract import read_molecules
+
+    molecules = read_molecules(path)
+    if molecules.shape[0] == 0:
+        return {}
+    coords = np.asarray(molecules["donor_xy"], dtype=np.float64)
+    movie_ids = np.array([_to_str(m) for m in molecules["movie_id"]])
+    spatials = compute_spatial_features(
+        coords, movie_ids=movie_ids, aperture_radius=_read_aperture_radius(path)
+    )
+    ids = [_to_str(x) for x in molecules["molecule_id"]]
+    return dict(zip(ids, spatials, strict=True))
+
+
 def compute_features(
     project: ProjectRef,
     *,
@@ -224,6 +277,12 @@ def compute_features(
             f"(no extracted molecules, or none matched the selection)"
         )
 
+    # Spatial (crowding) features are a population property — a molecule's donor spot
+    # relative to *every* molecule in its movie, computed over the full /molecules
+    # table (a rejected or unselected neighbour still contaminates the aperture), then
+    # joined to the selected rows by the unique molecule_id.
+    spatial_by_id = _spatial_features_by_id(path)
+
     dtype = _feature_table_dtype()
     table = np.zeros(len(rows), dtype=dtype)
     matrix = np.empty((len(rows), len(FEATURE_NAMES)), dtype=np.float64)
@@ -231,11 +290,16 @@ def compute_features(
     molecule_keys_out: list[str] = []
     for i, (mol_id, mol_key, donor, acceptor) in enumerate(rows):
         feats = compute_trace_features(donor, acceptor)
+        spatial = spatial_by_id.get(mol_id)
+        if spatial is None:  # defensive: every selected id is in the full population
+            spatial = SpatialFeatures(float("nan"), float("nan"))
         table["molecule_id"][i] = mol_id
         table["molecule_key"][i] = mol_key
-        for name in FEATURE_NAMES:
+        for name in TRACE_FEATURE_NAMES:
             table[name][i] = getattr(feats, name)
-        matrix[i] = feats.as_vector()
+        for name in SPATIAL_FEATURE_NAMES:
+            table[name][i] = getattr(spatial, name)
+        matrix[i] = np.concatenate([feats.as_vector(), spatial.as_vector()])
         molecule_ids.append(mol_id)
         molecule_keys_out.append(mol_key)
 

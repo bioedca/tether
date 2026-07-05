@@ -37,7 +37,13 @@ from tether.imaging.split import ChannelGeometry  # noqa: E402
 from tether.io import schema  # noqa: E402
 from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import assert_is_compatible_project, create_project  # noqa: E402
-from tether.ml.features import FEATURE_NAMES, compute_trace_features  # noqa: E402
+from tether.ml.features import (  # noqa: E402
+    FEATURE_NAMES,
+    SPATIAL_FEATURE_NAMES,
+    TRACE_FEATURE_NAMES,
+    compute_spatial_features,
+    compute_trace_features,
+)
 from tether.project.core import Project  # noqa: E402
 from tether.project.features import (  # noqa: E402
     FEATURES_GROUP,
@@ -45,6 +51,8 @@ from tether.project.features import (  # noqa: E402
     feature_matrix,
     read_features,
 )
+
+_N_TRACE = len(TRACE_FEATURE_NAMES)  # trace columns precede the spatial block in the matrix
 
 _PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
 _WINDOW = 21
@@ -164,7 +172,8 @@ def test_compute_and_read_roundtrip_matches_pure_core(tmp_path) -> None:
         d32 = donor[i].astype(np.float32).astype(np.float64)
         a32 = acceptor[i].astype(np.float32).astype(np.float64)
         expected = compute_trace_features(d32, a32).as_vector()
-        np.testing.assert_allclose(stored.matrix[i], expected, rtol=1e-9, atol=1e-9)
+        # The trace block is the leading _N_TRACE columns; the spatial block follows.
+        np.testing.assert_allclose(stored.matrix[i, :_N_TRACE], expected, rtol=1e-9, atol=1e-9)
 
     # feature_matrix reads back an identical matrix + names.
     reread = feature_matrix(proj)
@@ -294,11 +303,14 @@ def test_analysis_window_slice_and_fallback(tmp_path) -> None:
     _set_analysis_window(path, 1, 0, 0)  # sentinel -> falls back to frame_range (full 30)
 
     stored = compute_features(proj)
-    # Row 0's features == the pure core over exactly the [5, 15) float32 slice.
+    # Row 0's trace features == the pure core over exactly the [5, 15) float32 slice.
     d0 = donor[0, 5:15].astype(np.float32).astype(np.float64)
     a0 = acceptor[0, 5:15].astype(np.float32).astype(np.float64)
     np.testing.assert_allclose(
-        stored.matrix[0], compute_trace_features(d0, a0).as_vector(), rtol=1e-9, atol=1e-9
+        stored.matrix[0, :_N_TRACE],
+        compute_trace_features(d0, a0).as_vector(),
+        rtol=1e-9,
+        atol=1e-9,
     )
     assert stored.matrix[0, 0] == pytest.approx(10.0)  # n_frames = 15 - 5
     # Row 1's [0, 0] window falls back to the full 30-frame native extent.
@@ -324,7 +336,10 @@ def test_duplicate_molecule_key_kept_as_distinct_rows(tmp_path) -> None:
         d = donor[i].astype(np.float32).astype(np.float64)
         a = acceptor[i].astype(np.float32).astype(np.float64)
         np.testing.assert_allclose(
-            stored.matrix[i], compute_trace_features(d, a).as_vector(), rtol=1e-9, atol=1e-9
+            stored.matrix[i, :_N_TRACE],
+            compute_trace_features(d, a).as_vector(),
+            rtol=1e-9,
+            atol=1e-9,
         )
 
 
@@ -356,3 +371,79 @@ def test_raw_layer_is_actually_read(tmp_path) -> None:
     raw = compute_features(proj, intensity_quantity="raw", overwrite=True)
     ti = FEATURE_NAMES.index("total_intensity")
     np.testing.assert_allclose(raw.matrix[:, ti], corrected.matrix[:, ti] + 200.0, atol=0.05)
+
+
+# --- spatial (crowding) features -----------------------------------------------
+
+
+def _set_disk_radius(path: Path, radius: float) -> None:
+    """Override the stored aperture (PSF-disk) radius the overlap test reads."""
+    with h5py.File(path, "r+") as f:
+        f["settings"]["extraction"].attrs["disk_radius"] = float(radius)
+
+
+def test_spatial_columns_written_and_match_pure_core(tmp_path) -> None:
+    # The stored spatial block equals a direct compute_spatial_features over the
+    # store's own donor_xy / movie_id / aperture radius — the store passes the right
+    # inputs and merges them into /features/table in FEATURE_NAMES order.
+    donor, acceptor = _anticorrelated(5, 20)
+    path = tmp_path / "x.tether"
+    proj, _ = _build_store(path, donor, acceptor)
+    stored = compute_features(proj)
+
+    mols = read_molecules(path)
+    coords = np.asarray(mols["donor_xy"], dtype=np.float64)
+    movie_ids = np.array([m.decode() if isinstance(m, bytes) else str(m) for m in mols["movie_id"]])
+    expected = compute_spatial_features(coords, movie_ids=movie_ids, aperture_radius=3.0)
+
+    nd = FEATURE_NAMES.index("neighbor_distance")
+    ov = FEATURE_NAMES.index("aperture_overlap")
+    for row, sf in enumerate(expected):
+        np.testing.assert_allclose(stored.matrix[row, nd], sf.neighbor_distance, equal_nan=True)
+        assert stored.matrix[row, ov] == sf.aperture_overlap
+    # The columns also exist on the structured table (float dtype, never coerced int).
+    table = read_features(proj)
+    for name in SPATIAL_FEATURE_NAMES:
+        assert name in table.dtype.names
+        assert np.issubdtype(table[name].dtype, np.floating)
+
+
+def test_spatial_neighbour_context_is_full_population_not_selection(tmp_path) -> None:
+    # A molecule's crowding is measured against EVERY molecule in its movie, including
+    # rejected / unselected ones — a rejected neighbour still contaminates the aperture.
+    # A (10,10) & B (11,10) are 1 px apart; C is far. Reject B, feature only the kept
+    # set: A's neighbour_distance must still be 1.0 (B), not the distance to far C.
+    donor, acceptor = _anticorrelated(3, 18)
+    coords = np.array([[10.0, 10.0], [11.0, 10.0], [50.0, 50.0]])
+    path = tmp_path / "x.tether"
+    proj, keys = _build_store(path, donor, acceptor, coords=coords)
+    proj.reject(keys[1], labeler="tester")  # B is the nearest neighbour of A
+
+    stored = compute_features(proj, include_rejected=False)
+    assert stored.n_molecules == 2  # A and C only (B dropped from the featured set)
+    nd = FEATURE_NAMES.index("neighbor_distance")
+    row_of = {k: i for i, k in enumerate(stored.molecule_keys)}
+    a_row = row_of[keys[0]]
+    assert stored.matrix[a_row, nd] == pytest.approx(1.0)  # sees rejected B, not far C
+
+
+def test_spatial_overlap_reads_stored_aperture_radius(tmp_path) -> None:
+    # Two molecules 10 px apart: no aperture overlap at the stored radius 3 (2·3 = 6),
+    # but flipping the stored disk_radius to 6 (2·6 = 12 > 10) flips the flag — proving
+    # the overlap test reads the store's own aperture radius, not a hardcoded constant.
+    donor, acceptor = _anticorrelated(2, 16)
+    coords = np.array([[10.0, 10.0], [20.0, 10.0]])
+    path = tmp_path / "x.tether"
+    proj, _ = _build_store(path, donor, acceptor, coords=coords)
+
+    ov = FEATURE_NAMES.index("aperture_overlap")
+    at_r3 = compute_features(proj)
+    assert at_r3.matrix[0, ov] == 0.0 and at_r3.matrix[1, ov] == 0.0
+
+    _set_disk_radius(path, 6.0)
+    at_r6 = compute_features(proj, overwrite=True)
+    assert at_r6.matrix[0, ov] == 1.0 and at_r6.matrix[1, ov] == 1.0
+    # The raw neighbour distance is radius-independent (10 px) in both.
+    nd = FEATURE_NAMES.index("neighbor_distance")
+    assert at_r3.matrix[0, nd] == pytest.approx(10.0)
+    assert at_r6.matrix[0, nd] == pytest.approx(10.0)
