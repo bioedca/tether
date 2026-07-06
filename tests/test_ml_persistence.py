@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import operator
 import pickle
+import warnings
 import zipfile
 
 import pytest
@@ -415,6 +416,62 @@ def test_malformed_hyperparams_raise_corrupt(tmp_path) -> None:
     _repack(good, bad, manifest=manifest)
     with pytest.raises(CorruptModelError, match="hyperparam"):
         load_model(bad)
+
+
+# --- warnings surfaced during unpickling are re-emitted, never swallowed ------
+
+
+def test_sklearn_version_mismatch_warns_but_loads(tmp_path, monkeypatch) -> None:
+    # The documented contract: a scikit-learn version mismatch (sklearn's InconsistentVersionWarning
+    # during unpickle) is surfaced as a Tether-scoped warning, but the model still loads and works.
+    # The warning keys off sklearn's *actual* version check during unpickle (not the manifest's
+    # sklearn_version provenance field), so it is exercised by injecting it at pickle.loads.
+    from sklearn.exceptions import InconsistentVersionWarning
+
+    X, y, _ = _separable()
+    model = train_portable_model(X, y, FEATURES, condition_id="c")
+    path = tmp_path / "c.tethermodel"
+    save_model(model, path)
+
+    real_loads = pickle.loads
+
+    def _loads_then_warn(data, *args, **kwargs):
+        obj = real_loads(data, *args, **kwargs)
+        warnings.warn(
+            InconsistentVersionWarning(
+                estimator_name="QualityRanker",
+                current_sklearn_version="99.0",
+                original_sklearn_version="1.0",
+            ),
+            stacklevel=2,
+        )
+        return obj
+
+    monkeypatch.setattr(persistence.pickle, "loads", _loads_then_warn)
+    with pytest.warns(UserWarning, match="different scikit-learn version"):
+        loaded = load_model(path)
+    assert np.array_equal(loaded.score(X), model.score(X))
+
+
+def test_other_unpickle_warning_is_resurfaced(tmp_path, monkeypatch) -> None:
+    # A non-version warning raised while unpickling (e.g. a DeprecationWarning from an estimator's
+    # __setstate__) must not be swallowed by the record=True capture — it is re-emitted as-is.
+    X, y, _ = _separable()
+    model = train_portable_model(X, y, FEATURES, condition_id="c")
+    path = tmp_path / "c.tethermodel"
+    save_model(model, path)
+
+    real_loads = pickle.loads
+
+    def _loads_then_warn(data, *args, **kwargs):
+        obj = real_loads(data, *args, **kwargs)
+        warnings.warn("estimator is deprecated", DeprecationWarning, stacklevel=2)
+        return obj
+
+    monkeypatch.setattr(persistence.pickle, "loads", _loads_then_warn)
+    with pytest.warns(DeprecationWarning, match="estimator is deprecated"):
+        loaded = load_model(path)
+    assert np.array_equal(loaded.score(X), model.score(X))
 
 
 # --- provenance stamping + atomic save ---------------------------------------

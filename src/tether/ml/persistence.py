@@ -427,7 +427,7 @@ def load_model(path: PathRef) -> PortableRankerModel:
             # Validate *every* provenance field before touching the pickle — the manifest is the
             # trust gate, so a malformed one is rejected without executing model.pkl. Only the
             # manifest<->ranker feature-name cross-check (below) needs the loaded ranker.
-            fields = _validated_fields(manifest)
+            provenance_fields = _validated_fields(manifest)
             try:
                 payload = zf.read(_MODEL_NAME)
             except KeyError as exc:
@@ -443,7 +443,7 @@ def load_model(path: PathRef) -> PortableRankerModel:
         raise CorruptModelError(
             "manifest feature_names disagree with the pickled ranker; artifact is inconsistent"
         )
-    return PortableRankerModel(ranker=ranker, **fields)
+    return PortableRankerModel(ranker=ranker, **provenance_fields)
 
 
 def _validated_fields(manifest: dict[str, object]) -> dict[str, object]:
@@ -492,14 +492,18 @@ def _unpickle_ranker(payload: bytes) -> QualityRanker:
     if not isinstance(ranker, QualityRanker):
         raise CorruptModelError(f"model.pkl is a {type(ranker).__name__}, not a QualityRanker")
 
-    if InconsistentVersionWarning:
-        for record in caught:
-            if issubclass(record.category, InconsistentVersionWarning):
-                warnings.warn(
-                    "portable model was saved with a different scikit-learn version "
-                    f"({record.message}); loaded anyway",
-                    stacklevel=2,
-                )
+    # Re-emit *every* warning captured during unpickling — the version mismatch as a Tether-scoped
+    # message, any other (e.g. a Deprecation/FutureWarning from the estimator's ``__setstate__``)
+    # faithfully as-is — so nothing is silently swallowed by the ``record=True`` capture.
+    for record in caught:
+        if InconsistentVersionWarning and issubclass(record.category, InconsistentVersionWarning):
+            warnings.warn(
+                "portable model was saved with a different scikit-learn version "
+                f"({record.message}); loaded anyway",
+                stacklevel=2,
+            )
+        else:
+            warnings.warn_explicit(record.message, record.category, record.filename, record.lineno)
     return ranker
 
 
