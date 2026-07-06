@@ -26,6 +26,12 @@ Landed so far (M5, FR-ML):
   (precision@k, PRD §7.5) and the never-auto-drop ranking contract (a permutation, never a
   filter), both independent of which model produces the scores. The store-integrated entry
   point is :func:`tether.project.ranking.baseline_precision_at_k`.
+- :func:`~tether.ml.gbranker.train_quality_ranker` / :class:`~tether.ml.gbranker.QualityRanker`
+  — the gradient-boosting scorer that turns engineered features into a ``P(good)`` quality
+  score and plugs it into ``rank_by_score`` (precision@k objective, never auto-drop). The
+  store-integrated entry point is :func:`tether.project.gbranking.ranker_ranking`. (Importing
+  :mod:`tether.ml` stays free of scikit-learn; the dependency loads only when a ranker is
+  trained.)
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ from tether.ml.features import (
     compute_spatial_features,
     compute_trace_features,
 )
+from tether.ml.gbranker import QualityRanker, RankerHyperparams, train_quality_ranker
 from tether.ml.ranking import (
     RankedTraces,
     file_order_ranking,
@@ -53,7 +60,9 @@ __all__ = [
     "SPATIAL_FEATURE_NAMES",
     "TRACE_FEATURE_NAMES",
     "Neighbor",
+    "QualityRanker",
     "RankedTraces",
+    "RankerHyperparams",
     "SimilarityIndex",
     "SpatialFeatures",
     "TraceFeatures",
@@ -64,4 +73,5 @@ __all__ = [
     "precision_at_k",
     "precision_at_k_uplift",
     "rank_by_score",
+    "train_quality_ranker",
 ]
