@@ -59,6 +59,18 @@ def _train(data: RankingDataset, name: str) -> QualityRanker:
     return train_quality_ranker(data.X[mask], y, data.feature_names)
 
 
+def _train_and_rank(project: ProjectRef) -> tuple[RankedTraces, RankingDataset]:
+    """Train the ranker once and rank every molecule — shared by the ranking entry points.
+
+    Loads the supervised dataset, fits the model **once**, and ranks all molecules, returning
+    both the ranking and the dataset so a caller that also needs the labels
+    (:func:`ranker_precision_at_k`) reuses this single fit instead of retraining.
+    """
+    data = ranking_dataset(project)
+    ranker = _train(data, _project_name(project))
+    return ranker.rank(data.molecule_ids, data.X), data
+
+
 def train_ranker(project: ProjectRef) -> QualityRanker:
     """Train the gradient-boosting quality ranker on a project's ``/features`` + ``/labels``.
 
@@ -91,9 +103,8 @@ def ranker_ranking(project: ProjectRef) -> RankedTraces:
     ValueError
         No human-labeled molecules, or only one class is labeled.
     """
-    data = ranking_dataset(project)
-    ranker = _train(data, _project_name(project))
-    return ranker.rank(data.molecule_ids, data.X)
+    ranking, _ = _train_and_rank(project)
+    return ranking
 
 
 def ranker_precision_at_k(project: ProjectRef, k: int) -> float:
@@ -116,7 +127,5 @@ def ranker_precision_at_k(project: ProjectRef, k: int) -> float:
     """
     from tether.ml.ranking import precision_at_k
 
-    data = ranking_dataset(project)
-    ranker = _train(data, _project_name(project))
-    ranking = ranker.rank(data.molecule_ids, data.X)
+    ranking, data = _train_and_rank(project)
     return precision_at_k(ranking.ranked_relevance(data.is_good), k)
