@@ -34,8 +34,9 @@ needs (ADR-0034):
   to). This is why a molecule with undefined features can still be **scored and ranked** here,
   unlike :mod:`tether.ml.similarity`, which cannot embed it in a metric space and so reports
   it as unindexed.
-* **Determinism** given ``random_state`` (no row subsampling; early stopping off), so a
-  ranking is reproducible.
+* **Determinism** given ``random_state`` (which seeds the histogram-binning subsample — a
+  draw that only occurs far above the curation regime; early stopping off), so a ranking is
+  reproducible.
 * **``sample_weight``** in ``fit`` — the seam the later label-weighting / cold-start-decay PR
   (PRD §7.5 ``w = w₀/(1+n_human)``) needs, with no model change.
 

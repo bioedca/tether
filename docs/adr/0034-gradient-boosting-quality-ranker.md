@@ -53,8 +53,8 @@ problem needs:
   contract, and it lets the ranker **score and keep** a molecule with undefined features
   (unlike `tether.ml.similarity`, which cannot embed such a point in a metric space and
   reports it unindexed). No molecule is dropped for missing features.
-- **Determinism** given `random_state` (no row subsampling; early stopping off) → a
-  reproducible ranking.
+- **Determinism** given `random_state` (which seeds the histogram-binning subsample, itself
+  only drawn far above the curation regime; early stopping off) → a reproducible ranking.
 - **`sample_weight` in `fit`** — the seam the later per-label weighting / cold-start-decay PR
   (`w = w₀/(1+n_human)`, PRD §7.5) plugs into with no model change.
 
