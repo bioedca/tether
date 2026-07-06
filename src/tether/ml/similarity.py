@@ -26,9 +26,12 @@ feature vector is not fully finite (an undefined feature is ``NaN``, never a fab
 ``0``) cannot be embedded in the metric space, so it is **excluded from the searchable
 index and reported** (:attr:`SimilarityIndex.unindexed_ids`) rather than silently
 dropped or given a fabricated coordinate — the caller/GUI can surface it as
-"not rankable (undefined features)". Excluding an unrankable point from a *ranking* is
-not the forbidden auto-drop: no molecule is removed from the project, and a query never
-deletes anything — it returns an ordering.
+"not rankable (undefined features)". This includes the **spatial-absence** case: a
+molecule that is the sole spot in its movie has a genuinely undefined
+``neighbor_distance`` (``NaN`` — there is no neighbour to measure, never a fabricated
+distance), so it too is reported here, not silently dropped. Excluding an unrankable
+point from a *ranking* is not the forbidden auto-drop: no molecule is removed from the
+project, and a query never deletes anything — it returns an ordering.
 
 Determinism. The ranking is deterministic across platforms: neighbours are sorted by
 ``(distance, molecule_id)``, so exact-distance ties (e.g. duplicate feature vectors)

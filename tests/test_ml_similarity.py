@@ -155,6 +155,23 @@ def test_nonfinite_molecule_is_reported_not_dropped() -> None:
         index.query("m2")
 
 
+def test_spatial_absence_molecule_reported_not_dropped() -> None:
+    # A molecule alone in its movie has a defined trace but an undefined
+    # neighbor_distance (NaN — no neighbour to measure; never a fabricated distance).
+    # Like any non-finite-feature molecule it is reported in unindexed_ids, NOT silently
+    # dropped, and its exclusion never removes it from the population (the never-drop
+    # contract, spatial-absence case documented in tether.ml.similarity).
+    names = ("snr", "neighbor_distance")
+    ids = ["crowded0", "crowded1", "lonely"]
+    matrix = [[5.0, 4.0], [6.0, 3.0], [7.0, np.nan]]  # 'lonely': good trace, no neighbour
+    index = build_similarity_index(_stored(ids, matrix, names=names))
+    assert index.unindexed_ids == ("lonely",)
+    assert index.n_indexed == 2
+    assert index.n_indexed + index.n_unindexed == 3  # never silently gone
+    # The two crowded molecules still rank against each other, never surfacing 'lonely'.
+    assert [n.molecule_id for n in index.query("crowded0")] == ["crowded1"]
+
+
 def test_constant_feature_column_is_safe() -> None:
     # A feature that is identical for every molecule has std 0; it must contribute 0
     # distance (scale -> 1), never a division-by-zero inf/nan.

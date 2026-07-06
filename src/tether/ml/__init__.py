@@ -12,8 +12,10 @@ Landed so far (M5, FR-ML):
 - :func:`~tether.ml.features.compute_trace_features` /
   :class:`~tether.ml.features.TraceFeatures` — the engineered per-trace quality
   features (the trace-derived block: SNR, FRET mean/variance, anticorrelation,
-  total intensity). The store-integrated writer is
-  :func:`tether.project.features.compute_features`.
+  total intensity), plus :func:`~tether.ml.features.compute_spatial_features` /
+  :class:`~tether.ml.features.SpatialFeatures` — the spatial crowding block
+  (nearest-neighbour distance + the second-molecule-in-aperture flag). The
+  store-integrated writer of both is :func:`tether.project.features.compute_features`.
 - :func:`~tether.ml.similarity.build_similarity_index` /
   :class:`~tether.ml.similarity.SimilarityIndex` — feature-space nearest-neighbour
   retrieval ("find traces like these") over the standardized ``/features`` vectors;
@@ -28,7 +30,15 @@ Landed so far (M5, FR-ML):
 
 from __future__ import annotations
 
-from tether.ml.features import FEATURE_NAMES, TraceFeatures, compute_trace_features
+from tether.ml.features import (
+    FEATURE_NAMES,
+    SPATIAL_FEATURE_NAMES,
+    TRACE_FEATURE_NAMES,
+    SpatialFeatures,
+    TraceFeatures,
+    compute_spatial_features,
+    compute_trace_features,
+)
 from tether.ml.ranking import (
     RankedTraces,
     file_order_ranking,
@@ -40,11 +50,15 @@ from tether.ml.similarity import Neighbor, SimilarityIndex, build_similarity_ind
 
 __all__ = [
     "FEATURE_NAMES",
+    "SPATIAL_FEATURE_NAMES",
+    "TRACE_FEATURE_NAMES",
     "Neighbor",
     "RankedTraces",
     "SimilarityIndex",
+    "SpatialFeatures",
     "TraceFeatures",
     "build_similarity_index",
+    "compute_spatial_features",
     "compute_trace_features",
     "file_order_ranking",
     "precision_at_k",
