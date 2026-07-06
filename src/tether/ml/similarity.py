@@ -29,7 +29,7 @@ dropped or given a fabricated coordinate — the caller/GUI can surface it as
 "not rankable (undefined features)". This includes the **spatial-absence** case: a
 molecule that is the sole spot in its movie has a genuinely undefined
 ``neighbor_distance`` (``NaN`` — there is no neighbour to measure, never a fabricated
-distance), so it too is reported here, not silently unindexed. Excluding an unrankable
+distance), so it too is reported here, not silently dropped. Excluding an unrankable
 point from a *ranking* is not the forbidden auto-drop: no molecule is removed from the
 project, and a query never deletes anything — it returns an ordering.
 

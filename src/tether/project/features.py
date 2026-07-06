@@ -222,6 +222,11 @@ def _spatial_features_by_id(path: Path) -> dict[str, SpatialFeatures]:
         coords, movie_ids=movie_ids, aperture_radius=_read_aperture_radius(path)
     )
     ids = [_to_str(x) for x in molecules["molecule_id"]]
+    # molecule_id is the unique per-row join key (§7.10); a duplicate would silently
+    # collapse two molecules' spatial rows in the dict (strict=True checks only length,
+    # not uniqueness), mirroring the same guard in ml.similarity.build_similarity_index.
+    if len(set(ids)) != len(ids):
+        raise ValueError(f"{path.name}/molecules has duplicate molecule_id values")
     return dict(zip(ids, spatials, strict=True))
 
 

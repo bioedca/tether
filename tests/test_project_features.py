@@ -447,3 +447,25 @@ def test_spatial_overlap_reads_stored_aperture_radius(tmp_path) -> None:
     nd = FEATURE_NAMES.index("neighbor_distance")
     assert at_r3.matrix[0, nd] == pytest.approx(10.0)
     assert at_r6.matrix[0, nd] == pytest.approx(10.0)
+
+
+def _set_molecule_id(path: Path, row: int, value: str) -> None:
+    """Force one molecule's stable molecule_id (to exercise the uniqueness guard)."""
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"]["table"]
+        record = table[row]
+        record["molecule_id"] = value
+        table[row] = record
+
+
+def test_duplicate_molecule_id_in_store_raises(tmp_path) -> None:
+    # molecule_id is the unique per-row join key (§7.10); a duplicate would silently
+    # collapse two molecules' spatial rows in the id->features dict. The guard fails
+    # loudly rather than mis-joining (matching build_similarity_index's rejection).
+    donor, acceptor = _anticorrelated(3, 16)
+    path = tmp_path / "x.tether"
+    proj, _ = _build_store(path, donor, acceptor)
+    first = read_molecules(path)["molecule_id"][0]
+    _set_molecule_id(path, 1, first.decode() if isinstance(first, bytes) else str(first))
+    with pytest.raises(ValueError, match="duplicate molecule_id"):
+        compute_features(proj)
