@@ -43,6 +43,22 @@ Chosen option: **A**. The two locks are the single source of truth and stay
 - Follow-up: PLAN invariant — "never casually bump a conda-lock; keep the
   sidecar isolated".
 
+## Amendments
+
+### 2026-07-06 — Maintainer-approved base-lock bump (M5 ranker deps)
+
+This ADR's "bumped only deliberately" clause was exercised for the first time.
+Maintainer **bioedca** authorized adding `scikit-learn` + `xgboost` to the base
+`environment.yml` for the M5 per-condition quality ranker (PRD §7.5, PLAN §9 M5),
+and the base `conda-lock.yml` was regenerated for all four platforms
+(linux-64/osx-64/osx-arm64/win-64) with `conda-lock==4.0.1`. The resolved stack
+holds numpy at 2.1.3 — inside the Numba `<2.2` window — with scikit-learn 1.9.0
+and xgboost 3.3.0; the drifted GUI stack was re-verified (headless `pytest-qt`
+suite green + a real-GL desktop smoke). The sidecar lock was **not** touched.
+
+This approval is scoped to **this single re-lock**; it does not standing-authorize
+future base-lock bumps, which remain deliberate, per-change decisions.
+
 ## More information
 
 PRD §4.1, §4.3, §12.8; ADR-0006 (sidecar mechanism).

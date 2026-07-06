@@ -41,3 +41,10 @@ dependencies:
   # --- storage / IO ---
   - h5py>=3.11
   - tifffile>=2024.7.2
+  # --- ML ranker (M5 S3; deliberate base-lock bump, ADR-0004) ---
+  # scikit-learn + xgboost back the per-condition quality ranker (PRD §7.5,
+  # PLAN §9 M5): XGBoost's native learn-to-rank objectives target precision@k;
+  # scikit-learn supplies feature scaling + baseline estimators. Both stay
+  # inside the Numba-bounded numpy window (>=1.26,<2.2) on Python 3.12.
+  - scikit-learn>=1.5
+  - xgboost>=2
