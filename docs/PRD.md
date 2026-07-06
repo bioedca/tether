@@ -823,6 +823,7 @@ validation front-loaded at M0.5.
 | FRET-histogram bootstrap | 1000 resamples; 95% percentile CI (2.5/97.5); resample unit = **molecule**; default seed = 0 | [König2013] BOBA-FRET (also in MASH-FRET [Börner2018]); cross-sample variability ⇒ molecule is the resampled unit (§7.7, §9 M3) |
 | Lock staleness timeout | ≈ 30 min (wall-clock), then steal-confirm | Tether OneDrive policy (§5.4, §7.10) |
 | Ranker success target (M5) | precision@k uplift ≥ 10 pts vs file order, prequential, median across videos | Tether default (§7.5, §9 M5) |
+| Quality-ranker model (M5) | scikit-learn `HistGradientBoostingClassifier` on `P(good)`; curation-tuned defaults `learning_rate=0.1`, `max_iter=100`, `max_leaf_nodes=15`, `min_samples_leaf=5`, `l2_regularization=1.0`, `early_stopping=off`, `random_state=0` | Tether (§7.5, §9 M5; ADR-0034); [Chen2016] gradient boosting, ranking by `P(good)` per the probability-ranking principle [Robertson1977]; leaf/regularization defaults smaller than sklearn stock for small curation label sets |
 | Per-trace UI latency budget | ≈ 100 ms render + navigate | Tether perf floor (§8 NFR-PERF) |
 | Leakage-α validation band | **conjunctive**: relative-median difference ≤ 20% **and** both medians ∈ 0.05–0.2 (the band is plausibility-only, never a standalone pass) | Tether (§7.2, §9 M3) |
 | **Idealization parity tolerance** (**frozen at M0.5**, 2026-06-26) | state count exact on ≥ 90% of traces; per-state mean ΔE ≤ 0.02 (absolute, FRET units); Viterbi per-frame agreement ≥ 95%; relative ELBO change ≤ 0.01 | Tether (§7.4, §9 M0.5/M2/M6); frozen from the measured cross-seed spread (20 self-reseeded `vbconhmm` fits × 2 committed fixtures; measured spread ≤ 1e-8 on all four metrics — the provisional defaults are confirmed). Evidence `schema/parity_tolerance.json`; rationale ADR-0009 |
@@ -1708,6 +1709,9 @@ Published literature:
 - **[Ha1996]** Ha T, Enderle Th, Ogletree DF, Chemla DS, Selvin PR, Weiss S. "Probing the interaction between two
   single molecules: fluorescence resonance energy transfer between a single donor and a single acceptor." *PNAS*
   93(13):6264–6268 (1996). doi:10.1073/pnas.93.13.6264.
+- **[Robertson1977]** Robertson SE. "The probability ranking principle in IR." *Journal of Documentation*
+  33(4):294–304 (1977). doi:10.1108/eb026647. (The information-retrieval basis for the FR-ML quality ranker's
+  precision@k objective: ranking by probability of relevance is optimal for precision-based retrieval; §7.5, §11.2.)
 - **[Axelrod2003]** Axelrod D. "Total internal reflection fluorescence microscopy in cell biology." *Methods in
   Enzymology* 361:1–33 (2003). doi:10.1016/S0076-6879(03)61003-7.
 - **[Lee2005]** Lee NK, Kapanidis AN, Wang Y, Michalet X, Mukhopadhyay J, Ebright RH, Weiss S. "Accurate FRET
