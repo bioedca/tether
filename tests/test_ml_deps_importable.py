@@ -12,11 +12,29 @@ ubuntu/macos/windows — not merely that the spec solved.
 from __future__ import annotations
 
 
+def _leading_version(version: str) -> tuple[int, int]:
+    """(major, minor) parsed from a version string, non-numeric suffixes dropped."""
+    fields = []
+    for chunk in version.split(".")[:2]:
+        digits = "".join(c for c in chunk if c.isdigit())
+        fields.append(int(digits) if digits else 0)
+    while len(fields) < 2:
+        fields.append(0)
+    return fields[0], fields[1]
+
+
 def test_ranker_dependencies_importable() -> None:
     import sklearn
     import xgboost
 
-    # Both must stay inside the Numba-bounded numpy window (>=1.26,<2.2); a
-    # smoke import is enough here — the ranker PR exercises their behaviour.
+    # Import guard: both must resolve + import in the locked stack on every OS.
     assert sklearn.__version__
     assert xgboost.__version__
+
+    # Floor guard: the resolved versions must satisfy the environment.yml
+    # constraints (scikit-learn>=1.5, xgboost>=2) the base lock is solved
+    # against, so a resolver picking an incompatible older build fails loudly
+    # here. Exact patch pins are owned by conda-lock.yml + conda-lock-verify
+    # (ADR-0004); this asserts the declared floors, not the frozen versions.
+    assert _leading_version(sklearn.__version__) >= (1, 5)
+    assert _leading_version(xgboost.__version__) >= (2, 0)
