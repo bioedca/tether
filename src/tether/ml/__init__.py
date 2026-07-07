@@ -39,6 +39,13 @@ Landed so far (M5, FR-ML):
   file that carries a fitted ranker + provenance across experiment files and is
   warm-start-retrained video-by-video. Store-integration (the ``/models`` reference + its own
   owner-curator single-writer lock) lands in a later PR.
+- :func:`~tether.ml.prequential.prequential_uplift` /
+  :class:`~tether.ml.prequential.PrequentialResult` / :class:`~tether.ml.prequential.VideoFold`
+  — the prequential (interleaved test-then-train) precision@k **uplift ship gate** (PRD §7.5,
+  §9 M5; oracle (d)): the honest, held-out, median-across-videos evaluation the ranker must
+  clear to ship, as opposed to the optimistic in-sample apparent precision@k. Model-free (takes
+  a train/score callback); the store-integrated entry point is
+  :func:`tether.project.prequential.ranker_prequential_uplift`.
 """
 
 from __future__ import annotations
@@ -64,6 +71,13 @@ from tether.ml.persistence import (
     train_portable_model,
     warm_start_retrain,
 )
+from tether.ml.prequential import (
+    DEFAULT_SHIP_BAR_PTS,
+    PrequentialResult,
+    VideoFold,
+    VideoUplift,
+    prequential_uplift,
+)
 from tether.ml.ranking import (
     RankedTraces,
     file_order_ranking,
@@ -74,6 +88,7 @@ from tether.ml.ranking import (
 from tether.ml.similarity import Neighbor, SimilarityIndex, build_similarity_index
 
 __all__ = [
+    "DEFAULT_SHIP_BAR_PTS",
     "FEATURE_NAMES",
     "MODEL_FORMAT_VERSION",
     "SPATIAL_FEATURE_NAMES",
@@ -82,6 +97,7 @@ __all__ = [
     "Neighbor",
     "PortableModelError",
     "PortableRankerModel",
+    "PrequentialResult",
     "QualityRanker",
     "RankedTraces",
     "RankerHyperparams",
@@ -89,6 +105,8 @@ __all__ = [
     "SpatialFeatures",
     "TraceFeatures",
     "UnsupportedModelFormatError",
+    "VideoFold",
+    "VideoUplift",
     "build_similarity_index",
     "compute_spatial_features",
     "compute_trace_features",
@@ -96,6 +114,7 @@ __all__ = [
     "load_model",
     "precision_at_k",
     "precision_at_k_uplift",
+    "prequential_uplift",
     "rank_by_score",
     "save_model",
     "train_portable_model",
