@@ -239,12 +239,13 @@ def test_single_class_store_is_refused(tmp_path) -> None:
 
 
 def test_no_labels_is_refused(tmp_path) -> None:
+    # No human AND no provisional labels: the training-fold refusal now spans both sources.
     donor, acceptor = _six_valid_traces()
     proj, _ = _build_store(tmp_path / "x.tether", donor, acceptor)
     compute_features(proj)
-    with pytest.raises(ValueError, match="no human-labeled molecules"):
+    with pytest.raises(ValueError, match="no labeled molecules"):
         train_ranker(proj)
-    with pytest.raises(ValueError, match="no human-labeled molecules"):
+    with pytest.raises(ValueError, match="no labeled molecules"):
         ranker_ranking(proj)
 
 

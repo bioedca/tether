@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
     ProjectRef = Project | str | PathLike[str]
 
-__all__ = ["recompute_label_weights"]
+__all__ = ["human_counts_by_condition", "recompute_label_weights"]
 
 _MOLECULES = "molecules"
 _LABELS = "labels"
@@ -64,6 +64,59 @@ def _to_str(value: object) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8")
     return str(value)
+
+
+def human_counts_by_condition(condition_ids: object, curation_labels: object) -> dict[str, int]:
+    """``condition_id -> n_human`` from a ``/molecules`` table's two aligned columns (PRD §7.5).
+
+    ``n_human`` is the count of molecules currently carrying a **human** accept/reject
+    (``curation_label != UNCURATED``, :mod:`tether.project.labels`) grouped by ``condition_id`` —
+    the trusted-evidence count the cold-start decay ``w = w₀/(1 + n_human)`` divides by. Counting
+    ``/molecules`` **rows** (not distinct ``molecule_key`` values, and not ``/labels`` event rows)
+    matches the "amount of ground truth" reading: a provisional source never sets
+    ``curation_label``, and a re-curated molecule is one molecule's worth of evidence.
+
+    Pure and **store-free**: the caller reads ``/molecules`` once and passes the ``condition_id``
+    and ``curation_label`` columns, so both this recompute (:func:`recompute_label_weights`) and
+    the ranker's training-fold (:func:`tether.project.gbranking.weighted_training_set`) share one
+    definition of ``n_human``. Vectorized (``np.unique`` + ``np.bincount``) so it does not scale
+    with a per-row Python loop.
+
+    Parameters
+    ----------
+    condition_ids:
+        The ``/molecules.condition_id`` column (h5py vlen-string or decoded), one per molecule row.
+    curation_labels:
+        The aligned ``/molecules.curation_label`` column (signed int codes).
+
+    Returns
+    -------
+    dict[str, int]
+        ``condition_id -> number of human-curated molecules`` (``{}`` for an empty table). A
+        condition with no human labels still appears with a ``0`` if any of its molecules exist.
+
+    Raises
+    ------
+    ValueError
+        The two columns differ in length.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    conditions = np.array([_to_str(c) for c in condition_ids])
+    labels = np.asarray([int(v) for v in curation_labels], dtype=np.int64)
+    if conditions.shape[0] != labels.shape[0]:
+        raise ValueError(
+            f"condition_ids ({conditions.shape[0]}) and curation_labels ({labels.shape[0]}) "
+            "must have equal length"
+        )
+    if conditions.shape[0] == 0:
+        return {}
+    curated = (labels != _UNCURATED).astype(np.int64)
+    unique_conditions, inverse = np.unique(conditions, return_inverse=True)
+    counts = np.bincount(
+        inverse.ravel(), weights=curated, minlength=unique_conditions.shape[0]
+    ).astype(np.int64)
+    return dict(zip(unique_conditions.tolist(), counts.tolist(), strict=True))
 
 
 def recompute_label_weights(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEIGHT) -> int:
@@ -115,15 +168,9 @@ def recompute_label_weights(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEI
         # n_human per condition = molecules currently carrying a human accept/reject
         # (curation_label != UNCURATED) grouped by condition_id — the authoritative human state
         # (provisional sources never touch curation_label), robust to a molecule being re-curated.
-        # Vectorized (np.unique + bincount) so the count does not scale with a per-row Python loop.
-        mol_conditions = np.array([_to_str(c) for c in mol_table["condition_id"][:]])
-        curated = (mol_table["curation_label"][:].astype(np.int64) != _UNCURATED).astype(np.int64)
-        unique_conditions, inverse = np.unique(mol_conditions, return_inverse=True)
-        human_counts = np.bincount(
-            inverse.ravel(), weights=curated, minlength=unique_conditions.shape[0]
-        ).astype(np.int64)
-        n_human_by_condition = dict(
-            zip(unique_conditions.tolist(), human_counts.tolist(), strict=True)
+        # Shared with the ranker training-fold so both use one n_human definition.
+        n_human_by_condition = human_counts_by_condition(
+            mol_table["condition_id"][:], mol_table["curation_label"][:]
         )
 
         rows = labels_table[:]
