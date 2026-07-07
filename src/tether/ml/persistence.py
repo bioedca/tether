@@ -216,6 +216,7 @@ def train_portable_model(
     *,
     condition_id: str,
     hyperparams: RankerHyperparams | None = None,
+    sample_weight: object | None = None,
     video_id: str | None = None,
     now: datetime | None = None,
 ) -> PortableRankerModel:
@@ -234,6 +235,9 @@ def train_portable_model(
         The condition this model belongs to (its identity across videos/files).
     hyperparams:
         Override :data:`tether.ml.gbranker.DEFAULT_HYPERPARAMS`.
+    sample_weight:
+        Optional per-row training weights (the §7.5 cold-start label weighting) forwarded to
+        :func:`tether.ml.gbranker.train_quality_ranker`; ``None`` fits at unit weight.
     video_id:
         The video whose labels seed this first fit; recorded in ``videos_seen`` when given.
     now:
@@ -247,10 +251,11 @@ def train_portable_model(
     Raises
     ------
     ValueError
-        Propagated from the ranker fit (empty/one-class labels, shape mismatch).
+        Propagated from the ranker fit (empty/one-class labels, shape mismatch, or a
+        ``sample_weight`` that is not a length-``n_labeled`` finite non-negative array).
     """
     hp = hyperparams if hyperparams is not None else DEFAULT_HYPERPARAMS
-    ranker = train_quality_ranker(X, y, feature_names, hyperparams=hp)
+    ranker = train_quality_ranker(X, y, feature_names, hyperparams=hp, sample_weight=sample_weight)
     stamp = _now_iso(now)
     return PortableRankerModel(
         ranker=ranker,
@@ -273,6 +278,7 @@ def warm_start_retrain(
     *,
     video_id: str | None = None,
     hyperparams: RankerHyperparams | None = None,
+    sample_weight: object | None = None,
     now: datetime | None = None,
 ) -> PortableRankerModel:
     """Retrain the model at a video boundary on the accumulated label set (PRD §7.5, UC3).
@@ -287,13 +293,15 @@ def warm_start_retrain(
     ``feature_names`` must match the model's existing schema: the accumulated set is the same
     features as before, so a differing column order/count is a caller error (a model cannot be
     extended to new features mid-life). ``hyperparams`` defaults to the model's current
-    hyperparameters so the loop is stable unless deliberately changed.
+    hyperparameters so the loop is stable unless deliberately changed. ``sample_weight`` (the §7.5
+    cold-start label weighting, recomputed each retrain) is forwarded to the fit; ``None`` fits at
+    unit weight.
 
     Raises
     ------
     ValueError
         ``feature_names`` differ from ``model.feature_names``; or propagated from the ranker fit
-        (empty/one-class labels, shape mismatch).
+        (empty/one-class labels, shape mismatch, or an invalid ``sample_weight``).
     """
     names = tuple(str(n) for n in feature_names)
     if names != model.feature_names:
@@ -303,7 +311,7 @@ def warm_start_retrain(
             "feature set"
         )
     hp = hyperparams if hyperparams is not None else model.hyperparams
-    ranker = train_quality_ranker(X, y, names, hyperparams=hp)
+    ranker = train_quality_ranker(X, y, names, hyperparams=hp, sample_weight=sample_weight)
     seen = model.videos_seen
     if video_id is not None and str(video_id) not in seen:
         seen = (*seen, str(video_id))
