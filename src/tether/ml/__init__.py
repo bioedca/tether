@@ -46,10 +46,21 @@ Landed so far (M5, FR-ML):
   clear to ship, as opposed to the optimistic in-sample apparent precision@k. Model-free (takes
   a train/score callback); the store-integrated entry point is
   :func:`tether.project.prequential.ranker_prequential_uplift`.
+- :func:`~tether.ml.drift.condition_drift` / :class:`~tether.ml.drift.DriftReport` — the
+  cross-condition **feature-distribution drift advisory** (PRD §7.5, §9 M5): a two-sample
+  Kolmogorov–Smirnov sweep with a Bonferroni family-wise correction that raises an advisory
+  (overridable) flag when a condition's model is seeded from a distributionally dissimilar one.
+  Model-free; the store entry point is :func:`tether.project.drift.cross_condition_drift`.
 """
 
 from __future__ import annotations
 
+from tether.ml.drift import (
+    DEFAULT_DRIFT_ALPHA,
+    DriftReport,
+    FeatureDrift,
+    condition_drift,
+)
 from tether.ml.features import (
     FEATURE_NAMES,
     SPATIAL_FEATURE_NAMES,
@@ -88,12 +99,15 @@ from tether.ml.ranking import (
 from tether.ml.similarity import Neighbor, SimilarityIndex, build_similarity_index
 
 __all__ = [
+    "DEFAULT_DRIFT_ALPHA",
     "DEFAULT_SHIP_BAR_PTS",
     "FEATURE_NAMES",
     "MODEL_FORMAT_VERSION",
     "SPATIAL_FEATURE_NAMES",
     "TRACE_FEATURE_NAMES",
     "CorruptModelError",
+    "DriftReport",
+    "FeatureDrift",
     "Neighbor",
     "PortableModelError",
     "PortableRankerModel",
@@ -110,6 +124,7 @@ __all__ = [
     "build_similarity_index",
     "compute_spatial_features",
     "compute_trace_features",
+    "condition_drift",
     "file_order_ranking",
     "load_model",
     "precision_at_k",
