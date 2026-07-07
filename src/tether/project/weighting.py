@@ -115,14 +115,16 @@ def recompute_label_weights(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEI
         # n_human per condition = molecules currently carrying a human accept/reject
         # (curation_label != UNCURATED) grouped by condition_id — the authoritative human state
         # (provisional sources never touch curation_label), robust to a molecule being re-curated.
-        mol_conditions = mol_table["condition_id"][:]
-        mol_labels = mol_table["curation_label"][:]
-        n_human_by_condition: dict[str, int] = {}
-        for cond, label in zip(mol_conditions, mol_labels, strict=True):
-            key = _to_str(cond)
-            n_human_by_condition[key] = n_human_by_condition.get(key, 0) + (
-                1 if int(label) != _UNCURATED else 0
-            )
+        # Vectorized (np.unique + bincount) so the count does not scale with a per-row Python loop.
+        mol_conditions = np.array([_to_str(c) for c in mol_table["condition_id"][:]])
+        curated = (mol_table["curation_label"][:].astype(np.int64) != _UNCURATED).astype(np.int64)
+        unique_conditions, inverse = np.unique(mol_conditions, return_inverse=True)
+        human_counts = np.bincount(
+            inverse.ravel(), weights=curated, minlength=unique_conditions.shape[0]
+        ).astype(np.int64)
+        n_human_by_condition = dict(
+            zip(unique_conditions.tolist(), human_counts.tolist(), strict=True)
+        )
 
         rows = labels_table[:]
         is_human = np.array([_to_str(s) == LABEL_SOURCE_HUMAN for s in rows["source"]], dtype=bool)
