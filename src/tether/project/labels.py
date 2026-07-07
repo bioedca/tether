@@ -68,6 +68,7 @@ __all__ = [
     "LABEL_SOURCE_CROSS_CONDITION",
     "LABEL_SOURCE_DEEPLASI",
     "LABEL_SOURCE_HUMAN",
+    "PROVISIONAL_LABEL_SOURCES",
     "CurationLabel",
     "accept",
     "curation_filter_mask",
@@ -103,7 +104,12 @@ class CurationLabel(IntEnum):
 LABEL_SOURCE_HUMAN = "human"
 LABEL_SOURCE_DEEPLASI = "deeplasi-provisional"
 LABEL_SOURCE_CROSS_CONDITION = "cross-condition-seed"
-LABEL_SOURCES = frozenset({LABEL_SOURCE_HUMAN, LABEL_SOURCE_DEEPLASI, LABEL_SOURCE_CROSS_CONDITION})
+#: The two provisional (non-human) sources — cold-start priors the M5 ranker folds into training
+#: at a decayed weight (§7.5), as opposed to an authoritative human accept/reject. The one canonical
+#: definition of "which sources are seed priors," so the training-fold
+#: (:func:`tether.project.gbranking.weighted_training_set`) and this vocabulary never drift apart.
+PROVISIONAL_LABEL_SOURCES = frozenset({LABEL_SOURCE_DEEPLASI, LABEL_SOURCE_CROSS_CONDITION})
+LABEL_SOURCES = frozenset({LABEL_SOURCE_HUMAN}) | PROVISIONAL_LABEL_SOURCES
 
 #: The effective training weight of a human label (PRD §7.5: "human labels are
 #: full weight (1.0)"). Not a §11.2 tunable — it is the fixed 1.0 reference the

@@ -66,6 +66,7 @@ from tether.project.gbranking import (  # noqa: E402
 )
 from tether.project.labels import (  # noqa: E402
     LABEL_SOURCE_CROSS_CONDITION,
+    LABEL_SOURCE_DEEPLASI,
     CurationLabel,
     accept,
     reject,
@@ -415,3 +416,69 @@ def test_human_counts_by_condition_empty_and_mismatch() -> None:
 
 def _ts_weight_arrays(ts) -> tuple[list[str], list[float]]:
     return ts.molecule_ids, ts.sample_weight.tolist()
+
+
+def _append_raw_label(path: Path, key: str, source: str, label_value: int) -> None:
+    """Append a ``/labels`` row with an arbitrary ``source``, bypassing ``set_curation_label``.
+
+    Lets a test drive the fold's source allow-list with a source **outside** the ``LABEL_SOURCES``
+    vocabulary (which the public writer rejects) — the defensive check that only the two seed
+    sources ever enter training.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import LABELS_DTYPE, TABLE  # noqa: PLC0415
+
+    with h5py.File(path, "r+") as f:
+        table = f["labels"][TABLE]
+        row = np.zeros(1, dtype=LABELS_DTYPE)
+        row["molecule_key"] = key
+        row["labeler"] = "test"
+        row["timestamp"] = "2026-01-01T00:00:00+00:00"
+        row["source_file"] = "test.tether"
+        row["source"] = source
+        row["weight"] = 1.0
+        row["label_value"] = int(label_value)
+        row["condition_id"] = ""
+        n = table.shape[0]
+        table.resize((n + 1,))
+        table[n:] = row
+
+
+def test_deeplasi_provisional_source_also_folds_in(tmp_path) -> None:
+    # Both seed sources train: a deeplasi-provisional prior folds in exactly like a cross-condition
+    # one, at the same decayed weight.
+    proj, keys, _ = _separable_store(tmp_path / "p.tether")
+    accept(proj.path, keys[0])
+    reject(proj.path, keys[1])  # n_human = 2
+    set_curation_label(proj.path, keys[4], CurationLabel.ACCEPT, source=LABEL_SOURCE_DEEPLASI)
+
+    ts = weighted_training_set(proj)
+    ids = _id_by_key(proj.path)
+    w_by_id = dict(zip(ts.molecule_ids, ts.sample_weight.tolist(), strict=True))
+    assert ids[keys[4]] in ts.molecule_ids
+    assert w_by_id[ids[keys[4]]] == pytest.approx(DEFAULT_SEED_WEIGHT / 3.0)  # w₀/(1+2)
+
+
+def test_unknown_label_source_is_ignored_by_the_fold(tmp_path) -> None:
+    # Only PROVISIONAL_LABEL_SOURCES train; any other non-human source is ignored, so a future
+    # annotation source can never silently enter the fit.
+    proj, keys, _ = _separable_store(tmp_path / "p.tether")
+    accept(proj.path, keys[0])
+    reject(proj.path, keys[1])  # a valid two-class human set
+    _append_raw_label(proj.path, keys[4], "future-annotation-source", int(CurationLabel.ACCEPT))
+
+    ts = weighted_training_set(proj)
+    ids = _id_by_key(proj.path)
+    assert ids[keys[4]] not in ts.molecule_ids  # the unknown-source row did not enter training
+    assert ts.n_train == 2  # only the two human labels
+
+
+def test_precision_at_k_reports_no_human_over_single_class_provisional(tmp_path) -> None:
+    # A provisional-only, single-class project: apparent precision@k is undefined (no human ground
+    # truth), and that must be surfaced before — and instead of — the model's "both classes" error.
+    proj, keys, _ = _separable_store(tmp_path / "p.tether")
+    _seed(proj.path, keys[0], CurationLabel.ACCEPT)
+    _seed(proj.path, keys[2], CurationLabel.ACCEPT)  # provisional-only, one class
+    with pytest.raises(ValueError, match="no human-labeled molecules"):
+        ranker_precision_at_k(proj, 2)

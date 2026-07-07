@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from tether.ml.weighting import DEFAULT_SEED_WEIGHT, seed_weight
-from tether.project.labels import HUMAN_WEIGHT, LABEL_SOURCE_HUMAN, CurationLabel
+from tether.project.labels import HUMAN_WEIGHT, PROVISIONAL_LABEL_SOURCES, CurationLabel
 from tether.project.ranking import ranking_dataset
 from tether.project.weighting import human_counts_by_condition
 
@@ -76,17 +76,19 @@ def _to_str(value: object) -> str:
 def _latest_provisional_labels(labels_rows: np.ndarray) -> dict[str, int]:
     """``molecule_key -> latest provisional accept/reject`` over the ``/labels`` log (PRD §7.5).
 
-    Scans the append-only ``/labels`` history in order and, for the **non-human** sources
-    (``deeplasi-provisional`` / ``cross-condition-seed``), keeps each ``molecule_key``'s *most
-    recent* ``label_value`` — a later provisional event supersedes an earlier one (a re-seed, or a
-    provisional clear to ``UNCURATED``). Keys whose latest provisional state is ``UNCURATED`` are
-    dropped, so the result is exactly the keys currently carrying a provisional accept/reject prior.
-    Human rows are ignored here: a human decision lives on ``/molecules.curation_label`` and takes
-    priority in the training-fold (:func:`weighted_training_set`), so it never reaches this overlay.
+    Scans the append-only ``/labels`` history in order and, **only** for the two provisional seed
+    sources (:data:`tether.project.labels.PROVISIONAL_LABEL_SOURCES` — ``deeplasi-provisional`` /
+    ``cross-condition-seed``), keeps each ``molecule_key``'s *most recent* ``label_value`` — a later
+    provisional event supersedes an earlier one (a re-seed, or a provisional clear to
+    ``UNCURATED``). Keys whose latest provisional state is ``UNCURATED`` are dropped, so the result
+    is exactly the keys currently carrying a provisional accept/reject prior. A ``human`` row (its
+    decision lives on ``/molecules.curation_label`` and takes priority in
+    :func:`weighted_training_set`) — and any future non-seed source — is ignored, so only the two
+    seed sources ever enter training.
     """
     state: dict[str, int] = {}
     for row in labels_rows:
-        if _to_str(row["source"]) == LABEL_SOURCE_HUMAN:
+        if _to_str(row["source"]) not in PROVISIONAL_LABEL_SOURCES:
             continue
         state[_to_str(row["molecule_key"])] = int(row["label_value"])
     return {key: value for key, value in state.items() if value != _UNCURATED}
@@ -313,12 +315,16 @@ def ranker_precision_at_k(project: ProjectRef, k: int, *, w0: float = DEFAULT_SE
     """
     from tether.ml.ranking import precision_at_k  # noqa: PLC0415
 
-    ranking, data = _train_and_rank(project, w0)
+    training, data = _prepare(project, w0)
+    # Apparent precision@k is measured against human ground truth: it is undefined when a project
+    # has no human labels — even if provisional seeds could train a model — so surface that loudly
+    # *before* any fit (a provisional-only, single-class project would otherwise raise the model's
+    # "both classes" error instead of this more precise one). Never a fabricated 0.
     if not data.is_good:
-        # The model may have trained on provisional-only priors, but apparent precision@k is
-        # measured against human ground truth — undefined here, surfaced loudly (never a fake 0).
         raise ValueError(
             f"{_project_name(project)} has no human-labeled molecules; apparent precision@k "
             "is undefined"
         )
+    ranker = _fit(training, _project_name(project))
+    ranking = ranker.rank(data.molecule_ids, data.X)
     return precision_at_k(ranking.ranked_relevance(data.is_good), k)
