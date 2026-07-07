@@ -204,6 +204,70 @@ def test_rank_requires_ids_aligned_to_rows() -> None:
         ranker.rank(ids[:-1], X)
 
 
+# --- sample_weight seam (cold-start label weighting, PRD §7.5) ---------------
+
+
+def test_sample_weight_none_matches_unweighted() -> None:
+    # The default (None) fits every labeled molecule at unit weight — behaviourally identical to
+    # not passing the kwarg at all.
+    X, y, _ = _separable()
+    s_default = train_quality_ranker(X, y, FEATURES).score(X)
+    s_none = train_quality_ranker(X, y, FEATURES, sample_weight=None).score(X)
+    assert np.array_equal(s_default, s_none)
+
+
+def test_uniform_sample_weight_matches_unweighted() -> None:
+    # A uniform weight vector is the same fit as the unweighted default (deterministic HGB).
+    X, y, _ = _separable()
+    s_unweighted = train_quality_ranker(X, y, FEATURES).score(X)
+    s_uniform = train_quality_ranker(X, y, FEATURES, sample_weight=np.ones(len(y))).score(X)
+    assert np.array_equal(s_unweighted, s_uniform)
+
+
+def test_nonuniform_sample_weight_changes_the_fit() -> None:
+    # Non-uniform weights actually reach the model: strongly re-weighting the classes changes the
+    # learned scores relative to the uniform fit (the seam is live, not ignored).
+    X, y, _ = _separable(40, seed=2)
+    uniform = train_quality_ranker(X, y, FEATURES, sample_weight=np.ones(len(y))).score(X)
+    w = np.where(y, 100.0, 0.01)  # up-weight good, down-weight bad
+    weighted = train_quality_ranker(X, y, FEATURES, sample_weight=w).score(X)
+    assert not np.allclose(uniform, weighted)
+
+
+def test_zero_weights_are_allowed_and_train() -> None:
+    # Zero is a valid weight (a fully-decayed prior); a mix of zero and positive weights, with both
+    # classes still positively weighted, trains a valid never-drop ranking.
+    X, y, ids = _separable()
+    w = np.ones(len(y))
+    w[1] = 0.0  # ignore one good and one bad row
+    w[-2] = 0.0
+    ranker = train_quality_ranker(X, y, FEATURES, sample_weight=w)
+    assert ranker.rank(ids, X).n == len(ids)
+
+
+def test_sample_weight_wrong_length_raises() -> None:
+    X, y, _ = _separable()
+    with pytest.raises(ValueError, match="sample_weight must be a 1-D array of length"):
+        train_quality_ranker(X, y, FEATURES, sample_weight=np.ones(len(y) - 1))
+
+
+def test_sample_weight_negative_raises() -> None:
+    X, y, _ = _separable()
+    w = np.ones(len(y))
+    w[0] = -1.0
+    with pytest.raises(ValueError, match="non-negative"):
+        train_quality_ranker(X, y, FEATURES, sample_weight=w)
+
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf])
+def test_sample_weight_non_finite_raises(bad: float) -> None:
+    X, y, _ = _separable()
+    w = np.ones(len(y))
+    w[0] = bad
+    with pytest.raises(ValueError, match="non-finite"):
+        train_quality_ranker(X, y, FEATURES, sample_weight=w)
+
+
 # --- lazy dependency: importing tether.ml stays scikit-learn-free ------------
 
 

@@ -41,8 +41,11 @@ the M5 ranker consumes. Logging a *category* assignment to ``/labels`` is deferr
 to **M4**: category is independent of accept/reject (§7.6), its authoritative home
 is ``/molecules.category``, and neither the editable per-condition category list
 nor its integer↔category lookup (which a ``label_value`` encoding would need)
-exists until M4 (ADR-0023). ``weight`` is fixed at the human full weight here; the
-``source``-driven decay law (``w = w₀/(1+n_human)``, §7.5) is an M5 retrain concern.
+exists until M4 (ADR-0023). Each row's ``weight`` is written at the human full weight here;
+the ``source``-driven cold-start decay (``w = w₀/(1+n_human)``, §7.5) that down-weights a
+provisional/seed prior is applied at retrain time by
+:func:`tether.project.weighting.recompute_label_weights` (ADR-0036), which rewrites this
+column from the current label set.
 """
 
 from __future__ import annotations

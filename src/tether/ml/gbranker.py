@@ -37,16 +37,19 @@ needs (ADR-0034):
 * **Determinism** given ``random_state`` (which seeds the histogram-binning subsample — a
   draw that only occurs far above the curation regime; early stopping off), so a ranking is
   reproducible.
-* **``sample_weight``** in ``fit`` — the seam the later label-weighting / cold-start-decay PR
-  (PRD §7.5 ``w = w₀/(1+n_human)``) needs, with no model change.
+* **``sample_weight``** in ``fit`` — the seam the cold-start label-weighting decay (PRD §7.5
+  ``w = w₀/(1+n_human)``, :mod:`tether.ml.weighting`) plugs into with no model change: each
+  labeled molecule is fit weighted by its ``/labels`` source (human = full, provisional/seed
+  decayed) [sklearn-sample-weight].
 
-Scope (this PR — PLAN §9 M5 "gradient-boosting ranker"). The **trained scorer + the
-never-auto-drop ranking + apparent precision@k** only. Persistence as a portable artifact
-(load / warm-start-retrain / save), per-label weighting, the **prequential**
-median-across-videos ship gate, cross-condition seeding, and the active-learning badge are
-each their own later PR. In particular the precision@k this module can report over the
-training labels is **apparent (in-sample)** and is *not* the ship gate — the honest held-out
-prequential evaluation lands in the prequential PR (PRD §7.5; oracle (d)).
+Scope. The **trained scorer + the never-auto-drop ranking + apparent precision@k**, plus the
+optional ``sample_weight`` fit seam the cold-start label-weighting decay uses (the decay *law*
+itself is :mod:`tether.ml.weighting`; its ``/labels`` recompute is
+:func:`tether.project.weighting.recompute_label_weights`). The precision@k this module can report
+over the training labels is **apparent (in-sample)** and is *not* the ship gate — the honest
+held-out prequential evaluation lives in :mod:`tether.ml.prequential` (PRD §7.5; oracle (d)).
+Cross-condition seeding, the drift flag, and the active-learning badge remain each their own later
+PR.
 
 Never-auto-drop. :meth:`QualityRanker.rank` is a permutation of the molecule set — every
 molecule is scored and kept, ordering is invariant to the input order (a pure function of the
@@ -68,6 +71,10 @@ References
     FRET data classification using deep learning." eLife (2020).
 [Wanninger2023] Wanninger et al. "Deep-LASI: deep-learning assisted, single-molecule imaging
     analysis of multi-color DNA origami structures." Nature Communications (2023).
+[sklearn-sample-weight] scikit-learn, "Ensemble methods — sample weight support"
+    (https://scikit-learn.org/stable/modules/ensemble.html) — ``HistGradientBoosting*`` multiply
+    each sample's gradient/hessian by its ``sample_weight``; a zero-weight sample is effectively
+    ignored (the binning stage does not weight).
 """
 
 from __future__ import annotations
@@ -206,12 +213,36 @@ class QualityRanker:
         return rank_by_score(ids, self.score(matrix), descending=True)
 
 
+def _as_sample_weight(sample_weight: object, n_rows: int) -> np.ndarray:
+    """Coerce + validate per-row training weights aligned to the ``n_rows`` labeled molecules.
+
+    A training weight is a *known* quantity the caller computed (the §7.5 cold-start decay), never
+    an undefined feature, so a non-finite or negative entry is a caller error surfaced loudly
+    (mirrors :func:`_as_labels`). Zero is allowed — scikit-learn treats a zero-weight sample as
+    effectively ignored during the fit, the intended "fully-decayed prior" behaviour.
+    """
+    weights = np.asarray(sample_weight, dtype=np.float64)
+    if weights.ndim != 1 or weights.shape[0] != n_rows:
+        raise ValueError(
+            f"sample_weight must be a 1-D array of length {n_rows} (one per labeled molecule), "
+            f"got shape {weights.shape}"
+        )
+    if not bool(np.isfinite(weights).all()):
+        raise ValueError(
+            "sample_weight has non-finite entries; expected finite, non-negative weights"
+        )
+    if bool((weights < 0.0).any()):
+        raise ValueError("sample_weight must be non-negative (a training weight is never < 0)")
+    return weights
+
+
 def train_quality_ranker(
     X: object,
     y: object,
     feature_names: Sequence[str],
     *,
     hyperparams: RankerHyperparams | None = None,
+    sample_weight: object | None = None,
 ) -> QualityRanker:
     """Fit the gradient-boosting quality ranker on human accept/reject labels (PRD §7.5).
 
@@ -228,6 +259,14 @@ def train_quality_ranker(
         validate their inputs).
     hyperparams:
         Override the :data:`DEFAULT_HYPERPARAMS` (PRD §11.2).
+    sample_weight:
+        Optional ``(n_labeled,)`` per-row training weights aligned to ``X``/``y`` — the **cold-start
+        label-weighting** seam (PRD §7.5, ``w = w₀/(1+n_human)``): a human label is full weight, a
+        provisional/seed prior is down-weighted (:mod:`tether.ml.weighting`,
+        :func:`tether.project.weighting.recompute_label_weights`). ``None`` (default) fits every
+        labeled molecule at unit weight (behaviourally identical to the unweighted fit).
+        scikit-learn multiplies each sample's gradient/hessian by its weight, so a zero-weight row
+        is effectively ignored [sklearn-sample-weight].
 
     Returns
     -------
@@ -238,6 +277,7 @@ def train_quality_ranker(
     ------
     ValueError
         ``X`` is not 2-D with ``len(feature_names)`` columns; ``X``/``y`` lengths disagree;
+        ``sample_weight`` is not a length-``n_labeled`` finite non-negative 1-D array;
         there are no labeled molecules; or only one class is present (a discriminative ranker
         needs both accepted **and** rejected examples — surfaced loudly, not silently fit to a
         constant).
@@ -259,6 +299,7 @@ def train_quality_ranker(
         )
     if labels.shape[0] == 0:
         raise ValueError("cannot train a quality ranker with no labeled molecules")
+    weights = None if sample_weight is None else _as_sample_weight(sample_weight, matrix.shape[0])
     if int(np.unique(labels).shape[0]) < 2:
         only = "accepted" if bool(labels[0]) else "rejected"
         raise ValueError(
@@ -276,7 +317,7 @@ def train_quality_ranker(
         early_stopping=hp.early_stopping,
         random_state=hp.random_state,
     )
-    model.fit(matrix, labels)
+    model.fit(matrix, labels, sample_weight=weights)
     # classes_ is [False, True] (labels coerced to bool); the good-probability column is
     # whichever position True lands in — read it explicitly rather than assuming column 1.
     good_col = int(np.flatnonzero(np.asarray(model.classes_) == True)[0])  # noqa: E712

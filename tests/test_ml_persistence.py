@@ -516,3 +516,35 @@ def test_save_failure_cleans_up_temp_and_preserves_prior(tmp_path, monkeypatch) 
     # No leftover temp file, and the prior model still loads unchanged.
     assert [p.name for p in tmp_path.iterdir()] == ["c.tethermodel"]
     assert load_model(path).condition_id == "prior"
+
+
+# --- sample_weight passthrough (cold-start label weighting, PRD §7.5) ---------
+
+
+def test_train_portable_model_forwards_sample_weight() -> None:
+    # The cold-start weighting reaches the fit through the portable trainer: None matches the
+    # unweighted fit, and non-uniform weights change it.
+    X, y, _ = _separable(40, seed=3)
+    unweighted = train_portable_model(X, y, FEATURES, condition_id="c").score(X)
+    none = train_portable_model(X, y, FEATURES, condition_id="c", sample_weight=None).score(X)
+    weighted = train_portable_model(
+        X, y, FEATURES, condition_id="c", sample_weight=np.where(y, 100.0, 0.01)
+    ).score(X)
+    assert np.array_equal(unweighted, none)
+    assert not np.allclose(unweighted, weighted)
+
+
+def test_warm_start_retrain_forwards_sample_weight() -> None:
+    X, y, _ = _separable(40, seed=4)
+    base = train_portable_model(X, y, FEATURES, condition_id="c", video_id="v1")
+    unweighted = warm_start_retrain(base, X, y, FEATURES, video_id="v2").score(X)
+    weighted = warm_start_retrain(
+        base, X, y, FEATURES, video_id="v2", sample_weight=np.where(y, 100.0, 0.01)
+    ).score(X)
+    assert not np.allclose(unweighted, weighted)
+
+
+def test_portable_model_rejects_invalid_sample_weight() -> None:
+    X, y, _ = _separable()
+    with pytest.raises(ValueError, match="sample_weight"):
+        train_portable_model(X, y, FEATURES, condition_id="c", sample_weight=np.ones(len(y) - 1))
