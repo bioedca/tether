@@ -177,6 +177,18 @@ def test_scorer_misshapen_scores_raises() -> None:
         prequential_uplift(folds, _wrong_length, k=2)
 
 
+@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+def test_scorer_nonfinite_scores_raises_not_ranked_last(bad) -> None:
+    # A NaN score would otherwise be silently ranked last by rank_by_score, quietly skewing the
+    # ship-gate; a malformed (non-finite) scorer output must fail loudly instead.
+    def _nonfinite(_xp, _yp):
+        return lambda x: np.full(np.asarray(x).shape[0], bad, dtype=np.float64)
+
+    folds = [_fold("v1", [0.0, 1.0], [False, True]), _goods_last("v2")]
+    with pytest.raises(ValueError, match="non-finite"):
+        prequential_uplift(folds, _nonfinite, k=2)
+
+
 def test_deterministic_across_runs() -> None:
     folds = [_fold("v1", [0.0, 1.0], [False, True]), _goods_last("v2"), _goods_last("v3")]
     a = prequential_uplift(folds, _perfect, k=2)

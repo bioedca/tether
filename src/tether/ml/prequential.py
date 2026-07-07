@@ -232,6 +232,15 @@ def prequential_uplift(
                     f"train_score_fn scorer returned {scores.shape} scores for video "
                     f"{fold.movie_id!r} with {fold.n} molecules; they must align"
                 )
+            # A NaN score would be silently ranked last by rank_by_score (its unscored-molecule
+            # contract); here a non-finite score is instead a malformed scorer, so surface it
+            # loudly rather than let it quietly skew a ship-gate decision (the never-fabricate
+            # discipline extended to the model's output).
+            if not bool(np.isfinite(scores).all()):
+                raise ValueError(
+                    f"train_score_fn scorer returned non-finite (NaN/inf) scores for video "
+                    f"{fold.movie_id!r}"
+                )
             is_good = dict(zip(fold.molecule_ids, fold.is_good, strict=True))
             candidate = rank_by_score(fold.molecule_ids, scores)
             baseline = file_order_ranking(fold.molecule_ids)

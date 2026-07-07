@@ -294,6 +294,20 @@ def test_k_must_be_positive_int(tmp_path) -> None:
         ranker_prequential_uplift(proj, 0)
 
 
+def test_broken_store_labeled_molecule_without_molecules_row_raises(tmp_path, monkeypatch) -> None:
+    # Defensive guard in _folds_and_feature_names: a labeled+featured molecule whose /molecules
+    # row is missing (a corrupt store) is surfaced loudly, never silently mis-grouped. Simulate
+    # the inconsistency by making read_molecules omit one molecule while its /features + /labels
+    # rows remain (curation_labels reads /molecules directly, so is_good still includes it).
+    import tether.imaging.extract as _extract  # noqa: PLC0415
+
+    proj, _ = _multi_movie_store(tmp_path / "x.tether", n_movies=2, n_per_class=8)
+    real_read = _extract.read_molecules
+    monkeypatch.setattr(_extract, "read_molecules", lambda path: real_read(path)[:-1])
+    with pytest.raises(ValueError, match="no /molecules movie_id"):
+        prequential_folds(proj)
+
+
 def test_before_compute_features_raises(tmp_path) -> None:
     path = tmp_path / "x.tether"
     donor, acceptor, _ = _discriminable_traces(8, seed=1)
