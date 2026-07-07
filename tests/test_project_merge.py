@@ -257,6 +257,27 @@ def test_append_only_and_idempotent_re_pull(tmp_path) -> None:
     assert curation_labels(owner)[okeys[1]] == _ACCEPT
 
 
+def test_within_batch_duplicate_events_deduped(tmp_path) -> None:
+    # A single source can carry two identical-provenance human rows (a chained/replayed split file):
+    # they must dedupe against each other, not just against the owner's pre-merge log — only one is
+    # appended and `appended` stays exact.
+    owner = tmp_path / "owner.tether"
+    split = tmp_path / "split.tether"
+    okeys = _store(owner, n=3)
+    _store(split, n=3)
+    ts = "2026-07-07T00:00:00+00:00"
+    set_curation_label(split, okeys[1], CurationLabel.ACCEPT, labeler="bob", timestamp=ts)
+    set_curation_label(split, okeys[1], CurationLabel.ACCEPT, labeler="bob", timestamp=ts)
+    assert _n_rows(split) == 2  # two byte-identical event rows in the source
+
+    n_before = _n_rows(owner)
+    report = merge_labels(owner, split)
+
+    assert report.appended == 1  # not 2 — the within-batch duplicate is skipped
+    assert report.skipped_duplicate == 1
+    assert _n_rows(owner) == n_before + 1
+
+
 def test_provisional_source_rows_are_not_pulled(tmp_path) -> None:
     # A contributor's provisional seed rows are the owner's own machine priors (ADR-0038), not human
     # curation: they are counted (skipped_non_human), never merged.

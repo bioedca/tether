@@ -289,9 +289,14 @@ def merge_labels(
                 _to_str(row["labeler"]),
                 _to_str(row["source_file"]),
             )
-            if _event_key(row) in existing_events:
+            # Dedup against both the owner's pre-merge log AND rows already accepted in this batch
+            # (a chained/replayed split file can carry two identical-provenance rows): add each
+            # accepted key back so within-batch duplicates are skipped too (exact `appended`).
+            ev = _event_key(row)
+            if ev in existing_events:
                 skipped_duplicate += 1
                 continue
+            existing_events.add(ev)
             matched_new.append(row)
 
         # 1) Append the new contributor human rows (append-only; resize + slice-assign, the
