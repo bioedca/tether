@@ -90,6 +90,13 @@ def condition_feature_matrices(project: ProjectRef) -> dict[str, np.ndarray]:
     property of the full feature distribution. Column order is the stored feature order
     (:data:`tether.ml.features.FEATURE_NAMES`). Read-only.
 
+    Cost / reuse. Each call performs **one** store read (``/features`` + ``/molecules``). A caller
+    that needs both this grouping and a drift comparison — or that compares many condition pairs —
+    should read once here and pass two of the returned matrices straight to the store-free
+    :func:`tether.ml.drift.condition_drift` (its column contract is this same
+    :data:`~tether.ml.features.FEATURE_NAMES` order), rather than also calling
+    :func:`cross_condition_drift`, which re-reads the store.
+
     Raises
     ------
     KeyError
@@ -114,7 +121,9 @@ def cross_condition_drift(
     The store-integrated cross-condition drift flag PRD §7.5 requires before seeding a condition's
     ranker from another: compares the two conditions' ``/features`` distributions
     (:func:`tether.ml.drift.condition_drift`) and returns the per-feature verdicts plus the overall
-    **advisory, overridable** flag. Read-only.
+    **advisory, overridable** flag. Read-only, one store read per call — a caller comparing many
+    pairs should instead read once via :func:`condition_feature_matrices` and call
+    :func:`tether.ml.drift.condition_drift` per pair (see that function's "Cost / reuse" note).
 
     Parameters
     ----------
