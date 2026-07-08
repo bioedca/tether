@@ -298,47 +298,8 @@ def test_measure_spread_rejects_zero_comparison_configs():
 # the committed frozen artifact (PR-facing — runs in the base CI matrix)       #
 # --------------------------------------------------------------------------- #
 
-
-def test_frozen_artifact_covers_its_own_measured_evidence():
-    """The committed tolerance must satisfy every recorded per-run measurement.
-
-    This is the PR-facing parity check: it needs no sidecar (it asserts the
-    *frozen JSON* against its own recorded spread), so branch protection can gate
-    on it via the base `test` matrix, while the live sidecar fit stays in the
-    out-of-band `sidecar.yml`. A tampered/loosened artifact or a freeze that does
-    not cover its evidence fails here.
-    """
-    data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
-    tol = data["tolerance"]
-    # Provisional defaults are the documented floor/ceiling design intent.
-    assert data["provisional"] == PROVISIONAL
-    floors = {
-        "state_count_fraction": "state_count_min_fraction",
-        "viterbi_agreement": "viterbi_min_agreement",
-    }
-    ceilings = {
-        "state_mean_abs_delta": "state_mean_abs_delta_max",
-        "relative_elbo": "relative_elbo_max",
-    }
-    for fixture in data["spread_by_fixture"].values():
-        for metric, summ in fixture["metrics"].items():
-            for v in summ["values"]:
-                if metric in floors:
-                    assert v >= tol[floors[metric]], f"{metric}={v} below frozen floor"
-                else:
-                    assert v <= tol[ceilings[metric]], f"{metric}={v} above frozen ceiling"
-
-
-def test_load_frozen_tolerance_returns_the_four_bounds():
-    tol = load_frozen_tolerance(FROZEN_JSON)
-    assert set(tol) == set(PROVISIONAL)
-    assert all(np.isfinite(v) for v in tol.values())
-
-
-# --------------------------------------------------------------------------- #
-# per-method tolerances (ebFRET frozen separately from vbconhmm — ADR-0043)     #
-# --------------------------------------------------------------------------- #
-
+# metric name -> its bound key in a tolerance dict; shared by the top-level and
+# the per-method evidence checks so the metric→bound mapping lives in one place.
 _FLOORS = {
     "state_count_fraction": "state_count_min_fraction",
     "viterbi_agreement": "viterbi_min_agreement",
@@ -350,6 +311,7 @@ _CEILINGS = {
 
 
 def _assert_spread_within(spread_by_fixture, tol):
+    """Every recorded per-run value must sit within ``tol``'s floors/ceilings."""
     for fixture in spread_by_fixture.values():
         for metric, summ in fixture["metrics"].items():
             for v in summ["values"]:
@@ -357,6 +319,32 @@ def _assert_spread_within(spread_by_fixture, tol):
                     assert v >= tol[_FLOORS[metric]], f"{metric}={v} below frozen floor"
                 else:
                     assert v <= tol[_CEILINGS[metric]], f"{metric}={v} above frozen ceiling"
+
+
+def test_frozen_artifact_covers_its_own_measured_evidence():
+    """The committed tolerance must satisfy every recorded per-run measurement.
+
+    This is the PR-facing parity check: it needs no sidecar (it asserts the
+    *frozen JSON* against its own recorded spread), so branch protection can gate
+    on it via the base `test` matrix, while the live sidecar fit stays in the
+    out-of-band `sidecar.yml`. A tampered/loosened artifact or a freeze that does
+    not cover its evidence fails here.
+    """
+    data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
+    # Provisional defaults are the documented floor/ceiling design intent.
+    assert data["provisional"] == PROVISIONAL
+    _assert_spread_within(data["spread_by_fixture"], data["tolerance"])
+
+
+def test_load_frozen_tolerance_returns_the_four_bounds():
+    tol = load_frozen_tolerance(FROZEN_JSON)
+    assert set(tol) == set(PROVISIONAL)
+    assert all(np.isfinite(v) for v in tol.values())
+
+
+# --------------------------------------------------------------------------- #
+# per-method tolerances (ebFRET frozen separately from vbconhmm — ADR-0043)     #
+# --------------------------------------------------------------------------- #
 
 
 def test_per_method_tolerances_cover_their_own_measured_evidence():
