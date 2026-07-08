@@ -51,10 +51,17 @@ Landed so far (M5, FR-ML):
   Kolmogorov–Smirnov sweep with a Bonferroni family-wise correction that raises an advisory
   (overridable) flag when a condition's model is seeded from a distributionally dissimilar one.
   Model-free; the store entry point is :func:`tether.project.drift.cross_condition_drift`.
+- :func:`~tether.ml.active.recommend_next` / :func:`~tether.ml.active.informativeness` /
+  :class:`~tether.ml.active.NextBadge` — the active-learning **"recommended next"
+  non-reordering badge** (PRD §7.5, §9 M5): uncertainty sampling names the single uncurated
+  molecule of maximal predictive uncertainty (``P(good)`` nearest the ``0.5`` boundary) as a
+  cue over the fixed within-video sweep, never reordering it. Model-free; the store entry point
+  is :func:`tether.project.active.next_recommendation`.
 """
 
 from __future__ import annotations
 
+from tether.ml.active import BOUNDARY, NextBadge, informativeness, recommend_next
 from tether.ml.drift import (
     DEFAULT_DRIFT_ALPHA,
     DriftReport,
@@ -99,6 +106,7 @@ from tether.ml.ranking import (
 from tether.ml.similarity import Neighbor, SimilarityIndex, build_similarity_index
 
 __all__ = [
+    "BOUNDARY",
     "DEFAULT_DRIFT_ALPHA",
     "DEFAULT_SHIP_BAR_PTS",
     "FEATURE_NAMES",
@@ -109,6 +117,7 @@ __all__ = [
     "DriftReport",
     "FeatureDrift",
     "Neighbor",
+    "NextBadge",
     "PortableModelError",
     "PortableRankerModel",
     "PrequentialResult",
@@ -126,11 +135,13 @@ __all__ = [
     "compute_trace_features",
     "condition_drift",
     "file_order_ranking",
+    "informativeness",
     "load_model",
     "precision_at_k",
     "precision_at_k_uplift",
     "prequential_uplift",
     "rank_by_score",
+    "recommend_next",
     "save_model",
     "train_portable_model",
     "train_quality_ranker",
