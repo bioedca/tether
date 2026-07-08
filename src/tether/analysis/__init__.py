@@ -27,6 +27,15 @@ Added at M4 (FR-ANNOTATE, PRD §5.1/§7.7):
 - :func:`~tether.analysis.query.query_molecules` — the cross-movie condition
   query/filter (by key fields + tags + category), aggregating a condition's
   molecules across all its movies/files.
+
+Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
+
+- :func:`~tether.analysis.histogram.per_condition_apparent_e_histograms` — the
+  per-condition overlay: each condition's apparent-E histogram binned on one
+  shared axis (density-normalized for cross-condition shape comparison) with its
+  molecule-count ``N`` annotation. This is the M6-owned §7.7 "per-condition
+  overlays" clause, which only becomes meaningful once the M4 condition model
+  exists.
 """
 
 from __future__ import annotations
@@ -42,10 +51,13 @@ from tether.analysis.histogram import (
     DEFAULT_NBINS,
     DEFAULT_RANGE,
     DEFAULT_SEED,
+    ConditionHistogram,
     Histogram1D,
     HistogramBootstrapCI,
+    PerConditionHistograms,
     apparent_e_histogram,
     bootstrap_histogram_ci,
+    per_condition_apparent_e_histograms,
     population_apparent_e_histogram,
     population_apparent_e_histogram_ci,
 )
@@ -61,14 +73,17 @@ __all__ = [
     "DEFAULT_NBINS",
     "DEFAULT_RANGE",
     "DEFAULT_SEED",
+    "ConditionHistogram",
     "ConditionQueryResult",
     "CrossCorrelation",
     "Histogram1D",
     "HistogramBootstrapCI",
     "MoleculeMatch",
+    "PerConditionHistograms",
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
     "cross_correlation",
+    "per_condition_apparent_e_histograms",
     "population_apparent_e_histogram",
     "population_apparent_e_histogram_ci",
     "population_cross_correlation",
