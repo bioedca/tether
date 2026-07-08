@@ -21,6 +21,8 @@ from tether.idealize.driver import (
     dwells_from_states,
     read_model,
     resolve_sidecar_python,
+    run_ebhmm,
+    run_vbconhmm,
     run_vbfret,
     states_from_idealized,
 )
@@ -74,6 +76,8 @@ __all__ = [
     "read_smd",
     "relative_elbo",
     "resolve_sidecar_python",
+    "run_ebhmm",
+    "run_vbconhmm",
     "run_vbfret",
     "state_count_fraction",
     "state_mean_abs_delta",

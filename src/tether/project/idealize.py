@@ -90,6 +90,7 @@ if TYPE_CHECKING:
 __all__ = [
     "IDEALIZATION_GROUP",
     "MODEL_TYPE_DEFAULT",
+    "MODEL_TYPE_EBHMM",
     "NSTATES_GRID_DEFAULT",
     "StoredIdealization",
     "idealize_molecules",
@@ -109,6 +110,9 @@ IDEALIZATION_GROUP = "idealization"
 _WRITING_SUFFIX = ".__writing__"
 #: Default idealization method (the consensus VB-HMM behind the M0.5 parity target).
 MODEL_TYPE_DEFAULT = "vbconhmm"
+#: ebFRET empirical-Bayes population HMM [vandeMeent2014] — the second global
+#: idealizer the M6 suite offers (a ``model_type`` value for :func:`idealize_molecules`).
+MODEL_TYPE_EBHMM = "ebhmm"
 #: State counts swept for auto (max-ELBO) model selection when ``nstates`` is None
 #: (PRD §11.2 idealization tunable; the vbFRET-family model-selection range).
 NSTATES_GRID_DEFAULT: tuple[int, ...] = (1, 2, 3, 4)
@@ -169,6 +173,16 @@ class StoredIdealization:
     elbo_by_nstates: dict[int, float] | None
     app_version: str
     created_utc: str
+    # Appendix-D.2 population-model members (PRD §10): the N×N transition-rate
+    # matrix, the unnormalized initial-state Dirichlet posterior ``pi`` (divide by
+    # its sum for the initial-state probability vector), the normalized state
+    # populations ``frac``, and the variational prior hyperparameters (the
+    # ``priors/`` subgroup). ``None`` for a model type that produces none
+    # (threshold/k-means) or a legacy model written before M6.
+    rates: np.ndarray | None = None
+    pi: np.ndarray | None = None
+    frac: np.ndarray | None = None
+    priors: dict[str, np.ndarray] | None = None
 
     @property
     def n_molecules(self) -> int:
@@ -593,6 +607,10 @@ def write_idealization_model(
     app_version: str,
     created_utc: str,
     overwrite: bool,
+    rates: np.ndarray | None = None,
+    pi: np.ndarray | None = None,
+    frac: np.ndarray | None = None,
+    priors: dict[str, np.ndarray] | None = None,
     extra_attrs: dict[str, object] | None = None,
 ) -> None:
     """Persist one ``/idealization/{model_name}`` subgroup as additive data.
@@ -603,7 +621,10 @@ def write_idealization_model(
     (:func:`tether.project.handoff.apply_reconcile`, ``selected_by="imported"``) so
     both stamp the exact same datasets/attrs against the M0-frozen ``/idealization``
     container group — a subgroup here is per-record data, never a structural change,
-    so ``schema-guard`` stays green (ADR-0024, ADR-0025).
+    so ``schema-guard`` stays green (ADR-0024, ADR-0025). The optional population-model
+    members ``rates``/``pi``/``frac`` and the ``priors/`` subgroup (Appendix D.2, PRD
+    §10) are written when the fit produced them (ADR-0041); they are per-record data
+    too, so the freeze is unaffected.
 
     The model is staged in a transient ``{model_name}.__writing__`` subgroup and only
     then swapped in (delete the old entry, rename the staged one). A crash **before**
@@ -682,6 +703,18 @@ def write_idealization_model(
             g.create_dataset("tmatrix", data=np.asarray(tmatrix, dtype="float64"))
         if norm_tmatrix is not None:
             g.create_dataset("norm_tmatrix", data=np.asarray(norm_tmatrix, dtype="float64"))
+        # Appendix-D.2 population-model members (PRD §10). Written only when the fit
+        # produced them; a threshold/k-means model has no rate matrix or priors.
+        if rates is not None:
+            g.create_dataset("rates", data=np.asarray(rates, dtype="float64"))
+        if pi is not None:
+            g.create_dataset("pi", data=np.asarray(pi, dtype="float64"))
+        if frac is not None:
+            g.create_dataset("frac", data=np.asarray(frac, dtype="float64"))
+        if priors:
+            pg = g.create_group("priors")
+            for name, arr in priors.items():
+                pg.create_dataset(name, data=np.asarray(arr, dtype="float64"))
         g.create_dataset(
             "idealized", data=np.asarray(idealized, dtype="float64"), compression="gzip"
         )
@@ -728,6 +761,16 @@ def _write_model(
     norm_tmatrix = (
         None if model.norm_tmatrix is None else np.asarray(model.norm_tmatrix, dtype="float64")
     )
+    # Appendix-D.2 population-model members (PRD §10; carried whenever the fit
+    # produced them — a consensus VB-HMM / ebFRET model does).
+    rates = None if model.rates is None else np.asarray(model.rates, dtype="float64")
+    pi = None if model.pi is None else np.asarray(model.pi, dtype="float64")
+    frac = None if model.frac is None else np.asarray(model.frac, dtype="float64")
+    priors = (
+        None
+        if model.priors is None
+        else {k: np.asarray(v, dtype="float64") for k, v in model.priors.items()}
+    )
 
     write_idealization_model(
         path,
@@ -751,6 +794,10 @@ def _write_model(
         app_version=app_version,
         created_utc=created,
         overwrite=overwrite,
+        rates=rates,
+        pi=pi,
+        frac=frac,
+        priors=priors,
     )
 
     return StoredIdealization(
@@ -772,6 +819,10 @@ def _write_model(
         elbo_by_nstates=elbo_by_nstates,
         app_version=app_version,
         created_utc=created,
+        rates=rates,
+        pi=pi,
+        frac=frac,
+        priors=priors,
     )
 
 
@@ -822,6 +873,16 @@ def read_idealization(
             if elbo_json is not None
             else None
         )
+        # The Appendix-D.2 ``priors/`` subgroup (population-model hyperparameters):
+        # every dataset in it, or None for a model that carries no priors.
+        priors: dict[str, np.ndarray] | None = None
+        if "priors" in g and isinstance(g["priors"], h5py.Group):
+            pg = g["priors"]
+            priors = {
+                name: np.asarray(pg[name][()], dtype="float64")
+                for name in pg
+                if isinstance(pg[name], h5py.Dataset)
+            } or None
         return StoredIdealization(
             model_name=model_name,
             model_type=_to_str(g.attrs.get("type", "")),
@@ -841,6 +902,10 @@ def read_idealization(
             elbo_by_nstates=elbo_by_nstates,
             app_version=_to_str(g.attrs.get("app_version", "")),
             created_utc=_to_str(g.attrs.get("created_utc", "")),
+            rates=_opt("rates"),
+            pi=_opt("pi"),
+            frac=_opt("frac"),
+            priors=priors,
         )
 
 
