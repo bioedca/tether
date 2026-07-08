@@ -41,6 +41,13 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   ``model_on`` overlay: the idealized population model's per-state Gaussians
   (``frac·𝒩(mean, var)``) and their sum, drawn on the histogram axis
   [Gopich2010]. The idealized model's own state emissions, not a fresh GMM fit.
+- :func:`~tether.analysis.histogram.time_signal_histogram2d` /
+  :func:`~tether.analysis.histogram.population_time_signal_histogram2d` — the A2
+  2-D time-vs-signal occupancy heatmap (tMAVEN ``data_hist2d.py``), raw /
+  start-synchronized mode: each accepted molecule's windowed apparent E binned
+  into a ``(time, signal)`` grid so the population's FRET evolution over the
+  analysis window is visible [Nettels2024]. The post-synchronized (transition-
+  aligned) mode is a follow-up.
 """
 
 from __future__ import annotations
@@ -57,8 +64,13 @@ from tether.analysis.histogram import (
     DEFAULT_OVERLAY_POINTS,
     DEFAULT_RANGE,
     DEFAULT_SEED,
+    DEFAULT_SIGNAL_BINS,
+    DEFAULT_SIGNAL_RANGE,
+    DEFAULT_TIME_BINS,
+    DEFAULT_TIME_DT,
     ConditionHistogram,
     Histogram1D,
+    Histogram2D,
     HistogramBootstrapCI,
     ModelGaussianOverlay,
     PerConditionHistograms,
@@ -69,6 +81,8 @@ from tether.analysis.histogram import (
     population_apparent_e_histogram,
     population_apparent_e_histogram_ci,
     population_model_gaussian_overlay,
+    population_time_signal_histogram2d,
+    time_signal_histogram2d,
 )
 from tether.analysis.query import (
     ConditionQueryResult,
@@ -83,10 +97,15 @@ __all__ = [
     "DEFAULT_OVERLAY_POINTS",
     "DEFAULT_RANGE",
     "DEFAULT_SEED",
+    "DEFAULT_SIGNAL_BINS",
+    "DEFAULT_SIGNAL_RANGE",
+    "DEFAULT_TIME_BINS",
+    "DEFAULT_TIME_DT",
     "ConditionHistogram",
     "ConditionQueryResult",
     "CrossCorrelation",
     "Histogram1D",
+    "Histogram2D",
     "HistogramBootstrapCI",
     "ModelGaussianOverlay",
     "MoleculeMatch",
@@ -100,5 +119,7 @@ __all__ = [
     "population_apparent_e_histogram_ci",
     "population_cross_correlation",
     "population_model_gaussian_overlay",
+    "population_time_signal_histogram2d",
     "query_molecules",
+    "time_signal_histogram2d",
 ]
