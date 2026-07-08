@@ -27,6 +27,8 @@ from tether.idealize import (
     dwells_from_states,
     read_model,
     resolve_sidecar_python,
+    run_ebhmm,
+    run_vbconhmm,
     run_vbfret,
     states_from_idealized,
 )
@@ -37,14 +39,23 @@ h5py = pytest.importorskip("h5py")
 
 
 def _write_model(path, **fields):
-    """Write a minimal Appendix-D.2 ``model`` group with the given members."""
+    """Write a minimal Appendix-D.2 ``model`` group with the given members.
+
+    A ``_priors`` mapping (name -> array) is written as the nested ``priors/``
+    subgroup, mirroring a real tMAVEN export.
+    """
     attrs = fields.pop("_attrs", {})
+    priors = fields.pop("_priors", None)
     with h5py.File(path, "w") as f:
         g = f.create_group("model")
         for k, v in attrs.items():
             g.attrs[k] = v
         for k, v in fields.items():
             g.create_dataset(k, data=v)
+        if priors is not None:
+            pg = g.create_group("priors")
+            for name, arr in priors.items():
+                pg.create_dataset(name, data=arr)
     return path
 
 
@@ -115,10 +126,18 @@ def test_read_model_full(tmp_path):
         var=np.array([0.01, 0.02]),
         tmatrix=np.array([[9.0, 1.0], [1.0, 9.0]]),
         norm_tmatrix=np.array([[0.9, 0.1], [0.1, 0.9]]),
+        rates=np.array([[0.0, 0.1], [0.1, 0.0]]),
+        pi=np.array([80.0, 40.0]),  # unnormalized Dirichlet posterior (sum != 1)
+        frac=np.array([0.7, 0.3]),  # normalized state populations (sum == 1)
         idealized=np.array([[0.1, 0.9, np.nan], [0.9, 0.9, 0.1]]),
         likelihood=likelihood,
         ran=np.array([0, 1]),
         dtype="FRET",
+        _priors={
+            "a_prior": np.array([2.5, 2.5]),
+            "mu_prior": np.array([0.11, 0.84]),
+            "tm_prior": np.array([[1.0, 1.0], [1.0, 1.0]]),
+        },
     )
     model = read_model(mp)
     assert isinstance(model, StateModel)
@@ -132,6 +151,13 @@ def test_read_model_full(tmp_path):
     assert model.elbo == pytest.approx(3.5)  # likelihood[-1, 0]
     np.testing.assert_array_equal(model.ran, [0, 1])
     assert model.dtype == "FRET"
+    # Appendix-D.2 population members.
+    assert model.rates.shape == (2, 2)
+    np.testing.assert_array_equal(model.pi, [80.0, 40.0])  # stored verbatim, unnormalized
+    np.testing.assert_array_equal(model.frac, [0.7, 0.3])
+    assert set(model.priors) == {"a_prior", "mu_prior", "tm_prior"}
+    np.testing.assert_array_equal(model.priors["mu_prior"], [0.11, 0.84])
+    assert model.priors["tm_prior"].shape == (2, 2)
 
 
 def test_read_model_minimal_only_mean(tmp_path):
@@ -145,6 +171,18 @@ def test_read_model_minimal_only_mean(tmp_path):
     assert model.elbo is None
     assert model.ran.shape == (0,)
     assert model.model_type == "unknown"
+    # A model without the population members reads them back as None (never fabricated).
+    assert model.rates is None
+    assert model.pi is None
+    assert model.frac is None
+    assert model.priors is None
+
+
+def test_read_model_empty_priors_group_is_none(tmp_path):
+    # A priors group present but empty is treated as absent (None), not {}.
+    mp = tmp_path / "emptypriors.hdf5"
+    _write_model(mp, mean=np.array([0.2, 0.8]), _priors={})
+    assert read_model(mp).priors is None
 
 
 def test_read_model_requires_mean(tmp_path):
@@ -213,6 +251,47 @@ def test_run_vbfret_timeout_becomes_sidecar_error(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", _raise_timeout)
     with pytest.raises(SidecarError, match="timed out after"):
         run_vbfret(smd, sidecar_python=sys.executable, timeout=1.0)
+
+
+# --------------------------------------------------------------------------- #
+# run_vbconhmm / run_ebhmm named wrappers + the ebFRET dispatch entry
+# --------------------------------------------------------------------------- #
+
+
+def test_run_vbconhmm_wrapper_delegates(monkeypatch):
+    import tether.idealize.driver as drv
+
+    captured = {}
+
+    def _fake(smd_path, **kwargs):
+        captured["smd_path"] = smd_path
+        captured.update(kwargs)
+        return "sentinel"
+
+    monkeypatch.setattr(drv, "run_vbfret", _fake)
+    assert run_vbconhmm("in.hdf5", nstates=3, nrestarts=2, timeout=42.0) == "sentinel"
+    assert captured["smd_path"] == "in.hdf5"
+    assert captured["model_type"] == "vbconhmm"
+    assert captured["nstates"] == 3
+    assert captured["nrestarts"] == 2
+    assert captured["timeout"] == 42.0
+
+
+def test_run_ebhmm_wrapper_delegates(monkeypatch):
+    import tether.idealize.driver as drv
+
+    monkeypatch.setattr(drv, "run_vbfret", lambda smd_path, **kw: (smd_path, kw))
+    smd, kw = run_ebhmm("s.hdf5", nstates=4, sidecar_python="py")
+    assert smd == "s.hdf5"
+    assert kw["model_type"] == "ebhmm"
+    assert kw["nstates"] == 4
+    assert kw["sidecar_python"] == "py"
+
+
+def test_ebhmm_in_sidecar_dispatch():
+    # ebFRET is dispatchable and maps to tMAVEN's run_ebhmm + its nstates pref key.
+    assert _sidecar_runner._DISPATCH["ebhmm"] == ("run_ebhmm", "modeler.ebhmm.nstates")
+    assert _sidecar_runner._DISPATCH["vbconhmm"][0] == "run_vbconhmm"
 
 
 # --------------------------------------------------------------------------- #
@@ -298,6 +377,22 @@ def test_read_model_real_281mol_reference():
     assert model.idealized.shape == (281, 1700)
     assert model.elbo is not None and model.elbo > 0
     assert model.ran.size == 281
+
+    # The Appendix-D.2 population members are read from the real export (PRD §10).
+    assert model.rates.shape == (4, 4)
+    assert model.pi.shape == (4,)
+    assert model.frac.shape == (4,)
+    # `frac` is the NORMALIZED state-population vector (sums to 1); `pi` is the
+    # UNNORMALIZED initial-state Dirichlet posterior (sums to ~the trace count, 281),
+    # NOT a probability vector — locking the semantics the docstrings describe.
+    np.testing.assert_allclose(model.frac.sum(), 1.0, atol=1e-6)
+    assert model.pi.sum() > 50.0
+    np.testing.assert_allclose(model.pi.sum(), model.ran.size, rtol=0.1)
+    assert model.priors is not None
+    # tMAVEN's priors/ subgroup carries the conjugate hyperparameters.
+    assert {"a_prior", "b_prior", "beta_prior", "mu_prior", "pi_prior", "tm_prior"} <= set(
+        model.priors
+    )
 
     # The idealized -> state -> dwell pipeline runs on the real idealized array.
     states = states_from_idealized(model.idealized, model.means)

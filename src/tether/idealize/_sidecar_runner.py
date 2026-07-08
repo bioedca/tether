@@ -35,10 +35,15 @@ STATUS_PREFIX = "TETHER_SIDECAR_STATUS "
 #: model_type -> (maven.modeler method name, nstates pref key | None).
 #: ``vbconhmm`` (global consensus VB-HMM) is the default: it is the idealizer
 #: behind the reference model fixture (Appendix D.2 ``@type='vb Consensus HMM'``)
-#: and the M0.5 S4 parity target.
+#: and the M0.5 S4 parity target. ``ebhmm`` is the ebFRET empirical-Bayes HMM
+#: [vandeMeent2014] — the second global/population idealizer the M6 analysis
+#: suite offers (PRD §4.2, §10); it pools information across molecules to infer a
+#: consensus kinetic model and writes the same Appendix-D.2 ``model`` group.
 _DISPATCH = {
     "vbconhmm": ("run_vbconhmm", "modeler.vbconhmm.nstates"),
     "vbconhmm_modelselection": ("run_vbconhmm_modelselection", None),
+    "ebhmm": ("run_ebhmm", "modeler.ebhmm.nstates"),
+    "ebhmm_modelselection": ("run_ebhmm_modelselection", None),
     "vbgmm_vbhmm": ("run_vbgmm_vbhmm_modelselection", None),
     "kmeans_vbhmm": ("run_kmeans_vbhmm", "modeler.vbhmm.nstates"),
 }

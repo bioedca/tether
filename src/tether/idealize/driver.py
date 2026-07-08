@@ -76,6 +76,18 @@ class StateModel:
     ``(n_molecules, n_frames)`` float FRET level per frame (NaN outside each
     molecule's analysis window), and ``ran`` lists the SMD-order indices of the
     molecules the model was fit on.
+
+    ``rates``/``pi``/``frac``/``priors`` are the **population-model** members of the
+    Appendix-D.2 ``model`` group (PRD §10): ``rates`` is the N×N transition-rate
+    matrix (``@rate_type='Transition Matrix'``); ``pi`` is the **unnormalized**
+    variational Dirichlet posterior over the initial state (concentration parameters
+    — tMAVEN's ``pik = pi0 + Σ responsibilities``; divide by ``pi.sum()`` for the
+    initial-state *probability* vector, not the stored array directly); ``frac`` is
+    the **normalized** state-population vector (sums to 1); and ``priors`` are the
+    variational prior hyperparameters (the ``priors/`` subgroup — ``a_prior``,
+    ``b_prior``, ``beta_prior``, ``mu_prior``, ``pi_prior``, ``tm_prior``). All are
+    optional: :func:`read_model` reads each when the model file carries it and leaves
+    it ``None`` otherwise (a threshold/k-means model has no rate matrix or priors).
     """
 
     model_type: str
@@ -89,6 +101,10 @@ class StateModel:
     likelihood: np.ndarray | None = None
     ran: np.ndarray = field(default_factory=lambda: np.empty(0, dtype="int64"))
     idealized: np.ndarray | None = None
+    rates: np.ndarray | None = None
+    pi: np.ndarray | None = None
+    frac: np.ndarray | None = None
+    priors: dict[str, np.ndarray] | None = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +179,18 @@ def read_model(path: str | PathLike[str], group: str = MODEL_GROUP) -> StateMode
         model_type = _decode(g.attrs.get("type", "")) or "unknown"
         dtype_val = _decode(g["dtype"][()]) if "dtype" in g else "FRET"
 
+        # The population-model members (Appendix D.2). ``priors`` is a subgroup of
+        # named hyperparameter arrays; read every dataset in it (a model without a
+        # priors group -- e.g. threshold/k-means -- yields None).
+        priors: dict[str, np.ndarray] | None = None
+        if "priors" in g and isinstance(g["priors"], h5py.Group):
+            pg = g["priors"]
+            priors = {
+                name: np.asarray(pg[name][()], dtype="float64")
+                for name in pg
+                if isinstance(pg[name], h5py.Dataset)
+            } or None
+
         return StateModel(
             model_type=model_type,
             nstates=nstates,
@@ -175,6 +203,10 @@ def read_model(path: str | PathLike[str], group: str = MODEL_GROUP) -> StateMode
             likelihood=likelihood,
             ran=ran,
             idealized=_arr("idealized"),
+            rates=_arr("rates"),
+            pi=_arr("pi"),
+            frac=_arr("frac"),
+            priors=priors,
         )
 
 
@@ -397,6 +429,39 @@ def run_vbfret(
         status=status,
         molecule_keys=molecule_keys,
     )
+
+
+def run_vbconhmm(
+    smd_path: str | PathLike[str], *, nstates: int = 2, **kwargs
+) -> IdealizationResult:
+    """Run a headless **consensus VB-HMM** (``vbconhmm``) idealization.
+
+    The global variational-Bayes HMM fit across the SMD's molecules [Bronson2009];
+    the default idealizer behind the M0.5 parity target and the reference model
+    fixture. A thin named alias for :func:`run_vbfret` with ``model_type`` fixed, so
+    the M6 analysis suite has an explicit population-model entry point. All other
+    keywords (``sidecar_python``, ``nrestarts``, ``timeout``, ``model_out``,
+    ``group``) forward unchanged.
+    """
+    return run_vbfret(smd_path, model_type="vbconhmm", nstates=nstates, **kwargs)
+
+
+def run_ebhmm(smd_path: str | PathLike[str], *, nstates: int = 2, **kwargs) -> IdealizationResult:
+    """Run a headless **ebFRET** (empirical-Bayes HMM, ``ebhmm``) idealization.
+
+    ebFRET fits a hierarchical/empirical-Bayes HMM that pools information across the
+    population of molecules to infer a consensus kinetic model, sharpening rate and
+    state estimates that vary widely trace-by-trace [vandeMeent2014]. A thin named
+    alias for :func:`run_vbfret` with ``model_type='ebhmm'``; keywords forward as in
+    :func:`run_vbconhmm`.
+
+    References
+    ----------
+    [vandeMeent2014] van de Meent, Bronson, Wiggins & Gonzalez. "Empirical Bayes
+        methods enable advanced population-level analyses of single-molecule FRET
+        experiments." Biophysical Journal (2014).
+    """
+    return run_vbfret(smd_path, model_type="ebhmm", nstates=nstates, **kwargs)
 
 
 def _parse_status(stdout: str) -> dict | None:

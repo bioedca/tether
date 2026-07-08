@@ -794,6 +794,59 @@ def test_degenerate_fit_raises(tmp_path) -> None:
     assert list_idealizations(proj) == []  # nothing persisted
 
 
+def test_population_members_round_trip(tmp_path) -> None:
+    """The Appendix-D.2 population members (rates/pi/frac/priors) persist + read back."""
+    n, t = 3, 30
+    proj, keys = _build_store(tmp_path / "pop.tether", _step_trace(n, t), _step_trace(n, t) * 0.5)
+
+    priors = {
+        "a_prior": np.array([2.5, 2.5]),
+        "mu_prior": np.array([0.2, 0.8]),
+        "tm_prior": np.array([[1.0, 1.0], [1.0, 1.0]]),
+    }
+
+    def runner(smd_path, *, nstates, model_type="ebhmm", **_kw):
+        res = _fake_result(smd_path, nstates=2, elbo=1.0, model_type=model_type, multistate=True)
+        # Attach the population members a real consensus/ebFRET fit would carry.
+        res.model.rates = np.array([[0.0, 0.3], [0.2, 0.0]])
+        res.model.pi = np.array([80.0, 40.0])  # unnormalized Dirichlet posterior
+        res.model.frac = np.array([0.55, 0.45])  # normalized state populations
+        res.model.priors = priors
+        return res
+
+    stored = idealize_molecules(proj, model_type="ebhmm", nstates=2, _runner=runner)
+    # The in-memory result carries them...
+    assert stored.model_type == "ebhmm"
+    np.testing.assert_array_equal(stored.pi, [80.0, 40.0])
+    np.testing.assert_array_equal(stored.frac, [0.55, 0.45])
+    assert stored.rates.shape == (2, 2)
+    assert set(stored.priors) == set(priors)
+
+    # ...and they round-trip byte-for-byte through /idealization/ebhmm.
+    back = read_idealization(proj, "ebhmm")
+    assert back.model_type == "ebhmm"
+    np.testing.assert_array_equal(back.rates, [[0.0, 0.3], [0.2, 0.0]])
+    np.testing.assert_array_equal(back.pi, [80.0, 40.0])
+    np.testing.assert_array_equal(back.frac, [0.55, 0.45])
+    np.testing.assert_array_equal(back.priors["mu_prior"], [0.2, 0.8])
+    assert back.priors["tm_prior"].shape == (2, 2)
+
+
+def test_model_without_population_members_reads_none(tmp_path) -> None:
+    """A fit lacking rates/pi/frac/priors persists + reads them as None (never fabricated)."""
+    n, t = 2, 20
+    proj, _keys = _build_store(
+        tmp_path / "nopop.tether", _step_trace(n, t), _step_trace(n, t) * 0.5
+    )
+    # _make_runner -> _fake_result builds a StateModel with no population members.
+    idealize_molecules(proj, nstates=2, _runner=_make_runner({2: 1.0}, []))
+    back = read_idealization(proj, "vbconhmm")
+    assert back.rates is None
+    assert back.pi is None
+    assert back.frac is None
+    assert back.priors is None
+
+
 # NOTE: a *live* store-integrated sidecar test is intentionally not added here.
 # `tether.project.idealize` is a base-env module (Python >= 3.11; it uses
 # `datetime.UTC`) that spawns the sidecar as a subprocess; it cannot import in the

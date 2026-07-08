@@ -740,6 +740,12 @@ def _import_model(
         app_version=_app_version(),
         created_utc=datetime.now(UTC).isoformat(),
         overwrite=overwrite,
+        # Carry the Appendix-D.2 population-model members from the returned tMAVEN
+        # model (PRD §10) so an imported model is as complete as an in-app fit.
+        rates=model.rates,
+        pi=model.pi,
+        frac=model.frac,
+        priors=model.priors,
         extra_attrs={
             "source_smd": state.report.smd_path.name,
             "source_model": model_path.name,
