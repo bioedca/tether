@@ -1,0 +1,108 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# sidecar-measure — the idealization-parity *ratification* harness (dev tool, NOT
+# a gate). It provisions the isolated tMAVEN sidecar env (as sidecar.yml does) and
+# runs scripts/measure_parity.py to MEASURE a method's cross-seed spread over
+# --n-runs self-reseeded fits, then freezes the four §11.2 numbers from it. The
+# frozen JSON is printed to the log (no artifact action) for a maintainer to fold
+# into schema/parity_tolerance.json under an ADR.
+#
+# Motivation: the M0.5 tolerance was measured on vbconhmm only, whose cross-seed
+# state-count agreement is ~1.0. A live sidecar dispatch showed ebFRET (empirical-
+# Bayes HMM) reproduces its kinetic model across seeds (levels / Viterbi / ELBO all
+# within the frozen row) but its per-trace state-count agreement is ~0.73 < the 0.9
+# floor — so ebFRET needs its OWN measured, ratified tolerance. This workflow
+# generates that measurement.
+#
+# Trigger: manual only (workflow_dispatch). It is slow (20 ebFRET fits on the
+# 281-mol fixture ≈ 45-90 min), never runs on PR or nightly, and is NOT a required
+# check — it only produces numbers a human ratifies.
+name: sidecar-measure
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_type:
+        description: Idealizer to measure (ebhmm for the ebFRET ratification).
+        type: choice
+        options: [ebhmm, vbconhmm, vbfret]
+        default: ebhmm
+      fixtures:
+        description: Space-separated fixtures to measure (smd_281mol and/or smd_4mol).
+        type: string
+        default: smd_281mol
+      n_runs:
+        description: Self-reseeded fits per fixture (>=20 for a defensible freeze).
+        type: string
+        default: "20"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    name: sidecar / measure
+    runs-on: ubuntu-latest
+    # 20 ebFRET fits on the 281-mol fixture, cold-JIT on the first, is the slow
+    # path — well under this bound but generous so a heavy fit never truncates.
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash -el {0}
+    env:
+      QT_QPA_PLATFORM: offscreen
+      NAPARI_ASYNC: "0"
+      # Same pinned tMAVEN reference as sidecar.yml (the GPL app driven over IPC,
+      # layered onto the sidecar lock, not in it).
+      TMAVEN_SPEC: "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230"
+      # Bind the dispatch inputs to env vars (the `inputs` context is available in
+      # job-level env, unlike `runner.*`). Steps reference "$MODEL_TYPE" etc. so the
+      # untrusted string inputs are expanded by bash AFTER it parses the script — a
+      # value like `; rm -rf /` becomes literal argv words, never a command
+      # separator — instead of being spliced into the script text via ${{ }}.
+      MODEL_TYPE: ${{ inputs.model_type }}
+      FIXTURES: ${{ inputs.fixtures }}
+      N_RUNS: ${{ inputs.n_runs }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          # The 281-mol SMD lives in the LFS large-fixture tier.
+          lfs: true
+      - name: Restore the sidecar env + install tether (no deps)
+        uses: ./.github/actions/setup-env
+        with:
+          environment-file: sidecar/conda-lock.yml
+          environment-name: tether-sidecar
+          install-tether: "true"
+      - name: Install pinned tMAVEN + pytest into the sidecar env
+        # setuptools<81 still ships pkg_resources, which tMAVEN imports at runtime
+        # without declaring (mirrors sidecar.yml).
+        run: python -m pip install --no-build-isolation "setuptools<81" "${TMAVEN_SPEC}"
+      - name: Measure the cross-seed parity spread and freeze the tolerance
+        env:
+          NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache
+          TETHER_SIDECAR_PYTHON_AUTO: "1"
+        run: |
+          export TETHER_SIDECAR_PYTHON="$(python -c 'import sys; print(sys.executable)')"
+          mkdir -p measured
+          # $FIXTURES is intentionally unquoted (space-separated multi-value, each
+          # validated by argparse choices); the other inputs are quoted.
+          python scripts/measure_parity.py \
+            --model-type "$MODEL_TYPE" \
+            --cross-seed \
+            --fixtures $FIXTURES \
+            --n-runs "$N_RUNS" \
+            --margin 0.5 \
+            --scratch "${{ runner.temp }}/parity_runs" \
+            --out "measured/${MODEL_TYPE}_parity.json"
+      - name: Echo the full measured tolerance JSON to the log (for harvesting)
+        run: |
+          echo "===BEGIN ${MODEL_TYPE}_parity.json==="
+          cat "measured/${MODEL_TYPE}_parity.json"
+          echo "===END ${MODEL_TYPE}_parity.json==="

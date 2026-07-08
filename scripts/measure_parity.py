@@ -66,7 +66,35 @@ def main() -> int:
         choices=list(_FIXTURES),
         help="which fixtures to measure",
     )
+    ap.add_argument(
+        "--model-type",
+        default="vbconhmm",
+        choices=["vbconhmm", "ebhmm", "vbfret"],
+        help="idealizer to measure the cross-seed spread of (default: vbconhmm, the "
+        "M0.5 reference method). Use 'ebhmm' to ratify a per-method ebFRET tolerance.",
+    )
+    ap.add_argument(
+        "--cross-seed",
+        action="store_true",
+        help="anchor every fixture cross-seed on its own first run (reference=None), "
+        "ignoring any committed reference model. Required when measuring a method "
+        "whose committed reference was fit with a different method — an ebFRET fit's "
+        "ELBO is not commensurable with the vbconhmm reference model's.",
+    )
     args = ap.parse_args()
+
+    # A non-vbconhmm method compared to the committed (vbconhmm) reference model is
+    # not commensurable — its ELBO is a different model's variational bound — so
+    # measuring it against that reference silently corrupts the freeze. Enforce the
+    # cross-seed anchor the --model-type help promises, rather than only documenting it.
+    if args.model_type != "vbconhmm" and not args.cross_seed:
+        referenced = [name for name in args.fixtures if _FIXTURES[name]["reference"] is not None]
+        if referenced:
+            ap.error(
+                f"--cross-seed is required for --model-type {args.model_type}: fixtures "
+                f"{referenced} carry a committed reference model fit with vbconhmm, whose "
+                "ELBO is not commensurable with this method's — measure cross-seed instead"
+            )
 
     scratch = (
         args.scratch or os.environ.get("TMPDIR") or str(Path(args.out).parent / "_parity_runs")
@@ -83,17 +111,23 @@ def main() -> int:
 
     for name in args.fixtures:
         cfg = _FIXTURES[name]
-        print(f"\n=== measuring {name} (n={args.n_runs}, nstates={cfg['nstates']}) ===")
+        reference = None if args.cross_seed else cfg["reference"]
+        mode = "cross-seed" if reference is None else "vs-reference"
+        print(
+            f"\n=== measuring {name} ({args.model_type}, n={args.n_runs}, "
+            f"nstates={cfg['nstates']}, {mode}) ==="
+        )
         spread, per_run = measure_spread(
             cfg["smd"],
-            reference=cfg["reference"],
+            reference=reference,
             n_runs=args.n_runs,
+            model_type=args.model_type,
             nstates=cfg["nstates"],
             scratch_dir=str(Path(scratch) / name),
         )
         per_fixture[name] = {
             "smd": cfg["smd"],
-            "reference": cfg["reference"] or "cross-seed (run00 anchor)",
+            "reference": reference or "cross-seed (run00 anchor)",
             "nstates": cfg["nstates"],
             "n_comparisons": len(per_run),
             "metrics": {k: v.as_dict() for k, v in spread.items()},
@@ -123,13 +157,13 @@ def main() -> int:
         "frozen_at_milestone": "M0.5",
         "measured_utc": time.strftime("%Y-%m-%d", time.gmtime()),
         "method": {
-            "model_type": "vbconhmm",
+            "model_type": args.model_type,
             "n_runs_per_fixture": args.n_runs,
             "sidecar_python": os.environ.get("TETHER_SIDECAR_PYTHON", "unset"),
             "note": "tMAVEN self-reseeds; parity is statistical, never bit-exact (PRD §7.4).",
         },
         "coverage": {
-            "measured_methods": ["vbconhmm (vb Consensus HMM)"],
+            "measured_methods": [args.model_type],
             "applied_to": [
                 "vbFRET (per-trace, M2)",
                 "consensus VB-HMM (M6)",
