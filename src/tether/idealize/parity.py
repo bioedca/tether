@@ -406,7 +406,19 @@ def measure_spread(
     return spread, per_run
 
 
-def load_frozen_tolerance(path: str | PathLike[str]) -> dict:
-    """Read the frozen four numbers from ``schema/parity_tolerance.json``."""
+def load_frozen_tolerance(path: str | PathLike[str], method: str | None = None) -> dict:
+    """Read the frozen four-metric tolerance from ``schema/parity_tolerance.json``.
+
+    ``method`` selects a per-method tolerance from ``tolerance_by_method`` when that
+    method carries its own measured freeze (e.g. ``"ebhmm"``). A method without one —
+    or ``method=None`` (the default, back-compatible) — falls back to the top-level
+    (vbconhmm-derived, default) ``tolerance``. ebFRET is frozen separately because its
+    empirical-Bayes per-trace state selection is more seed-variable than vbconhmm's,
+    so the vbconhmm floor is too tight for it (ADR-0043).
+    """
     data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if method is not None:
+        by_method = data.get("tolerance_by_method", {})
+        if method in by_method:
+            return by_method[method]
     return data["tolerance"]
