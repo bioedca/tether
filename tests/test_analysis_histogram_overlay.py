@@ -174,6 +174,13 @@ def test_empty_model_raises() -> None:
         model_gaussian_overlay([], [], [])
 
 
+@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+def test_nonfinite_mean_raises(bad) -> None:
+    # A NaN/Inf mean must be withheld, not silently poison the whole mixture curve.
+    with pytest.raises(ValueError, match="mean must be finite"):
+        model_gaussian_overlay([0.3, bad], [0.01, 0.01], [0.5, 0.5])
+
+
 @pytest.mark.parametrize("bad", [0.0, -0.01, np.nan, np.inf])
 def test_nonpositive_or_nonfinite_variance_raises(bad) -> None:
     with pytest.raises(ValueError, match="variance must be finite and > 0"):

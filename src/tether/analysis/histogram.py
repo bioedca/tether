@@ -890,10 +890,11 @@ def model_gaussian_overlay(
     Raises
     ------
     ValueError
-        If the three arrays differ in length or are empty; if any variance is not
-        finite and positive (a zero/negative/NaN variance is a degenerate state —
-        withheld, never drawn as an infinite spike); if any ``frac`` is not finite
-        and non-negative; or if ``value_range`` / ``n_points`` are degenerate.
+        If the three arrays differ in length or are empty; if any mean is not
+        finite; if any variance is not finite and positive (a zero/negative/NaN
+        variance is a degenerate state — withheld, never drawn as an infinite
+        spike); if any ``frac`` is not finite and non-negative; or if
+        ``value_range`` / ``n_points`` are degenerate.
     """
     means = np.asarray(means, dtype=np.float64).ravel()
     variances = np.asarray(variances, dtype=np.float64).ravel()
@@ -905,6 +906,10 @@ def model_gaussian_overlay(
         )
     if means.shape[0] < 1:
         raise ValueError("means/variances/frac must describe at least one state")
+    if not np.all(np.isfinite(means)):
+        # A NaN/Inf mean would poison ``x - mean[i]`` and silently corrupt the whole
+        # mixture — withheld with the same honesty guard as variance/frac, not drawn.
+        raise ValueError(f"every state mean must be finite, got {means!r}")
     if not np.all(np.isfinite(variances) & (variances > 0.0)):
         raise ValueError(
             "every state variance must be finite and > 0 to draw its Gaussian, got "
