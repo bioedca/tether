@@ -24,7 +24,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
     ProjectRef = Project | str | PathLike[str]
 
-__all__ = ["QUANTITY_KEYS", "resolve_quantity", "windowed_channels"]
+__all__ = [
+    "QUANTITY_KEYS",
+    "resolve_quantity",
+    "windowed_channels",
+    "windowed_state_and_channels",
+]
 
 
 def resolve_quantity(quantity: str) -> tuple[str, str]:
@@ -99,3 +104,117 @@ def windowed_channels(
         acceptor = np.asarray(acceptor_all[i, lo:hi], dtype=np.float64)
         pairs.append((donor, acceptor))
     return pairs
+
+
+def windowed_state_and_channels(
+    project: ProjectRef,
+    model_name: str,
+    molecule_keys: list[str] | None,
+    intensity_quantity: str,
+    include_rejected: bool,
+) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Per-molecule ``(state_path, donor, acceptor)`` slices over the idealized window.
+
+    Pairs a persisted ``/idealization/{model_name}`` model's per-molecule Viterbi
+    **state path** (:data:`tether.idealize.NO_STATE` = ``-1`` outside the window)
+    with the *observed* ``/traces`` intensities of the **same** molecule and frames —
+    the substrate the transition-aligned (post-synchronized) analysis views need
+    (A2b heatmap; the coming TDP / dwell fits). Both arrays are sliced to the
+    model's idealized extent (the contiguous run of non-:data:`~tether.idealize.NO_STATE`
+    frames — the window the fit actually covered, robust to a later window edit) and
+    re-based to frame 0, so ``state_path[t]`` and the intensities at ``t`` refer to
+    the same frame.
+
+    The idealization is joined to ``/molecules`` on ``molecule_id`` (the **unique**
+    per-molecule identity — the ``molecule_key`` is not unique, §7.10), then the
+    §7.5 curation filter and the optional ``molecule_keys`` selection are applied.
+    A molecule whose idealized extent runs past its current trace width (a
+    re-extraction shortened it) is skipped rather than misaligned — the honest
+    answer, never a fabricated pairing. Rows are returned in idealization (fit)
+    order.
+
+    Parameters
+    ----------
+    project
+        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+    model_name
+        Which ``/idealization/{model_name}`` supplies the state paths.
+    molecule_keys
+        Restrict to molecules with one of these ``molecule_key`` values (``None`` =
+        all); intersected with the curation filter.
+    intensity_quantity
+        Which ``/traces`` layers feed the returned intensities: ``"corrected"`` or
+        ``"raw"`` (see :func:`resolve_quantity`).
+    include_rejected
+        If ``True``, keep rejected molecules; else exclude them (§7.5 default).
+
+    Returns
+    -------
+    list of (state_path, donor, acceptor)
+        ``state_path`` is int64 (still carrying any interior
+        :data:`~tether.idealize.NO_STATE` gap); ``donor``/``acceptor`` are float64.
+        All three share one length (the molecule's idealized-window extent). Empty
+        when the model idealizes no kept molecule.
+
+    Raises
+    ------
+    KeyError
+        No ``/idealization/{model_name}`` in the store.
+    ValueError
+        The store lacks the requested trace layer.
+    """
+    from tether.idealize import NO_STATE
+    from tether.imaging.extract import read_molecules, read_traces
+    from tether.project.core import Project as _Project
+    from tether.project.idealize import read_idealization
+    from tether.project.labels import curation_filter_mask
+
+    proj = project if isinstance(project, _Project) else _Project.open(project)
+    path = proj.path
+    donor_key, acceptor_key = resolve_quantity(intensity_quantity)
+
+    molecules = read_molecules(path)
+    if molecules.shape[0] == 0:
+        return []
+    traces = read_traces(path)
+    for key in (donor_key, acceptor_key):
+        if key not in traces:
+            raise ValueError(
+                f"{path.name}/traces has no {key!r} layer "
+                f"(intensity_quantity={intensity_quantity!r})"
+            )
+    donor_all = traces[donor_key]
+    acceptor_all = traces[acceptor_key]
+    trace_len = int(donor_all.shape[1]) if donor_all.ndim == 2 else 0
+
+    stored = read_idealization(proj, model_name)
+    state_paths = np.asarray(stored.state_paths)
+    if state_paths.ndim != 2 or state_paths.shape[0] == 0:
+        return []
+
+    # Join on molecule_id (unique); the molecule_key is not (§7.10). The last row
+    # would win a duplicate id, but molecule_id is unique by construction.
+    id_to_row = {_to_str(mid): j for j, mid in enumerate(molecules["molecule_id"])}
+    accepted = curation_filter_mask(molecules, include_rejected=include_rejected)
+    wanted = {str(k) for k in molecule_keys} if molecule_keys is not None else None
+    molecule_key_col = molecules["molecule_key"]
+
+    out: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+    for i, mid in enumerate(stored.molecule_ids):
+        j = id_to_row.get(_to_str(mid))
+        if j is None or not bool(accepted[j]):
+            continue
+        if wanted is not None and _to_str(molecule_key_col[j]) not in wanted:
+            continue
+        state_full = np.asarray(state_paths[i], dtype=np.int64)
+        valid = np.nonzero(state_full != NO_STATE)[0]
+        if valid.size == 0:
+            continue
+        lo, hi = int(valid[0]), int(valid[-1]) + 1
+        if hi > trace_len:  # state path outruns the current trace (re-extracted) -> skip
+            continue
+        state_win = np.asarray(state_full[lo:hi], dtype=np.int64)
+        donor_win = np.asarray(donor_all[j, lo:hi], dtype=np.float64)
+        acceptor_win = np.asarray(acceptor_all[j, lo:hi], dtype=np.float64)
+        out.append((state_win, donor_win, acceptor_win))
+    return out
