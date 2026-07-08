@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""1-D population apparent-E histogram (PRD §7.7 FR-ANALYZE; Appendix C plot A1).
+"""Population apparent-E histograms — 1-D (A1) and 2-D time-vs-signal (A2).
+
+PRD §7.7 FR-ANALYZE; Appendix C plots A1 and A2.
 
 The population FRET-efficiency histogram — tMAVEN's A1 plot
 (``tmaven/tmaven/controllers/analysis_plots/data_hist1d.py``): pool the per-frame
@@ -11,6 +13,19 @@ density-normalized — so the *uncorrected* proximity ratio's excursions beyond
 (``tether.fret.apparent_fret`` deliberately does not clip). Non-finite samples
 (``apparent_fret`` yields NaN where ``D + A == 0``) are dropped before binning —
 never fabricated.
+
+The A2 view (``data_hist2d.py``) keeps the *time* axis the A1 pool collapses: it
+bins per-frame apparent-E into a 2-D ``(time, signal)`` occupancy heatmap so the
+population's FRET evolution over the analysis window is visible, a standard lens on
+time-resolved single-molecule dynamics [Nettels2024]. This module lands A2's
+**raw / start-synchronized** mode — each molecule aligned to its own
+analysis-window start (``windowed_channels`` already slices there), faithful to
+tMAVEN's ``histogram_raw`` after ``sync_start``. The transition-aligned
+*post-synchronized* mode (which reads the persisted ``/idealization`` per-molecule
+state paths to align on a chosen state jump) is a follow-up. A2's signal defaults
+mirror tMAVEN's ``data_hist2d.py`` (61 bins over ``[-0.2, 1.2]``), which differ
+from A1's — exactly as in tMAVEN itself; pass A1's ``value_range`` explicitly for a
+shared E axis across the two plots.
 
 Entry points:
 
@@ -37,6 +52,11 @@ Entry points:
 - :func:`population_model_gaussian_overlay` — read a persisted ``/idealization``
   population model from a ``.tether`` store and build that overlay from its state
   levels, variances and populations.
+- :func:`time_signal_histogram2d` — the pure-array A2 core: bin a list of
+  per-molecule time-ordered signal traces into a 2-D ``(time, signal)`` occupancy
+  heatmap (start-synchronized; NaN and out-of-range frames dropped).
+- :func:`population_time_signal_histogram2d` — read a ``.tether`` store, window
+  each accepted molecule's apparent-E, and build the A2 raw heatmap.
 
 Rejected traces are excluded by default via the §7.5 curation filter, with a
 per-molecule equal-weight toggle (§7.7).
@@ -68,6 +88,13 @@ References
     molecules." J. Phys. Chem. B 114(46):15221-15226 (2010). The multi-state FRET
     efficiency histogram is a sum of Gaussians whose parameters are set by the
     states' FRET efficiencies — the per-state model overlay Tether draws on A1.
+[Verma2024] Verma, Kinz-Thompson et al. "Increasing the accuracy of single-molecule
+    data analysis using tMAVEN." Biophysical Journal (2024). tMAVEN, the source of
+    the A1/A2 plot definitions (``data_hist1d.py`` / ``data_hist2d.py``).
+[Nettels2024] Nettels, Schuler et al. "Single-molecule FRET for probing nanoscale
+    biomolecular dynamics." Nature Reviews Physics (2024). Time-resolved population
+    FRET is a standard lens on single-molecule conformational dynamics — the 2-D
+    time-vs-signal occupancy heatmap the A2 view renders.
 """
 
 from __future__ import annotations
@@ -92,8 +119,13 @@ __all__ = [
     "DEFAULT_OVERLAY_POINTS",
     "DEFAULT_RANGE",
     "DEFAULT_SEED",
+    "DEFAULT_SIGNAL_BINS",
+    "DEFAULT_SIGNAL_RANGE",
+    "DEFAULT_TIME_BINS",
+    "DEFAULT_TIME_DT",
     "ConditionHistogram",
     "Histogram1D",
+    "Histogram2D",
     "HistogramBootstrapCI",
     "ModelGaussianOverlay",
     "PerConditionHistograms",
@@ -104,6 +136,8 @@ __all__ = [
     "population_apparent_e_histogram",
     "population_apparent_e_histogram_ci",
     "population_model_gaussian_overlay",
+    "population_time_signal_histogram2d",
+    "time_signal_histogram2d",
 ]
 
 #: tMAVEN A1 defaults (``data_hist1d.py``): 151 bins over apparent E ∈ [-0.25, 1.25].
@@ -124,6 +158,19 @@ DEFAULT_SEED = 0
 #: fidelity like :data:`DEFAULT_NBINS` (not a science tunable), exposed as the
 #: ``n_points`` keyword with this faithful default.
 DEFAULT_OVERLAY_POINTS = 1001
+
+#: tMAVEN A2 2-D-histogram defaults (``data_hist2d.py``): the time axis holds
+#: ``time_nbins = 100`` per-frame columns, the signal axis ``signal_nbins = 61``
+#: bins over ``[signal_min, signal_max] = [-0.2, 1.2]``, one frame = one column of
+#: width ``time_dt = 1``. These intentionally differ from the A1 defaults
+#: (:data:`DEFAULT_NBINS` / :data:`DEFAULT_RANGE`) — exactly as in tMAVEN, whose A1
+#: and A2 carry distinct defaults. Pass A1's :data:`DEFAULT_RANGE` for a shared E
+#: axis across the two plots. These are faithful rendering defaults, not §11.2
+#: science tunables.
+DEFAULT_TIME_BINS = 100
+DEFAULT_SIGNAL_BINS = 61
+DEFAULT_SIGNAL_RANGE: tuple[float, float] = (-0.2, 1.2)
+DEFAULT_TIME_DT = 1.0
 
 
 @dataclass(frozen=True)
@@ -1014,4 +1061,246 @@ def population_model_gaussian_overlay(
         value_range=value_range,
         n_points=n_points,
         model_name=model_name,
+    )
+
+
+@dataclass(frozen=True)
+class Histogram2D:
+    """A binned 2-D ``(time, signal)`` occupancy heatmap (self-describing, NFR-REPRO).
+
+    tMAVEN's A2 plot (``data_hist2d.py``): row ``i`` is the ``i``-th time column (one
+    frame, ``time_dt`` seconds wide) and column ``j`` the ``j``-th signal bin, so
+    ``counts[i, j]`` is how much of the pooled population sat in signal bin ``j`` at
+    frame ``i``. ``counts`` is the raw (or per-molecule-weighted) occupancy unless
+    ``density`` — then a 2-D probability density integrating to 1 over the plotted
+    area (numpy ``histogram2d`` semantics). Smoothing, colormap floors and
+    max-normalization are display concerns the view applies, not stored here. Every
+    parameter that produced it travels with the arrays so the heatmap reproduces
+    without re-deriving it.
+    """
+
+    counts: np.ndarray  # (time_bins, signal_bins) float64 — [time, signal] occupancy
+    time_edges: np.ndarray  # (time_bins + 1,) float64 — time-column edges
+    signal_edges: np.ndarray  # (signal_bins + 1,) float64 — signal-bin edges
+    time_dt: float  # frame duration; time_edges = arange(time_bins + 1) * time_dt
+    signal_range: tuple[float, float]
+    density: bool
+    n_samples: int  # finite in-range (frame, signal) points actually binned
+    n_molecules: int  # molecules contributing >= 1 finite frame (tMAVEN's N)
+    per_molecule_equal_weight: bool
+
+    @property
+    def time_centers(self) -> np.ndarray:
+        e = self.time_edges
+        return 0.5 * (e[:-1] + e[1:])
+
+    @property
+    def signal_centers(self) -> np.ndarray:
+        e = self.signal_edges
+        return 0.5 * (e[:-1] + e[1:])
+
+    @property
+    def time_bins(self) -> int:
+        return int(self.counts.shape[0])
+
+    @property
+    def signal_bins(self) -> int:
+        return int(self.counts.shape[1])
+
+
+def time_signal_histogram2d(
+    signal_chunks: Iterable[np.ndarray],
+    *,
+    time_bins: int = DEFAULT_TIME_BINS,
+    signal_bins: int = DEFAULT_SIGNAL_BINS,
+    signal_range: tuple[float, float] = DEFAULT_SIGNAL_RANGE,
+    time_dt: float = DEFAULT_TIME_DT,
+    density: bool = False,
+    per_molecule_equal_weight: bool = False,
+) -> Histogram2D:
+    """Bin per-molecule time-ordered signals into a 2-D (time, signal) heatmap.
+
+    The pure-array A2 core, faithful to tMAVEN's ``histogram_raw`` applied after
+    ``sync_start`` (``data_hist2d.py``): each ``signal_chunks[i]`` is one molecule's
+    per-frame signal over its analysis window, already **start-synchronized** (frame
+    0 = the window start — :func:`~tether.analysis._store.windowed_channels` slices
+    there). Frame ``t`` of a molecule contributes its value to time column ``t`` and
+    to the signal bin holding that value; a frame is **dropped** — without shifting
+    the time index of later frames, so gaps stay in place — when it is non-finite,
+    when its value falls outside ``[signal_range[0], signal_range[1])``, or when
+    ``t >= time_bins``. This reproduces tMAVEN's ``d >= ymin and d < ymax`` and
+    ``for x in range(time_nbins)`` masking exactly (the signal interval is
+    left-closed / right-open, like tMAVEN — unlike numpy's default closed top edge).
+
+    Parameters
+    ----------
+    signal_chunks
+        Iterable of per-molecule 1-D signal arrays (e.g. windowed apparent E),
+        each ordered by frame from its analysis-window start. Consumed once.
+    time_bins
+        Number of per-frame time columns (tMAVEN ``time_nbins``); frames at index
+        ``>= time_bins`` are dropped. Must be >= 1.
+    signal_bins
+        Number of signal bins over ``signal_range`` (tMAVEN ``signal_nbins``).
+        Must be >= 1.
+    signal_range
+        ``(low, high)`` signal axis span; values outside ``[low, high)`` are dropped.
+        ``high > low`` required.
+    time_dt
+        Frame duration used for the time-axis edges (tMAVEN ``time_dt``); the time
+        column index is unaffected, only the edge coordinates scale. Must be finite
+        and > 0.
+    density
+        If ``True``, normalize to a 2-D probability density (numpy ``histogram2d``
+        ``density``); else raw (or per-molecule-weighted) occupancy counts. Defaults
+        to ``False`` — the honest occupancy tMAVEN max-normalizes only for display
+        (unlike the 1-D A1 histogram, which is density-normalized by default).
+    per_molecule_equal_weight
+        If ``True``, every molecule's finite frames are weighted ``1/m`` (``m`` its
+        finite-frame count) so a long trace does not dominate a short one (§7.7);
+        else every binned frame counts once (tMAVEN A2 behavior). A molecule with
+        frames outside the plotted window contributes less than its full weight 1,
+        exactly as the 1-D A1 histogram treats out-of-range frames.
+
+    Returns
+    -------
+    Histogram2D
+        With ``n_molecules`` = molecules that had >= 1 finite frame (tMAVEN's ``N``,
+        counted before the range/time mask) and ``n_samples`` = points actually
+        binned. Empty or all-masked input yields an all-zero heatmap (never NaN).
+
+    Raises
+    ------
+    ValueError
+        If ``time_bins`` or ``signal_bins`` < 1, if ``signal_range`` is not
+        ``(low, high)`` with ``high > low``, or if ``time_dt`` is not finite and > 0.
+    """
+    n_time = int(time_bins)
+    n_signal = int(signal_bins)
+    if n_time < 1:
+        raise ValueError(f"time_bins must be >= 1, got {time_bins!r}")
+    if n_signal < 1:
+        raise ValueError(f"signal_bins must be >= 1, got {signal_bins!r}")
+    lo, hi = float(signal_range[0]), float(signal_range[1])
+    if not hi > lo:
+        raise ValueError(f"signal_range must be (low, high) with high > low, got {signal_range!r}")
+    dt = float(time_dt)
+    if not (np.isfinite(dt) and dt > 0.0):
+        raise ValueError(f"time_dt must be finite and > 0, got {time_dt!r}")
+
+    # Build the time edges with the *same* arithmetic path as the per-frame
+    # coordinates below (``idx * dt``) so ``idx * dt`` aligns exactly with
+    # ``time_edges[idx]``. ``np.linspace(0, n*dt, n+1)`` would differ from ``idx*dt``
+    # by 1 ULP for non-integer dt, mis-binning a frame into the neighbouring column.
+    time_edges = np.arange(n_time + 1, dtype=np.float64) * dt
+    signal_edges = np.linspace(lo, hi, n_signal + 1)
+
+    time_coord_chunks: list[np.ndarray] = []
+    signal_coord_chunks: list[np.ndarray] = []
+    weight_chunks: list[np.ndarray] = []
+    n_molecules = 0
+    for chunk in signal_chunks:
+        e = np.asarray(chunk, dtype=np.float64).ravel()
+        if e.size == 0:
+            continue
+        finite = np.isfinite(e)
+        m = int(finite.sum())
+        if m == 0:
+            continue  # no valid frame -> contributes nothing (not a molecule with data)
+        n_molecules += 1  # counted like tMAVEN's N: >= 1 finite frame, before masking
+        idx = np.nonzero(finite)[0]  # finite frame indices (positions preserved)
+        vals = e[idx]
+        # Faithful tMAVEN raw mask: frame within the window and value in [lo, hi).
+        keep = (idx < n_time) & (vals >= lo) & (vals < hi)
+        if not np.any(keep):
+            continue
+        time_coord_chunks.append(idx[keep].astype(np.float64) * dt)
+        signal_coord_chunks.append(vals[keep])
+        if per_molecule_equal_weight:
+            # 1/m per surviving frame (m = the molecule's finite count), so out-of-window
+            # frames cost the molecule weight, matching the A1 out-of-range convention.
+            weight_chunks.append(np.full(int(keep.sum()), 1.0 / m, dtype=np.float64))
+
+    if time_coord_chunks:
+        time_coords = np.concatenate(time_coord_chunks)
+        signal_coords = np.concatenate(signal_coord_chunks)
+        weights = np.concatenate(weight_chunks) if per_molecule_equal_weight else None
+        counts, _, _ = np.histogram2d(
+            time_coords,
+            signal_coords,
+            bins=(time_edges, signal_edges),
+            density=density,
+            weights=weights,
+        )
+        n_samples = int(signal_coords.shape[0])
+    else:
+        # No binned points: an honest all-zero heatmap (density on empty would be NaN).
+        counts = np.zeros((n_time, n_signal), dtype=np.float64)
+        n_samples = 0
+
+    return Histogram2D(
+        counts=np.asarray(counts, dtype=np.float64),
+        time_edges=time_edges,
+        signal_edges=signal_edges,
+        time_dt=dt,
+        signal_range=(lo, hi),
+        density=density,
+        n_samples=n_samples,
+        n_molecules=n_molecules,
+        per_molecule_equal_weight=per_molecule_equal_weight,
+    )
+
+
+def population_time_signal_histogram2d(
+    project: ProjectRef,
+    *,
+    molecule_keys: list[str] | None = None,
+    intensity_quantity: str = "corrected",
+    time_bins: int = DEFAULT_TIME_BINS,
+    signal_bins: int = DEFAULT_SIGNAL_BINS,
+    signal_range: tuple[float, float] = DEFAULT_SIGNAL_RANGE,
+    time_dt: float = DEFAULT_TIME_DT,
+    density: bool = False,
+    per_molecule_equal_weight: bool = False,
+    include_rejected: bool = False,
+) -> Histogram2D:
+    """A2 raw time-vs-signal heatmap from a ``.tether`` store (§10 A2; Appendix C A2).
+
+    Reads each accepted molecule's windowed apparent E
+    (:func:`~tether.analysis._store.windowed_channels` +
+    :func:`~tether.fret.efficiency.apparent_fret`) — already start-synchronized to
+    its analysis-window start — and bins it with :func:`time_signal_histogram2d`.
+    This is the headless source of truth the GUI A2 heatmap renders. The
+    transition-aligned post-synchronized mode (reading the persisted
+    ``/idealization`` per-molecule state paths) is a follow-up.
+
+    Parameters
+    ----------
+    project
+        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+    molecule_keys
+        Restrict to these molecules (``None`` = all); intersected with the curation
+        filter.
+    intensity_quantity
+        Which ``/traces`` layer feeds apparent E: ``"corrected"`` (default) or
+        ``"raw"``.
+    time_bins, signal_bins, signal_range, time_dt, density, per_molecule_equal_weight
+        Binning parameters (see :func:`time_signal_histogram2d`).
+    include_rejected
+        If ``True``, keep rejected molecules; else exclude them (§7.5 default).
+
+    Returns
+    -------
+    Histogram2D
+    """
+    pairs = windowed_channels(project, molecule_keys, intensity_quantity, include_rejected)
+    signal_chunks = [apparent_fret(donor, acceptor) for donor, acceptor in pairs]
+    return time_signal_histogram2d(
+        signal_chunks,
+        time_bins=time_bins,
+        signal_bins=signal_bins,
+        signal_range=signal_range,
+        time_dt=time_dt,
+        density=density,
+        per_molecule_equal_weight=per_molecule_equal_weight,
     )
