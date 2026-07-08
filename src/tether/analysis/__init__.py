@@ -36,6 +36,11 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   molecule-count ``N`` annotation. This is the M6-owned §7.7 "per-condition
   overlays" clause, which only becomes meaningful once the M4 condition model
   exists.
+- :func:`~tether.analysis.histogram.model_gaussian_overlay` /
+  :func:`~tether.analysis.histogram.population_model_gaussian_overlay` — the A1
+  ``model_on`` overlay: the idealized population model's per-state Gaussians
+  (``frac·𝒩(mean, var)``) and their sum, drawn on the histogram axis
+  [Gopich2010]. The idealized model's own state emissions, not a fresh GMM fit.
 """
 
 from __future__ import annotations
@@ -49,17 +54,21 @@ from tether.analysis.histogram import (
     DEFAULT_BOOTSTRAP_RESAMPLES,
     DEFAULT_CI_LEVEL,
     DEFAULT_NBINS,
+    DEFAULT_OVERLAY_POINTS,
     DEFAULT_RANGE,
     DEFAULT_SEED,
     ConditionHistogram,
     Histogram1D,
     HistogramBootstrapCI,
+    ModelGaussianOverlay,
     PerConditionHistograms,
     apparent_e_histogram,
     bootstrap_histogram_ci,
+    model_gaussian_overlay,
     per_condition_apparent_e_histograms,
     population_apparent_e_histogram,
     population_apparent_e_histogram_ci,
+    population_model_gaussian_overlay,
 )
 from tether.analysis.query import (
     ConditionQueryResult,
@@ -71,6 +80,7 @@ __all__ = [
     "DEFAULT_BOOTSTRAP_RESAMPLES",
     "DEFAULT_CI_LEVEL",
     "DEFAULT_NBINS",
+    "DEFAULT_OVERLAY_POINTS",
     "DEFAULT_RANGE",
     "DEFAULT_SEED",
     "ConditionHistogram",
@@ -78,14 +88,17 @@ __all__ = [
     "CrossCorrelation",
     "Histogram1D",
     "HistogramBootstrapCI",
+    "ModelGaussianOverlay",
     "MoleculeMatch",
     "PerConditionHistograms",
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
     "cross_correlation",
+    "model_gaussian_overlay",
     "per_condition_apparent_e_histograms",
     "population_apparent_e_histogram",
     "population_apparent_e_histogram_ci",
     "population_cross_correlation",
+    "population_model_gaussian_overlay",
     "query_molecules",
 ]

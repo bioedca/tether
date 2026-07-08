@@ -27,6 +27,16 @@ Entry points:
   histogram on one shared axis (the M6 FR-ANALYZE §7.7 per-condition-overlay
   view), each density-normalized for cross-condition shape comparison
   [McCann2010], annotated with its molecule count ``N``.
+- :func:`model_gaussian_overlay` — the idealized state model drawn on the A1
+  axis as per-state Gaussians (tMAVEN's ``data_hist1d.py`` ``model_on`` overlay):
+  each state ``i`` contributes ``frac[i]·𝒩(mean[i], var[i])`` and the sum is the
+  mixture density the histogram is compared against. The multi-state FRET
+  histogram *is* such a sum of per-state Gaussians [Gopich2010] — so the overlay
+  is the idealized model's own state emissions, **not a fresh GMM re-fit** of the
+  pooled E (the faithful tMAVEN behavior).
+- :func:`population_model_gaussian_overlay` — read a persisted ``/idealization``
+  population model from a ``.tether`` store and build that overlay from its state
+  levels, variances and populations.
 
 Rejected traces are excluded by default via the §7.5 curation filter, with a
 per-molecule equal-weight toggle (§7.7).
@@ -54,6 +64,10 @@ References
 [Börner2018] Börner, Kowerko, Hadzic, König, Ritter, Sigel. "Simulations of
     camera-based single-molecule fluorescence experiments." PLoS ONE (2018).
     (MASH-FRET, whose BOBA-FRET module performs the same bootstrap.)
+[Gopich2010] Gopich & Szabo. "FRET efficiency distributions of multistate single
+    molecules." J. Phys. Chem. B 114(46):15221-15226 (2010). The multi-state FRET
+    efficiency histogram is a sum of Gaussians whose parameters are set by the
+    states' FRET efficiencies — the per-state model overlay Tether draws on A1.
 """
 
 from __future__ import annotations
@@ -75,17 +89,21 @@ __all__ = [
     "DEFAULT_BOOTSTRAP_RESAMPLES",
     "DEFAULT_CI_LEVEL",
     "DEFAULT_NBINS",
+    "DEFAULT_OVERLAY_POINTS",
     "DEFAULT_RANGE",
     "DEFAULT_SEED",
     "ConditionHistogram",
     "Histogram1D",
     "HistogramBootstrapCI",
+    "ModelGaussianOverlay",
     "PerConditionHistograms",
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
+    "model_gaussian_overlay",
     "per_condition_apparent_e_histograms",
     "population_apparent_e_histogram",
     "population_apparent_e_histogram_ci",
+    "population_model_gaussian_overlay",
 ]
 
 #: tMAVEN A1 defaults (``data_hist1d.py``): 151 bins over apparent E ∈ [-0.25, 1.25].
@@ -100,6 +118,12 @@ DEFAULT_RANGE: tuple[float, float] = (-0.25, 1.25)
 DEFAULT_BOOTSTRAP_RESAMPLES = 1000
 DEFAULT_CI_LEVEL = 0.95
 DEFAULT_SEED = 0
+
+#: tMAVEN A1 model-overlay grid resolution: ``data_hist1d.py`` evaluates the state
+#: Gaussians on ``np.linspace(signal_min, signal_max, 1001)``. A fixed rendering
+#: fidelity like :data:`DEFAULT_NBINS` (not a science tunable), exposed as the
+#: ``n_points`` keyword with this faithful default.
+DEFAULT_OVERLAY_POINTS = 1001
 
 
 @dataclass(frozen=True)
@@ -775,4 +799,219 @@ def per_condition_apparent_e_histograms(
         density=density,
         per_molecule_equal_weight=per_molecule_equal_weight,
         intensity_quantity=intensity_quantity,
+    )
+
+
+# --- model-Gaussian overlay (A1 ``model_on``) --------------------------------
+
+
+@dataclass(frozen=True)
+class ModelGaussianOverlay:
+    """The idealized state model drawn on the A1 histogram as per-state Gaussians.
+
+    tMAVEN's A1 ``model_on`` overlay (``data_hist1d.py``): each state ``i`` of the
+    idealized population model contributes a Gaussian
+    ``frac[i]·𝒩(x; means[i], variances[i])`` to the density, and the sum over states
+    (``total``) is the mixture curve the histogram is compared against — the
+    multi-state FRET efficiency histogram *is* such a sum of per-state Gaussians
+    [Gopich2010]. These are the idealized model's own state emissions, **not a fresh
+    GMM re-fit** of the pooled apparent-E — the faithful tMAVEN behavior.
+
+    Evaluated on the dense grid ``x`` spanning the histogram's ``value_range`` so it
+    overlays a density-normalized :class:`Histogram1D` directly: with ``frac``
+    summing to 1 and each Gaussian integrating to 1, ``total`` integrates to ~1 over
+    the reals (matching ``density=True``). No renormalization to the finite
+    ``value_range`` is applied — exactly as tMAVEN plots it — so a state whose mass
+    spills past an edge leaves ``total`` slightly under 1 there (honest, not
+    rescaled). The overlay is meaningful when the model was idealized on the same
+    FRET-efficiency signal the histogram bins (they share the E axis). Every
+    parameter that produced the curve travels with it (NFR-REPRO).
+    """
+
+    x: np.ndarray  # (n_points,) abscissa on the FRET-efficiency axis
+    components: np.ndarray  # (nstates, n_points) per-state ``frac·Normal`` density
+    total: np.ndarray  # (n_points,) mixture density = ``components.sum(axis=0)``
+    means: np.ndarray  # (nstates,) state emission means (the E levels)
+    variances: np.ndarray  # (nstates,) state emission variances (σ² > 0)
+    frac: np.ndarray  # (nstates,) normalized state populations (weights; sum ≈ 1)
+    value_range: tuple[float, float]
+    model_name: str | None  # source model name (store path); None for the pure core
+
+    @property
+    def nstates(self) -> int:
+        """Number of Gaussian components (states) in the overlay."""
+        return int(self.means.shape[0])
+
+    @property
+    def n_points(self) -> int:
+        """Number of abscissa samples the curves are evaluated on."""
+        return int(self.x.shape[0])
+
+
+def model_gaussian_overlay(
+    means: np.ndarray,
+    variances: np.ndarray,
+    frac: np.ndarray,
+    *,
+    value_range: tuple[float, float] = DEFAULT_RANGE,
+    n_points: int = DEFAULT_OVERLAY_POINTS,
+    model_name: str | None = None,
+) -> ModelGaussianOverlay:
+    """Build the per-state-Gaussian model overlay for the A1 histogram (pure core).
+
+    Reproduces tMAVEN's ``data_hist1d.py`` ``model_on`` branch: for each state ``i``
+    evaluate ``frac[i]·𝒩(x; means[i], variances[i])`` on
+    ``x = linspace(*value_range, n_points)`` and sum over states. The result overlays
+    a density-normalized :class:`Histogram1D` on the same ``value_range`` (see
+    :class:`ModelGaussianOverlay`). These are the idealized model's own state
+    emissions — never a fresh GMM fit of the pooled sample [Gopich2010].
+
+    Parameters
+    ----------
+    means, variances, frac
+        The idealized model's per-state emission means, emission variances
+        (σ² > 0), and normalized populations (each state's weight). Same length
+        ``nstates ≥ 1``. These are ``StateModel.means`` / ``.variances`` / ``.frac``
+        (Appendix D.2).
+    value_range
+        ``(low, high)`` abscissa span (default :data:`DEFAULT_RANGE`, matching the A1
+        histogram so the curves overlay). ``high > low`` required.
+    n_points
+        Grid resolution (default :data:`DEFAULT_OVERLAY_POINTS` = 1001, tMAVEN's).
+        Must be ≥ 2.
+    model_name
+        Optional source-model tag carried onto the result (set by the store-level
+        entry point).
+
+    Returns
+    -------
+    ModelGaussianOverlay
+
+    Raises
+    ------
+    ValueError
+        If the three arrays differ in length or are empty; if any mean is not
+        finite; if any variance is not finite and positive (a zero/negative/NaN
+        variance is a degenerate state — withheld, never drawn as an infinite
+        spike); if any ``frac`` is not finite and non-negative; or if
+        ``value_range`` / ``n_points`` are degenerate.
+    """
+    means = np.asarray(means, dtype=np.float64).ravel()
+    variances = np.asarray(variances, dtype=np.float64).ravel()
+    frac = np.asarray(frac, dtype=np.float64).ravel()
+    if not means.shape == variances.shape == frac.shape:
+        raise ValueError(
+            f"means {means.shape}, variances {variances.shape} and frac {frac.shape} "
+            "must be 1-D arrays of the same length"
+        )
+    if means.shape[0] < 1:
+        raise ValueError("means/variances/frac must describe at least one state")
+    if not np.all(np.isfinite(means)):
+        # A NaN/Inf mean would poison ``x - mean[i]`` and silently corrupt the whole
+        # mixture — withheld with the same honesty guard as variance/frac, not drawn.
+        raise ValueError(f"every state mean must be finite, got {means!r}")
+    if not np.all(np.isfinite(variances) & (variances > 0.0)):
+        raise ValueError(
+            "every state variance must be finite and > 0 to draw its Gaussian, got "
+            f"{variances!r} (a zero/negative/NaN variance is a degenerate state — "
+            "withheld rather than drawn as an infinite spike)"
+        )
+    if not np.all(np.isfinite(frac) & (frac >= 0.0)):
+        raise ValueError(f"every state population 'frac' must be finite and >= 0, got {frac!r}")
+
+    lo, hi = float(value_range[0]), float(value_range[1])
+    if not hi > lo:
+        raise ValueError(f"value_range must be (low, high) with high > low, got {value_range!r}")
+    if int(n_points) < 2:
+        raise ValueError(f"n_points must be >= 2 to span the range, got {n_points!r}")
+
+    x = np.linspace(lo, hi, int(n_points))
+    # frac[i] / sqrt(2*pi*var[i]) * exp(-0.5 * (x - mean[i])**2 / var[i]), vectorized
+    # over states -> (nstates, n_points). Faithful to tMAVEN ``data_hist1d.py``.
+    z = x[None, :] - means[:, None]
+    norm = frac / np.sqrt(2.0 * np.pi * variances)
+    components = norm[:, None] * np.exp(-0.5 * z * z / variances[:, None])
+    total = components.sum(axis=0)
+    return ModelGaussianOverlay(
+        x=x,
+        components=components,
+        total=total,
+        means=means,
+        variances=variances,
+        frac=frac,
+        value_range=(lo, hi),
+        model_name=model_name,
+    )
+
+
+def population_model_gaussian_overlay(
+    project: ProjectRef,
+    model_name: str,
+    *,
+    value_range: tuple[float, float] = DEFAULT_RANGE,
+    n_points: int = DEFAULT_OVERLAY_POINTS,
+) -> ModelGaussianOverlay:
+    """Model-Gaussian overlay for a persisted ``/idealization`` model (§10 A1).
+
+    Reads the ``model_name`` population model from a ``.tether`` store
+    (:meth:`~tether.project.core.Project.read_idealization`) and builds the tMAVEN A1
+    overlay from its state levels, variances and populations
+    (:func:`model_gaussian_overlay`). The overlay is meaningful when the model was
+    idealized on the same FRET-efficiency signal the A1 histogram bins — they share
+    the E axis — so pass the histogram's ``value_range`` to align them.
+
+    Parameters
+    ----------
+    project
+        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+    model_name
+        Which ``/idealization/{model_name}`` to overlay (see
+        :meth:`~tether.project.core.Project.list_idealizations`).
+    value_range, n_points
+        Forwarded to :func:`model_gaussian_overlay` (defaults match the A1
+        histogram).
+
+    Returns
+    -------
+    ModelGaussianOverlay
+        With ``model_name`` set to the source model.
+
+    Raises
+    ------
+    KeyError
+        If no ``/idealization/{model_name}`` exists in the store.
+    ValueError
+        If the model carries no per-state means / variances / populations — a
+        threshold or k-means model (or a legacy model written before the
+        population members landed) has no Gaussian emissions to overlay. The
+        overlay needs a population model (vbFRET / vbconhmm / ebFRET); the missing
+        spread is **withheld, never fabricated**.
+    """
+    from tether.project.core import Project as _Project  # noqa: PLC0415
+
+    proj = project if isinstance(project, _Project) else _Project.open(project)
+    stored = proj.read_idealization(model_name)
+    missing = [
+        name
+        for name, val in (
+            ("means", stored.means),
+            ("variances", stored.variances),
+            ("frac", stored.frac),
+        )
+        if val is None
+    ]
+    if missing:
+        raise ValueError(
+            f"model {model_name!r} (type {stored.model_type!r}) has no per-state "
+            f"{' / '.join(missing)}; the A1 model-Gaussian overlay needs a population "
+            "model (vbFRET / vbconhmm / ebFRET), not a threshold/k-means model — "
+            "the missing spread is withheld rather than fabricated"
+        )
+    return model_gaussian_overlay(
+        stored.means,
+        stored.variances,
+        stored.frac,
+        value_range=value_range,
+        n_points=n_points,
+        model_name=model_name,
     )
