@@ -47,9 +47,11 @@ if TYPE_CHECKING:
     ProjectRef = Project | str | PathLike[str]
 
 __all__ = [
+    "ScoredMolecules",
     "WeightedTrainingSet",
     "ranker_precision_at_k",
     "ranker_ranking",
+    "score_molecules",
     "train_ranker",
     "weighted_training_set",
 ]
@@ -136,6 +138,36 @@ class WeightedTrainingSet:
     @property
     def n_good(self) -> int:
         return int(np.count_nonzero(self.y))
+
+
+# ``eq=False`` -> identity equality/hash (the WeightedTrainingSet / RankingDataset precedent):
+# this value object holds numpy arrays a dataclass-generated ``__eq__``/``__hash__`` could not
+# compare/hash.
+@dataclass(frozen=True, eq=False)
+class ScoredMolecules:
+    """A trained ranker's ``P(good)`` scores over **every** molecule + the fixed quality sweep.
+
+    The shared output of one train+score pass (:func:`score_molecules`): the substrate both the
+    quality ranking (:func:`ranker_ranking`) and the active-learning "recommended next" badge
+    (:func:`tether.project.active.next_recommendation`) read.
+
+    Attributes
+    ----------
+    dataset:
+        The human-only supervised view (:class:`~tether.project.ranking.RankingDataset`) — the
+        molecule ids/keys, the feature matrix, and each molecule's ``curation_label`` (so a
+        caller can tell which molecules are still uncurated, via ``labeled_mask``).
+    scores:
+        ``(n_molecules,)`` ``float64`` ``P(good)`` quality score of each molecule, aligned to
+        ``dataset.molecule_ids``.
+    sweep:
+        The fixed, never-auto-drop quality ranking (:class:`~tether.ml.ranking.RankedTraces`) —
+        every molecule ordered highest ``P(good)`` first. Identical to :func:`ranker_ranking`.
+    """
+
+    dataset: RankingDataset
+    scores: np.ndarray
+    sweep: RankedTraces
 
 
 def _prepare(project: ProjectRef, w0: float) -> tuple[WeightedTrainingSet, RankingDataset]:
@@ -233,18 +265,47 @@ def _fit(training: WeightedTrainingSet, name: str) -> QualityRanker:
     )
 
 
+def score_molecules(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEIGHT) -> ScoredMolecules:
+    """Train the ranker and score **every** molecule — one project read, one fit (PRD §7.5).
+
+    Builds the weighted training set (human + decayed provisional priors), fits the model
+    **once**, and scores every molecule (labeled *and* uncurated), returning the per-molecule
+    ``P(good)`` scores, the fixed never-auto-drop quality **sweep** (highest quality first), and
+    the human-only :class:`~tether.project.ranking.RankingDataset` (its ``curation_label`` marks
+    which molecules are still uncurated). The shared train+score seam behind
+    :func:`ranker_ranking` and the active-learning badge
+    (:func:`tether.project.active.next_recommendation`), so neither re-reads or re-fits. Because
+    ``QualityRanker.rank`` is exactly ``rank_by_score(ids, score(X))``, the ``sweep`` here is
+    identical to :func:`ranker_ranking` while scoring only once. Read-only.
+
+    Raises
+    ------
+    KeyError
+        No ``/features/table`` exists.
+    ValueError
+        No labeled molecules (human or provisional), or only one class is labeled.
+    """
+    from tether.ml.ranking import rank_by_score  # noqa: PLC0415
+
+    training, data = _prepare(project, w0)
+    ranker = _fit(training, _project_name(project))
+    scores = ranker.score(data.X)
+    return ScoredMolecules(
+        dataset=data, scores=scores, sweep=rank_by_score(data.molecule_ids, scores)
+    )
+
+
 def _train_and_rank(
     project: ProjectRef, w0: float = DEFAULT_SEED_WEIGHT
 ) -> tuple[RankedTraces, RankingDataset]:
     """Train the ranker once and rank every molecule — shared by the ranking entry points.
 
-    Builds the weighted training set (human + decayed provisional priors), fits the model **once**,
-    and ranks all molecules, returning both the ranking and the human-only dataset so a caller that
-    also needs the evaluation labels (:func:`ranker_precision_at_k`) reuses this single fit.
+    Delegates to :func:`score_molecules` (one project read, one fit), returning its fixed quality
+    sweep and the human-only dataset so a caller that also needs the evaluation labels
+    (:func:`ranker_precision_at_k`) reuses this single fit.
     """
-    training, data = _prepare(project, w0)
-    ranker = _fit(training, _project_name(project))
-    return ranker.rank(data.molecule_ids, data.X), data
+    scored = score_molecules(project, w0=w0)
+    return scored.sweep, scored.dataset
 
 
 def train_ranker(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEIGHT) -> QualityRanker:
