@@ -14,10 +14,9 @@
     ],
     "applied_to": [
       "vbFRET (per-trace, M2)",
-      "consensus VB-HMM (M6)",
-      "ebFRET (M6)"
+      "consensus VB-HMM (M6)"
     ],
-    "note": "The \u00a711.2 row is ONE tolerance applied to all idealization methods. M0.5 measured the cross-seed spread on the vb Consensus HMM path only (the committed reference-model type + the M6 method + the Appendix-D.2 fixture type). Per-trace vbFRET and ebFRET are asserted against this same frozen row at M2/M6, where their own fixtures exist; their cross-seed spread is NOT separately measured here. See ADR-0009."
+    "note": "The top-level tolerance is the vbconhmm cross-seed spread (measured at M0.5), applied by default to the vb Consensus HMM path (the committed reference-model type + fixture type) and per-trace vbFRET. ebFRET is measured and frozen SEPARATELY under tolerance_by_method/measured_by_method (its per-trace state selection is more seed-variable). See ADR-0009 (metrics + freeze) and ADR-0043 (per-method ratification)."
   },
   "freeze_policy": "frozen = more permissive of (provisional \u00a711.2 default, measured worst-case \u00b1 margin); margin=0.5: ceilings \u00d7(1+margin), floors \u2212margin\u00b7(1\u2212worst).",
   "provisional": {
@@ -288,6 +287,165 @@
             1.6090080004229024e-12,
             8.009068222044635e-12
           ]
+        }
+      }
+    }
+  },
+  "tolerance_by_method": {
+    "ebhmm": {
+      "state_count_min_fraction": 0.5249,
+      "state_mean_abs_delta_max": 0.0518,
+      "viterbi_min_agreement": 0.9034,
+      "relative_elbo_max": 0.01
+    }
+  },
+  "measured_by_method": {
+    "ebhmm": {
+      "measured_utc": "2026-07-08",
+      "method": {
+        "model_type": "ebhmm",
+        "n_runs_per_fixture": 20,
+        "sidecar_python": "/home/runner/micromamba/envs/tether-sidecar/bin/python",
+        "note": "tMAVEN self-reseeds; parity is statistical, never bit-exact (PRD \u00a77.4)."
+      },
+      "coverage": {
+        "measured_methods": [
+          "ebhmm (ebFRET, empirical-Bayes HMM)"
+        ],
+        "reference": "cross-seed (run00 anchor) on smd_281mol",
+        "note": "ebFRET's cross-seed spread is measured SEPARATELY from vbconhmm: its empirical-Bayes per-trace state selection is more seed-variable, so the vbconhmm-derived top-level tolerance (state-count floor 0.9, from a 1.0 worst case) is too tight for it. Anchored cross-seed (not vs the vbconhmm reference model, whose ELBO is not commensurable with an ebFRET fit's). See ADR-0043."
+      },
+      "freeze_policy": "frozen = more permissive of (provisional \u00a711.2 default, measured worst-case \u00b1 margin); margin=0.5: ceilings \u00d7(1+margin), floors \u2212margin\u00b7(1\u2212worst).",
+      "pooled_worst": {
+        "state_count_fraction": 0.6832740213523132,
+        "state_mean_abs_delta": 0.034534406067662116,
+        "viterbi_agreement": 0.9355949176941853,
+        "relative_elbo": 0.0006627875119730492
+      },
+      "spread_by_fixture": {
+        "smd_281mol": {
+          "smd": "tests/fixtures/large/smd_281mol.hdf5",
+          "reference": "cross-seed (run00 anchor)",
+          "nstates": 4,
+          "n_comparisons": 19,
+          "metrics": {
+            "state_count_fraction": {
+              "direction": "floor",
+              "n": 19,
+              "min": 0.6832740213523132,
+              "max": 0.7686832740213523,
+              "mean": 0.7282262595991759,
+              "worst": 0.6832740213523132,
+              "values": [
+                0.7544483985765125,
+                0.7259786476868327,
+                0.7402135231316725,
+                0.7295373665480427,
+                0.697508896797153,
+                0.7259786476868327,
+                0.7224199288256228,
+                0.7259786476868327,
+                0.7046263345195729,
+                0.6832740213523132,
+                0.7366548042704626,
+                0.693950177935943,
+                0.7402135231316725,
+                0.7117437722419929,
+                0.7686832740213523,
+                0.7580071174377224,
+                0.7686832740213523,
+                0.7117437722419929,
+                0.7366548042704626
+              ]
+            },
+            "state_mean_abs_delta": {
+              "direction": "ceiling",
+              "n": 19,
+              "min": 0.001655686573994175,
+              "max": 0.034534406067662116,
+              "mean": 0.0074569818272261735,
+              "worst": 0.034534406067662116,
+              "values": [
+                0.001655686573994175,
+                0.001666695419074049,
+                0.0051009693101849996,
+                0.005744633588136094,
+                0.0051625861516830795,
+                0.004500928763144008,
+                0.005760149828803907,
+                0.0039108734574641035,
+                0.03171545182642038,
+                0.034534406067662116,
+                0.00451303977011791,
+                0.005162132924074636,
+                0.005532380699644013,
+                0.005162997239031131,
+                0.005766737742050998,
+                0.005107413889979928,
+                0.0016660839556077445,
+                0.004512406530585655,
+                0.004507080979638367
+              ]
+            },
+            "viterbi_agreement": {
+              "direction": "floor",
+              "n": 19,
+              "min": 0.9355949176941853,
+              "max": 0.9813231520310446,
+              "mean": 0.9734829343497067,
+              "worst": 0.9355949176941853,
+              "values": [
+                0.9796457407523315,
+                0.9765788320711022,
+                0.9798335106715904,
+                0.9709958064718032,
+                0.9763409901733743,
+                0.9764411341303123,
+                0.9728359516805408,
+                0.9774175377104588,
+                0.9477624084621643,
+                0.9355949176941853,
+                0.976854227952682,
+                0.9756525004694248,
+                0.9813231520310446,
+                0.9760155223133254,
+                0.9772798397696689,
+                0.9812104900794892,
+                0.9812480440633411,
+                0.9785817112098641,
+                0.974563434937723
+              ]
+            },
+            "relative_elbo": {
+              "direction": "ceiling",
+              "n": 19,
+              "min": 8.541057355392508e-05,
+              "max": 0.0006627875119730492,
+              "mean": 0.00022046673957100727,
+              "worst": 0.0006627875119730492,
+              "values": [
+                8.541057355392508e-05,
+                0.00010154739176702057,
+                0.00019870626365824207,
+                0.00017990283890110788,
+                0.00018352395968136795,
+                0.00017669455047855434,
+                0.00019819398425411332,
+                0.0005368187810572319,
+                0.00025477234025790806,
+                0.00020885219626587273,
+                0.0001824567885944382,
+                0.00018491770017534003,
+                0.0006627875119730492,
+                0.00017658585300049624,
+                0.00019899988136932173,
+                0.00019560371770427094,
+                0.00010158910004688249,
+                0.00018143986305238632,
+                0.00018006475605760852
+              ]
+            }
+          }
         }
       }
     }

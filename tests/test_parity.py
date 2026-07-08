@@ -333,3 +333,57 @@ def test_load_frozen_tolerance_returns_the_four_bounds():
     tol = load_frozen_tolerance(FROZEN_JSON)
     assert set(tol) == set(PROVISIONAL)
     assert all(np.isfinite(v) for v in tol.values())
+
+
+# --------------------------------------------------------------------------- #
+# per-method tolerances (ebFRET frozen separately from vbconhmm — ADR-0043)     #
+# --------------------------------------------------------------------------- #
+
+_FLOORS = {
+    "state_count_fraction": "state_count_min_fraction",
+    "viterbi_agreement": "viterbi_min_agreement",
+}
+_CEILINGS = {
+    "state_mean_abs_delta": "state_mean_abs_delta_max",
+    "relative_elbo": "relative_elbo_max",
+}
+
+
+def _assert_spread_within(spread_by_fixture, tol):
+    for fixture in spread_by_fixture.values():
+        for metric, summ in fixture["metrics"].items():
+            for v in summ["values"]:
+                if metric in _FLOORS:
+                    assert v >= tol[_FLOORS[metric]], f"{metric}={v} below frozen floor"
+                else:
+                    assert v <= tol[_CEILINGS[metric]], f"{metric}={v} above frozen ceiling"
+
+
+def test_per_method_tolerances_cover_their_own_measured_evidence():
+    """Each per-method frozen tolerance must satisfy its own recorded spread.
+
+    The per-method counterpart of
+    :func:`test_frozen_artifact_covers_its_own_measured_evidence`: ebFRET (``ebhmm``)
+    is frozen separately (ADR-0043) because its empirical-Bayes per-trace state
+    selection is more seed-variable than vbconhmm's, so its bounds are validated
+    against its *own* measured evidence, never the vbconhmm top-level row. Also runs
+    in the base matrix, so a tampered/loosened per-method block fails here.
+    """
+    data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
+    by_tol = data.get("tolerance_by_method", {})
+    by_measured = data.get("measured_by_method", {})
+    assert set(by_tol) == set(by_measured), "every per-method tolerance needs its evidence"
+    for method, tol in by_tol.items():
+        assert set(tol) == set(PROVISIONAL), f"{method} tolerance must carry the four bounds"
+        _assert_spread_within(by_measured[method]["spread_by_fixture"], tol)
+
+
+def test_load_frozen_tolerance_selects_per_method():
+    default = load_frozen_tolerance(FROZEN_JSON)
+    ebhmm = load_frozen_tolerance(FROZEN_JSON, method="ebhmm")
+    assert set(ebhmm) == set(PROVISIONAL)
+    # ebFRET's measured state-count floor is genuinely looser than the vbconhmm default.
+    assert ebhmm["state_count_min_fraction"] < default["state_count_min_fraction"]
+    # A method without its own block, and an explicit None, fall back to the default.
+    assert load_frozen_tolerance(FROZEN_JSON, method="vbconhmm") == default
+    assert load_frozen_tolerance(FROZEN_JSON, method=None) == default
