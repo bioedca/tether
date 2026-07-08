@@ -60,6 +60,14 @@ jobs:
       # Same pinned tMAVEN reference as sidecar.yml (the GPL app driven over IPC,
       # layered onto the sidecar lock, not in it).
       TMAVEN_SPEC: "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230"
+      # Bind the dispatch inputs to env vars (the `inputs` context is available in
+      # job-level env, unlike `runner.*`). Steps reference "$MODEL_TYPE" etc. so the
+      # untrusted string inputs are expanded by bash AFTER it parses the script — a
+      # value like `; rm -rf /` becomes literal argv words, never a command
+      # separator — instead of being spliced into the script text via ${{ }}.
+      MODEL_TYPE: ${{ inputs.model_type }}
+      FIXTURES: ${{ inputs.fixtures }}
+      N_RUNS: ${{ inputs.n_runs }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -83,16 +91,18 @@ jobs:
         run: |
           export TETHER_SIDECAR_PYTHON="$(python -c 'import sys; print(sys.executable)')"
           mkdir -p measured
+          # $FIXTURES is intentionally unquoted (space-separated multi-value, each
+          # validated by argparse choices); the other inputs are quoted.
           python scripts/measure_parity.py \
-            --model-type "${{ inputs.model_type }}" \
+            --model-type "$MODEL_TYPE" \
             --cross-seed \
-            --fixtures ${{ inputs.fixtures }} \
-            --n-runs "${{ inputs.n_runs }}" \
+            --fixtures $FIXTURES \
+            --n-runs "$N_RUNS" \
             --margin 0.5 \
             --scratch "${{ runner.temp }}/parity_runs" \
-            --out "measured/${{ inputs.model_type }}_parity.json"
+            --out "measured/${MODEL_TYPE}_parity.json"
       - name: Echo the full measured tolerance JSON to the log (for harvesting)
         run: |
-          echo "===BEGIN ${{ inputs.model_type }}_parity.json==="
-          cat "measured/${{ inputs.model_type }}_parity.json"
-          echo "===END ${{ inputs.model_type }}_parity.json==="
+          echo "===BEGIN ${MODEL_TYPE}_parity.json==="
+          cat "measured/${MODEL_TYPE}_parity.json"
+          echo "===END ${MODEL_TYPE}_parity.json==="

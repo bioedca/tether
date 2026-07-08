@@ -83,6 +83,19 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    # A non-vbconhmm method compared to the committed (vbconhmm) reference model is
+    # not commensurable — its ELBO is a different model's variational bound — so
+    # measuring it against that reference silently corrupts the freeze. Enforce the
+    # cross-seed anchor the --model-type help promises, rather than only documenting it.
+    if args.model_type != "vbconhmm" and not args.cross_seed:
+        referenced = [name for name in args.fixtures if _FIXTURES[name]["reference"] is not None]
+        if referenced:
+            ap.error(
+                f"--cross-seed is required for --model-type {args.model_type}: fixtures "
+                f"{referenced} carry a committed reference model fit with vbconhmm, whose "
+                "ELBO is not commensurable with this method's — measure cross-seed instead"
+            )
+
     scratch = (
         args.scratch or os.environ.get("TMPDIR") or str(Path(args.out).parent / "_parity_runs")
     )
