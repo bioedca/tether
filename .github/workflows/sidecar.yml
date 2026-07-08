@@ -83,17 +83,25 @@ jobs:
         # A dispatch or nightly always runs the full suite. On a PR, run it only when
         # the diff touches something that can change a live idealization result; an
         # unrelated PR passes this required check in seconds without provisioning the
-        # heavy env. `grep` in an `if` is exempt from `-e`, so a no-match is safe.
+        # heavy env. `grep` in an `if` is exempt from `-e`, so a no-match is safe. The
+        # inputs are bound to env vars (not inlined via ${{ }}) — they are not
+        # attacker-controllable, but this keeps the script off the template-injection
+        # path and clean under zizmor.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
+          if [ "$EVENT_NAME" != "pull_request" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "event=${{ github.event_name }} -> running the full live suite."
+            echo "event=$EVENT_NAME -> running the full live suite."
             exit 0
           fi
-          base="${{ github.event.pull_request.base.sha }}"
-          changed="$(git diff --name-only "$base" HEAD)"
+          changed="$(git diff --name-only "$BASE_SHA" HEAD)"
           echo "changed files:"; echo "$changed"
-          pattern='^(src/tether/idealize/|sidecar/|schema/parity_tolerance\.json|tests/test_parity_sidecar\.py|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
+          # Gate on the SAME file set the pytest step collects (tests/test_*sidecar*.py,
+          # e.g. both test_parity_sidecar.py and test_sidecar_driver.py), so a change to
+          # ANY sidecar module runs the live suite — not just the parity module.
+          pattern='^(src/tether/idealize/|sidecar/|schema/parity_tolerance\.json|tests/test_.*sidecar.*\.py|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
           if echo "$changed" | grep -qE "$pattern"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             echo "Idealization-relevant paths changed -> running the live parity suite."
