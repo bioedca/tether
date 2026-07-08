@@ -23,6 +23,10 @@ Entry points:
   (the FRET histogram's error bars, PRD §7.7).
 - :func:`population_apparent_e_histogram_ci` — the store-level bootstrap CI over
   the accepted molecules.
+- :func:`per_condition_apparent_e_histograms` — overlay each condition's
+  histogram on one shared axis (the M6 FR-ANALYZE §7.7 per-condition-overlay
+  view), each density-normalized for cross-condition shape comparison
+  [McCann2010], annotated with its molecule count ``N``.
 
 Rejected traces are excluded by default via the §7.5 curation filter, with a
 per-molecule equal-weight toggle (§7.7).
@@ -63,6 +67,8 @@ from tether.analysis._store import windowed_channels
 from tether.fret.efficiency import apparent_fret
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from collections.abc import Iterable, Mapping
+
     from tether.analysis._store import ProjectRef
 
 __all__ = [
@@ -71,10 +77,13 @@ __all__ = [
     "DEFAULT_NBINS",
     "DEFAULT_RANGE",
     "DEFAULT_SEED",
+    "ConditionHistogram",
     "Histogram1D",
     "HistogramBootstrapCI",
+    "PerConditionHistograms",
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
+    "per_condition_apparent_e_histograms",
     "population_apparent_e_histogram",
     "population_apparent_e_histogram_ci",
 ]
@@ -546,3 +555,224 @@ def population_apparent_e_histogram_ci(
         per_molecule_equal_weight=per_molecule_equal_weight,
     )
     return replace(ci, histogram=hist)
+
+
+@dataclass(frozen=True)
+class ConditionHistogram:
+    """One condition's apparent-E histogram within a per-condition overlay (§7.7).
+
+    Pairs the ``condition_id`` with its :class:`Histogram1D` so a renderer can
+    label each overlaid curve and annotate it with the molecule count ``N`` (the
+    §7.7 "N annotation"). The histogram carries its own binning parameters and
+    ``n_molecules``; this wrapper only adds the condition identity.
+    """
+
+    condition_id: str
+    histogram: Histogram1D
+
+    @property
+    def n_molecules(self) -> int:
+        """Molecules of this condition that contributed ≥1 finite frame (the ``N``)."""
+        return int(self.histogram.n_molecules or 0)
+
+    @property
+    def n_samples(self) -> int:
+        """Finite per-frame apparent-E values pooled for this condition."""
+        return self.histogram.n_samples
+
+
+@dataclass(frozen=True)
+class PerConditionHistograms:
+    """Several conditions' apparent-E histograms sharing one axis (§7.7 overlay).
+
+    The FR-ANALYZE §7.7 "per-condition overlays" view: each condition is binned on
+    the **same** grid (identical ``bins`` + ``value_range``) so the curves overlay
+    directly on one axis, density-normalized per condition by default so the
+    population *shapes* compare regardless of how many molecules each condition has
+    — the standard way FRET-efficiency populations are compared across conditions
+    [McCann2010]. Only conditions with at least one queried molecule are present;
+    the order is the requested ``condition_ids`` order when given, else the store's
+    first-seen order — either way deterministic (NFR-REPRO).
+
+    Every parameter that produced the overlay travels with it (``bin_edges``,
+    ``value_range``, ``density``, weighting, ``intensity_quantity``) so the view is
+    reproducible without re-deriving it.
+    """
+
+    histograms: tuple[ConditionHistogram, ...]
+    bin_edges: np.ndarray  # (nbins + 1,) float64 — the grid shared by every condition
+    value_range: tuple[float, float]
+    density: bool
+    per_molecule_equal_weight: bool
+    intensity_quantity: str
+
+    @property
+    def n_conditions(self) -> int:
+        """How many conditions are overlaid."""
+        return len(self.histograms)
+
+    @property
+    def condition_ids(self) -> tuple[str, ...]:
+        """The overlaid conditions, in overlay (legend) order."""
+        return tuple(ch.condition_id for ch in self.histograms)
+
+    @property
+    def bin_centers(self) -> np.ndarray:
+        """Bin-center abscissa shared by every overlaid curve."""
+        e = self.bin_edges
+        return 0.5 * (e[:-1] + e[1:])
+
+    @property
+    def nbins(self) -> int:
+        """Number of bins on the shared grid."""
+        return int(self.bin_edges.shape[0] - 1)
+
+    @property
+    def molecule_counts(self) -> dict[str, int]:
+        """``condition_id`` → its molecule count ``N`` (the §7.7 per-curve annotation)."""
+        return {ch.condition_id: ch.n_molecules for ch in self.histograms}
+
+    @property
+    def total_molecules(self) -> int:
+        """Molecules contributing across all overlaid conditions."""
+        return sum(ch.n_molecules for ch in self.histograms)
+
+    def __getitem__(self, condition_id: str) -> ConditionHistogram:
+        """The :class:`ConditionHistogram` for ``condition_id`` (``KeyError`` if absent)."""
+        for ch in self.histograms:
+            if ch.condition_id == condition_id:
+                return ch
+        raise KeyError(condition_id)
+
+
+def per_condition_apparent_e_histograms(
+    project: ProjectRef,
+    *,
+    condition_ids: Iterable[str] | None = None,
+    key: Mapping[str, object] | None = None,
+    categories: Iterable[str] | None = None,
+    tags: Iterable[str] | None = None,
+    match_all_tags: bool = True,
+    intensity_quantity: str = "corrected",
+    bins: int = DEFAULT_NBINS,
+    value_range: tuple[float, float] = DEFAULT_RANGE,
+    density: bool = True,
+    per_molecule_equal_weight: bool = False,
+    include_rejected: bool = False,
+) -> PerConditionHistograms:
+    """Overlay each condition's apparent-E histogram on one shared axis (§7.7).
+
+    The FR-ANALYZE §7.7 per-condition-overlay view (M6-owned: it only becomes
+    meaningful once the M4 condition model exists). Selects the conditioned
+    population with :func:`~tether.analysis.query.query_molecules` (the same ANDed
+    key/category/tag filters), groups the matches by condition, and bins each
+    condition's **accepted** molecules with :func:`population_apparent_e_histogram`
+    on a **single shared grid** so the curves overlay directly. Each condition is
+    density-normalized independently by default, the standard way FRET-efficiency
+    populations are compared across conditions [McCann2010].
+
+    Selection is a two-stage AND: the query picks the *conditioned* molecules
+    matching the filters, then the histogram applies the §7.5 curation filter
+    (``include_rejected=False`` by default) — so each condition's curve pools its
+    **queried ∩ accepted** molecules, and a condition whose molecules are all
+    rejected still appears with ``N = 0`` rather than silently vanishing.
+
+    Parameters
+    ----------
+    project
+        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+    condition_ids
+        Restrict to (and order the overlay by) these conditions; ``None``/empty
+        overlays every condition in store order. Conditions requested but absent
+        from the store contribute nothing (they are simply not overlaid).
+    key, categories, tags, match_all_tags
+        Forwarded verbatim to :func:`~tether.analysis.query.query_molecules` to
+        narrow which molecules of each condition are pooled (e.g. overlay only the
+        ``docked`` category, or a ligand-only ``key``). ``key`` needs materialized
+        ``/conditions`` rows (see that function).
+    intensity_quantity, bins, value_range, density, per_molecule_equal_weight,
+    include_rejected
+        Binning / pooling parameters, applied identically to every condition (see
+        :func:`population_apparent_e_histogram`). ``bins`` + ``value_range`` are
+        shared so the histograms overlay on one axis.
+
+    Returns
+    -------
+    PerConditionHistograms
+        One :class:`ConditionHistogram` per condition with ≥1 queried molecule, on
+        the shared grid, in ``condition_ids`` order when given else store order.
+        Empty (no ``histograms``) when nothing matches — the shared ``bin_edges``
+        are present regardless.
+    """
+    from tether.analysis.query import query_molecules  # noqa: PLC0415
+    from tether.project.core import Project as _Project  # noqa: PLC0415
+
+    # Materialize a possibly one-shot ``condition_ids`` iterable: ``query_molecules``
+    # consumes it for filtering AND we need it again for the overlay order. Leave a
+    # bare str/bytes untouched so ``query_molecules`` raises its informative TypeError.
+    # An empty selection is *inert* (``requested = None`` -> store order), matching
+    # ``query_molecules`` where an empty filter overlays every condition.
+    requested: list[str] | None = None
+    if condition_ids is not None and not isinstance(condition_ids, str | bytes):
+        materialized = [str(c) for c in condition_ids]
+        condition_ids = materialized
+        requested = materialized or None
+
+    proj = project if isinstance(project, _Project) else _Project.open(project)
+
+    result = query_molecules(
+        proj,
+        condition_ids=condition_ids,
+        key=key,
+        categories=categories,
+        tags=tags,
+        match_all_tags=match_all_tags,
+    )
+    grouped = result.by_condition()
+
+    # Overlay order: the caller's requested order (restricted to conditions actually
+    # present, de-duplicated) when given, else the query's first-seen store order.
+    if requested is None:
+        order: list[str] = list(result.condition_ids)
+    else:
+        seen: set[str] = set()
+        order = []
+        for cid in requested:
+            if cid in grouped and cid not in seen:
+                seen.add(cid)
+                order.append(cid)
+
+    # ``len(order)`` is the number of overlaid conditions — a handful on one axis by
+    # construction — so re-pooling each condition's traces per curve is fine.
+    histograms = tuple(
+        ConditionHistogram(
+            condition_id=cid,
+            histogram=population_apparent_e_histogram(
+                proj,
+                molecule_keys=list(grouped[cid]),
+                intensity_quantity=intensity_quantity,
+                bins=bins,
+                value_range=value_range,
+                density=density,
+                per_molecule_equal_weight=per_molecule_equal_weight,
+                include_rejected=include_rejected,
+            ),
+        )
+        for cid in order
+    )
+
+    # The shared grid — identical for every condition (fixed bins + range), and
+    # present even when nothing matched (the canonical empty-sample edges).
+    bin_edges = apparent_e_histogram(
+        np.empty(0, dtype=np.float64), bins=bins, value_range=value_range, density=density
+    ).bin_edges
+
+    lo, hi = float(value_range[0]), float(value_range[1])
+    return PerConditionHistograms(
+        histograms=histograms,
+        bin_edges=bin_edges,
+        value_range=(lo, hi),
+        density=density,
+        per_molecule_equal_weight=per_molecule_equal_weight,
+        intensity_quantity=intensity_quantity,
+    )
