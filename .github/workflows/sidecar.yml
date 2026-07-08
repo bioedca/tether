@@ -5,31 +5,33 @@
 # It provisions the ISOLATED tMAVEN sidecar env (sidecar/conda-lock.yml — numpy<2 /
 # PyQt5, never the base stack), installs the pinned tMAVEN, and runs the live
 # `@pytest.mark.sidecar` suite: drive `tmaven.maven.maven_class` headless → fit the
-# committed SMD fixtures → assert each fresh fit agrees with the committed reference
-# (281-mol reference model; a cross-seed anchor for the 4-mol) WITHIN the frozen
-# §11.2 tolerance (schema/parity_tolerance.json). The tolerance is a frozen INPUT
-# ratified once at M0.5; this job asserts against it and never recomputes it.
+# committed SMD fixtures → assert each fresh fit agrees WITHIN the frozen tolerance
+# (schema/parity_tolerance.json): consensus VB-HMM (vbconhmm) vs the 281-mol
+# reference + a 4-mol cross-seed anchor, and ebFRET (ebhmm) cross-seed vs its own
+# per-method tolerance (ADR-0043). The tolerance is a frozen INPUT ratified out of
+# band; this job asserts against it and never recomputes it.
 #
-# The parity gate is split in two (the separation CodeRabbit flagged on PR #21):
-#   * PR-facing, pure: the base `test` matrix runs `tests/test_parity.py`, which
-#     asserts the FROZEN JSON against its own recorded evidence
-#     (`test_frozen_artifact_covers_its_own_measured_evidence`) — no sidecar, so it
-#     gates every PR and catches a tampered/loosened tolerance.
-#   * Out-of-band, live (this workflow): drive the real fits and assert them vs the
-#     frozen tolerance, which needs the heavy sidecar env + tMAVEN.
+# The parity gate is layered:
+#   * PR-facing, pure (always required): the base `test` matrix runs
+#     `tests/test_parity.py`, which asserts the FROZEN JSON against its own recorded
+#     evidence (top-level + per-method) — no sidecar, gates every PR, catches a
+#     tampered/loosened tolerance.
+#   * Live (this workflow): drives the real fits vs the frozen tolerance, which needs
+#     the heavy sidecar env + tMAVEN.
 #
-# Trigger: manual (workflow_dispatch) + nightly (schedule), NOT pull_request — the
-# sidecar env is heavy to provision and the live fits are slow, so it is run out of
-# band rather than on every PR. It is intentionally NOT yet a required status check:
-# promotion into the `main-baseline` ruleset's required set (mirroring how S4/S6
-# promoted schema-guard, per §12.6 "Active from M0.5" / §12.10) is gated on a first
-# confirmed-green dispatch run that proves tMAVEN installs cleanly on the runner
-# (the env's `tmaven` is the pinned reference repo, not a conda-lock dep). Until
-# then it stays a non-blocking nightly/dispatch job so a provisioning hiccup can
-# never red-gate `main`.
+# Trigger: `pull_request` (path-gated, below) + manual `workflow_dispatch` + nightly
+# `schedule`. On a PR the job ALWAYS runs but only does the heavy env+fit when the PR
+# touches idealization-relevant paths (src/tether/idealize, sidecar, the tolerance,
+# the sidecar tests, this workflow, or the setup-env action); an unrelated PR reports
+# a fast "not applicable" success in seconds. Because the single `sidecar / parity`
+# job always completes and reports, it is safe to add to the `main-baseline` ruleset's
+# required set (per §12.6 "Active from M0.5") WITHOUT leaving unrelated PRs stuck on a
+# never-reported check — the classic required-plus-path-filter footgun. dispatch /
+# nightly always run the full suite (belt-and-suspenders drift detection for `main`).
 name: sidecar
 
 on:
+  pull_request:
   workflow_dispatch:
   schedule:
     # Nightly at 06:37 UTC (off the hour to avoid the cron stampede).
@@ -51,7 +53,9 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
-        # Activate the restored micromamba sidecar env (init-shell: bash).
+        # Activate the restored micromamba sidecar env (init-shell: bash). Steps
+        # before setup-env just get a plain login bash (no env yet), which is all the
+        # relevance/LFS steps need.
         shell: bash -el {0}
     env:
       QT_QPA_PLATFORM: offscreen
@@ -69,15 +73,46 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-          # The 281-mol reference model + SMD live in the LFS large-fixture tier.
-          lfs: true
+          # Full history so the relevance step can diff the PR against its base. LFS
+          # is fetched on demand (below) only when the heavy fit will actually run,
+          # so an unrelated PR never downloads the large-tier fixtures.
+          fetch-depth: 0
+          lfs: false
+      - name: Decide whether the live fit applies to this event
+        id: relevance
+        # A dispatch or nightly always runs the full suite. On a PR, run it only when
+        # the diff touches something that can change a live idealization result; an
+        # unrelated PR passes this required check in seconds without provisioning the
+        # heavy env. `grep` in an `if` is exempt from `-e`, so a no-match is safe.
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "event=${{ github.event_name }} -> running the full live suite."
+            exit 0
+          fi
+          base="${{ github.event.pull_request.base.sha }}"
+          changed="$(git diff --name-only "$base" HEAD)"
+          echo "changed files:"; echo "$changed"
+          pattern='^(src/tether/idealize/|sidecar/|schema/parity_tolerance\.json|tests/test_parity_sidecar\.py|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
+          if echo "$changed" | grep -qE "$pattern"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Idealization-relevant paths changed -> running the live parity suite."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No idealization-relevant paths changed -> sidecar parity not applicable (pass)."
+          fi
+      - name: Fetch the LFS large-tier fixtures (281-mol reference + SMD)
+        if: steps.relevance.outputs.run == 'true'
+        run: git lfs pull
       - name: Restore the sidecar env + install tether (no deps)
+        if: steps.relevance.outputs.run == 'true'
         uses: ./.github/actions/setup-env
         with:
           environment-file: sidecar/conda-lock.yml
           environment-name: tether-sidecar
           install-tether: "true"
       - name: Install pinned tMAVEN + pytest into the sidecar env
+        if: steps.relevance.outputs.run == 'true'
         # tMAVEN imports the legacy `pkg_resources` API at runtime without
         # declaring it. setuptools shipped `pkg_resources` until v81 deprecated
         # and then removed it, and the sidecar env resolves to setuptools 82, so
@@ -86,7 +121,8 @@ jobs:
         # reference app driven over IPC, layered onto the sidecar lock, not in
         # it) — the same place the future guided sidecar-setup script must.
         run: python -m pip install --no-build-isolation pytest "setuptools<81" "${TMAVEN_SPEC}"
-      - name: Assert idealization parity against the frozen §11.2 tolerance
+      - name: Assert idealization parity against the frozen tolerance
+        if: steps.relevance.outputs.run == 'true'
         env:
           # runner.temp is valid here (step level) but not in the job-level env.
           NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache
@@ -98,7 +134,7 @@ jobs:
           # env intentionally lacks the base GUI/IO stack (tifffile, napari, …), so a
           # repo-wide `pytest -m sidecar` aborts at COLLECTION the moment it imports
           # an unrelated base-only module (e.g. tests/test_movie_panel.py → tifffile)
-          # → exit 2 before any sidecar test runs. The two real sidecar modules import
+          # → exit 2 before any sidecar test runs. The real sidecar modules import
           # only `tether.idealize`, which the sidecar env satisfies. The
           # `test_*sidecar*.py` glob is the contract enforced in the base matrix by
           # tests/test_marker_contract.py, so a new sidecar test cannot silently
