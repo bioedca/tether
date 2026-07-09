@@ -28,6 +28,7 @@ __all__ = [
     "QUANTITY_KEYS",
     "resolve_quantity",
     "windowed_channels",
+    "windowed_channels_with_keys",
     "windowed_state_and_channels",
     "windowed_states",
 ]
@@ -47,18 +48,20 @@ def _to_str(value: object) -> str:
     return value.decode() if isinstance(value, bytes) else str(value)
 
 
-def windowed_channels(
+def windowed_channels_with_keys(
     project: ProjectRef,
     molecule_keys: list[str] | None,
     intensity_quantity: str,
     include_rejected: bool,
-) -> list[tuple[np.ndarray, np.ndarray]]:
-    """Per-molecule ``(donor, acceptor)`` intensity slices over the analysis window.
+) -> list[tuple[str, np.ndarray, np.ndarray]]:
+    """Per-molecule ``(molecule_key, donor, acceptor)`` slices over the analysis window.
 
     Reads ``/molecules`` + ``/traces``, keeps the non-rejected population (unless
     ``include_rejected``), optionally intersects with ``molecule_keys``, and slices
     each kept molecule to its ``analysis_window`` — falling back to ``frame_range``
-    when unset ``[0, 0]`` (matching idealization). Returns store order.
+    when unset ``[0, 0]`` (matching idealization). Returns store order, each row tagged
+    with its ``molecule_key`` for per-molecule views (the anticorrelation-event finder).
+    :func:`windowed_channels` is the key-less projection of this.
 
     Raises
     ------
@@ -93,18 +96,43 @@ def windowed_channels(
 
     donor_all = traces[donor_key]
     acceptor_all = traces[acceptor_key]
+    molecule_key_col = molecules["molecule_key"]
     analysis_window = molecules["analysis_window"]
     frame_range = molecules["frame_range"]
 
-    pairs: list[tuple[np.ndarray, np.ndarray]] = []
+    out: list[tuple[str, np.ndarray, np.ndarray]] = []
     for i in rows:
         lo, hi = int(analysis_window[i][0]), int(analysis_window[i][1])
         if hi <= lo:  # unset [0, 0] -> native extent (mirrors idealize._windows)
             lo, hi = int(frame_range[i][0]), int(frame_range[i][1])
         donor = np.asarray(donor_all[i, lo:hi], dtype=np.float64)
         acceptor = np.asarray(acceptor_all[i, lo:hi], dtype=np.float64)
-        pairs.append((donor, acceptor))
-    return pairs
+        out.append((_to_str(molecule_key_col[i]), donor, acceptor))
+    return out
+
+
+def windowed_channels(
+    project: ProjectRef,
+    molecule_keys: list[str] | None,
+    intensity_quantity: str,
+    include_rejected: bool,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Per-molecule ``(donor, acceptor)`` intensity slices over the analysis window.
+
+    The key-less projection of :func:`windowed_channels_with_keys` (same reading,
+    curation filter, ``molecule_keys`` selection, and window fallback; store order).
+
+    Raises
+    ------
+    ValueError
+        The store lacks the requested trace layer.
+    """
+    return [
+        (donor, acceptor)
+        for _key, donor, acceptor in windowed_channels_with_keys(
+            project, molecule_keys, intensity_quantity, include_rejected
+        )
+    ]
 
 
 def windowed_state_and_channels(

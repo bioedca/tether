@@ -47,6 +47,7 @@ __all__ = [
     "MEANS",
     "PARSED",
     "WINDOW",
+    "build_store_with_channels",
     "build_store_with_model",
     "e_traces",
     "fresh_input_hashes",
@@ -256,4 +257,81 @@ def build_store_with_model(
         overwrite=True,
         frac=np.full(means.size, 1.0 / means.size),
     )
+    return Project.open(path), keys
+
+
+def build_store_with_channels(
+    tmp_path: Path,
+    donor: np.ndarray,
+    acceptor: np.ndarray,
+    *,
+    windows: list[tuple[int, int]] | None = None,
+    rejected: list[bool] | None = None,
+    name: str = "chan.tether",
+) -> tuple[Project, list[str]]:
+    """A pre-idealization ``.tether`` seeded with **explicit** donor/acceptor channels.
+
+    Unlike :func:`build_store_with_model` (which derives piecewise-constant channels from
+    an idealized-E matrix and writes an ``/idealization`` model), this seeds each
+    molecule ``i`` with the raw ``donor[i]`` / ``acceptor[i]`` per-frame intensities and
+    writes **no** model — the substrate the pre-idealization channel views need
+    (cross-correlation, the raw FRET cloud, the anticorrelation-event finder). ``windows``
+    sets each molecule's ``analysis_window`` (default ``(0, n_frames)``); ``rejected[i]``
+    marks molecule ``i`` REJECTED for the §7.5 curation filter. Returns the opened project
+    and the molecule keys in store order.
+    """
+    donor = np.asarray(donor, dtype="float64")
+    acceptor = np.asarray(acceptor, dtype="float64")
+    if donor.shape != acceptor.shape or donor.ndim != 2:
+        raise ValueError(f"donor and acceptor must be matching (n, t) arrays, got {donor.shape}")
+    n, n_frames = donor.shape
+    coords = np.array([[12.0 + 1.7 * i, 14.0 + 2.3 * (i % 7)] for i in range(n)], dtype="float64")
+    mols = ColocalizedMolecules(
+        donor_xy=coords,
+        acceptor_xy=coords,
+        acceptor_detected=np.zeros(n, dtype=bool),
+        donor_index=np.arange(n, dtype=np.intp),
+        acceptor_index=np.full(n, -1, dtype=np.intp),
+    )
+    traces = MoleculeTraces(
+        donor=integrated(donor),
+        acceptor=integrated(acceptor),
+        donor_patches=np.zeros((n, WINDOW, WINDOW), dtype="float32"),
+        acceptor_patches=np.zeros((n, WINDOW, WINDOW), dtype="float32"),
+        window=WINDOW,
+        disk_radius=3.0,
+        ring_inner=6.0,
+        ring_outer=8.0,
+        bg_window=10,
+    )
+    movie = MovieMetadata(
+        movie_id="mov-1",
+        sha256="a" * 64,
+        n_frames=n_frames,
+        height=64,
+        width=64,
+        donor_geometry=ChannelGeometry(crop=(1, 1, 64, 64)),
+        acceptor_geometry=ChannelGeometry(crop=(1, 65, 64, 128)),
+    )
+    path = tmp_path / name
+    create_project(path, overwrite=True)
+    write_extraction(
+        path,
+        movie=movie,
+        molecules=mols,
+        traces=traces,
+        parsed=PARSED,
+        registration_map=reg_map(),
+    )
+    if windows is not None or rejected is not None:
+        with h5py.File(path, "r+") as f:
+            table = f["molecules"]["table"][:]
+            for i in range(n):
+                if windows is not None:
+                    table["analysis_window"][i] = windows[i]
+                if rejected is not None and rejected[i]:
+                    table["curation_label"][i] = int(CurationLabel.REJECT)
+            f["molecules"]["table"][:] = table
+
+    keys = [to_str(k) for k in read_molecules(path)["molecule_key"]]
     return Project.open(path), keys
