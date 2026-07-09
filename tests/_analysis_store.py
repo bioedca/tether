@@ -47,6 +47,7 @@ __all__ = [
     "MEANS",
     "PARSED",
     "WINDOW",
+    "build_store_with_channels",
     "build_store_with_model",
     "e_traces",
     "fresh_input_hashes",
@@ -146,34 +147,18 @@ def fresh_input_hashes(path: Path) -> list[str]:
     return hashes
 
 
-def build_store_with_model(
-    tmp_path: Path,
-    state_matrix: np.ndarray,
-    means: np.ndarray,
-    *,
-    windows: list[tuple[int, int]] | None = None,
-    rejected: list[bool] | None = None,
-    stale: list[bool] | None = None,
-    model_name: str = "vbconhmm",
-    name: str = "exp.tether",
-) -> tuple[Project, list[str]]:
-    """A ``.tether`` whose molecule ``i`` has apparent E = its idealized level per frame
-    and a persisted ``/idealization/{model_name}`` with ``state_matrix[i]`` as its
-    Viterbi path (NO_STATE outside the window) and state levels ``means``.
+def _mols_traces_movie(
+    donor: np.ndarray, acceptor: np.ndarray
+) -> tuple[ColocalizedMolecules, MoleculeTraces, MovieMetadata]:
+    """The shared molecules + traces + movie metadata for both fixture store builders.
 
-    ``input_hashes`` are the *real* current provenance hashes, so every molecule reads
-    back FRESH — unless ``stale[i]`` corrupts its hash to force it STALE. ``windows``
-    sets each molecule's ``analysis_window`` (default ``(0, n_frames)`` for every row);
-    ``rejected[i]`` marks molecule ``i`` REJECTED for the §7.5 curation filter.
+    :func:`build_store_with_model` (channels derived from an idealized-E matrix) and
+    :func:`build_store_with_channels` (explicit channels) both construct the same
+    :class:`ColocalizedMolecules` / :class:`MoleculeTraces` / :class:`MovieMetadata` from
+    a ``(n, n_frames)`` donor/acceptor pair — this is that shared block, so the two
+    builders cannot drift apart.
     """
-    state_matrix = np.asarray(state_matrix, dtype="int64")
-    means = np.asarray(means, dtype="float64")
-    n, n_frames = state_matrix.shape
-    # observed E follows the idealized level (NaN -> D=A=0 -> apparent NaN)
-    e_matrix = np.full((n, n_frames), np.nan)
-    on = state_matrix != NO_STATE
-    e_matrix[on] = means[state_matrix[on]]
-    donor, acceptor = e_traces(e_matrix)
+    n, n_frames = donor.shape
     coords = np.array([[12.0 + 1.7 * i, 14.0 + 2.3 * (i % 7)] for i in range(n)], dtype="float64")
     mols = ColocalizedMolecules(
         donor_xy=coords,
@@ -202,6 +187,38 @@ def build_store_with_model(
         donor_geometry=ChannelGeometry(crop=(1, 1, 64, 64)),
         acceptor_geometry=ChannelGeometry(crop=(1, 65, 64, 128)),
     )
+    return mols, traces, movie
+
+
+def build_store_with_model(
+    tmp_path: Path,
+    state_matrix: np.ndarray,
+    means: np.ndarray,
+    *,
+    windows: list[tuple[int, int]] | None = None,
+    rejected: list[bool] | None = None,
+    stale: list[bool] | None = None,
+    model_name: str = "vbconhmm",
+    name: str = "exp.tether",
+) -> tuple[Project, list[str]]:
+    """A ``.tether`` whose molecule ``i`` has apparent E = its idealized level per frame
+    and a persisted ``/idealization/{model_name}`` with ``state_matrix[i]`` as its
+    Viterbi path (NO_STATE outside the window) and state levels ``means``.
+
+    ``input_hashes`` are the *real* current provenance hashes, so every molecule reads
+    back FRESH — unless ``stale[i]`` corrupts its hash to force it STALE. ``windows``
+    sets each molecule's ``analysis_window`` (default ``(0, n_frames)`` for every row);
+    ``rejected[i]`` marks molecule ``i`` REJECTED for the §7.5 curation filter.
+    """
+    state_matrix = np.asarray(state_matrix, dtype="int64")
+    means = np.asarray(means, dtype="float64")
+    n, n_frames = state_matrix.shape
+    # observed E follows the idealized level (NaN -> D=A=0 -> apparent NaN)
+    e_matrix = np.full((n, n_frames), np.nan)
+    on = state_matrix != NO_STATE
+    e_matrix[on] = means[state_matrix[on]]
+    donor, acceptor = e_traces(e_matrix)
+    mols, traces, movie = _mols_traces_movie(donor, acceptor)
     path = tmp_path / name
     create_project(path, overwrite=True)
     write_extraction(
@@ -256,4 +273,54 @@ def build_store_with_model(
         overwrite=True,
         frac=np.full(means.size, 1.0 / means.size),
     )
+    return Project.open(path), keys
+
+
+def build_store_with_channels(
+    tmp_path: Path,
+    donor: np.ndarray,
+    acceptor: np.ndarray,
+    *,
+    windows: list[tuple[int, int]] | None = None,
+    rejected: list[bool] | None = None,
+    name: str = "chan.tether",
+) -> tuple[Project, list[str]]:
+    """A pre-idealization ``.tether`` seeded with **explicit** donor/acceptor channels.
+
+    Unlike :func:`build_store_with_model` (which derives piecewise-constant channels from
+    an idealized-E matrix and writes an ``/idealization`` model), this seeds each
+    molecule ``i`` with the raw ``donor[i]`` / ``acceptor[i]`` per-frame intensities and
+    writes **no** model — the substrate the pre-idealization channel views need
+    (cross-correlation, the raw FRET cloud, the anticorrelation-event finder). ``windows``
+    sets each molecule's ``analysis_window`` (default ``(0, n_frames)``); ``rejected[i]``
+    marks molecule ``i`` REJECTED for the §7.5 curation filter. Returns the opened project
+    and the molecule keys in store order.
+    """
+    donor = np.asarray(donor, dtype="float64")
+    acceptor = np.asarray(acceptor, dtype="float64")
+    if donor.shape != acceptor.shape or donor.ndim != 2:
+        raise ValueError(f"donor and acceptor must be matching (n, t) arrays, got {donor.shape}")
+    n = donor.shape[0]
+    mols, traces, movie = _mols_traces_movie(donor, acceptor)
+    path = tmp_path / name
+    create_project(path, overwrite=True)
+    write_extraction(
+        path,
+        movie=movie,
+        molecules=mols,
+        traces=traces,
+        parsed=PARSED,
+        registration_map=reg_map(),
+    )
+    if windows is not None or rejected is not None:
+        with h5py.File(path, "r+") as f:
+            table = f["molecules"]["table"][:]
+            for i in range(n):
+                if windows is not None:
+                    table["analysis_window"][i] = windows[i]
+                if rejected is not None and rejected[i]:
+                    table["curation_label"][i] = int(CurationLabel.REJECT)
+            f["molecules"]["table"][:] = table
+
+    keys = [to_str(k) for k in read_molecules(path)["molecule_key"]]
     return Project.open(path), keys

@@ -92,10 +92,31 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   values with the knee of the within-cluster RMSE(k) curve [Satopaa2011][Thorndike1953]
   as a pre-idealization suggestion — a heuristic subordinate to the HMM/BIC state count
   [Schubert2022][McKinney2006].
+- :func:`~tether.analysis.anticorrelation.find_anticorrelation_events` /
+  :func:`~tether.analysis.anticorrelation.population_anticorrelation_events` — the
+  **anticorrelation-event finder** (PR-6): a sliding window sweeps each donor/acceptor
+  trace and merges windows that are both anti-phase (signed lag-0 Pearson ``< 0``, the
+  reliable same-frame direction) and temporally structured (lag-1 magnitude above a
+  threshold, which rejects white shot-noise anticorrelation) into time-localized events —
+  the model-free lens that says *when* within a trace the donor and acceptor
+  anticorrelate, subordinate to the HMM/TDP transition count
+  [Felekyan2012][Torres2007][Chung2010][McKinney2006].
 """
 
 from __future__ import annotations
 
+from tether.analysis.anticorrelation import (
+    DEFAULT_ANTICORR_MIN_MAGNITUDE,
+    DEFAULT_ANTICORR_MIN_WINDOWS,
+    DEFAULT_ANTICORR_STEP,
+    DEFAULT_ANTICORR_WINDOW,
+    AnticorrelationEvent,
+    AnticorrelationScan,
+    MoleculeAnticorrelation,
+    PopulationAnticorrelation,
+    find_anticorrelation_events,
+    population_anticorrelation_events,
+)
 from tether.analysis.cloud import (
     DEFAULT_ALPHA_FACTOR,
     DEFAULT_CLOUD_BW_METHOD,
@@ -198,6 +219,10 @@ from tether.analysis.transition_prob import (
 
 __all__ = [
     "DEFAULT_ALPHA_FACTOR",
+    "DEFAULT_ANTICORR_MIN_MAGNITUDE",
+    "DEFAULT_ANTICORR_MIN_WINDOWS",
+    "DEFAULT_ANTICORR_STEP",
+    "DEFAULT_ANTICORR_WINDOW",
     "DEFAULT_BOOTSTRAP_RESAMPLES",
     "DEFAULT_CI_LEVEL",
     "DEFAULT_CLOUD_BW_METHOD",
@@ -230,6 +255,8 @@ __all__ = [
     "DEFAULT_TPROB_NBINS",
     "DEFAULT_TPROB_RANGE",
     "AlphaShape",
+    "AnticorrelationEvent",
+    "AnticorrelationScan",
     "ConditionHistogram",
     "ConditionQueryResult",
     "CrossCorrelation",
@@ -239,8 +266,10 @@ __all__ = [
     "Histogram2D",
     "HistogramBootstrapCI",
     "ModelGaussianOverlay",
+    "MoleculeAnticorrelation",
     "MoleculeMatch",
     "PerConditionHistograms",
+    "PopulationAnticorrelation",
     "RawFretCloud",
     "StateDwells",
     "StateNumberCounts",
@@ -253,11 +282,13 @@ __all__ = [
     "bootstrap_histogram_ci",
     "cross_correlation",
     "empirical_transition_probability",
+    "find_anticorrelation_events",
     "fit_survival",
     "k_rmse_elbow",
     "model_gaussian_overlay",
     "occupied_state_count",
     "per_condition_apparent_e_histograms",
+    "population_anticorrelation_events",
     "population_apparent_e_histogram",
     "population_apparent_e_histogram_ci",
     "population_cross_correlation",
