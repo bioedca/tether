@@ -76,10 +76,27 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   bar chart: molecule counts by the number of **distinct states each Viterbi path
   occupies** (the consensus-model analogue of tMAVEN's per-trace vbFRET state count)
   [vandeMeent2014].
+- :func:`~tether.analysis.cloud.raw_fret_cloud` /
+  :func:`~tether.analysis.cloud.population_raw_fret_cloud` — the raw FRET cloud QC view
+  (PR-5a): the pooled pre-idealization ``(time, apparent-E)`` scatter with a 2-D
+  Gaussian-KDE surface and highest-density-region percentile contours (the
+  numerical-grid density-quantile method) [Hyndman1996][Haselsteiner2017]. The
+  alpha-shape support and k-vs-RMSE elbow (PRD §7.7) follow in PR-5b.
 """
 
 from __future__ import annotations
 
+from tether.analysis.cloud import (
+    DEFAULT_CLOUD_BW_METHOD,
+    DEFAULT_CLOUD_HDR_COVERAGES,
+    DEFAULT_CLOUD_SIGNAL_BINS,
+    DEFAULT_CLOUD_SIGNAL_RANGE,
+    DEFAULT_CLOUD_TIME_BINS,
+    DEFAULT_CLOUD_TIME_DT,
+    RawFretCloud,
+    population_raw_fret_cloud,
+    raw_fret_cloud,
+)
 from tether.analysis.crosscorr import (
     CrossCorrelation,
     cross_correlation,
@@ -162,6 +179,12 @@ from tether.analysis.transition_prob import (
 __all__ = [
     "DEFAULT_BOOTSTRAP_RESAMPLES",
     "DEFAULT_CI_LEVEL",
+    "DEFAULT_CLOUD_BW_METHOD",
+    "DEFAULT_CLOUD_HDR_COVERAGES",
+    "DEFAULT_CLOUD_SIGNAL_BINS",
+    "DEFAULT_CLOUD_SIGNAL_RANGE",
+    "DEFAULT_CLOUD_TIME_BINS",
+    "DEFAULT_CLOUD_TIME_DT",
     "DEFAULT_DWELL_CI_LEVEL",
     "DEFAULT_DWELL_DT",
     "DEFAULT_DWELL_NBINS",
@@ -193,6 +216,7 @@ __all__ = [
     "ModelGaussianOverlay",
     "MoleculeMatch",
     "PerConditionHistograms",
+    "RawFretCloud",
     "StateDwells",
     "StateNumberCounts",
     "TransitionDensityPlot",
@@ -211,12 +235,14 @@ __all__ = [
     "population_cross_correlation",
     "population_dwell_times",
     "population_model_gaussian_overlay",
+    "population_raw_fret_cloud",
     "population_state_number",
     "population_time_signal_histogram2d",
     "population_transition_density",
     "population_transition_prob_histogram",
     "population_transition_sync_histogram2d",
     "query_molecules",
+    "raw_fret_cloud",
     "state_dwells",
     "state_number_counts",
     "survival_curve",
