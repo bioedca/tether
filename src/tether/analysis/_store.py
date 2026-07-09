@@ -29,6 +29,7 @@ __all__ = [
     "resolve_quantity",
     "windowed_channels",
     "windowed_state_and_channels",
+    "windowed_states",
 ]
 
 
@@ -217,4 +218,87 @@ def windowed_state_and_channels(
         donor_win = np.asarray(donor_all[j, lo:hi], dtype=np.float64)
         acceptor_win = np.asarray(acceptor_all[j, lo:hi], dtype=np.float64)
         out.append((state_win, donor_win, acceptor_win))
+    return out
+
+
+def windowed_states(
+    project: ProjectRef,
+    model_name: str,
+    molecule_keys: list[str] | None,
+    include_rejected: bool,
+) -> list[np.ndarray]:
+    """Per-molecule Viterbi **state-path** windows — the state alone, no ``/traces`` I/O.
+
+    Like :func:`windowed_state_and_channels` but returns only each kept molecule's
+    int64 state path over its idealized window (the contiguous non-:data:`~tether.idealize.NO_STATE`
+    run), for analyses that read the idealized *state* and never the observed signal
+    (the TDP; the coming dwell fits). Skipping the ``/traces`` read avoids loading two
+    channel datasets per molecule on large stores / interactive filter changes.
+
+    Same ``molecule_id`` join, §7.5 curation filter, and ``molecule_keys`` selection
+    as :func:`windowed_state_and_channels`; rows in idealization (fit) order. There is
+    **no** trace-length guard (there is no observed signal to misalign with — a state
+    path outrunning a re-extracted trace is already STALE and excluded upstream by the
+    fresh-idealizations filter).
+
+    Parameters
+    ----------
+    project
+        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+    model_name
+        Which ``/idealization/{model_name}`` supplies the state paths.
+    molecule_keys
+        Restrict to these ``molecule_key`` values (``None`` = all), intersected with
+        the curation filter.
+    include_rejected
+        If ``True`` keep rejected molecules; else exclude them (§7.5 default).
+
+    Returns
+    -------
+    list of np.ndarray
+        One int64 state-path window per kept molecule (still carrying any interior
+        :data:`~tether.idealize.NO_STATE` gap). Empty when the model idealizes no kept
+        molecule.
+
+    Raises
+    ------
+    KeyError
+        No ``/idealization/{model_name}`` in the store.
+    """
+    from tether.idealize import NO_STATE
+    from tether.imaging.extract import read_molecules
+    from tether.project.core import Project as _Project
+    from tether.project.idealize import read_idealization
+    from tether.project.labels import curation_filter_mask
+
+    proj = project if isinstance(project, _Project) else _Project.open(project)
+    path = proj.path
+
+    molecules = read_molecules(path)
+    if molecules.shape[0] == 0:
+        return []
+
+    stored = read_idealization(proj, model_name)
+    state_paths = np.asarray(stored.state_paths)
+    if state_paths.ndim != 2 or state_paths.shape[0] == 0:
+        return []
+
+    id_to_row = {_to_str(mid): j for j, mid in enumerate(molecules["molecule_id"])}
+    accepted = curation_filter_mask(molecules, include_rejected=include_rejected)
+    wanted = {str(k) for k in molecule_keys} if molecule_keys is not None else None
+    molecule_key_col = molecules["molecule_key"]
+
+    out: list[np.ndarray] = []
+    for i, mid in enumerate(stored.molecule_ids):
+        j = id_to_row.get(_to_str(mid))
+        if j is None or not bool(accepted[j]):
+            continue
+        if wanted is not None and _to_str(molecule_key_col[j]) not in wanted:
+            continue
+        state_full = np.asarray(state_paths[i], dtype=np.int64)
+        valid = np.nonzero(state_full != NO_STATE)[0]
+        if valid.size == 0:
+            continue
+        lo, hi = int(valid[0]), int(valid[-1]) + 1
+        out.append(np.asarray(state_full[lo:hi], dtype=np.int64))
     return out

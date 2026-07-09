@@ -98,6 +98,14 @@ from tether.analysis.query import (
     MoleculeMatch,
     query_molecules,
 )
+from tether.analysis.tdp import (
+    DEFAULT_TDP_NSKIP,
+    DEFAULT_TDP_SIGNAL_BINS,
+    DEFAULT_TDP_SIGNAL_RANGE,
+    TransitionDensityPlot,
+    population_transition_density,
+    transition_density,
+)
 
 __all__ = [
     "DEFAULT_BOOTSTRAP_RESAMPLES",
@@ -109,6 +117,9 @@ __all__ = [
     "DEFAULT_SIGNAL_BINS",
     "DEFAULT_SIGNAL_RANGE",
     "DEFAULT_SYNC_PREFRAME",
+    "DEFAULT_TDP_NSKIP",
+    "DEFAULT_TDP_SIGNAL_BINS",
+    "DEFAULT_TDP_SIGNAL_RANGE",
     "DEFAULT_TIME_BINS",
     "DEFAULT_TIME_DT",
     "ConditionHistogram",
@@ -120,6 +131,7 @@ __all__ = [
     "ModelGaussianOverlay",
     "MoleculeMatch",
     "PerConditionHistograms",
+    "TransitionDensityPlot",
     "TransitionSyncHistogram2D",
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
@@ -131,8 +143,10 @@ __all__ = [
     "population_cross_correlation",
     "population_model_gaussian_overlay",
     "population_time_signal_histogram2d",
+    "population_transition_density",
     "population_transition_sync_histogram2d",
     "query_molecules",
     "time_signal_histogram2d",
+    "transition_density",
     "transition_sync_histogram2d",
 ]
