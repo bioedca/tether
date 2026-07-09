@@ -380,12 +380,20 @@ def test_interior_no_state_breaks_a_run() -> None:
 def test_right_open_signal_interval() -> None:
     lo, hi = -0.2, 1.2
     # state 0->1; the two flanking values are lo (kept) and hi (dropped, right-open).
+    # single_dwell=False so BOTH frames fall inside the binned window and the hi frame
+    # is dropped by the `d < ymax` right-open check itself (not the trailing-boundary
+    # exclusion that single_dwell=True would apply first).
     state = np.array([0, 1])
     signal = np.array([lo, hi])
     h = transition_sync_histogram2d(
-        [(state, signal)], sync_preframe=1, time_bins=4, signal_bins=7, signal_range=(lo, hi)
+        [(state, signal)],
+        single_dwell=False,
+        sync_preframe=1,
+        time_bins=4,
+        signal_bins=7,
+        signal_range=(lo, hi),
     )
-    assert h.counts.sum() == 1.0  # only the low-edge frame counted
+    assert h.counts.sum() == 1.0  # only the low-edge frame counted (hi dropped, right-open)
     assert h.counts[1, 0] == 1.0  # frame 0 -> sync column 1, low bin
 
 
@@ -433,10 +441,13 @@ def test_columns_beyond_time_bins_dropped() -> None:
         sync_preframe=pre,
         time_bins=tb,
     )
-    # x runs 0..tb over frames [sync-pre, sync+tb-pre]; columns are tb+1 = 4 wide.
+    # sync_t=0; the fixed window [sync_t - pre, sync_t + (tb - pre + 1)) = [-1, 3)
+    # maps frames 0, 1, 2 to columns 1, 2, 3 (the negative pre-transition frame is
+    # dropped, and nothing spills past the last column tb=3). Exactly 3 frames bin.
     assert h.counts.shape == (tb + 1, DEFAULT_SIGNAL_BINS)
-    # every binned point sits in [0, tb]; nothing spills past the last column.
-    assert h.counts.sum() <= (tb + 1)
+    assert h.counts.sum() == 3.0
+    assert h.counts[0].sum() == 0.0  # column 0 (the dropped pre-transition frame) stays empty
+    assert h.counts[tb, _sbin(0.5)] == 1.0  # the last kept frame lands in the final column
 
 
 def test_fixed_window_near_trace_start_drops_negative_frames() -> None:
