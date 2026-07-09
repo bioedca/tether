@@ -17,12 +17,15 @@ never fabricated.
 The A2 view (``data_hist2d.py``) keeps the *time* axis the A1 pool collapses: it
 bins per-frame apparent-E into a 2-D ``(time, signal)`` occupancy heatmap so the
 population's FRET evolution over the analysis window is visible, a standard lens on
-time-resolved single-molecule dynamics [Nettels2024]. This module lands A2's
-**raw / start-synchronized** mode — each molecule aligned to its own
+time-resolved single-molecule dynamics [Nettels2024]. This module lands both A2 modes:
+the **raw / start-synchronized** mode aligns each molecule to its own
 analysis-window start (``windowed_channels`` already slices there), faithful to
-tMAVEN's ``histogram_raw`` after ``sync_start``. The transition-aligned
-*post-synchronized* mode (which reads the persisted ``/idealization`` per-molecule
-state paths to align on a chosen state jump) is a follow-up. A2's signal defaults
+tMAVEN's ``histogram_raw`` after ``sync_start``; the **post-synchronized**
+(transition-aligned) mode reads the persisted ``/idealization`` per-molecule state
+paths and aligns every selected state jump to a common column so asynchronous
+transitions add coherently and the population's average approach-to and
+departure-from the transition become visible (tMAVEN's ``histogram_sync_list``, a
+transition-synchronized ensemble average [Blackwell2020]). A2's signal defaults
 mirror tMAVEN's ``data_hist2d.py`` (61 bins over ``[-0.2, 1.2]``), which differ
 from A1's — exactly as in tMAVEN itself; pass A1's ``value_range`` explicitly for a
 shared E axis across the two plots.
@@ -57,6 +60,13 @@ Entry points:
   heatmap (start-synchronized; NaN and out-of-range frames dropped).
 - :func:`population_time_signal_histogram2d` — read a ``.tether`` store, window
   each accepted molecule's apparent-E, and build the A2 raw heatmap.
+- :func:`transition_sync_histogram2d` — the pure-array A2 **post-synchronized**
+  core: align per-molecule ``(state_path, signal)`` pairs on their selected state
+  transitions and bin the observed signal into a transition-relative
+  ``(time, signal)`` heatmap (tMAVEN ``gen_sync_list_*`` + ``histogram_sync_list``).
+- :func:`population_transition_sync_histogram2d` — read a persisted
+  ``/idealization`` model's state paths from a ``.tether`` store, pair them with
+  each molecule's windowed apparent-E, and build the A2 post-synchronized heatmap.
 
 Rejected traces are excluded by default via the §7.5 curation filter, with a
 per-molecule equal-weight toggle (§7.7).
@@ -95,6 +105,12 @@ References
     biomolecular dynamics." Nature Reviews Physics (2024). Time-resolved population
     FRET is a standard lens on single-molecule conformational dynamics — the 2-D
     time-vs-signal occupancy heatmap the A2 view renders.
+[Blackwell2020] Blackwell, Nariya et al. "Computational Tool for Ensemble Averaging
+    of Single-Molecule Data." bioRxiv (2020); Biophysical Journal. Aligning
+    individual single-molecule trajectories to a common transition point and
+    ensemble-averaging is the established way to recover the average signal
+    evolution through a transition that per-trace stochasticity otherwise obscures —
+    the transition-synchronized ("post-synchronized") heatmap the A2 view renders.
 """
 
 from __future__ import annotations
@@ -104,7 +120,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from tether.analysis._store import windowed_channels
+from tether.analysis._store import windowed_channels, windowed_state_and_channels
 from tether.fret.efficiency import apparent_fret
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -121,6 +137,7 @@ __all__ = [
     "DEFAULT_SEED",
     "DEFAULT_SIGNAL_BINS",
     "DEFAULT_SIGNAL_RANGE",
+    "DEFAULT_SYNC_PREFRAME",
     "DEFAULT_TIME_BINS",
     "DEFAULT_TIME_DT",
     "ConditionHistogram",
@@ -129,6 +146,7 @@ __all__ = [
     "HistogramBootstrapCI",
     "ModelGaussianOverlay",
     "PerConditionHistograms",
+    "TransitionSyncHistogram2D",
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
     "model_gaussian_overlay",
@@ -137,7 +155,9 @@ __all__ = [
     "population_apparent_e_histogram_ci",
     "population_model_gaussian_overlay",
     "population_time_signal_histogram2d",
+    "population_transition_sync_histogram2d",
     "time_signal_histogram2d",
+    "transition_sync_histogram2d",
 ]
 
 #: tMAVEN A1 defaults (``data_hist1d.py``): 151 bins over apparent E ∈ [-0.25, 1.25].
@@ -171,6 +191,14 @@ DEFAULT_TIME_BINS = 100
 DEFAULT_SIGNAL_BINS = 61
 DEFAULT_SIGNAL_RANGE: tuple[float, float] = (-0.2, 1.2)
 DEFAULT_TIME_DT = 1.0
+
+#: tMAVEN A2 **post-synchronized** default (``data_hist2d.py`` ``sync_preframe``):
+#: the number of time columns before the transition column, so the selected state
+#: jump sits at column ``sync_preframe`` (relative-time zero) with ``sync_preframe``
+#: columns of the approach on its left and ``time_bins - sync_preframe`` of the
+#: departure on its right. With the tMAVEN default 50 over 100 time bins the
+#: transition is centred. A faithful rendering default, not a §11.2 science tunable.
+DEFAULT_SYNC_PREFRAME = 50
 
 
 @dataclass(frozen=True)
@@ -1303,4 +1331,354 @@ def population_time_signal_histogram2d(
         time_dt=time_dt,
         density=density,
         per_molecule_equal_weight=per_molecule_equal_weight,
+    )
+
+
+# --- A2b: transition-aligned (post-synchronized) heatmap ----------------------
+
+
+@dataclass(frozen=True)
+class TransitionSyncHistogram2D:
+    """A transition-aligned 2-D ``(time, signal)`` occupancy heatmap (A2 post-sync).
+
+    tMAVEN's A2 **post-synchronized** mode (``data_hist2d.py`` ``gen_sync_list_*`` +
+    ``histogram_sync_list``): instead of aligning every molecule to its own start,
+    align every *selected state transition* to a common column so the otherwise
+    asynchronous stochastic jumps add coherently and the population's average
+    approach-to and departure-from the transition become visible — the standard
+    transition-synchronized ensemble average of single-molecule trajectories
+    [Blackwell2020, Verma2024]. Row ``k`` is the ``k``-th time column and column
+    ``j`` the ``j``-th signal bin, so ``counts[k, j]`` is how much signal density
+    sat in bin ``j`` at relative time ``time_centers[k]``. The heatmap has
+    ``time_bins + 1`` columns (the extra column is tMAVEN's ``xbins + 1``): the
+    selected transition sits at column :attr:`sync_preframe` — relative-time zero —
+    with the approach on its left and the departure on its right, so
+    ``time_edges`` are **relative** to the transition and run negative before it.
+
+    ``counts`` is the raw occupancy unless ``density`` (then a 2-D probability
+    density integrating to 1 over the plotted area, numpy ``histogram2d``
+    semantics). Smoothing, colormap floors and max-normalization are display
+    concerns the view applies, not stored here. ``n_molecules`` (tMAVEN's ``N``)
+    and ``n_transitions`` (its ``n``) count the molecules and selected transitions
+    that fed the synchronization — computed from the selected jumps, so a
+    transition whose window is entirely out of range still counts (faithful to
+    tMAVEN), while ``n_samples`` counts only the points actually binned. Every
+    parameter that produced the heatmap travels with the arrays (NFR-REPRO).
+    """
+
+    counts: np.ndarray  # (time_bins + 1, signal_bins) float64 — [time, signal] occupancy
+    time_edges: np.ndarray  # (time_bins + 2,) float64 — relative-time edges (negative before sync)
+    signal_edges: np.ndarray  # (signal_bins + 1,) float64 — signal-bin edges
+    time_dt: float  # frame duration; column k spans relative time (k - sync_preframe) frames
+    sync_preframe: int  # transition column index (relative-time zero)
+    signal_range: tuple[float, float]
+    from_state: int  # vi: state left at the transition (-1 = any) — tMAVEN sync_hmmstate_1
+    to_state: int  # vj: state entered at the transition (-1 = any) — tMAVEN sync_hmmstate_2
+    single_dwell: bool  # single-dwell windows (True) vs a fixed +-window per transition
+    density: bool
+    n_samples: int  # finite in-range (frame, signal) points actually binned
+    n_transitions: int  # selected transitions (tMAVEN's npoints)
+    n_molecules: int  # molecules with >= 1 selected transition (tMAVEN's N)
+
+    @property
+    def time_centers(self) -> np.ndarray:
+        """Relative-time column centres; ``time_centers[sync_preframe] == 0``."""
+        e = self.time_edges
+        return 0.5 * (e[:-1] + e[1:])
+
+    @property
+    def signal_centers(self) -> np.ndarray:
+        e = self.signal_edges
+        return 0.5 * (e[:-1] + e[1:])
+
+    @property
+    def n_columns(self) -> int:
+        """Number of time columns (``time_bins + 1`` — tMAVEN's ``xbins + 1``)."""
+        return int(self.counts.shape[0])
+
+    @property
+    def signal_bins(self) -> int:
+        return int(self.counts.shape[1])
+
+    @property
+    def transition_column(self) -> int:
+        """Column index holding the synchronization point (== ``sync_preframe``)."""
+        return self.sync_preframe
+
+
+def transition_sync_histogram2d(
+    trace_pairs: Iterable[tuple[np.ndarray, np.ndarray]],
+    *,
+    from_state: int = -1,
+    to_state: int = -1,
+    single_dwell: bool = True,
+    sync_preframe: int = DEFAULT_SYNC_PREFRAME,
+    time_bins: int = DEFAULT_TIME_BINS,
+    signal_bins: int = DEFAULT_SIGNAL_BINS,
+    signal_range: tuple[float, float] = DEFAULT_SIGNAL_RANGE,
+    time_dt: float = DEFAULT_TIME_DT,
+    density: bool = False,
+    no_state: int = -1,
+) -> TransitionSyncHistogram2D:
+    """Bin per-molecule (state path, signal) pairs into a transition-aligned heatmap.
+
+    The pure-array A2 **post-synchronized** core, faithful to tMAVEN's
+    ``gen_sync_list_single`` / ``gen_sync_list_fixed`` + ``histogram_sync_list``
+    (``data_hist2d.py``). For each molecule it finds every state transition (a frame
+    ``t`` where ``state[t]`` and ``state[t + 1]`` are both valid — not ``no_state`` —
+    and differ), keeps the ones matching the ``(from_state, to_state)`` selection,
+    and for each such transition bins the *observed* ``signal`` around it, mapping
+    frame ``f`` to time column ``x = (f - t) + sync_preframe`` (so the transition
+    lands at column ``sync_preframe``). A frame is dropped — without shifting later
+    frames — when its column is outside ``[0, time_bins]``, its value is non-finite,
+    or its value is outside ``[signal_range[0], signal_range[1])`` (left-closed /
+    right-open, like tMAVEN's ``d >= ymin and d < ymax``).
+
+    Two window shapes match tMAVEN:
+
+    - ``single_dwell=True`` (``gen_sync_list_single``): the window runs from the end
+      of the previous dwell (the prior transition + 1, or the trace start) to the
+      start of the next dwell (the next transition, or the trace end), so each
+      transition contributes the single dwell before and after it.
+    - ``single_dwell=False`` (``gen_sync_list_fixed``): a fixed window of
+      ``sync_preframe`` frames before and ``time_bins - sync_preframe + 1`` after
+      every selected transition (overlapping windows may double-count a frame, as
+      in tMAVEN).
+
+    This adapts tMAVEN's rectangular NaN-padded array to Tether's per-molecule
+    ragged inputs: each pair is one molecule's ``(state_path, signal)`` (equal
+    length), and out-of-range **frame indices are dropped** rather than wrapping —
+    the one deliberate departure from tMAVEN, whose fixed window can index a padded
+    row with a negative frame; Tether never bins a frame outside a molecule's own
+    trace (see :func:`~tether.analysis._store.windowed_state_and_channels`, which
+    slices to the idealized window). ``no_state`` is the sentinel for a frame with
+    no assigned state (:data:`tether.idealize.NO_STATE` = ``-1``, tMAVEN's NaN
+    analogue) — such frames break a state run without forming a transition, so a
+    window boundary between ``no_state`` and a real state is never a jump.
+
+    Parameters
+    ----------
+    trace_pairs
+        Iterable of per-molecule ``(state_path, signal)`` pairs. ``state_path`` is
+        the integer Viterbi state per frame (``no_state`` where none); ``signal`` is
+        the matching observed value (e.g. windowed apparent E) at the same frames.
+        Same length within a pair. Consumed once.
+    from_state, to_state
+        Select transitions leaving ``from_state`` (tMAVEN ``sync_hmmstate_1``) and
+        entering ``to_state`` (``sync_hmmstate_2``); ``-1`` matches any state, so
+        ``from_state=-1, to_state=-1`` synchronizes on every transition.
+    single_dwell
+        Window shape (see above); default ``True`` (tMAVEN's default).
+    sync_preframe
+        Columns before the transition (tMAVEN ``sync_preframe``); the transition
+        lands at column ``sync_preframe``. Must be in ``[0, time_bins]``.
+    time_bins
+        Time columns *excluding* the extra ``+1`` (tMAVEN ``time_nbins``); the
+        heatmap has ``time_bins + 1`` columns. Must be >= 1.
+    signal_bins, signal_range
+        Signal-axis bin count and ``(low, high)`` span (``high > low``).
+    time_dt
+        Frame duration for the relative-time edge coordinates (tMAVEN ``time_dt``);
+        the column index is unaffected. Must be finite and > 0.
+    density
+        If ``True``, normalize to a 2-D probability density; else raw occupancy
+        counts (default — tMAVEN max-normalizes only for display).
+    no_state
+        State-path sentinel for "no state" (default ``-1`` =
+        :data:`tether.idealize.NO_STATE`).
+
+    Returns
+    -------
+    TransitionSyncHistogram2D
+        With ``n_molecules`` / ``n_transitions`` counted from the selected
+        transitions and ``n_samples`` from the points binned. No selected
+        transition anywhere yields an all-zero heatmap (never NaN).
+
+    Raises
+    ------
+    ValueError
+        If ``time_bins`` or ``signal_bins`` < 1, ``sync_preframe`` is outside
+        ``[0, time_bins]``, ``signal_range`` is not ``(low, high)`` with
+        ``high > low``, ``time_dt`` is not finite and > 0, or a pair's ``state_path``
+        and ``signal`` differ in length.
+    """
+    n_time = int(time_bins)
+    n_signal = int(signal_bins)
+    if n_time < 1:
+        raise ValueError(f"time_bins must be >= 1, got {time_bins!r}")
+    if n_signal < 1:
+        raise ValueError(f"signal_bins must be >= 1, got {signal_bins!r}")
+    lo, hi = float(signal_range[0]), float(signal_range[1])
+    if not hi > lo:
+        raise ValueError(f"signal_range must be (low, high) with high > low, got {signal_range!r}")
+    dt = float(time_dt)
+    if not (np.isfinite(dt) and dt > 0.0):
+        raise ValueError(f"time_dt must be finite and > 0, got {time_dt!r}")
+    pre = int(sync_preframe)
+    if not 0 <= pre <= n_time:
+        raise ValueError(
+            f"sync_preframe must be in [0, time_bins]=[0, {n_time}], got {sync_preframe!r}"
+        )
+    vi = int(from_state)
+    vj = int(to_state)
+    ns = int(no_state)
+
+    # Time axis: n_time + 1 columns (tMAVEN's xbins + 1), column x holding relative
+    # time (x - pre) * dt so the transition column x = pre is at t = 0. Edges are the
+    # column midpoints -> n_time + 2 edges, negative before the sync column.
+    time_edges = (np.arange(n_time + 2, dtype=np.float64) - 0.5 - pre) * dt
+    signal_edges = np.linspace(lo, hi, n_signal + 1)
+
+    time_coord_chunks: list[np.ndarray] = []
+    signal_coord_chunks: list[np.ndarray] = []
+    n_transitions = 0
+    n_molecules = 0
+    for state_path, signal in trace_pairs:
+        s = np.asarray(state_path).ravel()
+        e = np.asarray(signal, dtype=np.float64).ravel()
+        if s.shape != e.shape:
+            raise ValueError(f"state_path {s.shape} and signal {e.shape} must be the same length")
+        length = int(s.shape[0])
+        if length < 2:
+            continue
+        s = s.astype(np.int64, copy=False)
+        # Transitions: both frames carry a real state and the state changes. A frame
+        # bordering no_state is never a jump (tMAVEN's NaN check), so a window edge
+        # against the un-idealized region is not spuriously counted.
+        valid_pair = (s[:-1] != ns) & (s[1:] != ns)
+        changed = s[:-1] != s[1:]
+        jump_frames = np.nonzero(valid_pair & changed)[0]  # transition between t and t+1, at t
+        if jump_frames.size == 0:
+            continue
+        sel = np.ones(jump_frames.size, dtype=bool)
+        if vi >= 0:
+            sel &= s[jump_frames] == vi
+        if vj >= 0:
+            sel &= s[jump_frames + 1] == vj
+        sel_idx = np.nonzero(sel)[0]  # positions in jump_frames of the selected transitions
+        if sel_idx.size == 0:
+            continue
+        n_molecules += 1
+        n_transitions += int(sel_idx.size)
+
+        for k in sel_idx:
+            sync_t = int(jump_frames[k])
+            if single_dwell:
+                start = int(jump_frames[k - 1]) + 1 if k >= 1 else 0
+                end = int(jump_frames[k + 1]) if k + 1 < jump_frames.size else length - 1
+            else:
+                start = sync_t - pre
+                end = sync_t + (n_time - pre + 1)
+            frames = np.arange(start, end)
+            x = (frames - sync_t) + pre
+            keep = (frames >= 0) & (frames < length) & (x >= 0) & (x <= n_time)
+            if not np.any(keep):
+                continue
+            fk = frames[keep]
+            xk = x[keep]
+            d = e[fk]
+            good = np.isfinite(d) & (d >= lo) & (d < hi)
+            if not np.any(good):
+                continue
+            time_coord_chunks.append((xk[good] - pre).astype(np.float64) * dt)
+            signal_coord_chunks.append(d[good])
+
+    if time_coord_chunks:
+        time_coords = np.concatenate(time_coord_chunks)
+        signal_coords = np.concatenate(signal_coord_chunks)
+        counts, _, _ = np.histogram2d(
+            time_coords, signal_coords, bins=(time_edges, signal_edges), density=density
+        )
+        n_samples = int(signal_coords.shape[0])
+    else:
+        # No binned points: an honest all-zero heatmap (density on empty would be NaN).
+        counts = np.zeros((n_time + 1, n_signal), dtype=np.float64)
+        n_samples = 0
+
+    return TransitionSyncHistogram2D(
+        counts=np.asarray(counts, dtype=np.float64),
+        time_edges=time_edges,
+        signal_edges=signal_edges,
+        time_dt=dt,
+        sync_preframe=pre,
+        signal_range=(lo, hi),
+        from_state=vi,
+        to_state=vj,
+        single_dwell=bool(single_dwell),
+        density=bool(density),
+        n_samples=n_samples,
+        n_transitions=n_transitions,
+        n_molecules=n_molecules,
+    )
+
+
+def population_transition_sync_histogram2d(
+    project: ProjectRef,
+    model_name: str,
+    *,
+    from_state: int = -1,
+    to_state: int = -1,
+    single_dwell: bool = True,
+    sync_preframe: int = DEFAULT_SYNC_PREFRAME,
+    time_bins: int = DEFAULT_TIME_BINS,
+    signal_bins: int = DEFAULT_SIGNAL_BINS,
+    signal_range: tuple[float, float] = DEFAULT_SIGNAL_RANGE,
+    time_dt: float = DEFAULT_TIME_DT,
+    density: bool = False,
+    molecule_keys: list[str] | None = None,
+    intensity_quantity: str = "corrected",
+    include_rejected: bool = False,
+) -> TransitionSyncHistogram2D:
+    """A2 transition-aligned heatmap from a ``.tether`` store (§10 A2; Appendix C A2).
+
+    Pairs a persisted ``/idealization/{model_name}`` model's per-molecule Viterbi
+    state paths with each molecule's observed windowed apparent E
+    (:func:`~tether.analysis._store.windowed_state_and_channels` +
+    :func:`~tether.fret.efficiency.apparent_fret`) and synchronizes on the selected
+    state transitions with :func:`transition_sync_histogram2d`. This is the headless
+    source of truth the GUI A2 post-synchronized heatmap renders; the raw /
+    start-synchronized mode is :func:`population_time_signal_histogram2d`.
+
+    Parameters
+    ----------
+    project
+        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+    model_name
+        Which ``/idealization/{model_name}`` supplies the state paths (see
+        :meth:`~tether.project.core.Project.list_idealizations`).
+    from_state, to_state, single_dwell, sync_preframe, time_bins, signal_bins,
+    signal_range, time_dt, density
+        Synchronization / binning parameters (see
+        :func:`transition_sync_histogram2d`).
+    molecule_keys
+        Restrict to these molecules (``None`` = all); intersected with the curation
+        filter.
+    intensity_quantity
+        Which ``/traces`` layer feeds apparent E: ``"corrected"`` (default) or
+        ``"raw"``.
+    include_rejected
+        If ``True``, keep rejected molecules; else exclude them (§7.5 default).
+
+    Returns
+    -------
+    TransitionSyncHistogram2D
+    """
+    from tether.idealize import NO_STATE  # noqa: PLC0415
+
+    triples = windowed_state_and_channels(
+        project, model_name, molecule_keys, intensity_quantity, include_rejected
+    )
+    trace_pairs = [(state, apparent_fret(donor, acceptor)) for state, donor, acceptor in triples]
+    return transition_sync_histogram2d(
+        trace_pairs,
+        from_state=from_state,
+        to_state=to_state,
+        single_dwell=single_dwell,
+        sync_preframe=sync_preframe,
+        time_bins=time_bins,
+        signal_bins=signal_bins,
+        signal_range=signal_range,
+        time_dt=time_dt,
+        density=density,
+        no_state=NO_STATE,
     )

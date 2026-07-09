@@ -46,8 +46,13 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   2-D time-vs-signal occupancy heatmap (tMAVEN ``data_hist2d.py``), raw /
   start-synchronized mode: each accepted molecule's windowed apparent E binned
   into a ``(time, signal)`` grid so the population's FRET evolution over the
-  analysis window is visible [Nettels2024]. The post-synchronized (transition-
-  aligned) mode is a follow-up.
+  analysis window is visible [Nettels2024].
+- :func:`~tether.analysis.histogram.transition_sync_histogram2d` /
+  :func:`~tether.analysis.histogram.population_transition_sync_histogram2d` — the
+  A2 post-synchronized (transition-aligned) heatmap: align each molecule's Viterbi
+  state transitions to a common column and bin the observed apparent E around them,
+  so the population's average approach-to and departure-from a state jump is visible
+  (a transition-synchronized ensemble average [Blackwell2020]).
 """
 
 from __future__ import annotations
@@ -66,6 +71,7 @@ from tether.analysis.histogram import (
     DEFAULT_SEED,
     DEFAULT_SIGNAL_BINS,
     DEFAULT_SIGNAL_RANGE,
+    DEFAULT_SYNC_PREFRAME,
     DEFAULT_TIME_BINS,
     DEFAULT_TIME_DT,
     ConditionHistogram,
@@ -74,6 +80,7 @@ from tether.analysis.histogram import (
     HistogramBootstrapCI,
     ModelGaussianOverlay,
     PerConditionHistograms,
+    TransitionSyncHistogram2D,
     apparent_e_histogram,
     bootstrap_histogram_ci,
     model_gaussian_overlay,
@@ -82,7 +89,9 @@ from tether.analysis.histogram import (
     population_apparent_e_histogram_ci,
     population_model_gaussian_overlay,
     population_time_signal_histogram2d,
+    population_transition_sync_histogram2d,
     time_signal_histogram2d,
+    transition_sync_histogram2d,
 )
 from tether.analysis.query import (
     ConditionQueryResult,
@@ -99,6 +108,7 @@ __all__ = [
     "DEFAULT_SEED",
     "DEFAULT_SIGNAL_BINS",
     "DEFAULT_SIGNAL_RANGE",
+    "DEFAULT_SYNC_PREFRAME",
     "DEFAULT_TIME_BINS",
     "DEFAULT_TIME_DT",
     "ConditionHistogram",
@@ -110,6 +120,7 @@ __all__ = [
     "ModelGaussianOverlay",
     "MoleculeMatch",
     "PerConditionHistograms",
+    "TransitionSyncHistogram2D",
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
     "cross_correlation",
@@ -120,6 +131,8 @@ __all__ = [
     "population_cross_correlation",
     "population_model_gaussian_overlay",
     "population_time_signal_histogram2d",
+    "population_transition_sync_histogram2d",
     "query_molecules",
     "time_signal_histogram2d",
+    "transition_sync_histogram2d",
 ]
