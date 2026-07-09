@@ -80,20 +80,40 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   :func:`~tether.analysis.cloud.population_raw_fret_cloud` — the raw FRET cloud QC view
   (PR-5a): the pooled pre-idealization ``(time, apparent-E)`` scatter with a 2-D
   Gaussian-KDE surface and highest-density-region percentile contours (the
-  numerical-grid density-quantile method) [Hyndman1996][Haselsteiner2017]. The
-  alpha-shape support and k-vs-RMSE elbow (PRD §7.7) follow in PR-5b.
+  numerical-grid density-quantile method) [Hyndman1996][Haselsteiner2017].
+- :func:`~tether.analysis.cloud.alpha_shape` /
+  :func:`~tether.analysis.cloud.population_fret_cloud_alpha_shape` — the raw FRET cloud's
+  **α-shape support boundary** (PR-5b): the concave hull of the pooled ``(time, E)`` cloud
+  from its Delaunay triangulation (circumradius ``<= alpha`` in axis-normalized
+  coordinates), tracing where the population's signal lives [Edelsbrunner1983][PateiroLopez2010].
+- :func:`~tether.analysis.cloud.k_rmse_elbow` /
+  :func:`~tether.analysis.cloud.population_fret_cloud_state_number_elbow` — the
+  **k-vs-RMSE elbow** state-count *hint* (PR-5b): k-means over the pooled apparent-E
+  values with the knee of the within-cluster RMSE(k) curve [Satopaa2011][Thorndike1953]
+  as a pre-idealization suggestion — a heuristic subordinate to the HMM/BIC state count
+  [Schubert2022][McKinney2006].
 """
 
 from __future__ import annotations
 
 from tether.analysis.cloud import (
+    DEFAULT_ALPHA_FACTOR,
     DEFAULT_CLOUD_BW_METHOD,
     DEFAULT_CLOUD_HDR_COVERAGES,
     DEFAULT_CLOUD_SIGNAL_BINS,
     DEFAULT_CLOUD_SIGNAL_RANGE,
     DEFAULT_CLOUD_TIME_BINS,
     DEFAULT_CLOUD_TIME_DT,
+    DEFAULT_ELBOW_K_MAX,
+    DEFAULT_ELBOW_RESTARTS,
+    DEFAULT_ELBOW_SEED,
+    AlphaShape,
     RawFretCloud,
+    StateNumberElbow,
+    alpha_shape,
+    k_rmse_elbow,
+    population_fret_cloud_alpha_shape,
+    population_fret_cloud_state_number_elbow,
     population_raw_fret_cloud,
     raw_fret_cloud,
 )
@@ -177,6 +197,7 @@ from tether.analysis.transition_prob import (
 )
 
 __all__ = [
+    "DEFAULT_ALPHA_FACTOR",
     "DEFAULT_BOOTSTRAP_RESAMPLES",
     "DEFAULT_CI_LEVEL",
     "DEFAULT_CLOUD_BW_METHOD",
@@ -188,6 +209,9 @@ __all__ = [
     "DEFAULT_DWELL_CI_LEVEL",
     "DEFAULT_DWELL_DT",
     "DEFAULT_DWELL_NBINS",
+    "DEFAULT_ELBOW_K_MAX",
+    "DEFAULT_ELBOW_RESTARTS",
+    "DEFAULT_ELBOW_SEED",
     "DEFAULT_NBINS",
     "DEFAULT_OVERLAY_POINTS",
     "DEFAULT_RANGE",
@@ -205,6 +229,7 @@ __all__ = [
     "DEFAULT_TPROB_KDE_POINTS",
     "DEFAULT_TPROB_NBINS",
     "DEFAULT_TPROB_RANGE",
+    "AlphaShape",
     "ConditionHistogram",
     "ConditionQueryResult",
     "CrossCorrelation",
@@ -219,14 +244,17 @@ __all__ = [
     "RawFretCloud",
     "StateDwells",
     "StateNumberCounts",
+    "StateNumberElbow",
     "TransitionDensityPlot",
     "TransitionProbHistogram",
     "TransitionSyncHistogram2D",
+    "alpha_shape",
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
     "cross_correlation",
     "empirical_transition_probability",
     "fit_survival",
+    "k_rmse_elbow",
     "model_gaussian_overlay",
     "occupied_state_count",
     "per_condition_apparent_e_histograms",
@@ -234,6 +262,8 @@ __all__ = [
     "population_apparent_e_histogram_ci",
     "population_cross_correlation",
     "population_dwell_times",
+    "population_fret_cloud_alpha_shape",
+    "population_fret_cloud_state_number_elbow",
     "population_model_gaussian_overlay",
     "population_raw_fret_cloud",
     "population_state_number",
