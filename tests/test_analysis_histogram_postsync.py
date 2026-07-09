@@ -26,6 +26,7 @@ pytest.importorskip("h5py")
 import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 
+from _analysis_store import PARSED, WINDOW, e_traces, integrated, reg_map  # noqa: E402
 from tether.analysis import (  # noqa: E402
     DEFAULT_SIGNAL_BINS,
     DEFAULT_SIGNAL_RANGE,
@@ -35,8 +36,6 @@ from tether.analysis import (  # noqa: E402
 )
 from tether.analysis._store import windowed_state_and_channels  # noqa: E402
 from tether.idealize import NO_STATE  # noqa: E402
-from tether.imaging.aperture import IntegratedTraces  # noqa: E402
-from tether.imaging.calibrate import RegistrationMap  # noqa: E402
 from tether.imaging.coloc import ColocalizedMolecules  # noqa: E402
 from tether.imaging.extract import (  # noqa: E402
     MoleculeTraces,
@@ -44,17 +43,11 @@ from tether.imaging.extract import (  # noqa: E402
     read_molecules,
     write_extraction,
 )
-from tether.imaging.register import PolyTransform2D  # noqa: E402
 from tether.imaging.split import ChannelGeometry  # noqa: E402
-from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import create_project  # noqa: E402
 from tether.project import Project  # noqa: E402
 from tether.project.idealize import write_idealization_model  # noqa: E402
 from tether.project.labels import CurationLabel  # noqa: E402
-
-_PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
-_WINDOW = 21
-
 
 # --- tMAVEN reference oracle (data_hist2d.py, ported verbatim) ----------------
 
@@ -530,45 +523,6 @@ def test_sync_preframe_at_bounds_allowed() -> None:
 # --- store-level: seed a .tether with molecules + traces + idealization --------
 
 
-def _reg_map() -> RegistrationMap:
-    poly = PolyTransform2D(
-        a=np.array([0.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
-        b=np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0]),
-        norm_xy=np.eye(3),
-        norm_uv=np.eye(3),
-    )
-    return RegistrationMap(
-        reference_channel=1,
-        moving_channel=2,
-        ref_to_moving=poly,
-        moving_to_ref=poly,
-        rms_residual=0.1,
-        n_control_points=100,
-    )
-
-
-def _integrated(intensity: np.ndarray) -> IntegratedTraces:
-    intensity = np.asarray(intensity, dtype="float64")
-    n = intensity.shape[0]
-    background = np.full_like(intensity, 100.0)
-    return IntegratedTraces(
-        intensity=intensity,
-        total=intensity + background,
-        background=background,
-        valid=np.ones(n, dtype=bool),
-    )
-
-
-def _e_traces(e_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    e = np.asarray(e_matrix, dtype="float64")
-    donor = (1.0 - e) * 1000.0
-    acceptor = e * 1000.0
-    nan = np.isnan(e)
-    donor[nan] = 0.0
-    acceptor[nan] = 0.0
-    return donor, acceptor
-
-
 def _build_store_with_model(
     tmp_path: Path,
     e_matrix: np.ndarray,
@@ -586,7 +540,7 @@ def _build_store_with_model(
     e_matrix = np.asarray(e_matrix, dtype="float64")
     state_matrix = np.asarray(state_matrix, dtype="int64")
     n, n_frames = e_matrix.shape
-    donor, acceptor = _e_traces(e_matrix)
+    donor, acceptor = e_traces(e_matrix)
     coords = np.array([[12.0 + 1.7 * i, 14.0 + 2.3 * (i % 7)] for i in range(n)], dtype="float64")
     mols = ColocalizedMolecules(
         donor_xy=coords,
@@ -596,11 +550,11 @@ def _build_store_with_model(
         acceptor_index=np.full(n, -1, dtype=np.intp),
     )
     traces = MoleculeTraces(
-        donor=_integrated(donor),
-        acceptor=_integrated(acceptor),
-        donor_patches=np.zeros((n, _WINDOW, _WINDOW), dtype="float32"),
-        acceptor_patches=np.zeros((n, _WINDOW, _WINDOW), dtype="float32"),
-        window=_WINDOW,
+        donor=integrated(donor),
+        acceptor=integrated(acceptor),
+        donor_patches=np.zeros((n, WINDOW, WINDOW), dtype="float32"),
+        acceptor_patches=np.zeros((n, WINDOW, WINDOW), dtype="float32"),
+        window=WINDOW,
         disk_radius=3.0,
         ring_inner=6.0,
         ring_outer=8.0,
@@ -622,8 +576,8 @@ def _build_store_with_model(
         movie=movie,
         molecules=mols,
         traces=traces,
-        parsed=_PARSED,
-        registration_map=_reg_map(),
+        parsed=PARSED,
+        registration_map=reg_map(),
     )
     with h5py.File(path, "r+") as f:
         table = f["molecules"]["table"][:]

@@ -14,16 +14,14 @@ schema.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 pytest.importorskip("numpy")
 pytest.importorskip("h5py")
 
-import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 
+from _analysis_store import MEANS, build_store_with_model  # noqa: E402
 from tether.analysis import (  # noqa: E402
     DEFAULT_TDP_NSKIP,
     DEFAULT_TDP_SIGNAL_BINS,
@@ -32,28 +30,6 @@ from tether.analysis import (  # noqa: E402
     population_transition_density,
     transition_density,
 )
-from tether.idealize import NO_STATE  # noqa: E402
-from tether.imaging.aperture import IntegratedTraces  # noqa: E402
-from tether.imaging.calibrate import RegistrationMap  # noqa: E402
-from tether.imaging.coloc import ColocalizedMolecules  # noqa: E402
-from tether.imaging.extract import (  # noqa: E402
-    MoleculeTraces,
-    MovieMetadata,
-    read_molecules,
-    read_traces,
-    write_extraction,
-)
-from tether.imaging.register import PolyTransform2D  # noqa: E402
-from tether.imaging.split import ChannelGeometry  # noqa: E402
-from tether.io.filename import parse_filename  # noqa: E402
-from tether.io.schema import create_project  # noqa: E402
-from tether.project import Project  # noqa: E402
-from tether.project.idealize import input_provenance_hash, write_idealization_model  # noqa: E402
-from tether.project.labels import CurationLabel  # noqa: E402
-
-_PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
-_WINDOW = 21
-
 
 # --- tMAVEN reference oracle (data_tdp.py, ported verbatim) -------------------
 
@@ -344,195 +320,6 @@ def test_flat_array_misuse_raises_not_silent() -> None:
 # --- store-level: seed a .tether with molecules + traces + idealization -------
 
 
-def _reg_map() -> RegistrationMap:
-    poly = PolyTransform2D(
-        a=np.array([0.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
-        b=np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0]),
-        norm_xy=np.eye(3),
-        norm_uv=np.eye(3),
-    )
-    return RegistrationMap(
-        reference_channel=1,
-        moving_channel=2,
-        ref_to_moving=poly,
-        moving_to_ref=poly,
-        rms_residual=0.1,
-        n_control_points=100,
-    )
-
-
-def _integrated(intensity: np.ndarray) -> IntegratedTraces:
-    intensity = np.asarray(intensity, dtype="float64")
-    n = intensity.shape[0]
-    background = np.full_like(intensity, 100.0)
-    return IntegratedTraces(
-        intensity=intensity,
-        total=intensity + background,
-        background=background,
-        valid=np.ones(n, dtype=bool),
-    )
-
-
-def _e_traces(e_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    e = np.asarray(e_matrix, dtype="float64")
-    donor = (1.0 - e) * 1000.0
-    acceptor = e * 1000.0
-    nan = np.isnan(e)
-    donor[nan] = 0.0
-    acceptor[nan] = 0.0
-    return donor, acceptor
-
-
-def _to_str(value: object) -> str:
-    return value.decode() if isinstance(value, bytes) else str(value)
-
-
-def _fresh_input_hashes(path: Path) -> list[str]:
-    """Recompute each molecule's *current* provenance hash (so it reads back FRESH).
-
-    Mirrors :func:`tether.project.idealize._stale_keys_for` exactly: recorded == current
-    -> not stale. Returns hashes in store (molecule) order.
-    """
-    molecules = read_molecules(path)
-    traces = read_traces(path)
-    donor_all = np.asarray(traces["donor_corrected"], dtype="float64")
-    acceptor_all = np.asarray(traces["acceptor_corrected"], dtype="float64")
-    pre_all = molecules["analysis_window"]
-    fr_all = molecules["frame_range"]
-    hashes: list[str] = []
-    for i in range(molecules.shape[0]):
-        lo, hi = int(pre_all[i][0]), int(pre_all[i][1])
-        if hi <= lo:
-            lo, hi = int(fr_all[i][0]), int(fr_all[i][1])
-        hashes.append(
-            input_provenance_hash(
-                donor_all[i, lo:hi],
-                acceptor_all[i, lo:hi],
-                quantity="corrected",
-                alpha=float(molecules["alpha"][i]),
-                gamma=float(molecules["gamma"][i]),
-                correction_method=_to_str(molecules["correction_method"][i]),
-                pre=lo,
-                post=hi,
-            )
-        )
-    return hashes
-
-
-def _build_store_with_model(
-    tmp_path: Path,
-    state_matrix: np.ndarray,
-    means: np.ndarray,
-    *,
-    windows: list[tuple[int, int]] | None = None,
-    rejected: list[bool] | None = None,
-    stale: list[bool] | None = None,
-    model_name: str = "vbconhmm",
-    name: str = "exp.tether",
-) -> tuple[Project, list[str]]:
-    """A ``.tether`` whose molecule ``i`` has apparent E = its idealized level per frame
-    and a persisted ``/idealization/{model_name}`` with ``state_matrix[i]`` as its
-    Viterbi path (NO_STATE outside the window) and state levels ``means``.
-
-    ``input_hashes`` are the *real* current provenance hashes, so every molecule reads
-    back FRESH — unless ``stale[i]`` corrupts its hash to force it STALE.
-    """
-    state_matrix = np.asarray(state_matrix, dtype="int64")
-    means = np.asarray(means, dtype="float64")
-    n, n_frames = state_matrix.shape
-    # observed E follows the idealized level (NaN -> D=A=0 -> apparent NaN)
-    e_matrix = np.full((n, n_frames), np.nan)
-    on = state_matrix != NO_STATE
-    e_matrix[on] = means[state_matrix[on]]
-    donor, acceptor = _e_traces(e_matrix)
-    coords = np.array([[12.0 + 1.7 * i, 14.0 + 2.3 * (i % 7)] for i in range(n)], dtype="float64")
-    mols = ColocalizedMolecules(
-        donor_xy=coords,
-        acceptor_xy=coords,
-        acceptor_detected=np.zeros(n, dtype=bool),
-        donor_index=np.arange(n, dtype=np.intp),
-        acceptor_index=np.full(n, -1, dtype=np.intp),
-    )
-    traces = MoleculeTraces(
-        donor=_integrated(donor),
-        acceptor=_integrated(acceptor),
-        donor_patches=np.zeros((n, _WINDOW, _WINDOW), dtype="float32"),
-        acceptor_patches=np.zeros((n, _WINDOW, _WINDOW), dtype="float32"),
-        window=_WINDOW,
-        disk_radius=3.0,
-        ring_inner=6.0,
-        ring_outer=8.0,
-        bg_window=10,
-    )
-    movie = MovieMetadata(
-        movie_id="mov-1",
-        sha256="a" * 64,
-        n_frames=n_frames,
-        height=64,
-        width=64,
-        donor_geometry=ChannelGeometry(crop=(1, 1, 64, 64)),
-        acceptor_geometry=ChannelGeometry(crop=(1, 65, 64, 128)),
-    )
-    path = tmp_path / name
-    create_project(path, overwrite=True)
-    write_extraction(
-        path,
-        movie=movie,
-        molecules=mols,
-        traces=traces,
-        parsed=_PARSED,
-        registration_map=_reg_map(),
-    )
-    with h5py.File(path, "r+") as f:
-        table = f["molecules"]["table"][:]
-        for i in range(n):
-            win = (0, n_frames) if windows is None else windows[i]
-            table["analysis_window"][i] = win
-            if rejected is not None and rejected[i]:
-                table["curation_label"][i] = int(CurationLabel.REJECT)
-        f["molecules"]["table"][:] = table
-
-    molecules = read_molecules(path)
-    keys = [_to_str(k) for k in molecules["molecule_key"]]
-    ids = [_to_str(x) for x in molecules["molecule_id"]]
-
-    idealized = np.full((n, n_frames), np.nan)
-    idealized[on] = means[state_matrix[on]]
-
-    hashes = _fresh_input_hashes(path)
-    if stale is not None:
-        hashes = [f"STALE-{h}" if stale[i] else h for i, h in enumerate(hashes)]
-
-    write_idealization_model(
-        path,
-        model_name=model_name,
-        model_type=model_name,
-        nstates=int(means.size),
-        dtype="FRET",
-        means=means,
-        variances=np.full(means.size, 0.01),
-        tmatrix=None,
-        norm_tmatrix=None,
-        elbo=1.0,
-        idealized=idealized,
-        state_paths=state_matrix,
-        molecule_keys=keys,
-        molecule_ids=ids,
-        input_hashes=hashes,
-        intensity_quantity="corrected",
-        selected_by="fixed",
-        elbo_by_nstates=None,
-        app_version="test",
-        created_utc="2026-01-01T00:00:00Z",
-        overwrite=True,
-        frac=np.full(means.size, 1.0 / means.size),
-    )
-    return Project.open(path), keys
-
-
-_MEANS = np.array([0.2, 0.55, 0.85])
-
-
 def _two_transition_states() -> np.ndarray:
     # molecule 0: 0->1->2 ; molecule 1: 0->2 (single transition)
     return np.array(
@@ -546,14 +333,14 @@ def _two_transition_states() -> np.ndarray:
 
 def test_population_matches_manual_core(tmp_path) -> None:
     s = _two_transition_states()
-    proj, _keys = _build_store_with_model(tmp_path, s, _MEANS)
+    proj, _keys = build_store_with_model(tmp_path, s, MEANS)
     h = population_transition_density(proj, "vbconhmm")
     assert isinstance(h, TransitionDensityPlot)
     # molecule 0 has two transitions, molecule 1 one -> 3 points, 2 molecules
     assert h.n_transitions == 3
     assert h.n_molecules == 2
     # equal to feeding the pure core the reconstructed level rows (means[state]).
-    v = _MEANS[s]
+    v = MEANS[s]
     ref = transition_density(_chunks_from_rect(v))
     np.testing.assert_array_equal(h.counts, ref.counts)
     assert h.n_transitions == ref.n_transitions
@@ -561,10 +348,10 @@ def test_population_matches_manual_core(tmp_path) -> None:
 
 def test_population_matches_tmaven_oracle_via_store(tmp_path) -> None:
     s = _two_transition_states()
-    proj, _keys = _build_store_with_model(tmp_path, s, _MEANS)
+    proj, _keys = build_store_with_model(tmp_path, s, MEANS)
     h = population_transition_density(proj, "vbconhmm")
     ref, npoints = _tmaven_tdp(
-        _MEANS[s],
+        MEANS[s],
         nskip=DEFAULT_TDP_NSKIP,
         signal_nbins=DEFAULT_TDP_SIGNAL_BINS,
         signal_min=DEFAULT_TDP_SIGNAL_RANGE[0],
@@ -577,7 +364,7 @@ def test_population_matches_tmaven_oracle_via_store(tmp_path) -> None:
 def test_stale_molecule_excluded_by_default(tmp_path) -> None:
     s = _two_transition_states()
     # mark molecule 1 (the single 0->2 transition) STALE
-    proj, _keys = _build_store_with_model(tmp_path, s, _MEANS, stale=[False, True])
+    proj, _keys = build_store_with_model(tmp_path, s, MEANS, stale=[False, True])
     h = population_transition_density(proj, "vbconhmm")
     # only molecule 0's two transitions survive
     assert h.n_molecules == 1
@@ -589,7 +376,7 @@ def test_stale_molecule_excluded_by_default(tmp_path) -> None:
 
 def test_include_stale_restores_the_molecule(tmp_path) -> None:
     s = _two_transition_states()
-    proj, _keys = _build_store_with_model(tmp_path, s, _MEANS, stale=[False, True])
+    proj, _keys = build_store_with_model(tmp_path, s, MEANS, stale=[False, True])
     h = population_transition_density(proj, "vbconhmm", include_stale=True)
     assert h.n_molecules == 2
     assert h.n_transitions == 3
@@ -597,7 +384,7 @@ def test_include_stale_restores_the_molecule(tmp_path) -> None:
 
 def test_all_stale_gives_empty_tdp(tmp_path) -> None:
     s = _two_transition_states()
-    proj, _keys = _build_store_with_model(tmp_path, s, _MEANS, stale=[True, True])
+    proj, _keys = build_store_with_model(tmp_path, s, MEANS, stale=[True, True])
     h = population_transition_density(proj, "vbconhmm")
     assert h.n_molecules == 0
     assert h.n_transitions == 0
@@ -607,7 +394,7 @@ def test_all_stale_gives_empty_tdp(tmp_path) -> None:
 
 def test_rejected_molecule_excluded_by_default(tmp_path) -> None:
     s = _two_transition_states()
-    proj, _keys = _build_store_with_model(tmp_path, s, _MEANS, rejected=[False, True])
+    proj, _keys = build_store_with_model(tmp_path, s, MEANS, rejected=[False, True])
     h = population_transition_density(proj, "vbconhmm")
     assert h.n_molecules == 1
     assert h.n_transitions == 2
@@ -615,7 +402,7 @@ def test_rejected_molecule_excluded_by_default(tmp_path) -> None:
 
 def test_include_rejected_restores_the_molecule(tmp_path) -> None:
     s = _two_transition_states()
-    proj, _keys = _build_store_with_model(tmp_path, s, _MEANS, rejected=[False, True])
+    proj, _keys = build_store_with_model(tmp_path, s, MEANS, rejected=[False, True])
     h = population_transition_density(proj, "vbconhmm", include_rejected=True)
     assert h.n_molecules == 2
     assert h.n_transitions == 3
@@ -623,7 +410,7 @@ def test_include_rejected_restores_the_molecule(tmp_path) -> None:
 
 def test_molecule_keys_selection(tmp_path) -> None:
     s = _two_transition_states()
-    proj, keys = _build_store_with_model(tmp_path, s, _MEANS)
+    proj, keys = build_store_with_model(tmp_path, s, MEANS)
     h = population_transition_density(proj, "vbconhmm", molecule_keys=[keys[0]])
     assert h.n_molecules == 1
     assert h.n_transitions == 2  # molecule 0's two transitions only
@@ -632,7 +419,7 @@ def test_molecule_keys_selection(tmp_path) -> None:
 def test_molecule_keys_intersect_fresh(tmp_path) -> None:
     # selecting a STALE key yields nothing (fresh filter still applies).
     s = _two_transition_states()
-    proj, keys = _build_store_with_model(tmp_path, s, _MEANS, stale=[False, True])
+    proj, keys = build_store_with_model(tmp_path, s, MEANS, stale=[False, True])
     h = population_transition_density(proj, "vbconhmm", molecule_keys=[keys[1]])
     assert h.n_molecules == 0
     assert h.n_transitions == 0
@@ -640,7 +427,7 @@ def test_molecule_keys_intersect_fresh(tmp_path) -> None:
 
 def test_missing_model_raises(tmp_path) -> None:
     s = _two_transition_states()
-    proj, _keys = _build_store_with_model(tmp_path, s, _MEANS)
+    proj, _keys = build_store_with_model(tmp_path, s, MEANS)
     with pytest.raises(KeyError):
         population_transition_density(proj, "no-such-model")
 
@@ -651,7 +438,7 @@ def test_windowed_states_reads_state_only(tmp_path) -> None:
     from tether.analysis._store import windowed_states
 
     s = _two_transition_states()
-    proj, keys = _build_store_with_model(tmp_path, s, _MEANS, rejected=[False, True])
+    proj, keys = build_store_with_model(tmp_path, s, MEANS, rejected=[False, True])
     states = windowed_states(proj, "vbconhmm", None, include_rejected=False)
     assert len(states) == 1  # molecule 1 rejected
     assert states[0].dtype == np.int64
