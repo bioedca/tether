@@ -196,6 +196,30 @@ class AnticorrelationScan:
         return len(self.events)
 
 
+def _validate_scan_params(
+    window: int, step: int, min_magnitude: float, min_windows: int
+) -> tuple[int, int, float, int]:
+    """Validate and coerce the sliding-scan parameters (shared by the core + store entry).
+
+    Kept separate so :func:`population_anticorrelation_events` can enforce the same bounds
+    up front — its documented ``ValueError`` on a bad parameter must hold even when no
+    molecule is scanned (empty store / all rejected / all too short).
+    """
+    window = int(window)
+    if window < 2:
+        raise ValueError(f"window must be >= 2, got {window}")
+    step = int(step)
+    if step < 1:
+        raise ValueError(f"step must be >= 1, got {step}")
+    min_magnitude = float(min_magnitude)
+    if not 0.0 <= min_magnitude <= 1.0:
+        raise ValueError(f"min_magnitude must be in [0, 1], got {min_magnitude}")
+    min_windows = int(min_windows)
+    if min_windows < 1:
+        raise ValueError(f"min_windows must be >= 1, got {min_windows}")
+    return window, step, min_magnitude, min_windows
+
+
 def _merge_events(
     starts: np.ndarray,
     centers: np.ndarray,
@@ -298,18 +322,9 @@ def find_anticorrelation_events(
         raise ValueError(f"donor and acceptor must be the same length, got {d.shape} vs {a.shape}")
     if not (np.isfinite(d).all() and np.isfinite(a).all()):
         raise ValueError("donor and acceptor must be finite (no NaN/inf gaps)")
-    window = int(window)
-    if window < 2:
-        raise ValueError(f"window must be >= 2, got {window}")
-    step = int(step)
-    if step < 1:
-        raise ValueError(f"step must be >= 1, got {step}")
-    min_magnitude = float(min_magnitude)
-    if not 0.0 <= min_magnitude <= 1.0:
-        raise ValueError(f"min_magnitude must be in [0, 1], got {min_magnitude}")
-    min_windows = int(min_windows)
-    if min_windows < 1:
-        raise ValueError(f"min_windows must be >= 1, got {min_windows}")
+    window, step, min_magnitude, min_windows = _validate_scan_params(
+        window, step, min_magnitude, min_windows
+    )
 
     n = int(d.shape[0])
     if n < window:  # no full window fits -> nothing to scan (not an error)
@@ -432,6 +447,11 @@ def population_anticorrelation_events(
     """
     from tether.analysis._store import windowed_channels_with_keys
 
+    # Enforce the parameter bounds up front so the documented ValueError holds even when
+    # no molecule ends up scanned (empty store / all rejected / all shorter than window).
+    window, step, min_magnitude, min_windows = _validate_scan_params(
+        window, step, min_magnitude, min_windows
+    )
     keyed = windowed_channels_with_keys(
         project, molecule_keys, intensity_quantity, include_rejected
     )

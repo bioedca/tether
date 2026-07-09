@@ -423,6 +423,17 @@ def test_population_invalid_quantity_raises(tmp_path) -> None:
         population_anticorrelation_events(proj, intensity_quantity="bogus")
 
 
+def test_population_invalid_params_raise_even_when_no_molecule_scanned(tmp_path) -> None:
+    # the documented ValueError contract must hold even when no molecule is scanned:
+    # a bad scan parameter raises up front, not after silently returning an empty result.
+    donor, acceptor = _population_channels()
+    proj, _ = build_store_with_channels(tmp_path, donor, acceptor)
+    with pytest.raises(ValueError, match="window must be >= 2"):
+        population_anticorrelation_events(proj, molecule_keys=["nonexistent"], window=1)
+    with pytest.raises(ValueError, match=r"min_magnitude must be in \[0, 1\]"):
+        population_anticorrelation_events(proj, molecule_keys=["nonexistent"], min_magnitude=5.0)
+
+
 # --- shared store helper (windowed_channels_with_keys) ------------------------
 
 
