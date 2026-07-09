@@ -43,13 +43,39 @@ Two estimators are attached (both self-describing for NFR-REPRO):
   returned levels decrease as coverage increases (the smallest region enclosing the
   most probable mass, [Hyndman1996]).
 
-The **alpha-shape** support boundary and the **k-vs-RMSE elbow** state-count hint
-(PRD §7.7) are the second half of the raw-cloud deliverable and land in PR-5b; this
-module is their pooled-cloud substrate.
+Two further model-free lenses (PRD §7.7), the second half of the raw-cloud deliverable
+(PR-5b), read the *same* pooled cloud:
+
+* **Alpha-shape support boundary** — the α-shape generalizes the convex hull to
+  reconstruct a **non-convex** support, so the boundary traces where the population's
+  signal actually lives (hugging separated bands) instead of the convex hull's
+  gap-spanning envelope [Edelsbrunner1983][PateiroLopez2010]. It is built from the
+  cloud's Delaunay triangulation: a triangle is kept when its circumradius does not
+  exceed the threshold ``alpha``, and the boundary is the set of edges belonging to
+  exactly one kept triangle. Because the time and E axes carry very different units,
+  the circumradius test runs in coordinates normalized so each axis spans ``[0, 1]``
+  over the cloud's bounding box (the α-shape analogue of the KDE's covariance-scaled
+  bandwidth); ``alpha`` is therefore a dimensionless fraction, larger → closer to the
+  convex hull, smaller → more concave / fragmented. :func:`alpha_shape` is the pure
+  core, :func:`population_fret_cloud_alpha_shape` the store entry.
+* **k-vs-RMSE elbow state-count hint** — k-means is run on the pooled **apparent-E
+  values** (the FRET dimension only — a state is an E *level*, persisting across time,
+  so clustering the 2-D (time, E) cloud would split one state into several time-blobs)
+  for a range of ``k``, and the within-cluster RMSE(``k``) curve's "elbow" (the knee by
+  maximum distance to the first–last chord [Satopaa2011]) is returned as a suggested
+  state count [Thorndike1953]. This is a **pre-idealization hint only, not a
+  determination**: the elbow criterion is a heuristic that "severely lacks theoretic
+  support" [Schubert2022], so the trustworthy state count remains the HMM/vbFRET model
+  view (BIC + the TDP) [McKinney2006]; the elbow merely orients the eye before an HMM is
+  committed. :func:`k_rmse_elbow` is the pure core,
+  :func:`population_fret_cloud_state_number_elbow` the store entry.
 
 :func:`raw_fret_cloud` is the pure-array core (an iterable of per-molecule windowed
 apparent-E arrays -> a :class:`RawFretCloud`); :func:`population_raw_fret_cloud` is the
-``.tether`` store entry point (curation filter, channel -> apparent-E).
+``.tether`` store entry point (curation filter, channel -> apparent-E). The alpha-shape
+and elbow reuse that pooling and, like the KDE surface, are fit on the **in-grid points
+only** (the off-grid bleach/blink outliers are excluded from both the support boundary
+and the E-band clustering, matching the density view).
 
 References
 ----------
@@ -63,6 +89,27 @@ References
     its probability, and enclose the smallest-volume region of the target coverage.
 [Scott1992] Scott DW. "Multivariate Density Estimation." Wiley (1992) — the
     covariance-scaled (Scott's-rule) bandwidth used by gaussian_kde.
+[Edelsbrunner1983] Edelsbrunner H, Kirkpatrick DG, Seidel R. "On the shape of a set of
+    points in the plane." IEEE Trans. Information Theory 29(4):551-559 (1983) — the
+    α-shape: the triangles of the Delaunay triangulation whose circumradius is bounded
+    by α, generalizing the convex hull to a non-convex boundary.
+[PateiroLopez2010] Pateiro-López B, Rodríguez-Casal A. "Generalizing the convex hull of
+    a sample: the R package alphahull." J. Statistical Software 34(5):1-28 (2010) — the
+    α-convex hull / α-shape as a set (support) estimator, computed from the Delaunay
+    triangulation, reconstructing non-convex sets the convex hull cannot.
+[Thorndike1953] Thorndike RL. "Who belongs in the family?" Psychometrika 18(4):267-276
+    (1953) — the original "elbow" heuristic for the number of clusters.
+[Satopaa2011] Satopää V, Albrecht J, Irwin D, Raghavan B. "Finding a 'kneedle' in a
+    haystack: detecting knee points in system behavior." ICDCS Workshops (2011) — the
+    knee/elbow as the point of maximum distance to the chord between the curve's ends.
+[Schubert2022] Schubert E. "Stop using the elbow criterion for k-means and how to choose
+    the number of clusters instead." ACM SIGKDD Explorations 25(1):36-42 (2022) — the
+    elbow method lacks theoretic support; use it only as a heuristic hint, never a
+    determination (here it is subordinate to the HMM/BIC state count).
+[McKinney2006] McKinney SA, Joo C, Ha T. "Analysis of single-molecule FRET trajectories
+    using hidden Markov modeling." Biophys. J. 91(5):1941-1951 (2006) — the number of
+    smFRET states is properly determined by HMM + BIC + the transition-density plot, the
+    rigorous counterpart the elbow hint precedes.
 """
 
 from __future__ import annotations
@@ -81,13 +128,23 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     ProjectRef = Project | str | PathLike[str]
 
 __all__ = [
+    "DEFAULT_ALPHA_FACTOR",
     "DEFAULT_CLOUD_BW_METHOD",
     "DEFAULT_CLOUD_HDR_COVERAGES",
     "DEFAULT_CLOUD_SIGNAL_BINS",
     "DEFAULT_CLOUD_SIGNAL_RANGE",
     "DEFAULT_CLOUD_TIME_BINS",
     "DEFAULT_CLOUD_TIME_DT",
+    "DEFAULT_ELBOW_K_MAX",
+    "DEFAULT_ELBOW_RESTARTS",
+    "DEFAULT_ELBOW_SEED",
+    "AlphaShape",
     "RawFretCloud",
+    "StateNumberElbow",
+    "alpha_shape",
+    "k_rmse_elbow",
+    "population_fret_cloud_alpha_shape",
+    "population_fret_cloud_state_number_elbow",
     "population_raw_fret_cloud",
     "raw_fret_cloud",
 ]
@@ -118,6 +175,28 @@ DEFAULT_CLOUD_HDR_COVERAGES: tuple[float, ...] = (0.5, 0.95)
 #: gaussian_kde bandwidth rule (Scott's rule) [Scott1992]. A rendering default, **not**
 #: a §11.2 tunable.
 DEFAULT_CLOUD_BW_METHOD = "scott"
+
+#: Auto-``alpha`` multiplier: when :func:`alpha_shape` is given no ``alpha``, the
+#: circumradius threshold is this factor times the **median** finite triangle
+#: circumradius (in normalized coordinates), keeping the bulk of triangles while
+#: dropping the gap-spanning slivers — a mildly concave support. A rendering default,
+#: **not** a §11.2 science tunable (the boundary is a QC visualization, not a factor
+#: that enters any downstream result).
+DEFAULT_ALPHA_FACTOR = 2.0
+
+#: Largest cluster count ``k`` probed by the k-vs-RMSE elbow. Capped further at the
+#: number of distinct pooled E values. A rendering default, **not** a §11.2 tunable —
+#: the elbow is a heuristic hint, not a state-count determination [Schubert2022].
+DEFAULT_ELBOW_K_MAX = 8
+
+#: Number of k-means restarts per ``k`` (scipy ``kmeans`` ``iter``; the lowest-distortion
+#: codebook is kept), for a stable elbow curve. A rendering default, **not** a §11.2
+#: tunable.
+DEFAULT_ELBOW_RESTARTS = 10
+
+#: Seed for the k-means initialization, so the elbow curve is reproducible (NFR-REPRO).
+#: A rendering default, **not** a §11.2 tunable.
+DEFAULT_ELBOW_SEED = 0
 
 
 @dataclass(frozen=True)
@@ -474,3 +553,400 @@ def population_raw_fret_cloud(
         kde=kde,
         bw_method=bw_method,
     )
+
+
+# --- alpha-shape support boundary (PR-5b) --------------------------------------
+
+
+@dataclass(frozen=True)
+class AlphaShape:
+    """The α-shape (concave support boundary) of a pooled ``(time, E)`` FRET cloud.
+
+    The α-shape is the set of Delaunay triangles whose circumradius does not exceed
+    ``alpha`` [Edelsbrunner1983][PateiroLopez2010]; its boundary is the edges shared by
+    exactly one such triangle. Because the time and E axes carry different units, the
+    circumradius test is applied in coordinates normalized so each axis spans ``[0, 1]``
+    over the cloud's bounding box, so :attr:`alpha` is a **dimensionless** threshold
+    (larger → nearer the convex hull, smaller → more concave / fragmented).
+
+    :attr:`boundary_edges` are the boundary segments in the **original** ``(time, E)``
+    coordinates (``(n_edges, 2, 2)`` — ``[edge, endpoint, (time, E)]``), ready to draw.
+    :attr:`area` is the total area of the kept triangles in original units (a QC scalar:
+    the occupied ``time·E`` support area). :attr:`n_kept` is how many of the
+    :attr:`n_triangles` Delaunay triangles fell inside the shape; an empty
+    :attr:`boundary_edges` with ``n_kept == 0`` means ``alpha`` was too small to keep any
+    triangle (an honest "no support at this α", never a fabricated boundary).
+    """
+
+    alpha: float  # circumradius threshold actually used (normalized coordinates)
+    boundary_edges: np.ndarray  # (n_edges, 2, 2) float64 original-coord segments
+    area: float  # total area of kept triangles, original (time·E) units
+    n_points: int  # finite points triangulated
+    n_triangles: int  # total Delaunay triangles
+    n_kept: int  # triangles with circumradius <= alpha (inside the shape)
+
+    @property
+    def n_boundary_edges(self) -> int:
+        """Number of boundary edges (segments) of the α-shape."""
+        return int(self.boundary_edges.shape[0])
+
+
+def _triangle_circumradii(tri_pts: np.ndarray) -> np.ndarray:
+    """Circumradius of each triangle in ``tri_pts`` (``(m, 3, 2)``); ``inf`` if degenerate.
+
+    ``R = abc / (4·area)`` with side lengths ``a, b, c``; a zero-area (collinear) triangle
+    gives ``inf`` so it is never kept (its circumscribed circle is unbounded).
+    """
+    p0, p1, p2 = tri_pts[:, 0], tri_pts[:, 1], tri_pts[:, 2]
+    a = np.linalg.norm(p1 - p2, axis=1)
+    b = np.linalg.norm(p0 - p2, axis=1)
+    c = np.linalg.norm(p0 - p1, axis=1)
+    # |cross((p1-p0), (p2-p0))| == 2·area
+    area2 = np.abs(
+        (p1[:, 0] - p0[:, 0]) * (p2[:, 1] - p0[:, 1])
+        - (p1[:, 1] - p0[:, 1]) * (p2[:, 0] - p0[:, 0])
+    )
+    circ = np.full(tri_pts.shape[0], np.inf, dtype=np.float64)
+    nondegenerate = area2 > 0.0
+    circ[nondegenerate] = (
+        a[nondegenerate] * b[nondegenerate] * c[nondegenerate] / (2.0 * area2[nondegenerate])
+    )
+    return circ
+
+
+def alpha_shape(points: np.ndarray, *, alpha: float | None = None) -> AlphaShape | None:
+    """The α-shape (concave support boundary) of a 2-D ``(time, E)`` point cloud.
+
+    Triangulates ``points`` (Delaunay), keeps triangles whose **normalized-coordinate**
+    circumradius is ``<= alpha``, and returns the boundary (edges in exactly one kept
+    triangle) as segments in the original coordinates. The normalization (each axis to
+    ``[0, 1]`` over the bounding box) makes the single threshold ``alpha`` comparable
+    across the very different time and E scales.
+
+    Parameters
+    ----------
+    points
+        ``(n, 2)`` array of ``(time, E)`` samples (typically a
+        :attr:`RawFretCloud.points` subset). Non-finite rows are dropped.
+    alpha
+        Circumradius threshold in normalized coordinates (a positive dimensionless
+        fraction). ``None`` (default) auto-selects :data:`DEFAULT_ALPHA_FACTOR` times the
+        median finite triangle circumradius — a mildly concave support that adapts to the
+        cloud's density.
+
+    Returns
+    -------
+    AlphaShape or None
+        ``None`` when the cloud cannot span a 2-D region — fewer than three finite
+        points, a degenerate axis (all one time or all one E), or a fully collinear set
+        (Qhull cannot triangulate it). Never raises for those; a misleading boundary is
+        never fabricated.
+
+    Raises
+    ------
+    ValueError
+        ``points`` is not ``(n, 2)``, or an explicit ``alpha`` is not positive.
+    """
+    pts = np.ascontiguousarray(np.asarray(points, dtype=np.float64))
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        raise ValueError(f"points must be an (n, 2) array, got shape {pts.shape!r}")
+    if alpha is not None and not (float(alpha) > 0.0 and np.isfinite(float(alpha))):
+        raise ValueError(f"alpha must be a positive finite number or None, got {alpha!r}")
+
+    pts = pts[np.all(np.isfinite(pts), axis=1)]
+    if pts.shape[0] < 3:
+        return None
+    span = np.ptp(pts, axis=0)
+    if span[0] <= 0.0 or span[1] <= 0.0:
+        return None  # collinear along an axis -> no 2-D support to bound
+
+    from scipy.spatial import Delaunay, QhullError
+
+    normalized = (pts - pts.min(axis=0)) / span
+    try:
+        tri = Delaunay(normalized)
+    except (QhullError, ValueError):
+        # A fully collinear (but not axis-aligned) cloud: Qhull cannot triangulate it, so
+        # there is no 2-D support — None, not a crash and not a fabricated boundary.
+        return None
+    simplices = np.asarray(tri.simplices)
+    if simplices.shape[0] == 0:
+        return None
+
+    circ = _triangle_circumradii(normalized[simplices])
+    finite = np.isfinite(circ)
+    if not finite.any():
+        return None  # every triangle degenerate -> no meaningful shape
+    if alpha is None:
+        alpha_used = float(DEFAULT_ALPHA_FACTOR * np.median(circ[finite]))
+    else:
+        alpha_used = float(alpha)
+
+    kept = circ <= alpha_used
+    kept_simplices = simplices[kept]
+    # triangle areas in ORIGINAL units (0.5·|cross|), so the reported support area is real
+    kept_pts = pts[kept_simplices]
+    area = 0.0
+    if kept_simplices.shape[0]:
+        q0, q1, q2 = kept_pts[:, 0], kept_pts[:, 1], kept_pts[:, 2]
+        area2_orig = np.abs(
+            (q1[:, 0] - q0[:, 0]) * (q2[:, 1] - q0[:, 1])
+            - (q1[:, 1] - q0[:, 1]) * (q2[:, 0] - q0[:, 0])
+        )
+        area = float(0.5 * area2_orig.sum())
+
+    if kept_simplices.shape[0] == 0:
+        boundary_edges = np.empty((0, 2, 2), dtype=np.float64)
+    else:
+        # boundary edge == an edge in exactly one kept triangle
+        e01 = np.sort(kept_simplices[:, [0, 1]], axis=1)
+        e12 = np.sort(kept_simplices[:, [1, 2]], axis=1)
+        e20 = np.sort(kept_simplices[:, [2, 0]], axis=1)
+        all_edges = np.vstack([e01, e12, e20])
+        uniq, counts = np.unique(all_edges, axis=0, return_counts=True)
+        boundary = uniq[counts == 1]
+        boundary_edges = np.ascontiguousarray(pts[boundary], dtype=np.float64)
+
+    return AlphaShape(
+        alpha=alpha_used,
+        boundary_edges=boundary_edges,
+        area=area,
+        n_points=int(pts.shape[0]),
+        n_triangles=int(simplices.shape[0]),
+        n_kept=int(kept_simplices.shape[0]),
+    )
+
+
+# --- k-vs-RMSE elbow state-count hint (PR-5b) ----------------------------------
+
+
+@dataclass(frozen=True)
+class StateNumberElbow:
+    """A k-vs-RMSE elbow **hint** for the number of FRET states (pre-idealization QC).
+
+    :attr:`rmse` ``[i]`` is the within-cluster root-mean-square distance of the pooled
+    apparent-E values to their nearest of :attr:`k_values` ``[i]`` k-means centroids
+    (decreasing in ``k``). :attr:`elbow_k` is the "knee" of that curve — the ``k`` of
+    maximum distance to the first→last chord [Satopaa2011] — offered as a **suggested**
+    state count [Thorndike1953], or ``None`` when no interior elbow exists (fewer than
+    three probed ``k``, or a flat curve).
+
+    This is a heuristic hint only: the elbow criterion "severely lacks theoretic support"
+    [Schubert2022], so the trustworthy state count remains the HMM/vbFRET model view
+    (BIC + the TDP) [McKinney2006]. :attr:`seed` records the k-means seed so the curve is
+    reproducible (NFR-REPRO).
+    """
+
+    k_values: np.ndarray  # (K,) int64 — cluster counts probed, ascending
+    rmse: np.ndarray  # (K,) float64 — within-cluster RMSE at each k
+    elbow_k: int | None  # suggested state count (the knee), or None
+    n_samples: int  # finite apparent-E values clustered
+    seed: int  # k-means initialization seed used
+
+
+def _elbow_index(k_values: np.ndarray, rmse: np.ndarray) -> int | None:
+    """The knee of the (k, RMSE) curve by maximum distance to the first→last chord.
+
+    Both axes are min-max normalized to ``[0, 1]`` so ``k`` and RMSE are comparable, then
+    the interior point farthest from the chord joining the curve's ends is the elbow
+    [Satopaa2011]. ``None`` when there is no interior point (< 3 probed ``k``) or the
+    curve is flat (no RMSE spread).
+    """
+    k = np.asarray(k_values, dtype=np.float64)
+    r = np.asarray(rmse, dtype=np.float64)
+    if k.size < 3:
+        return None
+    r_span = float(r.max() - r.min())
+    k_span = float(k.max() - k.min())
+    if not (np.isfinite(r_span) and r_span > 0.0) or k_span <= 0.0:
+        return None
+    kn = (k - k.min()) / k_span
+    rn = (r - r.min()) / r_span
+    x1, y1, x2, y2 = kn[0], rn[0], kn[-1], rn[-1]
+    denom = float(np.hypot(y2 - y1, x2 - x1))
+    if denom <= 0.0:
+        return None
+    dist = np.abs((y2 - y1) * kn - (x2 - x1) * rn + x2 * y1 - y2 * x1) / denom
+    dist[0] = dist[-1] = -1.0  # the chord endpoints are never the elbow
+    return int(k_values[int(np.argmax(dist))])
+
+
+def k_rmse_elbow(
+    values: np.ndarray,
+    *,
+    k_min: int = 1,
+    k_max: int = DEFAULT_ELBOW_K_MAX,
+    restarts: int = DEFAULT_ELBOW_RESTARTS,
+    seed: int = DEFAULT_ELBOW_SEED,
+) -> StateNumberElbow:
+    """k-vs-RMSE elbow **hint** for the number of FRET states from pooled apparent-E.
+
+    Runs k-means (:func:`scipy.cluster.vq.kmeans`, ``restarts`` restarts, keeping the
+    lowest-distortion codebook) on the 1-D ``values`` for each ``k`` in
+    ``[k_min, k_max]`` and records the within-cluster RMSE. Clustering is on the **E
+    values alone** — a state is an E *level* that persists over time, so the count of E
+    bands, not spatiotemporal blobs, is the state-number analogue. ``k_max`` is capped at
+    the number of distinct values (k-means cannot exceed that). The elbow of the RMSE(k)
+    curve is returned as :attr:`~StateNumberElbow.elbow_k`.
+
+    This is a **pre-idealization hint, not a determination** [Schubert2022]: it orients
+    the eye before an HMM is committed; the state count of record is the model view (BIC +
+    the TDP) [McKinney2006].
+
+    Parameters
+    ----------
+    values
+        1-D apparent-E samples (non-finite dropped); e.g. a :attr:`RawFretCloud.points`
+        E column.
+    k_min, k_max
+        Inclusive range of cluster counts to probe (``1 <= k_min <= k_max``).
+    restarts
+        k-means restarts per ``k`` (the best-distortion codebook is kept), for a stable
+        curve.
+    seed
+        k-means initialization seed, so the curve is reproducible.
+
+    Returns
+    -------
+    StateNumberElbow
+
+    Raises
+    ------
+    ValueError
+        ``k_min < 1`` or ``k_max < k_min``.
+    """
+    if int(k_min) < 1:
+        raise ValueError(f"k_min must be >= 1, got {k_min!r}")
+    if int(k_max) < int(k_min):
+        raise ValueError(f"k_max must be >= k_min, got k_max={k_max!r}, k_min={k_min!r}")
+
+    v = np.asarray(values, dtype=np.float64).ravel()
+    v = v[np.isfinite(v)]
+    n = int(v.size)
+    n_distinct = int(np.unique(v).size) if n else 0
+    k_hi = min(int(k_max), n_distinct)
+    ks = list(range(int(k_min), k_hi + 1))
+    if not ks:
+        return StateNumberElbow(
+            k_values=np.empty(0, dtype=np.int64),
+            rmse=np.empty(0, dtype=np.float64),
+            elbow_k=None,
+            n_samples=n,
+            seed=int(seed),
+        )
+
+    from scipy.cluster.vq import kmeans, vq
+
+    obs = v.reshape(-1, 1)
+    rmses = np.empty(len(ks), dtype=np.float64)
+    for i, k in enumerate(ks):
+        if k == 1:
+            dist = np.abs(v - float(v.mean()))
+        else:
+            codebook, _ = kmeans(obs, k, iter=int(restarts), rng=int(seed))
+            _, dist = vq(obs, codebook)
+        rmses[i] = float(np.sqrt(np.mean(np.square(dist))))
+
+    k_arr = np.asarray(ks, dtype=np.int64)
+    return StateNumberElbow(
+        k_values=k_arr,
+        rmse=rmses,
+        elbow_k=_elbow_index(k_arr, rmses),
+        n_samples=n,
+        seed=int(seed),
+    )
+
+
+# --- store entry points (PR-5b) ------------------------------------------------
+
+
+def _in_grid_points(cloud: RawFretCloud) -> np.ndarray:
+    """The subset of ``cloud.points`` inside the KDE grid range (the visible cloud).
+
+    The alpha-shape and elbow share the KDE's in-grid contract: finite-but-off-grid
+    bleach/blink outliers stay in :attr:`RawFretCloud.points` (the honest scatter) but are
+    excluded here, so the support boundary and the E-band clustering match the density
+    surface rather than being dragged out by an invisible outlier.
+    """
+    p = cloud.points
+    if p.shape[0] == 0:
+        return p
+    t_lo, t_hi = cloud.time_range
+    s_lo, s_hi = cloud.signal_range
+    mask = (p[:, 0] >= t_lo) & (p[:, 0] <= t_hi) & (p[:, 1] >= s_lo) & (p[:, 1] <= s_hi)
+    return p[mask]
+
+
+def population_fret_cloud_alpha_shape(
+    project: ProjectRef,
+    *,
+    molecule_keys: list[str] | None = None,
+    intensity_quantity: str = "corrected",
+    signal_range: tuple[float, float] = DEFAULT_CLOUD_SIGNAL_RANGE,
+    time_range: tuple[float, float] | None = None,
+    time_dt: float = DEFAULT_CLOUD_TIME_DT,
+    alpha: float | None = None,
+    include_rejected: bool = False,
+    in_grid_only: bool = True,
+) -> AlphaShape | None:
+    """α-shape support boundary of a ``.tether`` store's raw FRET cloud (§10 PR-5b).
+
+    Pools the same pre-idealization ``(time, apparent-E)`` cloud as
+    :func:`population_raw_fret_cloud` (curation filter, ``intensity_quantity`` channels,
+    analysis window) and returns its α-shape (:func:`alpha_shape`). By default only the
+    in-grid points feed the boundary (``in_grid_only``), matching the KDE surface.
+
+    Parameters mirror :func:`population_raw_fret_cloud` (plus ``alpha`` from
+    :func:`alpha_shape`); ``in_grid_only=False`` bounds the full scatter including
+    off-grid outliers. Returns ``None`` when the cloud cannot span a 2-D region.
+    """
+    cloud = population_raw_fret_cloud(
+        project,
+        molecule_keys=molecule_keys,
+        intensity_quantity=intensity_quantity,
+        signal_range=signal_range,
+        time_range=time_range,
+        time_dt=time_dt,
+        include_rejected=include_rejected,
+        kde=False,
+    )
+    pts = _in_grid_points(cloud) if in_grid_only else cloud.points
+    return alpha_shape(pts, alpha=alpha)
+
+
+def population_fret_cloud_state_number_elbow(
+    project: ProjectRef,
+    *,
+    molecule_keys: list[str] | None = None,
+    intensity_quantity: str = "corrected",
+    signal_range: tuple[float, float] = DEFAULT_CLOUD_SIGNAL_RANGE,
+    time_range: tuple[float, float] | None = None,
+    time_dt: float = DEFAULT_CLOUD_TIME_DT,
+    k_min: int = 1,
+    k_max: int = DEFAULT_ELBOW_K_MAX,
+    restarts: int = DEFAULT_ELBOW_RESTARTS,
+    seed: int = DEFAULT_ELBOW_SEED,
+    include_rejected: bool = False,
+    in_grid_only: bool = True,
+) -> StateNumberElbow:
+    """k-vs-RMSE elbow state-count **hint** from a ``.tether`` store (§10 PR-5b).
+
+    Pools the same pre-idealization apparent-E as :func:`population_raw_fret_cloud`, then
+    runs :func:`k_rmse_elbow` on the pooled **E values** (the FRET dimension only). By
+    default only in-grid values are clustered (``in_grid_only``), so off-grid bleach/blink
+    outliers do not create a spurious extra band. Returns a
+    :class:`StateNumberElbow` whose :attr:`~StateNumberElbow.elbow_k` is a heuristic
+    suggestion, subordinate to the HMM/BIC state count [Schubert2022][McKinney2006].
+    """
+    cloud = population_raw_fret_cloud(
+        project,
+        molecule_keys=molecule_keys,
+        intensity_quantity=intensity_quantity,
+        signal_range=signal_range,
+        time_range=time_range,
+        time_dt=time_dt,
+        include_rejected=include_rejected,
+        kde=False,
+    )
+    pts = _in_grid_points(cloud) if in_grid_only else cloud.points
+    return k_rmse_elbow(pts[:, 1], k_min=k_min, k_max=k_max, restarts=restarts, seed=seed)
