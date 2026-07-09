@@ -199,6 +199,19 @@ def test_survival_matches_tmaven_oracle() -> None:
     np.testing.assert_allclose(surv, rsurv)
 
 
+def test_survival_rejects_non_positive_dwells() -> None:
+    # dwell lengths are frame counts >= 1; a public caller passing 0 or a negative
+    # value must get a clear error, not an IndexError (all-zero) or a cryptic
+    # np.bincount ValueError (negative mixed with positive).
+    with pytest.raises(ValueError, match="positive frame counts"):
+        survival_curve(np.array([0, 0, 0]))
+    with pytest.raises(ValueError, match="positive frame counts"):
+        survival_curve(np.array([3, -1, 2]))
+    # the empty input still returns the tMAVEN degenerate (not an error)
+    tau, surv = survival_curve(np.empty(0, dtype=int))
+    np.testing.assert_array_equal(tau, np.array([0]))
+
+
 # --- pure core: exponential fit ----------------------------------------------
 
 
@@ -325,6 +338,28 @@ def test_fit_double_cosorts_stderr_and_amplitudes_with_rates(monkeypatch) -> Non
     t = float(stats.t.ppf(0.975, fit.n_points - 4))
     np.testing.assert_allclose(fit.rate_ci, np.array([0.005, 0.08]) * t)
     np.testing.assert_allclose(fit.amplitude_ci, np.array([0.07, 0.03]) * t)
+
+
+def test_fit_triple_cosorts_stderr_and_amplitudes_with_rates(monkeypatch) -> None:
+    # the 3-component branch has the largest permutation space for the co-sort; lock it
+    # the same way as the double case with a deterministic out-of-order fit.
+    from scipy import stats
+
+    popt = np.array([0.9, 0.05, 0.4, 0.2, 0.5, 0.3])  # 3 rates then 3 amps, out of order
+    ses = np.array([0.09, 0.004, 0.02, 0.04, 0.05, 0.03])
+    pcov = np.diag(ses**2)
+    monkeypatch.setattr("scipy.optimize.curve_fit", lambda *a, **k: (popt, pcov))
+    fit = fit_survival(np.arange(30.0), np.exp(-0.1 * np.arange(30.0)), model="triple")
+    assert fit.success
+    order = np.argsort(popt[:3])  # ascending-rate permutation
+    np.testing.assert_allclose(fit.rates, popt[:3][order])
+    assert np.all(np.diff(fit.rates) > 0)  # strictly ascending
+    np.testing.assert_allclose(fit.amplitudes, popt[3:][order])  # amps co-sorted
+    np.testing.assert_allclose(fit.rate_stderr, ses[:3][order])  # SEs co-sorted with rates
+    np.testing.assert_allclose(fit.amplitude_stderr, ses[3:][order])
+    t = float(stats.t.ppf(0.975, fit.n_points - 6))
+    np.testing.assert_allclose(fit.rate_ci, ses[:3][order] * t)
+    np.testing.assert_allclose(fit.amplitude_ci, ses[3:][order] * t)
 
 
 def test_fit_stretched_reports_beta() -> None:
@@ -675,3 +710,31 @@ def test_population_state_none_returns_all_states_fitted(tmp_path) -> None:
         assert analysis.fit.success
         assert analysis.fit.rates[0] > 0
         assert "k =" in analysis.fit.annotation
+
+
+@pytest.mark.parametrize("model", ["double", "triple", "stretched"])
+def test_population_plumbs_fit_model_kwarg(tmp_path, model: str) -> None:
+    # the `model` kwarg must reach fit_survival end-to-end, not only for the default
+    # "single" — a store-level check that population_dwell_times fits with the request.
+    rng = np.random.default_rng(2024)
+    frames = []
+    state = 0
+    for _ in range(800):
+        run = int(np.ceil(rng.exponential(4.0)))
+        frames.extend([state] * run)
+        state = (state + 1) % 3
+    s = np.array([frames], dtype="int64")
+    proj, _keys = _build_store_with_model(tmp_path, s, _MEANS, name=f"fit-{model}.tether")
+    result = population_dwell_times(proj, "vbconhmm", model=model)
+    assert set(result) == {0, 1, 2}
+    for analysis in result.values():
+        assert analysis.fit is not None
+        assert analysis.fit.model == model  # the kwarg was plumbed through end-to-end
+    # double + stretched converge on these (near-single-exponential) dwells; a 6-param
+    # triple over-parameterizes them and grace-fails (success=False) — the honest
+    # outcome, covered by the graceful-failure unit tests. So assert convergence only
+    # where it is well-posed, but assert the plumbing (model==model) for all three.
+    if model in ("double", "stretched"):
+        assert all(a.fit.success for a in result.values())
+        if model == "stretched":
+            assert all(a.fit.beta is not None for a in result.values())

@@ -218,10 +218,17 @@ def survival_curve(dwell_lengths: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     last strictly longer than ``i`` frames, normalized so ``survival[0] = 1`` (every
     dwell is ≥ 1 frame). This is the complementary CDF the exponential fit targets. An
     empty input returns tMAVEN's degenerate ``(array([0]), array([0.0]))``.
+
+    Dwell lengths are frame counts and must be ``>= 1``; a non-positive value (which
+    would make ``np.bincount`` raise or ``raw[0]`` index out of bounds) is rejected
+    with a clear :class:`ValueError` rather than crashing — this is a re-exported
+    public helper, not only reached via :func:`state_dwells`.
     """
     d = np.asarray(dwell_lengths, dtype=np.int64).ravel()
     if d.size == 0:
         return np.array([0]), np.array([0.0])
+    if int(d.min()) < 1:
+        raise ValueError("dwell_lengths must be positive frame counts (>= 1)")
     n = int(d.max())
     m = d.size
     # raw[i] = #{dwell > i} = m - #{dwell <= i}; cumulative bincount is #{dwell <= i}.
