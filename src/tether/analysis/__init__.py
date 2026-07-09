@@ -63,6 +63,19 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   :func:`~tether.analysis.dwell.population_dwell_times` — the B2 dwell-time analysis:
   per-state dwell-length distributions, their empirical survival function, and its
   exponential-fit exit rates with confidence intervals + residuals [Schrangl2024].
+- :func:`~tether.analysis.transition_prob.empirical_transition_probability` /
+  :func:`~tether.analysis.transition_prob.transition_prob_histogram` /
+  :func:`~tether.analysis.transition_prob.population_transition_prob_histogram` — the
+  B3 transition-probability histogram: the population of per-molecule maximum-likelihood
+  one-step ``P(init → fin)`` rates estimated from each Viterbi path (the empirical
+  analogue of tMAVEN's per-trace ``norm_tmatrix``), binned with an optional Gaussian-KDE
+  [McKinney2006].
+- :func:`~tether.analysis.state_number.occupied_state_count` /
+  :func:`~tether.analysis.state_number.state_number_counts` /
+  :func:`~tether.analysis.state_number.population_state_number` — the C1 state-number
+  bar chart: molecule counts by the number of **distinct states each Viterbi path
+  occupies** (the consensus-model analogue of tMAVEN's per-trace vbFRET state count)
+  [vandeMeent2014].
 """
 
 from __future__ import annotations
@@ -120,6 +133,13 @@ from tether.analysis.query import (
     MoleculeMatch,
     query_molecules,
 )
+from tether.analysis.state_number import (
+    DEFAULT_STATE_NUMBER_LOW,
+    StateNumberCounts,
+    occupied_state_count,
+    population_state_number,
+    state_number_counts,
+)
 from tether.analysis.tdp import (
     DEFAULT_TDP_NSKIP,
     DEFAULT_TDP_SIGNAL_BINS,
@@ -127,6 +147,16 @@ from tether.analysis.tdp import (
     TransitionDensityPlot,
     population_transition_density,
     transition_density,
+)
+from tether.analysis.transition_prob import (
+    DEFAULT_TPROB_KDE_BANDWIDTH,
+    DEFAULT_TPROB_KDE_POINTS,
+    DEFAULT_TPROB_NBINS,
+    DEFAULT_TPROB_RANGE,
+    TransitionProbHistogram,
+    empirical_transition_probability,
+    population_transition_prob_histogram,
+    transition_prob_histogram,
 )
 
 __all__ = [
@@ -141,12 +171,17 @@ __all__ = [
     "DEFAULT_SEED",
     "DEFAULT_SIGNAL_BINS",
     "DEFAULT_SIGNAL_RANGE",
+    "DEFAULT_STATE_NUMBER_LOW",
     "DEFAULT_SYNC_PREFRAME",
     "DEFAULT_TDP_NSKIP",
     "DEFAULT_TDP_SIGNAL_BINS",
     "DEFAULT_TDP_SIGNAL_RANGE",
     "DEFAULT_TIME_BINS",
     "DEFAULT_TIME_DT",
+    "DEFAULT_TPROB_KDE_BANDWIDTH",
+    "DEFAULT_TPROB_KDE_POINTS",
+    "DEFAULT_TPROB_NBINS",
+    "DEFAULT_TPROB_RANGE",
     "ConditionHistogram",
     "ConditionQueryResult",
     "CrossCorrelation",
@@ -159,26 +194,34 @@ __all__ = [
     "MoleculeMatch",
     "PerConditionHistograms",
     "StateDwells",
+    "StateNumberCounts",
     "TransitionDensityPlot",
+    "TransitionProbHistogram",
     "TransitionSyncHistogram2D",
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
     "cross_correlation",
+    "empirical_transition_probability",
     "fit_survival",
     "model_gaussian_overlay",
+    "occupied_state_count",
     "per_condition_apparent_e_histograms",
     "population_apparent_e_histogram",
     "population_apparent_e_histogram_ci",
     "population_cross_correlation",
     "population_dwell_times",
     "population_model_gaussian_overlay",
+    "population_state_number",
     "population_time_signal_histogram2d",
     "population_transition_density",
+    "population_transition_prob_histogram",
     "population_transition_sync_histogram2d",
     "query_molecules",
     "state_dwells",
+    "state_number_counts",
     "survival_curve",
     "time_signal_histogram2d",
     "transition_density",
+    "transition_prob_histogram",
     "transition_sync_histogram2d",
 ]
