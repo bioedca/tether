@@ -53,6 +53,16 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   state transitions to a common column and bin the observed apparent E around them,
   so the population's average approach-to and departure-from a state jump is visible
   (a transition-synchronized ensemble average [Blackwell2020]).
+- :func:`~tether.analysis.tdp.transition_density` /
+  :func:`~tether.analysis.tdp.population_transition_density` — the B1 real Transition
+  Density Plot: the initial-vs-final idealized-FRET density over state-change frames of
+  a population's *fresh* idealizations [McKinney2006].
+- :func:`~tether.analysis.dwell.state_dwells` /
+  :func:`~tether.analysis.dwell.survival_curve` /
+  :func:`~tether.analysis.dwell.fit_survival` /
+  :func:`~tether.analysis.dwell.population_dwell_times` — the B2 dwell-time analysis:
+  per-state dwell-length distributions, their empirical survival function, and its
+  exponential-fit exit rates with confidence intervals + residuals [Schrangl2024].
 """
 
 from __future__ import annotations
@@ -61,6 +71,18 @@ from tether.analysis.crosscorr import (
     CrossCorrelation,
     cross_correlation,
     population_cross_correlation,
+)
+from tether.analysis.dwell import (
+    DEFAULT_DWELL_CI_LEVEL,
+    DEFAULT_DWELL_DT,
+    DEFAULT_DWELL_NBINS,
+    DwellFit,
+    DwellTimeAnalysis,
+    StateDwells,
+    fit_survival,
+    population_dwell_times,
+    state_dwells,
+    survival_curve,
 )
 from tether.analysis.histogram import (
     DEFAULT_BOOTSTRAP_RESAMPLES,
@@ -110,6 +132,9 @@ from tether.analysis.tdp import (
 __all__ = [
     "DEFAULT_BOOTSTRAP_RESAMPLES",
     "DEFAULT_CI_LEVEL",
+    "DEFAULT_DWELL_CI_LEVEL",
+    "DEFAULT_DWELL_DT",
+    "DEFAULT_DWELL_NBINS",
     "DEFAULT_NBINS",
     "DEFAULT_OVERLAY_POINTS",
     "DEFAULT_RANGE",
@@ -125,27 +150,34 @@ __all__ = [
     "ConditionHistogram",
     "ConditionQueryResult",
     "CrossCorrelation",
+    "DwellFit",
+    "DwellTimeAnalysis",
     "Histogram1D",
     "Histogram2D",
     "HistogramBootstrapCI",
     "ModelGaussianOverlay",
     "MoleculeMatch",
     "PerConditionHistograms",
+    "StateDwells",
     "TransitionDensityPlot",
     "TransitionSyncHistogram2D",
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
     "cross_correlation",
+    "fit_survival",
     "model_gaussian_overlay",
     "per_condition_apparent_e_histograms",
     "population_apparent_e_histogram",
     "population_apparent_e_histogram_ci",
     "population_cross_correlation",
+    "population_dwell_times",
     "population_model_gaussian_overlay",
     "population_time_signal_histogram2d",
     "population_transition_density",
     "population_transition_sync_histogram2d",
     "query_molecules",
+    "state_dwells",
+    "survival_curve",
     "time_signal_histogram2d",
     "transition_density",
     "transition_sync_histogram2d",
