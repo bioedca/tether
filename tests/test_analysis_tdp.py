@@ -328,6 +328,19 @@ def test_validation_errors(kwargs, match) -> None:
         transition_density([], **kwargs)
 
 
+def test_flat_array_misuse_raises_not_silent() -> None:
+    # Passing a single molecule's flat 1-D array (instead of [v]) iterates to scalars;
+    # fail fast rather than silently return an all-zero TDP.
+    with pytest.raises(ValueError, match="scalar element"):
+        transition_density(np.array([0.2, 0.2, 0.8, 0.8]), nskip=2)
+    # a bare list of floats is the same misuse
+    with pytest.raises(ValueError, match="scalar element"):
+        transition_density([0.2, 0.2, 0.8, 0.8], nskip=2)
+    # a 2-D array is fine: each row is a molecule
+    ok = transition_density(np.array([[0.2, 0.2, 0.8, 0.8]]), nskip=2)
+    assert ok.n_transitions == 1
+
+
 # --- store-level: seed a .tether with molecules + traces + idealization -------
 
 
@@ -630,3 +643,21 @@ def test_missing_model_raises(tmp_path) -> None:
     proj, _keys = _build_store_with_model(tmp_path, s, _MEANS)
     with pytest.raises(KeyError):
         population_transition_density(proj, "no-such-model")
+
+
+def test_windowed_states_reads_state_only(tmp_path) -> None:
+    # the state-only reader returns per-molecule int64 state windows (no /traces), and
+    # honours the curation filter — the substrate population_transition_density uses.
+    from tether.analysis._store import windowed_states
+
+    s = _two_transition_states()
+    proj, keys = _build_store_with_model(tmp_path, s, _MEANS, rejected=[False, True])
+    states = windowed_states(proj, "vbconhmm", None, include_rejected=False)
+    assert len(states) == 1  # molecule 1 rejected
+    assert states[0].dtype == np.int64
+    np.testing.assert_array_equal(states[0], s[0])
+    # include_rejected restores it; molecule_keys selects
+    assert len(windowed_states(proj, "vbconhmm", None, include_rejected=True)) == 2
+    only0 = windowed_states(proj, "vbconhmm", [keys[0]], include_rejected=True)
+    assert len(only0) == 1
+    np.testing.assert_array_equal(only0[0], s[0])

@@ -162,6 +162,14 @@ def transition_density(
     finals: list[np.ndarray] = []
     n_molecules = 0
     for chunk in idealized_chunks:
+        if np.ndim(chunk) == 0:
+            # A scalar element means a flat 1-D array was passed instead of an iterable
+            # of per-molecule arrays (``transition_density(v)`` vs ``[v]``) — iterating
+            # it would silently yield an all-zero TDP. Fail fast on this public-API misuse.
+            raise ValueError(
+                "idealized_chunks must be an iterable of 1-D per-molecule arrays, got a "
+                "scalar element — wrap a single molecule as [v], not v"
+            )
         v = np.asarray(chunk, dtype="float64").ravel()
         if v.size <= nskip:
             continue
@@ -277,10 +285,8 @@ def population_transition_density(
     ------
     KeyError
         No ``/idealization/{model_name}`` in the store.
-    ValueError
-        The store lacks the model's ``intensity_quantity`` trace layer.
     """
-    from tether.analysis._store import windowed_state_and_channels
+    from tether.analysis._store import windowed_states
     from tether.idealize import NO_STATE
     from tether.project.idealize import live_molecule_keys, read_idealization
 
@@ -296,12 +302,8 @@ def population_transition_density(
             live_set = set(live)
             keys = [k for k in molecule_keys if k in live_set]
 
-    triples = windowed_state_and_channels(
-        project, model_name, keys, stored.intensity_quantity, include_rejected
-    )
-    idealized_chunks = [
-        _levels_from_states(state, means, NO_STATE) for state, _donor, _acc in triples
-    ]
+    states = windowed_states(project, model_name, keys, include_rejected)
+    idealized_chunks = [_levels_from_states(state, means, NO_STATE) for state in states]
     return transition_density(
         idealized_chunks,
         nskip=nskip,
