@@ -159,7 +159,12 @@ def test_two_separated_events_stay_separate() -> None:
     assert scan.n_events == 2
     first, second = scan.events
     assert first.stop < second.start  # a genuine gap, not merged
-    assert first.peak_frame < 45 and second.peak_frame >= 110
+    # each event's span covers its own burst; assert on the span, not the peak_frame, since
+    # a perfect anti-phase burst gives many windows lag0 == -1 and the tie-broken peak is
+    # FP-build-dependent (its exact window differs across numpy/BLAS).
+    assert first.start < 45 and first.stop > 20  # first event covers burst [20, 45)
+    assert second.start < 135 and second.stop > 110  # second event covers burst [110, 135)
+    assert first.peak_frame < second.peak_frame  # ordered, well-separated events
 
 
 def test_scan_centers_and_shape() -> None:
