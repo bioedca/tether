@@ -16,6 +16,7 @@ from tether.io.deeplasi import (
     DeepLasiTraces,
     read_deeplasi_mat,
     read_deeplasi_txt,
+    write_deeplasi_txt,
 )
 from tether.io.filename import ConditionKey, ParsedFilename, parse_filename
 from tether.io.tdat import (
@@ -43,4 +44,5 @@ __all__ = [
     "read_detection_settings",
     "read_tdat",
     "remap_correction_factors",
+    "write_deeplasi_txt",
 ]

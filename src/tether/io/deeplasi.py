@@ -56,7 +56,15 @@ __all__ = [
     "DeepLasiTraces",
     "read_deeplasi_mat",
     "read_deeplasi_txt",
+    "write_deeplasi_txt",
 ]
+
+#: Decimal places written per value in a Deep-LASI ``.txt`` export — matches the
+#: reference acquisition's ≤5-decimal rounding (Appendix A) and the committed
+#: fixture (``scripts/make_deeplasi_fixture.py`` writes ``fmt="%.5f"``). The reader
+#: is rounding-tolerant (``np.loadtxt`` parses any float), so this is a fidelity
+#: choice, not a correctness constraint.
+_TXT_DECIMALS = 5
 
 # The six (N, T) trace arrays and the coordinate array read from the ``.mat``.
 # Selective load (``variable_names``) keeps the read off the ~9 MB file's other
@@ -280,3 +288,63 @@ def read_deeplasi_txt(path: str | Path) -> DeepLasiTraces:
     donor = np.ascontiguousarray(data[:, 0::2].T)  # (N, T)
     acceptor = np.ascontiguousarray(data[:, 1::2].T)  # (N, T)
     return DeepLasiTraces(donor_corrected=donor, acceptor_corrected=acceptor)
+
+
+def write_deeplasi_txt(
+    path: str | Path,
+    donor_corrected: np.ndarray,
+    acceptor_corrected: np.ndarray,
+) -> Path:
+    """Write corrected donor/acceptor traces as a Deep-LASI ``…-donc-accc-w.txt``.
+
+    The write-side mirror of :func:`read_deeplasi_txt` (PRD §7.9 FR-EXPORT,
+    Appendix A): given two ``(N, T)`` corrected-intensity arrays, emit the
+    whitespace-delimited ``T`` rows × ``2N`` columns table with each molecule's
+    ``(donor, acceptor)`` column pair **interleaved, donor first** (``donc₀ accc₀
+    donc₁ accc₁ …``). Values are rounded to ``_TXT_DECIMALS`` decimals;
+    :func:`read_deeplasi_txt` reads the result back to value equality (it is
+    whitespace- and rounding-tolerant, so a round-trip preserves the traces to the
+    5-decimal text rounding).
+
+    The array frame axis is written verbatim — no windowing — so the ``.txt`` holds
+    the full per-frame corrected traces, matching Deep-LASI's rectangular
+    all-molecules-share-one-frame-axis layout.
+
+    Parameters
+    ----------
+    path
+        Destination ``.txt`` path (overwritten if it exists).
+    donor_corrected, acceptor_corrected
+        Matching ``(N, T)`` corrected donor/acceptor intensities — ``N`` molecules
+        over ``T`` frames. Coerced to ``float64``; **signed** values are preserved
+        (a background-subtracted correction can dip below zero — Appendix A).
+
+    Returns
+    -------
+    pathlib.Path
+        The written ``path``.
+
+    Raises
+    ------
+    ValueError
+        If the two inputs are not matching, non-empty, 2-D ``(N, T)`` arrays — an
+        odd/zero column count is exactly what :func:`read_deeplasi_txt` rejects.
+    """
+    donor = np.asarray(donor_corrected, dtype=np.float64)
+    acceptor = np.asarray(acceptor_corrected, dtype=np.float64)
+    if donor.ndim != 2 or donor.shape != acceptor.shape:
+        raise ValueError(
+            "donor_corrected and acceptor_corrected must be matching (N, T) arrays; "
+            f"got {donor.shape} and {acceptor.shape}"
+        )
+    n_molecules, n_frames = donor.shape
+    if n_molecules == 0 or n_frames == 0:
+        raise ValueError(
+            f"cannot export an empty trace table (got {n_molecules} molecules × {n_frames} frames)"
+        )
+    interleaved = np.empty((n_frames, 2 * n_molecules), dtype=np.float64)  # (T, 2N)
+    interleaved[:, 0::2] = donor.T  # donor first (donc₀ accc₀ donc₁ accc₁ …)
+    interleaved[:, 1::2] = acceptor.T
+    path = Path(path)
+    np.savetxt(path, interleaved, fmt=f"%.{_TXT_DECIMALS}f")
+    return path
