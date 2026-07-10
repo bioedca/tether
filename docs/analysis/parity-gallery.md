@@ -11,7 +11,8 @@ The seven types are enumerated from tMAVEN source at its pinned commit: six
 `tmaven/tmaven/controllers/analysis_plots/analysisplots.py`, plus the per-trace viewer in
 `tmaven/tmaven/trace_plot/`. The smFRET / ND-Normalized / ND-Raw signal modes and
 post-synchronization are *variants* of a type, not separate types. Groups **B** and **C**
-are idealization-gated; groups **A** and **D** render without a model.
+are idealization-gated, as is A2's post-synchronized variant (**A2b**, which needs a model's
+Viterbi paths); **A1**, **raw A2**, and **D1** render without a model.
 
 > **Where parity actually lives.** The **numeric and visual parity is asserted by each
 > plot's own committed tests** (the "Parity evidence" rows below), which the 3-OS CI `test`
@@ -329,9 +330,15 @@ proximity ratio `A/(D+A)`), switching to corrected E at M3
 > **D1 closes the §9 M6 "seven plots" clause across M2 + M6.** Unlike A1–C1, D1 is not a
 > population aggregate and has no dedicated numeric tMAVEN oracle — it *is* the curation
 > trace dock built at M2 S1, whose tests assert axis/label **conventions** rather than
-> tMAVEN visual parity. Recording its tMAVEN correspondence **here**, alongside A1/A2/B1/B2/
-> B3/C1, is what closes the acceptance clause "each of the seven plot types … visually
-> matches its tMAVEN counterpart" across the two milestones.
+> tMAVEN visual parity. Its correspondence to tMAVEN's per-trace viewer is therefore
+> **structural and conventional** — the shared 2×2 layout, the donor/acceptor/FRET channel
+> and colour conventions, and the idealization-path overlay — **not** pixel-identical: the
+> **Deliberate MVP divergences** listed below (apparent-vs-corrected E, marginal binning,
+> the alpha-graded photobleach segments, the signal-mode switch) are tracked and converge in
+> later milestones (photobleach segmentation at M3). Recording that convention-level
+> correspondence **here**, alongside A1/A2/B1/B2/B3/C1, is what closes the acceptance clause
+> for the seventh plot type across the two milestones — in the sense the plan designates for
+> D1, whose parity is conventional by construction rather than a numeric-oracle match.
 
 **tMAVEN counterpart.** `multi_canvas` (a 2×2 matplotlib grid, `width_ratios=[6,1]`);
 `calc_trajectory`, `calc_histograms`, `calc_model_traj` / `draw_model`, `draw_traj` (three
