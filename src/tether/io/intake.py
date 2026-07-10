@@ -207,7 +207,10 @@ class DiscoveryResult:
     shared_maps: tuple[Path, ...] = ()
     #: Files with an unrecognized role, preserved rather than silently dropped.
     ignored: tuple[Path, ...] = ()
-    #: SMD/``.txt`` files that matched no acquisition by stem or video index.
+    #: SMD ``.hdf5`` files that matched no acquisition — neither by exact stem nor
+    #: by an unambiguous video index. Recognized ``.txt`` exports always join or
+    #: form an acquisition group (an analysis-only one when they bring no coordinate
+    #: source), so a ``.txt`` never lands here — only SMDs do.
     unpaired: tuple[Path, ...] = ()
 
     @property
@@ -292,7 +295,8 @@ def discover_acquisitions(directory: str | PurePath, *, recursive: bool = False)
     :func:`~tether.io.filename.parse_filename` stem — the pairing key PRD §7.8
     specifies. ``.tmap`` maps are surfaced as session-shared and attached to every
     acquisition of the same condition. An SMD ``.hdf5`` is attached to the
-    acquisition it names — by exact stem first, else by ``video_index`` — or listed
+    acquisition it names — by exact stem first, else by an *unambiguous*
+    ``video_index`` (exactly one acquisition carries that index) — or listed
     in :attr:`DiscoveryResult.unpaired` when its filename gives no confident match
     (SMD↔movie pairing is ultimately by molecule index + intensity match, a later
     M7 concern). Purely filename-based: no file contents are read.
@@ -307,7 +311,7 @@ def discover_acquisitions(directory: str | PurePath, *, recursive: bool = False)
     Returns
     -------
     DiscoveryResult
-        Grouped acquisitions plus shared maps, unpaired SMD/txt, and ignored files.
+        Grouped acquisitions plus shared maps, unpaired SMDs, and ignored files.
 
     Raises
     ------
@@ -363,22 +367,25 @@ def discover_acquisitions(directory: str | PurePath, *, recursive: bool = False)
 
     # Attach each SMD to its acquisition. The exact filename stem is the strongest
     # signal (it uniquely identifies an acquisition), so try it first; fall back to
-    # the video index only when the stem matches nothing — otherwise a colliding
-    # video index (per-session numbering restarts) could bolt an SMD onto the wrong
-    # acquisition. An SMD with neither a stem nor a video-index match is left
-    # unpaired (SMD↔movie pairing is ultimately by molecule index + intensity match,
-    # a later M7 concern). Acquisitions are pre-sorted so the video-index fallback's
-    # first-match tie-break is deterministic across the 3-OS matrix.
+    # the video index only when the stem matches nothing *and* exactly one
+    # acquisition carries that index. A colliding video index (per-session numbering
+    # restarts across conditions) is ambiguous — bolting the SMD onto an arbitrary
+    # one of the candidates would be a silent misattach, so it is left unpaired
+    # instead. An SMD with neither an exact stem match nor an unambiguous
+    # video-index match is left unpaired (SMD↔movie pairing is ultimately by
+    # molecule index + intensity match, a later M7 concern).
     by_stem = {acq.key: i for i, acq in enumerate(acquisitions)}
-    by_video: dict[str, int] = {}
+    by_video: dict[str, list[int]] = {}
     for i, acq in enumerate(acquisitions):
         if acq.video_index:
-            by_video.setdefault(acq.video_index, i)
+            by_video.setdefault(acq.video_index, []).append(i)
     unpaired: list[Path] = []
     for smd_path, smd_stem, smd_video in smds:
         idx = by_stem.get(smd_stem)
         if idx is None and smd_video:
-            idx = by_video.get(smd_video)
+            candidates = by_video.get(smd_video, ())
+            if len(candidates) == 1:  # unambiguous video-index fallback only
+                idx = candidates[0]
         if idx is None or acquisitions[idx].smd is not None:
             unpaired.append(smd_path)
             continue

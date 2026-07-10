@@ -208,6 +208,17 @@ def test_second_smd_for_same_acquisition_is_unpaired(tmp_path: Path) -> None:
     assert result.unpaired == (tmp_path / "bbb_010.hdf5",)
 
 
+def test_smd_with_ambiguous_video_index_is_unpaired(tmp_path: Path) -> None:
+    # Two acquisitions (600 nM and 300 nM) share video index '010'. An SMD whose stem
+    # matches neither and carries only that colliding index is *ambiguous*: it must be
+    # left unpaired, never bolted onto an arbitrary one of the two candidates.
+    _touch(tmp_path, MOVIE, TDAT, MOVIE_300, TDAT_300, "unrelated_010.hdf5")
+    result = discover_acquisitions(tmp_path)
+    assert [a.key for a in result.acquisitions] == [ACQ_STEM_300, ACQ_STEM]
+    assert all(a.smd is None for a in result.acquisitions)  # neither acquisition claims it
+    assert result.unpaired == (tmp_path / "unrelated_010.hdf5",)
+
+
 def test_shared_map_of_other_condition_not_attached(tmp_path: Path) -> None:
     # A .tmap for the 300 nM condition in a 600 nM-only folder is surfaced at the
     # result level but NOT attached to the mismatched acquisition.
@@ -323,6 +334,9 @@ def test_read_mat_movie_reference_none_when_name_blank(monkeypatch: pytest.Monke
 
 # --- real example-data integration (gated; not in the required matrix) --------
 
+# ``example-data/`` is a read-only sibling of the repo under ``smfret-references/``
+# (never committed into Tether), so it resolves from the repo's *parent*, not the
+# repo root: tests/ → repo root (parents[1]) → smfret-references/ (parents[2]).
 _EXAMPLE_DATA = Path(__file__).resolve().parents[2] / "example-data" / "bla-uckopsb-tbox-video10"
 
 
