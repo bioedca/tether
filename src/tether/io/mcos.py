@@ -61,6 +61,7 @@ _OBJECT_ROW = 6  # uint32 per object-table row
 _TYPE2_SKIP = 1  # leading skip word before the first type-2 segment
 _PTYPE_HEAP = 1  # property stored as a FileWrapper heap-cell reference
 _VALUE_CELL_OFFSET = 2  # heap value index -> FileWrapper cell (value + 2)
+_MAX_CODEPOINT = 0x10FFFF  # highest valid Unicode scalar; guards char-array decode
 
 
 def object_reference_id(marker: object) -> int:
@@ -88,6 +89,47 @@ def object_reference_id(marker: object) -> int:
     if not np.all(dims == 1):  # a non-scalar reference would hide extra object ids
         raise ValueError(f"MCOS object reference must be scalar; dims={dims.tolist()}")
     return int(m[2 + ndims])  # the single object id, immediately after the dims
+
+
+def _decode_matlab_chars(dataset: h5py.Dataset) -> str | None:
+    """Decode a MATLAB ``char`` array (stored as ``uint16``/``uint8`` code units) to ``str``.
+
+    Returns ``None`` — not a bogus string — for anything that is not a genuine
+    character array: a numeric leaf (a float ``double``, an object-reference marker
+    vector whose words exceed the Unicode range), an empty MATLAB ``''`` (stored as
+    a small non-character dims marker), or a non-integer dtype. NUL padding is
+    dropped so a fixed-width char field decodes cleanly.
+    """
+    array = np.asarray(dataset[()]).reshape(-1)
+    if array.dtype.kind not in ("u", "i") or array.size == 0:
+        return None
+    codes = [int(c) for c in array if c]  # drop NUL padding / terminators
+    # Bound BOTH ends: a signed-int leaf can hold a negative, and chr() raises
+    # outside [0, 0x10FFFF] — so an out-of-range value degrades to None, not a crash.
+    if not codes or any(not 0 <= c <= _MAX_CODEPOINT for c in codes):
+        return None
+    return "".join(chr(c) for c in codes)
+
+
+def _decode_matlab_value(file: h5py.File, node: object) -> object:
+    """Recursively decode a MATLAB v7.3 value node into plain Python (str / list / ``None``).
+
+    Resolves the shape a ``.tdat`` property can take: an HDF5 **object reference**
+    dereferences to its target; a **cell** (a dataset whose dtype is a reference
+    type) becomes a ``list`` of its recursively-decoded elements — so a nested cell
+    like ``FilePath = {dir, {file}}`` round-trips to ``['dir', ['file']]``; a
+    **char array** becomes its ``str``; anything else (a numeric leaf, an
+    object/struct :class:`h5py.Group`, a null reference) becomes ``None``. Pure over
+    ``(file, node)`` so it is unit-testable against a synthetic HDF5 file without any
+    MCOS metadata.
+    """
+    if isinstance(node, h5py.Reference):
+        return None if not node else _decode_matlab_value(file, file[node])
+    if node is None or isinstance(node, h5py.Group):
+        return None  # a nested object/struct has no scalar string/cell value
+    if h5py.check_dtype(ref=node.dtype) is not None:  # a MATLAB cell: array of refs
+        return [_decode_matlab_value(file, ref) for ref in np.asarray(node[()]).reshape(-1)]
+    return _decode_matlab_chars(node)
 
 
 class McosDecoder:
@@ -192,6 +234,17 @@ class McosDecoder:
             # rather than let a group dereference crash property_scalar.
             return target if isinstance(target, h5py.Dataset) else None
         return None
+
+    def property_value(self, object_id: int, field_name: str) -> object:
+        """Return ``object_id``'s ``field_name`` decoded to plain Python, or ``None``.
+
+        The string/cell counterpart to :meth:`property_scalar`: a ``char`` property
+        decodes to ``str``, a MATLAB ``cell`` (including a nested one) to a ``list``,
+        and an absent/unset/non-character property to ``None`` (see
+        :func:`_decode_matlab_value`). Used to recover the ``TIRFdata`` per-channel
+        ``FilePath = {dir, {movie}}`` embedded movie reference (PRD §7.8).
+        """
+        return _decode_matlab_value(self._file, self.property_dataset(object_id, field_name))
 
     def property_scalar(self, object_id: int, field_name: str) -> float | None:
         """Return ``object_id``'s ``field_name`` as a finite scalar ``float``, or ``None``.

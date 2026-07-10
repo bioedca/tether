@@ -21,11 +21,17 @@ import tether.io.intake as intake_module
 from tether.io import (
     AcquisitionFileSet,
     MovieReference,
+    TdatMovieReference,
     classify_file,
     discover_acquisitions,
     read_mat_movie_reference,
+    read_tdat_movie_reference,
     verify_movie_reference,
 )
+
+# The committed, slimmed real-data .tdat (no Channel.FilePath cells) — used to lock
+# the seam's graceful-None on a real but movie-ref-less TIRFdata in the default matrix.
+FIXTURE_TDAT = Path(__file__).parent / "fixtures" / "tdat_coloc_slice.tdat"
 
 # Real filenames from example-data/ (PRD Appendix A) — the one UCKOPSB acquisition.
 MOVIE = "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif"
@@ -332,6 +338,49 @@ def test_read_mat_movie_reference_none_when_name_blank(monkeypatch: pytest.Monke
     assert read_mat_movie_reference(_fileset(mat=Path("/data") / MAT)) is None
 
 
+# --- read_tdat_movie_reference (thin wrapper over tdat.read_movie_reference) ---
+
+
+def test_read_tdat_movie_reference_none_without_tdat() -> None:
+    assert read_tdat_movie_reference(_fileset(movie=Path("/data") / MOVIE)) is None
+
+
+def test_read_tdat_movie_reference_none_on_slimmed_tdat() -> None:
+    # The committed .tdat is real but slimmed of its Channel.FilePath cells, so the
+    # seam degrades to None (no fabricated pairing) rather than raising.
+    assert read_tdat_movie_reference(_fileset(tdat=FIXTURE_TDAT)) is None
+
+
+def test_read_tdat_movie_reference_lifts_filepath(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Patch where the reader is bound (intake imports it at module scope), passing the
+    # module object directly so the stub intercepts regardless of install/import path.
+    decoded = TdatMovieReference(directory="D:\\rig\\", filename=MOVIE, filenames=(MOVIE,))
+    monkeypatch.setattr(intake_module, "read_movie_reference", lambda _p: decoded)
+    ref = read_tdat_movie_reference(_fileset(tdat=Path("/data") / TDAT))
+    assert ref == MovieReference(name=MOVIE, path="D:\\rig\\", source="tdat")
+
+
+def test_read_tdat_movie_reference_none_when_filename_blank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    decoded = TdatMovieReference(directory="D:\\rig\\", filename="", filenames=())
+    monkeypatch.setattr(intake_module, "read_movie_reference", lambda _p: decoded)
+    assert read_tdat_movie_reference(_fileset(tdat=Path("/data") / TDAT)) is None
+
+
+def test_tdat_movie_reference_verifies_via_the_shared_seam(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The .tdat reference plugs into the same verify_movie_reference seam as the .mat:
+    # a set with a .tdat but no .mat still cross-checks its grouped movie.
+    decoded = TdatMovieReference(directory="D:\\rig\\", filename=MOVIE, filenames=(MOVIE,))
+    monkeypatch.setattr(intake_module, "read_movie_reference", lambda _p: decoded)
+    fs = _fileset(movie=Path("/local") / MOVIE, tdat=Path("/data") / TDAT)
+    check = verify_movie_reference(fs, read_tdat_movie_reference(fs))
+    assert check.status == "confirmed"
+    assert "tdat" in check.message
+
+
 # --- real example-data integration (gated; not in the required matrix) --------
 
 # ``example-data/`` is a read-only sibling of the repo under ``smfret-references/``
@@ -353,4 +402,17 @@ def test_discovers_real_example_data_bundle() -> None:
     # The embedded .mat movie reference confirms the filename-stem pairing.
     ref = read_mat_movie_reference(acq)
     assert ref is not None
+    assert verify_movie_reference(acq, ref).status == "confirmed"
+
+
+@pytest.mark.large
+@pytest.mark.skipif(not _EXAMPLE_DATA.is_dir(), reason="example-data bundle not present")
+def test_tdat_movie_reference_confirms_real_bundle() -> None:
+    # The .tdat TIRFdata's Channel.FilePath independently confirms the same grouped
+    # movie the .mat does — the M7 S1 seam now closed for the .tdat source too.
+    acq = discover_acquisitions(_EXAMPLE_DATA).acquisitions[0]
+    ref = read_tdat_movie_reference(acq)
+    assert ref is not None
+    assert ref.source == "tdat"
+    assert ref.name == MOVIE
     assert verify_movie_reference(acq, ref).status == "confirmed"

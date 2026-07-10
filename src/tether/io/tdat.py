@@ -52,6 +52,16 @@ MCOS object blob, because each is a plain numeric leaf of ``temp/``:
   ``gamma`` — and retains the Deep-LASI values for provenance. Misattributing
   ``Beta`` would silently drop a real leakage correction (PRD §7.8).
 
+* **Embedded movie reference** — the raw big-endian TIFF this acquisition was
+  extracted from. Unlike the leaves above it is *not* a plain ``temp/`` leaf: it
+  lives in the per-channel ``Channel.FilePath = {dir, {movie}}`` MCOS property
+  (``classes/TIRFdata.m:31``), decoded via :mod:`tether.io.mcos`
+  (:meth:`~tether.io.mcos.McosDecoder.property_value` — the string/cell counterpart
+  to the scalar ``DetectionThreshold`` decode). :func:`read_movie_reference` reads
+  just this for the M7 intake movie-pairing cross-check (PRD §7.8); it is the
+  authoritative data-movie name, distinct from ``MapPath`` (the *registration*
+  movie) and from the bare ``LastPath`` folder / stale ``Status`` message.
+
 Per-channel split geometry (crop / rotation / flip), which *does* live in the
 MCOS ``Channel`` objects, and the native-registration residual check against the
 ``.tmap`` are out of scope here — they land with the M0.5 S6 follow-up.
@@ -76,7 +86,9 @@ __all__ = [
     "TdatColocalization",
     "TdatCorrections",
     "TdatDetectionSettings",
+    "TdatMovieReference",
     "read_detection_settings",
+    "read_movie_reference",
     "read_tdat",
     "remap_correction_factors",
 ]
@@ -172,6 +184,36 @@ class TdatDetectionSettings:
 
 
 @dataclass(frozen=True)
+class TdatMovieReference:
+    """The raw-movie reference embedded in a ``.tdat`` ``TIRFdata`` (PRD §7.8, App A).
+
+    Recovered from the per-channel ``Channel.FilePath = {dir, {movie}}`` MCOS
+    property (``classes/TIRFdata.m:31``): the acquisition's raw big-endian TIFF, the
+    same movie the ``.tif``/``.tdat`` filename stem also names. Distinct from
+    ``MapPath`` (the *registration* movie) and from ``LastPath``/``LastFolder`` (a
+    bare folder) and ``Status`` (a stale load message) — only ``FilePath`` names the
+    data movie for *this* acquisition.
+
+    Attributes
+    ----------
+    directory:
+        the exporter-recorded containing folder (``FilePath{1}``; a foreign machine
+        path — kept for provenance, not for locating the file on the user's disk).
+    filename:
+        the first raw-movie filename (``FilePath{2}`` — a MATLAB MultiSelect cell,
+        so it may list several; :attr:`filenames` carries the full list, this
+        included).
+    filenames:
+        every raw-movie filename referenced, in stored order — ``filename`` is its
+        first element (one element in the common single-movie acquisition).
+    """
+
+    directory: str
+    filename: str
+    filenames: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Tdat:
     """The decoded payload of a Deep-LASI ``.tdat`` (coordinates + factors + detection)."""
 
@@ -180,6 +222,9 @@ class Tdat:
     detection: TdatDetectionSettings
     channels_with_data: tuple[int, ...]  # 0-based channel indices
     reference_channel: int  # 0-based mapping/trace reference channel
+    #: The embedded raw-movie reference (``Channel.FilePath``), or ``None`` when the
+    #: ``.tdat`` carries no MCOS ``Channel`` blob (a plain-leaf slice) or no file path.
+    movie_reference: TdatMovieReference | None = None
 
 
 def remap_correction_factors(
@@ -322,6 +367,71 @@ def read_detection_settings(path: str | PathLike[str]) -> TdatDetectionSettings:
         return _detection_settings(file, _require_temp(file, path))
 
 
+def _flatten_strings(value: object) -> list[str]:
+    """Collect every ``str`` leaf of a decoded MATLAB value, depth-first, in order.
+
+    ``FilePath{2}`` is a MATLAB MultiSelect cell — one movie is a bare ``str``, many
+    are a nested ``list`` — so flattening handles both to a plain list of filenames.
+    """
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [s for element in value for s in _flatten_strings(element)]
+    return []
+
+
+def _movie_reference(file: h5py.File, temp: h5py.Group) -> TdatMovieReference | None:
+    """Decode the raw-movie reference from the ``TIRFdata`` ``Channel.FilePath`` graph.
+
+    Each ``temp/Channel`` object carries ``FilePath = {dir, {movie}}`` (all channels
+    of one acquisition share the same source movie — it is split into their views),
+    so the first channel that yields a filename gives the reference. Best-effort like
+    :func:`_reference_channel_threshold`: returns ``None`` — never raising — when the
+    ``.tdat`` has no MCOS ``Channel`` blob (a plain-leaf slice), the property is
+    absent/empty, or the reverse-engineered layout does not match, so a movie-less or
+    slimmed ``.tdat`` degrades cleanly rather than sinking the read.
+    """
+    if "Channel" not in temp:
+        return None
+    try:
+        decoder = McosDecoder.from_file(file)
+        if decoder is None:
+            return None
+        for ref in np.asarray(temp["Channel"][()]).reshape(-1):
+            if not ref:  # unpopulated Channel slot
+                continue
+            object_id = object_reference_id(np.asarray(file[ref][()]).reshape(-1))
+            value = decoder.property_value(object_id, "FilePath")
+            # FilePath is the 2-element MATLAB cell {directory, {filename(s)}}.
+            if not isinstance(value, list) or len(value) < 2:
+                continue
+            filenames = _flatten_strings(value[1])
+            if not filenames:
+                continue
+            directory = value[0] if isinstance(value[0], str) else ""
+            return TdatMovieReference(
+                directory=directory, filename=filenames[0], filenames=tuple(filenames)
+            )
+    except Exception:  # noqa: BLE001 — best-effort optional decode; never sink the read
+        return None
+    return None
+
+
+def read_movie_reference(path: str | PathLike[str]) -> TdatMovieReference | None:
+    """Decode just the embedded raw-movie reference from a ``.tdat`` (PRD §7.8).
+
+    A lightweight companion to :func:`read_tdat` for the M7 intake movie-pairing
+    cross-check: it reads only the ``TIRFdata`` ``Channel.FilePath`` graph (no
+    coordinate, correction-factor, or detection-mode decode), so a ``.tdat`` with an
+    unported detection mode — irrelevant to the movie reference — still yields it.
+    Returns ``None`` (never raising on the decode) when no usable reference is
+    present; still raises :class:`ValueError` for a non-TIRFdata container.
+    """
+    path = Path(path)
+    with h5py.File(path, "r") as file:
+        return _movie_reference(file, _require_temp(file, path))
+
+
 def _one_based_channel_index(value: float, name: str) -> int:
     """Validate a MATLAB 1-based channel index and return it 0-based.
 
@@ -402,6 +512,7 @@ def read_tdat(path: str | PathLike[str]) -> Tdat:
             _scalar(temp, "MappingReferenceChannel"), "MappingReferenceChannel"
         )
         tables = _coloc_tables(file, temp)
+        movie_reference = _movie_reference(file, temp)
 
     coloc = _build_colocalization(tables)
     return Tdat(
@@ -410,6 +521,7 @@ def read_tdat(path: str | PathLike[str]) -> Tdat:
         detection=detection,
         channels_with_data=channels_with_data,
         reference_channel=reference_channel,
+        movie_reference=movie_reference,
     )
 
 
