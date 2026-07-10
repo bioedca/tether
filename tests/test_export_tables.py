@@ -242,6 +242,27 @@ def test_export_molecule_table_csv_rows_and_apparent_e(tmp_path):
         assert int(row["window_end"]) == n_frames
 
 
+def test_export_molecule_table_csv_reports_resolved_window(tmp_path):
+    # When analysis_window is unset (hi <= lo), apparent-E is computed over the
+    # frame_range fallback; window_start/window_end must report that resolved window,
+    # not the raw unset field — else the metadata contradicts the stats it describes.
+    n_frames = 8
+    donor, acceptor = _constant_e_channels(n=3, n_frames=n_frames)
+    # (0, 0) is an unset window (hi <= lo) → _window falls back to frame_range (0, n_frames).
+    project, _ = build_store_with_channels(tmp_path, donor, acceptor, windows=[(0, 0)] * 3)
+
+    result = export_molecule_table_csv(project, tmp_path / "mol.csv")
+
+    rows = _read_csv(result.path)
+    for i, row in enumerate(rows):
+        # window columns report the resolved fallback range, not the raw (0, 0)
+        assert int(row["window_start"]) == 0
+        assert int(row["window_end"]) == n_frames
+        # and E was computed over that same full range (constant E = 1/(i+2))
+        assert int(row["n_finite_frames"]) == n_frames
+        assert float(row["mean_apparent_e"]) == pytest.approx(1.0 / (i + 2))
+
+
 def test_export_molecule_table_csv_stamps_provenance(tmp_path):
     donor, acceptor = _constant_e_channels()
     project, _ = build_store_with_channels(tmp_path, donor, acceptor)

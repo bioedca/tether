@@ -314,13 +314,15 @@ def export_molecule_table_csv(
 
     Columns are :data:`MOLECULE_TABLE_COLUMNS`. Each row carries the stored
     per-molecule fields (identity, condition, correction factors α/γ/δ, photobleach
-    frames, frame range, analysis window, curation label, category, ML
-    ``quality_class``, tags) plus a derived apparent-E summary — mean/median of
-    ``A / (D + A)`` over the molecule's analysis window (falling back to its frame
-    range) and the finite-frame count. Apparent E is used for the summary because it
-    is always well-defined; the raw α/γ factors are emitted as their own columns so a
-    consumer can recompute the corrected E. A ``<file>.provenance.json`` sidecar is
-    written beside the CSV.
+    frames, frame range, curation label, category, ML ``quality_class``, tags) plus a
+    derived apparent-E summary — mean/median of ``A / (D + A)`` over the molecule's
+    analysis window (falling back to its frame range) and the finite-frame count. The
+    ``window_start``/``window_end`` columns report the **resolved** window actually
+    used for that summary (i.e. the frame-range fallback when ``analysis_window`` is
+    unset), so the reported window always matches the range the E stats cover.
+    Apparent E is used for the summary because it is always well-defined; the raw α/γ
+    factors are emitted as their own columns so a consumer can recompute the corrected
+    E. A ``<file>.provenance.json`` sidecar is written beside the CSV.
 
     By default every molecule is included (``include_rejected=True`` — the CSV is a
     full inventory); set it ``False`` to drop ``REJECT`` rows.
@@ -352,7 +354,6 @@ def export_molecule_table_csv(
             median_e = float(np.median(finite)) if n_finite else None
             bleach = molecules["bleach_frames"][i]
             frame_range = molecules["frame_range"][i]
-            window = molecules["analysis_window"][i]
             writer.writerow(
                 [
                     _to_str(molecules["molecule_id"][i]),
@@ -374,8 +375,8 @@ def export_molecule_table_csv(
                     int(bleach[1]),
                     int(frame_range[0]),
                     int(frame_range[1]),
-                    int(window[0]),
-                    int(window[1]),
+                    lo,
+                    hi,
                     _to_str(molecules["tags"][i]),
                     n_finite,
                     _fmt_float(mean_e),
