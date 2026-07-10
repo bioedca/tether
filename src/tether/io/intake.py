@@ -49,6 +49,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePath
 from typing import Literal
 
+from tether.io.deeplasi import read_deeplasi_mat
 from tether.io.filename import parse_filename
 
 __all__ = [
@@ -460,13 +461,10 @@ def read_mat_movie_reference(fileset: AcquisitionFileSet) -> MovieReference | No
     A thin wrapper over :func:`tether.io.deeplasi.read_deeplasi_mat` that lifts the
     already-parsed ``movie_name`` / ``movie_path`` provenance into a
     :class:`MovieReference` for :func:`verify_movie_reference`. Returns ``None`` when
-    the set carries no ``.mat`` or the export recorded no movie name. The ``.mat``
-    read is imported lazily so intake stays importable without SciPy present.
+    the set carries no ``.mat`` or the export recorded no movie name.
     """
     if fileset.mat is None:
         return None
-    from tether.io.deeplasi import read_deeplasi_mat
-
     export = read_deeplasi_mat(fileset.mat)
     if not export.movie_name:
         return None
