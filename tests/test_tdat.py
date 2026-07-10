@@ -20,9 +20,19 @@ pytest.importorskip("numpy")
 import h5py  # noqa: E402  (guarded by importorskip above)
 import numpy as np  # noqa: E402
 
-from tether.io import read_detection_settings, read_tdat, remap_correction_factors  # noqa: E402
+from tether.io import (  # noqa: E402
+    read_detection_settings,
+    read_movie_reference,
+    read_tdat,
+    remap_correction_factors,
+)
 from tether.io.mcos import McosDecoder, object_reference_id  # noqa: E402
-from tether.io.tdat import Tdat, TdatDetectionSettings  # noqa: E402
+from tether.io.tdat import (  # noqa: E402
+    Tdat,
+    TdatDetectionSettings,
+    TdatMovieReference,
+    _flatten_strings,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "tdat_coloc_slice.tdat"
 
@@ -592,6 +602,180 @@ def test_reference_threshold_matched_by_channel_id_not_position(
     assert read_tdat(path).detection.threshold == pytest.approx(expected)
 
 
+# --- synthetic-FileWrapper movie-reference decode (default matrix, M7 S2) -----
+#
+# The committed fixture is slimmed of its Channel.FilePath cells, so the positive
+# movie-reference decode would otherwise be locked only by the file-presence-gated
+# real-.tdat test. These hand-built FileWrappers carry a real FilePath = {dir, {movie}}
+# cell, exercising property_value's cell handoff + _movie_reference's assembly (a
+# directory/filename swap or a dropped-movie regression would fail here) in CI.
+
+
+def _char_dataset(group: h5py.Group, name: str, text: str) -> h5py.Reference:
+    """Write ``text`` as a MATLAB ``uint16`` char column vector; return its reference."""
+    codes = np.array([ord(c) for c in text], dtype=np.uint16).reshape(-1, 1)
+    ds = group.create_dataset(name, data=codes)
+    ds.attrs["MATLAB_class"] = np.bytes_("char")
+    return ds.ref
+
+
+def _build_filewrapper_metadata(names: list[str], objects: list[list[tuple[int, int]]]) -> bytes:
+    """Assemble a FileWrapper metadata blob for arbitrary named heap-reference properties.
+
+    ``names`` is the 1-based field-name table; ``objects[j]`` lists object ``j+1``'s
+    ``(field_id, value_heap_index)`` properties (all ptype 1). Mirrors the layout
+    :func:`tether.io.mcos.McosDecoder._parse_metadata` walks (empty class/type-1 regions).
+    """
+    names_bytes = b"\x08\x1e\x00\x10\x1e\x00" + b"".join(n.encode("ascii") + b"\x00" for n in names)
+    names_bytes = names_bytes.ljust(len(names_bytes) + (-len(names_bytes)) % 4, b"\x00")
+
+    obj_words: list[int] = [0] * 6  # the null object row
+    for j in range(len(objects)):
+        obj_words += [1, 0, 0, 0, j + 1, 0]  # object j+1 -> type-2 segment j+1
+
+    seg_words: list[int] = [0, 0]  # leading skip word + empty segment 0
+    for props in objects:
+        seg_words.append(len(props))
+        for field_id, value in props:
+            seg_words += [field_id, 1, value]  # ptype 1 = heap reference
+        if len(seg_words) % 2 == 1:  # pad to the 2-word (8-byte) segment boundary
+            seg_words.append(0)
+
+    off1 = 32 + len(names_bytes)  # end of names; class/type-1 empty (off1==off2==off3)
+    off4 = off1 + len(obj_words) * 4  # end of object table
+    off5 = off4 + len(seg_words) * 4  # end of type-2 segments
+    header = struct.pack("<8I", 4, len(names), off1, off1, off1, off4, off5, off5)
+    return (
+        header
+        + names_bytes
+        + struct.pack(f"<{len(obj_words)}I", *obj_words)
+        + struct.pack(f"<{len(seg_words)}I", *seg_words)
+    )
+
+
+def _write_filepath_mcos_tdat(
+    path: Path, channel_filepaths: list[tuple[str, list[str]] | None]
+) -> None:
+    """Write a ``.tdat`` whose per-channel ``Channel.FilePath`` is a real ``{dir, {movie…}}`` cell.
+
+    ``channel_filepaths`` has one entry per channel object (ids 1..N): ``None`` for a
+    channel with no ``FilePath`` property, or ``(directory, [movie, …])`` for one whose
+    ``FilePath`` heap cell is the nested MATLAB MultiSelect cell.
+    """
+    objects: list[list[tuple[int, int]]] = []
+    plan: list[tuple[int, int, str, list[str]]] = []  # (channel, heap_index, dir, movies)
+    heap_index = 0
+    for channel, filepath in enumerate(channel_filepaths):
+        if filepath is None:
+            objects.append([])
+            continue
+        objects.append([(1, heap_index)])  # field 1 = "FilePath"
+        plan.append((channel, heap_index, filepath[0], filepath[1]))
+        heap_index += 1
+
+    meta = np.frombuffer(_build_filewrapper_metadata(["FilePath"], objects), dtype=np.uint8)
+    with h5py.File(path, "w") as f:
+        refs = f.create_group("#refs#")
+        meta_ds = refs.create_dataset("meta", data=meta)
+        meta_ds.attrs["MATLAB_class"] = np.bytes_("uint8")
+        subsystem = f.create_group("#subsystem#")
+        fw = subsystem.create_dataset(
+            "MCOS", shape=(1, max(heap_index + 2, 3)), dtype=h5py.ref_dtype
+        )
+        fw.attrs["MATLAB_class"] = np.bytes_("FileWrapper__")
+        fw[0, 0] = meta_ds.ref
+        for channel, heap, directory, movies in plan:
+            inner = refs.create_dataset(
+                f"inner{channel}", shape=(len(movies), 1), dtype=h5py.ref_dtype
+            )
+            for m, movie in enumerate(movies):
+                inner[m, 0] = _char_dataset(refs, f"mv{channel}_{m}", movie)
+            inner.attrs["MATLAB_class"] = np.bytes_("cell")
+            outer = refs.create_dataset(f"fp{channel}", shape=(2, 1), dtype=h5py.ref_dtype)
+            outer[0, 0] = _char_dataset(refs, f"dir{channel}", directory)
+            outer[1, 0] = inner.ref
+            outer.attrs["MATLAB_class"] = np.bytes_("cell")
+            fw[0, heap + 2] = outer.ref  # heap cell = value + 2
+        temp = f.create_group("temp")
+        channel_ds = temp.create_dataset(
+            "Channel", shape=(len(channel_filepaths), 1), dtype=h5py.ref_dtype
+        )
+        channel_ds.attrs["MATLAB_class"] = np.bytes_("cell")
+        for k in range(len(channel_filepaths)):
+            marker = refs.create_dataset(
+                f"ch{k}", data=np.array([0xDD000000, 2, 1, 1, k + 1, 4], dtype=np.uint32)
+            )
+            marker.attrs["MATLAB_class"] = np.bytes_("TIRFdata")
+            channel_ds[k, 0] = marker.ref
+        table = refs.create_dataset("a", data=particles_table().T)
+        table.attrs["MATLAB_class"] = np.bytes_("double")
+        pc = temp.create_dataset("ParticlesColocalized", shape=(1, 1), dtype=h5py.ref_dtype)
+        pc[0, 0] = table.ref
+        pc.attrs["MATLAB_class"] = np.bytes_("cell")
+        for name in ("DefaultAlpha", "DefaultBeta", "DefaultGamma"):
+            temp.create_dataset(name, data=np.array([[0.0]]))
+        temp.create_dataset("ChannelsWithData", data=np.array([[1.0], [2.0]]))
+        temp.create_dataset("MappingReferenceChannel", data=np.array([[1.0]]))
+        temp.create_dataset("ParticleDetectionMode", data=np.array([[2.0]]))
+
+
+def test_property_value_reads_filepath_cell_from_built_filewrapper(tmp_path: Path) -> None:
+    # property_dataset -> _decode_matlab_value hands back the nested {dir,{movie}} cell
+    # as a Python list -- the cell handoff the real FilePath decode depends on.
+    path = tmp_path / "fp.tdat"
+    _write_filepath_mcos_tdat(path, [("D:\\rig\\", ["movie_010.tif"])])
+    with h5py.File(path, "r") as f:
+        decoder = McosDecoder.from_file(f)
+        assert decoder is not None
+        assert decoder.property_value(1, "FilePath") == ["D:\\rig\\", ["movie_010.tif"]]
+
+
+def test_read_movie_reference_from_built_filewrapper(tmp_path: Path) -> None:
+    path = tmp_path / "fp.tdat"
+    _write_filepath_mcos_tdat(path, [("D:\\rig\\", ["movie_010.tif"])])
+    expected = TdatMovieReference(
+        directory="D:\\rig\\", filename="movie_010.tif", filenames=("movie_010.tif",)
+    )
+    assert read_movie_reference(path) == expected
+    assert read_tdat(path).movie_reference == expected
+
+
+def test_movie_reference_multiselect_keeps_all_filenames(tmp_path: Path) -> None:
+    # A MultiSelect FilePath{2} with several movies keeps them all in stored order,
+    # with filename == the first.
+    path = tmp_path / "multi.tdat"
+    _write_filepath_mcos_tdat(path, [("D:\\rig\\", ["a_001.tif", "b_002.tif"])])
+    reference = read_movie_reference(path)
+    assert reference is not None
+    assert reference.filename == "a_001.tif"
+    assert reference.filenames == ("a_001.tif", "b_002.tif")
+
+
+def test_movie_reference_advances_past_channel_without_filepath(tmp_path: Path) -> None:
+    # The first channel carries no FilePath; _movie_reference must advance to the
+    # second channel that does, not give up at the first.
+    path = tmp_path / "advance.tdat"
+    _write_filepath_mcos_tdat(path, [None, ("E:\\data\\", ["late_012.tif"])])
+    reference = read_movie_reference(path)
+    assert reference is not None
+    assert reference.filename == "late_012.tif"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("solo.tif", ["solo.tif"]),  # bare str (single-select MapPath-style)
+        (["one.tif"], ["one.tif"]),  # single-element nested cell
+        (["a.tif", "b.tif"], ["a.tif", "b.tif"]),  # multi-select cell
+        ([["a.tif"], ["b.tif", "c.tif"]], ["a.tif", "b.tif", "c.tif"]),  # deep nesting
+        (None, []),  # a non-string leaf (numeric/absent) contributes nothing
+        ([None, "x.tif"], ["x.tif"]),  # a null element is skipped, the str kept
+    ],
+)
+def test_flatten_strings(value: object, expected: list[str]) -> None:
+    assert _flatten_strings(value) == expected
+
+
 # --- data-present-only: MCOS decode faithfulness vs the real 37 MB .tdat ------
 #
 # The committed fixture retains a slice of the real MCOS blob, so the tests above
@@ -651,3 +835,57 @@ def test_real_tdat_per_channel_mcos_decode_matches_anchors() -> None:
             assert decoder.property_scalar(object_id, "DetectionThreshold") == pytest.approx(
                 threshold
             )
+
+
+# --- embedded movie reference (Channel.FilePath) — M7 S2, PRD §7.8 -----------
+#
+# The raw-movie reference is the per-channel TIRFdata Channel.FilePath = {dir,
+# {movie}} MCOS cell (classes/TIRFdata.m:31): the authoritative data-movie name for
+# an acquisition, distinct from MapPath (the registration movie) and the bare
+# LastPath folder / stale Status message. The committed fixture is slimmed and drops
+# the FilePath cells, so it exercises the graceful-None path; the real-.tdat test
+# below locks the positive decode against the unmodified source object system.
+
+
+def test_movie_reference_absent_on_slimmed_fixture(tdat: Tdat) -> None:
+    # The committed fixture retains the Channel objects but drops the FilePath cells,
+    # so both the payload field and the lightweight companion degrade to None.
+    assert tdat.movie_reference is None
+    assert read_movie_reference(FIXTURE) is None
+
+
+def test_movie_reference_none_when_no_channel_blob(tmp_path: Path) -> None:
+    # A plain-leaf .tdat (a temp struct, no MCOS Channel objects) has no movie ref.
+    path = tmp_path / "plain.tdat"
+    _write_minimal_tdat(path, table=particles_table(), detection_mode=2.0)
+    assert read_movie_reference(path) is None
+    assert read_tdat(path).movie_reference is None
+
+
+def test_read_movie_reference_rejects_non_tirfdata(tmp_path: Path) -> None:
+    bad = tmp_path / "not_a.tdat"
+    with h5py.File(bad, "w") as f:
+        f.create_dataset("something", data=[1, 2, 3])
+    with pytest.raises(ValueError, match="not a Deep-LASI TIRFdata"):
+        read_movie_reference(bad)
+
+
+def test_movie_reference_dataclass_is_frozen() -> None:
+    ref = TdatMovieReference(directory="D:\\x\\", filename="m.tif", filenames=("m.tif",))
+    with pytest.raises(AttributeError):
+        ref.filename = "other.tif"  # type: ignore[misc]
+
+
+@pytest.mark.skipif(_EXAMPLE_TDAT is None, reason="external .tdat not present (default checkout)")
+def test_real_tdat_movie_reference_is_the_data_movie() -> None:
+    # FilePath{2} is the acquisition's own 010.tif -- NOT MapPath's 001.tif (the
+    # registration movie) nor the bare LastPath folder -- and matches the stem the
+    # .tif/.tdat filenames also carry.
+    movie = "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif"
+    reference = read_movie_reference(_EXAMPLE_TDAT)
+    assert reference is not None
+    assert reference.filename == movie
+    assert reference.filenames == (movie,)
+    assert reference.directory.endswith("\\")  # exporter-recorded folder (foreign path)
+    # The full read_tdat carries the identical reference.
+    assert read_tdat(_EXAMPLE_TDAT).movie_reference == reference

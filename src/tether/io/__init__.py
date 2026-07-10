@@ -28,6 +28,7 @@ from tether.io.intake import (
     classify_file,
     discover_acquisitions,
     read_mat_movie_reference,
+    read_tdat_movie_reference,
     verify_movie_reference,
 )
 from tether.io.tdat import (
@@ -35,7 +36,9 @@ from tether.io.tdat import (
     TdatColocalization,
     TdatCorrections,
     TdatDetectionSettings,
+    TdatMovieReference,
     read_detection_settings,
+    read_movie_reference,
     read_tdat,
     remap_correction_factors,
 )
@@ -54,6 +57,7 @@ __all__ = [
     "TdatColocalization",
     "TdatCorrections",
     "TdatDetectionSettings",
+    "TdatMovieReference",
     "classify_file",
     "discover_acquisitions",
     "parse_filename",
@@ -61,7 +65,9 @@ __all__ = [
     "read_deeplasi_txt",
     "read_detection_settings",
     "read_mat_movie_reference",
+    "read_movie_reference",
     "read_tdat",
+    "read_tdat_movie_reference",
     "remap_correction_factors",
     "verify_movie_reference",
     "write_deeplasi_txt",
