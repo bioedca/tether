@@ -48,3 +48,12 @@ dependencies:
   # inside the Numba-bounded numpy window (>=1.26,<2.2) on Python 3.12.
   - scikit-learn>=1.5
   - xgboost>=2
+  # --- static plot export backend (M6 PR-8; deliberate base-lock bump, ADR-0044) ---
+  # matplotlib-base renders the analysis suite's plots (Appendix C) to vector
+  # PDF/SVG + PNG for the FR-EXPORT plot-export path (PRD §7.9). `matplotlib-base`
+  # — NOT full `matplotlib` — is deliberate: it ships the headless file backends
+  # (Agg/PDF/SVG) with NO Qt/Tk GUI toolkit, so it does NOT pull PyQt into the
+  # PySide6 base stack (keeping the §4.1 no-PyQt5 invariant intact; the sidecar
+  # env — §4.3 — uses matplotlib-base for the same reason). 3.9 is the first
+  # release supporting NumPy 2.x, so it sits inside the numpy>=1.26,<2.2 window.
+  - matplotlib-base>=3.9
