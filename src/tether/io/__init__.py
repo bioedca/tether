@@ -19,6 +19,17 @@ from tether.io.deeplasi import (
     write_deeplasi_txt,
 )
 from tether.io.filename import ConditionKey, ParsedFilename, parse_filename
+from tether.io.intake import (
+    AcquisitionFileSet,
+    DiscoveryResult,
+    FileRole,
+    MovieRefCheck,
+    MovieReference,
+    classify_file,
+    discover_acquisitions,
+    read_mat_movie_reference,
+    verify_movie_reference,
+)
 from tether.io.tdat import (
     Tdat,
     TdatColocalization,
@@ -30,19 +41,28 @@ from tether.io.tdat import (
 )
 
 __all__ = [
+    "AcquisitionFileSet",
     "ConditionKey",
     "DeepLasiExport",
     "DeepLasiTraces",
+    "DiscoveryResult",
+    "FileRole",
+    "MovieRefCheck",
+    "MovieReference",
     "ParsedFilename",
     "Tdat",
     "TdatColocalization",
     "TdatCorrections",
     "TdatDetectionSettings",
+    "classify_file",
+    "discover_acquisitions",
     "parse_filename",
     "read_deeplasi_mat",
     "read_deeplasi_txt",
     "read_detection_settings",
+    "read_mat_movie_reference",
     "read_tdat",
     "remap_correction_factors",
+    "verify_movie_reference",
     "write_deeplasi_txt",
 ]
