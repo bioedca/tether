@@ -27,6 +27,8 @@ theme:
 
 nav:
   - Home: index.md
+  - Analysis:
+      - Seven-plot parity gallery: analysis/parity-gallery.md
 
 # The product spec (PRD.md) and the MADR log (adr/) live under docs/ in the repo
 # but are not yet wired into the rendered site — their cross-references are
