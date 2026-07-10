@@ -59,6 +59,25 @@ suite green + a real-GL desktop smoke). The sidecar lock was **not** touched.
 This approval is scoped to **this single re-lock**; it does not standing-authorize
 future base-lock bumps, which remain deliberate, per-change decisions.
 
+### 2026-07-09 — Maintainer-approved base-lock bump (M6 plot-export backend)
+
+The "bumped only deliberately" clause was exercised a second time. Maintainer
+**bioedca** authorized adding `matplotlib-base>=3.9` to the base `environment.yml`
+for the M6 plot vector-export path (PRD §7.9, PLAN §10 M6 PR-8; ADR-0044 records
+the backend-choice rationale). The base `conda-lock.yml` was regenerated for all
+four platforms with `conda-lock==4.0.1`; the resolved drift is **minimal** — only
+`matplotlib-base` 3.11.0 plus its font/plotting transitive deps were added, and
+every core compute/GUI pin held (numpy 2.1.3, numba 0.61.2, napari 0.5.6, pyside6
+6.11.1, pyqtgraph 0.14.0, scikit-learn 1.9.0, xgboost 3.3.0). `matplotlib-base`
+(not full `matplotlib`) is deliberate: it ships the headless Agg/PDF/SVG file
+backends with no Qt/Tk toolkit, so no PyQt binding enters the PySide6 base stack.
+The drifted stack was re-verified — matplotlib's pdf/svg/agg backends plus the
+full GUI/compute stack import clean from the regenerated lock. The sidecar lock
+was **not** touched.
+
+As with the M5 bump, this approval is scoped to **this single re-lock** and does
+not standing-authorize future base-lock bumps.
+
 ## More information
 
 PRD §4.1, §4.3, §12.8; ADR-0006 (sidecar mechanism).
