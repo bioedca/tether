@@ -24,6 +24,7 @@ The load-bearing invariants under test:
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -309,7 +310,7 @@ def test_duplicate_molecule_key_idealization_filters_by_molecule_id(tmp_path):
     assert to_str(shared_key) in set(sub.live_idealization_keys("vbconhmm"))
 
 
-def _add_partial_model(project, keys, rows, model_name="partial"):
+def _add_partial_model(project, keys, rows, model_name="partial", intensity_quantity="corrected"):
     """Write a second /idealization model that fit only the given molecule ``rows``."""
     n_frames = read_traces(project.path)["donor_corrected"].shape[1]
     hashes = fresh_input_hashes(project.path)
@@ -330,7 +331,7 @@ def _add_partial_model(project, keys, rows, model_name="partial"):
         molecule_keys=[keys[r] for r in rows],
         molecule_ids=[ids[r] for r in rows],
         input_hashes=[hashes[r] for r in rows],
-        intensity_quantity="corrected",
+        intensity_quantity=intensity_quantity,
         selected_by="fixed",
         elbo_by_nstates=None,
         app_version="test",
@@ -370,18 +371,23 @@ def test_second_model_survives_filtered_when_it_covers_the_subset(tmp_path):
 
 
 def test_raw_non_reconstructability_propagates_through_a_subset_of_a_subset(tmp_path):
-    """Exporting a raw-less subset, then re-exporting *with* include_raw=True, still
-    yields corrected-only — raw cannot be resurrected once it was dropped (no source
-    layer to embed), so the §5.4 invariant is not silently escapable."""
+    """Once raw is dropped it cannot be resurrected: re-exporting a raw-less subset with
+    include_raw=False stays corrected-only, and include_raw=True fails loudly (the source
+    has no raw to embed) rather than silently producing a raw-less 'with raw' subset —
+    so the §5.4 invariant is not silently escapable."""
     project, keys = _source(tmp_path)
     first = tmp_path / "first.tether"
     export_subset_tether(project, first, include_raw=False)
     assert set(read_traces(first)) == set(_CORRECTED_ONLY)
 
+    # a further raw-less re-export stays corrected-only
     second = tmp_path / "second.tether"
-    export_subset_tether(first, second, include_raw=True, molecule_keys=[keys[0]])
+    export_subset_tether(first, second, include_raw=False, molecule_keys=[keys[0]])
+    assert set(read_traces(second)) == set(_CORRECTED_ONLY)
 
-    assert set(read_traces(second)) == set(_CORRECTED_ONLY)  # still no raw to embed
+    # asking for raw from a raw-less source is rejected, not silently downgraded
+    with pytest.raises(ValueError, match="source /traces is missing"):
+        export_subset_tether(first, tmp_path / "third.tether", include_raw=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -530,8 +536,101 @@ def test_provenance_sidecar_and_root_attrs(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Raw-fit idealization models when raw is omitted (the live/stale contract)
+# --------------------------------------------------------------------------- #
+
+
+def test_raw_fit_model_skipped_when_raw_omitted(tmp_path):
+    """A model fit over the raw traces can't be re-staled once raw is dropped, so it is
+    skipped (and recorded) rather than embedded to read back permanently stale."""
+    project, keys = _source(tmp_path)
+    _add_partial_model(
+        project, keys, rows=[0, 1, 2, 3], model_name="rawmodel", intensity_quantity="raw"
+    )
+    out = tmp_path / "no_raw.tether"
+
+    result = export_subset_tether(project, out, include_raw=False)
+
+    sub = Project.open(out)
+    assert "rawmodel" not in sub.list_idealizations()  # the raw-fit model is dropped
+    assert "vbconhmm" in sub.list_idealizations()  # the corrected-fit model survives
+    payload = json.loads(result.provenance_path.read_text(encoding="utf-8"))
+    assert payload["parameters"]["skipped_idealization_models"] == ["rawmodel"]
+
+
+def test_raw_fit_model_kept_when_raw_included(tmp_path):
+    project, keys = _source(tmp_path)
+    _add_partial_model(
+        project, keys, rows=[0, 1, 2, 3], model_name="rawmodel", intensity_quantity="raw"
+    )
+    out = tmp_path / "with_raw.tether"
+
+    export_subset_tether(project, out, include_raw=True)
+
+    sub = Project.open(out)
+    assert set(sub.list_idealizations()) == {"vbconhmm", "rawmodel"}  # raw layers present
+
+
+# --------------------------------------------------------------------------- #
+# Preflight: a malformed source fails loudly before any output is written
+# --------------------------------------------------------------------------- #
+
+
+def test_preflight_rejects_source_missing_corrected_layer(tmp_path):
+    project, _ = _source(tmp_path)
+    with h5py.File(project.path, "r+") as f:
+        del f["traces"]["donor_corrected"]
+    with pytest.raises(ValueError, match="missing the required corrected layer"):
+        export_subset_tether(project, tmp_path / "s.tether")
+
+
+def test_preflight_rejects_source_missing_patch_channel(tmp_path):
+    project, _ = _source(tmp_path)
+    with h5py.File(project.path, "r+") as f:
+        del f["patches"]["donor"]
+    with pytest.raises(ValueError, match="missing the 'donor' channel"):
+        export_subset_tether(project, tmp_path / "s.tether")
+
+
+# --------------------------------------------------------------------------- #
 # Guardrails: don't clobber the source, overwrite semantics
 # --------------------------------------------------------------------------- #
+
+
+def test_hard_linked_out_path_refused(tmp_path):
+    """A hard-linked out_path is the same inode as the source; overwrite would truncate
+    it, so the export must refuse (resolve() alone would miss this)."""
+    project, _ = _source(tmp_path)
+    out = tmp_path / "hardlink.tether"
+    try:
+        os.link(project.path, out)
+    except (OSError, NotImplementedError) as exc:  # pragma: no cover - platform/FS dependent
+        pytest.skip(f"hard links unavailable here: {exc}")
+    with pytest.raises(ValueError, match="is the source project"):
+        export_subset_tether(project, out, overwrite=True)
+
+
+def test_existing_subset_survives_a_failed_export(tmp_path, monkeypatch):
+    """Staging + atomic replace: a mid-copy failure leaves a pre-existing subset intact
+    and leaves no leftover temp file."""
+    project, _ = _source(tmp_path)
+    out = tmp_path / "subset.tether"
+    export_subset_tether(project, out, molecule_keys=None)  # a good, complete subset (4 mols)
+    assert read_molecules(out).shape[0] == 4
+
+    # force a failure late in the copy (after the temp store is created)
+    def _boom(*_a, **_k):
+        raise RuntimeError("simulated mid-copy failure")
+
+    monkeypatch.setattr("tether.project.export._copy_verbatim_groups", _boom)
+    with pytest.raises(RuntimeError, match="simulated mid-copy failure"):
+        export_subset_tether(project, out, overwrite=True)
+
+    # the pre-existing subset is untouched, and no .tmp debris was left behind
+    assert read_molecules(out).shape[0] == 4
+    assert Project.open(out).schema_version == project.schema_version
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+    assert leftovers == []
 
 
 def test_out_path_equal_to_source_raises(tmp_path):

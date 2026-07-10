@@ -47,6 +47,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -473,10 +474,14 @@ def _selected_ids(molecules: np.ndarray, rows: list[int]) -> set[str]:
 
 
 def _copy_molecule_rows(src: object, dst: object, rows: list[int]) -> None:
-    """Append the selected ``/molecules`` rows into the fresh subset (store order)."""
+    """Append the selected ``/molecules`` rows into the fresh subset (store order).
+
+    ``rows`` is strictly increasing (:func:`_selected_rows`), so h5py reads only the
+    selected rows directly — it never materializes the whole source table.
+    """
     from tether.io.schema import TABLE  # noqa: PLC0415
 
-    selected = src["molecules"][TABLE][()][rows]
+    selected = src["molecules"][TABLE][rows]
     table = dst["molecules"][TABLE]
     table.resize((selected.shape[0],))
     table[:] = selected
@@ -499,7 +504,7 @@ def _copy_trace_layers(src: object, dst: object, rows: list[int], include_raw: b
         if layer not in src_traces:
             continue
         ds = src_traces[layer]
-        block = ds[()][rows]  # read (N, T) then row-subset (rows is strictly increasing)
+        block = ds[rows]  # h5py reads only the selected rows (rows is strictly increasing)
         dst_traces.create_dataset(
             layer,
             data=block,
@@ -522,7 +527,7 @@ def _copy_patches(src: object, dst: object, rows: list[int]) -> None:
     dst_patches = dst["patches"]
     for channel in src_patches:
         ds = src_patches[channel]
-        block = ds[()][rows]  # (N, w, w) -> (n_sel, w, w)
+        block = ds[rows]  # (N, w, w) -> (n_sel, w, w); reads only the selected rows
         dst_patches.create_dataset(
             channel,
             data=block,
@@ -533,25 +538,40 @@ def _copy_patches(src: object, dst: object, rows: list[int]) -> None:
         )
 
 
-def _copy_idealization(src: object, dst: object, selected_ids: set[str]) -> list[str]:
+def _copy_idealization(
+    src: object, dst: object, selected_ids: set[str], available_layers: set[str]
+) -> tuple[list[str], list[str]]:
     """Copy each ``/idealization`` model, filtering its per-molecule rows to the subset.
 
     Global model arrays (levels/transition matrix/rates/priors) are copied verbatim;
     the row-aligned per-molecule datasets (:data:`_IDEALIZATION_PER_MOLECULE`) are
     subset to the exported molecules **by ``molecule_id``** (the unique per-row identity
     the staleness join uses — see :func:`_selected_ids`), never by the non-unique
-    ``molecule_key``. A model with **no** exported molecule is skipped entirely (it would
-    otherwise be an empty, meaningless model). Returns the model names actually written.
+    ``molecule_key``.
+
+    A model is **skipped** (and recorded) when either it covers no exported molecule (it
+    would be an empty, meaningless model) or the ``/traces`` layers its
+    ``intensity_quantity`` was fit over are not in ``available_layers`` — e.g. a
+    ``raw``-fit model when ``include_raw=False``: without its input layers the subset
+    could never re-stale it, so it would read back permanently stale, breaking the
+    live/stale contract (§5.1). Returns ``(written, skipped)`` model names.
     """
     src_ideal = src["idealization"]
     dst_ideal = dst["idealization"]
     written: list[str] = []
+    skipped: list[str] = []
     for name in src_ideal:
         group = src_ideal[name]
+        quantity = _to_str(group.attrs.get("intensity_quantity", "corrected"))
+        required = INTENSITY_QUANTITY_LAYERS.get(quantity)
+        if required is not None and not set(required) <= available_layers:
+            skipped.append(name)  # its input trace layers aren't in the subset
+            continue
         model_ids = [_to_str(x) for x in group["molecule_id"][()]]
         keep = [j for j, mid in enumerate(model_ids) if mid in selected_ids]
         if not keep:
-            continue  # none of this model's molecules are in the subset
+            skipped.append(name)  # none of this model's molecules are in the subset
+            continue
         dst_group = dst_ideal.create_group(name)
         for attr_key, attr_val in group.attrs.items():
             dst_group.attrs[attr_key] = attr_val
@@ -559,7 +579,7 @@ def _copy_idealization(src: object, dst: object, selected_ids: set[str]) -> list
         for member in group:
             item = group[member]
             if member in _IDEALIZATION_PER_MOLECULE:
-                subset = item[()][keep]  # keep is strictly increasing
+                subset = item[keep]  # keep is strictly increasing (direct-row read)
                 create_kw = {"compression": "gzip"} if member in ("idealized", "state_path") else {}
                 dst_group.create_dataset(member, data=subset, dtype=item.dtype, **create_kw)
             else:
@@ -568,7 +588,7 @@ def _copy_idealization(src: object, dst: object, selected_ids: set[str]) -> list
                 # preserved rather than silently dropped.
                 src.copy(item, dst_group, name=member)
         written.append(name)
-    return written
+    return written, skipped
 
 
 def _copy_labels(src: object, dst: object, selected_keys: set[str]) -> int:
@@ -607,6 +627,56 @@ def _copy_verbatim_groups(src: object, dst: object) -> None:
         src.copy(grp, dst, name=grp)
 
 
+def _preflight_source(src: object, n_molecules: int, include_raw: bool) -> None:
+    """Reject a malformed/incomplete source **before** any output is written.
+
+    A subset promises the corrected traces + both patch channels for every exported
+    molecule; validate they exist and are row-aligned with ``/molecules`` up front so a
+    corrupt store fails loudly (and, with staging, without touching an existing output)
+    rather than silently producing a valid-looking subset missing promised data. When
+    ``include_raw`` is set the raw+background layers must be **all present** (they are
+    embedded and dropped as a set — §5.4).
+
+    Raises
+    ------
+    ValueError
+        If a required corrected layer or patch channel is missing, a molecule-aligned
+        array's row count disagrees with ``/molecules``, or ``include_raw`` is set but
+        the source lacks a raw/background layer.
+    """
+    traces = src["traces"]
+    patches = src["patches"]
+    for layer in _SUBSET_CORRECTED_LAYERS:
+        if layer not in traces:
+            raise ValueError(
+                f"source /traces is missing the required corrected layer {layer!r}; "
+                "cannot export a subset .tether"
+            )
+        if traces[layer].shape[0] != n_molecules:
+            raise ValueError(
+                f"source /traces/{layer} has {traces[layer].shape[0]} rows != "
+                f"{n_molecules} molecules (corrupt store)"
+            )
+    if include_raw:
+        for layer in _SUBSET_RAW_LAYERS:
+            if layer not in traces:
+                raise ValueError(
+                    f"include_raw=True but source /traces is missing {layer!r}; the "
+                    "raw + background layers are embedded as a set"
+                )
+    for channel in ("donor", "acceptor"):
+        if channel not in patches:
+            raise ValueError(
+                f"source /patches is missing the {channel!r} channel; cannot export a "
+                "curatable movie-less subset"
+            )
+        if patches[channel].shape[0] != n_molecules:
+            raise ValueError(
+                f"source /patches/{channel} has {patches[channel].shape[0]} rows != "
+                f"{n_molecules} molecules (corrupt store)"
+            )
+
+
 def export_subset_tether(
     project: Project | str | os.PathLike[str],
     out_path: str | os.PathLike[str],
@@ -641,11 +711,19 @@ def export_subset_tether(
     optional ``molecule_keys`` list subselects by ``molecule_key`` (a duplicate key,
     §7.10, matches every store row that carries it).
 
-    Schema freeze. The subset is written through
+    Idealization models are copied filtered per molecule, but a model is **skipped**
+    (and recorded in the provenance) when the ``/traces`` layers it was fit over are not
+    in the subset — e.g. a ``raw``-fit model when ``include_raw=False`` — since without
+    its input layers it could never be re-staled and would read back permanently stale.
+
+    Schema freeze & atomicity. The subset is written through
     :func:`tether.io.schema.create_project` and populated with **additive data only**;
     it adds no structure to the M0-frozen skeleton and never mutates the source
-    (``schema-guard`` neutral). A ``<out_path>.provenance.json`` sidecar is written and
-    the same provenance is stamped into the subset's root attributes.
+    (``schema-guard`` neutral). It is built under a temporary sibling path and
+    **atomically moved** into place, so a mid-export failure leaves any existing
+    ``out_path`` untouched; the source is preflighted first (so a malformed store fails
+    before staging). A ``<out_path>.provenance.json`` sidecar is written and the same
+    provenance is stamped into the subset's root attributes.
 
     Parameters
     ----------
@@ -661,7 +739,7 @@ def export_subset_tether(
         Embed the raw + background ``/traces`` layers (default omits both, keeping raw
         non-reconstructable).
     overwrite:
-        Truncate an existing ``out_path`` (default refuses to clobber).
+        Replace an existing ``out_path`` (default refuses to clobber).
 
     Returns
     -------
@@ -672,9 +750,12 @@ def export_subset_tether(
     ------
     KeyError
         If a requested ``molecule_key`` matches no store row (a typo — fail loudly).
+    FileExistsError
+        If ``out_path`` already exists and ``overwrite`` is ``False``.
     ValueError
-        If the source is not a valid ``.tether``; the selection is empty (nothing to
-        export); or ``out_path`` resolves to the source path.
+        If the source is not a valid or complete ``.tether`` (missing corrupt/incomplete
+        corrected traces or patches); the selection is empty (nothing to export); or
+        ``out_path`` is the source project (same path or a hard-linked alias).
     """
     import h5py  # noqa: PLC0415
 
@@ -683,8 +764,17 @@ def export_subset_tether(
     path = _project_path(project)
     assert_is_compatible_project(path)
     out_path = Path(out_path)
-    if out_path.resolve() == path.resolve():
+    # Refuse to write over the source — including a hard-linked alias (same inode),
+    # which resolve() does not catch but the atomic os.replace below would truncate.
+    same_file = out_path.resolve() == path.resolve()
+    if out_path.exists():
+        same_file = same_file or out_path.samefile(path)
+    if same_file:
         raise ValueError(f"subset out_path {out_path} is the source project; refusing to overwrite")
+    if out_path.exists() and not overwrite:
+        # Enforced here (not via create_project's w- mode) because the subset is staged
+        # to a temp sibling and atomically moved into place — os.replace always clobbers.
+        raise FileExistsError(f"{out_path} already exists; pass overwrite=True to replace it")
 
     molecules = read_molecules(path)
     rows = _selected_rows(molecules, molecule_keys, include_rejected)
@@ -697,22 +787,38 @@ def export_subset_tether(
     selected_ids = _selected_ids(molecules, rows)
 
     created_utc = datetime.now(UTC).isoformat()
-    create_project(out_path, overwrite=overwrite)
-    with h5py.File(path, "r") as src, h5py.File(out_path, "r+") as dst:
-        _copy_molecule_rows(src, dst, rows)
-        layers = _copy_trace_layers(src, dst, rows, include_raw)
-        _copy_patches(src, dst, rows)
-        # Idealization joins per-molecule on molecule_id (unique); labels join on
-        # molecule_key (the cross-file merge-back key, §5.1/§7.10) — deliberately different.
-        models = _copy_idealization(src, dst, selected_ids)
-        n_labels = _copy_labels(src, dst, selected_keys)
-        _copy_verbatim_groups(src, dst)
-        # Embedded provenance (§7.9): stamp the subset's own root attributes so the
-        # file is self-describing even detached from its sidecar.
-        dst.attrs["tether_subset_of"] = path.name
-        dst.attrs["tether_subset_created_utc"] = created_utc
-        dst.attrs["tether_subset_include_raw"] = int(bool(include_raw))
-        dst.attrs["tether_subset_n_molecules"] = int(len(rows))
+    with h5py.File(path, "r") as src:
+        _preflight_source(src, int(molecules.shape[0]), include_raw)
+        # Stage into a temp sibling, then atomically replace, so a mid-copy HDF5/IO
+        # failure never truncates an existing subset (writing straight to out_path with
+        # create_project(overwrite=True) would destroy it before the copy could finish).
+        fd, tmp_name = tempfile.mkstemp(
+            dir=out_path.parent, prefix=out_path.name + ".", suffix=".tmp"
+        )
+        os.close(fd)
+        staged = Path(tmp_name)
+        try:
+            create_project(staged, overwrite=True)
+            with h5py.File(staged, "r+") as dst:
+                _copy_molecule_rows(src, dst, rows)
+                layers = _copy_trace_layers(src, dst, rows, include_raw)
+                _copy_patches(src, dst, rows)
+                # Idealization joins per-molecule on molecule_id (unique) and needs its
+                # input trace layers present; labels join on molecule_key (the cross-file
+                # merge-back key, §5.1/§7.10) — deliberately different keys.
+                models, skipped_models = _copy_idealization(src, dst, selected_ids, set(layers))
+                n_labels = _copy_labels(src, dst, selected_keys)
+                _copy_verbatim_groups(src, dst)
+                # Embedded provenance (§7.9): stamp the subset's own root attributes so
+                # the file is self-describing even detached from its sidecar.
+                dst.attrs["tether_subset_of"] = path.name
+                dst.attrs["tether_subset_created_utc"] = created_utc
+                dst.attrs["tether_subset_include_raw"] = int(bool(include_raw))
+                dst.attrs["tether_subset_n_molecules"] = int(len(rows))
+            os.replace(staged, out_path)  # atomic within out_path's directory
+        except BaseException:
+            staged.unlink(missing_ok=True)
+            raise
 
     provenance = write_provenance_sidecar(
         out_path,
@@ -727,6 +833,7 @@ def export_subset_tether(
             "trace_layers": layers,
             "n_idealization_models": len(models),
             "idealization_models": models,
+            "skipped_idealization_models": skipped_models,
             "n_label_rows": n_labels,
             "molecule_keys": None if molecule_keys is None else [str(k) for k in molecule_keys],
         },
