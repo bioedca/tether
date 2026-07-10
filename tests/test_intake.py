@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import tether.io.intake as intake_module
 from tether.io import (
     AcquisitionFileSet,
     MovieReference,
@@ -305,17 +306,18 @@ def test_read_mat_movie_reference_none_without_mat() -> None:
 
 
 def test_read_mat_movie_reference_reads_export(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Patch where the reader is used (intake imports it at module scope), not where
-    # it is defined, so the stub reliably intercepts the call.
+    # Patch where the reader is used (intake imports it at module scope), passing the
+    # module object directly so the stub intercepts the call regardless of how the
+    # package is installed / imported.
     fake = SimpleNamespace(movie_name=MOVIE, movie_path="/exporter/rig")
-    monkeypatch.setattr("tether.io.intake.read_deeplasi_mat", lambda _p: fake)
+    monkeypatch.setattr(intake_module, "read_deeplasi_mat", lambda _p: fake)
     ref = read_mat_movie_reference(_fileset(mat=Path("/data") / MAT))
     assert ref == MovieReference(name=MOVIE, path="/exporter/rig", source="mat")
 
 
 def test_read_mat_movie_reference_none_when_name_blank(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = SimpleNamespace(movie_name="", movie_path="")
-    monkeypatch.setattr("tether.io.intake.read_deeplasi_mat", lambda _p: fake)
+    monkeypatch.setattr(intake_module, "read_deeplasi_mat", lambda _p: fake)
     assert read_mat_movie_reference(_fileset(mat=Path("/data") / MAT)) is None
 
 
