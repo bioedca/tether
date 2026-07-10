@@ -338,6 +338,17 @@ def test_read_mat_movie_reference_none_when_name_blank(monkeypatch: pytest.Monke
     assert read_mat_movie_reference(_fileset(mat=Path("/data") / MAT)) is None
 
 
+def test_read_mat_movie_reference_none_on_unreadable_mat(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A renamed / corrupted .mat makes read_deeplasi_mat raise ValueError; the
+    # best-effort cross-check degrades to None rather than leaking the exception to the
+    # caller (the authoritative read_deeplasi_mat load still raises when opened).
+    def _raise(_p: Path) -> object:
+        raise ValueError("not a readable MATLAB v5 .mat file")
+
+    monkeypatch.setattr(intake_module, "read_deeplasi_mat", _raise)
+    assert read_mat_movie_reference(_fileset(mat=Path("/data") / MAT)) is None
+
+
 # --- read_tdat_movie_reference (thin wrapper over tdat.read_movie_reference) ---
 
 
@@ -365,6 +376,17 @@ def test_read_tdat_movie_reference_none_when_filename_blank(
 ) -> None:
     decoded = TdatMovieReference(directory="D:\\rig\\", filename="", filenames=())
     monkeypatch.setattr(intake_module, "read_movie_reference", lambda _p: decoded)
+    assert read_tdat_movie_reference(_fileset(tdat=Path("/data") / TDAT)) is None
+
+
+def test_read_tdat_movie_reference_none_on_non_tirfdata(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A renamed / corrupted .tdat makes read_movie_reference raise ValueError (it is not
+    # a TIRFdata container); the best-effort cross-check degrades to None, matching the
+    # .mat sibling, while the authoritative read_tdat load still raises when opened.
+    def _raise(_p: Path) -> object:
+        raise ValueError("not a Deep-LASI TIRFdata")
+
+    monkeypatch.setattr(intake_module, "read_movie_reference", _raise)
     assert read_tdat_movie_reference(_fileset(tdat=Path("/data") / TDAT)) is None
 
 

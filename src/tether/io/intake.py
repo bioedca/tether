@@ -470,12 +470,20 @@ def read_mat_movie_reference(fileset: AcquisitionFileSet) -> MovieReference | No
 
     A thin wrapper over :func:`tether.io.deeplasi.read_deeplasi_mat` that lifts the
     already-parsed ``movie_name`` / ``movie_path`` provenance into a
-    :class:`MovieReference` for :func:`verify_movie_reference`. Returns ``None`` when
-    the set carries no ``.mat`` or the export recorded no movie name.
+    :class:`MovieReference` for :func:`verify_movie_reference`. Best-effort like its
+    :func:`read_tdat_movie_reference` sibling: returns ``None`` when the set carries no
+    ``.mat``, the export recorded no movie name, or the ``.mat`` cannot be read as a
+    Deep-LASI export (a renamed or corrupted file makes :func:`read_deeplasi_mat` raise
+    :class:`ValueError`) — this advisory cross-check degrades cleanly, and the
+    authoritative :func:`read_deeplasi_mat` load still surfaces the error when the
+    acquisition is actually opened.
     """
     if fileset.mat is None:
         return None
-    export = read_deeplasi_mat(fileset.mat)
+    try:
+        export = read_deeplasi_mat(fileset.mat)
+    except ValueError:
+        return None
     if not export.movie_name:
         return None
     return MovieReference(name=export.movie_name, path=export.movie_path, source="mat")
@@ -488,13 +496,21 @@ def read_tdat_movie_reference(fileset: AcquisitionFileSet) -> MovieReference | N
     seam: it lifts the ``Channel.FilePath`` movie name/directory decoded by
     :func:`tether.io.tdat.read_movie_reference` into the same :class:`MovieReference`
     that :func:`verify_movie_reference` consumes, so a set with a ``.tdat`` but no
-    ``.mat`` still cross-checks its grouped movie. Returns ``None`` when the set
-    carries no ``.tdat`` or the ``TIRFdata`` records no usable file path (a slimmed
-    or movie-less ``.tdat``).
+    ``.mat`` still cross-checks its grouped movie. Best-effort like the ``.mat``
+    sibling: returns ``None`` when the set carries no ``.tdat``, the ``TIRFdata``
+    records no usable file path (a slimmed or movie-less ``.tdat``), or the ``.tdat``
+    is not a readable ``TIRFdata`` container (a renamed or corrupted file makes
+    :func:`~tether.io.tdat.read_movie_reference` raise :class:`ValueError`) — this
+    advisory cross-check degrades cleanly, and the authoritative
+    :func:`~tether.io.tdat.read_tdat` load still surfaces the error when the
+    acquisition is actually opened.
     """
     if fileset.tdat is None:
         return None
-    reference = read_movie_reference(fileset.tdat)
+    try:
+        reference = read_movie_reference(fileset.tdat)
+    except ValueError:
+        return None
     if reference is None or not reference.filename:
         return None
     return MovieReference(name=reference.filename, path=reference.directory, source="tdat")
