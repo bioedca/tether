@@ -347,14 +347,26 @@ def test_tdat_coordinates_used_when_counts_align(tmp_path: Path, monkeypatch) ->
     np.testing.assert_array_equal(mols["donor_xy"], export.donor_xy)
 
 
-def test_unrecoverable_tdat_coordinates_fall_back_to_mat(tmp_path: Path, monkeypatch) -> None:
-    """A ``.tdat`` that ``recover_coordinates`` rejects (e.g. non-two-colour) → ``.mat``."""
+@pytest.mark.parametrize(
+    "exc",
+    [ValueError("simulated non-two-colour .tdat"), KeyError(1)],
+    ids=["ValueError", "KeyError"],
+)
+def test_unrecoverable_tdat_coordinates_fall_back_to_mat(
+    tmp_path: Path, monkeypatch, exc: Exception
+) -> None:
+    """A ``.tdat`` coordinate recovery raising ``ValueError`` **or** ``KeyError`` → ``.mat``.
+
+    A non-two-colour ``.tdat`` raises ``ValueError``; a degenerate one (declared
+    ``ChannelsWithData`` but an empty ``ParticlesColocalized``) raises ``KeyError`` — both
+    must fall back to the mandatory ``.mat`` coordinates, not fail the acquisition.
+    """
     export = read_deeplasi_mat(_MAT)
     real_recover = executor_module.recover_coordinates
 
     def fake_recover(*, tdat=None, mat=None, prefer="tdat"):
         if tdat is not None:
-            raise ValueError("simulated non-two-colour .tdat")
+            raise exc
         return real_recover(mat=mat, prefer=prefer)
 
     monkeypatch.setattr(executor_module, "recover_coordinates", fake_recover)
@@ -370,6 +382,39 @@ def test_unrecoverable_tdat_coordinates_fall_back_to_mat(tmp_path: Path, monkeyp
     assert e.ok
     assert e.coordinate_source == "mat"
     assert any("could not be recovered" in w for w in e.warnings)
+
+
+def test_undecodable_tdat_degrades_to_mat_apparent_e(tmp_path: Path, monkeypatch) -> None:
+    """An undecodable ``.tdat`` still reconstructs from the ``.mat`` (apparent-E), not fails.
+
+    ``read_tdat`` raises on the unported Deep-LASI ``findPart`` modes 4/5, yet a
+    ``.mat``-sourced reconstruct needs the ``.tdat`` only for its corrections — so the
+    acquisition must degrade to apparent-E with a surfaced warning, never be recorded as a
+    hard failure (it is fully reconstructable from the movie + ``.mat``).
+    """
+
+    def boom(_path):
+        raise ValueError("Deep-LASI ParticleDetectionMode 4 is not supported")
+
+    monkeypatch.setattr(executor_module, "read_tdat", boom)
+
+    export = read_deeplasi_mat(_MAT)
+    movie = _write_movie(tmp_path / "mov.tif", export.n_frames)
+    recon = _planned(
+        _fileset(movie=movie, mat=_MAT, tdat=_TDAT),
+        WizardMode.RECONSTRUCT,
+        coordinate_source="mat",
+    )
+
+    e = execute_plan(_plan(recon), tmp_path / "out").executed[0]
+    assert e.ok  # reconstructed from the .mat despite the undecodable .tdat
+    assert e.reconstruct is not None
+    assert e.reconstruct.n_molecules == 4
+    assert e.reconstruct.corrections_applied is False  # no corrections → apparent-E
+    assert e.coordinate_source == "mat"
+    assert any("could not be decoded" in w for w in e.warnings)
+    mols = _read_molecules(e.output_path)
+    assert {_decode(v) for v in mols["correction_method"]} == {METHOD_APPARENT_UNAVAILABLE}
 
 
 def test_curated_reference_ignores_a_mismatched_txt(tmp_path: Path, monkeypatch) -> None:

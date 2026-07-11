@@ -220,9 +220,12 @@ def _resolve_coordinates(
     if plan.coordinate_source == "tdat" and tdat is not None:
         try:
             tdat_coords = recover_coordinates(tdat=tdat)
-        except ValueError as exc:
+        except (ValueError, KeyError) as exc:
+            # A non-two-colour .tdat raises ValueError; a degenerate one (declared
+            # ChannelsWithData but an empty ParticlesColocalized) raises KeyError. Either
+            # way the mandatory .mat coordinates are the honest fallback (never fabricated).
             fallback = (
-                f"requested .tdat coordinates could not be recovered ({exc}); used the "
+                f"requested .tdat coordinates could not be recovered ({exc!r}); used the "
                 "export-aligned .mat coordinates instead"
             )
             return recover_coordinates(mat=export), (fallback,)
@@ -275,6 +278,29 @@ def _curated_match(
     return match_smd_to_coordinates(smd.raw[:, :t, :], reference, recovered)
 
 
+def _read_tdat_best_effort(path: Path | None) -> tuple[Tdat | None, tuple[str, ...]]:
+    """Decode a ``.tdat`` for its corrections / coordinates, degrading on an unreadable one.
+
+    :func:`~tether.io.tdat.read_tdat` eagerly validates the detection mode (raising on the
+    unported Deep-LASI ``findPart`` modes 4/5) and the MCOS leaves, yet a reconstruction
+    from the ``.mat`` needs the ``.tdat`` only for its correction factors (and, when the
+    plan chose it, coordinates — themselves ``.mat``-backed when the ``.tdat`` can't supply
+    them). So an undecodable ``.tdat`` must **not** sink an otherwise-reconstructable
+    acquisition: degrade to no corrections (apparent-E, ADR-0003) + the ``.mat``
+    coordinates, surfacing a warning rather than failing the whole acquisition.
+    """
+    if path is None:
+        return None, ()
+    try:
+        return read_tdat(path), ()
+    except (ValueError, KeyError, OSError) as exc:
+        warning = (
+            f"the .tdat could not be decoded ({exc!r}); reconstructed from the .mat "
+            "without its correction factors (apparent-E)"
+        )
+        return None, (warning,)
+
+
 def _run_reconstruct(
     plan: PlannedAcquisition, out: Path, *, overwrite: bool, detect_photobleach: bool
 ) -> tuple[ReconstructionSummary, str, tuple[str, ...]]:
@@ -286,9 +312,10 @@ def _run_reconstruct(
             f"(movie={fileset.movie is not None}, mat={fileset.mat is not None})"
         )
     export = read_deeplasi_mat(fileset.mat)
-    tdat = read_tdat(fileset.tdat) if fileset.tdat is not None else None
+    tdat, tdat_warnings = _read_tdat_best_effort(fileset.tdat)
     corrections = tdat.corrections if tdat is not None else None
-    recovered, warnings = _resolve_coordinates(plan, export, tdat)
+    recovered, coord_warnings = _resolve_coordinates(plan, export, tdat)
+    warnings = tdat_warnings + coord_warnings
     curated = _curated_match(fileset, export, recovered) if fileset.smd is not None else None
     movie = _movie_metadata(fileset.movie)
     summary = reconstruct_project(
