@@ -36,6 +36,7 @@ from tether.project.analysis_import import (
     read_analysis_only_marker,
 )
 from tether.project.correct import METHOD_APPARENT_UNAVAILABLE
+from tether.project.labels import CurationLabel
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 _SMD4 = _FIXTURES / "smd_4mol.hdf5"
@@ -86,11 +87,21 @@ def test_smd_import_is_analysis_only(tmp_path: Path) -> None:
         # only the corrected (apparent-E) trace layers are written — no raw/background
         assert set(f["traces"].keys()) == {"donor_corrected", "acceptor_corrected"}
         assert f["traces"]["donor_corrected"].shape == (4, 1700)
+        # the layers hold the SMD's donor/acceptor intensities (right channel + values,
+        # not just shape — a zero-fill or channel-swap would fail this). float32 store.
+        np.testing.assert_array_equal(
+            f["traces"]["donor_corrected"][:], smd.raw[:, :, 0].astype(np.float32)
+        )
+        np.testing.assert_array_equal(
+            f["traces"]["acceptor_corrected"][:], smd.raw[:, :, 1].astype(np.float32)
+        )
     # coordinates are genuinely absent (a NaN sentinel, never a fabricated [0, 0])
     assert np.isnan(mols["donor_xy"]).all()
     assert np.isnan(mols["acceptor_xy"]).all()
     # every molecule is tagged round-trip-unavailable (§7.8 provenance)
     assert {_decode(v) for v in mols["tags"]} == {ANALYSIS_ONLY_TAG}
+    # the SMD is the curated subset (no accept/reject mask) → nothing is curated-in/out
+    assert set(mols["curation_label"].tolist()) == {int(CurationLabel.UNCURATED)}
     # a distinct molecule_key per molecule (the coord-less collision trap avoided)
     keys = [_decode(v) for v in mols["molecule_key"]]
     assert len(set(keys)) == 4
@@ -262,6 +273,7 @@ def test_import_from_bare_txt_source(tmp_path: Path) -> None:
     assert summary.n_molecules == txt.n_molecules
     mols = _read_molecules(out)
     assert {_decode(v) for v in mols["tags"]} == {ANALYSIS_ONLY_TAG}
+    assert set(mols["curation_label"].tolist()) == {int(CurationLabel.UNCURATED)}
     # no tMAVEN windows on a bare .txt → the full native window; frame_range == stored width
     full = np.tile([0, txt.n_frames], (txt.n_molecules, 1))
     np.testing.assert_array_equal(mols["analysis_window"], full)
@@ -269,6 +281,13 @@ def test_import_from_bare_txt_source(tmp_path: Path) -> None:
     with h5py.File(out, "r") as f:
         assert set(f["traces"].keys()) == {"donor_corrected", "acceptor_corrected"}
         assert f["traces"]["donor_corrected"].shape == (txt.n_molecules, txt.n_frames)
+        # the .txt donor/acceptor columns land in the right layers, value-for-value
+        np.testing.assert_array_equal(
+            f["traces"]["donor_corrected"][:], txt.donor_corrected.astype(np.float32)
+        )
+        np.testing.assert_array_equal(
+            f["traces"]["acceptor_corrected"][:], txt.acceptor_corrected.astype(np.float32)
+        )
         assert f["movies"]["table"].shape[0] == 0  # movie-less
     assert read_analysis_only_marker(out).round_trip_available is False
 
@@ -278,17 +297,44 @@ def test_import_from_bare_txt_source(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_refuses_to_clobber(tmp_path: Path) -> None:
-    smd = read_smd(_SMD4)
+def test_refuses_to_clobber_then_overwrites_with_a_new_source(tmp_path: Path) -> None:
+    """Default refuses to clobber; ``overwrite=True`` genuinely replaces the persisted data."""
+    smd4 = read_smd(_SMD4)
+    smd2 = read_smd(_FIXTURES / "smd_2mol.hdf5")  # a different source (2 molecules)
     out = tmp_path / "ao.tether"
-    import_analysis_only_project(out, source=smd, source_name="smd_4mol.hdf5")
+    import_analysis_only_project(out, source=smd4, source_name="smd_4mol.hdf5")
     with pytest.raises(FileExistsError):
-        import_analysis_only_project(out, source=smd, source_name="smd_4mol.hdf5")
-    # overwrite=True replaces it
+        import_analysis_only_project(out, source=smd4, source_name="smd_4mol.hdf5")
+
+    # overwrite=True replaces it with the *different* source — the persisted store changes
     summary = import_analysis_only_project(
-        out, source=smd, source_name="smd_4mol.hdf5", overwrite=True
+        out, source=smd2, source_name="smd_2mol.hdf5", overwrite=True
     )
-    assert summary.n_molecules == 4
+    assert summary.n_molecules == smd2.n_molecules == 2
+    assert _read_molecules(out).shape[0] == 2  # the store on disk actually changed
+    assert read_analysis_only_marker(out).source == "smd_2mol.hdf5"
+
+
+def test_overwrite_failure_leaves_the_original_intact(tmp_path: Path, monkeypatch) -> None:
+    """A failure mid-publish rolls back: the original project + no temp artifact survive (§5.4)."""
+    import tether.project.analysis_import as ai_module
+
+    smd4 = read_smd(_SMD4)
+    smd2 = read_smd(_FIXTURES / "smd_2mol.hdf5")
+    out = tmp_path / "ao.tether"
+    import_analysis_only_project(out, source=smd4, source_name="smd_4mol.hdf5")
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("injected mid-publish failure")
+
+    # fail after the temp store is built but before os.replace publishes it
+    monkeypatch.setattr(ai_module, "compute_corrected_fret", _boom)
+    with pytest.raises(RuntimeError, match="injected"):
+        import_analysis_only_project(out, source=smd2, source_name="smd_2mol.hdf5", overwrite=True)
+
+    # the original 4-molecule project is untouched, and no .tmp sibling was left behind
+    assert _read_molecules(out).shape[0] == 4
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 def test_overwrite_refuses_a_foreign_locked_project(tmp_path: Path) -> None:
@@ -309,6 +355,19 @@ def test_rejects_empty_source(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="no molecules"):
         import_analysis_only_project(tmp_path / "e.tether", source=empty)
+
+
+def test_rejects_zero_frame_traces(tmp_path: Path) -> None:
+    """A source with zero-length traces is rejected before any output is published."""
+    from tether.idealize.smd import SMDData
+
+    zero_frames = SMDData(
+        raw=np.zeros((2, 0, 2)), source_names=["s"], source_index=np.zeros(2, dtype="int64")
+    )
+    out = tmp_path / "z.tether"
+    with pytest.raises(ValueError, match="zero frames"):
+        import_analysis_only_project(out, source=zero_frames)
+    assert not out.exists()  # nothing published (rejected before the atomic build)
 
 
 def test_rejects_unknown_source_type(tmp_path: Path) -> None:
