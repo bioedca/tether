@@ -31,6 +31,12 @@ from tether.io.intake import (
     read_tdat_movie_reference,
     verify_movie_reference,
 )
+from tether.io.recover import (
+    RecoveredCoordinates,
+    SmdCoordinateMatch,
+    match_smd_to_coordinates,
+    recover_coordinates,
+)
 from tether.io.tdat import (
     Tdat,
     TdatColocalization,
@@ -53,6 +59,8 @@ __all__ = [
     "MovieRefCheck",
     "MovieReference",
     "ParsedFilename",
+    "RecoveredCoordinates",
+    "SmdCoordinateMatch",
     "Tdat",
     "TdatColocalization",
     "TdatCorrections",
@@ -60,6 +68,7 @@ __all__ = [
     "TdatMovieReference",
     "classify_file",
     "discover_acquisitions",
+    "match_smd_to_coordinates",
     "parse_filename",
     "read_deeplasi_mat",
     "read_deeplasi_txt",
@@ -68,6 +77,7 @@ __all__ = [
     "read_movie_reference",
     "read_tdat",
     "read_tdat_movie_reference",
+    "recover_coordinates",
     "remap_correction_factors",
     "verify_movie_reference",
     "write_deeplasi_txt",
