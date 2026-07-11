@@ -323,3 +323,16 @@ def test_reconstruct_refuses_to_clobber(tmp_path: Path) -> None:
         out, export=export, movie=_movie_meta(export.n_frames), overwrite=True
     )
     assert summary.n_molecules == 4
+
+
+def test_overwrite_refuses_a_foreign_locked_project(tmp_path: Path) -> None:
+    """``overwrite=True`` must not clobber a project another writer holds open (§5.4)."""
+    from tether.project import lock
+
+    export = read_deeplasi_mat(_MAT)
+    out = tmp_path / "recon.tether"
+    reconstruct_project(out, export=export, movie=_movie_meta(export.n_frames))
+    # a foreign writer (another host/user/pid) holds the single-writer lock
+    lock.acquire(out, identity=lock.LockIdentity(host="OTHER", user="bob", pid=999))
+    with pytest.raises(lock.LockedError):
+        reconstruct_project(out, export=export, movie=_movie_meta(export.n_frames), overwrite=True)

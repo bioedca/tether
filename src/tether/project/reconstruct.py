@@ -289,6 +289,10 @@ def reconstruct_project(
     ------
     FileExistsError
         If ``output_path`` exists and ``overwrite`` is ``False``.
+    tether.project.lock.LockedError
+        If ``overwrite`` replaces an existing project a **foreign** ``.lock`` holds
+        (an open GUI session), so the atomic publish cannot bypass the single-writer
+        invariant (§5.4) that ``Project.create(overwrite=True)`` would otherwise assert.
     ValueError
         If ``coordinates`` are not aligned with ``export`` (row count mismatch), or
         ``movie.n_frames != export.n_frames``.
@@ -296,6 +300,15 @@ def reconstruct_project(
     output_path = Path(output_path)
     if output_path.exists() and not overwrite:
         raise FileExistsError(f"{output_path} exists (pass overwrite=True to replace)")
+    if output_path.exists():
+        # The atomic publish (os.replace onto output_path below) is destructive, but the
+        # store is built at a fresh tmp_path so Project.create never sees output_path and
+        # its overwrite=True foreign-lock guard is skipped. Re-assert it here, matching
+        # every other overwrite path, so a project held open by another writer is not
+        # silently clobbered (§5.4).
+        from tether.project import lock  # noqa: PLC0415
+
+        lock.assert_writable(output_path)
 
     if coordinates is None:
         coordinates = recover_coordinates(mat=export)
