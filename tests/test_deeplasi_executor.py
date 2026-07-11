@@ -38,11 +38,14 @@ pytest.importorskip("tifffile")
 import h5py
 import tifffile
 
+import tether.gui.deeplasi_executor as executor_module
 from tether.gui.deeplasi_executor import execute_plan
 from tether.gui.deeplasi_wizard import PlannedAcquisition, WizardMode, WizardPlan
 from tether.imaging.extract import molecule_key
-from tether.io.deeplasi import read_deeplasi_mat
+from tether.io.deeplasi import DeepLasiTraces, read_deeplasi_mat
 from tether.io.intake import AcquisitionFileSet
+from tether.io.recover import RecoveredCoordinates
+from tether.io.tdat import read_tdat
 from tether.project.analysis_import import read_analysis_only_marker
 from tether.project.correct import METHOD_APPARENT_UNAVAILABLE
 
@@ -190,6 +193,10 @@ def test_reconstruct_with_smd_but_no_txt_still_runs(tmp_path: Path) -> None:
     assert e.ok
     assert e.reconstruct is not None
     assert e.reconstruct.n_molecules == 4
+    # the .mat reference differs from the SMD by ~5e-6 (> the matcher's atol=1e-6), so the
+    # curated selection under-populates to zero — proving why the exact-match .txt matters
+    # (with the .txt present the same acquisition curates 1, cf. the batch test).
+    assert e.reconstruct.n_curated == 0
 
 
 def test_movie_metadata_is_hashed_from_the_tif(tmp_path: Path) -> None:
@@ -257,6 +264,143 @@ def test_tdat_corrections_flow_through_to_apparent_e(tmp_path: Path) -> None:
     mols = _read_molecules(e.output_path)
     assert {_decode(v) for v in mols["correction_method"]} == {METHOD_APPARENT_UNAVAILABLE}
     assert np.isnan(mols["gamma"]).all()
+
+
+def test_tdat_corrections_are_forwarded_to_reconstruct(tmp_path: Path, monkeypatch) -> None:
+    """The executor forwards the ``.tdat``'s ``TdatCorrections`` (not ``None``).
+
+    The committed ``.tdat`` has ``DefaultGamma=0``, so ``corrections_applied`` alone can't
+    distinguish "forwarded the corrections" from "forwarded ``None``" (both → apparent-E).
+    Capturing the actual keyword proves the flow-through — and that a reconstruct *without*
+    a ``.tdat`` forwards ``None``.
+    """
+    captured: dict[str, object] = {}
+    real_reconstruct = executor_module.reconstruct_project
+
+    def spy(output_path, **kwargs):
+        captured["corrections"] = kwargs.get("corrections")
+        return real_reconstruct(output_path, **kwargs)
+
+    monkeypatch.setattr(executor_module, "reconstruct_project", spy)
+
+    export = read_deeplasi_mat(_MAT)
+    movie = _write_movie(tmp_path / "mov.tif", export.n_frames)
+    recon = _planned(
+        _fileset(movie=movie, mat=_MAT, tdat=_TDAT),
+        WizardMode.RECONSTRUCT,
+        coordinate_source="mat",
+    )
+    assert execute_plan(_plan(recon), tmp_path / "out").ok
+    passed = captured["corrections"]
+    expected = read_tdat(_TDAT).corrections
+    assert passed is not None
+    assert passed.gamma == expected.gamma == 0.0  # the real .tdat's factors, forwarded
+    assert passed.alpha == expected.alpha  # Tether leakage = Deep-LASI beta
+    assert passed.deeplasi_beta == expected.deeplasi_beta
+
+    # a reconstruct with no .tdat forwards corrections=None
+    captured.clear()
+    movie2 = _write_movie(tmp_path / "mov2.tif", export.n_frames)
+    recon2 = _planned(
+        _fileset("no_tdat", movie=movie2, mat=_MAT),
+        WizardMode.RECONSTRUCT,
+        coordinate_source="mat",
+    )
+    assert execute_plan(_plan(recon2), tmp_path / "out2").ok
+    assert captured["corrections"] is None
+
+
+def test_tdat_coordinates_used_when_counts_align(tmp_path: Path, monkeypatch) -> None:
+    """When the ``.tdat`` colocalized count matches the export, its coordinates are used.
+
+    The committed ``.tdat`` (250 colocalized) never aligns to the 4-molecule export, so the
+    ``source == "tdat"`` honoured branch is reached by simulating an aligned ``.tdat``
+    coordinate set — proving the plan's choice propagates end-to-end (no fallback warning,
+    ``source == "tdat"`` on the summary, the ``.tdat`` coordinates written).
+    """
+    export = read_deeplasi_mat(_MAT)
+    real_recover = executor_module.recover_coordinates
+
+    def fake_recover(*, tdat=None, mat=None, prefer="tdat"):
+        if tdat is not None:  # an aligned .tdat: colocalized count == the traced export
+            return RecoveredCoordinates(
+                donor_xy=export.donor_xy.copy(),
+                acceptor_xy=export.acceptor_xy.copy(),
+                source="tdat",
+            )
+        return real_recover(mat=mat, prefer=prefer)
+
+    monkeypatch.setattr(executor_module, "recover_coordinates", fake_recover)
+
+    movie = _write_movie(tmp_path / "mov.tif", export.n_frames)
+    recon = _planned(
+        _fileset(movie=movie, mat=_MAT, tdat=_TDAT),
+        WizardMode.RECONSTRUCT,
+        coordinate_source="tdat",
+    )
+
+    e = execute_plan(_plan(recon), tmp_path / "out").executed[0]
+    assert e.ok
+    assert e.coordinate_source == "tdat"  # honoured, not fallen back
+    assert e.warnings == ()  # no fallback advisory
+    mols = _read_molecules(e.output_path)
+    np.testing.assert_array_equal(mols["donor_xy"], export.donor_xy)
+
+
+def test_unrecoverable_tdat_coordinates_fall_back_to_mat(tmp_path: Path, monkeypatch) -> None:
+    """A ``.tdat`` that ``recover_coordinates`` rejects (e.g. non-two-colour) → ``.mat``."""
+    export = read_deeplasi_mat(_MAT)
+    real_recover = executor_module.recover_coordinates
+
+    def fake_recover(*, tdat=None, mat=None, prefer="tdat"):
+        if tdat is not None:
+            raise ValueError("simulated non-two-colour .tdat")
+        return real_recover(mat=mat, prefer=prefer)
+
+    monkeypatch.setattr(executor_module, "recover_coordinates", fake_recover)
+
+    movie = _write_movie(tmp_path / "mov.tif", export.n_frames)
+    recon = _planned(
+        _fileset(movie=movie, mat=_MAT, tdat=_TDAT),
+        WizardMode.RECONSTRUCT,
+        coordinate_source="tdat",
+    )
+
+    e = execute_plan(_plan(recon), tmp_path / "out").executed[0]
+    assert e.ok
+    assert e.coordinate_source == "mat"
+    assert any("could not be recovered" in w for w in e.warnings)
+
+
+def test_curated_reference_ignores_a_mismatched_txt(tmp_path: Path, monkeypatch) -> None:
+    """A ``.txt`` whose molecule count differs from the export is not used as the reference.
+
+    The SMD match must be against an export-row-aligned reference; a ``.txt`` covering a
+    different molecule set is skipped for the ``.mat`` fallback rather than raising in the
+    matcher (its row count would not equal ``recovered.n_molecules``).
+    """
+    export = read_deeplasi_mat(_MAT)
+    real_read_txt = executor_module.read_deeplasi_txt
+
+    def fake_read_txt(path):
+        t = real_read_txt(path)  # drop a molecule so the .txt count != the export count
+        return DeepLasiTraces(
+            donor_corrected=t.donor_corrected[:-1], acceptor_corrected=t.acceptor_corrected[:-1]
+        )
+
+    monkeypatch.setattr(executor_module, "read_deeplasi_txt", fake_read_txt)
+
+    movie = _write_movie(tmp_path / "mov.tif", export.n_frames)
+    recon = _planned(
+        _fileset(movie=movie, mat=_MAT, txt=_TXT, smd=_SMD4),
+        WizardMode.RECONSTRUCT,
+        coordinate_source="mat",
+    )
+
+    e = execute_plan(_plan(recon), tmp_path / "out").executed[0]
+    assert e.ok  # the mismatched .txt is ignored; matched against the .mat instead
+    assert e.reconstruct is not None
+    assert e.reconstruct.n_curated == 0  # .mat reference (~5e-6 diff) → no match under atol
 
 
 # --------------------------------------------------------------------------- #
