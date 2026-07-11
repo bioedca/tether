@@ -34,8 +34,10 @@ and the ``.tdat`` ``TIRFdata`` ``Channel.FilePath``
 (:func:`read_tdat_movie_reference`, over :func:`tether.io.tdat.read_movie_reference`)
 both lift into the one :class:`MovieReference` that :func:`verify_movie_reference`
 consumes. Per-molecule coordinate recovery and the intensity-trace cross-check on
-the SMD index remain later M7 concerns (the round-trip *reconstruction* PR); this
-module stops at discovery + pairing.
+the SMD index live in the sibling :mod:`tether.io.recover`
+(:func:`~tether.io.recover.recover_coordinates` /
+:func:`~tether.io.recover.match_smd_to_coordinates`); this module stops at
+discovery + pairing.
 
 Coordinate availability (PRD §7.8 "Coordinate sources"): only the ``.tdat`` and the
 ``.mat`` carry per-molecule pixel coordinates, so **full round-trip re-analysis
