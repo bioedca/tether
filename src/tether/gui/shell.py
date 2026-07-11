@@ -368,6 +368,13 @@ class TetherShell:
         self._act_validate_conditions = self._conditions_menu.addAction("Validate &conditions…")
         self._act_validate_conditions.triggered.connect(self._validate_conditions_dialog)
 
+        # Legacy menu: the M7 Deep-LASI re-analysis entry point — import a folder of
+        # Deep-LASI acquisition files (movie + .tdat/.mat/.txt/SMD) into round-trip
+        # or analysis-only .tether projects through the wizard (§7.8, FR-LEGACY).
+        self._legacy_menu = self._window.menuBar().addMenu("&Legacy")
+        self._act_import_deeplasi = self._legacy_menu.addAction("&Import Deep-LASI bundle…")
+        self._act_import_deeplasi.triggered.connect(self._import_deeplasi_dialog)
+
         self._window.statusBar().showMessage("Ready — Space accept · Backspace reject · Enter jump")
 
     # --- accessors -----------------------------------------------------------
@@ -613,6 +620,52 @@ class TetherShell:
             self._status(f"Conditions validation failed: {exc}")
             return
         self._status("Conditions validation closed")
+
+    # --- legacy (M7 Deep-LASI re-analysis bundle import, §7.8) ---------------
+
+    @property
+    def legacy_menu(self) -> QtWidgets.QMenu:
+        """The ``&Legacy`` menu (Deep-LASI bundle re-analysis import, §7.8)."""
+        return self._legacy_menu
+
+    def _new_deeplasi_dialog(self) -> Any:  # pragma: no cover - builds the real dialog
+        """Construct the real Deep-LASI wizard dialog parented to the shell window."""
+        from tether.gui.deeplasi_wizard_ui import DeepLasiWizardDialog
+
+        return DeepLasiWizardDialog(parent=self._window)
+
+    def import_deeplasi_bundle(
+        self, *, dialog_factory: Callable[[], Any] | None = None
+    ) -> tuple[Path, ...]:
+        """Run the Deep-LASI re-analysis wizard, then report + return the written projects.
+
+        Opens the :class:`~tether.gui.deeplasi_wizard_ui.DeepLasiWizardDialog` — which
+        owns the whole flow (folder intake → per-acquisition plan confirmation →
+        reconstruct / analysis-only import) — then reports the written ``.tether``
+        project paths in the status bar and returns them (§7.8, FR-LEGACY). The
+        ``dialog_factory`` seam defaults to :meth:`_new_deeplasi_dialog` (the real
+        modal dialog parented to the shell); a test injects a stand-in to drive the
+        report path headlessly without a modal event loop. A dialog that raises is
+        caught and surfaced as a status message so the shell stays alive; the return
+        is the produced paths — empty when the user cancels, writes nothing, or the
+        dialog fails.
+        """
+        factory = dialog_factory or self._new_deeplasi_dialog
+        try:
+            produced = tuple(factory().exec())
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Deep-LASI import failed: {exc}")
+            return ()
+        if produced:
+            names = ", ".join(Path(p).name for p in produced)
+            self._status(f"Deep-LASI import: wrote {len(produced)} project(s) — {names}")
+        else:
+            self._status("Deep-LASI import: no projects written")
+        return produced
+
+    def _import_deeplasi_dialog(self) -> None:  # pragma: no cover - interactive dialog
+        """Menu entry: run the Deep-LASI re-analysis wizard (intake → import), §7.8."""
+        self.import_deeplasi_bundle()
 
     # --- analysis (population apparent-E histogram, §7.7) --------------------
 
