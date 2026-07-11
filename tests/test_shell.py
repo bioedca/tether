@@ -941,3 +941,70 @@ def test_close_closes_histogram_dock(qapp, qtbot) -> None:
 
     s.close()
     assert closed == [True]
+
+
+# --- &Legacy menu (M7 Deep-LASI re-analysis bundle import, §7.8) --------------
+
+
+class _StubWizardDialog:
+    """A stand-in for ``DeepLasiWizardDialog`` returning preset produced paths.
+
+    Lets the ``&Legacy`` entry point be driven headlessly (no modal event loop):
+    :meth:`exec` records its call count and hands back the paths the shell reports.
+    """
+
+    def __init__(self, produced) -> None:
+        self._produced = tuple(produced)
+        self.exec_calls = 0
+
+    def exec(self):
+        self.exec_calls += 1
+        return self._produced
+
+
+def test_legacy_menu_exposes_import_action(shell) -> None:
+    labels = [a.text() for a in shell.legacy_menu.actions()]
+    assert labels == ["&Import Deep-LASI bundle…"]
+
+
+def test_import_deeplasi_bundle_reports_produced_projects(shell) -> None:
+    produced = (Path("out/recon_010.tether"), Path("out/analysis_025.tether"))
+    stub = _StubWizardDialog(produced)
+    result = shell.import_deeplasi_bundle(dialog_factory=lambda: stub)
+    assert result == produced
+    assert stub.exec_calls == 1
+    assert "wrote 2 project(s)" in shell.status_message
+    assert "recon_010.tether" in shell.status_message
+    assert "analysis_025.tether" in shell.status_message
+
+
+def test_import_deeplasi_bundle_reports_nothing_when_empty(shell) -> None:
+    result = shell.import_deeplasi_bundle(dialog_factory=lambda: _StubWizardDialog(()))
+    assert result == ()
+    assert "no projects written" in shell.status_message
+
+
+class _RaisingWizardDialog:
+    """A stand-in whose modal run raises — the realistic failure path (the wizard
+    decodes and imports inside ``exec``), so the guard is pinned where it fires."""
+
+    def exec(self):
+        raise RuntimeError("bundle decode failed")
+
+
+def test_import_deeplasi_bundle_surfaces_dialog_failure(shell) -> None:
+    # Construction succeeds; the modal run raises (where real decode/import happens).
+    result = shell.import_deeplasi_bundle(dialog_factory=_RaisingWizardDialog)
+    assert result == ()
+    assert "Deep-LASI import failed" in shell.status_message
+    assert "bundle decode failed" in shell.status_message
+
+
+def test_legacy_menu_action_triggers_import(shell) -> None:
+    # The menu action routes through import_deeplasi_bundle (which, unpatched, opens
+    # the real modal dialog); patch the bound method so the trigger is observable
+    # headlessly and assert the wiring fires.
+    calls = []
+    shell.import_deeplasi_bundle = lambda: calls.append(True) or ()
+    shell.legacy_menu.actions()[0].trigger()
+    assert calls == [True]
