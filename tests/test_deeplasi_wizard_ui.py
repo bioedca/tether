@@ -188,6 +188,40 @@ def test_scan_with_no_folder_prompts_and_does_not_build(qapp, qtbot) -> None:
     assert "Choose a folder" in dlg._intake_status.text()
 
 
+def _scan_stub(dlg, monkeypatch, wizard, directory="/some/folder"):
+    from tether.gui import deeplasi_wizard_ui as ui
+
+    monkeypatch.setattr(
+        ui, "DeepLasiWizard", type("S", (), {"from_directory": staticmethod(lambda d, **k: wizard)})
+    )
+    dlg.set_directory(directory)
+    dlg.scan()
+
+
+def test_editing_the_folder_after_a_scan_invalidates_the_plan(qapp, qtbot, monkeypatch) -> None:
+    dlg = _dialog(qtbot)
+    _scan_stub(dlg, monkeypatch, _mixed_wizard())
+    assert dlg.wizard is not None
+    assert dlg._next_btn.isEnabled()
+
+    # Changing the folder text drops the stale plan so Next cannot re-open the old one.
+    dlg._dir_edit.setText("/some/other/folder")
+    assert dlg.wizard is None
+    assert not dlg._next_btn.isEnabled()
+    assert dlg._table.rowCount() == 0
+    assert "scan again" in dlg._intake_status.text().lower()
+
+
+def test_toggling_recursive_after_a_scan_invalidates_the_plan(qapp, qtbot, monkeypatch) -> None:
+    dlg = _dialog(qtbot)
+    _scan_stub(dlg, monkeypatch, _mixed_wizard())
+    assert dlg._next_btn.isEnabled()
+
+    dlg._recursive_box.setChecked(True)
+    assert dlg.wizard is None
+    assert not dlg._next_btn.isEnabled()
+
+
 # --------------------------------------------------------------------------- #
 # editing the plan — every edit routes through the controller
 # --------------------------------------------------------------------------- #
@@ -273,6 +307,20 @@ def test_empty_output_name_reverts_to_the_current_name(qapp, qtbot) -> None:
     assert plan.output_name == "recon_010.tether"
     assert edit.text() == "recon_010.tether"
     assert "cannot be empty" in dlg._status.text()
+
+
+def test_path_like_output_name_is_rejected_and_reverted(qapp, qtbot) -> None:
+    wizard = _mixed_wizard()
+    dlg = _dialog(qtbot, wizard=wizard)
+
+    edit = dlg.output_edit("recon_010")
+    edit.setText("../escape")  # a traversal attempt must not leave the destination
+    edit.editingFinished.emit()
+
+    plan = next(p for p in wizard.plans if p.key == "recon_010")
+    assert plan.output_name == "recon_010.tether"  # unchanged
+    assert edit.text() == "recon_010.tether"  # reverted
+    assert "bare filename" in dlg._status.text()
 
 
 # --------------------------------------------------------------------------- #

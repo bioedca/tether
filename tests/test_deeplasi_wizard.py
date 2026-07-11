@@ -245,6 +245,31 @@ def test_set_output_name_rejects_empty() -> None:
         wizard.set_output_name("acq_010", "   ")
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../escape",
+        "..\\escape",
+        "sub/dir",
+        "sub\\dir",
+        "/abs.tether",
+        "\\abs.tether",
+        "C:\\abs.tether",
+        "C:rel.tether",
+        ".",
+        "..",
+    ],
+)
+def test_set_output_name_rejects_path_like_names(name) -> None:
+    # The executor writes output_dir / output_name, so a path-like name could escape
+    # the destination (traversal / absolute / drive). The controller rejects them.
+    wizard = _wizard(_fs(movie=True, mat=True))
+    with pytest.raises(WizardError, match="bare filename"):
+        wizard.set_output_name("acq_010", name)
+    # The plan is unchanged after a rejected edit.
+    assert wizard.plans[0].output_name == "acq_010.tether"
+
+
 def test_set_categories() -> None:
     wizard = _wizard(_fs(movie=True, mat=True))
     assert wizard.set_categories("acq_010", ["dynamic", "static"]).categories == (

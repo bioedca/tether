@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING
 
 from tether.io.intake import (
@@ -510,11 +511,30 @@ class DeepLasiWizard:
         return updated
 
     def set_output_name(self, key: str, name: str) -> PlannedAcquisition:
-        """Rename an acquisition's destination project (a ``.tether`` suffix is enforced)."""
+        """Rename an acquisition's destination project (a ``.tether`` suffix is enforced).
+
+        The executor writes ``output_dir / output_name`` (:func:`tether.gui.
+        deeplasi_executor.execute_plan`), so the name must be a **bare filename**:
+        path separators, absolute paths, drive letters, and ``.``/``..`` traversal are
+        rejected (checked against both POSIX and Windows path grammars) so a crafted
+        name can never escape the chosen destination.
+        """
         i, p = self._locate(key)
         stem = name.strip()
         if not stem:
             raise WizardError(f"output name for {key!r} cannot be empty")
+        # ``.``/``..`` are valid path *components* to pathlib (``PurePath("..").name``
+        # is ``".."``), so reject the traversal tokens explicitly alongside the
+        # bare-filename check (which catches separators, absolute paths, and drives).
+        if (
+            stem in (".", "..")
+            or PurePosixPath(stem).name != stem
+            or PureWindowsPath(stem).name != stem
+        ):
+            raise WizardError(
+                f"output name for {key!r} must be a bare filename without path "
+                f"separators or traversal, got {name!r}"
+            )
         if not stem.casefold().endswith(".tether"):
             stem = f"{stem}.tether"
         updated = replace(p, output_name=stem)

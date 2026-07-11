@@ -167,6 +167,9 @@ class DeepLasiWizardDialog:
         row = QtWidgets.QHBoxLayout()
         self._dir_edit = QtWidgets.QLineEdit()
         self._dir_edit.setPlaceholderText("Acquisition folder…")
+        # Editing the folder (or the recursive toggle) after a scan invalidates the
+        # cached plan, so a stale one can never be advanced without re-scanning.
+        self._dir_edit.textChanged.connect(self._invalidate_scan)
         row.addWidget(self._dir_edit, stretch=1)
         self._browse_btn = QtWidgets.QPushButton("Browse…")
         self._browse_btn.clicked.connect(self._choose_directory)
@@ -174,6 +177,7 @@ class DeepLasiWizardDialog:
         layout.addLayout(row)
 
         self._recursive_box = QtWidgets.QCheckBox("Search sub-folders")
+        self._recursive_box.toggled.connect(self._invalidate_scan)
         layout.addWidget(self._recursive_box)
 
         self._scan_btn = QtWidgets.QPushButton("Scan folder")
@@ -269,6 +273,27 @@ class DeepLasiWizardDialog:
     def set_directory(self, directory: str | PathLike[str]) -> None:
         """Set the intake folder text (the test/shell seam that bypasses the picker)."""
         self._dir_edit.setText(str(directory))
+
+    def _invalidate_scan(self) -> None:
+        """Drop a stale plan when the intake inputs change, forcing a fresh scan.
+
+        Once a folder is scanned, editing the folder text or the recursive toggle must
+        not leave the previous folder's plan runnable — otherwise *Next* could advance
+        (or a shell caller could read via :meth:`produced_projects`) acquisitions from
+        the folder the user just navigated away from. Clears the controller + confirm
+        table and disables *Next* until :meth:`scan` succeeds again. A no-op when no
+        plan is cached yet (so typing the first folder path stays quiet).
+        """
+        if self._wizard is None:
+            return
+        self._wizard = None
+        self._table.setRowCount(0)
+        self._mode_combos.clear()
+        self._coord_combos.clear()
+        self._output_edits.clear()
+        self._last_mode.clear()
+        self._intake_status.setText("Folder changed — scan again to refresh the plan.")
+        self._update_nav()
 
     def scan(self) -> None:
         """Scan the chosen folder into a controller and populate the confirm table.
