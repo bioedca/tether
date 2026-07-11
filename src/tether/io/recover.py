@@ -85,7 +85,7 @@ class RecoveredCoordinates:
         return int(self.donor_xy.shape[0])
 
 
-@dataclass
+@dataclass(eq=False)
 class SmdCoordinateMatch:
     """Recovered coordinates attached to an SMD's traces (PRD §7.8, §5.3).
 
@@ -94,7 +94,9 @@ class SmdCoordinateMatch:
     ``donor_xy`` / ``acceptor_xy`` are ``(n_smd, 2)`` ``float64`` — the recovered
     coordinates of each SMD row's matched molecule, or ``[nan, nan]`` when
     unmatched. The match is **one-to-one** (each acquisition molecule is claimed by
-    at most one SMD row) and unmatched rows are reported, never guessed.
+    at most one SMD row) and unmatched rows are reported, never guessed. ``eq=False``
+    because the ndarray fields make a generated ``__eq__`` ambiguous (identity
+    equality is the sensible default here, as for :class:`RecoveredCoordinates`).
     """
 
     mapping: np.ndarray
