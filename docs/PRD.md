@@ -185,7 +185,10 @@ operationalized as a calendar gate (§9 is capability-sequenced, with no schedul
   ship inside an offline signed installer (§4.3, §9 M9). Data is exchanged as SMD-HDF5; the same export is the
   standalone-GUI hand-off.
 - **ML:** scikit-learn / XGBoost [Chen2016] for the classical, warm-start/incremental per-condition model →
-  PyTorch (deep, GPU) later for DeepFRET-style trace classifiers [Thomsen2020].
+  PyTorch (deep, GPU) for DeepFRET-style trace classifiers [Thomsen2020], hosted in a **third isolated `deep/`
+  conda stack** (mirroring the sidecar; the CPU build is locked for CI via the `pytorch-cpu` metapackage, the CUDA
+  build documented for the GPU floor) and consumed behind a lazy import so the CPU base app is unaffected
+  (M8; ADR-0047, `deep/environment.yml` + `deep/conda-lock.yml`).
 - **Storage:** immutable source TIFF via `tifffile.memmap`; per-experiment project = a single self-describing
   **HDF5** file; an optional cached Zarr movie pyramid in local scratch (never synced).
 - **Packaging:** conda-forge + **constructor** installers; a guided sidecar-environment setup script for v1, full
@@ -1111,7 +1114,7 @@ add-on" (§8 NFR-XPLAT).
 | `pre-commit` | M0 | §12.9 hooks mirrored in CI |
 | `commitlint` (PR-title / Conventional-Commits) | M0 | §12.2 |
 | `secret-scan` (gitleaks; mirrors push protection) | M0 | §12.8/§12.9 |
-| `conda-lock-verify` (locks ↔ sources, base + sidecar) | M0 | pin-and-hold integrity §4.1/§4.3 |
+| `conda-lock-verify` (locks ↔ sources, base + sidecar + deep) | M0 | pin-and-hold integrity §4.1/§4.3 (deep stack from M8) |
 | `schema-guard` | M0 | additive-only HDF5 freeze §5/§9 M0 |
 | `codeql` | M0 | static analysis §12.8 |
 | `docs-build` (mkdocs `--strict`) | M0 | §4.1 / §8 NFR-PKG |
@@ -1244,8 +1247,9 @@ The **pre-commit framework** runs the same checks locally (on commit) and in CI 
   the large tier.
 - **secret scan** — **gitleaks** (or `detect-secrets`), mirroring GitHub push protection so a secret is caught
   before it reaches the remote (§12.6/§12.8).
-- **conda-lock up-to-date** — verifies the committed base lock *and* the separate sidecar lock (§4.1/§4.3) are in
-  sync with their `environment.yml`/`pyproject` sources (no drift between intent and lock).
+- **conda-lock up-to-date** — verifies the committed base lock, the separate sidecar lock, *and* the isolated
+  `deep/` torch lock (§4.1/§4.3; deep from M8) are in sync with their `environment.yml` sources (no drift between
+  intent and lock).
 - **SPDX / REUSE** — `reuse lint` + a fast SPDX-header presence hook (§12.1).
 - **commitlint / Conventional-Commits** on the commit message (and the PR title in CI — §12.2).
 
