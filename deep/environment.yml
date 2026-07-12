@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Tether deep-classifier environment — the THIRD, ISOLATED optional stack
+# (ADR-0047 "Option A"; PRD §4.1 "PyTorch (deep, GPU) later", §9 M8), mirroring
+# the tMAVEN sidecar's pin-and-hold isolation (ADR-0004, extended to three
+# stacks by ADR-0047).
+#
+# This env carries PyTorch for the OPTIONAL M8 deep trace classifier (a 1-D
+# CNN/LSTM, DeepFRET/Deep-LASI-style). It is consumed ONLY via a lazy/guarded
+# import in `tether.ml.deep` behind a NON-required CI leg, so the CPU base app
+# never imports torch and is completely unaffected (§9 M8 "a deep classifier
+# trains on the shared label store AND is optional — CPU base app unaffected").
+#
+# Pin-and-hold policy (PRD §4.1, §12): this file expresses *constraints*; the
+# committed multi-platform `deep/conda-lock.yml` pins the *exact* versions and
+# is the single source of truth. `conda-lock-verify` restores/short-circuits the
+# lock and never solves fresh in CI. A re-lock is a deliberate PR.
+#
+# NEVER merge these deps into the base `environment.yml` (PySide6/napari on the
+# Numba-bounded numpy) or `sidecar/environment.yml` (PyQt5 on numpy<2). Keeping
+# the conda-lock stacks isolated is the load-bearing invariant (ADR-0004/0047).
+#
+# --- CPU-only, cross-platform ---
+# `pytorch-cpu` is the conda-forge metapackage that pulls the CPU `pytorch`
+# build (build strings `cpu_generic*` on osx, `cpu_mkl*` on linux/win) and never
+# a CUDA variant, so the offline bundle and the CI train-smoke stay lean (a CUDA
+# build is ~2 GB vs ~200 MB — conda-forge tips-and-tricks). The GPU (CUDA) build
+# is documented for the RTX-4060 floor and selected at install time on a GPU
+# box, NOT locked here (that is the non-required GPU workflow_dispatch leg).
+#
+# --- Why numpy/scipy/h5py are here (empirically verified) ---
+# Importing `tether.ml.deep.dataset` runs the `tether.ml` package __init__,
+# which imports the M5 ranker modules; `tether.ml.features` pulls
+# `scipy.spatial.cKDTree` and, transitively, the store bridge (`h5py`).
+# scikit-learn / xgboost stay LAZY (they load only when a classical ranker
+# trains), and matplotlib / tifffile / scikit-image are NOT on the import path,
+# so none of those are needed here. numpy is bounded to the base window so the
+# shared substrate + transitively-imported base modules behave identically.
+name: tether-deep
+channels:
+  - conda-forge
+platforms:
+  - linux-64
+  - osx-64
+  - osx-arm64
+  - win-64
+dependencies:
+  # --- interpreter (match the base 3.12 pin so the shared dataset substrate
+  #     behaves identically) ---
+  - python=3.12.*
+  - pip
+  # --- deep-learning framework (CPU build; the CUDA build is documented, not
+  #     locked) ---
+  - pytorch-cpu>=2.2,<3
+  # --- compute (numpy bounded to the base window; scipy + h5py are pulled by
+  #     the tether.ml package __init__ chain — see the header note) ---
+  - numpy>=1.26,<2.2
+  - scipy>=1.13
+  - h5py>=3.11

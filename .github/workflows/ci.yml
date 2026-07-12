@@ -96,11 +96,13 @@ jobs:
           python-version: "3.12"
       - name: Install conda-lock
         run: python -m pip install "conda-lock==4.0.1"
-      - name: Verify base + sidecar locks match their environment.yml
+      - name: Verify base + sidecar + deep locks match their environment.yml
         # `--check-input-hash` short-circuits the solve when the spec hash still
         # matches the lock; the authoritative gate is then `git diff`: a stale
         # lock would be regenerated and show a diff. conda is preinstalled on the
         # runner ($CONDA) so conda-lock never bootstraps a backend over the net.
+        # The three isolated stacks (base GUI, tMAVEN sidecar, deep torch add-on)
+        # are each pin-and-held and verified independently (ADR-0004/0047).
         run: |
           set -euo pipefail
           echo "$CONDA/bin" >> "$GITHUB_PATH"
@@ -117,11 +119,12 @@ jobs:
           }
           run_check environment.yml conda-lock.yml
           run_check sidecar/environment.yml sidecar/conda-lock.yml
-          if ! git diff --exit-code conda-lock.yml sidecar/conda-lock.yml; then
+          run_check deep/environment.yml deep/conda-lock.yml
+          if ! git diff --exit-code conda-lock.yml sidecar/conda-lock.yml deep/conda-lock.yml; then
             echo "::error::A committed lock no longer matches its environment.yml — re-run conda-lock and commit the result."
             exit 1
           fi
-          echo "Both locks verified against their environment.yml."
+          echo "All three locks (base + sidecar + deep) verified against their environment.yml."
 
   docs-build:
     name: docs-build

@@ -29,3 +29,4 @@ benchmarks/large/**      filter=lfs diff=lfs merge=lfs -text
 # Keep the committed dependency locks diffable as text
 conda-lock.yml          text
 sidecar/conda-lock.yml  text
+deep/conda-lock.yml     text

@@ -87,15 +87,24 @@ runs on the default 3-OS matrix, and de-risks the model PR. Substrate decisions:
   by extracting the feature-independent label/weight join; binary labels only until M4's category
   codec; `window_length`/`normalization` defaults are best-effort and retuned to the trained model
   in PR-1b.
-- **Follow-up:** PR-1b = the `deep/` env + lock (the approved isolated bump) + torch
-  `Dataset`/`DataLoader` + the 1-D CNN/LSTM + a headless CPU train-smoke `@pytest.mark.deep`;
-  PR-2 = the non-required GPU `workflow_dispatch` CI leg; kinSoftChallenge kinetics validation and
+- **Follow-up:** PR-1b was split in two. **PR-1b-i (this landed the lock):** the isolated `deep/`
+  stack — `deep/environment.yml` + `deep/conda-lock.yml` pinning the CPU `pytorch-cpu` metapackage
+  (build strings `cpu_mkl*`/`cpu_generic*`, zero CUDA artifacts) across all four platforms, plus
+  numpy (bounded to the base `<2.2` window) + scipy + h5py (the empirically verified import footprint
+  of `tether.ml.deep.dataset`), wired into the required `conda-lock-verify` check (base + sidecar +
+  deep). The deep env was instantiated from the lock and `import torch` + `import tether.ml.deep.dataset`
+  verified to co-import. **PR-1b-ii (next):** the torch `Dataset`/`DataLoader` over `DeepTraceDataset`,
+  the 1-D CNN/LSTM, and a headless CPU train-smoke `@pytest.mark.deep` on a new **non-required** CI leg.
+  Then PR-2 = the non-required GPU `workflow_dispatch` CI leg; kinSoftChallenge kinetics validation and
   fine-tuning are their own M8 PRs.
 
 ## More information
 
 - **New §11.2 tunable:** "Deep-dataset preprocessing (M8)" (window length, normalization, channels,
   train/val split) — registered in PRD §11.2, defaults defined in `tether.ml.deep.dataset`.
+- **Packaging (PR-1b-i):** `deep/environment.yml` + `deep/conda-lock.yml` (the third isolated stack),
+  verified by the required `conda-lock-verify` CI check (base + sidecar + deep) and `.gitattributes`
+  (kept diffable as text). PRD §4.1 names the stack.
 - Code: `src/tether/ml/deep/__init__.py`, `src/tether/ml/deep/dataset.py`,
   `src/tether/project/deep_dataset.py`.
 - Tests: `tests/test_ml_deep_dataset.py`, `tests/test_project_deep_dataset.py`.
