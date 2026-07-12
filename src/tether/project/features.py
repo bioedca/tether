@@ -67,6 +67,7 @@ __all__ = [
     "read_features",
     "similar_molecules",
     "similar_to_molecules",
+    "windowed_traces",
 ]
 
 #: The frozen §5 container group the feature table is written under.
@@ -181,6 +182,27 @@ def _windowed_rows(
         acceptor = np.asarray(acceptor_all[i, lo:hi], dtype=np.float64)
         out.append((_to_str(mol_ids[i]), _to_str(mol_keys[i]), donor, acceptor))
     return out
+
+
+def windowed_traces(
+    project: ProjectRef,
+    *,
+    molecule_keys: list[str] | None = None,
+    intensity_quantity: str = "corrected",
+    include_rejected: bool = True,
+) -> list[tuple[str, str, np.ndarray, np.ndarray]]:
+    """Per-molecule ``(molecule_id, molecule_key, windowed donor, windowed acceptor)`` (FR-ML).
+
+    The public, ``ProjectRef``-accepting form of the shared window-slicing primitive that both
+    :func:`compute_features` and :func:`tether.project.deep_dataset.build_deep_dataset` read:
+    each kept molecule (``include_rejected=True`` by default — a reject is an ML training label)
+    sliced to its ``analysis_window`` (falling back to ``frame_range`` when unset ``[0, 0]``),
+    keyed by the **unique** ``molecule_id`` so the trace can never be mis-joined. Read-only.
+    """
+    from tether.project.core import Project as _Project
+
+    path = project.path if isinstance(project, _Project) else Path(project)
+    return _windowed_rows(path, molecule_keys, intensity_quantity, include_rejected)
 
 
 def _read_aperture_radius(path: Path) -> float:
