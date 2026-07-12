@@ -6,7 +6,7 @@ Marked ``@pytest.mark.deep`` (module-level ``pytestmark``): these tests import t
 :func:`tether.ml.deep.model.train_classifier`), so they run **only** in the isolated, optional
 ``deep/`` env on the non-required ``deep.yml`` CI leg, and are deselected from the base 3-OS
 matrix (``-m "not ... and not deep"``). The file name matches ``deep.yml``'s
-``tests/test_*deep*.py`` collection glob — enforced by ``tests/test_marker_contract.py``.
+``tests/test_*_deep.py`` suffix collection glob — enforced by ``tests/test_marker_contract.py``.
 
 The smoke asserts the §9 M8 acceptance clause end to end on the shared label-store substrate:
 a deep classifier *trains* on labeled traces (loss decreases, stays finite), *predicts*
@@ -112,3 +112,24 @@ def test_train_classifier_rejects_bad_arguments() -> None:
         train_classifier(ds, epochs=0)
     with pytest.raises(ValueError, match="kernel_size"):
         train_classifier(ds, kernel_size=4)  # even kernel desyncs same-length packing
+
+
+def test_train_rejects_zero_length_traces() -> None:
+    """A trace with no valid frames is rejected, never fabricated into a synthetic frame."""
+    donors = [np.array([], dtype=float), 800.0 + np.zeros(20)]
+    acceptors = [np.array([], dtype=float), 200.0 + np.zeros(20)]
+    y = np.array([1, -1], dtype=np.int8)
+    w = np.ones(2, dtype=np.float64)
+    ds = assemble_dataset(["empty", "ok"], donors, acceptors, y, w, window_length=32)
+    assert ds.lengths[0] == 0  # the substrate honestly records the empty trace
+    with pytest.raises(ValueError, match="zero valid frames"):
+        train_classifier(ds, epochs=2, batch_size=2)
+
+
+def test_predict_proba_rejects_mismatched_preprocessing() -> None:
+    """Scoring a dataset whose preprocessing differs from training is rejected, not silent-wrong."""
+    trained = train_classifier(_synthetic_dataset(n_per_class=6), epochs=3, batch_size=8, seed=0)
+    # Same molecules but a different window length => incompatible preprocessing contract.
+    other = _synthetic_dataset(n_per_class=6, window_length=48)
+    with pytest.raises(ValueError, match="does not match the trained classifier"):
+        trained.predict_proba(other)

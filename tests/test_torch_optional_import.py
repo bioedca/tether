@@ -8,8 +8,9 @@ a refactor ever moved an ``import torch`` to module scope (directly, or transiti
 package ``__init__`` chain), the base app would gain a hard torch dependency and the base 3-OS
 matrix — which has no torch — would break. This test locks the invariant.
 
-It runs in the **base** matrix (the file name deliberately omits "deep", so ``deep.yml``'s
-``tests/test_*deep*.py`` glob does not collect it). Each check spawns a **fresh interpreter** and
+It runs in the **base** matrix (the file name deliberately does not end in ``_deep.py``, so
+``deep.yml``'s ``tests/test_*_deep.py`` suffix glob does not collect it). Each check spawns a
+**fresh interpreter** and
 asserts ``torch`` is absent from ``sys.modules`` after the import, so the result is independent
 of whatever the current pytest process has already imported — it stays meaningful even in the
 deep env where torch *is* installed.
@@ -47,6 +48,7 @@ def test_importing_deep_surface_does_not_pull_torch(module: str) -> None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,  # a hung import must fail the test, not wedge the CI job indefinitely
     )
     assert result.returncode == 0, (
         f"import-safety subprocess failed for {module}:\n{result.stdout}\n{result.stderr}"

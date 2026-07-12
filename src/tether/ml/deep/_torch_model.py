@@ -55,11 +55,24 @@ class DeepTraceTorchDataset(Dataset):
     """
 
     def __init__(self, dataset: DeepTraceDataset) -> None:
+        # Reject zero-valid-frame traces up front (the choke point both train and predict pass
+        # through). A length-0 trace has no observed data; feeding it to the model would force a
+        # fabricated frame (the never-fabricate discipline), so fail fast naming the offenders
+        # rather than silently classifying padding.
+        lengths_arr = np.ascontiguousarray(dataset.lengths)
+        zero_rows = np.nonzero(lengths_arr < 1)[0]
+        if zero_rows.size:
+            offenders = [dataset.molecule_ids[i] for i in zero_rows[:10].tolist()]
+            raise ValueError(
+                f"{zero_rows.size} trace(s) have zero valid frames and cannot be classified "
+                "(a zero-length trace has no observed data); filter them before training or "
+                f"inference. First offending molecule_ids: {offenders}"
+            )
         # from_numpy shares memory; ascontiguousarray guarantees a C-contiguous source. X is
         # already float32 (n, n_channels, window_length); lengths int64; y int8 -> float32 for
         # BCEWithLogitsLoss; sample_weight float64 -> float32.
         self._x = torch.from_numpy(np.ascontiguousarray(dataset.X))
-        self._lengths = torch.from_numpy(np.ascontiguousarray(dataset.lengths))
+        self._lengths = torch.from_numpy(lengths_arr)
         self._y = torch.from_numpy(np.ascontiguousarray(dataset.y).astype(np.float32))
         self._w = torch.from_numpy(np.ascontiguousarray(dataset.sample_weight).astype(np.float32))
 
@@ -118,10 +131,10 @@ class TraceClassifier(nn.Module):
     def forward(self, x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
         features = self.conv(x)  # (N, conv_channels, L)  — odd-kernel "same" keeps L
         features = features.transpose(1, 2)  # (N, L, conv_channels) for batch_first LSTM
-        # pack_padded_sequence needs int64 lengths on the CPU, each >= 1. A degenerate all-padded
-        # trace (valid length 0) is clamped to 1 so packing never raises; its single (zero) frame
-        # contributes a benign hidden state and its label still trains the head.
-        lengths_cpu = lengths.detach().to("cpu").clamp(min=1).to(torch.int64)
+        # pack_padded_sequence needs int64 lengths on the CPU, each >= 1. Zero-length traces are
+        # rejected up front in DeepTraceTorchDataset.__init__ (never fabricated into a frame), so
+        # every length here is already >= 1.
+        lengths_cpu = lengths.detach().to("cpu").to(torch.int64)
         packed = pack_padded_sequence(features, lengths_cpu, batch_first=True, enforce_sorted=False)
         _, (h_n, _) = self.lstm(packed)  # h_n: (num_directions, N, lstm_hidden)
         # Bidirectional: concat the forward (h_n[-2]) and backward (h_n[-1]) final hidden states

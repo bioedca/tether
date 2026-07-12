@@ -90,6 +90,11 @@ class TrainedDeepClassifier:
     importable in the torch-free base env (a caller only touches it via :meth:`predict_proba`,
     which lazily loads torch). ``history`` is the per-epoch weighted training loss;
     ``hyperparameters`` records every §11.2 tunable used, so a stored result is reproducible.
+    The preprocessing provenance (``channels``, ``n_channels``, ``window_length``,
+    ``normalization``, ``intensity_quantity``) is the **contract** :func:`predict_proba` enforces:
+    an inference dataset built with a different channel order, normalization, window, or intensity
+    quantity would keep a compatible tensor *shape* yet produce silently-invalid scores, so it is
+    rejected rather than scored.
     """
 
     model: Any
@@ -97,6 +102,7 @@ class TrainedDeepClassifier:
     n_channels: int
     window_length: int
     normalization: str
+    intensity_quantity: str
     history: tuple[float, ...]
     hyperparameters: dict[str, Any]
 
@@ -189,6 +195,7 @@ def train_classifier(
         n_channels=dataset.n_channels,
         window_length=dataset.window_length,
         normalization=dataset.normalization,
+        intensity_quantity=dataset.intensity_quantity,
         history=tuple(history),
         hyperparameters=hyperparameters,
     )
@@ -206,10 +213,35 @@ def predict_proba(
     Accepts either a :class:`TrainedDeepClassifier` or a bare trained ``nn.Module``. Rows align
     with ``dataset.molecule_ids`` (no shuffle). ``device`` defaults to the training device when a
     :class:`TrainedDeepClassifier` is passed, else ``"cpu"``. Lazily imports torch.
+
+    When a :class:`TrainedDeepClassifier` is passed, the ``dataset``'s preprocessing provenance
+    (channel order, channel count, window length, normalization, intensity quantity) must match
+    what the model was trained on — a mismatch keeps a compatible tensor shape but would yield
+    silently-invalid scores, so it raises :class:`ValueError`. Pass a bare ``nn.Module`` to bypass
+    the check (the caller then owns the contract).
     """
     from tether.ml.deep import _torch_model  # lazy: torch only loads here
 
     if isinstance(trained, TrainedDeepClassifier):
+        expected = (
+            trained.channels,
+            trained.n_channels,
+            trained.window_length,
+            trained.normalization,
+            trained.intensity_quantity,
+        )
+        actual = (
+            dataset.channels,
+            dataset.n_channels,
+            dataset.window_length,
+            dataset.normalization,
+            dataset.intensity_quantity,
+        )
+        if actual != expected:
+            raise ValueError(
+                "dataset preprocessing does not match the trained classifier "
+                f"(trained on {expected!r}, got {actual!r}); predictions would be invalid"
+            )
         model = trained.model
         resolved_device = device or trained.hyperparameters.get("device", DEFAULT_DEVICE)
     else:

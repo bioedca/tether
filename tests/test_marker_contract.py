@@ -32,24 +32,11 @@ SIDECAR_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 def _uses_sidecar_marker(source: str) -> bool:
     """True if *source* applies ``pytest.mark.sidecar`` in code (not in a string).
 
-    Matches the ``pytest.mark.sidecar`` attribute chain anywhere it appears as
-    real syntax -- a ``pytestmark = pytest.mark.sidecar`` assignment or a
-    ``@pytest.mark.sidecar`` decorator. Mentions inside docstrings or comments
-    are string/comment tokens, never ``ast.Attribute`` nodes, so they are
-    correctly ignored.
+    Thin wrapper over the generalized :func:`_uses_marker` (defined below) for the sidecar
+    marker: it matches the ``pytest.mark.sidecar`` attribute chain as real syntax (a
+    ``pytestmark`` assignment or a decorator), so docstring/comment mentions are ignored.
     """
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Attribute)
-            and node.attr == "sidecar"
-            and isinstance(node.value, ast.Attribute)
-            and node.value.attr == "mark"
-            and isinstance(node.value.value, ast.Name)
-            and node.value.value.id == "pytest"
-        ):
-            return True
-    return False
+    return _uses_marker(source, "sidecar")
 
 
 def test_marker_detector_distinguishes_marks_from_mentions():
@@ -153,7 +140,7 @@ def test_deep_marker_detector_matches_the_sidecar_detector() -> None:
 def test_deep_marked_modules_match_ci_glob() -> None:
     """Every ``@pytest.mark.deep`` module is collected by the deep.yml glob.
 
-    If this fails, either rename the offending file to match ``test_*deep*.py`` or widen the glob
+    If this fails, either rename the offending file to match ``test_*_deep.py`` or widen the glob
     in ``.github/workflows/deep.yml`` (and this contract) to keep the two in lockstep.
     """
     offenders = []
