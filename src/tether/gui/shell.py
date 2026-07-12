@@ -117,6 +117,9 @@ _IDEALIZE_POLL_MS = 25
 #: File filter for the hand-off SMD / model open+save dialogs (tMAVEN uses HDF5).
 _SMD_FILTER = "tMAVEN SMD (*.hdf5 *.smd);;All files (*)"
 
+#: File filter for the ``&File → Open project…`` dialog (a ``.tether`` HDF5 store).
+_TETHER_FILTER = "Tether project (*.tether);;All files (*)"
+
 
 class OverflowCategoryPicker:
     """Modal picker for assigning a category beyond the ``1``–``9`` hotkeys.
@@ -339,6 +342,13 @@ class TetherShell:
         )
         self._event_filter.install()
 
+        # File menu: open a produced/extracted .tether live in this shell for
+        # curation + one-click idealize — the store<->shell hookup (§7.8, FR-LEGACY;
+        # the general capability the M7 Deep-LASI wizard hands off into).
+        self._file_menu = self._window.menuBar().addMenu("&File")
+        self._act_open_project = self._file_menu.addAction("&Open project…")
+        self._act_open_project.triggered.connect(self._open_project_dialog)
+
         # Help / overflow actions (menu + the shipped cheat-sheet).
         self._cheatsheet = CheatSheetOverlay(self._keymap, parent=self._window)
         menu = self._window.menuBar().addMenu("&Curation")
@@ -493,6 +503,109 @@ class TetherShell:
         dock_widget.setWidget(self._overlap_dock.widget)
         self._window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock_widget)
         self._overlap_dock_widget = dock_widget
+
+    # --- project (open a produced / extracted .tether live, §7.8) ------------
+
+    @property
+    def file_menu(self) -> QtWidgets.QMenu:
+        """The ``&File`` menu (open a ``.tether`` project live in the shell)."""
+        return self._file_menu
+
+    def load_project(
+        self, path: str | PathLike[str], *, intensity_quantity: str = "corrected"
+    ) -> Project | None:
+        """Open a produced / extracted ``.tether`` live in this shell (§7.8, FR-LEGACY).
+
+        Re-wires the running shell's store-backed seams onto ``path`` — the one-click
+        idealize (``I``), the population histogram (``&Analysis``), the standalone-tMAVEN
+        hand-off (``&Hand-off``), the per-molecule overlap view, and the ``&Conditions``
+        validation target — then loads the store's molecules into the browser + trace
+        dock (:meth:`set_molecules`). This is the general store↔shell hookup (the
+        M2-deferred capability, reusable beyond legacy): a wizard-produced project
+        (:meth:`import_deeplasi_bundle`) or any extracted ``.tether`` opens live without
+        relaunching.
+
+        Every :class:`~tether.gui.trace_dock.TraceView` carries its ``molecule_key`` so
+        the idealize / overlap seams resolve the store row. An **analysis-only** import
+        (coordinate-less, ``read_analysis_only_marker`` non-``None``) leaves the overlap
+        seam unwired — the spot/overlap view is meaningless without coordinates/patches —
+        and surfaces the one-time marker banner. All reads happen before any state is
+        mutated, so a failed open (missing / incompatible / unreadable ``.tether``)
+        leaves the prior project in place and only reports a status message — the shell
+        never crashes on an open. Returns the opened :class:`~tether.project.core.Project`
+        (``None`` on failure).
+
+        The curation category vocabulary, the movie switcher, and the napari movie panel
+        / round-trip navigation are **not** re-wired here (the movie panel + round-trip
+        land at M2 S3/S4, and the per-condition category list is edited through the
+        ``&Conditions`` dialog); this loader wires the trace-level curate + analyze
+        surfaces the produced project supports today.
+        """
+        from tether.project.analysis_import import read_analysis_only_marker
+        from tether.project.core import Project
+
+        # Do every fallible read BEFORE touching shell state, so a bad open is atomic
+        # (the prior project stays wired) — mirroring the catch-and-report contract of
+        # the hand-off / import menu methods.
+        try:
+            project = Project.open(path)
+            proj_path = project.path
+            marker = read_analysis_only_marker(proj_path)
+            analysis_only = marker is not None
+            traces = traces_from_store(project, intensity_quantity=intensity_quantity)
+            idealizer = make_store_idealizer(project)
+            histogram = make_store_histogram(project)
+            handoff = make_store_handoff(project)
+            overlap = None if analysis_only else make_store_overlap(project)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Open project failed: {exc}")
+            return None
+
+        self._idealizer = idealizer
+        self._histogram_seam = histogram
+        self._handoff = handoff
+        self._overlap_seam = overlap
+        self._conditions = project
+        # Drop any docks built against a prior project so they rebuild fresh against the
+        # new store (no stale histogram / overlap leaking across a re-open).
+        self._reset_store_docks()
+        # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
+        # and sets a per-molecule status; overwrite it with the open outcome afterwards.
+        self.set_molecules(traces)
+
+        name = Path(proj_path).name
+        if analysis_only:
+            self._status(f"Opened {name} (analysis-only) — {marker.banner}")
+        else:
+            self._status(f"Opened {name} — {len(traces)} molecule(s)")
+        return project
+
+    def _reset_store_docks(self) -> None:
+        """Discard the lazily-built histogram / overlap docks so a re-open rebuilds them."""
+        for dock_attr, widget_attr in (
+            ("_histogram_dock", "_histogram_dock_widget"),
+            ("_overlap_dock", "_overlap_dock_widget"),
+        ):
+            widget = getattr(self, widget_attr)
+            if widget is not None:
+                self._window.removeDockWidget(widget)
+            dock = getattr(self, dock_attr)
+            if dock is not None:
+                dock.close()
+            setattr(self, dock_attr, None)
+            setattr(self, widget_attr, None)
+
+    def _open_project_dialog(self) -> None:  # pragma: no cover - interactive file dialog
+        """Menu entry: pick a ``.tether`` project, then open it live (§7.8)."""
+        from pyqtgraph.Qt import QtWidgets
+
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self._window, "Open .tether project", "", _TETHER_FILTER
+        )
+        if not path:
+            self._status("Open project cancelled")
+            return
+        self.load_project(path)
 
     # --- dialogs -------------------------------------------------------------
 
@@ -659,6 +772,14 @@ class TetherShell:
         if produced:
             names = ", ".join(Path(p).name for p in produced)
             self._status(f"Deep-LASI import: wrote {len(produced)} project(s) — {names}")
+            # Close the round-trip loop: when the wizard wrote exactly one project, open
+            # it live for curate/idealize (the §7.8 "browse/curate/idealize round-trip
+            # live" clause). With several written, which to open is the curator's call —
+            # report them and leave &File → Open project… as the picker. load_project is
+            # fail-soft (a status message, never a crash), so the produced paths are
+            # always returned regardless of the live-open outcome.
+            if len(produced) == 1:
+                self.load_project(produced[0])
         else:
             self._status("Deep-LASI import: no projects written")
         return produced
@@ -1144,6 +1265,124 @@ def make_store_handoff(
         model_name=model_name,
         overwrite=overwrite,
     )
+
+
+def _movie_frame_times(path: str | PathLike[str]) -> dict[str, float | None]:
+    """Map each ``/movies`` ``movie_id`` to its per-frame time (seconds), ``None`` unknown.
+
+    Reads ``/movies/table`` directly (there is no ``read_movies`` helper) to fill each
+    :class:`~tether.gui.trace_dock.TraceView`'s ``frame_time``. A stored ``0.0`` (the
+    extractor's "TIFF interval unknown" sentinel) maps to ``None`` — a frame-index-only
+    axis — because :class:`TraceView` rejects a non-positive ``frame_time``. An
+    analysis-only import (movie-less, no ``/movies`` group) yields an empty map, so every
+    trace falls back to ``None``.
+    """
+    import h5py
+
+    from tether.io.schema import TABLE
+
+    out: dict[str, float | None] = {}
+    try:
+        with h5py.File(Path(path), "r") as handle:
+            group = handle.get("movies")
+            if group is None or TABLE not in group:
+                return out
+            table = group[TABLE][:]
+    except OSError:
+        return out
+    for row in table:
+        movie_id = row["movie_id"]
+        movie_id = movie_id.decode() if isinstance(movie_id, bytes) else str(movie_id)
+        frame_time = float(row["frame_time"])
+        out[movie_id] = frame_time if frame_time > 0.0 else None
+    return out
+
+
+def traces_from_store(
+    project: Project | str | PathLike[str],
+    *,
+    intensity_quantity: str = "corrected",
+) -> list[TraceView]:
+    """Read a ``.tether`` store's molecules into the shell's ``list[TraceView]``.
+
+    The missing member of the ``make_store_*`` family: turns a produced / extracted
+    ``.tether`` into the value objects :meth:`TetherShell.set_molecules` consumes, so a
+    project can be opened live in the shell (:meth:`TetherShell.load_project`). Reads
+    ``/molecules`` + ``/traces`` positionally (row *i* of each is the same molecule,
+    §5.1) and, for every molecule, slices the chosen intensity layer to its **full native
+    ``frame_range``** — the whole trace including post-bleach frames, the curation view
+    (unlike analysis, which narrows to the ``analysis_window``). ``frame_range`` unset
+    ``[0, 0]`` falls back to the full row extent. Each :class:`TraceView` carries its
+    decoded ``molecule_key`` (so the idealize / overlap seams resolve the store row) and
+    its ``frame_time`` from the linked ``/movies`` row (``0.0``/movie-less → ``None``).
+
+    Rejected molecules are **included** (a curator revisits rejects); the histogram /
+    analysis seams still exclude them by their own default. ``intensity_quantity`` selects
+    the ``/traces`` layer via the frozen
+    :data:`~tether.project.trace_layers.INTENSITY_QUANTITY_LAYERS` map — ``"corrected"``
+    (the apparent-E substrate present in both round-trip and analysis-only stores) or
+    ``"raw"``.
+
+    Raises
+    ------
+    ValueError
+        ``intensity_quantity`` is unknown, or the store lacks the requested trace layer
+        (e.g. ``"raw"`` on an analysis-only store, which writes only corrected layers).
+    """
+    import numpy as np
+
+    from tether.gui.trace_dock import TraceView
+    from tether.imaging.extract import read_molecules, read_traces
+    from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
+
+    if intensity_quantity not in INTENSITY_QUANTITY_LAYERS:
+        raise ValueError(
+            f"intensity_quantity must be one of {sorted(INTENSITY_QUANTITY_LAYERS)}, "
+            f"got {intensity_quantity!r}"
+        )
+    donor_key, acceptor_key = INTENSITY_QUANTITY_LAYERS[intensity_quantity]
+
+    path = getattr(project, "path", project)
+    molecules = read_molecules(path)
+    if molecules.shape[0] == 0:
+        return []
+    traces = read_traces(path)
+    for key in (donor_key, acceptor_key):
+        if key not in traces:
+            raise ValueError(
+                f"{Path(path).name}/traces has no {key!r} layer "
+                f"(intensity_quantity={intensity_quantity!r})"
+            )
+    donor_all = traces[donor_key]
+    acceptor_all = traces[acceptor_key]
+    max_t = int(donor_all.shape[1]) if donor_all.ndim == 2 else 0
+    if max_t == 0:  # a store with molecules but zero-width traces — nothing to view
+        return []
+
+    frame_times = _movie_frame_times(path)
+    key_col = molecules["molecule_key"]
+    movie_col = molecules["movie_id"]
+    frame_range = molecules["frame_range"]
+
+    def _decode(value: object) -> str:
+        return value.decode() if isinstance(value, bytes) else str(value)
+
+    views: list[TraceView] = []
+    for i in range(molecules.shape[0]):
+        lo, hi = int(frame_range[i][0]), int(frame_range[i][1])
+        if hi <= lo:  # unset [0, 0] -> the full native row extent
+            lo, hi = 0, max_t
+        donor = np.asarray(donor_all[i, lo:hi], dtype=np.float64)
+        acceptor = np.asarray(acceptor_all[i, lo:hi], dtype=np.float64)
+        views.append(
+            TraceView(
+                donor=donor,
+                acceptor=acceptor,
+                frame_time=frame_times.get(_decode(movie_col[i])),
+                molecule_key=_decode(key_col[i]),
+            )
+        )
+    return views
 
 
 def launch() -> None:  # pragma: no cover - interactive smoke entry point
