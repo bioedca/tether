@@ -58,7 +58,7 @@ def build_deep_dataset(
     human accept/reject at full weight **plus** provisional ``/labels`` priors at their decayed
     ``w₀/(1 + n_human)`` weight; a human label supersedes a provisional prior), joins each row by
     its unique ``molecule_id`` to that molecule's analysis-window-sliced donor/acceptor trace
-    (:func:`tether.project.features._windowed_rows` — the shared windowing primitive, so a deep
+    (:func:`tether.project.features.windowed_traces` — the shared windowing primitive, so a deep
     window equals the engineered-feature window), and hands both to
     :func:`tether.ml.deep.dataset.assemble_dataset`. Read-only.
 
@@ -86,7 +86,7 @@ def build_deep_dataset(
         The project has no labeled molecules (human or provisional), the requested trace layer is
         absent, or a labeled molecule has no matching trace window.
     """
-    from tether.project.features import _windowed_rows  # noqa: PLC0415
+    from tether.project.features import windowed_traces  # noqa: PLC0415
     from tether.project.gbranking import weighted_training_set  # noqa: PLC0415
 
     training = weighted_training_set(project, w0=w0)
@@ -98,7 +98,7 @@ def build_deep_dataset(
         )
 
     # include_rejected=True: a reject is a training label (y=0), so its trace must be kept.
-    rows = _windowed_rows(path, None, intensity_quantity, include_rejected=True)
+    rows = windowed_traces(project, intensity_quantity=intensity_quantity, include_rejected=True)
     windows_by_id = {mol_id: (donor, acceptor) for mol_id, _key, donor, acceptor in rows}
 
     donors = []

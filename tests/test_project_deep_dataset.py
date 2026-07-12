@@ -59,6 +59,18 @@ def test_build_matches_the_ranker_labeled_set_exactly(tmp_path):
     assert ds.n_bad == 2  # two rejects (rejects are training labels, y=0)
 
 
+def test_build_accepts_a_path_or_string_projectref(tmp_path):
+    # The documented ProjectRef = Project | path | str: a path/string input must work identically.
+    proj, _keys = _labeled_store(tmp_path)
+    from_project = build_deep_dataset(proj)
+    from_path = build_deep_dataset(proj.path)  # pathlib.Path input
+    from_str = build_deep_dataset(str(proj.path))  # str input
+    assert from_path.molecule_ids == from_project.molecule_ids
+    assert from_str.molecule_ids == from_project.molecule_ids
+    assert np.array_equal(from_path.X, from_project.X)
+    assert np.array_equal(from_str.sample_weight, from_project.sample_weight)
+
+
 def test_build_tensor_shapes_and_provenance(tmp_path):
     proj, _keys = _labeled_store(tmp_path)
     ds = build_deep_dataset(proj)
