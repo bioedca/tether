@@ -831,6 +831,7 @@ validation front-loaded at M0.5.
 | Cold-start seed weight w₀ / decay law | w₀ ≈ 0.3 (human = 1.0); effective weight w = w₀ / (1 + n_human), recomputed each retrain | Tether (§5.1 `/labels`, §7.5, §9 M5) |
 | Cross-condition drift advisory (M5) | two-sample Kolmogorov–Smirnov per engineered feature; overall (family-wise) α = 0.05, **Bonferroni-corrected** across the tested features (per-feature threshold α / n_tested); **advisory & overridable** | Tether (§7.5, §9 M5; ADR-0037); KS as a label-free distribution-drift detector [Porwik2022]; Bonferroni family-wise correction |
 | kinSoftChallenge parity band (M8) | fitted rates within the named dataset's reported inter-tool spread; **advisory** until the gated-CI slice is acquired | [Götz2022] (§8 NFR-VALID, §9 M8) |
+| Deep-dataset preprocessing (M8) | window length = 500 frames (crop leading / zero-pad + `mask`); per-trace normalization = `per_trace_total` (one shared donor+acceptor scale = max total intensity, preserves the apparent-FRET ratio E=A/(D+A)); channels = (donor, acceptor) measured; train/val split = 0.2 stratified, seed 0 | Tether (§7.5, §9 M8; ADR-0047); DeepFRET non-ALEX DD+DA input [Thomsen2020], Deep-LASI [Wanninger2023]; retuned to the trained model in PR-1b |
 
 `min_window_frames` (per-trace) and `min_qualifying_traces` (per-dataset) are distinct quantities and must not be
 conflated. Deep-LASI's `ct_lim`, `γ_lim`, and `min_frames` are GUI-table defaults
