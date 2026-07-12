@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# deep / smoke — the M8 deep-classifier CPU train-smoke (ADR-0047 "Option A";
+# PRD §4.1, §9 M8, FR-ML). It provisions the THIRD, ISOLATED `deep/` conda stack
+# (deep/conda-lock.yml — pytorch-cpu + numpy/scipy/h5py, never the base GUI stack
+# or the tMAVEN sidecar) and runs the live `@pytest.mark.deep` suite: build a tiny
+# 1-D CNN/LSTM on synthetic labeled traces, assert it trains + predicts + is
+# reproducible on CPU (§9 M8 "a deep classifier trains on the shared label store
+# and is optional — CPU base app unaffected").
+#
+# NON-REQUIRED by design: this is the optional GPU-add-on's CPU proxy, deliberately
+# outside the `main-baseline` required set so it never gates a merge and the base
+# app stays torch-free. Because it is not required, a `paths:` filter is safe (an
+# unrelated PR simply does not run it — no "required check never reports" footgun,
+# unlike the required sidecar leg which self-gates internally instead).
+#
+# The base 3-OS `test` matrix (ci.yml) DESELECTS the `deep` marker
+# (`-m "not large and not sidecar and not deep"`); tests/test_marker_contract.py
+# keeps the `tests/test_*_deep.py` collection glob below in lockstep with the
+# marker so a new deep test cannot silently escape this job.
+name: deep
+
+on:
+  pull_request:
+    # Only the paths that can change a deep-classifier result (or this job).
+    paths:
+      - "deep/**"
+      - "src/tether/ml/**"
+      - "tests/test_*_deep.py"
+      - "pyproject.toml"
+      - ".github/workflows/deep.yml"
+      - ".github/actions/setup-env/**"
+  workflow_dispatch:
+  schedule:
+    # Nightly at 04:23 UTC (off the hour; distinct from the sidecar cron).
+    - cron: "23 4 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: deep / smoke
+    runs-on: ubuntu-latest
+    # Bound the job so a hung/looping train never wedges the runner; a CPU smoke on
+    # synthetic arrays is seconds of compute (the bulk is restoring the torch env).
+    timeout-minutes: 30
+    defaults:
+      run:
+        # Activate the restored micromamba deep env (init-shell: bash).
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Restore the isolated deep env + install tether (no deps)
+        uses: ./.github/actions/setup-env
+        with:
+          environment-file: deep/conda-lock.yml
+          environment-name: tether-deep
+          install-tether: "true"
+      - name: Install pytest into the deep env
+        # pytest is a test-tooling dep layered on top of the locked runtime stack
+        # (the same pattern as ci.yml's base matrix and sidecar.yml), not part of
+        # the pin-and-held deep/conda-lock.yml.
+        run: python -m pip install "pytest==9.1.1"
+      - name: Run the deep train-smoke
+        # Scope collection to the deep-model test modules only: the isolated deep env
+        # lacks the base GUI/IO stack (tifffile, napari, …), so a repo-wide
+        # `pytest -m deep` would abort at COLLECTION on the first unrelated base-only
+        # import. The `test_*_deep.py` SUFFIX glob matches exactly the deep-model
+        # smoke (test_deep_model_deep.py) and deliberately EXCLUDES files whose names
+        # merely contain the substring "deep" — the M7 Deep-LASI suite
+        # (test_deeplasi*.py), the substrate tests (test_*_deep_dataset.py) and
+        # test_deep_lock.py — so a future base-only import in any of those can never
+        # redden this leg. The glob is the contract enforced in the base matrix by
+        # tests/test_marker_contract.py. `-m deep` still filters within the collected
+        # files, so a non-deep-marked test that happened to match is deselected.
+        run: pytest -m deep tests/test_*_deep.py -q

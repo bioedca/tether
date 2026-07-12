@@ -178,11 +178,13 @@ jobs:
       # checkout does not pull (PLAN §2.1/§2.2) — exclude it from the required
       # matrix so a structural HDF5 fixture never gates on an LFS pull. The
       # `sidecar` marker drives the isolated tMAVEN env (numpy<2/PyQt5), which CI
-      # does not build (M0.5 S1) — exclude it too; it is a dev-machine check.
+      # does not build (M0.5 S1) — exclude it too; it is a dev-machine check. The
+      # `deep` marker drives the isolated torch `deep/` env (ADR-0047), built only
+      # on the non-required deep.yml leg — exclude it; the base app has no torch.
       - name: Run tests
         run: |
           if [ "${RUNNER_OS}" = "Linux" ]; then
-            xvfb-run -a pytest -v -m "not large and not sidecar"
+            xvfb-run -a pytest -v -m "not large and not sidecar and not deep"
           else
-            pytest -v -m "not large and not sidecar"
+            pytest -v -m "not large and not sidecar and not deep"
           fi
