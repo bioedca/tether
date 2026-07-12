@@ -93,10 +93,17 @@ runs on the default 3-OS matrix, and de-risks the model PR. Substrate decisions:
   numpy (bounded to the base `<2.2` window) + scipy + h5py (the empirically verified import footprint
   of `tether.ml.deep.dataset`), wired into the required `conda-lock-verify` check (base + sidecar +
   deep). The deep env was instantiated from the lock and `import torch` + `import tether.ml.deep.dataset`
-  verified to co-import. **PR-1b-ii (next):** the torch `Dataset`/`DataLoader` over `DeepTraceDataset`,
-  the 1-D CNN/LSTM, and a headless CPU train-smoke `@pytest.mark.deep` on a new **non-required** CI leg.
-  Then PR-2 = the non-required GPU `workflow_dispatch` CI leg; kinSoftChallenge kinetics validation and
-  fine-tuning are their own M8 PRs.
+  verified to co-import. **PR-1b-ii (landed):** the torch `Dataset`/`DataLoader` over `DeepTraceDataset`,
+  the 1-D CNN/LSTM, and a headless CPU train-smoke `@pytest.mark.deep` on the new **non-required**
+  `deep.yml` CI leg. **PR-2 (landed): the non-required GPU `workflow_dispatch` leg** —
+  `.github/workflows/deep-gpu.yml`, dispatched manually onto a self-hosted CUDA runner (`self-hosted` +
+  a GPU label), running the same `pytest -m deep tests/test_*_deep.py` as `deep.yml` but exercising the
+  `device="cuda"` path (`tests/test_deep_gpu_deep.py`, which self-skips off-GPU). It installs the
+  **documented, unpinned** CUDA torch wheel (`pytorch.org/whl/cuXXX`) at run time — deliberately OUTSIDE
+  pin-and-hold, acceptable because the leg never gates a merge and the committed `deep/conda-lock.yml`
+  stays CPU-only. `tests/test_marker_contract.py` locks the leg's advisory shape (dispatch-only, no
+  PR/push trigger; self-hosted; same deep glob). kinSoftChallenge kinetics validation and fine-tuning
+  are their own M8 PRs.
 
 ## More information
 

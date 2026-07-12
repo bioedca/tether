@@ -1102,9 +1102,11 @@ M2 round-trip/histogram smoke, and M6 consensus/ebFRET parity. The **gated tier*
 kinSoftChallenge slice and runs the **M1 extraction-vs-Deep-LASI** acceptance and the **M8 kinSoftChallenge**
 kinetics check (advisory until the slice is acquired, §9 M8). It is **never a required check**, so a contributor
 without the big blobs is never blocked; default jobs use `lfs: false` / sparse checkout to avoid the 0.9 GB pull.
-The deep/GPU M8 validation (RTX 4060 floor) cannot run on hosted runners — it is a `workflow_dispatch` job targeting
-a self-hosted GPU runner (or stays local-only, advisory), outside the required set, consistent with "GPU optional
-add-on" (§8 NFR-XPLAT).
+The deep/GPU M8 validation (RTX 4060 floor) cannot run on hosted runners — it is `deep-gpu.yml`, a
+`workflow_dispatch` job targeting a self-hosted GPU runner (or stays local-only, advisory), outside the required set,
+consistent with "GPU optional add-on" (§8 NFR-XPLAT). It installs the documented, unpinned CUDA torch wheel at run
+time (the committed `deep/conda-lock.yml` stays CPU-only, ADR-0047) and runs the same `-m deep` train-smoke as the
+CPU `deep.yml` leg, exercising the `device="cuda"` path.
 
 **Required status checks (branch protection, §12.3):**
 
