@@ -105,6 +105,26 @@ def test_traces_from_store_builds_keyed_full_frame_views(qapp, tmp_path) -> None
         assert view.frame_time is None
 
 
+def test_traces_from_store_reads_positive_frame_time(qapp, tmp_path) -> None:
+    import h5py
+
+    from tether.gui.shell import traces_from_store
+
+    project, keys, *_ = _round_trip_store(tmp_path, n=2, t=10)
+    # A real movie carries a positive seconds/frame; the extractor writes 0.0 only when
+    # the TIFF interval is unknown. Stamp a real interval onto the movie row and confirm
+    # it flows through to every TraceView (the value branch of _movie_frame_times).
+    with h5py.File(project.path, "r+") as f:
+        table = f["movies"]["table"][:]
+        table["frame_time"][:] = 0.05
+        f["movies"]["table"][:] = table
+
+    views = traces_from_store(project)
+
+    assert len(views) == 2
+    assert all(v.frame_time == pytest.approx(0.05) for v in views)
+
+
 def test_traces_from_store_empty_store_returns_empty(qapp, tmp_path) -> None:
     from tether.gui.shell import traces_from_store
     from tether.io.schema import create_project
@@ -197,11 +217,23 @@ def test_load_project_replaces_prior_project(shell, tmp_path) -> None:
 
 
 def test_load_project_missing_file_is_fail_soft(shell, tmp_path) -> None:
+    # First load a valid project so there is real prior state a bad open must preserve.
+    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    shell.load_project(project.path)
+    assert shell.molecule_list.count() == 3
+    prior_overlap = shell.overlap_dock
+    assert prior_overlap is not None
+
+    # A bad open is atomic: every fallible read runs before any state mutates, so the
+    # previously loaded project (molecules + seams + docks) stays fully in place — the
+    # only change is the failure reported in the status bar (the fail-soft contract).
     opened = shell.load_project(tmp_path / "nope.tether")
 
     assert opened is None
     assert "Open project failed" in shell.status_message
-    assert shell.molecule_list.count() == 0  # prior (empty) state untouched
+    assert shell.molecule_list.count() == 3  # prior molecules preserved
+    assert shell.overlap_dock is prior_overlap  # prior seams/docks untouched (not reset)
+    assert shell.show_histogram() is not None  # the prior histogram seam still resolves
 
 
 # --------------------------------------------------------------------------- #
