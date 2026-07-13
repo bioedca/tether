@@ -295,3 +295,70 @@ def test_deep_gpu_leg_targets_a_self_hosted_runner() -> None:
     assert any(ln.strip() == "- self-hosted" for ln in lines), (
         "deep-gpu.yml must target a self-hosted (GPU) runner (a `- self-hosted` runs-on entry)"
     )
+
+
+# --- The same contract for the non-required packaging leg (packaging.yml, M9 / ADR-0049) ---
+# packaging.yml builds the constructor installer (base env + the isolated tMAVEN sidecar as an
+# `extra_envs`) and runs the offline install-smoke on each of the 3 OSes. Building a full
+# napari/PySide6 + sidecar installer is heavy, network-bound and per-OS, so — exactly like
+# deep-gpu.yml — it is advisory / non-required BY CONSTRUCTION: workflow_dispatch only, never on
+# pull_request/push, so it can never report a gating status on a PR. The §9 M9 "installers install
+# clean" runtime clause is validated on THIS advisory leg, not the required matrix (ADR-0049). This
+# guard keeps that shape honest and the smoke non-vacuous.
+PACKAGING_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "packaging.yml"
+
+
+def test_packaging_leg_is_non_required_by_construction() -> None:
+    """The packaging leg is advisory: manual-dispatch only, never an auto (PR/push) trigger.
+
+    A ``workflow_dispatch``-only workflow never reports a status on a pull request, so it
+    structurally cannot be (or silently become) a required merge check — the ADR-0049 posture that
+    keeps the required 3-OS matrix free of the heavy installer build. Adding a
+    ``pull_request:``/``push:``/``merge_group:`` trigger fails this guard, so the choice would have
+    to be deliberate.
+    """
+    triggers = _on_block_child_keys(PACKAGING_WORKFLOW.read_text(encoding="utf-8"))
+    assert "workflow_dispatch" in triggers, "packaging.yml must be manually dispatchable"
+    gating = {"pull_request", "push", "merge_group"}
+    assert triggers.isdisjoint(gating), (
+        "packaging.yml must stay advisory (no PR/push/merge_group trigger); "
+        f"on-triggers: {sorted(triggers)}"
+    )
+
+
+def test_packaging_workflow_uses_no_explicit_exit() -> None:
+    """No step in ``packaging.yml`` may call an explicit ``exit`` under ``bash -el {0}``.
+
+    packaging.yml uses the same ``bash -el {0}`` login shell as sidecar.yml, where an explicit
+    ``exit`` reports "Process completed with exit code 1" on the runner (the
+    [[gha-bash-el-explicit-exit]] footgun). This guard fails the moment a bare ``exit`` is
+    introduced into any run script. (Comment lines are ignored; the ``exit /b`` inside the batch
+    ``packaging/scripts/post_install.bat`` is an installer script, not a workflow run step, so it
+    is out of scope here.)
+    """
+    workflow = PACKAGING_WORKFLOW.read_text(encoding="utf-8")
+    exit_lines = [
+        ln
+        for ln in workflow.splitlines()
+        if re.match(r"\s*exit\b", ln) and not ln.lstrip().startswith("#")
+    ]
+    assert not exit_lines, (
+        "packaging.yml must not call an explicit `exit` in a `bash -el {0}` run step "
+        f"(it reports exit 1 on the runner); offending lines: {exit_lines}"
+    )
+
+
+def test_packaging_install_smoke_asserts_version_and_offline_sidecar() -> None:
+    """The advisory leg's install-smoke asserts the headless entry point AND the offline sidecar.
+
+    ADR-0049's PR-1 acceptance: after an offline install, ``tether --version`` runs and the bundled
+    sidecar interpreter imports tMAVEN/PyQt5. Bind the workflow to that contract so the smoke cannot
+    be silently gutted to a no-op (e.g. a build-only leg that never proves the installer runs).
+    """
+    workflow = PACKAGING_WORKFLOW.read_text(encoding="utf-8")
+    assert "tether --version" in workflow, (
+        "packaging.yml install-smoke must launch `tether --version` from the installed prefix"
+    )
+    assert "import tmaven" in workflow, (
+        "packaging.yml install-smoke must import tMAVEN in the bundled sidecar interpreter"
+    )

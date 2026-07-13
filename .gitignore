@@ -50,6 +50,13 @@ coverage.xml
 *.zarr/
 .zarr_scratch/
 
+# --- M9 packaging (constructor) build artifacts (ADR-0049) ---
+# construct.yaml consumes these, but they are generated at build time by
+# .github/workflows/packaging.yml (rendered per-platform explicit locks; the
+# staged wheels + license). packaging/dist/ is already covered by dist/ above.
+packaging/locks/
+packaging/staging/
+
 # --- Docs / tooling generated artifacts ---
 # mkdocs build output
 site/

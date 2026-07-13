@@ -14,6 +14,12 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        # packaging/construct.yaml is a `constructor` recipe, not plain YAML: it
+        # uses conda-build line selectors (`# [win]`) and Jinja, so the same key
+        # (post_install, environment_file, installer_type) legitimately repeats
+        # with different selectors — invalid as standalone YAML. constructor
+        # renders it before use; validate with `constructor --render packaging/`.
+        exclude: ^packaging/construct\.yaml$
       - id: check-toml
       - id: check-merge-conflict
       - id: check-added-large-files

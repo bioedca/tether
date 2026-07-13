@@ -1,0 +1,98 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Tether constructor recipe — 3-OS OFFLINE installer (ADR-0049, PRD §4.1, §9 M9).
+#
+# This is a `constructor` recipe (conda-incubator/constructor), NOT a plain YAML
+# document: it uses conda-build line selectors (`# [win]`, `# [osx]`, `# [linux]`)
+# and Jinja `{{ environ.get(...) }}` interpolation, so `constructor` must RENDER
+# it before it is valid YAML. It is therefore EXCLUDED from the `check-yaml`
+# pre-commit hook (.pre-commit-config.yaml) — validate it instead with
+#   constructor --render packaging/     # offline: selector + Jinja + YAML parse
+#   constructor --dry-run  packaging/    # full JSON-Schema key validation + solve
+#
+# The build driver (.github/workflows/packaging.yml, and packaging/README.md for
+# local builds) sets the env vars this recipe reads and stages the artifacts it
+# references (the rendered per-platform locks under locks/, the two wheels, and
+# the GPL license text under staging/). See ADR-0049 for the architecture.
+#
+# UNSIGNED in this PR (PR-1a): the `*_signing_*` keys below are documented but
+# left INACTIVE — constructor produces unsigned installers by default. Authenticode
+# (Windows) + productsign/notarization (macOS) are wired with repository secrets in
+# PR-2 (release.yml, §12.7). Do not uncomment them here.
+
+name: Tether
+version: {{ environ.get("TETHER_VERSION", "0.0.0") }}
+company: The Tether Authors (Mondragón Lab, Northwestern)
+
+# Build-time package source. constructor fetches everything HERE at build time and
+# embeds it, so the produced installer resolves fully OFFLINE (no install-time
+# git/network — §9 M9). Pin-and-hold is honoured because the environments are
+# sourced from the committed conda locks, rendered to per-platform EXPLICIT locks
+# (no re-solve); conda-forge is only the build-time fetch origin.
+channels:
+  - conda-forge
+
+# --- Base environment (the PySide6/napari GUI + compute stack, conda-lock.yml) ---
+# Rendered per-platform EXPLICIT lock (packaging/locks/base-<plat>.lock), produced
+# at build time by `conda-lock render` from the committed base `conda-lock.yml`, so
+# the installer bundles the EXACT pinned packages (pin-and-hold; no fresh solve).
+environment_file: locks/base-linux-64.lock    # [linux]
+environment_file: locks/base-osx-64.lock       # [osx and not arm64]
+environment_file: locks/base-osx-arm64.lock    # [osx and arm64]
+environment_file: locks/base-win-64.lock       # [win]
+
+# --- Isolated tMAVEN sidecar (sidecar/conda-lock.yml) as a SECOND environment ----
+# constructor `extra_envs` installs this into `<prefix>/envs/sidecar`, a wholly
+# separate interpreter (PyQt5 + numpy<2) that never shares a process with the
+# PySide6/current-numpy base — the "two conda-lock stacks stay isolated" invariant
+# (PLAN §1.3, ADR-0004). `conda` lives in the base env and `ignore_duplicate_files`
+# is forced True whenever extra_envs is used (constructor).
+extra_envs:
+  sidecar:
+    environment_file: locks/sidecar-linux-64.lock    # [linux]
+    environment_file: locks/sidecar-osx-64.lock       # [osx and not arm64]
+    environment_file: locks/sidecar-osx-arm64.lock    # [osx and arm64]
+    environment_file: locks/sidecar-win-64.lock       # [win]
+
+# --- Non-packaged payloads bundled into the installer ---------------------------
+# The two wheels are NOT conda packages: `tether` is a hatchling wheel and tMAVEN
+# is a pip/git project (pinned commit 10f4230…, NOTICE / ADR-0049), both built at
+# build time and offline pip-installed by the post_install script below. Paths are
+# relative to this construct.yaml directory; the build driver sets the env vars.
+extra_files:
+  - {{ environ.get("TETHER_WHEEL", "staging/tether.whl") }}: wheelhouse/{{ environ.get("TETHER_WHEEL_NAME", "tether.whl") }}
+  - {{ environ.get("TMAVEN_WHEEL", "staging/tmaven.whl") }}: wheelhouse/{{ environ.get("TMAVEN_WHEEL_NAME", "tmaven.whl") }}
+
+# GPL-3.0 license text shown during install and shipped beside the installer
+# (NOTICE: the bundled sidecar also ships tMAVEN's own GPL-3.0 text — staged by the
+# build driver). Must be plain .txt for the shell (Linux) installer.
+license_file: staging/LICENSE.txt
+
+# Offline pip-install of the two wheels + wire the bundled sidecar interpreter.
+# ONE key, per-OS by selector; constructor builds one installer per target OS.
+post_install: scripts/post_install.sh    # [unix]
+post_install: scripts/post_install.bat   # [win]
+
+# Per-OS installer format. exe (NSIS) on Windows, pkg on macOS (productsign-signable
+# in PR-2), sh on Linux.
+installer_type: exe    # [win]
+installer_type: pkg    # [osx]
+installer_type: sh     # [linux]
+
+# Behaviour: don't keep the package cache (smaller install), don't touch the user's
+# shell/registry by default (this is a GUI app, not a conda distribution), and
+# create NO menu shortcuts yet — there is no GUI console-script entry point (only
+# the `tether` CLI); a menuinst shortcut for the PySide6 shell is a follow-up
+# (ADR-0049). menu_packages: [] disables the shortcuts napari would otherwise add.
+keep_pkgs: false
+initialize_by_default: false    # [unix]
+register_python: false          # [win]
+menu_packages: []
+
+# --- Code signing — DEFERRED to PR-2 (release.yml, §12.7); DO NOT enable here ----
+# Constructor leaves installers UNSIGNED unless these are set with real credentials,
+# which live as repository secrets wired in the release pipeline:
+#   windows_signing_tool: signtool            # [win]  (or azuresigntool)
+#   signing_identity_name: "Developer ID Installer: ..."   # [osx]  productsign
+#   notarization_identity_name: "Developer ID Application: ..."   # [osx]
