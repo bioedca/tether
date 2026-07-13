@@ -1,0 +1,172 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# packaging / installer — the M9 constructor installer build + offline install-smoke
+# (ADR-0049, PRD §4.1, §9 M9). It renders the committed base + sidecar conda locks to
+# per-platform EXPLICIT locks (pin-and-hold; no re-solve), builds the `tether` wheel
+# and the pinned trimmed tMAVEN wheel, runs `constructor` to produce a self-contained
+# 3-OS installer that bundles both environments offline, and install-smokes it.
+#
+# ADVISORY / NON-REQUIRED BY CONSTRUCTION: triggered ONLY by `workflow_dispatch`
+# (never pull_request/push/merge_group), so it never reports a status on a PR and can
+# never be — or silently become — a required merge check. Building + install-smoking a
+# full napari/PySide6 + sidecar installer is heavy, network-bound and per-OS, so it
+# cannot live in the required `test` matrix — the same posture as `deep-gpu.yml`
+# (ADR-0047). tests/test_marker_contract.py locks this advisory shape.
+#
+# UNSIGNED: constructor leaves installers unsigned by default; Authenticode +
+# productsign/notarization are wired with repository secrets in PR-2 (release.yml).
+name: packaging
+
+on:
+  workflow_dispatch:
+    inputs:
+      tmaven_ref:
+        description: >-
+          Pinned tMAVEN git ref bundled into the sidecar env. Defaults to the
+          NOTICE-recorded commit (Verma 2024, v0.3.0). tMAVEN is NOT a conda-lock
+          dep — it is the GPL reference app, layered as an offline wheel.
+        type: string
+        default: "10f4230b6d13c6d2ad67b05d801696b4a40eff4a"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installer:
+    name: installer / ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, platform: linux-64 }
+          - { os: macos-latest, platform: osx-arm64 }
+          - { os: windows-latest, platform: win-64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        # micromamba-activated login shell on every OS (git-bash on Windows).
+        shell: bash -el {0}
+    env:
+      TMAVEN_SPEC: "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@${{ inputs.tmaven_ref }}"
+      # Bind matrix.platform to an env var (not inlined via ${{ }} in run scripts) —
+      # the sidecar.yml template-injection-hygiene pattern. matrix IS available at
+      # job level (unlike runner.*); it is a controlled literal, but this keeps the
+      # run scripts off the ${{ }}-in-shell path.
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          # Full history so hatch-vcs can derive the installer version from git.
+          fetch-depth: 0
+
+      - name: Provision the build env (constructor + conda-lock + build tools)
+        uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462 # v2
+        with:
+          environment-name: pkgbuild
+          # A build-only env, NOT one of the pin-and-held stacks: it just needs
+          # constructor (>=3.16 for --render), conda-lock to render the committed
+          # locks, and the wheel-build tools. `setuptools<81` still ships
+          # `pkg_resources`, which tMAVEN imports (sidecar.yml precedent).
+          create-args: >-
+            python=3.12
+            constructor>=3.16
+            conda-lock=4.0.1
+            conda-standalone
+            python-build
+            "setuptools<81"
+            wheel
+          init-shell: bash
+          cache-environment: true
+
+      - name: Build the tether wheel (hatch-vcs version from git)
+        run: python -m build --wheel --outdir packaging/staging .
+
+      - name: Build the pinned trimmed tMAVEN wheel (offline sidecar payload)
+        # --no-build-isolation so tMAVEN builds against the env's setuptools<81
+        # (pkg_resources); --no-deps because the sidecar conda env provides them.
+        run: python -m pip wheel --no-deps --no-build-isolation -w packaging/staging "${TMAVEN_SPEC}"
+
+      - name: Render per-platform EXPLICIT locks (pin-and-hold; no re-solve)
+        # conda-lock render emits `conda-<platform>.lock` (@EXPLICIT) from the
+        # committed unified locks; rename into the names construct.yaml expects.
+        run: |
+          mkdir -p packaging/locks
+          cd packaging/locks
+          conda-lock render -k explicit -p "$PLATFORM" ../../conda-lock.yml
+          mv "conda-$PLATFORM.lock" "base-$PLATFORM.lock"
+          conda-lock render -k explicit -p "$PLATFORM" ../../sidecar/conda-lock.yml
+          mv "conda-$PLATFORM.lock" "sidecar-$PLATFORM.lock"
+
+      - name: Stage the GPL license text + resolve wheel names
+        # The installer ships Tether's GPL-3.0 text (NOTICE: tMAVEN's own license
+        # ships too — a follow-up stages it alongside). Export the built wheel
+        # basenames so construct.yaml's extra_files map to a known wheelhouse/ dest.
+        run: |
+          cp LICENSE packaging/staging/LICENSE.txt
+          tether_whl="$(ls packaging/staging/tether-*.whl | head -1)"
+          tmaven_whl="$(ls packaging/staging/tmaven-*.whl | head -1)"
+          {
+            echo "TETHER_VERSION=$(python -c 'import tether._version as v; print(v.__version__)' 2>/dev/null || git describe --tags --always | sed 's/^v//')"
+            echo "TETHER_WHEEL=staging/$(basename "$tether_whl")"
+            echo "TETHER_WHEEL_NAME=$(basename "$tether_whl")"
+            echo "TMAVEN_WHEEL=staging/$(basename "$tmaven_whl")"
+            echo "TMAVEN_WHEEL_NAME=$(basename "$tmaven_whl")"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate the recipe (offline render + schema)
+        run: constructor --render packaging/
+
+      - name: Build the installer
+        # constructor auto-detects the bundled conda-standalone (the `conda-standalone`
+        # package is in this build env), so no explicit --conda-exe is needed.
+        run: constructor --output-dir packaging/dist packaging/
+
+      - name: Install-smoke — offline install into a clean prefix (Unix)
+        if: runner.os != 'Windows'
+        # Networking is neutralised for the install + smoke so a bundled-offline
+        # regression (any attempt to reach a channel/PyPI) fails loudly.
+        env:
+          PIP_NO_INDEX: "1"
+          CONDA_OFFLINE: "1"
+        run: |
+          prefix="$RUNNER_TEMP/tether-smoke"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            pkg="$(ls packaging/dist/*.pkg | head -1)"
+            installer -pkg "$pkg" -target CurrentUserHomeDirectory
+            prefix="$HOME/Tether"
+          else
+            sh "$(ls packaging/dist/*.sh | head -1)" -b -p "$prefix"
+          fi
+          "$prefix/bin/tether" --version
+          "$prefix/envs/sidecar/bin/python" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
+
+      - name: Install-smoke — offline install into a clean prefix (Windows)
+        if: runner.os == 'Windows'
+        env:
+          PIP_NO_INDEX: "1"
+          CONDA_OFFLINE: "1"
+          # Stop git-bash from mangling the NSIS /S and /D switches.
+          MSYS2_ARG_CONV_EXCL: "*"
+        run: |
+          prefix="$RUNNER_TEMP\\tether-smoke"
+          exe="$(ls packaging/dist/*.exe | head -1)"
+          # NSIS silent install; /D (target dir, unquoted) must be the LAST arg.
+          cmd //c "$(cygpath -w "$exe") /S /D=$prefix"
+          "$prefix\\python.exe" -m tether --version
+          "$prefix\\envs\\sidecar\\python.exe" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
+
+      - name: Upload the installer artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tether-installer-${{ matrix.platform }}
+          path: packaging/dist/*
+          if-no-files-found: warn

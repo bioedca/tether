@@ -33,6 +33,8 @@ nav:
       - Seven-plot parity gallery: analysis/parity-gallery.md
   - Machine learning:
       - Deep trace classifier (GPU add-on): ml/deep-classifier.md
+  - Packaging:
+      - Installers &amp; offline bundle: packaging.md
 
 # The product spec (PRD.md) and the MADR log (adr/) live under docs/ in the repo
 # but are not yet wired into the rendered site — their cross-references are
