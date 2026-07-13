@@ -26,6 +26,22 @@ FIXTURE = FIXTURES / "large" / "kinsoft_sim.hdf5"
 _SAMPLE_LEVEL = "level3"
 _SAMPLE_INDEX = 57  # trace_58 -> 0-based index 57 within the numerically-sorted level
 
+# Documented in tests/fixtures/PROVENANCE.md (the pristine Zenodo source zips).
+_EXPECTED_PROVENANCE = {
+    "level1": (
+        "sim_dataset_Fig2.zip",
+        "07af3ab1b7e7427ab93b423fbc302cac112ea4487391c5cfdbc9b6668827344c",
+    ),
+    "level2": (
+        "sim_dataset_Fig3.zip",
+        "f738698227eef76a2d1cd0118ca81453233a9d913de12ee2e6266888ee9eb284",
+    ),
+    "level3": (
+        "sim_dataset_Fig4.zip",
+        "cfecd68f8917b7e96d5f8eb1c838a1a0462f554d409ffc9671c072ba626d6425",
+    ),
+}
+
 
 def _is_lfs_pointer(path: Path) -> bool:
     """True if ``path`` is absent or a Git-LFS pointer stub (not real data)."""
@@ -63,6 +79,7 @@ def test_read_kinsoft_trace_rejects_wrong_columns(tmp_path: Path) -> None:
 def test_kinsoft_fixture_structure() -> None:
     if _is_lfs_pointer(FIXTURE):
         pytest.skip("LFS large-tier fixture not materialized (default checkout)")
+    pytest.importorskip("h5py")
     levels = read_kinsoft_fixture(FIXTURE)
     assert set(levels) == {"level1", "level2", "level3"}
     expected = {
@@ -97,9 +114,11 @@ def test_kinsoft_fixture_provenance_attrs() -> None:
         assert f.attrs["format"] == "kinsoft-sim"
         assert f.attrs["license"] == "CC-BY-4.0"
         assert f.attrs["doi"] == "10.5281/zenodo.5701310"
-        # Every level records the SHA-256 of its source zip (provenance).
-        for name in ("level1", "level2", "level3"):
-            assert len(str(f[name].attrs["source_sha256"])) == 64
+        # Each level records the exact source zip + its SHA-256 (PROVENANCE.md),
+        # so a fixture packed from the wrong archives fails here.
+        for name, (zip_name, sha256) in _EXPECTED_PROVENANCE.items():
+            assert str(f[name].attrs["source_zip"]) == zip_name
+            assert str(f[name].attrs["source_sha256"]) == sha256
 
 
 @pytest.mark.large
@@ -107,6 +126,7 @@ def test_committed_sample_matches_fixture_row() -> None:
     """The plain-git sample is exactly its trace inside the packed fixture."""
     if _is_lfs_pointer(FIXTURE):
         pytest.skip("LFS large-tier fixture not materialized (default checkout)")
+    pytest.importorskip("h5py")
     sample = read_kinsoft_trace(SAMPLE)
     lvl = read_kinsoft_fixture(FIXTURE)[_SAMPLE_LEVEL]
     packed = lvl.trace(_SAMPLE_INDEX)

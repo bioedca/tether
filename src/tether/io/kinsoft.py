@@ -31,7 +31,9 @@ import numpy as np
 _COLUMNS = ("idd", "ida", "iaa", "fret_e")
 
 
-@dataclass(frozen=True)
+# eq=False: array fields make the auto __eq__ return an ambiguous array (and the
+# frozen __hash__ unhashable); these carry data, not identity, so use object eq.
+@dataclass(frozen=True, eq=False)
 class KinsoftTrace:
     """One kinSoftChallenge trace: the ALEX intensities and the reported FRET E.
 
@@ -50,7 +52,7 @@ class KinsoftTrace:
     frame_time_s: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class KinsoftLevel:
     """One packed challenge level (a difficulty tier / paper figure).
 
