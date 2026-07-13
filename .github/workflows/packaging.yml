@@ -78,13 +78,20 @@ jobs:
           # constructor (>=3.16 for --render), conda-lock to render the committed
           # locks, and the wheel-build tools. `setuptools<81` still ships
           # `pkg_resources`, which tMAVEN imports (sidecar.yml precedent).
+          # NOTE: setup-micromamba splits create-args on whitespace and passes
+          # each token to micromamba verbatim — do NOT quote a match spec here or
+          # the quotes reach libmamba ("Error parsing version" on setuptools<81"").
+          # `pip` is explicit: `python -m build` (tether wheel) and `python -m pip
+          # wheel` (tMAVEN) both require it and the base python pulls it in only by
+          # chance, not as a stated dep.
           create-args: >-
             python=3.12
             constructor>=3.16
             conda-lock=4.0.1
             conda-standalone
             python-build
-            "setuptools<81"
+            pip
+            setuptools<81
             wheel
           init-shell: bash
           cache-environment: true
