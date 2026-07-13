@@ -46,6 +46,9 @@ jobs:
         include:
           - { os: ubuntu-latest, platform: linux-64 }
           - { os: macos-latest, platform: osx-arm64 }
+          # macos-13 is the last Intel (x86_64) hosted runner — exercises the
+          # osx-64 lock/render/install-smoke path the recipe also bundles.
+          - { os: macos-13, platform: osx-64 }
           - { os: windows-latest, platform: win-64 }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60

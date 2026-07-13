@@ -15,13 +15,28 @@ set "WHEELHOUSE=%PREFIX%\wheelhouse"
 set "BASE_PY=%PREFIX%\python.exe"
 set "SIDECAR_PY=%PREFIX%\envs\sidecar\python.exe"
 
-rem tether wheel -> base env (PySide6/napari/current-numpy).
-for %%W in ("%WHEELHOUSE%\tether-*.whl") do "%BASE_PY%" -m pip install --no-index --no-deps "%%W"
-if errorlevel 1 exit /b 1
+rem tether wheel -> base env (PySide6/napari/current-numpy). A `for` over an
+rem unmatched glob runs zero iterations and leaves errorlevel untouched, so guard
+rem the missing-wheel case explicitly (unlike post_install.sh, where the literal
+rem unmatched glob reaches pip and fails under `set -e`).
+if not exist "%WHEELHOUSE%\tether-*.whl" (
+  echo ERROR: tether wheel not found in %WHEELHOUSE%
+  exit /b 1
+)
+for %%W in ("%WHEELHOUSE%\tether-*.whl") do (
+  "%BASE_PY%" -m pip install --no-index --no-deps "%%W"
+  if errorlevel 1 exit /b 1
+)
 
 rem tMAVEN wheel -> the ISOLATED sidecar env (PyQt5/numpy<2); never the base env.
-for %%W in ("%WHEELHOUSE%\tmaven-*.whl") do "%SIDECAR_PY%" -m pip install --no-index --no-deps "%%W"
-if errorlevel 1 exit /b 1
+if not exist "%WHEELHOUSE%\tmaven-*.whl" (
+  echo ERROR: tmaven wheel not found in %WHEELHOUSE%
+  exit /b 1
+)
+for %%W in ("%WHEELHOUSE%\tmaven-*.whl") do (
+  "%SIDECAR_PY%" -m pip install --no-index --no-deps "%%W"
+  if errorlevel 1 exit /b 1
+)
 
 rem Best-effort: point the app at its bundled sidecar interpreter when the base
 rem env is conda-activated (a prefix-relative app-side default is the more robust
