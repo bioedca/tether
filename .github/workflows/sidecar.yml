@@ -87,28 +87,38 @@ jobs:
         # inputs are bound to env vars (not inlined via ${{ }}) — they are not
         # attacker-controllable, but this keeps the script off the template-injection
         # path and clean under zizmor.
+        #
+        # The step resolves run=true/false into a variable and writes GITHUB_OUTPUT
+        # exactly ONCE at the end — it never calls an explicit `exit`. Under the
+        # runner's `bash -el {0}` login shell an explicit `exit 0` here reports
+        # "Process completed with exit code 1": every nightly `schedule` and manual
+        # `workflow_dispatch` run (which took the non-PR `exit 0` branch) failed at
+        # this gate, while the fall-through PR branch always passed. Both branches now
+        # fall through to the same terminal append, so the step's status is that
+        # append's (0). test_marker_contract.py guards against reintroducing `exit`.
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          run=false
           if [ "$EVENT_NAME" != "pull_request" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
+            run=true
             echo "event=$EVENT_NAME -> running the full live suite."
-            exit 0
-          fi
-          changed="$(git diff --name-only "$BASE_SHA" HEAD)"
-          echo "changed files:"; echo "$changed"
-          # Gate on the SAME file set the pytest step collects (tests/test_*sidecar*.py,
-          # e.g. both test_parity_sidecar.py and test_sidecar_driver.py), so a change to
-          # ANY sidecar module runs the live suite — not just the parity module.
-          pattern='^(src/tether/idealize/|sidecar/|schema/parity_tolerance\.json|tests/test_.*sidecar.*\.py|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
-          if echo "$changed" | grep -qE "$pattern"; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "Idealization-relevant paths changed -> running the live parity suite."
           else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "No idealization-relevant paths changed -> sidecar parity not applicable (pass)."
+            changed="$(git diff --name-only "$BASE_SHA" HEAD)"
+            echo "changed files:"; echo "$changed"
+            # Gate on the SAME file set the pytest step collects (tests/test_*sidecar*.py,
+            # e.g. both test_parity_sidecar.py and test_sidecar_driver.py), so a change to
+            # ANY sidecar module runs the live suite — not just the parity module.
+            pattern='^(src/tether/idealize/|sidecar/|schema/parity_tolerance\.json|tests/test_.*sidecar.*\.py|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
+            if echo "$changed" | grep -qE "$pattern"; then
+              run=true
+              echo "Idealization-relevant paths changed -> running the live parity suite."
+            else
+              echo "No idealization-relevant paths changed -> sidecar parity not applicable (pass)."
+            fi
           fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
       - name: Fetch the LFS large-tier fixtures (281-mol reference + SMD)
         if: steps.relevance.outputs.run == 'true'
         run: git lfs pull

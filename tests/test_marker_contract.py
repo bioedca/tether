@@ -96,6 +96,31 @@ def test_contract_glob_matches_workflow_glob():
     )
 
 
+def test_sidecar_workflow_uses_no_explicit_exit():
+    """No step in ``sidecar.yml`` may call an explicit ``exit`` under ``bash -el {0}``.
+
+    Every ``run:`` step in this workflow uses the login shell ``bash -el {0}``, where
+    an explicit ``exit 0`` reports "Process completed with exit code 1" on the runner:
+    the relevance/gate step's non-PR branch ran ``exit 0`` and failed *every* nightly
+    ``schedule`` and manual ``workflow_dispatch`` run at the gate (steps 4-7 skipped, so
+    the live parity fit — the drift-detection safety net — never ran), while the
+    fall-through PR branch always passed. The fix removed the ``exit`` so both branches
+    fall through to a single terminal ``echo "run=..." >> "$GITHUB_OUTPUT"``. This guard
+    fails the moment a bare ``exit`` is reintroduced into any run script, so the footgun
+    cannot silently return. (Comment lines mentioning ``exit`` are ignored.)
+    """
+    workflow = SIDECAR_WORKFLOW.read_text(encoding="utf-8")
+    exit_lines = [
+        ln
+        for ln in workflow.splitlines()
+        if re.match(r"\s*exit\b", ln) and not ln.lstrip().startswith("#")
+    ]
+    assert not exit_lines, (
+        "sidecar.yml must not call an explicit `exit` in a `bash -el {0}` run step "
+        f"(it reports exit 1 on the runner); offending lines: {exit_lines}"
+    )
+
+
 # --- The same collection contract for the M8 deep-classifier leg (ADR-0047) ---
 # deep.yml runs the live torch train-smoke in the isolated `deep/` env (torch + numpy +
 # scipy + h5py, no base GUI/IO stack), so a repo-wide `pytest -m deep` would abort at
