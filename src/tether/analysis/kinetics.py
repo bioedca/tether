@@ -225,12 +225,13 @@ def fit_gaussian_hmm(
             mean_num += (gamma * x[:, None]).sum(axis=0)
             sq_num += (gamma * (x[:, None] ** 2)).sum(axis=0)
             if T > 1:
-                # xi summed over time: Σ_t α_t ⊗ (A ⊙ B_{t+1} β_{t+1}) / c_{t+1}
-                for t in range(T - 1):
-                    xi = alpha[t][:, None] * tmatrix * (B[t + 1] * beta[t + 1])[None, :]
-                    xi /= c[t + 1]
-                    trans_num += xi
-                    trans_den += gamma[t]
+                # xi summed over time, vectorized: Σ_t α_t ⊗ (B_{t+1} β_{t+1} / c_{t+1})
+                # is the outer-product accumulation ``alpha[:-1].T @ (B[1:]·β[1:]/c[1:])``,
+                # scaled elementwise by the transition matrix — equivalent to the per-t loop
+                # but without the Python-level iteration over frames.
+                bwd = (B[1:] * beta[1:]) / c[1:, None]  # (T-1, nstates)
+                trans_num += tmatrix * (alpha[:-1].T @ bwd)
+                trans_den += gamma[:-1].sum(axis=0)
 
         # M-step
         start = start_acc / start_acc.sum()
