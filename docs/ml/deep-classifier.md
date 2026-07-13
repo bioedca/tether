@@ -98,7 +98,7 @@ fixed-length tensors. Assemble a `DeepTraceDataset` from a `.tether` project, tr
 
 ```python
 from tether.project.deep_dataset import build_deep_dataset
-from tether.ml.deep.model import train_classifier
+from tether.ml.deep.model import predict_proba, train_classifier
 
 # Reuses the M5 ranker's exact labeled set + cold-start weights, joined per molecule_id to the
 # same analysis-window-sliced traces the engineered features use. Requires /features/table
@@ -106,20 +106,20 @@ from tether.ml.deep.model import train_classifier
 dataset = build_deep_dataset(project)          # intensity_quantity="corrected" by default
 
 trained = train_classifier(dataset)            # lazily imports torch; needs the deep/ env
-scores = trained.predict_proba(dataset)        # per-molecule accept probability, rows aligned
+scores = predict_proba(trained, dataset)       # per-molecule accept probability, rows aligned
 ```
 
 `build_deep_dataset` builds the framework-free substrate (base env); `train_classifier` and
 `predict_proba` are the torch consumers (deep env). The returned `TrainedDeepClassifier` is a
 frozen record carrying the trained model, the per-epoch weighted-loss `history`, the full
-hyperparameter set, and the **preprocessing provenance** (channels, window length,
-normalization, intensity quantity) — the reproducibility stamp (NFR-REPRO).
+hyperparameter set, and the **preprocessing provenance** (channels, channel count, window
+length, normalization, intensity quantity) — the reproducibility stamp (NFR-REPRO).
 
 That provenance is also a **safety contract**: `predict_proba` rejects an inference dataset
-whose preprocessing (channel order, window length, normalization, intensity quantity) differs
-from what the model was trained on, because a mismatch keeps a compatible tensor *shape* yet
-would produce silently invalid scores. Pass a bare `nn.Module` to opt out and own the contract
-yourself.
+whose preprocessing differs from what the model was trained on across **all five** recorded
+fields — channel order, channel count, window length, normalization, and intensity quantity —
+because a mismatch keeps a compatible tensor *shape* yet would produce silently invalid scores.
+Pass a bare `nn.Module` to opt out and own the contract yourself.
 
 ### Preprocessing (the never-fabricate discipline)
 
@@ -156,7 +156,7 @@ neither escape these legs nor redden the base matrix.
 gates). `deep-gpu.yml` is **non-required by construction**: it is triggered only by
 `workflow_dispatch` — never `pull_request` or `push` — so it never reports a status on a PR and
 therefore can never become a required merge check. To run the GPU leg, dispatch it against a
-self-hosted runner labelled `self-hosted` + your GPU label (default `gpu`), choosing the CUDA
+self-hosted runner labeled `self-hosted` + your GPU label (default `gpu`), choosing the CUDA
 channel (`cu126` / `cu124` / `cu128`) that matches the runner's driver.
 
 ## Status and scope
