@@ -30,6 +30,7 @@ PLAIN_FIXTURES = [
     FIXTURES / "tdat_coloc_slice.tdat",
     FIXTURES / "tmap_coeffs.npz",
     FIXTURES / "bead_prealign_oracle.npz",
+    FIXTURES / "kinsoft_trace_sample.txt",
 ]
 
 

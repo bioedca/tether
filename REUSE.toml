@@ -11,3 +11,15 @@ path = "**"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 The Tether Authors <bioedca@u.northwestern.edu>"
 SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# kinSoftChallenge simulated datasets — third-party reference data, CC-BY-4.0
+# (Götz & Schmid, Zenodo 10.5281/zenodo.5701310), aggregated as gated-tier test
+# fixtures. `override` beats the blanket GPL entry above for these specific data
+# files (they carry no SPDX header of their own). Attributed in NOTICE and the
+# fixture PROVENANCE; the MATLAB simulator from the same record is NOT vendored
+# (PRD N2). See PRD §8 NFR-VALID(c) / §9 M8.
+[[annotations]]
+path = ["tests/fixtures/large/kinsoft_sim.hdf5", "tests/fixtures/kinsoft_trace_sample.txt"]
+precedence = "override"
+SPDX-FileCopyrightText = "2021 Markus Götz and Sonja Schmid (kinSoftChallenge)"
+SPDX-License-Identifier = "CC-BY-4.0"

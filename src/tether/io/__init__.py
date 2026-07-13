@@ -31,6 +31,12 @@ from tether.io.intake import (
     read_tdat_movie_reference,
     verify_movie_reference,
 )
+from tether.io.kinsoft import (
+    KinsoftLevel,
+    KinsoftTrace,
+    read_kinsoft_fixture,
+    read_kinsoft_trace,
+)
 from tether.io.recover import (
     RecoveredCoordinates,
     SmdCoordinateMatch,
@@ -56,6 +62,8 @@ __all__ = [
     "DeepLasiTraces",
     "DiscoveryResult",
     "FileRole",
+    "KinsoftLevel",
+    "KinsoftTrace",
     "MovieRefCheck",
     "MovieReference",
     "ParsedFilename",
@@ -73,6 +81,8 @@ __all__ = [
     "read_deeplasi_mat",
     "read_deeplasi_txt",
     "read_detection_settings",
+    "read_kinsoft_fixture",
+    "read_kinsoft_trace",
     "read_mat_movie_reference",
     "read_movie_reference",
     "read_tdat",
