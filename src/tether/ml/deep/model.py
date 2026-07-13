@@ -39,9 +39,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from tether.ml.deep.dataset import DEFAULT_SPLIT_SEED  # dependency-free import
+from tether.ml.ranking import rank_by_score  # dependency-free (pure-numpy) ranking substrate
 
 if TYPE_CHECKING:
     from tether.ml.deep.dataset import DeepTraceDataset
+    from tether.ml.ranking import RankedTraces
 
 # --- Architecture defaults (PRD §11.2 "Deep-classifier model + training") ---
 #: Convolutional feature channels per 1-D conv layer.
@@ -65,6 +67,16 @@ DEFAULT_LEARNING_RATE = 1e-3
 #: CPU is the base/default device; the optional CUDA build selects "cuda" on a GPU box.
 DEFAULT_DEVICE = "cpu"
 
+# --- Fine-tuning / transfer defaults (PRD §11.2 "Deep-classifier fine-tuning + transfer") ---
+#: Fewer epochs than a fresh train — fine-tuning adapts a pretrained model, not learns from scratch.
+DEFAULT_FINE_TUNE_EPOCHS = 10
+#: A reduced Adam LR (⅒ of the train default) — the transfer-learning convention that adapts the
+#: pretrained weights without destroying them.
+DEFAULT_FINE_TUNE_LEARNING_RATE = 1e-4
+#: Fine-tune every weight by default; ``freeze_conv=True`` freezes the CNN feature extractor and
+#: adapts only the recurrent summary + head (the "reuse the learned features" transfer mode).
+DEFAULT_FREEZE_CONV = False
+
 __all__ = [
     "DEFAULT_BATCH_SIZE",
     "DEFAULT_BIDIRECTIONAL",
@@ -72,12 +84,17 @@ __all__ = [
     "DEFAULT_DEVICE",
     "DEFAULT_DROPOUT",
     "DEFAULT_EPOCHS",
+    "DEFAULT_FINE_TUNE_EPOCHS",
+    "DEFAULT_FINE_TUNE_LEARNING_RATE",
+    "DEFAULT_FREEZE_CONV",
     "DEFAULT_KERNEL_SIZE",
     "DEFAULT_LEARNING_RATE",
     "DEFAULT_LSTM_HIDDEN",
     "DEFAULT_NUM_CONV_LAYERS",
     "TrainedDeepClassifier",
+    "fine_tune",
     "predict_proba",
+    "rank_by_deep_model",
     "train_classifier",
 ]
 
@@ -248,3 +265,126 @@ def predict_proba(
         model = trained
         resolved_device = device or DEFAULT_DEVICE
     return _torch_model.predict_proba(model, dataset, batch_size=batch_size, device=resolved_device)
+
+
+def fine_tune(
+    base: TrainedDeepClassifier,
+    dataset: DeepTraceDataset,
+    *,
+    epochs: int = DEFAULT_FINE_TUNE_EPOCHS,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    learning_rate: float = DEFAULT_FINE_TUNE_LEARNING_RATE,
+    freeze_conv: bool = DEFAULT_FREEZE_CONV,
+    seed: int = DEFAULT_SPLIT_SEED,
+    device: str | None = None,
+) -> TrainedDeepClassifier:
+    """Fine-tune a trained classifier on newly accumulated labels — transfer learning (FR-ML).
+
+    The M8 transfer path (PRD §7.5 "a later deep phase … shall reuse the same label store"):
+    warm-start from ``base`` and continue training on ``dataset`` — e.g. a condition's freshly
+    accumulated **human** labels, having pretrained ``base`` on the abundant
+    ``deeplasi-provisional`` / ``cross-condition-seed`` labels — so the deep model learns the lab's
+    preferences, the deep analogue of the M5 classical ranker's cold-start weights decaying toward
+    the human labels (§7.5). AutoSiM shows a deep smFRET trace selector adapts to a new dataset with
+    only modest transfer learning [Li2020]; Kin-SiM establishes the pretrain-then-apply paradigm
+    [Zhang2025]. Lazily imports torch, so calling this needs the optional ``deep/`` env.
+
+    ``base`` is **not** mutated — the fine-tuned model is a deep copy, so the caller can score the
+    same held-out set with both to confirm the fine-tune improved it (the §9 M8 "fine-tuning
+    improves a held-out metric" clause). With ``freeze_conv`` only the recurrent summary + head
+    adapt (the CNN feature extractor is frozen). The returned :class:`TrainedDeepClassifier`
+    carries ``base``'s preprocessing provenance (which must match ``dataset``) and records the
+    fine-tune hyperparameters plus ``base``'s under ``base_hyperparameters`` (NFR-REPRO);
+    ``history`` is this fine-tune run's per-epoch weighted loss.
+
+    Raises
+    ------
+    ValueError
+        Non-positive ``epochs`` / ``batch_size`` / ``learning_rate``, or a ``dataset`` whose
+        preprocessing (channel order/count, window length, normalization, intensity quantity) does
+        not match what ``base`` was trained on — fine-tuning on differently-preprocessed traces
+        would corrupt the pretrained weights (the same contract :func:`predict_proba` enforces).
+    """
+    if epochs <= 0:
+        raise ValueError(f"epochs must be positive, got {epochs}")
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {batch_size}")
+    if learning_rate <= 0.0:
+        raise ValueError(f"learning_rate must be positive, got {learning_rate}")
+
+    expected = (
+        base.channels,
+        base.n_channels,
+        base.window_length,
+        base.normalization,
+        base.intensity_quantity,
+    )
+    actual = (
+        dataset.channels,
+        dataset.n_channels,
+        dataset.window_length,
+        dataset.normalization,
+        dataset.intensity_quantity,
+    )
+    if actual != expected:
+        raise ValueError(
+            "dataset preprocessing does not match the trained classifier "
+            f"(trained on {expected!r}, got {actual!r}); fine-tuning would corrupt the model"
+        )
+
+    resolved_device = device or base.hyperparameters.get("device", DEFAULT_DEVICE)
+    hyperparameters: dict[str, Any] = {
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "learning_rate": learning_rate,
+        "freeze_conv": freeze_conv,
+        "seed": seed,
+        "device": resolved_device,
+        "fine_tuned": True,
+        "base_hyperparameters": dict(base.hyperparameters),
+    }
+
+    from tether.ml.deep import _torch_model  # lazy: torch only loads here
+
+    model, history = _torch_model.fine_tune(
+        base.model,
+        dataset,
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        freeze_conv=freeze_conv,
+        seed=seed,
+        device=resolved_device,
+    )
+    return TrainedDeepClassifier(
+        model=model,
+        channels=base.channels,
+        n_channels=base.n_channels,
+        window_length=base.window_length,
+        normalization=base.normalization,
+        intensity_quantity=base.intensity_quantity,
+        history=tuple(history),
+        hyperparameters=hyperparameters,
+    )
+
+
+def rank_by_deep_model(
+    trained: TrainedDeepClassifier,
+    dataset: DeepTraceDataset,
+    *,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+) -> RankedTraces:
+    """Rank ``dataset``'s molecules by the deep model's accept probability (FR-ML).
+
+    The reconciliation seam with the M5 **classical** ranker: the deep model's per-molecule
+    ``P(accept)`` (:func:`predict_proba`) is fed to the *same* model-agnostic, never-auto-drop
+    :func:`tether.ml.ranking.rank_by_score` that the gradient-boosting
+    :class:`~tether.ml.gbranker.QualityRanker`'s scores feed, and is scored by the *same*
+    :func:`tether.ml.ranking.precision_at_k`. So the deep model is a drop-in scorer for the M5
+    quality-ranking pipeline: the two rankers' outputs are directly comparable on the shared
+    precision@k objective (PRD §7.5), and neither auto-drops a trace — a molecule is only ever
+    re-ordered (higher probability ranks earlier). Enforces the same preprocessing contract as
+    :func:`predict_proba`; lazily imports torch.
+    """
+    proba = predict_proba(trained, dataset, batch_size=batch_size)
+    return rank_by_score(dataset.molecule_ids, proba)

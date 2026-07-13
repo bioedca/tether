@@ -33,6 +33,7 @@ References
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -143,46 +144,34 @@ class TraceClassifier(nn.Module):
         return self.head(self.dropout(summary)).squeeze(1)  # (N,)
 
 
-def train(
-    dataset: DeepTraceDataset,
+def _optimize(
+    model: nn.Module,
+    torch_ds: DeepTraceTorchDataset,
     *,
     epochs: int,
     batch_size: int,
     learning_rate: float,
-    conv_channels: int,
-    kernel_size: int,
-    num_conv_layers: int,
-    lstm_hidden: int,
-    bidirectional: bool,
-    dropout: float,
     seed: int,
     device: str,
-) -> tuple[nn.Module, list[float]]:
-    """Train a :class:`TraceClassifier` on ``dataset``; return ``(model, per_epoch_loss)``.
+) -> list[float]:
+    """Run the weighted-BCE Adam training loop on ``model`` over ``torch_ds``; return the history.
 
-    Deterministic for a given ``seed`` on CPU: the global RNG (seeded via ``torch.manual_seed``)
-    fixes weight initialization, and a separately-seeded :class:`torch.Generator` fixes the
-    ``DataLoader`` shuffle order (single-process, ``num_workers = 0``). The loss is a per-sample
+    Shared by :func:`train` (a fresh model) and :func:`fine_tune` (a warm-started deep copy). The
+    Adam optimizer is built over **only the parameters with ``requires_grad``**, so a frozen
+    submodule (e.g. the conv feature extractor during transfer fine-tuning) is left untouched; for a
+    fully-trainable fresh model that filter is exactly ``model.parameters()`` in order, so
+    :func:`train` is numerically unchanged. A separately-seeded :class:`torch.Generator` fixes the
+    ``DataLoader`` shuffle order (single-process, ``num_workers = 0``); the loss is a per-sample
     **weighted** ``BCEWithLogitsLoss`` (``reduction="none"`` then ``Σ wᵢ·ℓᵢ / Σ wᵢ``), so the M5
     cold-start provisional weights (``w₀ / (1 + n_human)``) carry into the deep model (§7.5).
     """
-    torch.manual_seed(seed)
     device_t = torch.device(device)
-    model = TraceClassifier(
-        n_channels=dataset.n_channels,
-        conv_channels=conv_channels,
-        kernel_size=kernel_size,
-        num_conv_layers=num_conv_layers,
-        lstm_hidden=lstm_hidden,
-        bidirectional=bidirectional,
-        dropout=dropout,
-    ).to(device_t)
-
-    torch_ds = DeepTraceTorchDataset(dataset)
+    model = model.to(device_t)
     generator = torch.Generator()
     generator.manual_seed(seed)
     loader = DataLoader(torch_ds, batch_size=batch_size, shuffle=True, generator=generator)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    trainable = [p for p in model.parameters() if p.requires_grad]
+    optimizer = torch.optim.Adam(trainable, lr=learning_rate)
     loss_fn = nn.BCEWithLogitsLoss(reduction="none")
 
     history: list[float] = []
@@ -209,6 +198,97 @@ def train(
         history.append(epoch_loss / epoch_weight if epoch_weight > 0.0 else float("nan"))
 
     model.eval()
+    return history
+
+
+def train(
+    dataset: DeepTraceDataset,
+    *,
+    epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    conv_channels: int,
+    kernel_size: int,
+    num_conv_layers: int,
+    lstm_hidden: int,
+    bidirectional: bool,
+    dropout: float,
+    seed: int,
+    device: str,
+) -> tuple[nn.Module, list[float]]:
+    """Train a fresh :class:`TraceClassifier` on ``dataset``; return ``(model, per_epoch_loss)``.
+
+    Deterministic for a given ``seed`` on CPU: the global RNG (seeded via ``torch.manual_seed``)
+    fixes weight initialization, and the shared :func:`_optimize` loop fixes the ``DataLoader``
+    shuffle order with a separately-seeded generator.
+    """
+    torch.manual_seed(seed)
+    device_t = torch.device(device)
+    model = TraceClassifier(
+        n_channels=dataset.n_channels,
+        conv_channels=conv_channels,
+        kernel_size=kernel_size,
+        num_conv_layers=num_conv_layers,
+        lstm_hidden=lstm_hidden,
+        bidirectional=bidirectional,
+        dropout=dropout,
+    ).to(device_t)
+    history = _optimize(
+        model,
+        DeepTraceTorchDataset(dataset),
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        seed=seed,
+        device=device,
+    )
+    return model, history
+
+
+def fine_tune(
+    base_model: nn.Module,
+    dataset: DeepTraceDataset,
+    *,
+    epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    freeze_conv: bool,
+    seed: int,
+    device: str,
+) -> tuple[nn.Module, list[float]]:
+    """Warm-start ``base_model`` and continue training on ``dataset``; return ``(model, history)``.
+
+    Transfer learning [Li2020] (AutoSiM adapts a deep smFRET trace selector to a new dataset with
+    only modest transfer learning; Kin-SiM [Zhang2025] is the complementary pretrain-then-apply
+    approach): the returned model is a **deep copy** of ``base_model``
+    (the original is never mutated, so a caller can score a held-out set with both to confirm the
+    fine-tune improved it), trained for a further ``epochs`` at a typically reduced
+    ``learning_rate``. With ``freeze_conv`` the 1-D CNN feature extractor is frozen
+    (``requires_grad_(False)``) so only the recurrent summary + classification head adapt — the
+    "reuse the learned features, adapt the head" transfer mode; otherwise every weight is
+    fine-tuned. Deterministic for a fixed ``seed`` on CPU (the global RNG is seeded before the copy
+    so any dropout draws are reproducible, and :func:`_optimize` seeds the loader-shuffle
+    generator).
+    """
+    torch.manual_seed(seed)
+    model = copy.deepcopy(base_model)
+    # Start from a fully-trainable copy so ``freeze_conv=False`` always means "train everything",
+    # even if ``base_model`` itself came from a prior ``freeze_conv=True`` fine-tune (whose frozen
+    # conv would otherwise be deep-copied as still-frozen).
+    model.requires_grad_(True)
+    if freeze_conv:
+        # Freeze the CNN feature extractor; the LSTM summary + head stay trainable. `_optimize`'s
+        # requires_grad filter then builds the optimizer over only the unfrozen parameters.
+        model.conv.requires_grad_(False)
+    history = _optimize(
+        model,
+        DeepTraceTorchDataset(dataset),
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        seed=seed,
+        device=device,
+    )
     return model, history
 
 
