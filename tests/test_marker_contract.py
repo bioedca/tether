@@ -162,9 +162,111 @@ def test_deep_marked_modules_match_ci_glob() -> None:
 def test_deep_contract_glob_matches_workflow_glob() -> None:
     """The contract's glob is exactly the one ``deep.yml`` collects with (`pytest -m deep`)."""
     workflow = DEEP_WORKFLOW.read_text(encoding="utf-8")
-    pytest_lines = [ln for ln in workflow.splitlines() if "pytest -m deep" in ln]
+    pytest_lines = [
+        ln
+        for ln in workflow.splitlines()
+        if "pytest -m deep" in ln and not ln.lstrip().startswith("#")
+    ]
     assert pytest_lines, "deep.yml must run `pytest -m deep`"
     globs = re.findall(r"tests/(\S+\.py)", " ".join(pytest_lines))
     assert globs == [DEEP_FILE_GLOB], (
         f"deep.yml's `pytest -m deep` must collect exactly 'tests/{DEEP_FILE_GLOB}'; found: {globs}"
+    )
+
+
+# --- The same contract for the non-required GPU leg (deep-gpu.yml, PR-2 / ADR-0047) ---
+# deep-gpu.yml is the workflow_dispatch, self-hosted CUDA counterpart of deep.yml: it runs the
+# SAME `pytest -m deep tests/test_*_deep.py` on a GPU box, so the GPU cases
+# (tests/test_deep_gpu_deep.py) ride the same suffix glob. It is advisory / non-required BY
+# CONSTRUCTION — dispatched manually and never on pull_request/push, so it can never report a
+# gating status on a PR (§9 M8 "optional / CPU base app unaffected").
+DEEP_GPU_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "deep-gpu.yml"
+
+
+def _on_block_child_keys(text: str) -> set[str]:
+    """Immediate child keys of the top-level ``on:`` mapping (a small indent scan, no YAML dep).
+
+    Mirrors the stdlib-only style of this module (ast/re, never a YAML import). Assumes the
+    two-space block indentation the repo's workflows use; comment/blank lines are ignored.
+    """
+    keys: set[str] = set()
+    in_on = False
+    on_indent = 0
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        if not in_on:
+            if indent == 0 and stripped.split(":", 1)[0] == "on":
+                in_on = True
+                on_indent = indent
+            continue
+        if indent <= on_indent:  # dedented back to another top-level key: on: block ended
+            break
+        if indent == on_indent + 2:  # an immediate child of on:
+            keys.add(stripped.split(":", 1)[0].strip())
+    return keys
+
+
+def test_on_block_parser_extracts_immediate_triggers() -> None:
+    # Only the immediate children of on: count — nested input keys must not leak up.
+    sample = (
+        "on:\n"
+        "  workflow_dispatch:\n"
+        "    inputs:\n"
+        "      push:\n"
+        "        type: string\n"
+        "jobs:\n"
+        "  x: {}\n"
+    )
+    assert _on_block_child_keys(sample) == {"workflow_dispatch"}
+
+
+def test_deep_gpu_contract_glob_matches_workflow_glob() -> None:
+    """deep-gpu.yml collects exactly the deep suffix glob (identical to deep.yml)."""
+    workflow = DEEP_GPU_WORKFLOW.read_text(encoding="utf-8")
+    pytest_lines = [
+        ln
+        for ln in workflow.splitlines()
+        if "pytest -m deep" in ln and not ln.lstrip().startswith("#")
+    ]
+    assert pytest_lines, "deep-gpu.yml must run `pytest -m deep`"
+    globs = re.findall(r"tests/(\S+\.py)", " ".join(pytest_lines))
+    assert globs == [DEEP_FILE_GLOB], (
+        f"deep-gpu.yml's `pytest -m deep` must collect exactly "
+        f"'tests/{DEEP_FILE_GLOB}'; found: {globs}"
+    )
+
+
+def test_deep_gpu_leg_is_non_required_by_construction() -> None:
+    """The GPU leg is advisory: manual-dispatch only, never an auto (PR/push) trigger.
+
+    A ``workflow_dispatch``-only workflow never reports a status on a pull request, so it
+    structurally cannot be (or silently become) a required merge check — the ADR-0047
+    "optional / CPU base app unaffected" invariant. Adding a ``pull_request:``/``push:``
+    trigger fails this guard so the choice would have to be deliberate.
+    """
+    triggers = _on_block_child_keys(DEEP_GPU_WORKFLOW.read_text(encoding="utf-8"))
+    assert "workflow_dispatch" in triggers, "deep-gpu.yml must be manually dispatchable"
+    # pull_request / push report a PR or branch status; merge_group gates a merge queue.
+    # None of these may appear — a workflow_dispatch-only leg can never be a required check.
+    gating = {"pull_request", "push", "merge_group"}
+    assert triggers.isdisjoint(gating), (
+        "deep-gpu.yml must stay advisory (no PR/push/merge_group trigger); "
+        f"on-triggers: {sorted(triggers)}"
+    )
+
+
+def test_deep_gpu_leg_targets_a_self_hosted_runner() -> None:
+    """The GPU leg runs on a self-hosted runner — hosted runners have no CUDA GPU.
+
+    Matches the exact ``- self-hosted`` runs-on list item, NOT the substring anywhere: the
+    literal string "self-hosted" also appears in the ``runner_label`` input's description prose,
+    so a substring check would stay green even if the runs-on mapping were switched to a hosted
+    runner. This guard fails the moment the job stops targeting a self-hosted runner.
+    """
+    lines = DEEP_GPU_WORKFLOW.read_text(encoding="utf-8").splitlines()
+    assert any(ln.strip() == "- self-hosted" for ln in lines), (
+        "deep-gpu.yml must target a self-hosted (GPU) runner (a `- self-hosted` runs-on entry)"
     )

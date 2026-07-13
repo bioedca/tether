@@ -1,0 +1,123 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# deep-gpu / smoke — the M8 deep-classifier GPU train-smoke (ADR-0047 "Option A";
+# PRD §9 M8, §12.6, FR-ML). It is the CUDA counterpart of the CPU `deep.yml` leg:
+# the same `-m deep` train-smoke, but on a self-hosted NVIDIA GPU box so the
+# `device="cuda"` training + inference path (tests/test_deep_gpu_deep.py)
+# runs for real. The RTX-4060 GPU floor cannot run on GitHub-hosted runners
+# (no CUDA), so this is a manual, self-hosted, advisory leg.
+#
+# ADVISORY / NON-REQUIRED BY CONSTRUCTION: triggered ONLY by `workflow_dispatch`
+# (never pull_request/push), so it never reports a status on a PR and therefore
+# can never be — or silently become — a required merge check. This keeps the M8
+# add-on "optional / CPU base app unaffected" (§9 M8). tests/test_marker_contract.py
+# locks this (no PR/push trigger; self-hosted; same deep glob as deep.yml).
+#
+# CUDA torch is the DOCUMENTED, UNPINNED path (ADR-0047; deep/environment.yml
+# header): the deep/ conda-lock stays CPU-only (pin-and-hold), and this leg
+# installs a pytorch.org cuXXX wheel at run time — deliberately OUTSIDE
+# pin-and-hold, which is acceptable precisely because it never gates a merge.
+name: deep-gpu
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: >-
+          Second runs-on label identifying your self-hosted CUDA GPU runner
+          (combined with the implicit 'self-hosted' label).
+        type: string
+        default: gpu
+        required: true
+      cuda:
+        description: >-
+          PyTorch CUDA wheel channel — must match your installed NVIDIA driver
+          (see https://pytorch.org/get-started/locally/).
+        type: choice
+        options:
+          - cu126
+          - cu124
+          - cu128
+        default: cu126
+        required: true
+      torch_spec:
+        description: >-
+          Torch version constraint. Bounded to the deep/ stack's pytorch>=2.2,<3;
+          unpinned within that window (advisory — this leg is not pin-and-held).
+        type: string
+        default: torch>=2.2,<3
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: deep-gpu / smoke
+    # A self-hosted runner labelled 'self-hosted' + <runner_label> (default 'gpu').
+    # A GitHub-hosted runner has no CUDA GPU, so this job is self-hosted only.
+    runs-on:
+      - self-hosted
+      - ${{ inputs.runner_label }}
+    # Bound the job: the first run downloads a ~2 GB CUDA wheel; the compute
+    # itself is a seconds-long CPU/GPU smoke on synthetic arrays.
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash -e {0}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Create an isolated venv for the advisory CUDA stack
+        # A venv keeps the unpinned CUDA install off the persistent self-hosted
+        # runner's system Python. Its bin dir goes on PATH for later steps.
+        run: |
+          python -m venv "${RUNNER_TEMP}/deep-gpu-venv"
+          echo "${RUNNER_TEMP}/deep-gpu-venv/bin" >> "${GITHUB_PATH}"
+      - name: Install the CUDA PyTorch build + the deep runtime (documented, unpinned)
+        # torch from the pytorch.org cuXXX index (the wheel bundles the CUDA
+        # runtime; only an NVIDIA driver is required); numpy/scipy/h5py from PyPI
+        # bounded to the deep/environment.yml window; then tether with no deps.
+        # This install is intentionally NOT pin-and-held (ADR-0047) — the leg is
+        # non-required and advisory, so an unpinned CUDA wheel is acceptable here
+        # and the committed deep/conda-lock.yml stays CPU-only.
+        #
+        # `torch_spec` is a free-form input, so it is passed via `env` and read as
+        # a shell variable ("$TORCH_SPEC") rather than interpolated into the script
+        # text — this avoids a `${{ inputs.* }}`-into-run shell-injection sink on
+        # the self-hosted runner. `cuda` is a restricted `choice` (safe inline).
+        env:
+          TORCH_SPEC: ${{ inputs.torch_spec }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "${TORCH_SPEC}" \
+            --index-url "https://download.pytorch.org/whl/${{ inputs.cuda }}"
+          python -m pip install "numpy>=1.26,<2.2" "scipy>=1.13" "h5py>=3.11" "pytest==9.1.1"
+          python -m pip install -e . --no-deps
+      - name: Report the resolved GPU stack (diagnostic)
+        run: |
+          python - <<'PY'
+          import torch
+
+          print("torch", torch.__version__)
+          available = torch.cuda.is_available()
+          print("cuda available:", available)
+          if available:
+              print("device:", torch.cuda.get_device_name(0))
+              print("arch list:", torch.cuda.get_arch_list())
+          PY
+      - name: Run the deep train-smoke on the GPU
+        # The SAME `-m deep` suffix glob as deep.yml (test_marker_contract.py keeps
+        # them in lockstep). test_deep_gpu_deep.py exercises the device="cuda"
+        # path; it self-skips when no CUDA device is present, so on a non-GPU
+        # self-hosted runner this still runs the CPU deep smokes.
+        run: pytest -m deep tests/test_*_deep.py -q
