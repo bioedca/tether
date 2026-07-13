@@ -6,12 +6,18 @@ Architecture and rationale: **[ADR-0049](../docs/adr/0049-m9-packaging-construct
 
 ## What the installer bundles
 
-- The **base environment** (PySide6/napari GUI + compute) from the committed
+- The **Tether application env** (PySide6/napari GUI + compute) from the committed
   `conda-lock.yml`, rendered to a per-platform **explicit** lock (pin-and-hold; no
-  re-solve). `tether` itself is offline-installed from a bundled wheel.
+  re-solve), as a constructor `extra_envs` at `<prefix>/envs/tether`. `tether` itself is
+  offline-installed from a bundled wheel.
 - The **isolated tMAVEN sidecar** (`sidecar/conda-lock.yml` — PyQt5 / `numpy<2`) as a
   constructor `extra_envs` at `<prefix>/envs/sidecar`, with the pinned tMAVEN
   (commit `10f4230…`, see `NOTICE`) offline-installed from a bundled wheel.
+- A thin **`python` + `conda` bootstrap** as the constructor `base` — required so the
+  installer's own conda can lay down the two pinned `extra_envs` offline (constructor
+  refuses `extra_envs` without `conda` in `base`). It is solved fresh at build time, holds
+  no Tether code, and (`initialize_conda: false`) never touches the user's shell. See
+  **[ADR-0049 → "base-env restructure"](../docs/adr/0049-m9-packaging-constructor-architecture.md)**.
 - Tether's **GPL-3.0** license text (shown during install and shipped beside the
   installer).
 
@@ -34,9 +40,10 @@ CI does this on all three OSes in the advisory, non-required
 (`workflow_dispatch`). To build locally you reproduce the same contract:
 
 ```bash
-# 1. A build env with constructor + conda-lock + build tools.
+# 1. A build env with constructor + conda-lock + build tools. `pip` is needed by
+#    `python -m build` and `python -m pip wheel` below.
 micromamba create -n pkgbuild -c conda-forge "constructor>=3.16" conda-lock=4.0.1 \
-    conda-standalone python-build "setuptools<81" wheel
+    conda-standalone python-build pip "setuptools<81" wheel
 micromamba activate pkgbuild
 
 # 2. Build the two wheels into packaging/staging/.

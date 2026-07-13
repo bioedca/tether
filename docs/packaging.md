@@ -7,16 +7,18 @@ required at install time.
 
 ## What a Tether installer contains
 
-- The **base environment** — the PySide6 shell, the embedded napari movie panel and the
-  pyqtgraph trace docks, plus the compute/IO stack — pinned to Tether's committed lock so
-  every install is byte-for-byte reproducible.
+- The **Tether application environment** (installed under `envs/tether`) — the PySide6 shell,
+  the embedded napari movie panel and the pyqtgraph trace docks, plus the compute/IO stack —
+  pinned to Tether's committed lock so every install is byte-for-byte reproducible.
 - An **isolated tMAVEN sidecar** environment (installed under `envs/sidecar`), used for
   one-click vbFRET / consensus VB-HMM / ebFRET idealization. It runs in its own
-  interpreter (PyQt5 on `numpy<2`) so it never collides with the base GUI stack.
+  interpreter (PyQt5 on `numpy<2`) so it never collides with the application's GUI stack.
+- A minimal **conda bootstrap** in the install root, which the installer uses to lay down the
+  two pinned environments above — it holds no Tether code and never modifies your shell.
 - Tether's **GPL-3.0 license** text, shown during installation and shipped beside the
   installer. The bundled sidecar also carries tMAVEN's own GPL-3.0 license.
 
-The optional deep-learning GPU add-on is **not** part of the base installer; it is a
+The optional deep-learning GPU add-on is **not** part of the installer; it is a
 separate, documented install for users with a supported NVIDIA GPU.
 
 ## Installer format per platform

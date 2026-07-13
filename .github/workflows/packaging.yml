@@ -155,7 +155,9 @@ jobs:
           else
             sh "$(ls packaging/dist/*.sh | head -1)" -b -p "$prefix"
           fi
-          "$prefix/bin/tether" --version
+          # Both runtime stacks are extra_envs (ADR-0049): the app lives in
+          # envs/tether, the sidecar in envs/sidecar; `base` is only python+conda.
+          "$prefix/envs/tether/bin/tether" --version
           "$prefix/envs/sidecar/bin/python" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
 
       - name: Install-smoke — offline install into a clean prefix (Windows)
@@ -170,7 +172,9 @@ jobs:
           exe="$(ls packaging/dist/*.exe | head -1)"
           # NSIS silent install; /D (target dir, unquoted) must be the LAST arg.
           cmd //c "$(cygpath -w "$exe") /S /D=$prefix"
-          "$prefix\\python.exe" -m tether --version
+          # Both runtime stacks are extra_envs (ADR-0049): the app lives in
+          # envs\tether, the sidecar in envs\sidecar; `base` is only python+conda.
+          "$prefix\\envs\\tether\\python.exe" -m tether --version
           "$prefix\\envs\\sidecar\\python.exe" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
 
       - name: Upload the installer artifact

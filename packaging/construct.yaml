@@ -16,8 +16,8 @@
 # references (the rendered per-platform locks under locks/, the two wheels, and
 # the GPL license text under staging/). See ADR-0049 for the architecture.
 #
-# UNSIGNED in this PR (PR-1a): the `*_signing_*` keys below are documented but
-# left INACTIVE — constructor produces unsigned installers by default. Authenticode
+# UNSIGNED in this PR: the `*_signing_*` keys below are documented but left
+# INACTIVE — constructor produces unsigned installers by default. Authenticode
 # (Windows) + productsign/notarization (macOS) are wired with repository secrets in
 # PR-2 (release.yml, §12.7). Do not uncomment them here.
 
@@ -27,28 +27,47 @@ company: The Tether Authors (Mondragón Lab, Northwestern)
 
 # Build-time package source. constructor fetches everything HERE at build time and
 # embeds it, so the produced installer resolves fully OFFLINE (no install-time
-# git/network — §9 M9). Pin-and-hold is honoured because the environments are
+# git/network — §9 M9). Pin-and-hold is honoured because the two runtime stacks are
 # sourced from the committed conda locks, rendered to per-platform EXPLICIT locks
 # (no re-solve); conda-forge is only the build-time fetch origin.
 channels:
   - conda-forge
 
-# --- Base environment (the PySide6/napari GUI + compute stack, conda-lock.yml) ---
-# Rendered per-platform EXPLICIT lock (packaging/locks/base-<plat>.lock), produced
-# at build time by `conda-lock render` from the committed base `conda-lock.yml`, so
-# the installer bundles the EXACT pinned packages (pin-and-hold; no fresh solve).
-environment_file: locks/base-linux-64.lock    # [linux]
-environment_file: locks/base-osx-64.lock       # [osx and not arm64]
-environment_file: locks/base-osx-arm64.lock    # [osx and arm64]
-environment_file: locks/base-win-64.lock       # [win]
+# --- Base = thin installer-machinery env (python + conda) -------------------------
+# `constructor` REQUIRES `conda` in the base environment whenever `extra_envs` is in
+# use — the installer uses the base env's conda to create each extra env offline at
+# INSTALL time (constructor fcp.py: "conda needs to be present in 'base' environment
+# for 'extra_envs' to work"). So `base` here is deliberately a *minimal bootstrap*
+# stack, NOT a Tether runtime stack: it is solved fresh from conda-forge at build
+# time (installer plumbing, version-inert). The two PINNED runtime stacks — the
+# PySide6/napari GUI and the isolated tMAVEN sidecar — are declared as `extra_envs`
+# below, so both are consumed byte-for-byte from their committed explicit locks and
+# pin-and-hold is fully preserved. This is the correction ADR-0049 records: making
+# the GUI stack the constructor `base` is impossible without putting conda into the
+# frozen GUI lock (a re-solve + runtime bloat we reject).
+specs:
+  - python
+  - conda
 
-# --- Isolated tMAVEN sidecar (sidecar/conda-lock.yml) as a SECOND environment ----
-# constructor `extra_envs` installs this into `<prefix>/envs/sidecar`, a wholly
-# separate interpreter (PyQt5 + numpy<2) that never shares a process with the
-# PySide6/current-numpy base — the "two conda-lock stacks stay isolated" invariant
-# (PLAN §1.3, ADR-0004). `conda` lives in the base env and `ignore_duplicate_files`
-# is forced True whenever extra_envs is used (constructor).
+# --- The two ISOLATED, PINNED runtime environments (constructor `extra_envs`) -----
+# Each is installed into `<prefix>/envs/<name>` as a wholly separate interpreter and
+# is built from its rendered per-platform EXPLICIT lock (`conda-lock render` from the
+# committed unified lock), so the installer bundles the EXACT pinned packages
+# (pin-and-hold; no fresh solve). `envs/tether` is the PySide6/current-numpy GUI +
+# compute stack; `envs/sidecar` is PyQt5 + numpy<2 for one-click vbFRET / consensus
+# VB-HMM / ebFRET. They never share a process — the "two conda-lock stacks stay
+# isolated" invariant (PLAN §1.3, ADR-0004). `ignore_duplicate_files` is forced True
+# whenever extra_envs is used (constructor).
 extra_envs:
+  tether:
+    # menu_packages:[] disables the shortcuts napari would otherwise add — a GUI
+    # menu shortcut for the shell is a deferred follow-up (ADR-0049). Per-env
+    # menu_packages is NOT inherited from the global key, so set it here too.
+    menu_packages: []
+    environment_file: locks/base-linux-64.lock    # [linux]
+    environment_file: locks/base-osx-64.lock       # [osx and not arm64]
+    environment_file: locks/base-osx-arm64.lock    # [osx and arm64]
+    environment_file: locks/base-win-64.lock       # [win]
   sidecar:
     environment_file: locks/sidecar-linux-64.lock    # [linux]
     environment_file: locks/sidecar-osx-64.lock       # [osx and not arm64]
@@ -58,8 +77,9 @@ extra_envs:
 # --- Non-packaged payloads bundled into the installer ---------------------------
 # The two wheels are NOT conda packages: `tether` is a hatchling wheel and tMAVEN
 # is a pip/git project (pinned commit 10f4230…, NOTICE / ADR-0049), both built at
-# build time and offline pip-installed by the post_install script below. Paths are
-# relative to this construct.yaml directory; the build driver sets the env vars.
+# build time and offline pip-installed by the post_install script below (`tether`
+# into `envs/tether`, tMAVEN into `envs/sidecar`). Paths are relative to this
+# construct.yaml directory; the build driver sets the env vars.
 extra_files:
   - {{ environ.get("TETHER_WHEEL", "staging/tether.whl") }}: wheelhouse/{{ environ.get("TETHER_WHEEL_NAME", "tether.whl") }}
   - {{ environ.get("TMAVEN_WHEEL", "staging/tmaven.whl") }}: wheelhouse/{{ environ.get("TMAVEN_WHEEL_NAME", "tmaven.whl") }}
@@ -80,12 +100,14 @@ installer_type: exe    # [win]
 installer_type: pkg    # [osx]
 installer_type: sh     # [linux]
 
-# Behaviour: don't keep the package cache (smaller install), don't touch the user's
-# shell/registry by default (this is a GUI app, not a conda distribution), and
-# create NO menu shortcuts yet — there is no GUI console-script entry point (only
-# the `tether` CLI); a menuinst shortcut for the PySide6 shell is a follow-up
-# (ADR-0049). menu_packages: [] disables the shortcuts napari would otherwise add.
+# Behaviour: don't keep the package cache (smaller install), and do NOT touch the
+# user's shell/registry — this is a GUI app launched from `envs/tether`, not a conda
+# distribution, so the bootstrap conda in `base` must never initialise the user's
+# shell. `initialize_conda: false` disables the conda-init step outright (the base
+# now carries conda, which would otherwise offer it); `menu_packages: []` disables
+# the shortcuts napari would add (a GUI menu shortcut is a follow-up, ADR-0049).
 keep_pkgs: false
+initialize_conda: false
 initialize_by_default: false    # [unix]
 register_python: false          # [win]
 menu_packages: []
