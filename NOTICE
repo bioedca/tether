@@ -22,6 +22,24 @@ tMAVEN  (GPL-3.0)  — Verma, Ray, Bodick, Kinz-Thompson & Gonzalez (2024),
   distinct, attributed component (PRD §12.1, §12.8, §9 M9).
 
 --------------------------------------------------------------------------------
+Bundled reference data (redistributed under its own license)
+--------------------------------------------------------------------------------
+
+kinSoftChallenge simulated datasets  (CC-BY-4.0)  — Götz, Barth, Bohr, et al.,
+  "A blind benchmark of analysis tools to infer kinetic rate constants from
+  single-molecule FRET trajectories," Nature Communications 13:5402 (2022),
+  doi:10.1038/s41467-022-33023-3. Data: Götz M & Schmid S, Zenodo
+  doi:10.5281/zenodo.5701310 (CC-BY-4.0).
+  Tether bundles a repacked slice of the three *simulated* datasets
+  (sim_dataset_Fig2/3/4) as the gated-tier fixture
+  tests/fixtures/large/kinsoft_sim.hdf5 (+ one raw trace,
+  tests/fixtures/kinsoft_trace_sample.txt), used only as an M8 kinetics-validation
+  oracle (PRD §8 NFR-VALID(c), §9 M8). These files are licensed CC-BY-4.0 (see
+  LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT GPL-3.0; attribution
+  to Götz & Schmid travels with them. The MATLAB simulator from the same record is
+  NOT vendored (PRD N2 — Tether ships no data simulator).
+
+--------------------------------------------------------------------------------
 Algorithm references (read-only; never vendored or redistributed)
 --------------------------------------------------------------------------------
 

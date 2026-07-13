@@ -194,6 +194,45 @@ exports (≈ 9 MB `.mat` + ≈ 7.7 MB `.txt`) stay external; each slice keeps th
 **Accessed:** 2026-06-22. **License:** GPL-3.0-or-later (Mondragón Lab,
 Northwestern). Regenerate with `scripts/make_deeplasi_fixture.py`.
 
+## kinSoftChallenge simulated datasets (M8 kinetics oracle) — **CC-BY-4.0**
+
+Unlike every fixture above (Mondragón-Lab data, GPL-3.0-or-later), these are
+**external third-party data under a different license**: the kinSoftChallenge
+simulated datasets [Götz2022], deposited by **Markus Götz & Sonja Schmid** at
+Zenodo **doi:10.5281/zenodo.5701310** under **CC-BY-4.0**. They are annotated
+CC-BY-4.0 in `REUSE.toml` (an `override` entry) and attributed in `NOTICE`;
+attribution travels with them. The `MATLAB_simulator.zip` from the same record is
+**not** vendored (PRD N2 — Tether ships no data simulator).
+
+- `tests/fixtures/large/kinsoft_sim.hdf5` (2,088,914 B · **LFS**) — the three
+  simulated datasets repacked into one HDF5, one group per difficulty level:
+  `level1` (`Fig2`, 75 traces, dt 0.2 s), `level2` (`Fig3`, 150, dt 0.1 s),
+  `level3` (`Fig4`, 250, dt 0.2 s). Each group holds `idd`/`ida`/`iaa`/`fret_e`
+  as `(n_traces, max_frames)` float32 arrays zero-padded past each trace's
+  `length`, plus the source-zip name and its SHA-256. It backs the M8
+  kinetics-validation oracle (PRD §8 NFR-VALID(c), §9 M8): fitted rates on a level
+  must fall within that dataset's reported inter-tool spread (**advisory**).
+- `tests/fixtures/kinsoft_trace_sample.txt` (1,979 B · plain git) — one raw
+  challenge trace verbatim (`sim_dataset_Fig4/sim_level3_final_publish/trace_58.txt`,
+  42 frames), so the raw `.txt` reader (`tether.io.read_kinsoft_trace`) is
+  exercised in the required matrix. `test_kinsoft_io.py` also asserts it equals
+  its row inside the packed fixture.
+
+| Source (in the Zenodo record) | Size | SHA-256 |
+|---|---|---|
+| `sim_dataset_Fig2.zip` | 859,187 B | `07af3ab1b7e7427ab93b423fbc302cac112ea4487391c5cfdbc9b6668827344c` |
+| `sim_dataset_Fig3.zip` | 1,267,442 B | `f738698227eef76a2d1cd0118ca81453233a9d913de12ee2e6266888ee9eb284` |
+| `sim_dataset_Fig4.zip` | 948,240 B | `cfecd68f8917b7e96d5f8eb1c838a1a0462f554d409ffc9671c072ba626d6425` |
+
+**Accessed:** 2026-07-13 (downloaded from Zenodo). **License:** CC-BY-4.0
+(Götz & Schmid) — **not** GPL-3.0. Regenerate by downloading the three zips from
+the record, then:
+
+```sh
+uv run --no-project --with h5py --with numpy \
+    python scripts/make_kinsoft_fixture.py --source <dir-with-the-3-zips>
+```
+
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 
 `smd_281mol.hdf5` (the redistributable ≥50-molecule population SMD) and its
@@ -201,7 +240,8 @@ paired `model_281mol.hdf5` (4-state consensus vbHMM) are tracked by Git-LFS via
 `.gitattributes` (`tests/fixtures/large/**`). They back the M0.5/M6
 idealization-parity gate and are **not** pulled by the default CI checkout, so
 the required `test` matrix never depends on them (their load test is
-`@pytest.mark.large` and skips on an unmaterialized LFS pointer).
+`@pytest.mark.large` and skips on an unmaterialized LFS pointer). The
+kinSoftChallenge `kinsoft_sim.hdf5` (above) is tracked the same way.
 
 ## M1 extraction-vs-Deep-LASI acceptance measurement (M1 S9 PR-C2)
 
