@@ -101,6 +101,18 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   the model-free lens that says *when* within a trace the donor and acceptor
   anticorrelate, subordinate to the HMM/TDP transition count
   [Felekyan2012][Torres2007][Chung2010][McKinney2006].
+
+Added at M8 (FR-ML / NFR-VALID(c), PRD §8/§9 M8):
+
+- :func:`~tether.analysis.kinetics.fit_gaussian_hmm` /
+  :func:`~tether.analysis.kinetics.viterbi_paths` /
+  :func:`~tether.analysis.kinetics.two_state_rate_constants` /
+  :func:`~tether.analysis.kinetics.evaluate_kinsoft_level` — the **kinSoftChallenge
+  kinetics-validation oracle**: a self-contained base-env Gaussian HMM (no tMAVEN
+  sidecar) idealizes FRET trajectories, pooled dwell-time MLE infers the exit rates,
+  and the archetypal 2-state level's rates are checked against that dataset's
+  reported inter-tool spread (``schema/kinsoft_reference.json``) — an **advisory**
+  gate [Götz2022].
 """
 
 from __future__ import annotations
@@ -186,6 +198,21 @@ from tether.analysis.histogram import (
     time_signal_histogram2d,
     transition_sync_histogram2d,
 )
+from tether.analysis.kinetics import (
+    DEFAULT_HMM_MAX_ITER,
+    DEFAULT_HMM_TOL,
+    DEFAULT_HMM_VAR_FLOOR,
+    GaussianHMM,
+    KinsoftKineticsResult,
+    KinsoftReference,
+    TwoStateKinetics,
+    evaluate_kinsoft_level,
+    fit_gaussian_hmm,
+    load_kinsoft_reference,
+    pooled_exit_rates,
+    two_state_rate_constants,
+    viterbi_paths,
+)
 from tether.analysis.query import (
     ConditionQueryResult,
     MoleculeMatch,
@@ -237,6 +264,9 @@ __all__ = [
     "DEFAULT_ELBOW_K_MAX",
     "DEFAULT_ELBOW_RESTARTS",
     "DEFAULT_ELBOW_SEED",
+    "DEFAULT_HMM_MAX_ITER",
+    "DEFAULT_HMM_TOL",
+    "DEFAULT_HMM_VAR_FLOOR",
     "DEFAULT_NBINS",
     "DEFAULT_OVERLAY_POINTS",
     "DEFAULT_RANGE",
@@ -262,9 +292,12 @@ __all__ = [
     "CrossCorrelation",
     "DwellFit",
     "DwellTimeAnalysis",
+    "GaussianHMM",
     "Histogram1D",
     "Histogram2D",
     "HistogramBootstrapCI",
+    "KinsoftKineticsResult",
+    "KinsoftReference",
     "ModelGaussianOverlay",
     "MoleculeAnticorrelation",
     "MoleculeMatch",
@@ -277,17 +310,22 @@ __all__ = [
     "TransitionDensityPlot",
     "TransitionProbHistogram",
     "TransitionSyncHistogram2D",
+    "TwoStateKinetics",
     "alpha_shape",
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
     "cross_correlation",
     "empirical_transition_probability",
+    "evaluate_kinsoft_level",
     "find_anticorrelation_events",
+    "fit_gaussian_hmm",
     "fit_survival",
     "k_rmse_elbow",
+    "load_kinsoft_reference",
     "model_gaussian_overlay",
     "occupied_state_count",
     "per_condition_apparent_e_histograms",
+    "pooled_exit_rates",
     "population_anticorrelation_events",
     "population_apparent_e_histogram",
     "population_apparent_e_histogram_ci",
@@ -311,4 +349,6 @@ __all__ = [
     "transition_density",
     "transition_prob_histogram",
     "transition_sync_histogram2d",
+    "two_state_rate_constants",
+    "viterbi_paths",
 ]

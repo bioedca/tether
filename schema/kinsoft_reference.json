@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "frozen_at_milestone": "M8",
+  "measured_utc": "2026-07-13",
+  "description": "kinSoftChallenge kinetic-rate validation reference (PRD §8 NFR-VALID(c), §9 M8). Ground-truth kinetic models and the reported inter-tool spread of the blind benchmark, plus Tether's own measured deviation. The oracle checks that Tether's fitted rates on a level fall within that dataset's reported inter-tool spread — an ADVISORY check (never gates main).",
+  "source": {
+    "citation": "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nature Communications 13:5402 (2022).",
+    "doi": "10.1038/s41467-022-33023-3",
+    "data_doi": "10.5281/zenodo.5701310",
+    "license": "CC-BY-4.0",
+    "ground_truth_source": "Supplementary Table 5 (simulation parameters, kinetic-model diagrams) and Supplementary Table 1 (Fig. 4 ground-truth rate matrix) of the Supplementary Information; rate constants in s^-1.",
+    "spread_source": "Main text: 2-state (Fig. 2) inferred rate constants across the 14 analyses deviate at most 12% from ground truth (5% average); FRET efficiencies within 17% (1% average). Finite-dataset MLE uncertainty floor is >=3% (1 sigma). The 3-state (Fig. 3) best tools reach 9-14% average deviation; the 4-state (Fig. 4) case is compared via cumulative dwell-time distributions, not direct rates."
+  },
+  "band": {
+    "rate_rel_deviation_max": 0.12,
+    "rationale": "The reported inter-tool spread for the archetypal 2-state simulated dataset: the 14 benchmark analyses inferred rate constants within a maximum of 12% of ground truth (5% average), above a >=3% (1 sigma) finite-dataset floor. Used as the advisory acceptance band on |k - GT|/GT per rate constant. Tether's own base-env fit lands at 2.3%/3.1% (see levels.level1.tether_measured), ~4x inside the band."
+  },
+  "levels": {
+    "level1": {
+      "figure": "Fig2",
+      "system": "2-state equilibrium",
+      "nstates": 2,
+      "n_traces": 75,
+      "dt_s": 0.2,
+      "sampling_rate_hz": 5,
+      "snr_estimate": 4,
+      "oracle": "active",
+      "ground_truth": {
+        "state_assignment": {"1": "low FRET", "2": "high FRET"},
+        "rates_s_inv": {"k12_low_high": 0.15, "k21_high_low": 0.22}
+      },
+      "reported_inter_tool_spread": {
+        "rate_max_rel_dev_from_gt": 0.12,
+        "rate_mean_rel_dev_from_gt": 0.05,
+        "fret_max_rel_dev_from_gt": 0.17,
+        "finite_size_uncertainty_1sigma": 0.03
+      },
+      "tether_measured": {
+        "method": "base-env 2-state Gaussian HMM (Baum-Welch + Viterbi) + pooled dwell-time MLE (k = 1/<tau>)",
+        "k12_low_high": 0.1465,
+        "k21_high_low": 0.2131,
+        "k12_rel_dev": 0.023,
+        "k21_rel_dev": 0.031,
+        "note": "Measured on the committed kinsoft_sim.hdf5 level1 (75 traces); both rates ~4x inside the 12% band. See tests/test_kinsoft_kinetics.py."
+      }
+    },
+    "level2": {
+      "figure": "Fig3",
+      "system": "3-state non-equilibrium steady state (per-trace intensity variability)",
+      "nstates": 3,
+      "n_traces": 150,
+      "dt_s": 0.1,
+      "sampling_rate_hz": 10,
+      "snr_estimate": 3,
+      "oracle": "deferred",
+      "deferred_reason": "A directional non-equilibrium 3-state system with per-trace emission/excitation variability; the benchmark's best tools reach only 9-14% average GT deviation and most systematically mis-allocate 1<->3 transitions. A faithful oracle needs a 3-state idealizer plus net-flow handling; recorded here for a future extension.",
+      "ground_truth": {
+        "state_assignment": {"1": "low FRET", "2": "mid FRET", "3": "high FRET"},
+        "rates_s_inv": {"k12_low_mid": 0.05, "k21_mid_low": 0.30},
+        "ring_arm_rate_magnitudes_s_inv": [0.16, 0.37, 0.38, 0.45],
+        "note": "The 1<->2 (low<->mid) rates are read exactly from the Suppl. Table 5 diagram; the four state-3 (high-FRET) arm magnitudes are read from the diagram but their exact source->dest assignment (and the counter-clockwise flow direction) must be taken from the Zenodo simulation config before activating an oracle."
+      }
+    },
+    "level3": {
+      "figure": "Fig4",
+      "system": "4-state kinetic heterogeneity (two low-FRET + two high-FRET states; donor/acceptor blinking)",
+      "nstates": 4,
+      "n_traces": 250,
+      "dt_s": 0.2,
+      "sampling_rate_hz": 5,
+      "snr_estimate": 4,
+      "oracle": "deferred",
+      "deferred_reason": "States 1,2 share the low-FRET level and states 3,4 share the high-FRET level, so a FRET-only idealizer sees only 2 states and cannot resolve the 4-state kinetics. The benchmark itself compares this case via cumulative dwell-time distributions, not direct rate constants. Recorded exactly (Suppl. Table 1) for a future dwell-CDF extension.",
+      "ground_truth": {
+        "state_assignment": {"1": "low FRET (0.18)", "2": "low FRET (0.18)", "3": "high FRET (0.73)", "4": "high FRET (0.73)"},
+        "rates_s_inv": {
+          "k12": 0.053, "k14": 0.018,
+          "k21": 0.080, "k23": 0.250,
+          "k32": 0.680,
+          "k41": 0.032
+        },
+        "note": "Full 4-state ground-truth rate matrix from Supplementary Table 1 (all other off-diagonal rates are 0); blinking kbright=7 s^-1, kdark=0.007 s^-1."
+      }
+    }
+  }
+}

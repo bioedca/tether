@@ -233,6 +233,29 @@ uv run --no-project --with h5py --with numpy \
     python scripts/make_kinsoft_fixture.py --source <dir-with-the-3-zips>
 ```
 
+### kinSoftChallenge ground-truth kinetic models (M8 kinetics oracle)
+
+The **blind-challenge** trace files above carry no ground truth. The M8 within-spread
+oracle (`schema/kinsoft_reference.json`, PRD §11.2, ADR-0048) needs the simulated
+datasets' ground-truth rate constants and the reported inter-tool spread; both are
+**transcribed from the paper's open-access Supplementary Information** [Götz2022]
+(doi:10.1038/s41467-022-33023-3, CC-BY — numeric facts, not a copy of the expression):
+
+- **Suppl. Table 5** (simulation parameters, kinetic-model diagrams) → the 2-state
+  Fig. 2 ground truth **k₁₂ = 0.15 s⁻¹ (low→high), k₂₁ = 0.22 s⁻¹ (high→low)**
+  (sampling 5 s⁻¹, 75 traces), and the Fig. 3 (3-state) diagram.
+- **Suppl. Table 1** (Fig. 4 ground-truth rate matrix) → the full 4-state level-3
+  model (k₁₂ = 0.053, k₁₄ = 0.018, k₂₁ = 0.080, k₂₃ = 0.250, k₃₂ = 0.680,
+  k₄₁ = 0.032 s⁻¹; all other off-diagonal rates 0).
+- **Main text** → the reported inter-tool spread: the 14 analyses inferred 2-state
+  rates within a maximum **12 % of ground truth** (5 % average), above a ≥ 3 % (1σ)
+  finite-dataset floor — the advisory acceptance band.
+
+`schema/kinsoft_reference.json` is Tether's own (GPL-3.0) compilation of these
+values with full source provenance; only `level1` has an active oracle (a FRET-only
+idealizer cannot resolve the overlapping-FRET 4-state case — the paper itself uses
+cumulative dwell-time distributions there).
+
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 
 `smd_281mol.hdf5` (the redistributable ≥50-molecule population SMD) and its
