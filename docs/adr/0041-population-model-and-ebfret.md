@@ -8,7 +8,7 @@
 
 ## Context and problem statement
 
-The M2 one-click idealizer ([ADR-0024](0024-one-click-idealization-store.md)) persisted
+The M2 one-click idealizer ([ADR-0024](0024-idealization-store-layout-staleness-and-nstates.md)) persisted
 only the per-state/per-molecule members of the tMAVEN model (`mean`, `var`, `tmatrix`,
 `norm_tmatrix`, `idealized`, `state_path`) into `/idealization/{model}`. The M6 analysis
 suite (PRD §10) needs the *population* kinetics — a TDP, dwell/rate fits, and state
@@ -75,7 +75,7 @@ already reports (drift risk, and it duplicates science Tether deliberately deleg
   `tether.idealize.driver.read_model`; store writer/reader `tether.project.idealize`.
 - tMAVEN modeler: `tmaven/tmaven/controllers/modeler/modeler.py` `run_ebhmm` (ebFRET),
   `run_vbconhmm` (consensus VB-HMM).
-- Related: [ADR-0024](0024-one-click-idealization-store.md) (the model layout it extends),
+- Related: [ADR-0024](0024-idealization-store-layout-staleness-and-nstates.md) (the model layout it extends),
   [ADR-0007](0007-parity-is-statistical.md)/[ADR-0009](0009-parity-metrics-and-freeze.md)
   (the parity tolerance the follow-up ratifies against).
 - Consensus: ebFRET is the empirical-Bayes population HMM for smFRET —

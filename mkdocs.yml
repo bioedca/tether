@@ -35,14 +35,26 @@ nav:
       - Deep trace classifier (GPU add-on): ml/deep-classifier.md
   - Packaging:
       - Installers &amp; offline bundle: packaging.md
+  - Architecture decisions: adr/README.md
 
-# The product spec (PRD.md) and the MADR log (adr/) live under docs/ in the repo
-# but are not yet wired into the rendered site — their cross-references are
-# curated into the nav in a later docs PR. Excluding them from the build keeps
-# `mkdocs build --strict` green without silencing genuine link warnings.
+# The product spec (PRD.md) is large and section-numbered for the repo; it stays
+# out of the rendered site. The MADR log under adr/ IS wired in: the index page
+# (adr/README.md) is in the nav, and the individual records build and get their
+# links validated, but are kept out of the nav tree via `not_in_nav` — so
+# `mkdocs build --strict` stays green without ~50 nav leaves and without silencing
+# genuine link warnings.
 exclude_docs: |
   PRD.md
-  adr/
+
+not_in_nav: |
+  adr/0*.md
+
+# Material's version selector reads mike's versions.json at deploy time; this is a
+# theme setting only — the required docs-build job needs no `mike` install to pass
+# `--strict`. Versioned publishing itself runs in .github/workflows/docs.yml.
+extra:
+  version:
+    provider: mike
 
 validation:
   omitted_files: warn

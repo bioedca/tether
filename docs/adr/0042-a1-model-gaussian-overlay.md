@@ -88,7 +88,7 @@ with the raw-FRET-cloud pre-idealization QC (PRD §7.7), not layered on the A1 m
   `population_model_gaussian_overlay` (store-level), reading
   `StoredIdealization.means`/`.variances`/`.frac`.
 - Related: [ADR-0041](0041-population-model-and-ebfret.md) (persists the `var`/`frac`
-  members this overlay reads), [ADR-0024](0024-one-click-idealization-store.md) (the
+  members this overlay reads), [ADR-0024](0024-idealization-store-layout-staleness-and-nstates.md) (the
   `/idealization` model layout).
 - Consensus: the multi-state FRET efficiency histogram is a sum of per-state Gaussians —
   [Gopich & Szabo 2010, *J. Phys. Chem. B*](https://consensus.app/papers/details/5824f04e5c9b5bf091a5de406e38dd4b/).
