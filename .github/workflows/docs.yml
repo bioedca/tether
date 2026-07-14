@@ -62,7 +62,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install mkdocs (Material) + mike
-        run: python -m pip install mkdocs mkdocs-material mike
+        # Pinned toolchain shared with the required docs-build gate (ci.yml) so a
+        # release publishes with the exact mkdocs/material/mike the PR gate tested.
+        run: python -m pip install -r requirements-docs.txt
       - name: Configure git identity for mike
         run: |
           git config user.name "github-actions[bot]"

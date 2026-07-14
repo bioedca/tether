@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Pinned docs toolchain — the single source of truth for BOTH the required
+# `docs-build` gate (ci.yml, `mkdocs build --strict`) and the release-time
+# `docs.yml` publish (mike -> gh-pages), so the merge gate and the deploy use an
+# identical toolchain (pin-and-hold, PRD §4.1). Bump deliberately (Dependabot
+# pip watches "/"), re-verifying `mkdocs build --strict` on the new versions.
+mkdocs==1.6.1
+mkdocs-material==9.7.6
+mike==2.2.0

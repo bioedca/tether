@@ -84,11 +84,33 @@ def test_index_wired_into_rendered_site() -> None:
     """mkdocs wires the ADR index into the built site (not excluded).
 
     The M9 gate needs the index *rendered and navigable*, not merely present in the
-    repo. Assert the index page is in the nav and the individual records are kept in
-    the build via ``not_in_nav`` (so ``--strict`` still validates their links).
+    repo. Parse mkdocs.yml as YAML and inspect the resolved structure (so a stray
+    mention in a comment cannot satisfy the check): the nav maps "Architecture
+    decisions" -> adr/README.md, and ``not_in_nav`` keeps the individual records in
+    the build (so ``--strict`` still validates their links) rather than excluding them.
     """
-    mkdocs = (ADR_DIR.parents[1] / "mkdocs.yml").read_text(encoding="utf-8")
-    assert "adr/README.md" in mkdocs, "mkdocs.yml nav must include the ADR index page"
-    assert "not_in_nav" in mkdocs and "adr/0*.md" in mkdocs, (
-        "mkdocs.yml must keep the individual ADR records in the build via not_in_nav"
+    import yaml  # provided by the base conda-lock (a mkdocs dependency)
+
+    cfg = yaml.safe_load((ADR_DIR.parents[1] / "mkdocs.yml").read_text(encoding="utf-8"))
+
+    nav_targets = [
+        value
+        for entry in cfg.get("nav", [])
+        if isinstance(entry, dict)
+        for key, value in entry.items()
+        if key == "Architecture decisions"
+    ]
+    assert nav_targets == ["adr/README.md"], (
+        f"mkdocs.yml nav must map 'Architecture decisions' -> adr/README.md; got {nav_targets}"
+    )
+
+    not_in_nav = (cfg.get("not_in_nav") or "").split()
+    assert "adr/0*.md" in not_in_nav, (
+        f"mkdocs.yml not_in_nav must keep the ADR records in the build; got {not_in_nav}"
+    )
+
+    # And the records must NOT be excluded from the build entirely.
+    exclude_docs = (cfg.get("exclude_docs") or "").split()
+    assert not any(pat.startswith("adr/") for pat in exclude_docs), (
+        f"mkdocs.yml exclude_docs must not drop the ADR records; got {exclude_docs}"
     )
