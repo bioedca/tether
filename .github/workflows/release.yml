@@ -1,0 +1,403 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# release — the M9 release pipeline (PRD §9 M9, §12.7; ADR-0050). Driven by a signed,
+# annotated `v*` tag on main (or a manual dry-run): verify the tag → build the 3-OS
+# constructor installers (the PR-1 recipe) → CODE-SIGN them → checksum + SBOM →
+# build-provenance attestation → GitHub Release with the installers, checksums, SBOM
+# and the frozen conda locks, plus an auto changelog from Conventional Commits.
+#
+# SIGNING IS GATED, NOT HARDCODED (ADR-0050):
+#   * Windows — SignPath (free for OSS). The signing step runs only when the SignPath
+#     repository VARIABLES are set (vars.SIGNPATH_* — non-secret, usable in `if:`),
+#     with the API token as a secret. Until the project is enrolled at signpath.io
+#     and the vars/secret are added, the Windows installer ships UNSIGNED.
+#   * macOS — Developer ID codesign + notarytool, gated on `vars.APPLE_SIGNING_ENABLED
+#     == 'true'`. Until an Apple Developer account + certs/creds exist as secrets, the
+#     macOS installer ships UNSIGNED (Gatekeeper warns).
+#   * Linux — no OS-level signing; the SHA-256 checksums (and provenance attestation)
+#     are the integrity anchor.
+# See docs/release.md for the exact variables/secrets and the SignPath enrollment steps.
+#
+# `cancel-in-progress: false` — a release must never be cancelled mid-flight.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag (or ref) to build from for a dry-run, e.g. v1.0.0-rc1."
+        type: string
+        required: true
+      dry_run:
+        description: "Build + sign + validate but do NOT publish a GitHub Release."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) Verify the release tag: annotated + GitHub-verified signature + on main.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: verify tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      publish: ${{ steps.resolve.outputs.publish }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve target tag + publish mode
+        id: resolve
+        # Untrusted inputs routed through env, never inlined into the script.
+        env:
+          EVENT: ${{ github.event_name }}
+          PUSH_TAG: ${{ github.ref_name }}
+          INPUT_REF: ${{ inputs.ref }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "push" ]; then
+            tag="$PUSH_TAG"; publish="true"
+          else
+            tag="$INPUT_REF"
+            if [ "$INPUT_DRY_RUN" = "false" ]; then publish="true"; else publish="false"; fi
+          fi
+          test -n "$tag" || { echo "::error::no tag/ref resolved"; false; }
+          case "$tag" in v*) : ;; *) echo "::error::tag '$tag' must start with 'v'"; false ;; esac
+          {
+            echo "tag=$tag"
+            echo "version=${tag#v}"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          echo "Release tag '$tag' (publish=$publish)."
+
+      - name: Require an annotated, GitHub-verified signature on a real release
+        if: steps.resolve.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Annotated (not lightweight) tag object.
+          test "$(git cat-file -t "refs/tags/$TAG")" = "tag" \
+            || { echo "::error::$TAG is not an annotated tag"; false; }
+          # Trust GitHub's own signature verification (it holds bioedca's registered
+          # signing key) rather than shipping an allowed-signers file to the runner.
+          tag_sha="$(git rev-parse "refs/tags/$TAG")"
+          verified="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}" -q '.verification.verified')"
+          test "$verified" = "true" \
+            || { echo "::error::tag $TAG has no GitHub-verified signature"; false; }
+          # The tagged commit must live on main (releasable-from-main invariant).
+          # Full main history (not --depth=1) so `--is-ancestor` can resolve a tag
+          # placed a few commits behind the current main tip.
+          commit="$(git rev-list -n1 "refs/tags/$TAG")"
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$commit" refs/remotes/origin/main \
+            || { echo "::error::tag commit $commit is not on origin/main"; false; }
+          echo "Verified annotated + signed tag $TAG on main."
+
+  # ---------------------------------------------------------------------------
+  # 2) Build + sign the 3-OS installers (the PR-1 constructor recipe + signing).
+  # ---------------------------------------------------------------------------
+  build:
+    name: build+sign / ${{ matrix.platform }}
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, platform: linux-64 }
+          - { os: macos-latest, platform: osx-arm64 }
+          - { os: macos-13, platform: osx-64 }
+          - { os: windows-latest, platform: win-64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash -el {0}
+    env:
+      TMAVEN_SPEC: "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230b6d13c6d2ad67b05d801696b4a40eff4a"
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Provision the build env (constructor + conda-lock + build tools)
+        uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462 # v2
+        with:
+          environment-name: pkgbuild
+          # See packaging.yml for the create-args rationale (no quoted match specs;
+          # explicit pip; setuptools<81 for tMAVEN's pkg_resources).
+          create-args: >-
+            python=3.12
+            constructor>=3.16
+            conda-lock=4.0.1
+            conda-standalone
+            python-build
+            pip
+            setuptools<81
+            wheel
+          init-shell: bash
+          cache-environment: true
+
+      - name: Build the tether wheel (hatch-vcs version from git)
+        run: python -m build --wheel --outdir packaging/staging .
+
+      - name: Build the pinned trimmed tMAVEN wheel (offline sidecar payload)
+        run: python -m pip wheel --no-deps --no-build-isolation -w packaging/staging "${TMAVEN_SPEC}"
+
+      - name: Render per-platform EXPLICIT locks (pin-and-hold; no re-solve)
+        run: |
+          mkdir -p packaging/locks
+          cd packaging/locks
+          conda-lock render -k explicit -p "$PLATFORM" ../../conda-lock.yml
+          mv "conda-$PLATFORM.lock" "base-$PLATFORM.lock"
+          conda-lock render -k explicit -p "$PLATFORM" ../../sidecar/conda-lock.yml
+          mv "conda-$PLATFORM.lock" "sidecar-$PLATFORM.lock"
+
+      - name: Stage the GPL license text + resolve wheel names
+        run: |
+          cp LICENSE packaging/staging/LICENSE.txt
+          tether_whl="$(ls packaging/staging/tether-*.whl | head -1)"
+          tmaven_whl="$(ls packaging/staging/tmaven-*.whl | head -1)"
+          {
+            # construct.yaml reads `version: {{ environ.get("TETHER_VERSION", "0.0.0") }}`;
+            # without this the installer would be built + named 0.0.0 for a real tag.
+            echo "TETHER_VERSION=$(python -c 'import tether._version as v; print(v.__version__)' 2>/dev/null || git describe --tags --always | sed 's/^v//')"
+            echo "TETHER_WHEEL=staging/$(basename "$tether_whl")"
+            echo "TETHER_WHEEL_NAME=$(basename "$tether_whl")"
+            echo "TMAVEN_WHEEL=staging/$(basename "$tmaven_whl")"
+            echo "TMAVEN_WHEEL_NAME=$(basename "$tmaven_whl")"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate the recipe (offline render + schema)
+        run: constructor --render packaging/
+
+      - name: Build the installer
+        run: constructor --output-dir packaging/dist packaging/
+
+      # --- Windows code-signing via SignPath (free for OSS) -------------------
+      # Gated on the SignPath repo VARIABLES (non-secret → usable in `if:`); the API
+      # token is a secret. When unset, the .exe ships unsigned (see docs/release.md).
+      - name: Upload the unsigned Windows installer (for SignPath)
+        id: unsigned_exe
+        if: runner.os == 'Windows' && vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tether-installer-win-64-unsigned
+          path: packaging/dist/*.exe
+          if-no-files-found: error
+
+      - name: Sign the Windows installer (SignPath)
+        if: runner.os == 'Windows' && vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd # v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned_exe.outputs.artifact-id }}
+          wait-for-completion: true
+          # Overwrite the unsigned .exe in place with the signed one.
+          output-artifact-directory: packaging/dist
+
+      - name: Note when Windows signing is skipped (no SignPath config)
+        if: runner.os == 'Windows' && vars.SIGNPATH_ORGANIZATION_ID == ''
+        run: echo "::warning::SignPath not configured (vars.SIGNPATH_ORGANIZATION_ID unset) — the Windows installer ships UNSIGNED. See docs/release.md."
+
+      # --- macOS code-signing + notarization (gated; unsigned until enrolled) --
+      # PREREQUISITE before flipping vars.APPLE_SIGNING_ENABLED on: notarization
+      # (notarytool + stapler) additionally requires every Mach-O binary in the
+      # bundled conda payload to be Developer-ID-Application-signed with a hardened
+      # runtime. This step signs only the outer .pkg (productsign); the payload
+      # deep-sign is a documented follow-up (docs/release.md) — until it exists,
+      # enabling the gate would fail notarization. macOS therefore ships UNSIGNED.
+      - name: Sign + notarize the macOS installer (Developer ID)
+        if: runner.os == 'macOS' && vars.APPLE_SIGNING_ENABLED == 'true'
+        env:
+          APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          pkg="$(ls packaging/dist/*.pkg | head -1)"
+          # Import the Developer ID cert into a temporary keychain.
+          kc="$RUNNER_TEMP/tether-signing.keychain-db"
+          kc_pass="$(openssl rand -base64 24)"
+          security create-keychain -p "$kc_pass" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$kc_pass" "$kc"
+          echo "$APPLE_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$APPLE_CERT_PASSWORD" \
+            -T /usr/bin/productsign -T /usr/bin/codesign
+          security list-keychains -d user -s "$kc"
+          security set-key-partition-list -S apple-tool:,apple: -k "$kc_pass" "$kc" >/dev/null
+          # Sign the product installer.
+          signed="$RUNNER_TEMP/$(basename "$pkg" .pkg)-signed.pkg"
+          productsign --sign "$APPLE_SIGNING_IDENTITY" "$pkg" "$signed"
+          mv "$signed" "$pkg"
+          # Notarize with an App Store Connect API key, then staple the ticket.
+          echo "$APPLE_NOTARY_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          xcrun notarytool submit "$pkg" \
+            --key "$RUNNER_TEMP/notary.p8" \
+            --key-id "$APPLE_NOTARY_KEY_ID" \
+            --issuer "$APPLE_NOTARY_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$pkg"
+          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/notary.p8"
+          echo "Signed + notarized $pkg."
+
+      - name: Note when macOS signing is skipped
+        if: runner.os == 'macOS' && vars.APPLE_SIGNING_ENABLED != 'true'
+        run: echo "::warning::Apple signing disabled (vars.APPLE_SIGNING_ENABLED != 'true') — the macOS installer ships UNSIGNED. See docs/release.md."
+
+      # --- Checksums + per-platform artifact bundle ---------------------------
+      - name: SHA-256 checksums for the installer(s)
+        run: |
+          set -euo pipefail
+          cd packaging/dist
+          shopt -s nullglob
+          files=(*.exe *.pkg *.sh)
+          test "${#files[@]}" -gt 0 || { echo "::error::no installer artifact found in packaging/dist"; false; }
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${files[@]}" > "SHA256SUMS-${PLATFORM}.txt"
+          else
+            shasum -a 256 "${files[@]}" > "SHA256SUMS-${PLATFORM}.txt"
+          fi
+          cat "SHA256SUMS-${PLATFORM}.txt"
+
+      - name: Upload the platform release bundle (installer + checksums + locks)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-${{ matrix.platform }}
+          path: |
+            packaging/dist/*.exe
+            packaging/dist/*.pkg
+            packaging/dist/*.sh
+            packaging/dist/SHA256SUMS-*.txt
+            packaging/locks/base-${{ matrix.platform }}.lock
+            packaging/locks/sidecar-${{ matrix.platform }}.lock
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 3) Aggregate → SBOM + provenance → GitHub Release (real publish only).
+  # ---------------------------------------------------------------------------
+  release:
+    name: publish release
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub Release
+      id-token: write # build-provenance attestation
+      attestations: write # build-provenance attestation
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download all platform release bundles
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Stage the release assets (installers + checksums + frozen locks)
+        id: assets
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          # Installers + per-platform checksums from the build bundles.
+          find dist -maxdepth 2 -type f \
+            \( -name '*.exe' -o -name '*.pkg' -o -name '*.sh' -o -name 'SHA256SUMS-*.txt' \) \
+            -exec cp {} out/ \;
+          # The authoritative bill-of-materials: the frozen source locks.
+          cp conda-lock.yml "out/conda-lock.yml"
+          cp sidecar/conda-lock.yml "out/sidecar-conda-lock.yml"
+          ls -l out
+
+      - name: Generate a CycloneDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: out/tether-sbom.cyclonedx.json
+          artifact-name: tether-sbom.cyclonedx.json
+
+      - name: Generate the changelog (Conventional Commits since the previous tag)
+        env:
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          prev="$(git describe --tags --abbrev=0 --exclude="$TAG" "${TAG}^" 2>/dev/null || true)"
+          if [ -n "$prev" ]; then range="${prev}..${TAG}"; header="## ${TAG} (changes since ${prev})"; else range="$TAG"; header="## ${TAG}"; fi
+          {
+            echo "$header"
+            echo
+            for grp in "feat:Features" "fix:Bug fixes" "perf:Performance" "docs:Documentation" "refactor:Refactoring" "build:Build & packaging" "ci:CI"; do
+              type="${grp%%:*}"; title="${grp#*:}"
+              body="$(git log --no-merges --pretty='- %s (%h)' "$range" 2>/dev/null | grep -E "^- ${type}(\(|!?:)" || true)"
+              if [ -n "$body" ]; then printf '### %s\n%s\n\n' "$title" "$body"; fi
+            done
+          } > out/CHANGELOG-${TAG}.md
+          cp "out/CHANGELOG-${TAG}.md" "$RUNNER_TEMP/notes.md"
+          echo "notes=$RUNNER_TEMP/notes.md" >> "$GITHUB_OUTPUT"
+        id: changelog
+
+      - name: Combined SHA-256 manifest over every release asset
+        # After the installers, locks, SBOM and changelog are all staged, so the
+        # manifest covers the whole Release (the `*` glob expands before the `>`
+        # redirect creates SHA256SUMS.txt, so it never lists itself).
+        run: cd out && sha256sum -- * > SHA256SUMS.txt
+
+      - name: Attest build provenance for the release assets
+        if: needs.verify.outputs.publish == 'true'
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            out/*.exe
+            out/*.pkg
+            out/*.sh
+
+      - name: Create the GitHub Release
+        if: needs.verify.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.tag }}
+          NOTES: ${{ steps.changelog.outputs.notes }}
+        run: |
+          set -euo pipefail
+          flags=(--title "$TAG" --notes-file "$NOTES" --verify-tag)
+          # A hyphenated tag (v1.0.0-rc1) is a pre-release.
+          case "$TAG" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$TAG" out/* "${flags[@]}"
+          echo "Published GitHub Release $TAG."
+
+      - name: Dry-run summary (no Release published)
+        if: needs.verify.outputs.publish != 'true'
+        run: |
+          echo "Dry-run for ${{ needs.verify.outputs.tag }} — built, signed (where configured), checksummed and SBOM'd; no Release published." >> "$GITHUB_STEP_SUMMARY"
+          ls -l out >> "$GITHUB_STEP_SUMMARY"

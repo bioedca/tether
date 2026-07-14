@@ -35,6 +35,7 @@ nav:
       - Deep trace classifier (GPU add-on): ml/deep-classifier.md
   - Packaging:
       - Installers &amp; offline bundle: packaging.md
+      - Releasing (signed installers): release.md
   - Architecture decisions: adr/README.md
 
 # The product spec (PRD.md) is large and section-numbered for the repo; it stays

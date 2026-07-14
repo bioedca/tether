@@ -362,3 +362,52 @@ def test_packaging_install_smoke_asserts_version_and_offline_sidecar() -> None:
     assert "import tmaven" in workflow, (
         "packaging.yml install-smoke must import tMAVEN in the bundled sidecar interpreter"
     )
+
+
+# --- The release pipeline (release.yml, M9 / ADR-0050) ---
+# release.yml builds + code-signs + publishes the installers on a signed `v*` tag. It runs
+# ONLY on a tag push and manual dispatch — never on pull_request/branch-push/merge_group —
+# so, like the advisory legs, it can never report a gating status on a PR (the heavy
+# build+sign must not sit in the required matrix). It also uses `bash -el {0}` in its build
+# job, so the same explicit-exit footgun applies. These guards keep that shape honest.
+RELEASE_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml"
+
+
+def test_release_leg_never_gates_a_pr() -> None:
+    """release.yml triggers only on a tag push + dispatch — never on a PR/branch/merge queue.
+
+    A ``pull_request``/``merge_group`` trigger, or a branch-filtered ``push``, would report a
+    status on a PR or branch and could (silently) become a required merge check. The heavy
+    build+sign pipeline must stay off that path (the ADR-0049/0050 posture). Adding any such
+    trigger fails this guard, so the choice would have to be deliberate.
+    """
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    triggers = _on_block_child_keys(text)
+    assert triggers == {"push", "workflow_dispatch"}, (
+        f"release.yml must trigger only on tag `push` + `workflow_dispatch`; got {sorted(triggers)}"
+    )
+    # The push must be tag-filtered, never branch pushes (a branch push reports a status).
+    assert re.search(r"\n  push:\n    tags:\n", text), (
+        "release.yml's push trigger must be tag-filtered (`on: push: tags:`)"
+    )
+    assert "branches:" not in text, (
+        "release.yml must not trigger on branch pushes (no `branches:` filter)"
+    )
+
+
+def test_release_workflow_uses_no_explicit_exit() -> None:
+    """No step in ``release.yml`` may call an explicit ``exit`` under ``bash -el {0}``.
+
+    Its ``build`` job uses the ``bash -el {0}`` login shell where an explicit ``exit``
+    reports "exit code 1" on the runner (the [[gha-bash-el-explicit-exit]] footgun). Fail the
+    moment a bare ``exit`` appears; failures use a falsy terminal command instead.
+    """
+    exit_lines = [
+        ln
+        for ln in RELEASE_WORKFLOW.read_text(encoding="utf-8").splitlines()
+        if re.match(r"\s*exit\b", ln) and not ln.lstrip().startswith("#")
+    ]
+    assert not exit_lines, (
+        "release.yml must not call an explicit `exit` in a `bash -el {0}` run step "
+        f"(it reports exit 1 on the runner); offending lines: {exit_lines}"
+    )
