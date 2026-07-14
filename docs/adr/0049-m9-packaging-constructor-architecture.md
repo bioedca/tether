@@ -49,7 +49,10 @@ embeds them, so the produced installer is offline by construction; a secondary e
 
 - **A. `constructor` with rendered explicit locks + offline wheels + an `extra_envs` sidecar.**
   Base env from the **rendered per-platform explicit lock** (`conda-lock render` → `@EXPLICIT`), so
-  constructor installs the exact pinned URLs and never re-solves; the **`tether` wheel** bundled via
+  constructor installs the exact pinned URLs and never re-solves _(see the **base-env restructure**
+  correction below: constructor requires `conda` in `base` for `extra_envs`, so the GUI stack moved to
+  an `extra_envs` and `base` became a thin python+conda bootstrap — the pinned locks are unchanged)_;
+  the **`tether` wheel** bundled via
   `extra_files` and `pip install --no-index --no-deps` in a `post_install` script; the **trimmed
   sidecar** declared as a constructor `extra_envs` from the rendered `sidecar/conda-lock.yml`, with
   the **tMAVEN wheel** bundled and offline-installed into it and `TETHER_SIDECAR_PYTHON` wired to the
@@ -123,3 +126,37 @@ not a stub: the recipe and the artifacts it bundles are real, locked and buildab
   [ADR-0047](0047-deep-model-optional-stack-and-dataset.md) (optional stack + the non-required advisory
   CI-leg precedent), [ADR-0010](0010-defer-cross-os-gui-handoff.md) (the standalone-tMAVEN GUI
   hand-off deferred to M9 — the sidecar's PyQt5/GUI role the bundled sidecar env preserves).
+
+## Correction — base-env restructure (PR-1b, 2026-07-13)
+
+The first real 3-OS `constructor` build (the advisory `packaging.yml` leg, dispatched for the first
+time in PR-1b) surfaced a hard `constructor` constraint that PR-1a's `--render`/schema validation
+could not catch, because it is enforced only during the solve, not at parse time:
+
+> `RuntimeError: conda needs to be present in 'base' environment for 'extra_envs' to work`
+> (`constructor/fcp.py`: raised unconditionally when `extra_envs` are declared and `conda` is not among
+> the base env's package records — the installer uses the **base env's `conda`** to create each extra
+> env offline at install time).
+
+PR-1a's recipe made the **PySide6/napari GUI stack the constructor `base`** (from its explicit lock)
+and the sidecar the only `extra_envs`. That base has no `conda`, so the build failed. The only ways to
+add `conda` to that base would be to put `conda` into the **frozen GUI `conda-lock.yml`** — forcing a
+re-solve of the pinned runtime stack and bloating every install with the conda machinery — which
+violates pin-and-hold and this ADR's own "base lock untouched" consequence. Rejected.
+
+**Corrected architecture (implemented in PR-1b):** `base` is a **thin `python` + `conda` bootstrap**,
+solved fresh from conda-forge at build time (installer plumbing, version-inert — it holds no Tether
+runtime code). **Both** pinned runtime stacks are now `extra_envs`, consumed byte-for-byte from their
+committed explicit locks: the GUI/compute stack at **`envs/tether`** and the isolated tMAVEN sidecar at
+**`envs/sidecar`**. Consequences of the correction:
+
+- **Pin-and-hold is strengthened, not weakened:** both frozen locks are consumed verbatim as `extra_envs`
+  (no re-solve); only the throwaway bootstrap `base` is solved live, and it carries nothing that affects
+  the app.
+- **Isolation is unchanged:** `envs/tether` (PySide6 / current numpy) and `envs/sidecar` (PyQt5 / numpy<2)
+  are still two separate interpreters that never share a process ([[ADR-0004]]).
+- The **`tether` wheel** is now offline-installed into `envs/tether` (was: `base`); the app launches from
+  `envs/tether` (`envs/tether/bin/tether`, or `python -m tether` on Windows). `TETHER_SIDECAR_PYTHON` is
+  wired via `envs/tether`'s `activate.d`, resolving the sibling `envs/sidecar` interpreter.
+- `initialize_conda: false` is set so the bootstrap `conda` never offers to modify the user's shell — this
+  stays a self-contained GUI app, not a conda distribution.

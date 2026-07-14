@@ -78,13 +78,20 @@ jobs:
           # constructor (>=3.16 for --render), conda-lock to render the committed
           # locks, and the wheel-build tools. `setuptools<81` still ships
           # `pkg_resources`, which tMAVEN imports (sidecar.yml precedent).
+          # NOTE: setup-micromamba splits create-args on whitespace and passes
+          # each token to micromamba verbatim — do NOT quote a match spec here or
+          # the quotes reach libmamba ("Error parsing version" on setuptools<81"").
+          # `pip` is explicit: `python -m build` (tether wheel) and `python -m pip
+          # wheel` (tMAVEN) both require it and the base python pulls it in only by
+          # chance, not as a stated dep.
           create-args: >-
             python=3.12
             constructor>=3.16
             conda-lock=4.0.1
             conda-standalone
             python-build
-            "setuptools<81"
+            pip
+            setuptools<81
             wheel
           init-shell: bash
           cache-environment: true
@@ -148,7 +155,9 @@ jobs:
           else
             sh "$(ls packaging/dist/*.sh | head -1)" -b -p "$prefix"
           fi
-          "$prefix/bin/tether" --version
+          # Both runtime stacks are extra_envs (ADR-0049): the app lives in
+          # envs/tether, the sidecar in envs/sidecar; `base` is only python+conda.
+          "$prefix/envs/tether/bin/tether" --version
           "$prefix/envs/sidecar/bin/python" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
 
       - name: Install-smoke — offline install into a clean prefix (Windows)
@@ -162,8 +171,17 @@ jobs:
           prefix="$RUNNER_TEMP\\tether-smoke"
           exe="$(ls packaging/dist/*.exe | head -1)"
           # NSIS silent install; /D (target dir, unquoted) must be the LAST arg.
-          cmd //c "$(cygpath -w "$exe") /S /D=$prefix"
-          "$prefix\\python.exe" -m tether --version
+          # Use `cmd /c` (single slash), NOT `//c`: MSYS2_ARG_CONV_EXCL='*' (set so
+          # git-bash leaves /S and /D= intact) also stops git-bash rewriting //c to
+          # /c, so `cmd //c` is NOT recognised and the installer would never run.
+          cmd /c "$(cygpath -w "$exe") /S /D=$prefix"
+          # The NSIS installer can return before the prefix is fully written, so
+          # wait (bounded) for the app env interpreter to appear before smoking it.
+          tether_py_u="$(cygpath -u "$prefix")/envs/tether/python.exe"
+          for _ in $(seq 1 40); do [ -f "$tether_py_u" ] && break; sleep 3; done
+          # Both runtime stacks are extra_envs (ADR-0049): the app lives in
+          # envs\tether, the sidecar in envs\sidecar; `base` is only python+conda.
+          "$prefix\\envs\\tether\\python.exe" -m tether --version
           "$prefix\\envs\\sidecar\\python.exe" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
 
       - name: Upload the installer artifact
