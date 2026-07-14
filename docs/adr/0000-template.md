@@ -1,6 +1,6 @@
 # NNNN — Short title of the decision
 
-- **Status:** proposed | accepted | deprecated | superseded by [ADR-XXXX](XXXX-title.md)
+- **Status:** proposed | accepted | deprecated | superseded by `ADR-NNNN` (link the superseding record)
 - **Date:** YYYY-MM-DD
 - **Deciders:** bioedca
 - **PRD anchor:** §x.y (FR-ID) — the requirement(s) this decision implements

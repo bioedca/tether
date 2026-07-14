@@ -84,7 +84,7 @@ locks, no re-solve) *and* the two-isolated-stacks invariant (the sidecar as a co
   `TETHER_SIDECAR_PYTHON` pointing at the bundled sidecar interpreter.
 - `.github/workflows/packaging.yml` — a **non-required, `workflow_dispatch`-only** 3-OS leg
   (render locks → build the two wheels → `constructor` → **networking-blocked install-smoke**:
-  `tether --version`, then the bundled sidecar interpreter imports `vbfret`/PyQt5 offline). It is
+  `tether --version`, then the bundled sidecar interpreter imports `tmaven`/PyQt5 offline). It is
   advisory **by construction** (no `pull_request`/`push`/`merge_group` trigger), so it can never
   become a required merge check — the same posture as `deep-gpu.yml` ([[ADR-0047]]).
 - `tests/test_marker_contract.py` — a new clause locking `packaging.yml`'s advisory shape

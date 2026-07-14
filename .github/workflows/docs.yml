@@ -1,0 +1,98 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# docs — versioned documentation publishing (PRD §9 M9, NFR-PKG). The required
+# `docs-build` job in ci.yml builds the site with `mkdocs build --strict` on every
+# PR (the merge gate); THIS workflow only *publishes* the built site, versioned
+# with `mike`, to the `gh-pages` branch that GitHub Pages serves.
+#
+# NON-GATING BY CONSTRUCTION: it triggers ONLY on a published release and on manual
+# `workflow_dispatch` — never on pull_request/push/merge_group — so it never reports
+# a status on a PR and can never be (or silently become) a required merge check.
+# It is the deploy half of the M9 docs PR; the strict build stays required in ci.yml.
+#
+# ONE-TIME REPO SETUP (human, before the first v1.0.0 release): enable GitHub Pages
+# with the source set to "Deploy from a branch" → `gh-pages` (Settings → Pages).
+# `mike` creates and maintains `gh-pages`; this job only needs `contents: write`.
+name: docs
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Version label to publish, e.g. 0.9 or 1.0 (a leading `v` and any patch
+          component are stripped to the MAJOR.MINOR doc tree). The `latest` alias
+          and default are updated to point at it.
+        type: string
+        required: true
+
+# Read-only by default (repo convention); the deploy job elevates to contents:write
+# because `mike` pushes the rendered site to the gh-pages branch.
+permissions:
+  contents: read
+
+# Never cancel a deploy mid-push (a half-pushed gh-pages is worse than a queue),
+# matching the release pipeline's cancel-in-progress:false posture (PLAN §13).
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    # Skip pre-releases (e.g. a v1.0.0-rc1 dry-run tag): the label collapses to the
+    # stable MAJOR.MINOR tree and would repoint latest/default, so pre-releases must
+    # not publish stable docs. Manual dispatch is always allowed.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # mike commits to and pushes the gh-pages branch, so — unlike every other
+          # checkout in this repo — it must keep the token in git config and fetch
+          # full history so an existing gh-pages branch is found.
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Install mkdocs (Material) + mike
+        # Pinned toolchain shared with the required docs-build gate (ci.yml) so a
+        # release publishes with the exact mkdocs/material/mike the PR gate tested.
+        run: python -m pip install -r requirements-docs.txt
+      - name: Configure git identity for mike
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Resolve MAJOR.MINOR version label
+        id: ver
+        # Untrusted event data (a release tag name) is passed through env, never
+        # interpolated inline into the script — GitHub's script-injection guidance.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "release" ]; then
+            raw="$RELEASE_TAG"
+          else
+            raw="$DISPATCH_VERSION"
+          fi
+          raw="${raw#v}"                                   # v1.0.0 -> 1.0.0
+          label="$(printf '%s' "$raw" | cut -d. -f1-2)"    # 1.0.0 -> 1.0
+          test -n "$label" || { echo "::error::could not resolve a version label from '${raw}'"; false; }
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          echo "Publishing docs version '$label' (from '$raw')."
+      - name: Publish versioned docs (mike -> gh-pages)
+        env:
+          VERSION_LABEL: ${{ steps.ver.outputs.label }}
+        run: |
+          set -euo pipefail
+          mike deploy --push --update-aliases "$VERSION_LABEL" latest
+          mike set-default --push latest

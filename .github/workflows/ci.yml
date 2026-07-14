@@ -137,7 +137,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install mkdocs (Material)
-        run: python -m pip install mkdocs mkdocs-material
+        # Pinned toolchain shared with the release-time docs.yml publish so the
+        # gate and the deploy build with an identical mkdocs/material/mike.
+        run: python -m pip install -r requirements-docs.txt
       - name: Build docs (strict)
         run: mkdocs build --strict
 
