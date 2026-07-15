@@ -9,6 +9,10 @@ copyright: Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
 
 theme:
   name: material
+  # Use the visitor's system fonts — do NOT load Google Fonts. This keeps the site
+  # free of any third-party asset request (no visitor IP sent to Google), matching
+  # the "no third-party" statement in docs/privacy.md.
+  font: false
   features:
     - navigation.top
     - content.code.copy
@@ -37,6 +41,7 @@ nav:
       - Installers &amp; offline bundle: packaging.md
       - Releasing (signed installers): release.md
   - Architecture decisions: adr/README.md
+  - Privacy policy: privacy.md
 
 # The product spec (PRD.md) is large and section-numbered for the repo; it stays
 # out of the rendered site. The MADR log under adr/ IS wired in: the index page
