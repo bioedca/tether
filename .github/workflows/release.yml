@@ -145,6 +145,17 @@ jobs:
       - name: Provision the build env (constructor + conda-lock + build tools)
         uses: mamba-org/setup-micromamba@d7c9bd84e824b79d2af72a2d4196c7f4300d3476 # v3.0.0
         with:
+          # Pin the micromamba binary (pin-and-hold, PRD §4.1). Tag form from
+          # mamba-org/micromamba-releases; the `-0` build suffix is REQUIRED. Held equal
+          # to .github/actions/setup-env/action.yml and packaging.yml (contract-tested)
+          # so the pin is one knob; see setup-env for the #306/#307 rationale.
+          #
+          # SCOPE: this pins the SOLVER for the pkgbuild tool env only. It does NOT make
+          # the release toolchain reproducible — create-args below re-solves
+          # constructor/conda-standalone/python-build/pip/wheel from conda-forge on every
+          # run, and micromamba never restores a Tether lock on this path (the locks go
+          # through `conda-lock render` into constructor/conda-standalone).
+          micromamba-version: "2.8.1-0"
           environment-name: pkgbuild
           # See packaging.yml for the create-args rationale (no quoted match specs;
           # explicit pip; setuptools<81 for tMAVEN's pkg_resources).

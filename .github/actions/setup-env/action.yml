@@ -32,10 +32,41 @@ runs:
     # unified lockfile and installed without solving; the cache key folds in the
     # lock hash + environment name + OS (mamba-org/setup-micromamba docs).
     - name: Restore conda-lock environment (micromamba)
-      uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462 # v2
+      # v3.0.0 (node24). This composite sat on v2 for months while packaging.yml
+      # and release.yml moved to v3.0.0 — not neglect, a blind spot: Dependabot's
+      # `github-actions` ecosystem with `directory: "/"` scans only
+      # .github/workflows plus a ROOT-level action.yml, never .github/actions/**
+      # (dependabot-core#6345). .github/dependabot.yml now covers this directory.
+      uses: mamba-org/setup-micromamba@d7c9bd84e824b79d2af72a2d4196c7f4300d3476 # v3.0.0
       with:
+        # Pin the micromamba BINARY, not just the action SHA (pin-and-hold, PRD §4.1).
+        # Unset, this input defaults to `latest`, which leaves the tool that RESTORES
+        # the committed locks as the one floating part of an otherwise frozen toolchain.
+        # Upstream setup-micromamba#306 (STATUS_ACCESS_VIOLATION on windows; fixed in
+        # micromamba 2.6.2) and #307 (sharded repodata; fixed in 2.7.0) both turned
+        # FLOATING consumers red overnight with no repo-side change. This composite feeds
+        # SEVEN workflows including the required 3-OS `test` matrix and schema-guard, so
+        # that failure would arrive on every leg at once on an unrelated PR —
+        # indistinguishable from "my change broke it". A pin makes it a reviewed,
+        # bisectable one-line bump instead.
+        #
+        # FORMAT: interpolated verbatim as a mamba-org/micromamba-releases release tag,
+        # so the `-0` build suffix is REQUIRED — the input regex rejects a bare `2.8.1`.
+        #
+        # THIS is the only site where micromamba actually restores a conda-lock.
+        # packaging.yml/release.yml pin the same value purely so there is ONE number to
+        # review — they pass no `environment-file` and never exercise the restore path.
+        #
+        # NOTE: 2.8.1-0 (2026-06-09) predates the fix for mamba#4332 (2026-06-24) —
+        # conda-lock restore chokes on `manager: pip` .whl entries on win-64. Unreachable
+        # today: all three committed locks are pure conda (0 `manager: pip` entries).
+        # Bump to a release published after 2026-06-24 before adding one.
+        micromamba-version: "2.8.1-0"
         environment-file: ${{ inputs.environment-file }}
         environment-name: ${{ inputs.environment-name }}
+        # The pin enters the cache key transitively via the binary hash alongside the
+        # lock-file hash, so a future binary bump self-invalidates this cache — no
+        # manual cache-key bump needed.
         cache-environment: true
         init-shell: bash
 

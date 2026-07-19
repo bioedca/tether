@@ -2,11 +2,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Dependabot (PRD §12.8). Covers `pip` (the pyproject optional-dependency dev
-# tooling) and `github-actions` (the SHA-pinned `uses:` in .github/workflows).
-# It does NOT cover the conda locks — a re-lock is a deliberate developer PR
-# (pin-and-hold, §4.1); the scheduled deps-audit.yml watches the rest. Updates
-# are grouped weekly and carry Conventional-Commit prefixes so the resulting PR
-# titles pass the `commitlint` gate.
+# tooling) and `github-actions` (the SHA-pinned `uses:` in .github/workflows AND
+# in the composite actions under .github/actions/). It does NOT cover the conda
+# locks — a re-lock is a deliberate developer PR (pin-and-hold, §4.1); the
+# scheduled deps-audit.yml watches the rest. Updates are grouped weekly and
+# carry Conventional-Commit prefixes so the resulting PR titles pass the
+# `commitlint` gate.
+#
+# NOTE: this file validates all-or-nothing. If any block is rejected, the WHOLE
+# config is invalid and every entry stops producing updates — you do not fall
+# back to the previous behaviour. After editing, confirm there is no config-error
+# banner under Insights -> Dependency graph -> Dependabot.
 version: 2
 updates:
   - package-ecosystem: pip
@@ -22,12 +28,59 @@ updates:
     labels:
       - dependencies
 
+  # `directory: "/"` is NOT repo-wide for this ecosystem: dependabot-core's
+  # github_actions file fetcher special-cases `directory == "/"` to
+  # `.github/workflows` plus a ROOT-level `action.yml`/`action.yaml`. Composite
+  # actions nested under `.github/actions/**` are invisible to it
+  # (dependabot-core#6345, still open) — which is how the SEVEN workflows that
+  # consume ./.github/actions/setup-env (ci.yml, schema-guard.yml, sidecar.yml,
+  # sidecar-measure.yml, deep.yml, deps-audit.yml, large-fixtures.yml — the first
+  # two are REQUIRED checks) sat on setup-micromamba v2 while packaging.yml and
+  # release.yml ran v3.0.0. The entry below closes that gap.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
     groups:
       actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+      include: scope
+    labels:
+      - dependencies
+
+  # Second entry for the SAME ecosystem, covering every composite action under
+  # .github/actions/. `directories` (plural) is the only key that supports
+  # globbing; a glob under `directory` (singular) is inert, so the plural key is
+  # required. Expansion is plain `Dir.glob` in dependabot-core's updater
+  # (`files_from_multidirectories`), so `*` does NOT cross a `/` — this reaches
+  # .github/actions/<name>/action.yml but NOT a deeper nesting.
+  # tests/test_marker_contract.py fails if a nested one is ever added.
+  #
+  # The glob is deliberately `/.github/actions/*` and NOT `**/*`: a pattern that
+  # re-matches `.github/workflows` overlaps the entry above and yields duplicate
+  # PRs for every action (dependabot-core#10884). Staying disjoint from `/`
+  # satisfies the documented "no overlap in directories defined" rule. Config
+  # keys are per-entry and are NOT inherited between blocks, so schedule /
+  # groups / commit-message / labels are necessarily repeated here.
+  #
+  # IF .github/actions/ EVER LOSES ITS LAST action.yml, DELETE THIS ENTRY: a
+  # multi-directory entry resolving to zero manifests raises
+  # DependencyFileNotFound and turns the Dependabot job red (per-directory
+  # misses are swallowed; the all-empty case is not).
+  #
+  # Do NOT "simplify" this into one `directories: ["/", "/.github/actions/*"]`
+  # block. That form does work and would even bump both in ONE grouped PR — but
+  # it rewrites the block that currently works, for four saved lines. Keeping
+  # this additive means the worst case is a no-op, never a regression.
+  - package-ecosystem: github-actions
+    directories:
+      - "/.github/actions/*"
+    schedule:
+      interval: weekly
+    groups:
+      actions-composite:
         patterns: ["*"]
     commit-message:
       prefix: ci

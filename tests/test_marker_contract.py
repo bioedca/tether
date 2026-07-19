@@ -20,7 +20,7 @@ from __future__ import annotations
 import ast
 import fnmatch
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # Must match the glob in .github/workflows/sidecar.yml's parity step
 # (test_contract_glob_matches_workflow_glob asserts they stay in lockstep).
@@ -639,3 +639,180 @@ def test_release_staging_gate_counts_every_installer_kind_and_fails_falsy() -> N
         "the gate must fail via a bare falsy command, never `exit` (which reports exit 1 under "
         "the `bash -el {0}` login shell used elsewhere in this workflow)"
     )
+
+
+# --- setup-micromamba: one action version, one binary version, and Dependabot can see both ---
+# Two separate silent-drift traps converge on this action, and neither is watched by anything else:
+#
+#  1. `micromamba-version` defaults to `latest`, so the BINARY that restores the pin-and-held
+#     conda-locks re-resolves on every run. Upstream setup-micromamba#306 (STATUS_ACCESS_VIOLATION
+#     on windows; fixed in micromamba 2.6.2) and #307 (sharded repodata, fixed in 2.7.0) both
+#     turned FLOATING consumers red with no repo-side change. Here that lands on all three required
+#     `test` legs plus schema-guard at once, on an unrelated PR.
+#  2. Dependabot's `github-actions` ecosystem with `directory: "/"` scans only `.github/workflows`
+#     plus a ROOT-level action.yml -- NOT `.github/actions/**` (dependabot-core#6345, still open).
+#     That is how `.github/actions/setup-env` sat on setup-micromamba v2 while packaging.yml and
+#     release.yml were bumped to v3.0.0: the composite action was invisible to the bot.
+#
+# These guards keep both closed: every call site pins the same binary, and every composite action
+# on disk is inside some Dependabot update entry's scope.
+GITHUB_DIR = Path(__file__).resolve().parents[1] / ".github"
+DEPENDABOT_CONFIG = GITHUB_DIR / "dependabot.yml"
+SETUP_MICROMAMBA = "mamba-org/setup-micromamba@"
+
+#: The pinned micromamba binary. A `mamba-org/micromamba-releases` TAG, build suffix INCLUDED:
+#: setup-micromamba interpolates the value verbatim into
+#: `releases/download/<tag>/micromamba-<arch>`, and its input regex rejects a bare `2.8.1`.
+#: Bump here first, then every call site -- the guard below requires them to agree.
+MICROMAMBA_PIN = "2.8.1-0"
+
+
+def _yaml_load(path: Path) -> object:
+    """Parse *path* as YAML. Local import, matching tests/test_adr_index.py's precedent."""
+    import yaml  # provided by the base conda-lock (a mkdocs dependency)
+
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _setup_micromamba_call_sites() -> dict[str, tuple[int, list[str]]]:
+    """``{repo-relative path: (call-site count, declared micromamba-version values)}``.
+
+    Discovered by GLOB over ``.github/``, never a hardcoded file list: this repo grew from one
+    call site to three, and a hardcoded list would let a fourth float to ``latest`` unnoticed --
+    reintroducing exactly the drift these guards exist to prevent.
+    """
+    found: dict[str, tuple[int, list[str]]] = {}
+    for path in sorted(GITHUB_DIR.rglob("*.y*ml")):
+        text = path.read_text(encoding="utf-8")
+        uses = len(re.findall(r"^\s*(?:-\s*)?uses:\s*" + re.escape(SETUP_MICROMAMBA), text, re.M))
+        if not uses:
+            continue
+        pins = re.findall(r"^\s*micromamba-version:\s*[\"']?([^\"'\s#]+)", text, re.M)
+        found[path.relative_to(GITHUB_DIR).as_posix()] = (uses, pins)
+    return found
+
+
+def test_every_setup_micromamba_call_site_pins_the_binary() -> None:
+    """Every ``setup-micromamba`` call site pins ``micromamba-version``, all to the same value.
+
+    Unset, the input defaults to ``latest`` and re-resolves the binary at run time. Pin-and-hold
+    (PRD §4.1) covers the tool that MATERIALISES an environment, not only the locks it reads --
+    and Dependabot watches ``uses:`` SHAs, never ``with:`` input VALUES, so nothing else is
+    looking at this.
+
+    One shared value keeps it to a single reviewed knob. To be precise about what that does NOT
+    buy: only ``.github/actions/setup-env`` restores a conda-lock with micromamba.
+    packaging.yml/release.yml pass no ``environment-file`` -- they SOLVE a throwaway ``pkgbuild``
+    tool env from ``create-args``, and the shipped installer's environments are rendered by
+    ``conda-lock render`` and materialised by constructor/conda-standalone. Agreement here is
+    maintenance convenience (one number to bump), not a CI-matches-the-signed-release guarantee.
+    """
+    assert re.fullmatch(r"\d+\.\d+\.\d+-\d+", MICROMAMBA_PIN), (
+        "the pin must be a plain micromamba-releases tag INCLUDING the build suffix (e.g. "
+        "2.8.1-0): setup-micromamba rejects a bare `2.8.1`, and its input regex also admits "
+        "rc/alpha/beta/dev tags, which a pin-and-hold release toolchain must never ship"
+    )
+
+    call_sites = _setup_micromamba_call_sites()
+    assert len(call_sites) >= 3, (
+        "expected at least the setup-env composite + packaging.yml + release.yml to call "
+        f"setup-micromamba; found {sorted(call_sites)}. If a call site was removed, update this "
+        "guard deliberately."
+    )
+
+    mismatched = sorted(
+        f"{name} ({len(pins)} pin(s) for {uses} call site(s))"
+        for name, (uses, pins) in call_sites.items()
+        if len(pins) != uses
+    )
+    assert not mismatched, (
+        "every setup-micromamba call site needs its OWN `micromamba-version` pin -- unset, the "
+        f"input floats to `latest` and re-resolves the binary at run time: {mismatched}"
+    )
+
+    values = {value for _, pins in call_sites.values() for value in pins}
+    assert values == {MICROMAMBA_PIN}, (
+        f"all setup-micromamba call sites must pin micromamba-version to {MICROMAMBA_PIN!r} "
+        f"(bump MICROMAMBA_PIN and every call site in one commit); found {sorted(values)} "
+        f"across {sorted(call_sites)}"
+    )
+
+
+def _dependabot_github_actions_directories() -> list[str]:
+    """Every directory pattern the ``github-actions`` ecosystem entries point Dependabot at."""
+    config = _yaml_load(DEPENDABOT_CONFIG)
+    dirs: list[str] = []
+    for entry in config["updates"]:
+        if entry.get("package-ecosystem") != "github-actions":
+            continue
+        assert not ("directory" in entry and "directories" in entry), (
+            "`directory` and `directories` are mutually exclusive within one update entry"
+        )
+        if "directory" in entry:
+            value = str(entry["directory"])
+            assert "*" not in value, (
+                "globbing is supported only by the plural `directories` key; "
+                f"`directory: {value!r}` is treated as a literal path and would match nothing"
+            )
+            dirs.append(value)
+        dirs.extend(str(d) for d in entry.get("directories", []))
+    assert dirs, ".github/dependabot.yml must define at least one `github-actions` update entry"
+    return dirs
+
+
+def test_dependabot_watches_every_composite_action() -> None:
+    """Every composite action under ``.github/actions/`` is inside some update entry's scope.
+
+    ``directory: "/"`` is NOT repo-wide for this ecosystem -- Dependabot searches
+    ``/.github/workflows`` plus a ROOT-level ``action.yml`` only -- so SHA pins inside
+    ``.github/actions/<name>/action.yml`` are never bumped (dependabot-core#6345). Coverage is
+    restored by a second ``github-actions`` entry using ``directories:`` (the only key that
+    supports globbing). This guard fails the moment a composite action exists that no entry
+    covers, so the gap cannot be reintroduced by adding an action and forgetting the config.
+
+    Matching uses :meth:`PurePosixPath.match`, NOT :func:`fnmatch.fnmatch`: Dependabot expands
+    these patterns with Ruby's ``Dir.glob``, where ``*`` does not cross a ``/``. ``fnmatch`` lets
+    ``*`` cross separators and would report a NESTED action (``.github/actions/a/b/action.yml``)
+    as covered when Dependabot would in fact skip it -- a false pass on precisely this bug.
+    """
+    repo_root = GITHUB_DIR.parent
+    actions = sorted(
+        {
+            "/" + manifest.parent.relative_to(repo_root).as_posix()
+            for name in ("action.yml", "action.yaml")
+            for manifest in (GITHUB_DIR / "actions").rglob(name)
+        }
+    )
+    assert actions, "expected at least one composite action under .github/actions/"
+
+    declared = _dependabot_github_actions_directories()
+    uncovered = [
+        action
+        for action in actions
+        if not any(PurePosixPath(action).match(pattern) for pattern in declared)
+    ]
+    assert not uncovered, (
+        "composite action(s) hold SHA-pinned `uses:` that Dependabot will never bump "
+        f"(dependabot-core#6345): {uncovered}. Configured directories: {declared}. Note "
+        '`directory: "/"` covers ONLY /.github/workflows + a ROOT action.yml -- add these paths '
+        "to a `directories:` entry, or widen its glob (`*` does not cross a `/`)."
+    )
+
+
+def test_no_dependabot_glob_overlaps_the_workflows_directory() -> None:
+    """No ``github-actions`` glob may re-match ``/.github/workflows`` (the duplicate-PR trap).
+
+    ``.github/workflows`` is already scanned implicitly by the ``directory: "/"`` entry. A second
+    entry whose glob also matches it violates the documented "no overlap in directories defined"
+    rule for multiple blocks of one ecosystem and produces duplicate PRs for every action
+    (dependabot-core#10884, where ``directories: ['**/*']`` did exactly that). This is why the
+    glob is ``/.github/actions/*`` and not ``**/*``.
+    """
+    for pattern in _dependabot_github_actions_directories():
+        if pattern == "/":
+            continue
+        assert not PurePosixPath("/.github/workflows").match(pattern), (
+            f"dependabot.yml glob {pattern!r} re-matches /.github/workflows, which the "
+            '`directory: "/"` entry already scans implicitly -> duplicate PRs for every action '
+            "(dependabot-core#10884). Keep non-root globs disjoint from `/`."
+        )
