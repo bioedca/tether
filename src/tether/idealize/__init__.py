@@ -11,13 +11,16 @@ idealization staleness tracking; and dwell/rate analysis.
 from __future__ import annotations
 
 from tether.idealize.driver import (
+    DEFAULT_OPEN_CHECK_TIMEOUT,
     MODEL_GROUP,
     NO_STATE,
     SIDECAR_ENV_VAR,
     Dwell,
     IdealizationResult,
     SidecarError,
+    SMDOpenCheck,
     StateModel,
+    check_smd_opens,
     dwells_from_states,
     read_model,
     resolve_sidecar_python,
@@ -52,6 +55,7 @@ from tether.idealize.smd import (
 
 __all__ = [
     "DEFAULT_GROUP",
+    "DEFAULT_OPEN_CHECK_TIMEOUT",
     "MODEL_GROUP",
     "NO_STATE",
     "PROVISIONAL",
@@ -62,10 +66,12 @@ __all__ = [
     "MatchResult",
     "ParityMetrics",
     "SMDData",
+    "SMDOpenCheck",
     "SidecarError",
     "SpreadSummary",
     "StateModel",
     "canonical_state_path",
+    "check_smd_opens",
     "compare_models",
     "dwells_from_states",
     "freeze",
