@@ -120,6 +120,50 @@ def probe():
     return {"ok": True, "probe": True, "detail": "tmaven maven_class ready"}
 
 
+def load_check(smd_path, group):
+    """Open an SMD with tMAVEN's OWN loader and report what the GUI would see.
+
+    Drives ``maven.io.load_smdtmaven_hdf5`` — the exact loader the standalone tMAVEN
+    GUI's *File → Load SMD* menu uses (``load_smd_hdf5`` → ``pysmd.load_smd_in_hdf5``
+    for the ``data``/``sources`` groups, plus ``load_tmaven_hdf5`` for the per-trace
+    ``tMAVEN`` classes/windows) — so a Tether-authored SMD that loads cleanly here is
+    one that opens in the GUI (PRD §7.4, issue #13). Runs no fit.
+
+    Returns a JSON-serializable status with the molecule/frame counts tMAVEN parsed,
+    the analysis-window arrays it read back (``pre_list``/``post_list`` — the per-trace
+    windows Tether rides along), and a raw-intensity checksum, so the caller can assert
+    the trace data survived the hand-off intact. tMAVEN's loader ignores Tether's
+    ``tether/`` coordinate superset group (verified separately on the base side); this
+    check proves the *standard* SMD the GUI reads is well-formed and complete.
+    """
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    os.environ.setdefault("NAPARI_ASYNC", "0")
+
+    import numpy as np
+    from tmaven.maven import maven_class
+
+    maven = maven_class()
+    maven.io.load_smdtmaven_hdf5(smd_path, group)
+
+    data = maven.data
+    nmol = int(data.nmol)
+    if nmol < 1:
+        raise RuntimeError(f"tMAVEN loaded 0 molecules from {smd_path!r}/{group!r}")
+    raw = np.asarray(data.raw, dtype="float64")
+    return {
+        "ok": True,
+        "load_check": True,
+        "nmol": nmol,
+        "nt": int(data.nt),
+        "ncolors": int(data.ncolors),
+        "raw_shape": [int(s) for s in raw.shape],
+        "raw_sum": float(np.nansum(raw)),
+        "pre_list": [int(x) for x in np.asarray(data.pre_list).reshape(-1)],
+        "post_list": [int(x) for x in np.asarray(data.post_list).reshape(-1)],
+        "classes": [int(x) for x in np.asarray(data.classes).reshape(-1)],
+    }
+
+
 def main(argv):
     args = argv[1:]  # drop the script name (argv[0])
     if args and args[0] == "--probe":
@@ -134,11 +178,30 @@ def main(argv):
         sys.stdout.write(STATUS_PREFIX + json.dumps(status) + "\n")
         sys.stdout.flush()
         return 0
+    if args and args[0] == "--load-check":
+        rest = args[1:]
+        if len(rest) != 2:
+            sys.stderr.write("usage: _sidecar_runner.py --load-check <smd_path> <group>\n")
+            return 2
+        try:
+            status = load_check(rest[0], rest[1])
+        except Exception as exc:
+            sys.stdout.write(
+                STATUS_PREFIX
+                + json.dumps({"ok": False, "load_check": True, "error": str(exc)})
+                + "\n"
+            )
+            sys.stdout.flush()
+            return 1
+        sys.stdout.write(STATUS_PREFIX + json.dumps(status) + "\n")
+        sys.stdout.flush()
+        return 0
     if len(args) not in (5, 6):
         sys.stderr.write(
             "usage: _sidecar_runner.py <smd_path> <group> <model_type> "
             "<nstates> <model_out> [nrestarts]\n"
             "   or: _sidecar_runner.py --probe\n"
+            "   or: _sidecar_runner.py --load-check <smd_path> <group>\n"
         )
         return 2
     smd_path, group, model_type, nstates, model_out = args[:5]

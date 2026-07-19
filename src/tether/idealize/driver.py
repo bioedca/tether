@@ -41,6 +41,7 @@ from tether.idealize._sidecar_runner import STATUS_PREFIX
 from tether.idealize.smd import DEFAULT_GROUP, read_smd
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from os import PathLike
 
 #: Environment variable naming the sidecar interpreter (overridden by the arg).
@@ -49,6 +50,10 @@ SIDECAR_ENV_VAR = "TETHER_SIDECAR_PYTHON"
 MODEL_GROUP = "model"
 #: State index assigned to frames outside the analysis window / not idealized.
 NO_STATE = -1
+#: Default timeout for the tMAVEN SMD open-check (:func:`check_smd_opens`). No fit
+#: runs, but a cold ``tmaven``/Numba import is not instant, so the window is generous
+#: (mirrors the startup liveness probe, :data:`supervisor.DEFAULT_PROBE_TIMEOUT`).
+DEFAULT_OPEN_CHECK_TIMEOUT = 120.0
 
 _RUNNER = Path(__file__).with_name("_sidecar_runner.py")
 
@@ -135,6 +140,28 @@ class IdealizationResult:
     model_path: Path
     status: dict
     molecule_keys: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class SMDOpenCheck:
+    """What tMAVEN's own loader parsed from an SMD (the standalone-GUI load path).
+
+    Produced by :func:`check_smd_opens`, which drives the exact loader the standalone
+    tMAVEN GUI's *File → Load SMD* uses. ``n_molecules``/``n_frames``/``n_channels`` are
+    the trace dimensions tMAVEN read; ``raw_shape``/``raw_sum`` fingerprint the loaded
+    intensities so a caller can assert the trace data survived the hand-off; and
+    ``pre_list``/``post_list`` are the per-trace analysis windows tMAVEN read back from
+    the ``tMAVEN`` group (the windows Tether rides along, PRD §7.4).
+    """
+
+    n_molecules: int
+    n_frames: int
+    n_channels: int
+    raw_shape: tuple[int, ...]
+    raw_sum: float
+    pre_list: np.ndarray
+    post_list: np.ndarray
+    classes: np.ndarray
 
 
 def _decode(value) -> str:
@@ -462,6 +489,90 @@ def run_ebhmm(smd_path: str | PathLike[str], *, nstates: int = 2, **kwargs) -> I
         experiments." Biophysical Journal (2014).
     """
     return run_vbfret(smd_path, model_type="ebhmm", nstates=nstates, **kwargs)
+
+
+def _default_run(
+    cmd: list[str], env: dict[str, str], timeout: float | None
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603 - cmd is a resolved interpreter + our runner
+        cmd,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def check_smd_opens(
+    smd_path: str | PathLike[str],
+    *,
+    sidecar_python: str | PathLike[str] | None = None,
+    group: str = DEFAULT_GROUP,
+    timeout: float | None = DEFAULT_OPEN_CHECK_TIMEOUT,
+    _run: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+) -> SMDOpenCheck:
+    """Confirm ``smd_path`` opens in the standalone tMAVEN GUI, via tMAVEN's own loader.
+
+    Launches the sidecar interpreter on :mod:`tether.idealize._sidecar_runner`'s
+    ``--load-check`` fast path, which drives ``maven.io.load_smdtmaven_hdf5`` — the
+    exact loader tMAVEN's *File → Load SMD* menu uses (``pysmd.load_smd_in_hdf5`` for
+    the standard ``data``/``sources`` groups plus the per-trace ``tMAVEN`` window/class
+    group). A Tether-authored SMD that loads cleanly here is one the standalone GUI
+    opens (PRD §7.4, issue #13). No fit runs — this is the scripted half of the M9
+    hand-off verification (the manual GUI leg is documented separately).
+
+    Returns an :class:`SMDOpenCheck` with the trace dimensions, a raw-intensity
+    checksum, and the analysis windows tMAVEN read back. Raises :class:`SidecarError`
+    if the interpreter is unset/missing, the launch fails, the load times out, or
+    tMAVEN could not open the file. ``_run`` is an injectable subprocess launcher
+    (test seam), defaulting to :func:`subprocess.run`.
+    """
+    py = resolve_sidecar_python(sidecar_python)
+    smd_path = Path(smd_path)
+    if not smd_path.exists():
+        raise FileNotFoundError(smd_path)
+
+    cmd = [str(py), str(_RUNNER), "--load-check", str(smd_path), group]
+    env = _sidecar_env()
+
+    runner = _run if _run is not None else _default_run
+    try:
+        proc = runner(cmd, env, timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise SidecarError(
+            f"tMAVEN SMD open-check timed out after {timeout}s\n"
+            f"--- stderr (tail) ---\n{_tail(getattr(exc, 'stderr', None))}",
+            transient=True,
+        ) from exc
+    except OSError as exc:  # interpreter vanished / not executable between resolve + launch
+        raise SidecarError(
+            f"tMAVEN SMD open-check could not launch: {exc}", transient=True
+        ) from exc
+
+    status = _parse_status(proc.stdout or "")
+    if proc.returncode == 0 and status is not None and status.get("ok"):
+        return SMDOpenCheck(
+            n_molecules=int(status["nmol"]),
+            n_frames=int(status["nt"]),
+            n_channels=int(status.get("ncolors", 0)),
+            raw_shape=tuple(int(s) for s in status.get("raw_shape", ())),
+            raw_sum=float(status.get("raw_sum", float("nan"))),
+            pre_list=np.asarray(status.get("pre_list", []), dtype="int64"),
+            post_list=np.asarray(status.get("post_list", []), dtype="int64"),
+            classes=np.asarray(status.get("classes", []), dtype="int64"),
+        )
+
+    detail = status.get("error") if status is not None else None
+    message = detail or f"tMAVEN could not open {smd_path.name} (exit {proc.returncode})"
+    tail = _tail(proc.stderr or "")
+    if tail:
+        message += f"\n--- stderr (tail) ---\n{tail}"
+    # A status tMAVEN itself emitted with ok=False is a deterministic open failure (a
+    # malformed/non-SMD file); a missing status (a crash before any output) is a
+    # process-level failure — transient and worth a retry by any supervising caller.
+    reported = status is not None and status.get("ok") is False
+    raise SidecarError(message, transient=not reported)
 
 
 def _parse_status(stdout: str) -> dict | None:
