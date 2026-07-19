@@ -74,6 +74,18 @@ jobs:
       - name: Provision the build env (constructor + conda-lock + build tools)
         uses: mamba-org/setup-micromamba@d7c9bd84e824b79d2af72a2d4196c7f4300d3476 # v3.0.0
         with:
+          # Pin the micromamba binary so an advisory installer build never silently
+          # re-resolves its own provisioner (pin-and-hold, PRD §4.1). Tag form from
+          # mamba-org/micromamba-releases; the `-0` build suffix is REQUIRED. Held equal
+          # to .github/actions/setup-env/action.yml and release.yml (contract-tested) —
+          # see that file for the #306/#307 rationale.
+          #
+          # SCOPE, honestly: this env is SOLVED from create-args below, not restored from
+          # a pin-and-held lock, so this pins the solver binary only. `constructor`,
+          # `conda-standalone`, `python-build`, `pip` and `wheel` still float (only
+          # conda-lock and setuptools are bounded) — pinning those is the change that
+          # would actually make this build reproducible. Tracked separately.
+          micromamba-version: "2.8.1-0"
           environment-name: pkgbuild
           # A build-only env, NOT one of the pin-and-held stacks: it just needs
           # constructor (>=3.16 for --render), conda-lock to render the committed
