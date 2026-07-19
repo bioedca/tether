@@ -329,17 +329,121 @@ jobs:
 
       - name: Stage the release assets (installers + checksums + frozen locks)
         id: assets
+        # Explicit `bash` (not the runner default) because this script relies on
+        # bash arrays, `read -ra`, a here-string and `shopt`. Deliberately NOT
+        # `bash -el {0}`: the login shell is the one that turns an explicit `exit`
+        # into "Process completed with exit code 1" (see the build job). The gate
+        # below therefore terminates with a falsy command, never `exit`.
+        shell: bash
         run: |
           set -euo pipefail
+          shopt -s nullglob
+
+          # One entry per leg of the `build` matrix above (jobs.build.strategy.matrix.include),
+          # as "<platform>:<installer extension>". This line is the single source of truth for
+          # what a COMPLETE release looks like, and BOTH halves are contract-tested in
+          # tests/test_marker_contract.py: the PLATFORMS against the build matrix in this file,
+          # and the EXTENSIONS against `installer_type:` in packaging/construct.yaml. Changing
+          # the matrix or the recipe therefore fails the required 3-OS test matrix and forces a
+          # deliberate edit here, instead of leaving a silently-wrong expectation behind.
+          EXPECTED_LEGS="linux-64:sh osx-arm64:pkg osx-64:pkg win-64:exe"
+
           mkdir -p out
+
+          # Log the downloaded layout FIRST — it is the thing that silently drifts.
+          # upload-artifact roots each bundle at the least-common-ancestor of its SPECIFIED
+          # upload paths (the declared globs, not the matched files — so the root is
+          # `packaging/` identically on all four legs, including Windows where *.pkg/*.sh
+          # match nothing). A bundle therefore unpacks to dist/dist/<installer> and
+          # dist/locks/<lock>: depth 2, exactly the `-maxdepth 2` below with ZERO headroom.
+          # Add a seventh upload path outside packaging/ and every bundle gains a level, the
+          # find matches nothing, and — without the gate below — this job stays GREEN.
+          echo "::group::downloaded artifact tree (dist/)"
+          find dist -type f | sort || echo "(no dist/ — download-artifact staged nothing)"
+          echo "::endgroup::"
+
           # Installers + per-platform checksums from the build bundles.
           find dist -maxdepth 2 -type f \
             \( -name '*.exe' -o -name '*.pkg' -o -name '*.sh' -o -name 'SHA256SUMS-*.txt' \) \
             -exec cp {} out/ \;
-          # The authoritative bill-of-materials: the frozen source locks.
+          # The authoritative bill-of-materials: the frozen SOURCE locks. Note the per-platform
+          # RENDERED locks the build uploads (packaging/locks/{base,sidecar}-<platform>.lock)
+          # land under dist/locks/ and are deliberately NOT staged — docs/release.md ships "the
+          # frozen conda locks", which these two satisfy. If that ever changes, add '*.lock' to
+          # the find name-filter above AND assert 2x<leg count> of them below.
           cp conda-lock.yml "out/conda-lock.yml"
           cp sidecar/conda-lock.yml "out/sidecar-conda-lock.yml"
           ls -l out
+
+          # --- Completeness gate (unconditional — it MUST also run in a dry run) --------
+          # `find ... -exec cp` exits 0 when it matches NOTHING, even under `set -euo pipefail`.
+          # The two steps that would otherwise notice — attest-build-provenance over
+          # out/*.exe|*.pkg|*.sh, and `gh release create` — are BOTH gated on publish == 'true'.
+          # So a dry run would stage two lock files, skip the gated steps and report GREEN: the
+          # rehearsal could not detect its own worst failure. Assert the whole expected set here
+          # instead, on every run. (Even on a real publish, attest only requires >=1 match per
+          # pattern, so "1 .pkg where 2 were required" is caught ONLY here.)
+          problems=()
+          # Parse with `read -ra`, NOT unquoted word splitting: `shopt -s nullglob` is on, so an
+          # unquoted $EXPECTED_LEGS word containing a glob metacharacter would VANISH rather than
+          # stay literal — silently shrinking the expected set and making this gate fail OPEN.
+          # `read -ra` splits on IFS with no pathname expansion, so a malformed leg fails LOUDLY.
+          read -ra legs <<<"$EXPECTED_LEGS"
+          want_exe=0
+          want_pkg=0
+          want_sh=0
+          for leg in "${legs[@]}"; do
+            platform="${leg%%:*}"
+            ext="${leg##*:}"
+            # One checksum file per leg, named by platform — the per-leg arrival receipt, and the
+            # only per-PLATFORM evidence available (installer filenames use constructor's own
+            # naming, e.g. Tether-1.0.0-MacOSX-arm64.pkg, which does not map back to `osx-arm64`).
+            if [ ! -s "out/SHA256SUMS-${platform}.txt" ]; then
+              problems+=("missing/empty SHA256SUMS-${platform}.txt — leg '${platform}' contributed nothing")
+            fi
+            case "$ext" in
+              exe) want_exe=$((want_exe + 1)) ;;
+              pkg) want_pkg=$((want_pkg + 1)) ;;
+              sh) want_sh=$((want_sh + 1)) ;;
+              *) problems+=("EXPECTED_LEGS entry '${leg}' has an unknown installer extension") ;;
+            esac
+          done
+          # An unrecognised extension would otherwise increment nothing and quietly lower the
+          # expected totals. Bind the sum of the per-extension wants back to the declared legs.
+          if [ "$((want_exe + want_pkg + want_sh))" -ne "${#legs[@]}" ]; then
+            problems+=("EXPECTED_LEGS declares ${#legs[@]} leg(s) but only $((want_exe + want_pkg + want_sh)) resolved to a known extension")
+          fi
+
+          got_exe=(out/*.exe)
+          got_pkg=(out/*.pkg)
+          got_sh=(out/*.sh)
+          # Per-extension, not just a total of 4. The two macOS legs are distinguished ONLY by
+          # the arch constructor embeds in the .pkg name, and `merge-multiple: true` silently
+          # overwrites same-named files — so a stage of 2 .exe + 1 .pkg + 1 .sh still TOTALS 4
+          # while the Intel-Mac installer is missing. Per-extension sees "expected 2 .pkg,
+          # staged 1". Exact equality (not `-ge`) also catches OVER-collection.
+          [ "${#got_exe[@]}" -eq "$want_exe" ] || problems+=("expected ${want_exe} .exe installer(s), staged ${#got_exe[@]}")
+          [ "${#got_pkg[@]}" -eq "$want_pkg" ] || problems+=("expected ${want_pkg} .pkg installer(s), staged ${#got_pkg[@]}")
+          [ "${#got_sh[@]}" -eq "$want_sh" ] || problems+=("expected ${want_sh} .sh installer(s), staged ${#got_sh[@]}")
+          # `cp` above already fails hard under `set -e` if a lock is absent, so only emptiness
+          # is left: a zero-byte lock would publish an unusable bill-of-materials.
+          [ -s out/conda-lock.yml ] || problems+=("out/conda-lock.yml staged empty")
+          [ -s out/sidecar-conda-lock.yml ] || problems+=("out/sidecar-conda-lock.yml staged empty")
+
+          if [ "${#problems[@]}" -eq 0 ]; then
+            echo "Staged a complete release — every expected leg present (${EXPECTED_LEGS})."
+          else
+            for p in "${problems[@]}"; do echo "::error::release staging: ${p}"; done
+            echo "Expected legs: ${EXPECTED_LEGS}"
+            echo "--- staged in out/ ---"
+            ls -la out
+            echo "--- downloaded under dist/ (layout drift shows up here) ---"
+            find dist -type f | sort || true
+            echo "::error::Refusing to stage a partial release (${#problems[@]} problem(s) above)."
+            # Terminate falsy, never `exit` (repo hard rule): this is the last command the
+            # script runs, so the step fails via `set -e` AND via the final exit status.
+            false
+          fi
 
       - name: Generate a CycloneDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
