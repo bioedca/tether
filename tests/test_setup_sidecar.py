@@ -148,6 +148,27 @@ def test_env_create_rejects_plain_conda_without_conda_lock(monkeypatch: pytest.M
         setup.build_env_create_cmd("conda", "tether-sidecar", setup.DEFAULT_LOCK)
 
 
+# --- launch failures become clean SetupErrors (not raw tracebacks) -----------
+
+
+def test_run_wraps_oserror_as_setup_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom(*_a, **_k):
+        raise OSError("not launchable")
+
+    monkeypatch.setattr(setup.subprocess, "run", _boom)
+    with pytest.raises(setup.SetupError, match="could not launch"):
+        setup._run(["nope"], dry_run=False)
+
+
+def test_resolve_env_python_wraps_oserror_as_setup_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom(*_a, **_k):
+        raise OSError("no such front-end")
+
+    monkeypatch.setattr(setup.subprocess, "run", _boom)
+    with pytest.raises(setup.SetupError, match="could not launch conda front-end"):
+        setup.resolve_env_python("bogus-frontend", "tether-sidecar")
+
+
 # --- status parsing + export line --------------------------------------------
 
 

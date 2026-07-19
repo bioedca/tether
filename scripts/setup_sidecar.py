@@ -135,12 +135,15 @@ def resolve_env_python(frontend: str, env_name: str) -> str:
     Front-end-agnostic (micromamba/mamba/conda all support ``run -n NAME``), so we do
     not have to guess the platform-specific ``envs/<name>/bin|Scripts`` layout.
     """
-    out = subprocess.run(  # noqa: S603 - frontend is a resolved conda executable
-        [frontend, "run", "-n", env_name, "python", "-c", "import sys; print(sys.executable)"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        out = subprocess.run(  # noqa: S603 - frontend is a resolved conda executable
+            [frontend, "run", "-n", env_name, "python", "-c", "import sys; print(sys.executable)"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:  # front-end not launchable (e.g. a typo'd --conda-exe)
+        raise SetupError(f"could not launch conda front-end {frontend!r}: {exc}") from exc
     path = (out.stdout or "").strip().splitlines()[-1].strip() if out.stdout.strip() else ""
     if out.returncode != 0 or not path:
         raise SetupError(
@@ -205,7 +208,10 @@ def _run(cmd: list[str], *, dry_run: bool) -> None:
     print("  $ " + " ".join(cmd))
     if dry_run:
         return
-    result = subprocess.run(cmd, check=False)  # noqa: S603 - callers pass resolved argv
+    try:
+        result = subprocess.run(cmd, check=False)  # noqa: S603 - callers pass resolved argv
+    except OSError as exc:  # executable not launchable (missing / not executable)
+        raise SetupError(f"command could not launch: {' '.join(cmd)} ({exc})") from exc
     if result.returncode != 0:
         raise SetupError(f"command failed (exit {result.returncode}): {' '.join(cmd)}")
 

@@ -57,6 +57,8 @@ Useful options:
 | `--python PATH` | Use an existing interpreter as the sidecar; skip env creation. |
 | `--conda-exe EXE` | Force a specific conda front-end (default: first of micromamba/mamba/conda). |
 | `--env-name NAME` | Name of the created env (default `tether-sidecar`). |
+| `--lock-file PATH` | conda-lock file to build the env from (default `sidecar/conda-lock.yml`). |
+| `--tmaven-spec SPEC` | pip spec for tMAVEN (default `$TMAVEN_SPEC` or the pinned commit). |
 | `--with-pytest` | Also install `pytest` (needed to run the live sidecar test suite). |
 | `--skip-install` | Assume tMAVEN is already installed; only create the env / probe. |
 | `--no-probe` | Skip the liveness probe. |
