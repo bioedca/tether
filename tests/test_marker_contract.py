@@ -411,3 +411,231 @@ def test_release_workflow_uses_no_explicit_exit() -> None:
         "release.yml must not call an explicit `exit` in a `bash -el {0}` run step "
         f"(it reports exit 1 on the runner); offending lines: {exit_lines}"
     )
+
+
+# --- The release-staging completeness gate (release.yml, M9 / ADR-0050) ---
+# The `release` job aggregates the 4-leg `build` matrix with `download-artifact` and stages the
+# assets with `find ... -exec cp`, which exits 0 when it matches NOTHING -- even under `set -euo
+# pipefail`. The two steps that would otherwise notice an empty stage (attest-build-provenance over
+# out/*.exe|*.pkg|*.sh, and `gh release create`) are BOTH gated on publish == 'true', so a
+# `workflow_dispatch` DRY RUN would stage only the two lock files, skip the gated steps and report
+# GREEN: the rehearsal could not detect its own most important failure. Even on a real publish,
+# attest is satisfied by >=1 match per pattern, so "1 .pkg where 2 were required" is invisible to
+# it. The staging step therefore carries an unconditional completeness gate; these guards keep that
+# gate honest, non-vacuous, and in lockstep with the matrix and the constructor recipe.
+STAGING_STEP_NAME = "Stage the release assets"
+CONSTRUCT_RECIPE = Path(__file__).resolve().parents[1] / "packaging" / "construct.yaml"
+INSTALLER_EXTS = frozenset({"exe", "pkg", "sh"})
+
+
+def _workflow_step_block(text: str, name_prefix: str) -> str:
+    """Raw YAML text of the ``- name: <name_prefix>...`` step, up to the next sibling step.
+
+    A small indent scan in the stdlib-only style of this module (``ast``/``re``, never a YAML
+    import), so a guard can assert on one step's keys and ``run:`` script without the rest of the
+    workflow leaking in. Returns ``""`` when no such step exists.
+    """
+    lines = text.splitlines()
+    start = indent = None
+    for i, raw in enumerate(lines):
+        stripped = raw.strip()
+        if stripped.startswith("- name:") and stripped.split(":", 1)[1].strip().startswith(
+            name_prefix
+        ):
+            start, indent = i, len(raw) - len(raw.lstrip(" "))
+            break
+    if start is None:
+        return ""
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        raw = lines[j]
+        if not raw.strip():
+            continue
+        cur = len(raw) - len(raw.lstrip(" "))
+        if cur < indent or (cur == indent and raw.lstrip().startswith("- ")):
+            end = j
+            break
+    return "\n".join(lines[start:end])
+
+
+def _release_staging_step() -> str:
+    block = _workflow_step_block(RELEASE_WORKFLOW.read_text(encoding="utf-8"), STAGING_STEP_NAME)
+    assert block, f"release.yml must keep a '{STAGING_STEP_NAME}...' step in the `release` job"
+    return block
+
+
+def _expected_legs() -> dict[str, str]:
+    """``EXPECTED_LEGS`` from the staging step, parsed as ``{platform: installer extension}``."""
+    declared = re.search(r'^\s*EXPECTED_LEGS="([^"]*)"', _release_staging_step(), re.M)
+    assert declared, (
+        'the staging step must declare EXPECTED_LEGS="<platform>:<ext> ..." -- the single source '
+        "of truth for what a complete release contains"
+    )
+    entries = declared.group(1).split()
+    malformed = [e for e in entries if e.count(":") != 1]
+    assert not malformed, (
+        f'each EXPECTED_LEGS entry must be exactly "<platform>:<ext>"; malformed: {malformed}'
+    )
+    return dict(entry.split(":", 1) for entry in entries)
+
+
+def test_step_block_extractor_stops_at_the_next_sibling_step() -> None:
+    """Anchor the scanner itself: one step's body, never the following step's."""
+    sample = (
+        "    steps:\n"
+        "      - name: Alpha step\n"
+        "        run: |\n"
+        "          echo one\n"
+        "\n"
+        "      - name: Beta step\n"
+        "        run: echo two\n"
+    )
+    block = _workflow_step_block(sample, "Alpha")
+    assert "echo one" in block
+    assert "Beta" not in block
+    assert _workflow_step_block(sample, "Gamma") == ""
+
+
+def test_release_staging_gate_covers_every_build_matrix_leg() -> None:
+    """The staging gate expects exactly the platforms the ``build`` matrix produces.
+
+    Binding ``EXPECTED_LEGS`` to the matrix in the same file is what makes the gate maintainable: a
+    legitimate matrix change (dropping osx-64, adding linux-aarch64) fails here in the required
+    3-OS matrix and forces the same PR to update the gate, instead of leaving a silently-wrong
+    expected count behind that would only surface at release time.
+    """
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    # `- { os: ..., platform: <p> }` flow-mapping entries; requiring the closing brace keeps this
+    # off `PLATFORM: ${{ matrix.platform }}` and the `release-${{ matrix.platform }}` artifact name.
+    matrix_platforms = set(re.findall(r"platform:\s*([A-Za-z0-9_.-]+)\s*\}", text))
+    assert matrix_platforms, "could not parse jobs.build.strategy.matrix platforms from release.yml"
+
+    legs = _expected_legs()
+    assert set(legs) == matrix_platforms, (
+        "release.yml's staging gate must expect exactly the `build` matrix legs; "
+        f"matrix={sorted(matrix_platforms)} EXPECTED_LEGS={sorted(legs)}. If the matrix "
+        "legitimately changed, update EXPECTED_LEGS in the staging step of the same file."
+    )
+
+
+def test_release_staging_gate_matches_the_constructor_installer_types() -> None:
+    """The gate's per-leg extensions match what ``packaging/construct.yaml`` actually builds.
+
+    ``EXPECTED_LEGS`` has TWO halves with two different authorities: the platform names come from
+    the build matrix (guarded above), the installer extensions come from constructor's per-OS
+    ``installer_type:`` selectors. Without this guard the extension half is an untested hardcode --
+    the classic stale-mapping trap. If a constructor upgrade or a recipe edit changed the Linux
+    installer away from ``.sh``, the gate would otherwise fail at release time with the diagnosis
+    one step removed from the cause; here it fails in the required matrix, naming both sides.
+    """
+    recipe = CONSTRUCT_RECIPE.read_text(encoding="utf-8")
+    # `installer_type: exe    # [win]` -- conda-build line selectors, so the key repeats per OS.
+    by_selector = {
+        selector: ext
+        for ext, selector in re.findall(r"^installer_type:\s*(\w+)\s*#\s*\[(\w+)\]", recipe, re.M)
+    }
+    assert by_selector.keys() == {"win", "osx", "linux"}, (
+        f"could not parse per-OS `installer_type:` selectors from {CONSTRUCT_RECIPE.name}; "
+        f"got {sorted(by_selector)}"
+    )
+    legs = _expected_legs()
+    unknown = sorted(set(legs.values()) - INSTALLER_EXTS)
+    assert not unknown, (
+        f"installer extensions must be one of {sorted(INSTALLER_EXTS)}; got {unknown}"
+    )
+    for platform, ext in sorted(legs.items()):
+        selector = platform.split("-", 1)[0]  # linux-64 -> linux, osx-arm64 -> osx, win-64 -> win
+        assert selector in by_selector, (
+            f"EXPECTED_LEGS platform '{platform}' maps to unknown constructor selector "
+            f"'{selector}' (expected one of {sorted(by_selector)})"
+        )
+        assert ext == by_selector[selector], (
+            f"EXPECTED_LEGS says '{platform}' produces a .{ext}, but {CONSTRUCT_RECIPE.name} "
+            f"builds `installer_type: {by_selector[selector]}` for [{selector}]. "
+            "Update whichever is wrong -- they must agree."
+        )
+
+
+def test_release_staging_gate_is_never_conditional_or_advisory() -> None:
+    """The gate must be neither ``if:``-gated nor ``continue-on-error`` -- anywhere in release.yml.
+
+    A ``workflow_dispatch`` dry run skips attest-build-provenance and ``gh release create`` (both
+    ``publish == 'true'``), so staging is the ONLY place a missing installer can surface on a
+    rehearsal. Conditioning the step restores exactly that blind spot. ``continue-on-error: true``
+    is the cheaper mistake: the step still prints its ``::error::`` lines while the job goes GREEN,
+    which reads like a working gate in the log. The ``if:`` match is indentation-agnostic on
+    purpose -- a fixed-column pattern goes silently vacuous the moment the step is reindented, the
+    worst failure mode a contract test can have. (Shell ``if [ ... ]`` lines carry no colon after
+    ``if``, so they cannot false-positive.)
+    """
+    body = _release_staging_step().splitlines()[1:]
+    step_if = [ln for ln in body if ln.strip().startswith("if:")]
+    assert not step_if, (
+        "the release-staging gate must NOT be conditioned on `if:` -- a dry run "
+        "(publish != 'true') is exactly the run that has to detect a missing installer, since "
+        f"attest-build-provenance and `gh release create` are both publish-gated; got {step_if}"
+    )
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    assert "continue-on-error" not in text, (
+        "release.yml must not soft-fail any step: a `continue-on-error` step cannot gate anything, "
+        "and the staging completeness gate depends on its failure failing the job"
+    )
+    assert not re.search(r"^  release:\n(?:    .*\n)*?    if:", text, re.M), (
+        "the `release` job itself must not be `if:`-gated -- that would skip the gate wholesale"
+    )
+
+
+def test_release_staging_gate_counts_every_installer_kind_and_fails_falsy() -> None:
+    """The gate really COMPARES what it staged, per leg and per installer kind, and fails falsy.
+
+    Anti-gutting, in three specific directions:
+
+    * A total-only check is NOT equivalent. The two macOS legs are distinguished only by the arch
+      constructor embeds in the .pkg name, and ``merge-multiple: true`` silently overwrites
+      same-named files -- so 2 .exe + 1 .pkg + 1 .sh still totals 4 while the Intel-Mac installer
+      is missing. Only per-extension counts see that.
+    * The comparison SHAPE is asserted, not a mention of ``${#got_*[@]}``: that token also appears
+      inside each failure message, so a mention-only assertion stays green when the comparison is
+      neutered to ``[ 1 -eq 1 ]``.
+    * ``read -ra`` is mandatory. ``shopt -s nullglob`` is enabled in this script, so iterating an
+      UNQUOTED ``$EXPECTED_LEGS`` would DELETE any leg word containing a glob metacharacter rather
+      than keep it literal -- the gate would then expect fewer installers and pass on an incomplete
+      release. This test parses the same string with ``str.split`` (no globbing), so it could not
+      detect that divergence itself; the only defence is requiring the glob-safe parse.
+
+    The per-leg ``SHA256SUMS-<platform>.txt`` receipt is an orthogonal net: it is the only
+    per-PLATFORM evidence available (installer filenames use constructor's naming, which does not
+    map back to a matrix key) and it proves each bundle arrived at the expected depth.
+    """
+    block = _release_staging_step()
+    # Anchored to a non-comment line on purpose: the rationale comment above the parse also
+    # contains the words "read -ra", so a plain substring check would stay green with the parse
+    # deleted -- the same vacuity trap this test exists to prevent.
+    parse = re.search(r'^\s*read -ra (\w+) <<<"\$EXPECTED_LEGS"', block, re.M)
+    assert parse, (
+        "the gate must parse EXPECTED_LEGS with `read -ra`, not unquoted word splitting: "
+        "`shopt -s nullglob` is enabled, so an unquoted leg containing a glob metacharacter is "
+        "DELETED rather than left literal -- the gate would silently expect fewer installers and "
+        "pass on an incomplete release (fail-open)"
+    )
+    array = parse.group(1)
+    assert re.search(r'^\s*for leg in "\$\{' + array + r'\[@\]\}"; do', block, re.M), (
+        f'the leg loop must iterate the quoted array ("${{{array}[@]}}") produced by `read -ra`; '
+        "iterating $EXPECTED_LEGS directly reintroduces the nullglob fail-open"
+    )
+    assert "SHA256SUMS-${platform}.txt" in block, (
+        "the gate must require one SHA256SUMS-<platform>.txt per build leg (the arrival receipt)"
+    )
+    for ext in sorted(INSTALLER_EXTS):
+        assert re.search(
+            r'\[\s*"\$\{#got_' + ext + r'\[@\]\}"\s*-eq\s*"\$want_' + ext + r'"\s*\]', block
+        ), (
+            f"the gate must COMPARE the staged .{ext} count against the count derived from "
+            "EXPECTED_LEGS (a total-only check passes when a second .exe masks a missing .pkg, "
+            "and a bare mention of ${#got_*[@]} inside an error string is not a comparison)"
+        )
+    assert "::error::" in block, "the gate must annotate its failures with ::error::"
+    assert re.search(r"^\s*false\s*$", block, re.M), (
+        "the gate must fail via a bare falsy command, never `exit` (which reports exit 1 under "
+        "the `bash -el {0}` login shell used elsewhere in this workflow)"
+    )
