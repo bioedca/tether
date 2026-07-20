@@ -72,12 +72,19 @@ rem shortcuts to a CONDA package, and `tether` is an offline-pip-installed wheel
 rem menu_packages stays [] and the shortcut is created directly. Targets the
 rem console-less tether-gui.exe produced by [project.gui-scripts] — a `scripts`
 rem entry point would flash a terminal window on every launch.
+rem Paths are handed to PowerShell through the ENVIRONMENT, never interpolated into
+rem its source: a single apostrophe anywhere in %APPDATA% or %PREFIX% (e.g. a user
+rem named O'Brien) would close the single-quoted literal early and the shortcut would
+rem silently fail to a warning. $env:VAR carries the value verbatim, quotes and all.
 set "SM_D=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Tether"
 if not exist "%SM_D%" mkdir "%SM_D%"
+set "TETHER_LNK=%SM_D%\Tether.lnk"
+set "TETHER_GUI_EXE=%PREFIX%\envs\tether\Scripts\tether-gui.exe"
+set "TETHER_GUI_WD=%PREFIX%\envs\tether"
 powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
-  "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('%SM_D%\Tether.lnk');" ^
-  "$s.TargetPath='%PREFIX%\envs\tether\Scripts\tether-gui.exe';" ^
-  "$s.WorkingDirectory='%PREFIX%\envs\tether';" ^
+  "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK);" ^
+  "$s.TargetPath=$env:TETHER_GUI_EXE;" ^
+  "$s.WorkingDirectory=$env:TETHER_GUI_WD;" ^
   "$s.Description='Tether - single-molecule FRET analysis';" ^
   "$s.Save()" 2>nul
 if errorlevel 1 echo WARNING: could not create the Start Menu shortcut; launch via %BIN_D%\tether-gui.bat

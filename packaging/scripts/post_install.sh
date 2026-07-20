@@ -61,6 +61,8 @@ done
 # Linux desktop entry so the shell is launchable from the applications menu. macOS
 # .pkg installs get the shims above only — a proper .app bundle is separate work
 # (ADR-0051). `uname` rather than a constructor selector: this is one shared script.
+# Exec= is quoted below: the freedesktop spec splits that value on whitespace, so an
+# unquoted prefix containing a space would launch the wrong executable.
 if [ "$(uname -s)" = "Linux" ]; then
   APPS_D="$HOME/.local/share/applications"
   mkdir -p "$APPS_D"
@@ -70,7 +72,7 @@ Type=Application
 Name=Tether
 GenericName=single-molecule FRET analysis
 Comment=Provenance-first smFRET extraction, curation and analysis
-Exec=$PREFIX/envs/tether/bin/tether-gui %f
+Exec="$PREFIX/envs/tether/bin/tether-gui" %f
 Terminal=false
 Categories=Science;Biology;Education;
 MimeType=application/x-tether;
