@@ -93,8 +93,8 @@ never advance work or cut a summary while a PR's checks are red.
   `QT_QPA_PLATFORM=offscreen`:
 
   ```bash
-  pytest -q                       # small committed fixtures (the CI default)
-  QT_QPA_PLATFORM=offscreen pytest -m gui
+  # exactly what the required `test` matrix runs (see Test tiers below)
+  QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep"
   ```
 
   Large/gated fixtures are exercised only by the scheduled `large-fixtures.yml`
@@ -102,9 +102,10 @@ never advance work or cut a summary while a PR's checks are red.
 
 ### Test tiers and markers
 
-`pytest` runs **unmarked** tests by default — that is the required 3-OS matrix, and it
-is what `pytest -q` gives you. Every marker below names a tier that needs something the
-required matrix deliberately does not have, so each has its own workflow:
+A bare `pytest` runs **everything**, marked included — `-m` is a filter, not a default.
+The required matrix is therefore an explicit *exclusion*: it runs unmarked **and** `gui`
+tests, and excludes only the three tiers that need something CI does not have. Each of
+those has its own workflow:
 
 | marker | needs | where it runs |
 |---|---|---|
@@ -115,8 +116,11 @@ required matrix deliberately does not have, so each has its own workflow:
 | `large` | the gated large-fixture tier | `large-fixtures.yml` — scheduled |
 
 ```bash
-pytest -q                                  # the required matrix
-QT_QPA_PLATFORM=offscreen pytest -m gui    # GUI, headless
+# The required matrix, verbatim — ci.yml runs this on all three OSes
+# (Linux wraps it in `xvfb-run -a`; QT_QPA_PLATFORM=offscreen is the local equivalent).
+QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep"
+
+QT_QPA_PLATFORM=offscreen pytest -m gui    # just the GUI tier
 pytest -m "not gui"                        # skip Qt entirely
 ```
 
@@ -253,17 +257,21 @@ real walkthrough before merging.
 
 ## Reporting bugs & security issues
 
-Blank issues are disabled, so every report goes through a form. Pick by what you have:
+Blank issues are disabled: open a new issue and pick from the forms offered, which
+route the report and apply the right labels for you.
 
-- **Bugs / features:** the Bug report and Feature forms.
+- **Security vulnerabilities:** do **not** use a public issue — see
+  [`SECURITY.md`](SECURITY.md) (GitHub Private Vulnerability Reporting). This is the
+  one route where taking the wrong one causes harm.
 - **Something wrong in the docs** — inaccurate, missing, unclear, stale, or a dead
-  link: the Documentation form. Include the page URL and the version from the docs
-  site's version selector; the site is versioned, so both are needed to reproduce it.
-- **A question:** a concrete, answerable one goes to the Question form and is triaged
-  with the issues; open-ended "how should I approach…?" belongs in
-  [Discussions Q&A](https://github.com/bioedca/tether/discussions/categories/q-a).
-- **Security vulnerabilities:** do **not** use public issues — see
-  [`SECURITY.md`](SECURITY.md) (GitHub Private Vulnerability Reporting).
+  link. Include the **page URL** and the entry from the docs site's **version
+  selector**: the site is versioned with `mike`, so both are needed to reproduce what
+  you saw.
+- **Open-ended questions** — "how should I approach…?" — belong in
+  [Discussions Q&A](https://github.com/bioedca/tether/discussions/categories/q-a)
+  rather than the issue tracker. A question whose answer turns out to be missing from
+  the docs becomes a `type:docs` issue; a question that had to be asked is itself a
+  documentation signal.
 
 By contributing, you agree your contributions are licensed under
 `GPL-3.0-or-later`.
