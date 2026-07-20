@@ -72,8 +72,7 @@ and `garnish` for the `N = %d` annotation.
 
 **Tether extensions beyond tMAVEN.** Molecule-level (BOBA-FRET) bootstrap confidence band
 on the same pooled histogram (`population_apparent_e_histogram_ci`, PRD §7.7,
-[König 2013](#konig2013); also implemented in MASH-FRET, [Börner 2018](#borner2018)); a
-per-condition shared-axis overlay
+[König 2013](#konig2013)); a per-condition shared-axis overlay
 (`per_condition_apparent_e_histograms`, the M6 FR-ANALYZE §7.7 clause); and a per-molecule
 equal-weight toggle over tMAVEN's frame-weighted default.
 
@@ -387,4 +386,3 @@ Verified via [Consensus](https://consensus.app) during authoring:
 - <a id="verma2024"></a>**[Verma 2024]** Verma AR, Ray KK, Bodick M, Kinz-Thompson CD, Gonzalez RL Jr. [*Increasing the accuracy of single-molecule data analysis using tMAVEN.*](https://doi.org/10.1016/j.bpj.2024.01.022) *Biophysical Journal* 123(17):2765–2780 (2024). tMAVEN — the embedded idealization sidecar whose plot definitions this gallery is asserted against.
 - <a id="konig2013"></a>**[König 2013]** König SLB, Hadzic MCAS, Fiorini E, Börner R, Kowerko D, Blanckenhorn WU, Sigel RKO. [*BOBA FRET: bootstrap-based analysis of single-molecule FRET data.*](https://doi.org/10.1371/journal.pone.0084157) *PLoS ONE* 8(12):e84157 (2013). BOBA-FRET — the molecule-level bootstrap confidence band on the pooled histogram (A1, PRD §7.7).
 - <a id="hellenkamp2018"></a>**[Hellenkamp 2018]** Hellenkamp B, Schmid S, Doroshenko O, et al. [*Precision and accuracy of single-molecule FRET measurements — a multi-laboratory benchmark study.*](https://doi.org/10.1038/s41592-018-0085-0) *Nature Methods* 15(9):669–676 (2018). The multi-laboratory accurate-FRET benchmark behind the α/δ/γ correction convention (D1, M3).
-- <a id="borner2018"></a>**[Börner 2018]** Börner R, Kowerko D, Hadzic MCAS, König SLB, Ritter M, Sigel RKO. [*Simulations of camera-based single-molecule fluorescence experiments.*](https://doi.org/10.1371/journal.pone.0195277) *PLoS ONE* 13(4):e0195277 (2018). MASH-FRET — the second algorithm reference for the bootstrap and trace-processing workflow.
