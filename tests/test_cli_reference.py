@@ -29,7 +29,9 @@ import argparse
 import re
 from pathlib import Path
 
-from tether.cli import build_parser
+import pytest
+
+from tether.cli import build_parser, main
 
 PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 
@@ -190,14 +192,75 @@ def test_the_page_invents_no_flags() -> None:
     )
 
 
-def test_documented_exit_codes_match_the_implementation() -> None:
-    """The page's exit-code table is the contract scripts depend on.
-
-    ``tether batch`` reserves 2 for a refusal to start; ``tether extract`` never returns
-    it. Assert the page still says so, so the table cannot rot into a plausible lie.
-    """
+def _exit_code_section() -> str:
     text = _page_text()
-    assert "## Exit codes" in text, "docs/cli.md has no exit-code section"
-    assert "*not used*" in text, (
-        "the exit-code table no longer records that `tether extract` never returns 2"
+    start = text.find("## Exit codes")
+    assert start != -1, "docs/cli.md has no exit-code section"
+    return text[start:]
+
+
+def test_argparse_rejects_bad_arguments_with_code_2() -> None:
+    """Both subcommands really do exit 2 on a usage error.
+
+    This is exercised rather than asserted about, because the page originally claimed
+    ``tether extract`` never returns 2 — argparse's own ``parser.error()`` exits 2 long
+    before ``main()`` runs, which made that row simply false.
+    """
+    parser = build_parser()
+    for argv in (["extract", "movie.tif"], ["batch", "movie.tif"]):
+        with pytest.raises(SystemExit) as excinfo:
+            parser.parse_args(argv)
+        assert excinfo.value.code == 2, (
+            f"expected argparse to exit 2 for {argv!r}, got {excinfo.value.code!r}"
+        )
+
+
+def test_batch_refuses_a_basename_collision_with_code_2(tmp_path: Path) -> None:
+    """The documented ``batch`` startup refusal returns 2, before any work happens.
+
+    Two movies sharing a basename map to one output project; the checkpoint would treat
+    the second as already done using the first's data. Nothing is read from disk on this
+    path, so it is cheap to exercise directly.
+    """
+    out_dir = tmp_path / "out"
+    code = main(["batch", "a/movie_010.tif", "b/movie_010.tif", "-d", str(out_dir)])
+    assert code == 2, f"expected a basename collision to return 2, got {code}"
+
+
+def test_the_exit_code_table_documents_every_code() -> None:
+    """The table names 0, 1 and 2 for both subcommands.
+
+    Presence of the row is the weak half; the exercised tests above are what pin the
+    behaviour. What this adds is that the page cannot quietly drop a code.
+    """
+    section = _exit_code_section()
+    for code in ("`0`", "`1`", "`2`"):
+        assert code in section, f"the exit-code table no longer documents {code}"
+
+
+def test_the_page_does_not_claim_extract_never_exits_2() -> None:
+    """Regression guard for the specific error this page shipped with.
+
+    The first draft's table read ``| 2 | *not used* | …``, which a script author would
+    reasonably read as "an ``extract`` invocation can only return 0 or 1". It cannot be
+    reintroduced without failing here.
+    """
+    assert "*not used*" not in _exit_code_section(), (
+        "the exit-code table again claims a code is unused; `tether extract` exits 2 on "
+        "an argparse usage error (see test_argparse_rejects_bad_arguments_with_code_2)"
+    )
+
+
+def test_the_deferred_idealization_caveat_survives() -> None:
+    """Exit 0 from ``batch`` does not imply idealization ran, and the page must say so.
+
+    ``run_batch`` records an unavailable-at-startup sidecar as ``deferred``, which is not
+    ``failed``, so ``n_failed`` stays 0 and the run exits 0 having done extraction and
+    correction only. A script consuming those projects as fully idealized is the failure
+    this paragraph exists to prevent.
+    """
+    section = _exit_code_section()
+    assert "defer" in section.lower(), (
+        "the exit-code section no longer warns that `tether batch` can exit 0 with "
+        "idealization deferred"
     )

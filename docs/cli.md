@@ -214,12 +214,29 @@ already checkpointed is skipped.
 
 | Code | `tether extract` | `tether batch` |
 |---|---|---|
-| `0` | extraction completed | every movie's stages completed |
+| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below |
 | `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage |
-| `2` | *not used* | startup argument error — invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` |
 
-A failure is always a message on stderr, never a traceback — an unhandled traceback from
-either subcommand is a bug worth reporting. Exit code `2` is a refusal to start: nothing
-has been written, and it is safe to fix the arguments and re-run. Exit code `1` from
-`tether batch` means the run *finished*; read the summary and the JSONL log to see which
-movies failed, fix those, and re-run the same command to resume.
+Exit code `2` always means nothing was written: either argparse rejected the command line
+before `main()` ran, or `tether batch` refused to start. It is safe to fix the arguments
+and re-run.
+
+Exit code `1` means the command *ran*. From `tether extract` it is a clean one-line error
+on stderr, never a traceback — an unhandled traceback from either subcommand is a bug
+worth reporting. From `tether batch` it means the run finished with at least one movie
+having a failed stage; fix those and re-run the same command to resume the rest.
+
+> **`0` from `tether batch` does not mean every stage ran.** If the sidecar is unavailable
+> when the run starts, the default behaviour is to *defer* idealization: the stage is
+> recorded as `deferred`, which is not `failed`, so the run exits `0` having done
+> extraction and correction only. A script that treats `0` as "these projects are fully
+> idealized" will consume them too early. Re-run the same command once the sidecar is
+> available and the per-stage checkpoint resumes just the idealization, or pass
+> `--no-defer` to make an unavailable sidecar a per-movie failure (exit `1`) instead.
+
+**Where to look for what failed.** `tether batch` prints its end-of-run summary — the
+per-movie, per-stage detail — to **stdout**, together with the JSONL structured log it
+writes to `<out-dir>/batch-log.jsonl`. Only the log's path, and startup refusals, go to
+stderr. If you are capturing streams separately, per-movie failure detail is in stdout and
+the log, not in stderr.
