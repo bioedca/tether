@@ -51,6 +51,7 @@ nav:
       - Installers &amp; offline bundle: packaging.md
       - Releasing (signed installers): release.md
   - Architecture decisions: adr/README.md
+  - Stability policy: stability.md
   - Privacy policy: privacy.md
 
 # The product spec (PRD.md) is large and section-numbered for the repo; it stays
