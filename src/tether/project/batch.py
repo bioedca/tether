@@ -352,11 +352,17 @@ def _assert_output_not_newer(path: Path) -> None:
     guard for that path.
 
     Deliberately narrower than :func:`tether.io.schema.assert_is_compatible_project`:
-    only a readable file that *declares* a newer ``schema_version`` is refused. A
-    missing, unreadable, foreign or half-written project raises nothing, so the probes
-    keep the "(re-)attempt rather than falsely skip" behaviour documented on
-    :func:`_group_present` — a crashed run must stay resumable, and an incomplete store
-    is a stage to redo, not a movie to fail.
+    only a file carrying our ``format`` marker *and* declaring a newer
+    ``schema_version`` is refused. A missing, unreadable, foreign or half-written
+    project raises nothing, so the probes keep the "(re-)attempt rather than falsely
+    skip" behaviour documented on :func:`_group_present` — a crashed run must stay
+    resumable, and an incomplete store is a stage to redo, not a movie to fail.
+
+    Checking the marker matters: a foreign HDF5 that happens to carry a
+    ``schema_version`` attribute is not a future Tether project, and refusing it here
+    would both break the documented ``--overwrite`` path and report it with the wrong
+    reason. Falling through hands it to ``write_extraction``, which rejects it
+    accurately as "not a .tether project".
 
     Raises
     ------
@@ -367,18 +373,28 @@ def _assert_output_not_newer(path: Path) -> None:
     """
     if not path.exists():
         return
+    from tether.io.schema import FORMAT_TAG, assert_compatible  # noqa: PLC0415
+
     try:
         import h5py  # noqa: PLC0415
 
         with h5py.File(path, "r") as f:
+            fmt = f.attrs.get("format")
             raw = f.attrs.get("schema_version")
-        if raw is None:
-            return
-        version = int(raw)
     except Exception:
         return
-    from tether.io.schema import assert_compatible  # noqa: PLC0415
-
+    if isinstance(fmt, bytes):
+        fmt = fmt.decode("utf-8", "replace")
+    # The `format` marker is what makes this OUR file. A foreign HDF5 that happens to
+    # carry a `schema_version` attribute is not a future Tether project — it falls
+    # through to the normal re-attempt/overwrite path, where `write_extraction` refuses
+    # it with the accurate "not a .tether project" message instead.
+    if fmt != FORMAT_TAG or raw is None:
+        return
+    try:
+        version = int(raw)
+    except (TypeError, ValueError):  # a non-scalar or non-numeric stamp is not "newer"
+        return
     assert_compatible(version)
 
 

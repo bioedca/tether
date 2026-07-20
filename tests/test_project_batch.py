@@ -303,6 +303,28 @@ def test_resume_still_reattempts_an_unreadable_or_incomplete_output(tmp_path: Pa
     assert r.ok
 
 
+def test_foreign_hdf5_with_a_version_attr_is_not_treated_as_a_future_project(
+    tmp_path: Path,
+) -> None:
+    """A stranger's HDF5 is not a future Tether project, whatever attrs it carries.
+
+    Without the ``format``-marker check the guard would refuse any readable HDF5 whose
+    ``schema_version`` happened to be large, breaking the documented ``--overwrite``
+    re-extract path and blaming the wrong thing.
+    """
+    jobs = _jobs(tmp_path, "foreign")
+    with h5py.File(tmp_path / "foreign.tether", "w") as f:
+        f.attrs["schema_version"] = SCHEMA_VERSION + 50
+        f.attrs["format"] = "somebody-elses-format"
+        f.create_group("unrelated")
+
+    summary = _run(jobs, overwrite=True)  # the real extract stub re-creates the project
+
+    r = summary.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert r.ok
+
+
 def test_correct_stage_refuses_a_future_schema_project(tmp_path: Path) -> None:
     """``run_correct_stage`` guards itself — each correction opens the store ``r+``."""
     path = tmp_path / "x.tether"
