@@ -60,10 +60,26 @@ never advance work or cut a summary while a PR's checks are red.
 
 ## Local setup, hooks & tests
 
-- Create the pinned base environment from the committed `conda-lock` (never solve
-  fresh), then `pip install -e . --no-deps`. The tMAVEN sidecar uses its own
-  isolated `sidecar/conda-lock.yml`. *(The package skeleton and locks land at
-  PLAN M0 S2; until then this repo is governance + spec + scaffold.)*
+- Create the pinned base environment from the committed `conda-lock.yml` — **restore
+  it, never solve fresh** (pin-and-hold):
+
+  ```bash
+  micromamba create -n tether -f conda-lock.yml   # or: conda-lock install -n tether
+  micromamba activate tether
+  pip install -e . --no-deps                      # deps come from the lock, not pip
+  ```
+
+- The tMAVEN idealization sidecar is a **separate** PyQt5 / `numpy<2` environment
+  built from `sidecar/conda-lock.yml`. Two things it needs live outside that lock
+  (tMAVEN itself, pinned by commit, and `setuptools<81` for the `pkg_resources` API
+  tMAVEN imports without declaring), so use the guided script rather than doing it by
+  hand:
+
+  ```bash
+  python scripts/setup_sidecar.py     # writes the $TETHER_SIDECAR_PYTHON you need
+  ```
+
+  Only the `sidecar`-marked tests need it; everything else runs without it.
 - Install and run **pre-commit** before every commit:
 
   ```bash
@@ -76,13 +92,72 @@ never advance work or cut a summary while a PR's checks are red.
 - Run the **small-fixture** test suite locally; GUI tests run headless with
   `QT_QPA_PLATFORM=offscreen`:
 
+  `pytest` is **not** in the base lock — CI installs it explicitly, so a freshly
+  restored environment needs the same step before any of this runs:
+
   ```bash
-  pytest -q                       # small committed fixtures (the CI default)
-  QT_QPA_PLATFORM=offscreen pytest -m gui
+  python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0"
+
+  # exactly what the required `test` matrix runs (see Test tiers below)
+  QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep"
   ```
 
   Large/gated fixtures are exercised only by the scheduled `large-fixtures.yml`
   tier, never by the required matrix.
+
+### Test tiers and markers
+
+A bare `pytest` runs **everything**, marked included — `-m` is a filter, not a default.
+The required matrix is therefore an explicit *exclusion*: it runs unmarked **and** `gui`
+tests, and excludes only the three tiers that need something CI does not have. Each of
+those has its own workflow:
+
+| marker | needs | where it runs |
+|---|---|---|
+| *(unmarked)* | nothing beyond the base env | `ci.yml` — required, 3 OS |
+| `gui` | PySide6/napari/pyqtgraph; headless via `QT_QPA_PLATFORM=offscreen` | `ci.yml` — required, 3 OS |
+| `sidecar` | a live tMAVEN env (`$TETHER_SIDECAR_PYTHON`) | `sidecar.yml` — never the required matrix |
+| `deep` | the isolated torch stack (`deep/conda-lock.yml`) | `deep.yml` / `deep-gpu.yml` — advisory |
+| `large` | the gated large-fixture tier | `large-fixtures.yml` — scheduled |
+
+```bash
+# The required matrix, verbatim — ci.yml runs this on all three OSes
+# (Linux wraps it in `xvfb-run -a`; QT_QPA_PLATFORM=offscreen is the local equivalent).
+QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep"
+
+QT_QPA_PLATFORM=offscreen pytest -m gui    # just the GUI tier
+
+# Skip Qt. The optional tiers must be excluded here too — `not gui` on its own still
+# selects deep/sidecar/large, and the deep tests import torch, which the base lock
+# does not carry.
+pytest -m "not gui and not large and not sidecar and not deep"
+```
+
+`--strict-markers` rejects an *unregistered* marker, which catches `-m deepp`. It does
+**not** protect a negated expression: `-m "not largge"` is a perfectly valid filter that
+happens to exclude nothing, so a typo there silently pulls the optional tiers back into
+the run rather than failing. Read the collected count, not just the exit code.
+
+Two naming rules are enforced by `tests/test_marker_contract.py` rather than
+convention: a live sidecar test must be named `test_*sidecar*.py`, and deep tests use
+the `test_*_deep.py` suffix — the isolated workflows select on those globs.
+
+### Building the docs locally
+
+The required `docs-build` gate is `mkdocs build --strict`, where **warnings are
+errors**. A new page must be registered in `mkdocs.yml` `nav` or the build fails, and
+it must not link to `docs/PRD.md`, which the site deliberately does not serve.
+
+**ADR records are the exception.** `mkdocs.yml` matches them with `not_in_nav:
+adr/0*.md`, which keeps each record *in the build* — so `--strict` still validates its
+links — while keeping it out of the navigation tree; only the index (`adr/README.md`)
+is nav'd. Do **not** add a new ADR to `nav`.
+
+```bash
+pip install -r requirements-docs.txt
+mkdocs build --strict          # the gate
+mkdocs serve                   # live preview at http://127.0.0.1:8000
+```
 
 ## Licensing — SPDX / REUSE (PRD §12.1)
 
@@ -102,6 +177,49 @@ header; non-code files are covered by `REUSE.toml`. `reuse lint` must be green
    separate — the sidecar's `numpy<2`/PyQt5 must never merge into the PySide6
    base stack) and confirm `conda-lock-verify` is green when deps change.
 
+## Proposing an ADR (PRD §12.7)
+
+Architecture Decision Records under [`docs/adr/`](docs/adr/README.md) are where the
+*rationale* survives. They are load-bearing here: the PRD records what was decided, the
+ADR records **why**, and which options were rejected.
+
+Write one when a change settles a question that a future reader could reasonably decide
+differently — a schema-affecting change, a dependency/isolation boundary, an algorithm
+choice with a scientific trade-off, or anything that supersedes an earlier ADR. Routine
+bug fixes and refactors do not need one.
+
+1. Copy [`docs/adr/0000-template.md`](docs/adr/0000-template.md) to
+   `NNNN-kebab-title.md`, where `NNNN` is the next unused number. Numbers are
+   contiguous — do not skip.
+2. Fill all five frontmatter fields (**Status**, **Date**, **Deciders**, **PRD anchor**,
+   **Milestone**) and keep the MADR headings from the template.
+3. `Status` is `proposed` | `accepted` | `deprecated` | `superseded by ADR-NNNN`. When a
+   record supersedes another, say so in both, and link with a real Markdown link —
+   `[ADR-0004](0004-pin-and-hold-dual-lock-isolation.md)`, not a bare `[ADR-0004]`,
+   which renders as literal brackets.
+4. **Add the row to [`docs/adr/README.md`](docs/adr/README.md) in the same PR**, using
+   the record's own H1 as the Title cell. `tests/test_adr_index.py` enforces that the
+   index is complete, that every link resolves, and that titles match their heading.
+5. **Land the ADR in the PR that implements the decision** — the §0.4 DoD rule. An ADR
+   merged separately from its implementation drifts immediately.
+
+## AI-assisted contributions
+
+AI assistance is allowed. Two rules, and they are not negotiable because the failure
+modes are silent:
+
+- **Verify before you submit.** You are the author of anything you open a PR with.
+  Generated code, docstrings and prose must be checked against what the code actually
+  does — a plausible-sounding docstring that misstates behaviour is worse than none,
+  because it is believed. If you cannot verify a claim, do not ship it.
+- **Check what you send.** Before pasting unpublished code, unreleased data or anything
+  under embargo into a third-party service, confirm your group's policy *and* that
+  service's data-retention terms. This repository is public, but not everything in your
+  working tree is.
+
+Note that an automated reviewer reads every diff opened against this repository (see
+**Merging**), which is itself a third-party service processing the contents of your PR.
+
 ## PR self-review checklist (PRD §12.4)
 
 Before requesting review / merging, confirm:
@@ -118,25 +236,60 @@ Before requesting review / merging, confirm:
       analysis (NFR-REPRO).
 - [ ] SPDX `GPL-3.0-or-later` header on every new source file; `reuse lint`
       green.
-- [ ] CodeQL clean; secret-scan green; Conventional-Commit PR title;
-      docs/docstrings updated.
+- [ ] **Docs updated** — the `mkdocs` pages under `docs/` *and* the public docstrings
+      for anything user-facing this PR changes; `docs-build` green.
+- [ ] **No large data committed** — no movie, `.tether`, or reference dataset in the
+      tree; small fixtures live in `tests/fixtures/`, anything large is gated.
+- [ ] **No secrets committed** — no token, key, credential or private path in code,
+      tests, logs or fixtures; `secret-scan` green.
+- [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
       **same** PR.
 
 ## Merging (PRD §12.2, §12.6)
 
-Merge **squash-only** (linear history, delete-branch-on-merge) once the review
-is addressed **and all required CI checks are green** — wait for in-progress
-checks; **never merge over a red or pending check**. Required checks (from M0):
-`lint`, `test (ubuntu/macos/windows)`, `pre-commit`, `commitlint`,
-`secret-scan`, `conda-lock-verify`, `schema-guard`, `codeql`, `docs-build`
-(plus `sidecar/parity` from M0.5).
+Merge **squash-only** (linear history, delete-branch-on-merge) once the review is
+addressed **and all required CI checks are green** — wait for in-progress checks;
+**never merge over a red or pending check**.
+
+The `main-baseline` ruleset requires these **11** status checks:
+
+`lint` · `test (ubuntu-latest)` · `test (macos-latest)` · `test (windows-latest)` ·
+`pre-commit` · `commitlint` · `secret-scan` · `conda-lock-verify` · `schema-guard` ·
+`docs-build` · `sidecar / parity`
+
+**CodeQL is enforced, but it is not one of them.** It runs through GitHub code-scanning
+**default setup** — which is why there is no `codeql.yml` in `.github/workflows/`, and
+is what PRD §12.8 recommends for a solo maintainer — and is gated by a separate
+`code_scanning` rule on the same ruleset (`alerts: errors`,
+`security_alerts: high_or_higher`). Do not go looking for a missing workflow.
+
+**Reviews.** The ruleset requires **0 approving reviews** but does require
+**conversation resolution**: an unresolved review thread blocks the merge even when
+every check is green. An automated reviewer (CodeRabbit) reads every diff, so in
+practice that is the thread you will need to resolve — push the fix, reply on the
+thread, and let the re-review resolve it. If its status check goes green while the PR
+shows **zero** reviews and zero inline comments, that is a rate-limit artifact, not an
+approval: re-request explicitly with a `@coderabbitai review` comment and wait for a
+real walkthrough before merging.
 
 ## Reporting bugs & security issues
 
-- **Bugs / features:** open an issue using the provided issue forms.
-- **Security vulnerabilities:** do **not** use public issues — see
-  [`SECURITY.md`](SECURITY.md) (GitHub Private Vulnerability Reporting).
+Blank issues are disabled: open a new issue and pick from the forms offered, which
+route the report and apply the right labels for you.
+
+- **Security vulnerabilities:** do **not** use a public issue — see
+  [`SECURITY.md`](SECURITY.md) (GitHub Private Vulnerability Reporting). This is the
+  one route where taking the wrong one causes harm.
+- **Something wrong in the docs** — inaccurate, missing, unclear, stale, or a dead
+  link. Include the **page URL** and the entry from the docs site's **version
+  selector**: the site is versioned with `mike`, so both are needed to reproduce what
+  you saw.
+- **Open-ended questions** — "how should I approach…?" — belong in
+  [Discussions Q&A](https://github.com/bioedca/tether/discussions/categories/q-a)
+  rather than the issue tracker. A question whose answer turns out to be missing from
+  the docs becomes a `type:docs` issue; a question that had to be asked is itself a
+  documentation signal.
 
 By contributing, you agree your contributions are licensed under
 `GPL-3.0-or-later`.
