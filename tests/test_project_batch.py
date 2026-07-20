@@ -28,7 +28,7 @@ import numpy as np  # noqa: E402
 
 from tether.idealize.driver import SidecarError  # noqa: E402
 from tether.idealize.supervisor import ProbeResult, SidecarSupervision  # noqa: E402
-from tether.io.schema import create_project  # noqa: E402
+from tether.io.schema import SCHEMA_VERSION, create_project  # noqa: E402
 from tether.project.batch import (  # noqa: E402
     POLICY_FAIL,
     POLICY_WARN,
@@ -45,6 +45,7 @@ from tether.project.batch import (  # noqa: E402
     BatchLog,
     MovieJob,
     run_batch,
+    run_correct_stage,
 )
 
 # --- Marker-writing stub stage runners ---------------------------------------
@@ -215,6 +216,100 @@ def test_full_rerun_skips_every_stage(tmp_path: Path) -> None:
     assert r.stages[STAGE_CORRECT].status == STATUS_SKIPPED
     assert r.stages[STAGE_IDEALIZE].status == STATUS_SKIPPED
     assert r.ok
+
+
+# --- Forward-compatibility guard on resume (PRD §5.4) ------------------------
+
+
+def _stamp_future_schema(path: Path) -> None:
+    """Make an existing project look like it came from a newer Tether."""
+    with h5py.File(path, "r+") as f:
+        f.attrs["schema_version"] = SCHEMA_VERSION + 1
+
+
+def test_resume_refuses_a_future_schema_output_and_isolates_it(tmp_path: Path) -> None:
+    """A colleague's newer ``.tether`` fails ITS movie on resume; the queue continues.
+
+    The regression this locks (#203) only appears when the extract stage is *skipped*:
+    the guard inside ``write_extraction`` never runs, so before the fix the correct
+    stage happily opened the newer file ``r+`` and wrote to it.
+    """
+    jobs = _jobs(tmp_path, "future", "fine")
+    first = _run(jobs)
+    assert all(r.ok for r in first.results)
+    _stamp_future_schema(tmp_path / "future.tether")
+
+    # Every runner raises if invoked: "fine" must still skip all three stages, and
+    # "future" must be refused before any runner is reached.
+    summary = run_batch(
+        jobs,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_raising_idealize,
+    )
+    future, fine = summary.results
+
+    assert future.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "newer than this app's" in (future.stages[STAGE_EXTRACT].error or "")
+    assert "refusing to open" in (future.stages[STAGE_EXTRACT].error or "")
+    # Downstream stages are blocked, not attempted.
+    assert future.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert future.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    assert not future.ok
+
+    # Isolation: the healthy movie is untouched by its neighbour's refusal.
+    assert fine.ok
+    assert fine.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert summary.n_failed == 1 and summary.n_ok == 1
+
+
+def test_future_schema_output_is_never_written_to(tmp_path: Path) -> None:
+    """The refusal must PREVENT the write, not merely report it.
+
+    ``/settings/batch`` provenance is stamped at the end of every job — including a
+    failed one — so it is the last thing that would still open the newer file ``r+``.
+    """
+    jobs = _jobs(tmp_path, "future")
+    _run(jobs)
+    path = tmp_path / "future.tether"
+    # Plant a sentinel INSIDE the group the stamp deletes and recreates. Comparing
+    # `settings` key sets would not catch this: the stamp replaces `/settings/batch`,
+    # leaving the names identical.
+    with h5py.File(path, "r+") as f:
+        f["settings/batch"].attrs["sentinel"] = "untouched"
+    _stamp_future_schema(path)
+
+    run_batch(jobs, _extract=_raising_extract, _correct=_raising_correct)
+
+    with h5py.File(path, "r") as f:
+        assert str(f["settings/batch"].attrs["sentinel"]) == "untouched"
+        assert int(f.attrs["schema_version"]) == SCHEMA_VERSION + 1
+
+
+def test_resume_still_reattempts_an_unreadable_or_incomplete_output(tmp_path: Path) -> None:
+    """The guard must not turn a crashed run into a permanent failure.
+
+    It refuses only a file that *declares* a newer schema. A half-written or corrupt
+    store keeps the checkpoint probes' "(re-)attempt rather than falsely skip"
+    behaviour, so a crashed run is still resumable.
+    """
+    jobs = _jobs(tmp_path, "corrupt")
+    (tmp_path / "corrupt.tether").write_bytes(b"not an HDF5 file at all")
+
+    summary = _run(jobs)  # the real extract stub re-creates the project
+
+    r = summary.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert r.ok
+
+
+def test_correct_stage_refuses_a_future_schema_project(tmp_path: Path) -> None:
+    """``run_correct_stage`` guards itself — each correction opens the store ``r+``."""
+    path = tmp_path / "x.tether"
+    create_project(path)
+    _stamp_future_schema(path)
+    with pytest.raises(ValueError, match="newer than this app's"):
+        run_correct_stage(path)
 
 
 # --- Over-gate policy --------------------------------------------------------

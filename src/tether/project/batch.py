@@ -342,6 +342,46 @@ def _is_corrected(path: Path) -> bool:
     return _group_present(path, f"/{_SETTINGS_GROUP}/{_CORRECTION_SETTINGS}")
 
 
+def _assert_output_not_newer(path: Path) -> None:
+    """Refuse an existing output project written by a **newer** Tether (PRD §5.4).
+
+    The probes above decide what to skip by opening the output ``.tether`` directly, so
+    a resume never passes through a guarded entry point: with extract already done its
+    stage is skipped, :func:`tether.imaging.extract.write_extraction`'s check never
+    runs, and the later stages open the same file ``r+`` and write to it. This is the
+    guard for that path.
+
+    Deliberately narrower than :func:`tether.io.schema.assert_is_compatible_project`:
+    only a readable file that *declares* a newer ``schema_version`` is refused. A
+    missing, unreadable, foreign or half-written project raises nothing, so the probes
+    keep the "(re-)attempt rather than falsely skip" behaviour documented on
+    :func:`_group_present` — a crashed run must stay resumable, and an incomplete store
+    is a stage to redo, not a movie to fail.
+
+    Raises
+    ------
+    ValueError
+        If the file declares a ``schema_version`` newer than this app's. The message is
+        :func:`tether.io.schema.assert_compatible`'s, so a refusal reads the same
+        wherever the user meets it.
+    """
+    if not path.exists():
+        return
+    try:
+        import h5py  # noqa: PLC0415
+
+        with h5py.File(path, "r") as f:
+            raw = f.attrs.get("schema_version")
+        if raw is None:
+            return
+        version = int(raw)
+    except Exception:
+        return
+    from tether.io.schema import assert_compatible  # noqa: PLC0415
+
+    assert_compatible(version)
+
+
 def _is_idealized(path: Path) -> bool:
     """True when ``/idealization`` holds at least one *completed* fitted model.
 
@@ -376,12 +416,20 @@ def run_correct_stage(project_path: str | Path) -> str:
     factors to apparent E — never a NaN factor (PRD §7.2, §1.3 invariant 3).
 
     Returns a short human detail string for the log / summary.
+
+    Raises
+    ------
+    ValueError
+        If the project was written by a newer Tether. Each correction below opens the
+        store ``r+`` on its own, so the guard belongs here rather than in any one of
+        them (PRD §5.4).
     """
     from tether.project.correct import compute_corrected_fret  # noqa: PLC0415
     from tether.project.gamma import compute_gamma  # noqa: PLC0415
     from tether.project.leakage import compute_leakage_alpha  # noqa: PLC0415
     from tether.project.photobleach import compute_photobleach  # noqa: PLC0415
 
+    _assert_output_not_newer(Path(project_path))
     pb = compute_photobleach(project_path)
     lk = compute_leakage_alpha(project_path)
     parts = [f"pb {pb.n_donor_bleached}D/{pb.n_acceptor_bleached}A"]
@@ -431,9 +479,14 @@ def _stamp_batch_settings(
     Records the batch policy + app version + per-stage status. Recomputable (replaced
     on each run). Additive under the frozen ``/settings`` container — ``schema-guard``
     stays green (no structural change to the §5 skeleton).
+
+    Stamping runs at the end of *every* job, including one whose stages failed, so it
+    carries its own newer-schema guard: without it a movie refused above would still be
+    written to here. The caller records the refusal as a provenance warning.
     """
     import h5py  # noqa: PLC0415
 
+    _assert_output_not_newer(path)
     with h5py.File(path, "r+") as f:
         settings = f[_SETTINGS_GROUP]
         if _BATCH_SETTINGS in settings:
@@ -672,6 +725,14 @@ def _do_extract(
     runner: Callable[..., Any],
 ) -> bool:
     """Run (or skip) the extract stage; returns whether it is satisfied."""
+    # Before trusting anything already in the output project, refuse one written by a
+    # newer Tether. This is the batch pipeline's FIRST touch of an existing store, so
+    # failing here fails the movie and leaves correct/idealize `blocked` — the run
+    # carries on with the other movies (PRD §5.4, §7.11).
+    try:
+        _assert_output_not_newer(job.output_path)
+    except ValueError as exc:
+        return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok
     if _is_extracted(job.output_path):
         return rec.record(STAGE_EXTRACT, STATUS_SKIPPED, detail="already extracted").ok
     try:
