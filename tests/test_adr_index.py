@@ -48,6 +48,33 @@ def _index_lines() -> list[str]:
     return INDEX.read_text(encoding="utf-8").split("\n")
 
 
+def _indexed_titles() -> dict[str, str]:
+    """Map each indexed ADR number to the text of its Title cell.
+
+    Joins the middle cells rather than taking ``split("|")[2]`` so a Title containing a
+    pipe cannot silently shift the parse; Status and PRD anchor are always the last two.
+    """
+    out: dict[str, str] = {}
+    for ln in _index_lines():
+        m = _ROW_RE.match(ln)
+        if m:
+            out[m.group(1)] = "|".join(ln.split("|")[2:-3]).strip()
+    return out
+
+
+def _record_h1(path: Path) -> str:
+    """That record's own H1, with the leading ``NNNN — `` prefix removed.
+
+    Takes the FIRST line starting ``# ``, not line 1: several records open with an HTML
+    comment before the heading. Accepts em dash, en dash or hyphen as the separator.
+    """
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("# "):
+            m = re.match(r"^#\s*\d{4}\s*[—–-]\s*(.+?)\s*$", line)
+            return m.group(1) if m else line[2:].strip()
+    raise AssertionError(f"{path.name} has no H1 heading")
+
+
 def test_at_least_one_adr_present() -> None:
     """Sanity: the ADR set is non-empty (guards a broken ADR_DIR path)."""
     adrs = _numbered_adrs()
@@ -97,22 +124,38 @@ def test_index_rows_render_as_table_rows() -> None:
     )
 
 
-def test_index_titles_are_concise() -> None:
-    """Each Title cell is the record's own H1, not its full Decision text.
+def test_index_titles_match_the_record_h1() -> None:
+    """Each Title cell is exactly that record's own H1.
 
-    The index exists to route a reader to the right record; cells running to hundreds
-    of characters stop being scannable and duplicate text that the record already
-    carries. Keep each row's Title tracking that record's ``# NNNN — ...`` heading.
+    The length bound below is not sufficient on its own: a short but *wrong* title
+    passes it while still misrouting the reader. Comparing against the record's own
+    heading is what keeps the index honest, and it makes a retitled ADR fail here until
+    the index is updated in the same PR (the §0.4 DoD "home it in the same PR" rule).
     """
-    over: list[tuple[str, int]] = []
-    for ln in _index_lines():
-        m = _ROW_RE.match(ln)
-        if not m:
-            continue
-        cells = ln.split("|")
-        title = "|".join(cells[2:-3]).strip()
-        if len(title) > _MAX_TITLE_CHARS:
-            over.append((m.group(1), len(title)))
+    records = {p.name[:4]: p for p in _numbered_adrs()}
+    mismatched = [
+        (num, _record_h1(records[num]), title)
+        for num, title in _indexed_titles().items()
+        if num in records and title != _record_h1(records[num])
+    ]
+    assert not mismatched, (
+        "these ADR index Title cells do not match the record's own H1 — "
+        f"(ADR, H1, index cell): {mismatched}"
+    )
+
+
+def test_index_titles_are_concise() -> None:
+    """No Title cell runs to essay length.
+
+    Complements the identity check above by bounding the *record headings themselves*:
+    an ADR whose H1 grew into a full Decision paragraph would satisfy identity while
+    still making the index unscannable.
+    """
+    over = [
+        (num, len(title))
+        for num, title in _indexed_titles().items()
+        if len(title) > _MAX_TITLE_CHARS
+    ]
     assert not over, (
         f"these ADR index Title cells exceed {_MAX_TITLE_CHARS} characters — use the "
         f"record's H1 and leave the detail in the record — (ADR, length): {over}"
