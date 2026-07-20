@@ -47,6 +47,14 @@ dev = ["ruff", "pre-commit", "reuse"]
 [project.scripts]
 tether = "tether.cli:main"
 
+# GUI entry point (PRD §7.8). `gui-scripts` — not `scripts` — so Windows gets the
+# console-less `tether-gui.exe` launcher and a desktop shortcut does not flash a
+# terminal. This is the target a menu shortcut opens; see ADR-0051.
+# NOT `tether.gui.shell:launch`, which fabricates synthetic traces for the
+# hand-driven live smoke and would ship a demo instead of the application.
+[project.gui-scripts]
+tether-gui = "tether.gui.app:main"
+
 [project.urls]
 Homepage = "https://github.com/bioedca/tether"
 Repository = "https://github.com/bioedca/tether"

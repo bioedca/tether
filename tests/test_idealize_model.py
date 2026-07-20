@@ -12,6 +12,7 @@ interpreter resolution / argument guards. The *live* tMAVEN round-trip is in
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -218,8 +219,50 @@ def test_resolve_sidecar_python_env(tmp_path, monkeypatch):
     assert resolve_sidecar_python(None) == fake
 
 
-def test_resolve_sidecar_python_unset_raises(monkeypatch):
+def _fake_bundle(tmp_path, *, with_sidecar: bool) -> Path:
+    """Lay out the installer's sibling envs and return the sidecar interpreter path.
+
+    Mirrors what the constructor installer produces (ADR-0049): the app env at
+    ``<root>/envs/tether`` and the sidecar at ``<root>/envs/sidecar``.
+    """
+    (tmp_path / "envs" / "tether").mkdir(parents=True)
+    sidecar = tmp_path / "envs" / "sidecar"
+    exe = sidecar / "python.exe" if os.name == "nt" else sidecar / "bin" / "python"
+    if with_sidecar:
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_text("")
+    return exe
+
+
+def test_resolve_sidecar_python_falls_back_to_bundled_sibling(tmp_path, monkeypatch):
+    """With no env var, derive the sidecar from the install layout.
+
+    A GUI started from a menu shortcut, a PATH shim or a .desktop entry (ADR-0051)
+    never runs the conda ``activate.d`` hook that exports TETHER_SIDECAR_PYTHON, so
+    without this fallback idealization would fail on a correctly installed app.
+    """
     monkeypatch.delenv("TETHER_SIDECAR_PYTHON", raising=False)
+    exe = _fake_bundle(tmp_path, with_sidecar=True)
+    monkeypatch.setattr(sys, "prefix", str(tmp_path / "envs" / "tether"))
+    assert resolve_sidecar_python(None) == exe
+
+
+def test_env_var_wins_over_bundled_sibling(tmp_path, monkeypatch):
+    """An explicit env var still overrides the install layout (dev/CI override)."""
+    _fake_bundle(tmp_path, with_sidecar=True)
+    monkeypatch.setattr(sys, "prefix", str(tmp_path / "envs" / "tether"))
+    override = tmp_path / "override.exe"
+    override.write_text("")
+    monkeypatch.setenv("TETHER_SIDECAR_PYTHON", str(override))
+    assert resolve_sidecar_python(None) == override
+
+
+def test_resolve_sidecar_python_unset_raises(tmp_path, monkeypatch):
+    monkeypatch.delenv("TETHER_SIDECAR_PYTHON", raising=False)
+    # No sibling envs/sidecar: a development checkout, not a bundled install. Pinning
+    # sys.prefix keeps this deterministic rather than depending on the ambient layout.
+    _fake_bundle(tmp_path, with_sidecar=False)
+    monkeypatch.setattr(sys, "prefix", str(tmp_path / "envs" / "tether"))
     with pytest.raises(SidecarError, match="no sidecar interpreter"):
         resolve_sidecar_python(None)
 

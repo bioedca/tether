@@ -60,9 +60,11 @@ specs:
 # whenever extra_envs is used (constructor).
 extra_envs:
   tether:
-    # menu_packages:[] disables the shortcuts napari would otherwise add — a GUI
-    # menu shortcut for the shell is a deferred follow-up (ADR-0049). Per-env
-    # menu_packages is NOT inherited from the global key, so set it here too.
+    # menu_packages:[] disables the shortcuts napari would otherwise add. It stays
+    # empty under ADR-0051 too: menuinst attaches shortcuts to a CONDA package, and
+    # `tether` is an offline-pip-installed wheel, so it can own no menuinst entry.
+    # The Tether shortcut is therefore created directly by post_install (ADR-0051).
+    # Per-env menu_packages is NOT inherited from the global key, so set it here too.
     menu_packages: []
     environment_file: locks/base-linux-64.lock    # [linux]
     environment_file: locks/base-osx-64.lock       # [osx and not arm64]
@@ -105,7 +107,13 @@ installer_type: sh     # [linux]
 # distribution, so the bootstrap conda in `base` must never initialise the user's
 # shell. `initialize_conda: false` disables the conda-init step outright (the base
 # now carries conda, which would otherwise offer it); `menu_packages: []` disables
-# the shortcuts napari would add (a GUI menu shortcut is a follow-up, ADR-0049).
+# the shortcuts napari would add.
+#
+# These four keys are why nothing lands on PATH, which is what ADR-0051 addresses:
+# post_install writes `<prefix>/bin/{tether,tether-gui}` shims plus a Start Menu
+# shortcut (Windows) / .desktop entry (Linux). The installer still does NOT edit the
+# user's PATH — `setx` truncates PATH past 1024 chars and rewriting a shell rc is
+# equally invasive — so adding `<prefix>/bin` stays a documented one-line step.
 keep_pkgs: false
 initialize_conda: false
 initialize_by_default: false    # [unix]
