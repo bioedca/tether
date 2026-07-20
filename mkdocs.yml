@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 site_name: Tether
 site_description: A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).
-site_url: https://bioedca.github.io/tether/
+# `mike` serves every build under /tether/<version>/ and aliases `latest` to the
+# current stable tree, so the un-versioned root is NOT where a page actually lives.
+# Point site_url at the alias: canonical <link rel="canonical"> tags and sitemap.xml
+# then resolve to a real, stable URL instead of 404-ing at the root.
+site_url: https://bioedca.github.io/tether/latest/
 repo_url: https://github.com/bioedca/tether
 repo_name: bioedca/tether
 copyright: Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later

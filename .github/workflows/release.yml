@@ -324,6 +324,7 @@ jobs:
       contents: write # create the GitHub Release
       id-token: write # build-provenance attestation
       attestations: write # build-provenance attestation
+      actions: write # dispatch docs.yml (see "Publish the documentation site")
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -512,6 +513,41 @@ jobs:
           case "$TAG" in *-*) flags+=(--prerelease) ;; esac
           gh release create "$TAG" out/* "${flags[@]}"
           echo "Published GitHub Release $TAG."
+
+      - name: Publish the documentation site (dispatch docs.yml)
+        # docs.yml triggers on `release: [published]`, but the step above creates that
+        # Release with the default GITHUB_TOKEN — and by design, events raised by that
+        # token do NOT start new workflow runs. Left alone, docs.yml would never fire and
+        # the site would stay frozen on the hand-dispatched `dev` tree while 1.0 ships.
+        # Dispatching it explicitly here is what closes that gap (it is also why this job
+        # carries `actions: write`).
+        #
+        # STABLE TAGS ONLY. docs.yml's own pre-release guard
+        # (`github.event.release.prerelease == false`) does not apply to a
+        # workflow_dispatch, so the skip has to be re-implemented on THIS side: a
+        # pre-release like v1.0.0-rc1 collapses to the same `1.0` doc label as the stable
+        # tag and would repoint `latest` and the site default at release-candidate docs.
+        #
+        # docs.yml builds from the default branch, not from $TAG — the `verify` job
+        # already requires the tagged commit to be on main, and `docs/release.md`
+        # documents the manual fallback if the two ever need to differ.
+        if: needs.verify.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          case "$TAG" in
+            *-*)
+              echo "::notice::$TAG is a pre-release — not publishing the documentation site."
+              echo "Pre-release $TAG: documentation publish skipped." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              gh workflow run docs.yml -f version="$TAG"
+              echo "Dispatched docs.yml to publish the documentation for $TAG."
+              echo "Dispatched docs.yml to publish the documentation for $TAG." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+          esac
 
       - name: Dry-run summary (no Release published)
         if: needs.verify.outputs.publish != 'true'
