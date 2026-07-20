@@ -31,15 +31,27 @@ _TEMPLATE = "0000-template.md"
 # against disk and would flag — none exist in the ADR set).
 _MD_LINK_RE = re.compile(r"\]\((?!https?://)([^)#]+\.md)(?:#[^)]*)?\)")
 
+# An index table row: `| [NNNN](NNNN-title.md) | Title | Status | PRD anchor |`.
+_ROW_RE = re.compile(r"^\|\s*\[(\d{4})\]\(")
+
+# The Title cell should be the record's H1. The longest current heading is 161 chars
+# (ADR-0019), so 200 leaves headroom for a new record without re-admitting the
+# multi-hundred-character Decision dumps this bound was introduced to stop.
+_MAX_TITLE_CHARS = 200
+
 
 def _numbered_adrs() -> list[Path]:
     return sorted(p for p in ADR_DIR.glob("[0-9][0-9][0-9][0-9]-*.md") if p.name != _TEMPLATE)
 
 
+def _index_lines() -> list[str]:
+    return INDEX.read_text(encoding="utf-8").split("\n")
+
+
 def test_at_least_one_adr_present() -> None:
     """Sanity: the ADR set is non-empty (guards a broken ADR_DIR path)."""
     adrs = _numbered_adrs()
-    assert len(adrs) >= 49, f"expected the accumulated ADR set; found only {len(adrs)}"
+    assert len(adrs) >= 50, f"expected the accumulated ADR set; found only {len(adrs)}"
 
 
 def test_every_adr_is_indexed() -> None:
@@ -54,6 +66,56 @@ def test_every_adr_is_indexed() -> None:
     assert not missing, (
         "these ADR records exist but are not linked in docs/adr/README.md "
         f"(the M9 'index complete, no gaps' gate): {missing}"
+    )
+
+
+def test_index_rows_render_as_table_rows() -> None:
+    """No blank line splits a table block, so every ADR row renders as a row.
+
+    A single blank line legally terminates a Markdown table, so everything after it
+    renders as one run-on paragraph of literal ``|`` characters. ``mkdocs build
+    --strict`` cannot see this — nothing becomes an unresolvable link — and the
+    link-target assertions above still pass, because ``](NNNN-title.md)`` is present
+    whether the row is a table cell or prose. That combination is how ADRs 0039-0050
+    reached the published site as a paragraph.
+
+    Assert structurally, with no Markdown renderer: every ADR row must be immediately
+    preceded by another table line (a row, or the ``|---|`` delimiter). A blank line
+    *between* the two index sections stays legal, because the row after it is preceded
+    by that section's own delimiter row. Stdlib only — ``python-markdown`` is not in
+    the base conda-lock, so it cannot be imported on the 3-OS ``test`` matrix.
+    """
+    lines = _index_lines()
+    orphaned = [
+        (i + 1, m.group(1))
+        for i, ln in enumerate(lines)
+        if (m := _ROW_RE.match(ln)) and not (i > 0 and lines[i - 1].startswith("|"))
+    ]
+    assert not orphaned, (
+        "these ADR rows are not preceded by a table line, so a blank line has split the "
+        f"table and they render as literal '|' prose — (line, ADR): {orphaned}"
+    )
+
+
+def test_index_titles_are_concise() -> None:
+    """Each Title cell is the record's own H1, not its full Decision text.
+
+    The index exists to route a reader to the right record; cells running to hundreds
+    of characters stop being scannable and duplicate text that the record already
+    carries. Keep each row's Title tracking that record's ``# NNNN — ...`` heading.
+    """
+    over: list[tuple[str, int]] = []
+    for ln in _index_lines():
+        m = _ROW_RE.match(ln)
+        if not m:
+            continue
+        cells = ln.split("|")
+        title = "|".join(cells[2:-3]).strip()
+        if len(title) > _MAX_TITLE_CHARS:
+            over.append((m.group(1), len(title)))
+    assert not over, (
+        f"these ADR index Title cells exceed {_MAX_TITLE_CHARS} characters — use the "
+        f"record's H1 and leave the detail in the record — (ADR, length): {over}"
     )
 
 
