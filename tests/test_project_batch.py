@@ -325,6 +325,27 @@ def test_foreign_hdf5_with_a_version_attr_is_not_treated_as_a_future_project(
     assert r.ok
 
 
+def test_foreign_hdf5_with_array_valued_attrs_falls_through(tmp_path: Path) -> None:
+    """An array-valued ``format`` attribute must not blow up the guard.
+
+    h5py hands back a numpy array for an array-valued attribute, and ``array != str``
+    is an elementwise array whose truthiness raises. That ``ValueError`` would escape
+    the guard, be caught by ``_do_extract`` as an extract failure, and block the very
+    re-attempt/overwrite path the format check exists to preserve.
+    """
+    jobs = _jobs(tmp_path, "arrayattrs")
+    with h5py.File(tmp_path / "arrayattrs.tether", "w") as f:
+        f.attrs["format"] = ["tether-project", "tether-project"]
+        f.attrs["schema_version"] = np.array([SCHEMA_VERSION + 7, SCHEMA_VERSION + 8])
+        f.create_group("unrelated")
+
+    summary = _run(jobs, overwrite=True)
+
+    r = summary.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert r.ok
+
+
 def test_correct_stage_refuses_a_future_schema_project(tmp_path: Path) -> None:
     """``run_correct_stage`` guards itself — each correction opens the store ``r+``."""
     path = tmp_path / "x.tether"

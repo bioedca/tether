@@ -375,25 +375,31 @@ def _assert_output_not_newer(path: Path) -> None:
         return
     from tether.io.schema import FORMAT_TAG, assert_compatible  # noqa: PLC0415
 
+    # Everything that can raise on a malformed store stays inside the try; only the
+    # deliberate refusal on the last line is allowed to escape.
     try:
         import h5py  # noqa: PLC0415
 
         with h5py.File(path, "r") as f:
             fmt = f.attrs.get("format")
             raw = f.attrs.get("schema_version")
-    except Exception:
-        return
-    if isinstance(fmt, bytes):
-        fmt = fmt.decode("utf-8", "replace")
-    # The `format` marker is what makes this OUR file. A foreign HDF5 that happens to
-    # carry a `schema_version` attribute is not a future Tether project — it falls
-    # through to the normal re-attempt/overwrite path, where `write_extraction` refuses
-    # it with the accurate "not a .tether project" message instead.
-    if fmt != FORMAT_TAG or raw is None:
-        return
-    try:
+        if isinstance(fmt, bytes):
+            fmt = fmt.decode("utf-8", "replace")
+        # The `format` marker is what makes this OUR file. A foreign HDF5 that happens
+        # to carry a `schema_version` attribute is not a future Tether project — it
+        # falls through to the normal re-attempt/overwrite path, where
+        # `write_extraction` refuses it with the accurate "not a .tether project"
+        # message instead.
+        #
+        # Test `isinstance(fmt, str)` FIRST. h5py returns a numpy ARRAY for an
+        # array-valued attribute, and `array != str` is an elementwise array whose
+        # truthiness raises — that would escape as a refusal and block the very
+        # re-attempt path this branch exists to preserve. `numpy.str_` subclasses
+        # `str`, so an ordinary scalar marker still compares here.
+        if not isinstance(fmt, str) or fmt != FORMAT_TAG or raw is None:
+            return
         version = int(raw)
-    except (TypeError, ValueError):  # a non-scalar or non-numeric stamp is not "newer"
+    except Exception:
         return
     assert_compatible(version)
 
