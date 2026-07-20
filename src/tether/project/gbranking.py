@@ -133,10 +133,12 @@ class WeightedTrainingSet:
 
     @property
     def n_train(self) -> int:
+        """Number of training rows — the labeled molecules, human plus provisional."""
         return len(self.molecule_ids)
 
     @property
     def n_good(self) -> int:
+        """Number of training rows labeled accept (good)."""
         return int(np.count_nonzero(self.y))
 
 

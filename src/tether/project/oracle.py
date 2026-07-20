@@ -281,6 +281,7 @@ class OracleResult:
 
     @property
     def meets_recall(self) -> bool:
+        """The donor matched-molecule recall clears its acceptance threshold."""
         return self.recall >= self.recall_threshold
 
     @property

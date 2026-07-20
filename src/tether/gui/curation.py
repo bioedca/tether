@@ -197,6 +197,7 @@ class CurationController:
 
     @property
     def handlers(self) -> CurationHandlers:
+        """The injected :class:`CurationHandlers` callbacks this controller routes to."""
         return self._handlers
 
     @property
@@ -552,10 +553,12 @@ class CurationEventFilter:
 
     @property
     def controller(self) -> CurationController:
+        """The :class:`CurationController` a matched chord's command is dispatched to."""
         return self._controller
 
     @property
     def keymap(self) -> Keymap:
+        """The key-chord → :class:`Command` table this filter resolves key events against."""
         return self._keymap
 
     @property

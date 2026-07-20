@@ -106,10 +106,12 @@ class DeepLasiExport:
 
     @property
     def n_molecules(self) -> int:
+        """Molecule count ``N`` — the leading axis shared by the coordinate and trace arrays."""
         return int(self.donor_xy.shape[0])
 
     @property
     def n_frames(self) -> int:
+        """Movie length ``T`` in frames — the trace arrays' second axis."""
         return int(self.donor_raw.shape[1])
 
 
@@ -126,10 +128,12 @@ class DeepLasiTraces:
 
     @property
     def n_molecules(self) -> int:
+        """Molecule count ``N`` — half the ``.txt`` column count, after de-interleaving."""
         return int(self.donor_corrected.shape[0])
 
     @property
     def n_frames(self) -> int:
+        """Movie length ``T`` in frames — one per row of the source ``.txt``."""
         return int(self.donor_corrected.shape[1])
 
 

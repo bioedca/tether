@@ -107,6 +107,7 @@ class GaussianHMM:
 
     @property
     def nstates(self) -> int:
+        """Number of hidden states in the fitted model."""
         return int(self.means.shape[0])
 
 
