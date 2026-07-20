@@ -172,6 +172,20 @@ jobs:
           # envs/tether, the sidecar in envs/sidecar; `base` is only python+conda.
           "$prefix/envs/tether/bin/tether" --version
           "$prefix/envs/sidecar/bin/python" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
+          # The USER-FACING launch surface (ADR-0051). The absolute env paths above
+          # prove the envs were built; these prove the app can actually be STARTED,
+          # which is the thing an install guide has to document. Exercised through
+          # the prefix shims, exactly as a user with <prefix>/bin on PATH would.
+          test -x "$prefix/bin/tether" || { echo "missing shim: $prefix/bin/tether"; exit 1; }
+          test -x "$prefix/bin/tether-gui" || { echo "missing shim: $prefix/bin/tether-gui"; exit 1; }
+          PATH="$prefix/bin:$PATH" tether --version
+          # The GUI entry point must import and answer --version WITHOUT a display;
+          # `gui-scripts` on Unix is a normal console script, so this is safe headless.
+          PATH="$prefix/bin:$PATH" tether-gui --version
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            test -f "$HOME/.local/share/applications/tether.desktop" || {
+              echo "missing desktop entry"; exit 1; }
+          fi
 
       - name: Install-smoke — offline install into a clean prefix (Windows)
         if: runner.os == 'Windows'
@@ -196,6 +210,20 @@ jobs:
           # envs\tether, the sidecar in envs\sidecar; `base` is only python+conda.
           "$prefix\\envs\\tether\\python.exe" -m tether --version
           "$prefix\\envs\\sidecar\\python.exe" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
+          # The USER-FACING launch surface (ADR-0051). The absolute env path above
+          # proves the env was built; these prove the app can actually be STARTED.
+          prefix_u="$(cygpath -u "$prefix")"
+          test -f "$prefix_u/bin/tether.bat" || { echo "missing shim: bin\\tether.bat"; exit 1; }
+          test -f "$prefix_u/bin/tether-gui.bat" || { echo "missing shim: bin\\tether-gui.bat"; exit 1; }
+          # [project.gui-scripts] must produce the console-less launcher; without it a
+          # shortcut flashes a terminal on every start.
+          test -f "$prefix_u/envs/tether/Scripts/tether-gui.exe" || {
+            echo "missing tether-gui.exe — is [project.gui-scripts] declared?"; exit 1; }
+          cmd /c "$prefix\\bin\\tether.bat" --version
+          # Start Menu shortcut (created directly; menuinst cannot own a pip-installed
+          # wheel — ADR-0051). Non-fatal: a locked-down runner profile may refuse it.
+          ls "$APPDATA/Microsoft/Windows/Start Menu/Programs/Tether/Tether.lnk" \
+            || echo "WARNING: Start Menu shortcut absent on this runner"
 
       - name: Upload the installer artifact
         if: always()
