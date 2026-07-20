@@ -62,7 +62,17 @@ other as acceptor. Which half is which is yours to declare, with `--donor-side` 
 `left`); the split itself is `tether.project.extract._half_split_geometry`.
 
 With `--tmap`, the split instead comes from an imported Deep-LASI map's own per-channel
-crops, and `--donor-side` is ignored — donor is the map's reference channel.
+crops, and `--donor-side` is ignored — donor is the map's reference channel. **Crop is the
+only geometry imported.** Deep-LASI's `processImage` rotates and flips *before* cropping,
+and the imported path does not apply either yet, so
+`tether.project.extract._imported_registration_map` refuses a `.tmap` whose channels carry
+a non-identity `Rotation` or `Flip` rather than splitting at the wrong frame — the
+`ExtractionError` names the channels and says the imported path "does not yet apply (only
+crop geometry is honored); re-run without `--tmap` to use a native fit"
+(`tests/test_extract_cli.py::test_extract_imported_tmap_nonidentity_geometry_refused`
+covers both axes). Empty or all-zero `Rotation`/`Flip` — what the reference UCKOPSB map
+stores — is the supported case (`RegistrationChannel.has_simple_geometry` in
+`tether.imaging.register`).
 
 > ### Getting `--donor-side` backwards is silent, and relabelling afterwards will not fix it
 >
@@ -121,11 +131,18 @@ These are deliberate scope boundaries, not gaps waiting to be filled.
 - **No compressed or tiled TIFFs.** The lazy reader memory-maps the file for O(1) frame
   access; a compressed TIFF cannot be mapped, and is refused rather than silently loaded
   whole. Vendor containers are not read either — convert to uncompressed TIFF first.
-- **Two Deep-LASI detection modes are not ported.** An imported `.tdat` saved with
-  particle-detection mode 4 (local-variance) or mode 5 (ZMW intensity) is **refused** with
-  a `ValueError` from `tether.io.tdat`, rather than being silently re-detected with a
-  different method. Tether implements modes 1–3 — `wavelet`, `intensity` and `bandpass`
-  (`tether.imaging.detect.ParticleDetectionMode`).
+- **Two Deep-LASI detection modes are not ported, so those `.tdat` files cannot be
+  decoded.** A `.tdat` saved with particle-detection mode 4 (local-variance) or mode 5 (ZMW
+  intensity) is **refused** with a `ValueError` from `tether.io.tdat` — "modes 4
+  'local-variance' and 5 'ZMW intensity' are not ported" — rather than being silently
+  re-detected with a different method. Tether implements modes 1–3 — `wavelet`, `intensity`
+  and `bandpass` (`tether.imaging.detect.ParticleDetectionMode`). The refusal is on
+  *decoding* that file: `tether extract --tdat` re-extraction and the `.tdat`'s correction
+  factors are unavailable. A bundle that also has the `.mat` still reconstructs — the
+  import wizard's `_read_tdat_best_effort` (`tether.gui.deeplasi_executor`) catches the
+  failure and rebuilds from the `.mat` without corrections, degraded to apparent-E and
+  carrying a warning that "the .tdat could not be decoded"
+  (`tests/test_deeplasi_executor.py::test_undecodable_tdat_degrades_to_mat_apparent_e`).
 - **Older `.dat` and vbFRET `.mat` formats are out of scope.**
 - **No data simulator.** Validation runs against real labelled traces and a published
   benchmark dataset, not synthesised data.
