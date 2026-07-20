@@ -91,11 +91,21 @@ Alongside native extraction, Tether imports existing Deep-LASI and tMAVEN projec
 `.tdat`, `.tmap`, `.txt` and `.mat` from Deep-LASI, and SMD `.hdf5`/`.h5` from tMAVEN. See
 the [legacy import page](io/legacy-import.md) for what each format carries.
 
-One thing worth knowing before you plan a round trip: **not every legacy format carries
-pixel coordinates.** The Deep-LASI `.tdat` and `.mat` do; the `.txt` intensity export and
-the tMAVEN SMD do not — whatever the SMD was exported from. Without coordinates there is
-no trace ⇄ movie round trip, because there is nothing tying a trace back to the spot it
-came from.
+Two things are worth knowing before you plan a round trip.
+
+**Not every legacy format carries pixel coordinates.** The Deep-LASI `.tdat` and `.mat`
+do; the `.txt` intensity export and the tMAVEN SMD do not — whatever the SMD was exported
+from. Without coordinates there is nothing tying a trace back to the spot it came from.
+
+**Coordinates alone are not enough — the `.mat` is mandatory.** Rebuilding a project from
+a legacy import happens *without* re-extraction, so it needs the pre-integrated per-molecule
+traces, and those live only in the `.mat`. The `.tdat` carries coordinates and correction
+factors but **no traces**. A movie + `.tdat` set therefore has coordinates and still cannot
+be reconstructed: the import wizard classifies it as skipped, naming the missing `.mat`
+(`_can_reconstruct` in `tether.gui.deeplasi_wizard`, locked by
+`tests/test_deeplasi_wizard.py::test_movie_and_tdat_without_mat_cannot_reconstruct`). If
+you have movies and `.tdat` files but no `.mat` export, plan on native re-extraction rather
+than reconstruction.
 
 ## What Tether does not do
 
