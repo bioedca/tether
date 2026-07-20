@@ -52,9 +52,16 @@ tags and logs a `::notice::` saying so. This means a release candidate produces 
 `docs.yml` run at all — release-triggered documentation publishing is therefore first
 proven by the stable tag, not by the rehearsal.
 
-The site is built from the **default branch**, not from the tag. The `verify` job already
-requires the tagged commit to be on `main`, so the two agree for a normal release; if they
-ever need to differ, publish by hand with the fallback below.
+The site is built **from the release tag**, not from whatever `main` happens to hold. The
+dispatch passes `--ref "$TAG"`; without it `gh workflow run` targets the default branch,
+and a tag cut a few commits back — or `main` advancing during the ~15-minute build matrix
+— would publish unreleased docs under the released version.
+
+Each version's canonical URLs are handled by `mike`, not by `mkdocs.yml`. `mike deploy`
+injects its own plugin and rewrites `site_url` to `<site_url>/<version>` at build time, so
+the published `1.0` tree carries canonicals and a sitemap under `/tether/1.0/`. That is why
+`mkdocs.yml`'s `site_url` stays at the Pages root: pointing it at `/tether/latest/` would
+produce `/tether/latest/1.0/…`, which does not exist.
 
 ### Manual fallback
 
