@@ -55,8 +55,8 @@ analogue** — they are Tether additions, toggleable but on by default:
 proximity ratio `A/(D+A)`) pooled over each selected molecule's analysis window and
 density-normalized in 151 bins over `[-0.25, 1.25]`, optionally overlaid with the idealized
 state model drawn as a sum of per-state Gaussians (dashed components + solid combined
-mixture) and annotated with the molecule count *N* ([McCann 2010][mccann2010];
-[Verma 2024][verma2024]).
+mixture) and annotated with the molecule count *N* ([McCann 2010](#mccann2010);
+[Verma 2024](#verma2024)).
 
 **tMAVEN counterpart.** `controller_data_hist1d` — `ax.hist(bins=signal_nbins,
 range=(signal_min, signal_max), density=True, log=hist_log)` with `signal_nbins=151`,
@@ -72,7 +72,7 @@ and `garnish` for the `N = %d` annotation.
 
 **Tether extensions beyond tMAVEN.** Molecule-level (BOBA-FRET) bootstrap confidence band
 on the same pooled histogram (`population_apparent_e_histogram_ci`, PRD §7.7,
-[König 2013][konig2013]); a per-condition shared-axis overlay
+[König 2013](#konig2013)); a per-condition shared-axis overlay
 (`per_condition_apparent_e_histograms`, the M6 FR-ANALYZE §7.7 clause); and a per-molecule
 equal-weight toggle over tMAVEN's frame-weighted default.
 
@@ -103,7 +103,7 @@ time (*x*, colour = frame density) showing how a population's FRET distribution 
 the analysis window — either **raw / start-synchronized** or **transition-synchronized**
 (post-sync, "A2b"), where every selected state jump is aligned to a common column so
 asynchronous stochastic transitions add coherently and reveal the population's average
-approach-to and departure-from a transition ([Verma 2024][verma2024]; [McCann 2010][mccann2010]).
+approach-to and departure-from a transition ([Verma 2024](#verma2024); [McCann 2010](#mccann2010)).
 
 **tMAVEN counterpart.** `controller_data_hist2d` — `get_data`, `interpolate_histogram`,
 `histogram_raw`, `sync_start`, `histogram_sync_list`, `gen_sync_list_single`,
@@ -151,7 +151,7 @@ sync = population_transition_sync_histogram2d(project, "vbconhmm",      # any �
 **What it is.** A 2-D histogram of **initial vs final** idealized FRET efficiency over every
 state-change frame of a molecule population, showing which conformational transitions the
 system makes and how frequently — off-diagonal mass is transitions, the diagonal is no net
-change ([McKinney 2006][mckinney2006]).
+change ([McKinney 2006](#mckinney2006)).
 
 **tMAVEN counterpart.** `controller_data_tdp` — `get_neighbor_data`, `gen_histogram`,
 `plot`.
@@ -192,8 +192,8 @@ ragged↔padded equivalence).
 `S(τ) = P(dwell > τ)` — the fraction of visits to that state lasting longer than τ — whose
 exponential decay constants *k* are the state's exit (transition) rates, the kinetic
 fingerprint of the Markov model. Dwell-time distributions routinely require single- or
-multi-exponential (and stretched) forms ([Lee 2012][lee2012]), and survival analysis yields
-the exponentially-distributed lifetimes directly ([Schrangl 2024][schrangl2024]).
+multi-exponential (and stretched) forms ([Lee 2012](#lee2012)), and survival analysis yields
+the exponentially-distributed lifetimes directly ([Schrangl 2024](#schrangl2024)).
 
 **tMAVEN counterpart.** `controller_survival_dwell` (the matplotlib plotter — survival
 markers OR density histogram, model overlay, residual subplot via `make_axes_locatable`,
@@ -239,8 +239,8 @@ recover known synthetic `k`, `A`, `β`; `test_fit_ci_and_residuals` locks
 **What it is.** A 1-D histogram (with an optional Gaussian-KDE overlay) of per-molecule HMM
 one-step transition probabilities `P(init → fin)` for a chosen ordered state pair, pooled
 across a population — exposing how the transition rate for that pair is **distributed across
-molecules** rather than as a single consensus number ([McKinney 2006][mckinney2006];
-[van de Meent 2014][vandemeent2014]).
+molecules** rather than as a single consensus number ([McKinney 2006](#mckinney2006);
+[van de Meent 2014](#vandemeent2014)).
 
 **tMAVEN counterpart.** `controller_tm_hist` — `get_composite_tm`, `plot`, `garnish`;
 reads each trace-level VB model's own `norm_tmatrix[init_vb, fin_vb]` (row/col matched to the
@@ -284,8 +284,8 @@ export round-trip.
 **What it is.** Over the curated population, how many **distinct** conformational (FRET)
 states each molecule occupies — a bar chart with *x* = number of states and *y* = number of
 trajectories — answering how heterogeneous the population is in state count
-([Bronson 2009][bronson2009], the vbFRET variational-Bayes model-selection method;
-[van de Meent 2014][vandemeent2014]).
+([Bronson 2009](#bronson2009), the vbFRET variational-Bayes model-selection method;
+[van de Meent 2014](#vandemeent2014)).
 
 **tMAVEN counterpart.** `controller_model_vbstates` — `plot` histograms an *independent
 per-trace* vbFRET fit: `nstates = [r.mu.size for r in maven.modeler.model.hmms]`, then
@@ -325,7 +325,7 @@ efficiency time-series, with right-column marginal probability histograms and th
 idealized/Viterbi state path overlaid on the FRET panel — Tether's per-trace **curation
 surface** (FR-ROUNDTRIP). At the MVP the FRET axis reads *apparent E* (the uncorrected
 proximity ratio `A/(D+A)`), switching to corrected E at M3
-([McCann 2010][mccann2010]; [Hellenkamp 2018][hellenkamp2018]).
+([McCann 2010](#mccann2010); [Hellenkamp 2018](#hellenkamp2018)).
 
 > **D1 closes the §9 M6 "seven plots" clause across M2 + M6.** Unlike A1–C1, D1 is not a
 > population aggregate and has no dedicated numeric tMAVEN oracle — it *is* the curation
@@ -382,8 +382,7 @@ Verified via [Consensus](https://consensus.app) during authoring:
 - <a id="lee2012"></a>**[Lee 2012]** Lee et al. [*Kinetics of the triplex-duplex transition in DNA.*](https://consensus.app/papers/details/a63aced3819b56c9a1a94b7a537deee5/?utm_source=claude_code) Biophysical Journal. smFRET dwell-time distributions fit with single- and double-exponential functions (B2).
 - <a id="schrangl2024"></a>**[Schrangl 2024]** Schrangl et al. [*Advanced Quantification of Receptor–Ligand Interaction Lifetimes via Single-Molecule FRET Microscopy.*](https://consensus.app/papers/details/8e9bd690a9c85179b36f4936cd631a13/?utm_source=claude_code) Biomolecules. Survival analysis for exponentially-distributed interaction lifetimes (B2).
 
-Additional foundational references used across the PRD's plot definitions —
-**[McCann 2010]** (accurate apparent-FRET / proximity ratio), **[Hellenkamp 2018]**
-(accurate-FRET correction), **[Verma 2024]** (tMAVEN), **[Börner 2018]** (MASH-FRET), and
-**[König 2013]** (BOBA-FRET bootstrap) — are catalogued in the project spec's bibliography
-(`docs/PRD.md`).
+- <a id="mccann2010"></a>**[McCann 2010]** McCann JJ, Choi UB, Zheng L, Weninger K, Bowen ME. [*Optimizing methods to recover absolute FRET efficiency from immobilized single molecules.*](https://doi.org/10.1016/j.bpj.2010.04.063) *Biophysical Journal* 99(3):961–970 (2010). The accurate-FRET reference for the apparent-FRET / proximity-ratio distinction (A1, D1) and for the population-median γ aggregation window.
+- <a id="verma2024"></a>**[Verma 2024]** Verma AR, Ray KK, Bodick M, Kinz-Thompson CD, Gonzalez RL Jr. [*Increasing the accuracy of single-molecule data analysis using tMAVEN.*](https://doi.org/10.1016/j.bpj.2024.01.022) *Biophysical Journal* 123(17):2765–2780 (2024). tMAVEN — the embedded idealization sidecar whose plot definitions this gallery is asserted against.
+- <a id="konig2013"></a>**[König 2013]** König SLB, Hadzic MCAS, Fiorini E, Börner R, Kowerko D, Blanckenhorn WU, Sigel RKO. [*BOBA FRET: bootstrap-based analysis of single-molecule FRET data.*](https://doi.org/10.1371/journal.pone.0084157) *PLoS ONE* 8(12):e84157 (2013). BOBA-FRET — the molecule-level bootstrap confidence band on the pooled histogram (A1, PRD §7.7).
+- <a id="hellenkamp2018"></a>**[Hellenkamp 2018]** Hellenkamp B, Schmid S, Doroshenko O, et al. [*Precision and accuracy of single-molecule FRET measurements — a multi-laboratory benchmark study.*](https://doi.org/10.1038/s41592-018-0085-0) *Nature Methods* 15(9):669–676 (2018). The multi-laboratory accurate-FRET benchmark behind the α/δ/γ correction convention (D1, M3).
