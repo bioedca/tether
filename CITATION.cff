@@ -8,9 +8,24 @@ abstract: >-
   corrections, and HMM idealization via an isolated tMAVEN sidecar. Built for
   the Mondragón Lab, Northwestern University.
 type: software
+# Named people first: GitHub's "Cite this repository" button, Zenodo and JOSS all
+# require identifiable human authors — an entity-only author list credits nobody.
+# "The Tether Authors" is retained below as an additional entity credit because it
+# is the copyright holder in NOTICE, REUSE.toml, pyproject.toml and every SPDX header.
 authors:
-  - name: "The Tether Authors"
+  - given-names: "Eduardo"
+    family-names: "Campos-Chávez"
+    orcid: "https://orcid.org/0000-0002-6416-5408"
     affiliation: "Mondragón Lab, Northwestern University"
+    email: "bioedca@u.northwestern.edu"
+  - given-names: "Alfonso"
+    family-names: "Mondragon"
+    orcid: "https://orcid.org/0000-0002-0423-6323"
+    affiliation: "Mondragón Lab, Northwestern University"
+  # Entity author. CFF 1.2.0 entities accept `name`/`email` but NOT `affiliation`
+  # (a person-only field) — carrying one here is what made this file fail schema
+  # validation before the named authors were added.
+  - name: "The Tether Authors"
     email: "bioedca@u.northwestern.edu"
 license: GPL-3.0-or-later
 repository-code: "https://github.com/bioedca/tether"
@@ -24,7 +39,18 @@ keywords:
   - provenance
   - napari
   - PySide6
-# version and doi are filled at release tags (optionally Zenodo-archived at M9).
+# `version`, `date-released` and `doi` are added in the release commit, in this order.
+# The ordering is load-bearing and not recoverable after the fact:
+#   1. Enable the Zenodo-GitHub webhook for this repository BEFORE pushing the tag.
+#      Zenodo only archives releases published while the webhook is active — if it is
+#      off at tag time, that version is never archived and the only remedy is cutting
+#      another release.
+#   2. Reserve the DOI in Zenodo and write it into `doi:` below, so the tagged commit
+#      is self-consistent rather than pointing at a DOI minted later.
+#   3. Add `version:` (the tag without the leading "v") and `date-released:` (ISO 8601).
+#   4. The *concept* DOI — which always resolves to the newest version — belongs in
+#      README.md and docs/citing.md, not here; `doi:` below is the *version* DOI.
+# Keep this file's author list identical to any JOSS paper.md author list.
 references:
   - type: article
     title: "Increasing the accuracy of single-molecule data analysis using tMAVEN"
