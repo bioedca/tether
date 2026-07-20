@@ -981,7 +981,8 @@ names, commit convention, or CI jobs — only the approval count and the CODEOWN
 Small, **milestone-scoped** PRs are the unit of work (ideally one issue ↔ one PR ↔ one squash commit); WIP opens
 as a **draft PR** (drafts are exempt from auto-merge). The PR title is a Conventional-Commits string (§12.2) — it
 becomes the squash commit and feeds the changelog. CodeQL is the required automated reviewer (§12.8) that
-substitutes for a second human; an optional `/code-review`-style AI pass is **encouraged, not blocking**.
+substitutes for a second human — enforced through code-scanning **default setup** and the
+ruleset's `code_scanning` rule, *not* as a named required status check; an optional `/code-review`-style AI pass is **encouraged, not blocking**.
 
 `.github/pull_request_template.md` carries the **self-review checklist** — the human-judgment gate in the solo model:
 
@@ -1120,7 +1121,7 @@ CPU `deep.yml` leg, exercising the `device="cuda"` path.
 | `secret-scan` (gitleaks; mirrors push protection) | M0 | §12.8/§12.9 |
 | `conda-lock-verify` (locks ↔ sources, base + sidecar + deep) | M0 | pin-and-hold integrity §4.1/§4.3 (deep stack from M8) |
 | `schema-guard` | M0 | additive-only HDF5 freeze §5/§9 M0 |
-| `codeql` | M0 | static analysis §12.8 |
+| *(CodeQL — **not** a required status check; enforced by the ruleset's separate `code_scanning` rule, §12.8)* | M0 | static analysis §12.8 |
 | `docs-build` (mkdocs `--strict`) | M0 | §4.1 / §8 NFR-PKG |
 | `sidecar / parity` | M0.5 | §11.2 idealization-parity tolerance (advisory before M0.5) |
 

@@ -11,10 +11,14 @@ mechanism that stops docs, fixtures and secrets hygiene from silently rotting.
 ## PR title
 
 **This PR's title must be a Conventional Commit** — `type(scope): summary (FR-ID)` —
-because it becomes the squash-merge commit and feeds the changelog (PRD §12.2), and
-`commitlint` gates it. Scope is a §4.2 module (`io` | `imaging` | `fret` | `idealize` |
-`ml` | `analysis` | `gui` | `project`) or a cross-cutting area (`schema` | `ci` |
-`deps` | `docs` | `release`).
+because it becomes the squash-merge commit and feeds the changelog (PRD §12.2).
+Scope is a §4.2 module (`io` | `imaging` | `fret` | `idealize` | `ml` | `analysis` |
+`gui` | `project`) or a cross-cutting area (`schema` | `ci` | `deps` | `docs` |
+`release`).
+
+The `commitlint` check validates the **type** prefix only — it runs unconfigured, so it
+will pass a title with no scope and no FR-ID. The scope and FR-ID are a convention this
+checklist enforces, not something CI can catch for you.
 
 ## Summary
 

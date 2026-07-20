@@ -92,7 +92,12 @@ never advance work or cut a summary while a PR's checks are red.
 - Run the **small-fixture** test suite locally; GUI tests run headless with
   `QT_QPA_PLATFORM=offscreen`:
 
+  `pytest` is **not** in the base lock — CI installs it explicitly, so a freshly
+  restored environment needs the same step before any of this runs:
+
   ```bash
+  python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0"
+
   # exactly what the required `test` matrix runs (see Test tiers below)
   QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep"
   ```
@@ -121,11 +126,19 @@ those has its own workflow:
 QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep"
 
 QT_QPA_PLATFORM=offscreen pytest -m gui    # just the GUI tier
-pytest -m "not gui"                        # skip Qt entirely
+
+# Skip Qt. The optional tiers must be excluded here too — `not gui` on its own still
+# selects deep/sidecar/large, and the deep tests import torch, which the base lock
+# does not carry.
+pytest -m "not gui and not large and not sidecar and not deep"
 ```
 
-Markers are `--strict-markers`, so a typo in `-m` fails rather than silently selecting
-nothing. Two naming rules are enforced by `tests/test_marker_contract.py` rather than
+`--strict-markers` rejects an *unregistered* marker, which catches `-m deepp`. It does
+**not** protect a negated expression: `-m "not largge"` is a perfectly valid filter that
+happens to exclude nothing, so a typo there silently pulls the optional tiers back into
+the run rather than failing. Read the collected count, not just the exit code.
+
+Two naming rules are enforced by `tests/test_marker_contract.py` rather than
 convention: a live sidecar test must be named `test_*sidecar*.py`, and deep tests use
 the `test_*_deep.py` suffix — the isolated workflows select on those globs.
 
@@ -134,6 +147,11 @@ the `test_*_deep.py` suffix — the isolated workflows select on those globs.
 The required `docs-build` gate is `mkdocs build --strict`, where **warnings are
 errors**. A new page must be registered in `mkdocs.yml` `nav` or the build fails, and
 it must not link to `docs/PRD.md`, which the site deliberately does not serve.
+
+**ADR records are the exception.** `mkdocs.yml` matches them with `not_in_nav:
+adr/0*.md`, which keeps each record *in the build* — so `--strict` still validates its
+links — while keeping it out of the navigation tree; only the index (`adr/README.md`)
+is nav'd. Do **not** add a new ADR to `nav`.
 
 ```bash
 pip install -r requirements-docs.txt
