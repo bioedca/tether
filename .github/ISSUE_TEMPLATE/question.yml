@@ -1,0 +1,74 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Question issue form (PRD §12.5). A concrete, answerable usage question — the
+# only form that produces the `type:question` label. Open-ended "how should I
+# approach ...?" belongs in Discussions Q&A (linked from config.yml); use the
+# "Bug report" form when shipped behavior is wrong, "Documentation problem" when
+# the answer exists but the docs do not say it, and the private advisory link for
+# anything security-related — never a public issue.
+name: Question
+description: Ask a concrete question about using Tether.
+title: "question: <summary>"
+labels: ["type:question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions are welcome. If the answer turns out to be missing from the
+        docs, the maintainers will spin a `type:docs` issue off this one — a
+        question that had to be asked is itself a documentation signal.
+
+        **Do not** paste real lab experimental data or the contents of a user
+        `.tether` project; describe the shape of your data instead, or use a
+        small synthetic case.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: What are you trying to find out or accomplish?
+      placeholder: >-
+        How do I keep two acquisition conditions separate when they came from
+        one movie folder?
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you have already tried
+      description: >-
+        Commands run, menu paths taken, docs pages read. This is what stops the
+        answer being something you already ruled out.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Tether version
+      description: Output of `tether --version`, or the installer filename.
+      placeholder: tether 1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where are you working
+      options:
+        - "the GUI (napari/PySide6 shell)"
+        - "the command line (tether extract / tether batch)"
+        - "the Python API"
+        - "installation / packaging, before I get that far"
+        - "not sure"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues and Discussions and did not find an answer.
+          required: true
+        - label: This is not a security report (those go through the private advisory link).
+          required: true
+        - label: No real lab data or user `.tether` project is attached.
+          required: true

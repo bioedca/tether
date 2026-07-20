@@ -4,6 +4,11 @@
 # Issue-form chooser config (PRD §12.5). Blank issues are disabled so every
 # report uses a structured form. Security reports are routed OUT of public
 # issues to the private vulnerability-reporting (PVR) flow per SECURITY.md.
+#
+# The links below are the non-issue exits: ask in Discussions, read the docs,
+# read the contributing rules, or find an answer that already exists. Ordering is
+# deliberate — security stays first, because it is the one route where taking the
+# wrong one causes harm.
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability (private)
@@ -11,3 +16,25 @@ contact_links:
     about: >-
       Do NOT open a public issue for security problems. Use GitHub private
       vulnerability reporting (PVR); see SECURITY.md for the disclosure process.
+  - name: Ask a question (Discussions Q&A)
+    url: https://github.com/bioedca/tether/discussions/new?category=q-a
+    about: >-
+      Open-ended "how should I approach ...?" questions. For a concrete,
+      answerable question prefer the Question form, which is triaged alongside
+      issues. An answer that reveals a docs gap becomes a type:docs issue.
+  - name: Read the documentation
+    url: https://bioedca.github.io/tether/latest/
+    about: >-
+      Installers, legacy import, the tMAVEN hand-off, the analysis gallery and
+      the ADR log. Use the version selector to match your installed release.
+  - name: Contributing guide (setup, CI gates, PR rules)
+    url: https://github.com/bioedca/tether/blob/main/CONTRIBUTING.md
+    about: >-
+      Environment setup, the conda-lock pin-and-hold rule, the schema freeze,
+      the PR self-review checklist (PRD §12.4) and the required CI checks.
+  - name: Search for an existing answer
+    url: https://github.com/bioedca/tether/issues?q=is%3Aissue+sort%3Aupdated-desc
+    about: >-
+      Usage questions are often already answered on a closed issue. Search here
+      first; if the answer is missing from the docs, open the "Documentation
+      problem" form rather than asking the same question again.

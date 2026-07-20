@@ -1,0 +1,107 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Documentation issue form (PRD §12.5). A problem with the rendered docs site
+# (mkdocs-material, versioned with `mike`) or with an API docstring. Use the
+# "Bug report" form for a defect in shipped *behavior*; use "Feature /
+# enhancement" to propose documenting a capability that does not exist yet; for
+# security use the private advisory link in config.yml — never a public issue.
+name: Documentation problem
+description: Report something wrong, missing, unclear, stale, or broken in the docs.
+title: "docs(<scope>): <summary>"
+labels: ["type:docs", "area:docs"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for improving the docs. Please keep the title in
+        Conventional-Commit form (`docs(scope): summary`) — it becomes the
+        squash-merge title of the fixing PR (PRD §12.2). Report what the page
+        says **today**; the site is versioned, so the exact page URL and the
+        version from the selector are what let us reproduce it. **Do not** paste
+        real lab experimental data or the contents of a user `.tether` project.
+  - type: input
+    id: page
+    attributes:
+      label: Page URL
+      description: The full URL from the address bar, including the version segment.
+      placeholder: https://bioedca.github.io/tether/latest/io/legacy-import/
+    validations:
+      required: true
+  - type: dropdown
+    id: version
+    attributes:
+      label: Docs version
+      description: The entry selected in the version selector at the top of the page.
+      options:
+        - "latest (the current release alias)"
+        - "dev (unreleased, published from a manual dispatch)"
+        - "a pinned older version — name it under 'What you expected'"
+        - "built locally (mkdocs build / mkdocs serve)"
+        - "unsure"
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of problem
+      options:
+        - "wrong — the page states something that is not true of the code"
+        - "missing — a behavior that ships is not documented anywhere"
+        - "unclear — accurate, but a reader cannot act on it"
+        - "broken link — a dead internal/external link, anchor, or image"
+        - "stale — true of an older version, superseded by current behavior"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Documented module (PRD §4.2)
+      description: The §4.2 module / cross-cutting area the page covers.
+      options:
+        - "io"
+        - "imaging"
+        - "fret"
+        - "idealize"
+        - "ml"
+        - "analysis"
+        - "gui"
+        - "project"
+        - "schema"
+        - "sidecar"
+        - "packaging"
+        - "site-wide (nav, landing page, ADR index, search)"
+        - "unknown"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: >-
+        What you came to the page to find out, and what you believed after
+        reading it. Quote the sentence that misled you where there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: correction
+    attributes:
+      label: Suggested correction
+      description: >-
+        The wording, missing section, or link target you would put there.
+        A rough draft is welcome — prose is easier to edit than to invent.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is not a security report (those go through the private advisory link).
+          required: true
+        - label: No real lab data or user `.tether` project is attached.
+          required: true
+        - label: I am willing to open the PR for this myself.
+          required: false
