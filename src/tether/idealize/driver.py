@@ -17,9 +17,13 @@ in, the model out) and a one-line JSON status on stdout. The de-risk recon
 (M0.5 S1) confirmed ``maven_class.__init__`` builds plain objects and does not
 spawn a Qt app, so it runs headless under ``QT_QPA_PLATFORM=offscreen``.
 
-The sidecar interpreter is located via the ``sidecar_python`` argument or the
-``TETHER_SIDECAR_PYTHON`` environment variable; there is no hard-coded path, so
-any env built from ``sidecar/conda-lock.yml`` (with tMAVEN installed) works.
+The sidecar interpreter is located via the ``sidecar_python`` argument, then the
+``TETHER_SIDECAR_PYTHON`` environment variable, then the installer's sibling
+``envs/sidecar`` derived from :data:`sys.prefix` (ADR-0049/0051 — a shortcut or
+``PATH``-shim launch never runs the conda ``activate.d`` hook that exports the
+variable). There is still no hard-coded path: the last step resolves relative to the
+running interpreter, so any env built from ``sidecar/conda-lock.yml`` (with tMAVEN
+installed) works, and a development checkout simply falls through to the error.
 
 The live round-trip is exercised by ``@pytest.mark.sidecar`` tests, which are
 **deselected from the CI matrix** (CI has no sidecar env); the pure model-reader
@@ -31,6 +35,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -285,16 +290,43 @@ def dwells_from_states(state_path: np.ndarray, molecule_index: int) -> list[Dwel
     return dwells
 
 
-def resolve_sidecar_python(sidecar_python: str | PathLike[str] | None) -> Path:
-    """Resolve the sidecar interpreter from the argument or environment.
+def bundled_sidecar_python() -> Path | None:
+    """The installer's sibling sidecar interpreter, or ``None`` outside a bundled install.
 
-    Raises a clear :class:`SidecarError` (not a bare ``KeyError``) when neither
-    is set, so callers get an actionable message. Both failures are **deterministic
+    The constructor installer lays the two environments down as siblings —
+    ``<prefix>/envs/tether`` and ``<prefix>/envs/sidecar`` (ADR-0049) — and wires
+    ``TETHER_SIDECAR_PYTHON`` through a conda ``activate.d`` hook. That hook only runs
+    when the environment is *activated*, so a GUI started from a menu shortcut, a
+    ``PATH`` shim or a ``.desktop`` entry (ADR-0051) never sees it and idealization
+    would fail on an otherwise correct install.
+
+    Deriving the sibling from :data:`sys.prefix` covers every launch path without
+    relying on the shell. Returns ``None`` when the sibling is absent — a development
+    checkout — so the caller still reports the actionable "set the env var" error
+    rather than a confusing missing-path one.
+    """
+    envs = Path(sys.prefix).parent
+    candidate = (
+        envs / "sidecar" / "python.exe" if os.name == "nt" else envs / "sidecar" / "bin" / "python"
+    )
+    return candidate if candidate.exists() else None
+
+
+def resolve_sidecar_python(sidecar_python: str | PathLike[str] | None) -> Path:
+    """Resolve the sidecar interpreter from the argument, environment, or install layout.
+
+    Precedence: the explicit argument, then ``TETHER_SIDECAR_PYTHON``, then the
+    installer's sibling ``envs/sidecar`` (:func:`bundled_sidecar_python`). The last
+    step is what makes idealization work when the app is launched from a shortcut
+    rather than an activated environment.
+
+    Raises a clear :class:`SidecarError` (not a bare ``KeyError``) when none resolves,
+    so callers get an actionable message. Both failures are **deterministic
     configuration errors** (``transient=False``): no auto-restart can conjure an
     interpreter mid-run, so :func:`tether.idealize.supervisor.supervise_idealize`
     must fail fast rather than burn the restart budget on them.
     """
-    candidate = sidecar_python or os.environ.get(SIDECAR_ENV_VAR)
+    candidate = sidecar_python or os.environ.get(SIDECAR_ENV_VAR) or bundled_sidecar_python()
     if not candidate:
         raise SidecarError(
             "no sidecar interpreter: pass sidecar_python= or set "

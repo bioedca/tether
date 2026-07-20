@@ -67,6 +67,16 @@ quickstart and the GUI tour all describe invocations that do not work for someon
   `menuinst` is unavailable per option 2) and a `~/.local/share/applications/tether.desktop` entry on
   Linux. macOS `.pkg` installs get the shims only; a proper `.app` bundle is separate work.
 
+A fourth change falls out of the first three and is not optional. [ADR-0049](0049-m9-packaging-constructor-architecture.md)
+wires `TETHER_SIDECAR_PYTHON` through a conda `activate.d` hook, which runs **only on
+activation** — so every launch path added here (shortcut, shim, `.desktop`) would start an app
+whose idealization is broken, on an otherwise correct install. `resolve_sidecar_python` therefore
+gains a third and final step after the argument and the environment variable: the installer's
+sibling `envs/sidecar`, derived from `sys.prefix`. This is the *"prefix-relative app-side default"*
+[ADR-0049](0049-m9-packaging-constructor-architecture.md) already named as the more robust
+follow-up. It resolves relative to the running interpreter rather than hard-coding a path, and a
+development checkout — where no sibling exists — falls through to the same actionable error as before.
+
 **The installer still does not edit `PATH`.** Adding `<prefix>/bin` stays a documented one-line step.
 This is the deliberate trade in option 3: a user who skips the step has a working icon and a documented
 absolute path, whereas a truncated `PATH` is not recoverable by documentation.
