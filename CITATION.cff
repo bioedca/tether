@@ -68,10 +68,10 @@ references:
         name-suffix: "Jr."
     journal: "Biophysical Journal"
     volume: 123
-    issue: 14
+    issue: 17
     year: 2024
-    start: 2179
-    end: 2193
+    start: 2765
+    end: 2780
     doi: "10.1016/j.bpj.2024.01.022"
     notes: "tMAVEN — idealization sidecar (GPL-3.0)."
   - type: article

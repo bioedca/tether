@@ -104,15 +104,22 @@ def test_orcids_are_well_formed() -> None:
     assert not bad, f"malformed ORCID values (must be https://orcid.org/XXXX-...): {bad}"
 
 
-def test_release_fields_are_consistent() -> None:
-    """``version``/``date-released``/``doi`` are either all absent or coherently present.
+def test_release_fields_are_all_or_nothing() -> None:
+    """``version``/``date-released``/``doi`` are either all absent or all present.
 
-    They are added together in the release commit. A ``doi`` without a ``version`` would
-    make the archived record ambiguous about *what* it identifies.
+    They are added together in the release commit, so the check has to run in **both**
+    directions. A ``doi`` without a ``version`` leaves the archived record ambiguous
+    about what it identifies; a ``version`` without a ``doi`` is the likelier mistake —
+    it ships a release whose citation cannot be resolved, silently, because a
+    one-directional guard has nothing to fire on.
+
+    Before the first release all three are absent, which is the valid pre-release state.
     """
     cff = _citation()
-    if "doi" in cff:
-        assert "version" in cff and "date-released" in cff, (
-            "CITATION.cff carries a doi but is missing version and/or date-released — "
-            "a version DOI must identify a specific released version"
-        )
+    release_fields = ("version", "date-released", "doi")
+    present = [k for k in release_fields if k in cff]
+    assert len(present) in (0, len(release_fields)), (
+        "CITATION.cff release fields must be added together — present: "
+        f"{present}, missing: {[k for k in release_fields if k not in cff]}. "
+        "See the ordered release procedure in the file's own comments."
+    )
