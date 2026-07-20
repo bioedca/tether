@@ -2,6 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 site_name: Tether
 site_description: A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).
+# KEEP THIS AT THE PAGES ROOT — do not "fix" it to a versioned or /latest/ URL.
+# `mike deploy` injects its own mkdocs plugin and rewrites site_url to
+# urljoin(site_url, <version>) at build time (mike/mkdocs_plugin.py::on_config), so the
+# published 1.0 tree already gets canonicals and a sitemap under /tether/1.0/. Pointing
+# this at /tether/latest/ would produce /tether/latest/1.0/... — a URL that does not
+# exist. A plain `mkdocs build` (the required docs-build gate) sets no MIKE_DOCS_VERSION
+# and so renders the un-versioned root; that is the gate's output, not the site's.
 site_url: https://bioedca.github.io/tether/
 repo_url: https://github.com/bioedca/tether
 repo_name: bioedca/tether

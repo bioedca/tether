@@ -29,6 +29,79 @@ signing credential exists. Until you complete the setup below, the installers sh
    → Run workflow* with `ref: v1.0.0-rc1` and `dry_run: true` — it builds, signs (where
    configured), checksums and SBOMs, but publishes no Release.
 
+## Publish the documentation
+
+The documentation site is versioned with [`mike`](https://github.com/jimporter/mike) and
+served from the `gh-pages` branch; each build lives under `/tether/<MAJOR.MINOR>/`, with
+the `latest` alias and the site default pointing at the current stable tree.
+
+**A stable release publishes the site automatically.** The last step of `release.yml`'s
+`release` job dispatches [`.github/workflows/docs.yml`](https://github.com/bioedca/tether/blob/main/.github/workflows/docs.yml)
+with the release tag, right after the GitHub Release is created.
+
+That explicit dispatch exists because the obvious mechanism does not work. `docs.yml`
+does trigger on `release: [published]`, but `release.yml` creates the Release with the
+default `GITHUB_TOKEN`, and GitHub deliberately does **not** start new workflow runs from
+events raised by that token. Without the dispatch, `docs.yml` simply never fires on a
+release — so the site would stay frozen on whatever was last published by hand.
+
+**Pre-releases do not publish.** A hyphenated tag (`v1.0.0-rc1`) collapses to the same
+`1.0` documentation label as the stable tag, so publishing it would repoint `latest` and
+the site default at release-candidate docs. `release.yml` skips the dispatch for those
+tags and logs a `::notice::` saying so. This means a release candidate produces **no**
+`docs.yml` run at all — release-triggered documentation publishing is therefore first
+proven by the stable tag, not by the rehearsal.
+
+The site is built **from the release tag**, not from whatever `main` happens to hold. The
+dispatch passes `--ref "$TAG"`; without it `gh workflow run` targets the default branch,
+and a tag cut a few commits back — or `main` advancing during the ~15-minute build matrix
+— would publish unreleased docs under the released version.
+
+Each version's canonical URLs are handled by `mike`, not by `mkdocs.yml`. `mike deploy`
+injects its own plugin and rewrites `site_url` to `<site_url>/<version>` at build time, so
+the published `1.0` tree carries canonicals and a sitemap under `/tether/1.0/`. That is why
+`mkdocs.yml`'s `site_url` stays at the Pages root: pointing it at `/tether/latest/` would
+produce `/tether/latest/1.0/…`, which does not exist.
+
+### Manual fallback
+
+If the dispatch fails, or you need to republish, run `docs.yml` yourself. It also accepts
+a `workflow_dispatch` from *Actions → docs → Run workflow*:
+
+```bash
+gh workflow run docs.yml -f version=1.0
+```
+
+The `version` input accepts `MAJOR.MINOR`, `MAJOR.MINOR.PATCH` (a leading `v` is stripped,
+and the patch component is dropped to give the doc tree) or the literal `dev`. Anything
+else — including a four-component `1.0.0.0` or a pre-release `1.0.0-rc1` — is **rejected**
+at the version-resolution step rather than silently truncated to a plausible label.
+
+### Verify it published
+
+```bash
+gh api repos/bioedca/tether/contents/versions.json?ref=gh-pages \
+  --jq '.content' | base64 -d
+```
+
+The new version must appear in the list with `latest` among its `aliases`, e.g.
+`[{"version": "1.0", "title": "1.0", "aliases": ["latest"]}]`. Then load
+<https://bioedca.github.io/tether/latest/> and confirm the version selector offers the
+new version.
+
+### After 1.0 is live: retire the `dev` tree
+
+The site currently carries a placeholder `dev` tree, created by hand before any release
+existed. Once `1.0` is published **and** verified as above, it can be removed:
+
+```bash
+mike delete --push dev
+```
+
+> **Do not run this before `1.0` is live.** `latest` presently aliases `dev`; deleting it
+> first takes the published site down until the stable tree replaces it. After deleting,
+> re-check that `latest` and the site default both still resolve to `1.0`.
+
 ## Windows signing — SignPath (free for open source)
 
 SignPath's Foundation program signs open-source releases at no cost.

@@ -71,6 +71,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
       - name: Resolve MAJOR.MINOR version label
         id: ver
+        # Explicit `bash` (not the runner default) for the `[[ =~ ]]` matches below.
+        shell: bash
         # Untrusted event data (a release tag name) is passed through env, never
         # interpolated inline into the script — GitHub's script-injection guidance.
         env:
@@ -85,8 +87,22 @@ jobs:
             raw="$DISPATCH_VERSION"
           fi
           raw="${raw#v}"                                   # v1.0.0 -> 1.0.0
+          # Validate the RAW input before truncating it. `cut -f1-2` is lossy in both
+          # directions and silently publishes nonsense otherwise: `1.0.0.0` collapses to
+          # a plausible-looking `1.0`, and any non-version string (`dev` is the one
+          # legitimate exception) survives unchanged — which is how a `dev` tree came to
+          # own the `latest` alias in the first place. A pre-release (`1.0.0-rc1`) is
+          # rejected too: it collapses to the STABLE `1.0` label, so publishing it would
+          # repoint `latest` and the site default at release-candidate docs.
+          if ! [[ "$raw" =~ ^([0-9]+\.[0-9]+(\.[0-9]+)?|dev)$ ]]; then
+            echo "::error::invalid version '${raw}': expected MAJOR.MINOR, MAJOR.MINOR.PATCH or 'dev'"
+            false
+          fi
           label="$(printf '%s' "$raw" | cut -d. -f1-2)"    # 1.0.0 -> 1.0
-          test -n "$label" || { echo "::error::could not resolve a version label from '${raw}'"; false; }
+          if ! [[ "$label" =~ ^([0-9]+\.[0-9]+|dev)$ ]]; then
+            echo "::error::could not resolve a MAJOR.MINOR version label from '${raw}'"
+            false
+          fi
           echo "label=$label" >> "$GITHUB_OUTPUT"
           echo "Publishing docs version '$label' (from '$raw')."
       - name: Publish versioned docs (mike -> gh-pages)
