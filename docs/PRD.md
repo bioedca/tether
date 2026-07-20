@@ -1748,7 +1748,7 @@ Published literature:
   D. "Single-molecule dataset (SMD): a generalized storage format for raw and processed single-molecule data."
   *BMC Bioinformatics* 16:3 (2015). doi:10.1186/s12859-014-0429-4.
 - **[Verma2024]** Verma AR, Ray KK, Bodick M, Kinz-Thompson CD, Gonzalez RL Jr. "Increasing the accuracy of
-  single-molecule data analysis using tMAVEN." *Biophysical Journal* 123(14):2179–2193 (2024).
+  single-molecule data analysis using tMAVEN." *Biophysical Journal* 123(17):2765–2780 (2024).
   doi:10.1016/j.bpj.2024.01.022.
 - **[Wanninger2023]** Wanninger S, Asadiatouei P, Bohlen J, Salem CB, Tinnefeld P, Ploetz E, Lamb DC. "Deep-LASI:
   deep-learning assisted, single-molecule imaging analysis of multi-color DNA origami structures." *Nature
