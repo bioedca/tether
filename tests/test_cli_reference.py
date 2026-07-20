@@ -13,6 +13,11 @@ option the parser defines is named on the page, and every ``--flag`` token on th
 is an option the parser actually defines. It reads the *live* parser rather than a
 transcript, so it cannot drift the way a copied ``--help`` block can.
 
+Direction 1 is scoped to each subcommand's own section rather than to the whole page.
+``--tmap``, ``--tdat`` and ``--overwrite`` exist on *both* parsers, so a page-wide
+substring search would happily accept an ``extract``-only flag that had been documented
+under ``batch`` and never mentioned where a reader of ``tether extract`` would look.
+
 Base-matrix only: :func:`tether.cli.build_parser` imports nothing beyond ``argparse``
 (the imaging/HDF5 stack is deliberately lazy so ``--version`` stays fast), and the page
 is read with :mod:`pathlib`. No optional dependency, so this runs on all three OSes.
@@ -73,6 +78,26 @@ def _page_text() -> str:
     return PAGE.read_text(encoding="utf-8")
 
 
+def _subcommand_section(name: str) -> str:
+    """The slice of the page under the ``## `tether <name>`` `` heading.
+
+    Membership checks have to be scoped to the owning subcommand, not run against the
+    whole page: ``--tmap``, ``--tdat`` and ``--overwrite`` exist on *both* parsers, so a
+    page-wide substring search would accept an ``extract``-only flag that had been
+    documented under ``batch`` and never mentioned in its own section.
+
+    The slice runs to the next level-2 heading, so the ``###`` subsections (the
+    ``--donor-side`` callout, the worked examples) count as part of their subcommand.
+    """
+    heading = f"## `tether {name}`"
+    text = _page_text()
+    start = text.find(heading)
+    assert start != -1, f"docs/cli.md has no '{heading}' section"
+    rest = text[start + len(heading) :]
+    end = rest.find("\n## ")
+    return rest if end == -1 else rest[:end]
+
+
 def test_the_reference_page_exists() -> None:
     """Sanity: guards a renamed page silently disabling every assertion below."""
     assert PAGE.is_file(), f"the CLI reference is missing from {PAGE}"
@@ -111,31 +136,39 @@ def test_option_counts_are_unchanged() -> None:
 
 
 def test_every_parser_option_is_documented() -> None:
-    """Direction 1 — nothing the parser accepts is missing from the page."""
+    """Direction 1 — nothing the parser accepts is missing from its own section."""
     parser = build_parser()
-    text = _page_text()
 
     missing: dict[str, list[str]] = {}
     for name, sub in sorted(_subparsers(parser).items()):
-        absent = sorted(opt for opt in _option_strings(sub) if opt not in text)
+        section = _subcommand_section(name)
+        absent = sorted(opt for opt in _option_strings(sub) if opt not in section)
         if absent:
             missing[name] = absent
-    top_level_absent = sorted(opt for opt in _option_strings(parser) if opt not in text)
+    # The top-level parser's own options belong to no subcommand section, so they are
+    # the one thing still checked page-wide.
+    top_level_absent = sorted(opt for opt in _option_strings(parser) if opt not in _page_text())
     if top_level_absent:
         missing["tether"] = top_level_absent
 
-    assert not missing, f"these CLI options are not documented in docs/cli.md: {missing}"
+    assert not missing, (
+        f"these CLI options are not documented in their own docs/cli.md section: {missing}"
+    )
 
 
 def test_every_positional_is_documented() -> None:
-    """Direction 1, continued — the positional arguments are named too."""
+    """Direction 1, continued — the positional arguments are named in their section."""
     parser = build_parser()
     missing = {
-        name: sorted(dest for dest in _positionals(sub) if f"`{dest}`" not in _page_text())
+        name: sorted(
+            dest for dest in _positionals(sub) if f"`{dest}`" not in _subcommand_section(name)
+        )
         for name, sub in sorted(_subparsers(parser).items())
     }
     missing = {k: v for k, v in missing.items() if v}
-    assert not missing, f"these CLI positionals are not documented in docs/cli.md: {missing}"
+    assert not missing, (
+        f"these CLI positionals are not documented in their own docs/cli.md section: {missing}"
+    )
 
 
 def test_the_page_invents_no_flags() -> None:

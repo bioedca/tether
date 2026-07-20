@@ -32,8 +32,13 @@ export PATH="<install-root>/bin:$PATH"
 ```
 
 ```powershell
-# Windows PowerShell — persists for your user account
+# Windows PowerShell — current session only
 $env:PATH = "<install-root>\bin;$env:PATH"
+
+# Windows PowerShell — persists for your user account (new sessions only;
+# it does not affect the session you run it in)
+[Environment]::SetEnvironmentVariable(
+    "PATH", "<install-root>\bin;" + [Environment]::GetEnvironmentVariable("PATH", "User"), "User")
 ```
 
 Without that step, substitute the full launcher path from the table for `tether` in
@@ -56,7 +61,7 @@ Running `tether` with no subcommand prints the top-level help and exits 0.
 Run the native extraction pipeline — split → detect → register → colocalize → integrate —
 on one dual-channel TIFF movie and write a new `.tether` project.
 
-```
+```text
 tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
                [--detection-mode {wavelet,intensity,bandpass}]
                [--detection-threshold FRAC] [--window WINDOW]
@@ -102,12 +107,16 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > that moment. If instead the trace you have labelled "donor" steps *down* while the other
 > steps up, your halves are swapped — re-extract with the other value.
 >
-> **How to audit it afterwards.** Every `ExtractOptions` field is written verbatim into
-> `/settings/extraction` in the project file, so the `donor_side` actually used is
-> recoverable from any `.tether` without re-running anything.
+> **How to audit it afterward.** Every `ExtractOptions` field is written verbatim into
+> `/settings/extraction` in the project file, so for a **natively registered** project the
+> `donor_side` recorded there is the one that was actually applied — recoverable from any
+> `.tether` without re-running anything.
 >
 > `--tmap` overrides this entirely: an imported Deep-LASI map carries its own channel
-> geometry, and `--donor-side` is ignored when one is supplied.
+> geometry, and `--donor-side` is ignored when one is supplied. Note that it is still
+> recorded, so on a `--tmap` run `/settings/extraction` preserves the value you *requested*
+> and not the effective geometry. Audit the imported map itself in that case; the map's
+> filename is recorded alongside it as `tmap_source`.
 
 `--detection-mode` and `--prealign` are metavars in the same way — an unrecognised value
 reaches `ExtractOptions` rather than argparse, and comes back as an error message on
@@ -147,7 +156,7 @@ Process many movies unattended (FR-BATCH). Each movie becomes its own
 and each stage is checkpointed, so re-running the same command resumes only the
 incomplete stages instead of redoing finished work.
 
-```
+```text
 tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]
              [--no-idealize] [--overwrite] [--log PATH] [--max-restarts N]
              [--sidecar-timeout SECONDS] [--sidecar-python PATH] [--no-defer]
