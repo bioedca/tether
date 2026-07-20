@@ -61,6 +61,9 @@ own isolated environment. See [`docs/PRD.md` §4](docs/PRD.md) for the stack.
 
 ## Documentation
 
+- **Does Tether fit my data?** —
+  [supported inputs, acquisition geometry, scale and non-goals](https://bioedca.github.io/tether/compatibility/).
+  Read this first if you are deciding whether to install.
 - **Product spec:** [`docs/PRD.md`](docs/PRD.md) — the §-numbered source of truth.
 - **Architecture decisions:** [`docs/adr/`](docs/adr/) (MADR format).
 - **Contributing:** [`CONTRIBUTING.md`](CONTRIBUTING.md) — workflow, gates,
