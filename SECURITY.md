@@ -2,15 +2,33 @@
 
 ## Supported versions
 
-Tether is pre-1.0 and under active development. Until the first stable release
-(`v1.0.0`, milestone M9), only the latest `main` and the most recent tagged
-release receive security fixes.
+**Today:** `v1.0.0` has not been tagged yet. The newest tag is `v0.8.0`, so
+security fixes land on the latest `main` and, where a release is warranted, on a
+new tag cut from it. Older `0.x` tags are not back-patched.
 
-| Version            | Supported          |
-|--------------------|--------------------|
-| `main` (latest)    | :white_check_mark: |
-| latest `v0.x` tag  | :white_check_mark: |
-| older `v0.x` tags  | :x:                |
+**From `v1.0.0` onward:** security fixes land on the `1.x` line — the latest
+`main` and the most recent `1.x` release receive them, and a fix is shipped as a
+patch release. Older `1.x` releases are not back-patched; upgrade to the latest
+`1.x`. By policy that upgrade keeps your `.tether` projects readable and keeps
+the `tether` command line and the small covered Python API working — see the
+stability policy ([`docs/stability.md`](docs/stability.md) in this repository;
+published at `/stability/` on the [documentation
+site](https://bioedca.github.io/tether/) once that release is deployed) for
+exactly which names are covered. Anything outside that list may change in any
+release, so pin your version if you script against it. At that point the `0.x`
+development line becomes end-of-life.
+
+The table below is read against that changeover: the `0.x` rows apply until
+`v1.0.0` is tagged, the `1.x` rows from then on. No release line is supported on
+both sides of it.
+
+| Version                 | Supported                             |
+|-------------------------|---------------------------------------|
+| `main` (latest)         | :white_check_mark: always              |
+| `v0.8.0` (latest tag)   | :white_check_mark: until `v1.0.0`; :x: after |
+| older `0.x` tags        | :x:                                    |
+| `1.x` (latest release)  | :white_check_mark: once `v1.0.0` ships |
+| older `1.x` tags        | :x:                                    |
 
 ## Reporting a vulnerability
 

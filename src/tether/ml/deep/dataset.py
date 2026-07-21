@@ -129,10 +129,12 @@ class DeepTraceDataset:
 
     @property
     def n_samples(self) -> int:
+        """Number of molecules in the set — the shared axis-0 length of every array."""
         return len(self.molecule_ids)
 
     @property
     def n_channels(self) -> int:
+        """Number of stacked intensity channels — axis 1 of ``X``."""
         return len(self.channels)
 
     @property

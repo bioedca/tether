@@ -158,6 +158,7 @@ class OverflowCategoryPicker:
 
     @property
     def dialog(self) -> QtWidgets.QDialog:
+        """The wrapped modal ``QDialog`` listing the overflow categories."""
         return self._dialog
 
     @property
@@ -212,6 +213,7 @@ class CheatSheetOverlay:
 
     @property
     def dialog(self) -> QtWidgets.QDialog:
+        """The wrapped ``QDialog`` holding the ``Key``/``Action`` cheat-sheet table."""
         return self._dialog
 
     @property
@@ -391,42 +393,52 @@ class TetherShell:
 
     @property
     def window(self) -> QtWidgets.QMainWindow:
+        """The wrapped ``QMainWindow`` hosting the docks, menu bar, and status bar."""
         return self._window
 
     @property
     def trace_dock(self) -> Any:
+        """The :class:`~tether.gui.trace_dock.TraceDock` occupying the window's central widget."""
         return self._trace_dock
 
     @property
     def molecule_list(self) -> QtWidgets.QListWidget:
+        """The browser-panel ``QListWidget`` whose current row is the selected molecule."""
         return self._molecule_list
 
     @property
     def movie_switcher(self) -> QtWidgets.QComboBox:
+        """The browser-panel ``QComboBox`` of movie ids (a keymap-reachable focus surface)."""
         return self._movie_switcher
 
     @property
     def category_field(self) -> QtWidgets.QLineEdit:
+        """The browser-panel category-name ``QLineEdit`` — the text-entry exempt from the keymap."""
         return self._category_field
 
     @property
     def controller(self) -> CurationController:
+        """The :class:`~tether.gui.curation.CurationController` each command is routed to."""
         return self._controller
 
     @property
     def keymap(self) -> Keymap:
+        """The live :class:`~tether.gui.curation.Keymap` resolving key chords to commands."""
         return self._keymap
 
     @property
     def event_filter(self) -> CurationEventFilter:
+        """The application-level :class:`CurationEventFilter` this shell installs (§7.3)."""
         return self._event_filter
 
     @property
     def cheatsheet(self) -> CheatSheetOverlay:
+        """The :class:`CheatSheetOverlay` this shell shows for ``Keyboard shortcuts…``."""
         return self._cheatsheet
 
     @property
     def status_message(self) -> str:
+        """The message currently displayed in the window's status bar."""
         return self._window.statusBar().currentMessage()
 
     # --- molecules -----------------------------------------------------------
