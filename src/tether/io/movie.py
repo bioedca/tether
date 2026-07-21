@@ -137,8 +137,10 @@ class MovieReader:
         (:mod:`tether.io.tdat`, :mod:`tether.io.deeplasi`). This tag is therefore the
         only source ``/movies.frame_time`` has: a store built from those legacy files
         still reads the value off the raw movie TIFF the reconstruction points at, so
-        it keeps the ``0.0`` "unknown" default only when that TIFF declares no
-        ``finterval`` either.
+        it carries a real interval whenever that TIFF declares a finite, positive
+        ``finterval``. Anything else — no tag, or a value that is unparseable,
+        non-finite or non-positive — is rejected by :func:`_read_frame_time` and
+        collapses to the ``0.0`` "unknown" default.
         """
         return self._frame_time
 
