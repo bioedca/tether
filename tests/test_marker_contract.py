@@ -444,10 +444,10 @@ def test_release_workflow_uses_no_explicit_exit() -> None:
 # assets with `find ... -exec cp`, which exits 0 when it matches NOTHING -- even under `set -euo
 # pipefail`. The two steps that would otherwise notice an empty stage (attest-build-provenance over
 # out/*.exe|*.pkg|*.sh, and `gh release create`) are BOTH gated on publish == 'true', so a
-# `workflow_dispatch` DRY RUN would stage only the two lock files, skip the gated steps and report
-# GREEN: the rehearsal could not detect its own most important failure. Even on a real publish,
-# attest is satisfied by >=1 match per pattern, so "1 .pkg where 2 were required" is invisible to
-# it. The staging step therefore carries an unconditional completeness gate; these guards keep that
+# `workflow_dispatch` DRY RUN would stage only the frozen lock files, skip the gated steps, and
+# report GREEN: the rehearsal could not detect its own most important failure. Even on a real
+# publish, attest is satisfied by >=1 match per pattern, so "1 .pkg where 2 were required" is
+# invisible to it. The staging step therefore carries an unconditional completeness gate; these
 # gate honest, non-vacuous, and in lockstep with the matrix and the constructor recipe.
 STAGING_STEP_NAME = "Stage the release assets"
 CONSTRUCT_RECIPE = Path(__file__).resolve().parents[1] / "packaging" / "construct.yaml"
@@ -503,6 +503,19 @@ def _expected_legs() -> dict[str, str]:
         f'each EXPECTED_LEGS entry must be exactly "<platform>:<ext>"; malformed: {malformed}'
     )
     return dict(entry.split(":", 1) for entry in entries)
+
+
+def test_release_stages_every_frozen_environment_lock() -> None:
+    """The release bill of materials includes each isolated environment lock."""
+    block = _release_staging_step()
+    locks = {
+        "conda-lock.yml": "conda-lock.yml",
+        "sidecar/conda-lock.yml": "sidecar-conda-lock.yml",
+        "deep/conda-lock.yml": "deep-conda-lock.yml",
+    }
+    for source, asset in locks.items():
+        assert f'cp {source} "out/{asset}"' in block
+        assert f"[ -s out/{asset} ]" in block
 
 
 def test_step_block_extractor_stops_at_the_next_sibling_step() -> None:

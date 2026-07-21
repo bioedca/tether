@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Issue Swarm"
+  short_description: "Run a leased concurrent issue worker pool"
+  default_prompt: "/goal $run-issue-swarm Run 4 isolated workers to PR-ready handoff and keep refilling until the ready queue is empty or I tell the swarm to stop."

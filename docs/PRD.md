@@ -39,8 +39,8 @@ its trace.
 
 ### Source-citation conventions
 
-All source citations are relative to the **reference root** `C:\Users\bioed\Documents\smfret-references\`, which
-holds read-only local clones of the reference implementations and a fixture set:
+All source citations are relative to the configurable **reference root** `$SMFRET_REFERENCE_ROOT`, which is set
+outside the repository and holds read-only local clones of the reference implementations and a fixture set:
 
 - **Deep-LASI** (MATLAB) [Wanninger2023] — paths are relative to `deeplasi/functions/` (e.g.
   `deeplasi/functions/traces/extractTracesC.m:20-33`).
@@ -708,7 +708,7 @@ than aborting. The batch policy (warn-and-flag vs. fail-movie) is configurable i
   Conventional Commits; SSH-signed, verified commits authored as `bioedca@u.northwestern.edu`; 2FA enforced.
   Supply-chain hardening = CodeQL + secret scanning + push protection + Dependabot (pip + github-actions;
   Dependabot's conda ecosystem covers `environment.yml` version updates but **not** `conda-lock.yml` lock files);
-  the `conda-lock` base and sidecar stacks (§4.1) follow the pin-and-hold deliberate-bump policy plus a scheduled
+  the `conda-lock` base, sidecar, and deep stacks (§4.1/§4.3) follow the pin-and-hold deliberate-bump policy plus a scheduled
   `pip-audit`/`safety` vulnerability job. A CI **schema-guard** gate enforces the additive-only HDF5 schema freeze
   (§5, §9 M0). Full protocol in §12.
 
@@ -874,9 +874,9 @@ This section governs **distributed (git/GitHub) source-code version control and 
 for the public GPL-3.0 repository `github.com/bioedca/tether` (§4.1). Its scope is **source governance only** —
 large-dataset versioning is already handled by the LFS / gated-CI fixture tiers (§8 NFR-FIXTURES) and is not
 re-litigated here, and **no external data-versioning tool is introduced**. The governing posture is **solo
-developer (bioedca) with CI as the merge gate**: branch protection on `main` requires green required CI plus a
-self-review checklist on every PR, with **no mandated second human reviewer**. Every rule is written so it **scales
-up to required human reviews + CODEOWNERS** if contributors join, without rework (§12.3). Unless a line is flagged
+developer (bioedca) with CI and risk-classified review gates**: branch protection on `main` requires green CI plus
+the §12.4 review path. There is no universal human-approval count, but material high-risk work requires the
+qualified human/domain judgment defined there. The rules scale to required reviews + `CODEOWNERS` (§12.3). Unless flagged
 otherwise, every GitHub capability below is **free for this public repo**.
 
 ### 12.1 Repository, account & identity
@@ -931,9 +931,9 @@ though **tMAVEN is never vendored** — reference clones are algorithm-reference
 - **Model — GitHub Flow.** `main` is **always releasable and protected** (§12.3). All work happens on short-lived
   branches off `main`, opened as a PR, merged via **squash-merge**, branch **deleted on merge**. No long-lived
   `develop`/`release` branches — milestones M0–M9 (§9) are tracked as GitHub Milestones (§12.5), not git branches.
-- **Branch naming.** `type/short-slug`, optionally scoped to a milestone or FR-ID: `feat/`, `fix/`, `docs/`,
+- **Branch naming.** `type/issue-N-short-slug`, optionally scoped to a milestone or FR-ID: `feat/`, `fix/`, `docs/`,
   `chore/`, `refactor/`, `test/`, `ci/`, `build/`, `perf/`, `revert/`. Examples:
-  `feat/m1-fr-extract-atrous-detector`, `fix/m3-fr-correct-nan-guard`, `docs/m9-mkdocs-deploy`. The slug is
+  `feat/issue-123-m1-atrous-detector`, `fix/issue-124-correct-nan-guard`, `docs/issue-125-mkdocs-deploy`. The slug is
   kebab-case, ≤ ~5 words; the branch name is not load-bearing (the PR title + linked issue carry authoritative
   metadata) — it exists for at-a-glance `git branch` scanning.
 - **Conventional Commits** [ConventionalCommits] govern **both commit messages and PR titles**: `type(scope):
@@ -955,21 +955,22 @@ are exportable as JSON, version-history-tracked, and layer cleanly):
 
 - **No direct pushes** — every change via PR (the `push` event to `main` is blocked for everyone, the maintainer
   included; this is what makes CI the gate).
-- **Require a pull request before merging.** Required approvals = **0** in the solo model — CI + the §12.4
-  self-review checklist *is* the gate; **dismiss stale approvals on new commits** is pre-enabled for scale-up.
+- **Require a pull request before merging.** Required approvals = **0** in the solo model; CI, the §12.4
+  self-review checklist, and its risk-based review path are the agent merge gates. **Dismiss stale approvals on new
+  commits** is pre-enabled for scale-up.
 - **Require status checks to pass** + **require branches up to date** before merging (required checks listed in
   §12.6).
 - **Require signed commits** — enforces the SSH-verified identity (§12.1) on everything landing on `main`.
 - **Require linear history** — pairs with squash-merge (§12.2).
 - **Require conversation resolution before merging** — even solo, this forces resolving every self-review thread
-  and every CodeQL / `/code-review` finding before merge.
+  and every actionable finding from the required risk-classified review path before merge.
 - **Block force-pushes** and **block branch deletion** on `main`.
 
-**How the solo dev merges.** With 0 required approvals, once CI is green and the self-review checklist (§12.4) is
-ticked, bioedca self-merges the PR (squash); per-PR **auto-merge** may fire the squash the moment all required
-checks pass. **No standing "include administrators / bypass" exemption** — the ruleset's value is forcing *every*
-change through CI and the checklist; a rare genuine emergency uses a deliberate, logged temporary bypass, not a
-permanent admin exception.
+**How the solo dev merges.** With 0 ruleset approvals, bioedca squash-merges only after the §12.4 risk path is
+complete on the exact head SHA and required checks are green on the current base. An agent may use auto-merge only
+when a server rule or merge queue enforces that same head/base binding; otherwise the coordinator performs a
+guarded merge. **No standing "include administrators / bypass" exemption** — a rare genuine emergency uses a
+deliberate, logged temporary bypass, not a permanent admin exception.
 
 **Scale-up path (documented, not active).** If contributors join: set **required approvals ≥ 1**, uncomment a
 `CODEOWNERS` mapping §4.2 modules to owners (e.g. `/src/tether/idealize/ @bioedca`), enable **require review from
@@ -979,19 +980,20 @@ names, commit convention, or CI jobs — only the approval count and the CODEOWN
 ### 12.4 Pull requests
 
 Small, **milestone-scoped** PRs are the unit of work (ideally one issue ↔ one PR ↔ one squash commit); WIP opens
-as a **draft PR** (drafts are exempt from auto-merge). The PR title is a Conventional-Commits string (§12.2) — it
-becomes the squash commit and feeds the changelog. CodeQL is the required automated reviewer (§12.8) that
-substitutes for a second human — enforced through code-scanning **default setup** and the
-ruleset's `code_scanning` rule, *not* as a named required status check; an optional `/code-review`-style AI pass is **encouraged, not blocking**.
+as a **draft PR** and cannot merge. The PR title is a Conventional-Commits string (§12.2) — it
+becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
+setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
+`AGENTS.md` risk path: Copilot first; Codex for standard/high changes; `@coderabbitai review` plus qualified
+human/domain judgment for high/load-bearing changes. Reviews and checks bind to the final head SHA.
 
 `.github/pull_request_template.md` carries the **self-review checklist** — the human-judgment gate in the solo model:
 
 - [ ] Tests added/updated for the change; they run on the **small committed fixtures** (§8 NFR-FIXTURES) and pass
       on the 3-OS matrix.
-- [ ] **No large data committed** — any movie/benchmark asset goes to the LFS / gated tier, not git
-      (`check-added-large-files` passed; §8 NFR-FIXTURES, §12.9).
-- [ ] **conda-lock updated** if dependencies changed — base stack *and/or* the **isolated tMAVEN sidecar lock**,
-      kept distinct (§4.1/§4.3); `conda-lock-verify` is green.
+- [ ] **Data policy respected** — no raw/private/unlicensed data or large data in ordinary Git; issue-authorized,
+      redistributable fixtures use named small or LFS/gated paths with license and provenance (§8, §12.9).
+- [ ] **conda-lock updated** if dependencies changed — base, **isolated tMAVEN sidecar**, and/or
+      **isolated deep** lock, kept distinct (§4.1/§4.3); `conda-lock-verify` is green.
 - [ ] **Schema freeze respected** — no structural change to the §5 HDF5 skeleton frozen at §9 M0; only additive
       *data* (`schema-guard` green; a legitimate structural change carries an ADR + an explicit schema-version
       bump, §12.6/§12.7).
@@ -1004,7 +1006,7 @@ ruleset's `code_scanning` rule, *not* as a named required status check; an optio
 - [ ] **Docs updated** (mkdocs / docstrings); if a resolved decision changed, the PRD and/or an ADR is updated in
       the same PR (§12.7).
 - [ ] **Conventional-Commits** PR title; breaking changes carry `!` / `BREAKING CHANGE:` (§12.2).
-- [ ] CodeQL clean; an optional `/code-review` pass was run on non-trivial logic (§12.3 conversation resolution).
+- [ ] CodeQL clean; the low/standard/high review path is recorded and complete for the final head SHA (§12.3).
 
 ### 12.5 Issue tracking & project planning
 
@@ -1150,25 +1152,25 @@ namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and 
   | `docs/test/ci/build/chore/refactor:` | no release bump (changelog "Internal") | same | — |
 
 - **Milestone → tag.** Each milestone/release is cut as an **annotated, SSH-signed** tag `vMAJOR.MINOR.PATCH`
-  (e.g. `v0.3.0` at M3, `v1.0.0` at M9), and the **`conda-lock` (base + sidecar) is frozen at that tag** per
-  pin-and-hold (§4.1) — the tag is the single point where both locks are snapshotted for the release.
+  (e.g. `v0.3.0` at M3, `v1.0.0` at M9), and the **base, sidecar, and deep locks are frozen at that tag** per
+  pin-and-hold (§4.1) — the tag is the single point where all three are snapshotted for the release.
 - **`CHANGELOG.md`** is **generated from commit history**, never hand-edited (so squash titles must be clean
   Conventional Commits — §12.2/§12.6).
 - **Release pipeline (`release.yml`, triggered on a signed `v*.*.*` tag):**
-  1. **verify-tag** — assert the tag is signed + annotated, on `main`, and both locks are committed and clean;
+  1. **verify-tag** — assert the tag is signed + annotated, on `main`, and all three locks are committed and clean;
      re-run the full required suite as a gate.
   2. **build-installers** (3-OS matrix) — **constructor** signed installers (§4.1, §8 NFR-PKG, §9 M9) bundling the
      **trimmed/pinned sidecar** (no install-time git/network; `biasd` omitted; numba bounded — M9 acceptance);
      OS code-signing (Windows Authenticode, macOS notarization), Linux installer + checksum. Stamp the app version
      from the git tag (`git describe`) so it flows into the project file (§8 NFR-REPRO).
-  3. **provenance** — generate an **SBOM** (CycloneDX, via Syft) over both env stacks; SHA-256 checksums for every
-     installer; publish the **frozen `conda-lock` + `sidecar/conda-lock.yml`** as release assets (any release is
+  3. **provenance** — generate an **SBOM** (CycloneDX, via Syft) over all released env stacks; SHA-256 checksums for every
+     installer; publish the **base, sidecar, and deep locks** as release assets (any release is
      exactly re-creatable); attach **build-provenance + SBOM attestations** (`actions/attest-build-provenance`,
      `actions/attest-sbom`; `id-token: write` + `attestations: write`; free for public, verifiable with
      `gh attestation verify`).
   4. **changelog** — auto-generate from Conventional Commits since the previous tag into `CHANGELOG.md` + the
      Release body.
-  5. **publish** — create the GitHub Release; upload installers + checksums + SBOM + both lock files. (A
+  5. **publish** — create the GitHub Release; upload installers + checksums + SBOM + all three lock files. (A
      conda-forge feedstock is an optional later follow-on, not required at first 1.0.0.)
 - **Docs deploy.** mkdocs (Material) is built in CI on every PR (`docs-build`, required) and **deployed on
   release** to GitHub Pages (versioned via `mike`), satisfying §4.1 / §8 NFR-PKG.
@@ -1187,9 +1189,9 @@ repos, which does not apply).
   Python, `build-mode: none`, no compiled step — manages the analysis YAML, auto-updates query packs; runs on PR,
   push to `main`, and a weekly schedule). Switch to **advanced setup** (committed `codeql.yml`) only to add the
   `security-and-quality` suite or align triggers. CodeQL scans Tether's own `tether.*` packages (§4.2) — the
-  `numpy<2` tMAVEN sidecar is not vendored (§4.3), so CodeQL never scans tMAVEN internals. The CodeQL check is a
-  **required status check** (§12.3): a PR introducing a new high/critical alert fails the merge gate — the
-  automated reviewer that substitutes for a second human.
+  `numpy<2` tMAVEN sidecar is not vendored (§4.3), so CodeQL never scans tMAVEN internals. The ruleset's separate
+  code-scanning rule blocks new high/critical alerts (§12.3). CodeQL is a scanner, not a substitute for any
+  required author, AI, human, or domain review.
 - **Secret scanning + push protection.** Both **enabled**. Push protection blocks a recognized secret **at `git
   push`** before it reaches the public remote (the critical control for a public repo — a leaked-then-deleted
   secret on a public repo must be treated as compromised). Repo-level **custom patterns** can be added for any
@@ -1204,15 +1206,14 @@ repos, which does not apply).
 - **CRITICAL — Dependabot does *not* re-solve the conda lock files.** As of its GA on **2025-12-16** Dependabot
   supports a **`conda` ecosystem** for **`environment.yml` version updates** — but it does **not** update
   **conda *lock files*** (`conda-lock.yml`), and does not handle private registries or vendoring. So it cannot
-  re-solve or bump the committed base-stack `conda-lock.yml` (Python/numpy/Numba/napari/PySide6/pyqtgraph/
-  scikit-image — §4.1) **nor** the isolated tMAVEN sidecar lock (PyQt5 + `numpy<2` — §4.1/§4.3). Because this repo
-  commits only `conda-lock.yml` files under pin-and-hold (no tracked top-level `environment.yml` manifest treated
-  as the source of truth), the practical effect is that the conda lock stacks remain a **deliberate human re-lock**,
-  not a Dependabot target. Do **not** represent the conda **lock files** as Dependabot-monitored. The conda stacks
-  are governed instead by **(a)** the §4.1 **pin-and-hold deliberate-bump** policy (a human-authored re-lock PR
-  validated by `conda-lock-verify`), and **(b)** a scheduled **`deps-audit.yml`** job (`pip-audit` / `safety`
-  over the locked PyPI packages of **both** environments) that is **advisory** — it opens a tracking issue on a CVE
-  feeding a deliberate bump, rather than auto-PRing into a frozen lock.
+  re-solve or bump the committed base `conda-lock.yml`, isolated `sidecar/conda-lock.yml`, or isolated
+  `deep/conda-lock.yml` (§4.1/§4.3). Each has a tracked `environment.yml` input, but Dependabot is intentionally not
+  configured to mutate it because it cannot regenerate the paired lock. All three stacks remain deliberate human
+  re-locks, not Dependabot targets. Do not
+  represent the lock files as Dependabot-monitored. The stacks are governed by **(a)** the pin-and-hold
+  deliberate-bump policy with a human-authored re-lock PR validated by `conda-lock-verify`, and **(b)** the
+  scheduled advisory `deps-audit.yml` job over locked PyPI packages; it opens a tracking issue on a CVE rather
+  than auto-PRing into a frozen lock.
 - **SBOM + artifact attestations** on the M9 release path — see §12.7 (CycloneDX SBOM + build-provenance/SBOM
   attestations binding each artifact to the exact workflow + commit; the SBOM is also the natural place to record
   the bundled-but-unvendored tMAVEN sidecar for GPL attribution, §12.1). GitHub's repo **SBOM export**
