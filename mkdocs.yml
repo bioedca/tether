@@ -38,6 +38,7 @@ theme:
 
 nav:
   - Home: index.md
+  - Does Tether fit my data?: compatibility.md
   - Import:
       - Legacy Deep-LASI import: io/legacy-import.md
   - Idealization:

@@ -6,6 +6,11 @@ embedded [napari](https://napari.org) movie panel and [pyqtgraph](https://www.py
 trace docks, backed by a single self-describing HDF5 (`.tether`) project store that carries
 full provenance for every datum.
 
+**New here?** Start with [Does Tether fit my data?](compatibility.md) — it describes the
+acquisition geometry and file formats Tether reads, what it deliberately does not do, and
+what a dataset costs in time and disk. It is the fastest way to find out whether Tether
+suits your experiment before you install anything.
+
 This site is the project documentation skeleton. The authoritative documents today are:
 
 - **Product spec** — `docs/PRD.md` in the repository (the section-numbered source of truth for requirements).
