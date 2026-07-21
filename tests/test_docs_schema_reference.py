@@ -201,15 +201,21 @@ def test_root_attributes_and_pinned_values_are_stated() -> None:
     )
 
 
-def test_page_states_the_additive_only_rule_and_the_bump_requirement() -> None:
-    """The policy facts a downstream reader depends on are actually written down.
+def test_page_states_the_additive_only_rule_and_links_the_policy() -> None:
+    """The freeze facts are written down, and the release policy is linked, not copied.
 
     Compares against whitespace-normalized, emphasis-stripped text so re-wrapping a
-    paragraph or bolding a phrase cannot break the check.
+    paragraph or bolding a phrase cannot break the check. The compatibility/deprecation
+    *policy* deliberately lives on ``docs/stability.md`` — this page states what is
+    frozen and points at that page rather than restating it, so the two cannot drift.
     """
     text = re.sub(r"\s+", " ", _page().lower().replace("*", ""))
-    for phrase in ("additive-only", "schema-guard", "in the same pull request"):
+    for phrase in ("additive-only", "schema-guard"):
         assert phrase in text, (
             f"docs/reference/tether-format.md must state {phrase!r}: a reader writing "
             "their own parser needs the freeze rules, not just the field list"
         )
+    assert "(../stability.md" in text, (
+        "docs/reference/tether-format.md must link the stability page for the "
+        "compatibility/deprecation policy instead of restating it"
+    )

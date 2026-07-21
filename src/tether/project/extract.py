@@ -443,8 +443,9 @@ def extract_movie(
             n_frames, height, width = reader.shape
             pixel_dtype = str(reader.dtype)
             byteorder = reader.byteorder
-            # 0.0 == "frame time unknown" (MovieMetadata's documented default);
-            # the authoritative interval arrives with the .tdat/.mat at import.
+            # 0.0 == "frame time unknown" (MovieMetadata's documented default). The
+            # ImageJ finterval tag is the only source: the .tdat/.mat decode reads no
+            # FrameTime, so a legacy import cannot supply one later either.
             frame_time = float(reader.frame_time) if reader.frame_time is not None else 0.0
 
             if imported_map is not None:

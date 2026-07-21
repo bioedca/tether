@@ -71,10 +71,14 @@ and is **additive-only** thereafter
 - the presence and type of the three root attributes, plus the *values* of `format`
   and `schema_version`.
 
-Removing, renaming, reordering, or retyping any of those fails the `schema-guard`
-CI job (`.github/workflows/schema-guard.yml`, which runs
-`python scripts/dump_schema.py --check`). Adding a group, dataset, attribute, or a
-*trailing* table field passes: additions are the sanctioned way to grow the format.
+Those rules are enforced mechanically, not by review: the `schema-guard` CI job
+(`.github/workflows/schema-guard.yml`) runs `python scripts/dump_schema.py --check`,
+which fails a removal, rename, reorder or retype and passes an added group, dataset,
+attribute or *trailing* table field. The release **policy** behind them — which
+release types may change what, and which parts of this page are a promise rather
+than a description — is not restated here: it is
+[the `.tether` on-disk format](../stability.md#2-the-tether-on-disk-format) section
+of the stability page.
 
 What that means if you write your own reader:
 
@@ -102,13 +106,11 @@ change without touching the store's `schema_version`. Pin your reader to the wri
 module named in each section, and treat a missing or unfamiliar payload as normal.
 
 `schema_version` is currently **`1`** (`SCHEMA_VERSION`, `src/tether/io/schema.py`)
-and has never been bumped. It is monotonic: `tether.io.schema.assert_compatible`
-refuses to open a file whose version exceeds the running app's, while older files
-are still readable. A deliberate structural change is not forbidden — it must carry
-an ADR, a `schema_version` bump, and a regenerated golden manifest **in the same
-pull request**; `diff_manifest` flags a version change whose golden was not
-regenerated. That rule is the whole on-disk compatibility policy — there is no
-separate deprecation schedule to consult.
+and has never been bumped. What a bump would mean for a file you already hold, and
+what a non-additive change has to carry before one is allowed, are set out under
+[Project file compatibility](../stability.md#project-file-compatibility); how a
+covered name is retired is the
+[deprecation policy](../stability.md#deprecation-policy) on the same page.
 
 Two properties worth knowing before you build on the format:
 
@@ -156,7 +158,7 @@ The rest of this page describes the native-extraction case unless it says otherw
 | Store provenance | Writer | What differs |
 |---|---|---|
 | Native extraction | `write_extraction` (`src/tether/imaging/extract.py`) | The full record: `/movies` rows, coordinates, all six `/traces` layers, `/patches`. |
-| Deep-LASI reconstruction | `reconstruct_project` (`src/tether/project/reconstruct.py`) | Also goes through `write_extraction`, so the `/movies`, `/molecules`, `/traces` and `/patches` layout is the same — but the trace values are the legacy `.mat` series copied verbatim, **not** an integration this build performed, and **no calibration is written**: `reconstruct_project` never calls `write_calibration`, so `/calibration` stays empty, `/movies.calibration_id` is `""` and the channel crop/rotation/flip fields are all zero. |
+| Deep-LASI reconstruction | `reconstruct_project` (`src/tether/project/reconstruct.py`) | Also goes through `write_extraction`, so the `/movies`, `/molecules`, `/traces` and `/patches` layout is the same — but the trace values are the legacy `.mat` series copied verbatim, **not** an integration this build performed, and **no calibration is written**: `reconstruct_project` never calls `write_calibration`, so `/calibration` stays empty whatever the caller passes. The shipped GUI/CLI caller additionally leaves the calibration key and channel geometry unset (`_movie_metadata`, `src/tether/gui/deeplasi_executor.py`), so in practice `/movies.calibration_id` is `""` and the crop/rotation/flip fields are all zero. |
 | Analysis-only import | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) | No `/movies` rows, `movie_id = ""`, `donor_xy`/`acceptor_xy` `NaN`, `/patches` empty, only the two corrected `/traces` layers. |
 | Subset export | `export_subset_tether` (`src/tether/project/export.py`) | A new store: `/molecules` rows copied verbatim (so `movie_id` survives as a **dangling** key), no `/movies` rows, corrected `/traces` only unless `include_raw=True`. |
 
@@ -174,7 +176,8 @@ declared in `src/tether/io/schema.py` are the little-endian spellings `<i4`, `<i
 
 ## `/` — the root group
 
-Three attributes, written by `create_project`:
+Three attributes. `create_project` always writes `format` and `schema_version`; the
+third is stamped **by default but optional** (see below):
 
 | Attribute | Type | Value | Frozen |
 |---|---|---|---|
@@ -183,8 +186,12 @@ Three attributes, written by `create_project`:
 | `app_version` | `str` | the writing Tether version, e.g. `0.8.1.dev16+g…` | name and type only |
 
 `app_version` is provenance, not structure: its value is deliberately excluded from
-the manifest so a release never trips `schema-guard`. Deleting the attribute
-*would* trip it.
+the manifest so a release never trips `schema-guard`. Deleting the attribute from the
+*declaration* would trip it — but that is a promise about the **writer**, not about
+every file: `create_project(path, stamp_app_version=False)` omits the attribute and
+`assert_is_compatible_project` never looks for it, so a store written that way is
+valid. Read it as `f.attrs.get("app_version")` and never reject a file for its
+absence.
 
 Subset exports stamp four **additional** root attributes onto the destination file —
 `tether_subset_of`, `tether_subset_created_utc`, `tether_subset_include_raw`,
@@ -212,7 +219,7 @@ of the movie and therefore never hydrates a cloud placeholder.
 | `width` | `i4` | scalar | Full-frame width, **pixels** — the whole frame, before the two-channel split. |
 | `pixel_dtype` | `str:utf-8` | scalar | On-disk pixel dtype string, e.g. `>u2` (`src/tether/io/movie.py`). |
 | `byteorder` | `str:utf-8` | scalar | `>` (big-endian) or `<` (little-endian). |
-| `frame_time` | `f8` | scalar | **Seconds per frame**, read only from the movie TIFF's ImageJ `finterval` tag, and only when it is finite and positive (`_read_frame_time`, `src/tether/io/movie.py`); `0.0` otherwise. A **Deep-LASI reconstruction** is no exception — it builds this row from the raw TIFF as well, and the shipped `.tdat`/`.mat` decode reads no `FrameTime`, so a reconstructed store does **not** preserve a Deep-LASI timebase. |
+| `frame_time` | `f8` | scalar | **Seconds per frame.** The writer stores whatever the caller's `MovieMetadata` holds (default `0.0`), and both shipped writers — `tether.project.extract` and the Deep-LASI reconstruction's `_movie_metadata` (`src/tether/gui/deeplasi_executor.py`) — take it from the movie TIFF's ImageJ `finterval` tag, and only when that is finite and positive (`_read_frame_time`, `src/tether/io/movie.py`); `0.0` otherwise. A **Deep-LASI reconstruction** is no exception: it builds this row from the raw TIFF as well, and the shipped `.tdat`/`.mat` decode reads no `FrameTime`, so a reconstructed store does **not** preserve a Deep-LASI timebase. |
 | `head_tail_hash` | `str:utf-8` | scalar | Reserved partial-content digest for the fast signature; no shipped writer sets it (stays `""`). |
 | `calibration_id` | `str:utf-8` | scalar | Join key into `/calibration`. |
 | `donor_crop` | `i4` | `(4,)` | `[y1, x1, y2, x2]`, **1-based inclusive** pixel bounds (`src/tether/imaging/split.py`). All-zero means full frame / unspecified. |
@@ -246,7 +253,7 @@ rewrites `condition_id`.
 | `frame_range` | `i4` | `(2,)` | `[start, stop)` **frame indices** of the molecule's valid native extent inside the zero-padded trace arrays. |
 | `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analysed. `frame_range` at native extraction, but an SMD import seeds it from the source's window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed window wins. |
 | `bleach_frames` | `i4` | `(2,)` | `(donor, acceptor)` first-bleach **absolute frame indices**. `-1` is the pre-detection sentinel (see below), *not* "no bleach". |
-| `alpha` | `f8` | scalar | Donor leakage α, dimensionless. `NaN` = **no factor applied**, which is not the same as "the pass has not run": `compute_leakage_alpha` *withholds* the factor — leaving the column untouched — when fewer than `min_qualifying_traces` molecules yield a valid donor-only tail (`src/tether/project/leakage.py`), and an analysis-only import seeds every row at `NaN` (`src/tether/project/analysis_import.py`). `compute_corrected_fret` then stamps `apparent-E (corrections unavailable)` with the factor still `NaN`, so read `correction_method` and `/settings/leakage` (`withheld`), never this cell, to tell the cases apart. |
+| `alpha` | `f8` | scalar | Donor leakage α, dimensionless. `NaN` = **no factor applied**, which is not the same as "the pass has not run": `compute_leakage_alpha` *withholds* the factor — leaving the column untouched — when fewer than `min_qualifying_traces` molecules yield a valid donor-only tail (`src/tether/project/leakage.py`), and an analysis-only import seeds every row at `NaN` (`src/tether/project/analysis_import.py`). `compute_corrected_fret` then stamps `apparent-E (corrections unavailable)` on every analysable molecule (one whose `frame_range` is non-empty), unless `apparent_e_only` forces `apparent-E (user toggle)` instead, with the factor still `NaN` — so read `correction_method` and `/settings/leakage` (`withheld`), never this cell, to tell the cases apart. |
 | `gamma` | `f8` | scalar | Detection-correction γ, dimensionless. Same `NaN` convention as `alpha` — `compute_gamma` withholds the dataset γ below `min_qualifying_traces` (`src/tether/project/gamma.py`) and stamps `/settings/gamma` with `withheld = True`, so read `correction_method` / `/settings/gamma` rather than this cell. |
 | `delta` | `f8` | scalar | Direct-excitation δ, dimensionless. Inert in two-colour work; written `0.0`. |
 | `correction_method` | `str:utf-8` | scalar | Closed vocabulary from `src/tether/project/correct.py`: `corrected`, `manual`, `apparent-E (corrections unavailable)`, `apparent-E (user toggle)`. `""` before any correction pass. |
