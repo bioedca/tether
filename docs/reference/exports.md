@@ -131,9 +131,16 @@ disk's pixel count `n_psf = int(disk.sum())`.
 
 > **The aperture geometry is an extraction option, not a property of the export.** At the
 > defaults (`window=21`, `disk_radius=3.0`, `ring_inner=6.0`, `ring_outer=8.0`,
-> `bg_window=10` — `tether.project.extract.ExtractionOptions`, mirrored by
-> `tether.imaging.aperture.integrate_traces`) the disk is **29 px**, but the
-> `tether extract --window` flag changes it. The effective geometry is stamped into
+> `bg_window=10` — `tether.project.extract.ExtractOptions`, mirrored by
+> `tether.imaging.aperture.integrate_traces`) the disk is **29 px**, and that count is set
+> by **`disk_radius` alone**. `aperture_masks` builds the disk as `dist <= disk_radius`
+> about the window centre, so `n_psf` is 29 for *every* legal `window` — the window only
+> has to be odd and wide enough for the ring (`2 * ring_outer <= window`). Changing
+> `disk_radius` is what re-scales an intensity: `3.0 → 29 px`, `4.0 → 49 px`, `5.0 → 81 px`.
+> The `tether extract --window` flag changes the crop-box side length and leaves `n_psf`
+> at 29; `disk_radius`, the ring radii and `bg_window` have **no CLI flag** and are
+> reachable only through the Python API (`ExtractOptions`,
+> `integrate_traces(disk_radius=…)`). The effective geometry is stamped into
 > `/settings/extraction` (`window`, `disk_radius`, `ring_inner`, `ring_outer`,
 > `bg_window`, `n_psf` — `tether.imaging.extract._write_settings_once`), which travels in
 > a subset `.tether` but is carried by **neither** the `.txt` nor its sidecar.
@@ -278,7 +285,7 @@ The serializer is `tether.io.deeplasi.write_deeplasi_txt`; its read-side mirror 
 | Number format | `numpy.savetxt(..., fmt="%.5f")` — fixed-point, exactly 5 decimals (`_TXT_DECIMALS = 5`). A round trip is therefore lossy to that rounding |
 | Delimiter | A single space |
 | Line ending | OS-translated (`savetxt` opens in text mode; no `newline=` is passed) — CRLF on Windows, LF elsewhere. Unlike the CSV, this is *not* fixed |
-| Values | Intensities in movie pixel units (see [Intensity units](#intensity-units)); signed, so background-subtracted values may be negative |
+| Values | Uncalibrated intensities — never photons, and **not necessarily movie pixel units**: what the number is depends on how the *source store* was built (integrated camera counts for a native extraction; the upstream tool's pre-integrated series, verbatim, for a Deep-LASI reconstruction or an analysis-only import). See [Intensity units](#intensity-units). Signed either way, so background-subtracted values may be negative |
 
 A real first line, from a three-molecule store:
 

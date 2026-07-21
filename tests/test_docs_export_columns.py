@@ -8,22 +8,59 @@ tells that reader what each name means. This module is the drift guard between t
 page's column table must list exactly the tuple's names, in the tuple's order. Where the
 two disagree, **the tuple is right** and the page is stale.
 
-Dependency-free by design (the constraint on issue #160): ``python-markdown`` is not in
-the base 3-OS test environment, so the table is parsed structurally — split each ``|``
-row, take its first cell — rather than rendered.
+Dependency-free by design (the constraint on issue #160), on *both* sides. Neither
+``python-markdown`` (not in the base 3-OS test environment) nor the scientific stack is
+imported: the page's table is parsed structurally — split each ``|`` row, take its first
+cell — and the tuple is read out of ``src/tether/project/export.py`` with :mod:`ast`
+rather than by importing it. Importing ``tether.project.export`` would pull in
+``numpy``/``scipy``/``h5py`` through :mod:`tether.imaging.extract`, which is why every
+scientific test in this suite opens with ``pytest.importorskip``; a documentation check
+should not need that environment at all.
 """
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
-from tether.project.export import MOLECULE_TABLE_COLUMNS
+_REPO = Path(__file__).resolve().parents[1]
 
-PAGE = Path(__file__).resolve().parents[1] / "docs" / "reference" / "exports.md"
+PAGE = _REPO / "docs" / "reference" / "exports.md"
+
+#: The module the frozen tuple lives in, read as text — never imported (see the module
+#: docstring). This is the repo checkout, which is also what an editable install exposes.
+EXPORT_SOURCE = _REPO / "src" / "tether" / "project" / "export.py"
 
 #: The heading the column table lives under. Renaming it in the page means updating it
 #: here — deliberately: the guard must never silently stop finding the table.
 _HEADING = "### Molecule-table columns"
+
+#: The frozen tuple's name in :data:`EXPORT_SOURCE`.
+_TUPLE_NAME = "MOLECULE_TABLE_COLUMNS"
+
+
+def _frozen_columns() -> list[str]:
+    """The ``MOLECULE_TABLE_COLUMNS`` string literals, in source order.
+
+    Parses the module instead of importing it, so this docs guard runs in an
+    interpreter that has no scientific stack installed.
+    """
+    tree = ast.parse(EXPORT_SOURCE.read_text(encoding="utf-8"), filename=str(EXPORT_SOURCE))
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        elif isinstance(node, ast.Assign):
+            targets = node.targets
+        else:
+            continue
+        named = any(isinstance(t, ast.Name) and t.id == _TUPLE_NAME for t in targets)
+        if not named or node.value is None:
+            continue
+        assert isinstance(node.value, ast.Tuple), (
+            f"{_TUPLE_NAME} in {EXPORT_SOURCE} is no longer a tuple literal"
+        )
+        return [ast.literal_eval(element) for element in node.value.elts]
+    raise AssertionError(f"module-level {_TUPLE_NAME} not found in {EXPORT_SOURCE}")
 
 
 def _column_table_rows() -> list[str]:
@@ -58,15 +95,23 @@ def _column_table_rows() -> list[str]:
 def test_page_exists_and_is_in_the_nav() -> None:
     """A page absent from the nav fails ``mkdocs build --strict`` on ``omitted_files``."""
     assert PAGE.is_file(), f"{PAGE} is missing"
-    nav = (PAGE.parents[2] / "mkdocs.yml").read_text(encoding="utf-8")
+    nav = (_REPO / "mkdocs.yml").read_text(encoding="utf-8")
     assert "reference/exports.md" in nav
+
+
+def test_frozen_tuple_is_parseable() -> None:
+    """The ast read is the guard's other half — a silent parse miss must fail loudly."""
+    columns = _frozen_columns()
+    assert columns, f"{_TUPLE_NAME} parsed as empty from {EXPORT_SOURCE}"
+    assert all(isinstance(name, str) for name in columns)
+    assert columns[0] == "molecule_id"
 
 
 def test_documented_columns_match_the_frozen_tuple_exactly() -> None:
     """Element-for-element, in order — a rename, addition, removal or reorder fails."""
-    assert _column_table_rows() == list(MOLECULE_TABLE_COLUMNS)
+    assert _column_table_rows() == _frozen_columns()
 
 
 def test_column_table_row_count() -> None:
     """The table has one data row per column and no stragglers."""
-    assert len(_column_table_rows()) == len(MOLECULE_TABLE_COLUMNS)
+    assert len(_column_table_rows()) == len(_frozen_columns())
