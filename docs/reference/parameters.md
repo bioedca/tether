@@ -322,12 +322,16 @@ the evidence that justifies each one lives with the decision record that set it,
 copy would drift. Use this section to find the authority for each, then read the value from
 there. Where one of them *is* settable per call, the row says so.
 
+For the gates that were measured rather than chosen, [Validation &amp;
+benchmarks](../validation.md) carries the evidence: the frozen numbers, what produced them,
+and — stated explicitly — which direction of change CI does and does not catch.
+
 | Gate | Where the value lives | What it decides |
 | --- | --- | --- |
 | Registration RMS residual | `DEFAULT_RMS_GATE_PX` in `tether.imaging.calibrate`; rationale in [ADR-0014](../adr/0014-registration-map-rms-gate-and-over-gate.md) | Whether a channel map is flagged low-confidence, and — under `tether batch --policy fail` — whether the movie is failed. Settable as `--rms-gate`; the *policy* is the gate. |
 | Leakage α acceptance range | `LEAKAGE_CEILING` in `tether.fret.leakage`; estimator rationale in [ADR-0027](../adr/0027-leakage-alpha-tail-estimator.md) | Which per-trace α values enter the dataset median. |
 | γ acceptance range | `GAMMA_CEILING` in `tether.fret.gamma`; estimator rationale in [ADR-0028](../adr/0028-gamma-acceptor-bleach-step-estimator.md) | Which per-trace γ values enter the dataset median. |
-| Idealization parity tolerance | `schema/parity_tolerance.json`, loaded by `load_frozen_tolerance` in `tether.idealize.parity`; rationale in [ADR-0009](../adr/0009-parity-metrics-and-freeze.md) and [ADR-0043](../adr/0043-per-method-parity-tolerance.md) | Whether Tether's idealization is accepted as matching the reference implementation. The file carries a **per-method** row: the empirical-Bayes model is ratified against its own, looser tolerance, not the default one. Read the method's own row, not the top-level one. |
+| Idealization parity tolerance | `schema/parity_tolerance.json`, loaded by `load_frozen_tolerance` in `tether.idealize.parity`; rationale in [ADR-0009](../adr/0009-parity-metrics-and-freeze.md) and [ADR-0043](../adr/0043-per-method-parity-tolerance.md); measured spreads and re-freeze recipe in [Validation &amp; benchmarks](../validation.md) | Whether Tether's idealization is accepted as matching the reference implementation. The file carries a **per-method** row: the empirical-Bayes model is ratified against its own, looser tolerance, not the default one. Read the method's own row, not the top-level one. |
 | Bleach-frame agreement | asserted directly in `tests/test_fret_photobleach.py` | How closely the detector must recover a known bleach frame. It exists only as a test assertion — there is no module constant, and therefore nothing to set. |
 | Photobleach window default | rationale in [ADR-0026](../adr/0026-photobleach-detection-and-window-default.md) | How the automatic analysis window is derived and why a manual window always wins. |
 | Per-trace interaction budget | `PER_TRACE_LATENCY_BUDGET_S` in `tether.project.perf` | A performance budget, not a scientific one: how long one molecule may take to render and advance. |

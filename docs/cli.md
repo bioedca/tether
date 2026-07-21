@@ -12,6 +12,12 @@ the same parser `--help` prints from — and a guard test (`tests/test_cli_refer
 fails if that parser gains, loses or renames an option without a matching edit here. Where
 a default is quoted, it is the string argparse prints, not a value read out of the source.
 
+The flags on this page are only the part of the pipeline the command line exposes. Most of
+what Tether applies to your data — the correction, idealization, analysis and rendering
+defaults — has no CLI flag and is reached from Python or the desktop application. Those are
+tabled in [Analysis parameters](reference/parameters.md), which also records, for each one,
+whether the value you used is written into the `.tether` project.
+
 ## Launching Tether after an installer install
 
 The installer deliberately does **not** edit your `PATH` (see
