@@ -48,6 +48,7 @@ nav:
   - Machine learning:
       - Deep trace classifier (GPU add-on): ml/deep-classifier.md
   - Reference:
+      - Command line: cli.md
       - Exports (files, columns, units): reference/exports.md
   - Glossary: glossary.md
   - Troubleshooting: troubleshooting.md
