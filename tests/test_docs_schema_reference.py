@@ -89,8 +89,19 @@ def _first_field_block(lines: list[str]) -> list[tuple[str, str, str]]:
 
 
 def _expected_shape(shape: list[int]) -> str:
-    """Render a golden field shape the way the page's Shape column spells it."""
-    return "scalar" if not shape else f"({shape[0]},)"
+    """Render a golden field shape the way the page's Shape column spells it.
+
+    Every dimension, not just the first: today's golden holds only ``()``, ``(2,)`` and
+    ``(4,)`` sub-arrays, but a future *appended* field may be 2-D (the ``priors/``
+    ``(nstates, nstates)`` precedent), and rendering only ``shape[0]`` would check a
+    ``[2, 3]`` field as ``(2,)`` — silently passing the page's wrong shape and defeating
+    the guard for exactly the field most likely to be mis-documented.
+    """
+    if not shape:
+        return "scalar"
+    if len(shape) == 1:
+        return f"({shape[0]},)"
+    return "({})".format(", ".join(str(dimension) for dimension in shape))
 
 
 def test_page_and_golden_exist() -> None:

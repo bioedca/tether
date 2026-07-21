@@ -20,11 +20,13 @@ The format has **two layers**, and they carry different guarantees:
   throwaway `create_project` store, so it cannot drift from the code. Where this page
   and that manifest disagree about the skeleton, **the manifest is right and this
   page is a bug**.
-- Everything a pipeline stage writes *later* — `/traces`, `/patches`, `/settings/*`,
-  `/idealization/{model}`, `/features/table`, `/conditions/categories`,
+- Everything a pipeline stage writes *later* — `/traces/*`, `/patches/*`,
+  `/settings/*`, `/idealization/{model}`, `/features/table`, `/conditions/categories`,
   `/calibration/*` — is additive per-record data declared by the module that writes
   it. None of it appears in the manifest, so the manifest cannot arbitrate it: the
-  writer named in each section below is the authority.
+  writer named in each section below is the authority. Note the `/*`: the **container
+  groups** these live in are themselves part of the frozen skeleton above, and only
+  their contents are additive.
 
 Every claim below names the module, constant, or writer behind it.
 
@@ -84,12 +86,17 @@ What that means if you write your own reader:
 > attributes — continuing to exist unchanged for as long as `schema_version` stays
 > `1`. That is exactly the set `schema-guard` mechanically enforces.
 
-The additive payloads described further down (`/traces`, `/patches`, `/settings/*`,
-`/idealization/{model}`, `/features/table`, `/calibration/*`) are **documented
-convention, not part of the freeze**. `build_manifest` introspects a freshly created,
-empty store, so none of those names is in the golden and `diff_manifest` never
-compares them: renaming or retyping one would pass `schema-guard` with
-`schema_version` untouched. They have been additive in practice, and `/features/table`
+The additive payloads described further down (`/traces/*`, `/patches/*`,
+`/settings/*`, `/idealization/{model}`, `/features/table`, `/calibration/*`) are
+**documented convention, not part of the freeze**. Their **container groups are not**:
+`/traces`, `/patches`, `/settings`, `/idealization`, `/features`, `/calibration` and
+`/models` are all in the golden's `groups` list and in `_CONTAINER_GROUPS`
+(`src/tether/io/schema.py`), so a file missing any one of them is rejected by
+`assert_is_compatible_project` as not a project — a **required** group your reader may
+rely on, even when it is empty. Only what is *inside* them is unarbitrated:
+`build_manifest` introspects a freshly created, empty store, so none of those child
+names is in the golden and `diff_manifest` never compares them; renaming or retyping
+one would pass `schema-guard` with `schema_version` untouched. They have been additive in practice, and `/features/table`
 carries its own independent `feature_schema_version` precisely so its columns can
 change without touching the store's `schema_version`. Pin your reader to the writer
 module named in each section, and treat a missing or unfamiliar payload as normal.
@@ -117,9 +124,10 @@ Two properties worth knowing before you build on the format:
 ## A freshly created project is nearly empty
 
 `tether.io.schema.create_project(path)` writes the whole skeleton and nothing else:
-11 top-level groups, four **zero-row** compound tables, three root attributes, about
-13 KB on disk (a real `create_project` store holds 15 HDF5 objects in 12,950 bytes).
+11 top-level groups, four **zero-row** compound tables, and three root attributes.
 Everything else on this page is *data* written later by a specific pipeline stage.
+(Do not treat the file's *size* as a format property — the same skeleton measures
+12,950 bytes under HDF5 2.0.0 and 13,164 under 1.14.x. Only the structure is fixed.)
 
 The `/traces` and `/patches` **groups** always exist — they are part of the validated
 skeleton (`_CONTAINER_GROUPS`), and a file missing one is rejected as not a project.
@@ -236,7 +244,7 @@ rewrites `condition_id`.
 | `acceptor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` acceptor read position, donor-anchored through the registration map, in **movie pixels**. |
 | `aperture_id` | `i4` | scalar | Aperture-geometry id. Always `0` today (the standard window); no per-aperture registry exists yet. |
 | `frame_range` | `i4` | `(2,)` | `[start, stop)` **frame indices** of the molecule's valid native extent inside the zero-padded trace arrays. |
-| `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analysed. Defaults to `frame_range`; auto-refined by photobleach detection *only* while it still equals `frame_range`, so a curator-narrowed window wins. |
+| `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analysed. `frame_range` at native extraction, but an SMD import seeds it from the source's window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed window wins. |
 | `bleach_frames` | `i4` | `(2,)` | `(donor, acceptor)` first-bleach **absolute frame indices**. `-1` is the pre-detection sentinel (see below), *not* "no bleach". |
 | `alpha` | `f8` | scalar | Donor leakage α, dimensionless. `NaN` = not yet computed. |
 | `gamma` | `f8` | scalar | Detection-correction γ, dimensionless. `NaN` = not yet computed. |
@@ -250,6 +258,21 @@ rewrites `condition_id`.
 | `condition_id_provisional` | `str:utf-8` | scalar | The filename-derived condition id, retained verbatim across any re-key. |
 | `source_filename` | `str:utf-8` | scalar | Original acquisition filename the molecule came from. |
 | `tags` | `str:utf-8` | scalar | Comma-joined tag string; `""` when none. The pipeline emits two tags — see below. |
+
+> **A narrowed `analysis_window` is not a provenance signal.** In a natively extracted
+> store the window starts equal to `frame_range`, so a narrower one does mean
+> photobleach detection or a curator edit. That inference breaks on an **analysis-only
+> import**: `_normalize_source` reads the SMD's tMAVEN `pre_list`/`post_list` and
+> `_build_molecule_rows` writes them straight into `analysis_window`
+> (`src/tether/project/analysis_import.py`), so a *freshly imported* row can already be
+> narrower than `frame_range` with `bleach_frames` still `-1` and `curation_label`
+> still `0`. And because the auto-refine fires only on a window that still equals
+> `frame_range`, a later `compute_photobleach` leaves those imported windows alone. On
+> a real 2-molecule import with `pre_list = [3, 0]` / `post_list = [30, 40]` over 40
+> frames, the rows read `analysis_window` `[3, 30]` and `[0, 40]` against `frame_range`
+> `[0, 40]`, and `compute_photobleach` reported `n_windows_autoset=1` — it refined only
+> the second row. To tell the cases apart, read `/settings/analysis_only` or the
+> `round-trip-unavailable` tag, not the window.
 
 ### Two sentinels and two derivations worth reading twice
 
@@ -411,14 +434,27 @@ Empty until `write_extraction` runs. Two datasets, `donor` and `acceptor`, each
 `maxshape=(None, window, window)` — only the molecule axis grows, because the
 aperture window is fixed per project and validated on every later append.
 
-Each entry is the **temporal mean** image crop for that molecule and channel, in
-`(row, col)` image order, centred on the molecule's rounded coordinate; a molecule
-whose window falls outside the frame yields an all-zero patch (`_mean_patches` in
-`src/tether/imaging/extract.py`). The default window is 21 px
+In a **natively extracted** store each entry is the **temporal mean** image crop for
+that molecule and channel, in `(row, col)` image order, centred on the molecule's
+rounded coordinate; a molecule whose window falls outside the frame yields an all-zero
+patch (`_mean_patches` in `src/tether/imaging/extract.py`). The default window is 21 px
 (`extract_molecules(..., window=21)`); the value actually used is recorded as
 `/settings/extraction@window`. Row order matches `/molecules/table`. A subset export
 carries both stacks, row-subset to the exported molecules; **analysis-only imports
 leave `/patches` empty**, because they have no coordinates.
+
+> **A Deep-LASI reconstruction's patches are placeholders, not images.**
+> `reconstruct_project` accepts optional `donor_patches`/`acceptor_patches`, and
+> `_resolve_patches` (`src/tether/project/reconstruct.py`) **zero-fills** an
+> `(n_molecules, 21, 21)` stack for whichever is `None` — the movie link makes the real
+> crops re-cacheable later. No shipped caller passes them (the GUI wizard's
+> `reconstruct_project` call omits both), so in practice **every** reconstructed store's
+> `/patches` are entirely zero: a real reconstruction of the committed 4-molecule
+> UCKOPSB `.mat` writes `donor` and `acceptor` of shape `(4, 21, 21)` float32 with
+> `max() == 0.0`. An all-zero patch therefore means "out-of-frame native crop" *only*
+> in a natively extracted store. Check the store's provenance first —
+> `/settings/extraction@profile_json` carries `"source": "m7-deeplasi-reconstruction"`
+> for this path — rather than inferring anything from the pixels.
 
 ## `/settings` — provenance of each pipeline stage
 
@@ -510,8 +546,15 @@ The `pi` / `frac` distinction is the full Appendix-D.2 population model
 
 `input_hash` is a per-molecule composite hash of everything the fit consumed: the
 windowed donor/acceptor input, the `intensity_quantity`, the analysis-window bounds,
-and the molecule's effective α, γ and `correction_method`. A later correction change
-therefore re-stales exactly the dependent idealizations, with per-factor scope
+and the molecule's **effective applied** α and γ. The `correction_method` string is
+*not* folded into the digest itself: `input_provenance_hash` passes it through
+`_effective_factors` (`src/tether/project/idealize.py`), which maps every apparent-E
+method — `""`, `apparent-E (corrections unavailable)` and `apparent-E (user toggle)` —
+to the identity `(α = 0, γ = 1)`, and only the resulting pair is hashed. So a row
+moving between those three methods keeps the **same** `input_hash`, deliberately: the
+corrected E it would feed is never displayed, so nothing it feeds went stale. Fold the
+method string in yourself and you will falsely mark live idealizations stale. A real
+correction change re-stales exactly the dependent idealizations, with per-factor scope
 ([ADR-0029](../adr/0029-idealization-correction-provenance-hash-and-per-factor-staleness.md)).
 
 Group attributes: `type`, `nstates`, `dtype` (the idealized quantity, e.g. `FRET`),
@@ -524,11 +567,13 @@ them (`_RESERVED_MODEL_ATTRS`).
 ## `/features` — the ML feature cache
 
 Empty until `compute_features` runs, which writes `/features/table`: a resizable 1-D
-compound dataset with `molecule_id` and `molecule_key` (vlen UTF-8), `n_frames`
-(`i8`), and one `f8` column per engineered feature, in
-`tether.ml.features.FEATURE_NAMES` order — `n_frames`, `total_intensity`, `snr`,
-`fret_mean`, `fret_var`, `anticorr_lag0`, `anticorr_lag1_magnitude`,
-`neighbor_distance`, `aperture_overlap`.
+compound dataset of **11 fields** — two id columns, `molecule_id` and `molecule_key`
+(both vlen UTF-8), then **exactly one column per `tether.ml.features.FEATURE_NAMES`
+entry**, in that order: `n_frames`, `total_intensity`, `snr`, `fret_mean`, `fret_var`,
+`anticorr_lag0`, `anticorr_lag1_magnitude`, `neighbor_distance`, `aperture_overlap`.
+`n_frames` is a member of that feature list, not a separate column beside it, and it
+is the sole **integer** one — `i8`, the only entry in `_INT_FEATURES`; the other eight
+features are `f8` (`_feature_table_dtype`, `src/tether/project/features.py`).
 
 Units: `n_frames` is frames, `total_intensity` is in the same uncalibrated intensity
 units as `/traces`, `neighbor_distance` is pixels, `aperture_overlap` is a fraction,
