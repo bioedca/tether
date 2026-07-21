@@ -9,9 +9,10 @@ page quietly *wrong*. Neither is visible to ``mkdocs build --strict`` — no lin
 either way — and neither shows up in a diff that only touches ``src/``.
 
 So the check runs in both directions, which is exactly what issue #166 asks for: every
-option the parser defines is named on the page, and every ``--flag`` token on the page
-is an option the parser actually defines. It reads the *live* parser rather than a
-transcript, so it cannot drift the way a copied ``--help`` block can.
+option the parser defines is named on the page, and every flag token on the page —
+``--out-dir`` and its ``-d`` alias alike — is an option the parser actually defines. It
+reads the *live* parser rather than a transcript, so it cannot drift the way a copied
+``--help`` block can.
 
 Direction 1 is scoped to each subcommand's own section rather than to the whole page.
 ``--tmap``, ``--tdat`` and ``--overwrite`` exist on *both* parsers, so a page-wide
@@ -46,6 +47,22 @@ _UNDOCUMENTED = frozenset({"-h", "--help"})
 
 # A long-form flag as it appears in prose, a table cell or a fenced block.
 _FLAG_RE = re.compile(r"--[a-zA-Z][a-zA-Z0-9-]*")
+
+# A short alias (`-o`, `-d`) in the same places. The lookarounds keep it off the tail of a
+# hyphenated word and out of the middle of a long flag, so `--donor-side` does not read as a
+# documented `-d`. Every command the page shows is a `tether` invocation, so anything this
+# matches is expected to be a tether option.
+_SHORT_FLAG_RE = re.compile(r"(?<![\w-])-[a-zA-Z](?![\w-])")
+
+
+def _documented_flags(text: str) -> set[str]:
+    """Every option token — long or short — spelled out in ``text``.
+
+    Matching whole tokens rather than substrings is what makes the short aliases count:
+    ``"-d" in "--donor-side"`` is true, so a plain ``in`` test can never tell a documented
+    ``-d`` from an incidental one.
+    """
+    return set(_FLAG_RE.findall(text)) | set(_SHORT_FLAG_RE.findall(text))
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
@@ -144,13 +161,16 @@ def test_every_parser_option_is_documented() -> None:
 
     missing: dict[str, list[str]] = {}
     for name, sub in sorted(_subparsers(parser).items()):
-        section = _subcommand_section(name)
-        absent = sorted(opt for opt in _option_strings(sub) if opt not in section)
+        documented = _documented_flags(_subcommand_section(name))
+        absent = sorted(opt for opt in _option_strings(sub) if opt not in documented)
         if absent:
             missing[name] = absent
     # The top-level parser's own options belong to no subcommand section, so they are
     # the one thing still checked page-wide.
-    top_level_absent = sorted(opt for opt in _option_strings(parser) if opt not in _page_text())
+    documented_page_wide = _documented_flags(_page_text())
+    top_level_absent = sorted(
+        opt for opt in _option_strings(parser) if opt not in documented_page_wide
+    )
     if top_level_absent:
         missing["tether"] = top_level_absent
 
@@ -175,10 +195,14 @@ def test_every_positional_is_documented() -> None:
 
 
 def test_the_page_invents_no_flags() -> None:
-    """Direction 2 — every ``--flag`` on the page is one the parser really defines.
+    """Direction 2 — every flag on the page, short aliases included, is one the parser defines.
 
     Catches the more damaging drift: a flag that was renamed or removed leaves behind
     prose telling users to type something that now fails.
+
+    Short aliases have to be in scope here: the option-count tripwire above only counts
+    ``--`` options, so dropping ``-d`` while keeping ``--out-dir`` moves no count and leaves
+    the page telling readers to type a spelling argparse now rejects.
     """
     parser = build_parser()
     real = _option_strings(parser) | {
@@ -186,7 +210,7 @@ def test_the_page_invents_no_flags() -> None:
     }
     real |= set(_UNDOCUMENTED)
 
-    invented = sorted(set(_FLAG_RE.findall(_page_text())) - real)
+    invented = sorted(_documented_flags(_page_text()) - real)
     assert not invented, (
         "docs/cli.md documents these flags, but no tether parser defines them "
         f"(renamed or removed?): {invented}"
