@@ -309,13 +309,55 @@ _CEILINGS = {
     "relative_elbo": "relative_elbo_max",
 }
 
+# Which fixtures each frozen block was measured on, and how many comparisons each
+# contributed (a cross-seed spread anchored on run00 spends one of its `n_runs` on
+# the anchor, hence 19 of 20). Pinned here because *which evidence exists* is part
+# of the freeze: dropping a fixture or a run is a re-freeze (`$.freeze_policy`,
+# ADR-0009/ADR-0043), never a silent edit. Without this a PR could satisfy a bound
+# by deleting the runs that stressed it, and every remaining value would still pass.
+_EXPECTED_COMPARISONS = {"smd_4mol": 19, "smd_281mol": 20}
+_EXPECTED_COMPARISONS_BY_METHOD = {"ebhmm": {"smd_281mol": 19}}
 
-def _assert_spread_within(spread_by_fixture, tol):
-    """Every recorded per-run value must sit within ``tol``'s floors/ceilings."""
-    for fixture in spread_by_fixture.values():
+
+def _assert_spread_within(spread_by_fixture, tol, *, expected_comparisons, n_runs):
+    """Every recorded per-run value must sit within ``tol``'s floors/ceilings.
+
+    Also asserts the evidence is *complete and self-consistent*, so a bound can
+    never be satisfied by deleting the runs that stressed it: the measured fixture
+    set and each fixture's comparison count must match ``expected_comparisons``
+    exactly, that count must be consistent with the block's declared ``n_runs``,
+    every fixture must carry all four metrics with their declared direction, and
+    the recorded ``n``/``min``/``max``/``mean``/``worst`` must be reproducible from
+    the ``values`` list via the production :class:`SpreadSummary`. Dropping an
+    outlier therefore fails on the count, and doctoring the count fails here too.
+    """
+    assert set(spread_by_fixture) == set(expected_comparisons), "measured fixture set changed"
+    for name, fixture in spread_by_fixture.items():
+        expected_n = expected_comparisons[name]
+        # Anchored spreads yield n_runs - 1 comparisons; referenced ones yield n_runs.
+        assert n_runs - 1 <= expected_n <= n_runs, f"{name}: pinned count vs declared n_runs"
+        assert fixture["n_comparisons"] == expected_n, (
+            f"{name}: {fixture['n_comparisons']} comparisons, frozen evidence has {expected_n}"
+        )
+        assert set(fixture["metrics"]) == set(_FLOORS) | set(_CEILINGS), (
+            f"{name} must record all four metrics"
+        )
         for metric, summ in fixture["metrics"].items():
-            for v in summ["values"]:
-                if metric in _FLOORS:
+            is_floor = metric in _FLOORS
+            assert summ["direction"] == ("floor" if is_floor else "ceiling")
+            # Evidence completeness: no run may vanish from under the bound.
+            values = summ["values"]
+            assert len(values) == summ["n"] == expected_n, (
+                f"{name}/{metric}: recorded n disagrees with the frozen evidence"
+            )
+            # Summary consistency: recompute from `values` with the production
+            # aggregator, so an edited-out value cannot leave the worst case behind.
+            recomputed = SpreadSummary(metric, summ["direction"], values).as_dict()
+            for key in ("n", "min", "max", "worst"):
+                assert recomputed[key] == summ[key], f"{name}/{metric}: stale {key}"
+            assert recomputed["mean"] == pytest.approx(summ["mean"], rel=1e-12)
+            for v in values:
+                if is_floor:
                     assert v >= tol[_FLOORS[metric]], f"{metric}={v} below frozen floor"
                 else:
                     assert v <= tol[_CEILINGS[metric]], f"{metric}={v} above frozen ceiling"
@@ -330,17 +372,23 @@ def test_frozen_artifact_covers_its_own_measured_evidence():
     out-of-band `sidecar.yml`.
 
     Be precise about the direction it protects: the assertions are `value within
-    bound`, so a bound **tightened** below its own evidence, evidence edited out
-    from under a bound, or an altered ``$.provisional`` all fail here — but a
-    **loosened** bound does not, because widening a ceiling (or lowering a floor)
-    only leaves the recorded values further inside it. Loosening is held by review
-    plus the deliberate re-freeze rule (``$.freeze_policy``, PRD 11.2, ADR-0009),
-    not by this test. Same caveat applies to the per-method check below.
+    bound`, so a bound **tightened** below its own evidence, evidence deleted or
+    truncated from under a bound (see ``_assert_spread_within``), or an altered
+    ``$.provisional`` all fail here — but a **loosened** bound does not, because
+    widening a ceiling (or lowering a floor) only leaves the recorded values
+    further inside it. Loosening is held by review plus the deliberate re-freeze
+    rule (``$.freeze_policy``, PRD 11.2, ADR-0009), not by this test. Same caveat
+    applies to the per-method check below.
     """
     data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
     # Provisional defaults are the documented floor/ceiling design intent.
     assert data["provisional"] == PROVISIONAL
-    _assert_spread_within(data["spread_by_fixture"], data["tolerance"])
+    _assert_spread_within(
+        data["spread_by_fixture"],
+        data["tolerance"],
+        expected_comparisons=_EXPECTED_COMPARISONS,
+        n_runs=data["method"]["n_runs_per_fixture"],
+    )
 
 
 def test_load_frozen_tolerance_returns_the_four_bounds():
@@ -363,16 +411,24 @@ def test_per_method_tolerances_cover_their_own_measured_evidence():
     selection is more seed-variable than vbconhmm's, so its bounds are validated
     against its *own* measured evidence, never the vbconhmm top-level row. Also runs
     in the base matrix. It fails on a per-method tolerance with no recorded evidence,
-    on a missing bound, and on a tolerance tightened below its evidence — not on a
-    loosened one (see the direction caveat above).
+    on a missing bound, on evidence deleted or truncated from under a bound, and on
+    a tolerance tightened below its evidence — not on a loosened one (see the
+    direction caveat above).
     """
     data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
     by_tol = data.get("tolerance_by_method", {})
     by_measured = data.get("measured_by_method", {})
     assert set(by_tol) == set(by_measured), "every per-method tolerance needs its evidence"
+    assert set(by_tol) == set(_EXPECTED_COMPARISONS_BY_METHOD), "per-method freeze set changed"
     for method, tol in by_tol.items():
         assert set(tol) == set(PROVISIONAL), f"{method} tolerance must carry the four bounds"
-        _assert_spread_within(by_measured[method]["spread_by_fixture"], tol)
+        measured = by_measured[method]
+        _assert_spread_within(
+            measured["spread_by_fixture"],
+            tol,
+            expected_comparisons=_EXPECTED_COMPARISONS_BY_METHOD[method],
+            n_runs=measured["method"]["n_runs_per_fixture"],
+        )
 
 
 def test_load_frozen_tolerance_selects_per_method():

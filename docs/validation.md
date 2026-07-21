@@ -215,12 +215,20 @@ value to satisfy `$.tolerance` and pins `$.provisional` to the `PROVISIONAL` con
 tolerance to carry the four bounds and to be satisfied by its own recorded evidence.
 
 Be precise about what that does and does not catch, because it is a validation claim.
-Both tests assert `recorded value ≥ floor` / `recorded value ≤ ceiling`
-(`_assert_spread_within`). So on every pull request they fail on a bound **tightened**
-below its own evidence, on evidence edited out from under a bound, on an altered
-`$.provisional`, and on a per-method tolerance with no `measured_by_method` entry. They do
-**not** fail on a **loosened** bound: widening a ceiling or lowering a floor leaves every
-recorded value comfortably inside it. The live `sidecar / parity` arm cannot catch that
+The core assertion in `_assert_spread_within` is `recorded value ≥ floor` /
+`recorded value ≤ ceiling`, which on its own would let a pull request satisfy a bound by
+*deleting* the runs that stressed it, so the same helper additionally pins the evidence
+itself: the measured fixture set and each fixture's comparison count are pinned to
+`_EXPECTED_COMPARISONS` (19 of 20 runs for the run00-anchored `smd_4mol` spread, 20 for the
+reference-anchored `smd_281mol` one; 19 for ebFRET), each count is cross-checked against
+that block's `$.method.n_runs_per_fixture`, every fixture must carry all four metrics in
+their declared direction, and each summary's `n`/`min`/`max`/`mean`/`worst` is recomputed
+from its own `values` list with the production `SpreadSummary`. So on every pull request
+these two tests fail on a bound **tightened** below its own evidence, on a deleted fixture,
+on a dropped or truncated run — including one removed cleanly with every summary statistic
+recomputed — on an altered `$.provisional`, and on a per-method tolerance with no
+`measured_by_method` entry. They do **not** fail on a **loosened** bound: widening a ceiling
+or lowering a floor leaves every recorded value comfortably inside it. The live `sidecar / parity` arm cannot catch that
 either — a looser tolerance only makes its assertions easier to pass — and nothing pins
 `$.tolerance` to its committed values. The freeze is therefore protected in the loosening
 direction by review plus the deliberate re-freeze rule (`$.freeze_policy`, PRD §11.2, ADR-0009),
