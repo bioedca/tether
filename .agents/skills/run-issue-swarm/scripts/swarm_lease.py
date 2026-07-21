@@ -1086,7 +1086,7 @@ def _cmd_run_comment(args: argparse.Namespace) -> None:
             _extract_merge_authority,
             "merge authority",
         )
-        if authority_server_created > now + timedelta(minutes=5):
+        if authority_server_created > now:
             raise LeaseError("merge authority server time is after run creation")
     _require_merge_authority_binding(record, authority)
     print(_render_run(record))
@@ -1094,12 +1094,12 @@ def _cmd_run_comment(args: argparse.Namespace) -> None:
 
 def _cmd_run_inspect(args: argparse.Namespace) -> None:
     record = _extract_run(_read(args.file))
-    authority = (
-        _extract_merge_authority(_read(args.merge_authority_file))
-        if args.merge_authority_file is not None
-        else None
-    )
-    _require_merge_authority_binding(record, authority)
+    if record["terminal_policy"] == "merge":
+        raise LeaseError(
+            "merge policy inspection requires run-lineage with fetched run and authority "
+            "server envelopes"
+        )
+    _require_merge_authority_binding(record, None)
     print(json.dumps(record, indent=2, sort_keys=True))
 
 
@@ -1349,7 +1349,8 @@ def _parser() -> argparse.ArgumentParser:
     merge_authority.set_defaults(func=_cmd_merge_authority_comment)
 
     merge_authority_inspect = subparsers.add_parser(
-        "merge-authority-inspect", help="parse a saved merge-authority comment"
+        "merge-authority-inspect",
+        help="parse authority syntax only; authorization requires run-lineage",
     )
     merge_authority_inspect.add_argument(
         "--file", default="-", help="UTF-8 comment file or - for stdin"
@@ -1381,12 +1382,10 @@ def _parser() -> argparse.ArgumentParser:
     run_comment.set_defaults(func=_cmd_run_comment)
 
     run_inspect = subparsers.add_parser(
-        "run-inspect", help="parse and check a saved swarm-run control comment"
+        "run-inspect",
+        help="parse a saved PR-ready run; merge policy requires run-lineage",
     )
     run_inspect.add_argument("--file", default="-", help="UTF-8 comment file or - for stdin")
-    run_inspect.add_argument(
-        "--merge-authority-file", help="fetched authority comment required for merge policy"
-    )
     run_inspect.set_defaults(func=_cmd_run_inspect)
 
     run_transition = subparsers.add_parser(

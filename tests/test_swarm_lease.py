@@ -113,6 +113,7 @@ def _run_control_comment(
     terminal_policy: str = "PR-ready",
     merge_authority_comment_id: str | None = None,
     authority_text: str | None = None,
+    authority_server_time: str = NOW,
     run_filter: str = RUN_FILTER,
 ) -> subprocess.CompletedProcess[str]:
     args = [
@@ -148,9 +149,9 @@ def _run_control_comment(
                 "--merge-authority-author",
                 OWNER,
                 "--merge-authority-server-created-at",
-                NOW,
+                authority_server_time,
                 "--merge-authority-server-updated-at",
-                NOW,
+                authority_server_time,
                 "--merge-authority-file",
                 "-",
             ]
@@ -158,7 +159,9 @@ def _run_control_comment(
     return _run(*args, input_text=authority_text)
 
 
-def _merge_authority_comment(*, run_id: str = RUN_ID) -> subprocess.CompletedProcess[str]:
+def _merge_authority_comment(
+    *, run_id: str = RUN_ID, now: str = NOW
+) -> subprocess.CompletedProcess[str]:
     return _run(
         "merge-authority-comment",
         "--run-id",
@@ -176,7 +179,7 @@ def _merge_authority_comment(*, run_id: str = RUN_ID) -> subprocess.CompletedPro
         "--start-sha",
         BASE_SHA,
         "--now",
-        NOW,
+        now,
     )
 
 
@@ -244,7 +247,7 @@ def test_run_control_round_trips_with_strict_immutable_policy() -> None:
     assert json.loads(inspected.stdout) == record
 
 
-def test_merge_run_requires_a_bound_authority_comment(tmp_path: Path) -> None:
+def test_merge_run_requires_a_bound_authority_comment() -> None:
     authority = _merge_authority_comment()
     assert authority.returncode == 0, authority.stderr
     wrong_authority = _merge_authority_comment(run_id="swarm-other")
@@ -274,15 +277,15 @@ def test_merge_run_requires_a_bound_authority_comment(tmp_path: Path) -> None:
 
     unbound_inspect = _run("run-inspect", input_text=accepted.stdout)
     assert unbound_inspect.returncode == 2
-    authority_path = tmp_path / "authority.md"
-    authority_path.write_text(authority.stdout, encoding="utf-8")
-    bound_inspect = _run(
+    assert "requires run-lineage" in unbound_inspect.stderr
+    raw_authority_inspect = _run(
         "run-inspect",
         "--merge-authority-file",
-        str(authority_path),
+        "locally-rendered-authority.md",
         input_text=accepted.stdout,
     )
-    assert bound_inspect.returncode == 0, bound_inspect.stderr
+    assert raw_authority_inspect.returncode == 2
+    assert "unrecognized arguments" in raw_authority_inspect.stderr
     authority_inspected = _run("merge-authority-inspect", input_text=authority.stdout)
     assert authority_inspected.returncode == 0, authority_inspected.stderr
 
@@ -316,6 +319,58 @@ def test_merge_run_requires_a_bound_authority_comment(tmp_path: Path) -> None:
     rejected_lineage = _run("run-lineage", input_text=json.dumps(same_comment))
     assert rejected_lineage.returncode == 2
     assert "distinct prior" in rejected_lineage.stderr
+
+    wrong_server_id = json.loads(json.dumps(lineage_document))
+    wrong_server_id["merge_authority_comment"]["comment_id"] = int(APPROVAL_COMMENT_ID) + 1
+    rejected_id = _run("run-lineage", input_text=json.dumps(wrong_server_id))
+    assert rejected_id.returncode == 2
+    assert "server ID does not match" in rejected_id.stderr
+
+    edited_authority = json.loads(json.dumps(lineage_document))
+    edited_authority["merge_authority_comment"][
+        "server_updated_at"
+    ] = "2026-07-21T00:00:01Z"
+    rejected_edit = _run("run-lineage", input_text=json.dumps(edited_authority))
+    assert rejected_edit.returncode == 2
+    assert "immutable comment was edited" in rejected_edit.stderr
+
+    wrong_author = json.loads(json.dumps(lineage_document))
+    wrong_author["merge_authority_comment"]["author"] = "different-owner"
+    rejected_author = _run("run-lineage", input_text=json.dumps(wrong_author))
+    assert rejected_author.returncode == 2
+    assert "server author does not match" in rejected_author.stderr
+
+    wrong_target = json.loads(json.dumps(lineage_document))
+    wrong_target["merge_authority_comment"]["repository"] = "bioedca/different-repository"
+    rejected_target = _run("run-lineage", input_text=json.dumps(wrong_target))
+    assert rejected_target.returncode == 2
+    assert "server target does not match" in rejected_target.stderr
+
+    later_authority = json.loads(json.dumps(lineage_document))
+    later_authority["merge_authority_comment"][
+        "server_created_at"
+    ] = "2026-07-21T00:01:00Z"
+    later_authority["merge_authority_comment"][
+        "server_updated_at"
+    ] = "2026-07-21T00:01:00Z"
+    rejected_time = _run("run-lineage", input_text=json.dumps(later_authority))
+    assert rejected_time.returncode == 2
+    assert "distinct prior" in rejected_time.stderr
+
+
+def test_run_comment_rejects_authority_server_time_after_run_creation() -> None:
+    authority = _merge_authority_comment(now="2026-07-20T23:58:00Z")
+    assert authority.returncode == 0, authority.stderr
+
+    result = _run_control_comment(
+        terminal_policy="merge",
+        merge_authority_comment_id=APPROVAL_COMMENT_ID,
+        authority_text=authority.stdout,
+        authority_server_time="2026-07-21T00:01:00Z",
+    )
+
+    assert result.returncode == 2
+    assert "merge authority server time is after run creation" in result.stderr
 
 
 def test_merge_authority_comment_round_trips() -> None:

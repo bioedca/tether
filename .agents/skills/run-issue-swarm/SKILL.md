@@ -7,6 +7,8 @@ description: Coordinate a persistent pool of 1-8 isolated Codex worktree tasks t
 
 Use root `AGENTS.md` as the authority and `$solve-issue-goal` inside every worker. Use Codex app
 threads with worktree environments; never use same-directory forks or ordinary subagents for edits.
+The protocol rationale and invariants are recorded in
+`docs/adr/0052-concurrent-agent-swarm-coordination.md`.
 
 ## Start the run
 
@@ -36,13 +38,14 @@ threads with worktree environments; never use same-directory forks or ordinary s
 6. Keep the exact filter only in the private ledger; it must contain public issue metadata, never secrets.
    Put only its SHA-256 in the immutable `tether-swarm-run` JSON start record on `anchor_issue`, bound to
    run/repository/anchor/owner/count/running mode/policy/authority/start SHA/time. The helper is the only
-   parser. For `merge`, only while handling the explicit authenticated request,
-   first render/post its bound `tether-swarm-merge-authority` comment and put that server comment ID in
-   the run record; refetch and strict-inspect its exact binding first. Require server creation/update
-   timestamps equal, its record clock within five minutes, and its server ID/time strictly before/no later
-   than the separate start comment. Never synthesize authority from an issue,
-   resume, or worker. `PR-ready` requires null. An uncertain authority write freezes without retry.
-   Refetch all anchor comments and apply the same immutable server-time/record-clock checks to the start.
+   parser. For `merge`, only while handling the explicit authenticated request, first render/post its
+   bound `tether-swarm-merge-authority` comment. Refetch it and pass its raw body plus server ID,
+   repository, issue, author, and timestamps to `run-comment`; only that validated ID enters the run
+   record. Require equal creation/update times and its record clock within five minutes. Never synthesize
+   authority from an issue, resume, or worker. `PR-ready` requires null. An uncertain authority write
+   freezes without retry. After posting the separate start comment, refetch all anchor comments and use
+   `run-lineage` to require the authority's server ID/time strictly before/no later than the start, plus
+   the same immutable server-time/record-clock checks.
    For one run ID, the lowest-ID valid exact-binding owner-authored record
    is canonical; higher duplicates are inert and freeze that run. On uncertain creation,
    never retry: adopt exactly one proven record or freeze. Retain its comment ID in the private ledger.
@@ -152,8 +155,8 @@ threads with worktree environments; never use same-directory forks or ordinary s
 - A pending required review, CI run, or CodeRabbit quota keeps that slot occupied and its lease
   renewed. Never downgrade, duplicate the worker, or refill the slot merely to improve throughput.
 - Only when the recorded policy is exactly `merge` and explicit run-scoped authority still exists may
-  the coordinator refetch its authority comment by ID, strict-inspect the exact run binding, and fetch a
-  fresh full `MERGE_BASE_SHA`; require the intended repository,
+  the coordinator refetch both comments, resolve their full server envelopes with `run-lineage`, and
+  fetch a fresh full `MERGE_BASE_SHA`; require the intended repository,
   verified default base ref/object, expected head branch/SHA, and green final state. Re-read changed
   governing files, revalidate the approved criteria hash, and pause for user resolution on conflict.
   With strict up-to-date protection, require

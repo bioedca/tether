@@ -1014,6 +1014,11 @@ human/domain judgment for high/load-bearing changes. Reviews and checks bind to 
 **All work is tracked as GitHub Issues**, linked by the `Closes #N` footer (§12.2) so the issue ↔ PR ↔ commit ↔
 FR/milestone chain is queryable.
 
+Concurrent automated work follows [ADR-0052](adr/0052-concurrent-agent-swarm-coordination.md): new claims
+originate only from authenticated maintainer-approved `status:ready` scope. Same-snapshot renewals and
+authorized resumes may retain or re-establish that lease after `in-progress` or `in-review`; every lease
+coordinates one isolated issue/branch/worktree/PR and never grants merge authority.
+
 **Label taxonomy** (prefixed namespaces, so labels group and filter cleanly):
 
 | Namespace | Values |
