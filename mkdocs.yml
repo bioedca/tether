@@ -50,6 +50,8 @@ nav:
   - Reference:
       - Command line: cli.md
       - Exports (files, columns, units): reference/exports.md
+  - Glossary: glossary.md
+  - Troubleshooting: troubleshooting.md
   - Packaging:
       - Installers &amp; offline bundle: packaging.md
       - Releasing (signed installers): release.md
