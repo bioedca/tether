@@ -75,10 +75,13 @@ every analysable molecule in the `.tether` — it does **not** partition by
 `/molecules.alpha` cells, which is the field `tether.project.correct` reads back as the
 applied factor. The estimator's provenance lands on `/settings/leakage`.
 `/conditions.leakage_alpha` also exists in the schema (`tether.io.schema`), but it is a
-**curator-editable field** written only by `register_condition` / `update_condition`; nothing
-in the correction chain reads it and the estimator never writes it. ADR-0027 describes
-moving the applied α there per condition, but files that under *Deferred* — it has not
-happened, so read that ADR's "α is per-condition" as intent, not as current behaviour.
+**curator-editable field** whose only writer is `register_condition(..., leakage_alpha=...)`
+(the idempotent upsert in `tether.project.conditions` — there is no separate
+`update_condition`; the same call inserts a missing row and updates the provided fields of an
+existing one). Nothing in the correction chain reads it and the estimator never writes it.
+ADR-0027 describes moving the applied α there per condition, but files that under *Deferred*
+— it has not happened, so read that ADR's "α is per-condition" as intent, not as current
+behaviour.
 
 ### γ (gamma, detection-correction)
 
@@ -123,10 +126,15 @@ statistical interval**.
 
 ### withheld factor / NaN sentinel
 
-α or γ arriving as **NaN** means the min-qualifying-traces gate withheld it. The correction
-writer never emits a NaN factor or a NaN corrected E — it falls back to apparent E instead
-([ADR-0003](adr/0003-apparent-e-never-nan.md)). This NaN is distinct from the
-`-1` [undetected sentinel](#photobleach-frames-first-bleach-frame) and from
+α or γ arriving as **NaN** means the min-qualifying-traces gate withheld it. The NaN **stays
+in `/molecules.alpha` / `.gamma`** — `compute_corrected_fret` never overwrites a withheld
+factor, it only stamps `correction_method` / `correction_confidence` — so NaN factors sitting
+next to `apparent-E (corrections unavailable)` are the *expected* signature of a withhold, not
+corruption (see
+[the batch says `correct=done` but no corrections were applied](troubleshooting.md#the-batch-says-correctdone-but-no-corrections-were-applied)).
+What the writer never emits is a NaN **corrected E**: a non-finite factor routes the molecule
+to apparent E instead ([ADR-0003](adr/0003-apparent-e-never-nan.md)). This NaN is distinct
+from the `-1` [undetected sentinel](#photobleach-frames-first-bleach-frame) and from
 [`NO_STATE`](#no_state).
 
 ---
@@ -335,8 +343,12 @@ assignment** of the float idealized level (`states_from_idealized` in
 
 `NO_STATE = -1` (`tether.idealize.driver`) — the sentinel filling a Viterbi path outside the
 analysis window, in interior gaps, and wherever the idealized level is non-finite. A
-`NO_STATE` frame **breaks a dwell run but is not itself a dwell**, and a `NO_STATE` border is
-not a transition.
+`NO_STATE` frame is **never itself a dwell and never a transition** — but it does **not split
+a run either**. `tether.analysis.dwell.state_dwells` *strips* the `NO_STATE` frames before
+splitting on state change (tMAVEN's NaN strip), so an interior gap between two frames of the
+same state is stitched over: `0,0,NO_STATE,0,0` is **one 4-frame dwell** of state 0, not two
+2-frame dwells. On the [TDP](#tdp-transition-density-plot) side the gap becomes `NaN` and the
+non-finite pair is dropped, so a `NO_STATE` border never emits a transition point.
 
 ### dwell time / dwell-time survival
 

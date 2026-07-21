@@ -43,9 +43,16 @@ confirms the bundled sidecar interpreter imports offline.
 The tagged release pipeline has code-signing wired in — Authenticode on Windows, and
 `productsign` with Apple notarization on macOS — but both legs are **gated on repository
 variables** (`SIGNPATH_ORGANIZATION_ID`, `APPLE_SIGNING_ENABLED`) that are not yet set. Until
-they are, **every installer ships unsigned**, release and advisory build alike, and each build
-emits a `::warning::` saying so. The integrity anchors in the meantime are the published
-`SHA256SUMS-<platform>.txt` files and the build-provenance attestation. The maintainer-side
+they are, **every installer ships unsigned**, release and advisory build alike.
+
+The unsigned-build `::warning::` annotation, the `SHA256SUMS-<platform>.txt` checksums and the
+build-provenance attestation are all emitted by the **release** workflow only. The advisory
+`packaging.yml` run validates, builds, install-smokes and uploads `packaging/dist/*` and
+nothing else — so a workflow-dispatch artifact carries no checksum file, no attestation and no
+warning annotation. Verify those integrity anchors against a published release, not against an
+advisory build.
+
+The maintainer-side
 enrollment steps are in [Releasing (signed installers)](release.md), and the OS warning a user
 sees is covered in
 [the installer is flagged as unsigned](troubleshooting.md#the-installer-is-flagged-as-unsigned).

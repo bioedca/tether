@@ -555,13 +555,31 @@ sidecar idealization failed (exit 1): <the sidecar's own error>
 in v81**, so a sidecar environment built with a newer setuptools cannot construct
 `maven_class` at all.
 
-**Remedy.** Pin setuptools back inside the sidecar environment. `scripts/setup_sidecar.py`
-does this for you (`SETUPTOOLS_PIN = "setuptools<81"`), and it is the **only** place the pin
-lives: `sidecar/conda-lock.yml` deliberately resolves setuptools `82.0.1`, and the pip layer
-downgrades it after the env is created. Do not go looking for the pin in the lock file or the
-workflow — `.github/workflows/sidecar.yml` just calls the script. If you built the environment
-by hand, install `setuptools<81` into it and re-run the liveness probe. This affects the
-**sidecar** environment only — Tether's base environment does not import `pkg_resources`.
+**Remedy.** Get `setuptools<81` into the sidecar environment. Which side you are on decides
+whether that has already happened.
+
+*Sidecar built from a source checkout.* `scripts/setup_sidecar.py` applies the pin for you
+(`SETUPTOOLS_PIN = "setuptools<81"`), and that script is the **only** place the pin lives:
+`sidecar/conda-lock.yml` deliberately resolves setuptools `82.0.1`, and the script's own pip
+step downgrades it after the env is created. Do not go looking for the pin in the lock file or
+the workflow — `.github/workflows/sidecar.yml` just calls the script.
+
+*Sidecar that came with the installer.* The pin is **not** applied. `envs/sidecar` is
+materialised straight from the rendered `sidecar/conda-lock.yml` (so setuptools `82.0.1`), and
+the constructor `post_install` scripts pip-install only the bundled `tmaven-*.whl` — they never
+touch setuptools. Downgrade it yourself with the sidecar's own interpreter (needs network):
+
+```text
+# Linux / macOS
+<install-prefix>/envs/sidecar/bin/python -m pip install "setuptools<81"
+
+# Windows
+<install-prefix>\envs\sidecar\python.exe -m pip install "setuptools<81"
+```
+
+Same command for an environment you built by hand; then re-run the liveness probe or the
+idealization. This affects the **sidecar** environment only — Tether's base environment does
+not import `pkg_resources`.
 
 ### Idealization times out, or is restarted repeatedly
 
