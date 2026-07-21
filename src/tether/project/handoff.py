@@ -113,6 +113,7 @@ class HandoffManifest:
 
     @property
     def n_molecules(self) -> int:
+        """Count of molecules exported, one per SMD row."""
         return len(self.molecule_ids)
 
 
@@ -157,6 +158,7 @@ class TraceReconcile:
 
     @property
     def has_changes(self) -> bool:
+        """True when this trace carries an analysis-window or class diff to reconcile."""
         return self.window_change is not None or self.class_change is not None
 
 
@@ -181,26 +183,32 @@ class ReconcileReport:
 
     @property
     def n_matched(self) -> int:
+        """Count of returning traces re-resolved to a store molecule."""
         return len(self.matched)
 
     @property
     def n_unmatched(self) -> int:
+        """Count of returning-SMD rows that matched no store molecule."""
         return len(self.unmatched_returned)
 
     @property
     def all_matched(self) -> bool:
+        """True when every returning-SMD row resolved to a store molecule."""
         return not self.unmatched_returned
 
     @property
     def has_idealization(self) -> bool:
+        """True when a tMAVEN model file accompanies this return leg."""
         return self.model_path is not None
 
     @property
     def window_changes(self) -> list[TraceReconcile]:
+        """The matched traces whose returned analysis window differs from the store's."""
         return [t for t in self.matched if t.window_change is not None]
 
     @property
     def class_changes(self) -> list[TraceReconcile]:
+        """The matched traces carrying a class diff, applicable or M4-deferred."""
         return [t for t in self.matched if t.class_change is not None]
 
 

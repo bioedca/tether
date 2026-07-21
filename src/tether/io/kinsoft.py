@@ -71,6 +71,7 @@ class KinsoftLevel:
 
     @property
     def n_traces(self) -> int:
+        """Number of traces packed in this level (the arrays' leading dimension)."""
         return int(self.length.shape[0])
 
     def trace(self, i: int) -> KinsoftTrace:
