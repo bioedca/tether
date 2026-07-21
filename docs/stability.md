@@ -198,18 +198,22 @@ through:
 | `write_calibration` (`tether.imaging.calibrate`) | writing a registration map into a project |
 | `export_subset_tether` (`tether.project.export`) | subset export |
 
-Two routes are **not** guarded, and you should know about them rather than be surprised:
+A `tether batch` **resume** reaches none of those four: the checkpoint probes read the output
+project directly to decide what to skip, so with extraction already complete the guard inside
+`write_extraction` never runs. That path has its own check (`tether.project.batch`), added
+deliberately narrower than `assert_is_compatible_project` — it refuses only a file that
+carries the `format` marker *and* declares a newer `schema_version`. A missing, unreadable,
+foreign or half-written project still falls through, because a crashed run must stay
+resumable and an incomplete store is a stage to redo rather than a movie to fail.
+
+One route is **not** guarded, and you should know about it rather than be surprised:
 
 - Constructing `Project(path)` directly does no validation — the constructor deliberately
   owns the path, not an open HDF5 handle, and each read method opens the file for its own
   scope. `Project(path).schema_version` on a version-2 file returns `2` instead of raising.
   Use `Project.open` (which *is* on the covered list) whenever the file came from elsewhere.
-- On a `tether batch` **resume**, the checkpoint probes (`_group_present` in
-  `tether.project.batch`) open the output project directly to decide what to skip. If the
-  extract stage is skipped as already done, the guard inside `extract_movie` never runs, and
-  the later stages open the same file `r+` without a version check.
 
-Neither gap is a licence to rely on reading a future file: the forward-only rule is the
+That gap is not a licence to rely on reading a future file: the forward-only rule is the
 policy, and a route that skips the check is a bug to report under
 [If a covered surface breaks anyway](#if-a-covered-surface-breaks-anyway), not an
 alternative supported path.
