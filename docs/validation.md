@@ -205,13 +205,17 @@ The pin every live assertion uses is `10f4230b6d13c6d2ad67b05d801696b4a40eff4a` 
 > and that the live gate asserts. The faithful invocation is the one in that script's own
 > docstring — `scripts/measure_parity.py --n-runs 20` with **no** `--cross-seed`, which the
 > script permits for `--model-type vbconhmm` — run with `TETHER_SIDECAR_PYTHON` pointed at the
-> pinned sidecar build. (The script itself runs under the base interpreter; only the fits
-> execute in the sidecar, which `tether.idealize.driver` spawns from that variable.) Two
-> caveats on that command: `--out` defaults to `schema/parity_tolerance.json`, and the dict the
-> script writes carries no `tolerance_by_method`, `measured_by_method` or `build_provenance`
-> key — so running it as written overwrites the committed artifact and takes the ebFRET freeze
-> with it, after which `test_per_method_tolerances_cover_their_own_measured_evidence` fails.
-> Point `--out` at a scratch file and merge the per-method blocks back by hand.
+> pinned sidecar build. (The script itself runs under the base interpreter. Two things then
+> execute in the sidecar: the fits, which `tether.idealize.driver` spawns from that variable,
+> and the script's own short build-provenance probe, which `scripts/measure_parity.py` spawns
+> directly.) Two caveats on that command: `--out` defaults to `schema/parity_tolerance.json`,
+> and the dict the script writes carries no `tolerance_by_method`, `measured_by_method` or
+> `build_provenance` key — so running it as written overwrites the committed artifact and takes
+> the ebFRET freeze with it, after which both
+> `test_per_method_tolerances_cover_their_own_measured_evidence` and
+> `test_load_frozen_tolerance_selects_per_method` fail. Point `--out` at a scratch file and
+> merge the per-method blocks back by hand — along with `$.method.build_provenance`, the
+> hand-written string the script does not write either.
 
 **Enforcing tests.** Live fits are `tests/test_parity_sidecar.py`
 (`pytestmark = pytest.mark.sidecar`, so deselected from the 3-OS matrix and run instead by
@@ -246,7 +250,12 @@ widening a ceiling or lowering a floor leaves every recorded value comfortably i
 do they fail on a pull request that edits `$.provisional` and `PROVISIONAL` *in lockstep* —
 only one of them alone. The live `sidecar / parity` arm cannot catch a loosened bound
 either — a looser tolerance only makes its assertions easier to pass — and nothing pins
-`$.tolerance` or `$.provisional` to their committed values. The freeze is therefore
+`$.tolerance` or `$.provisional` to their committed values. One loosening *is* caught, by a
+third test rather than by either evidence test: `test_load_frozen_tolerance_selects_per_method`
+asserts ebFRET's state-count floor is strictly below the default one, so it fails once
+`$.tolerance.state_count_min_fraction` is dropped to ebFRET's frozen `0.5249` or below
+(0.40 fails; 0.60 still passes, and loosening any of the other three default bounds, or any
+of the four ebFRET bounds, is not caught at all). Short of that one threshold, the freeze is
 protected in the loosening direction by review plus the deliberate re-freeze rule
 (`$.freeze_policy`, PRD §11.2, ADR-0009), not by a test.
 
