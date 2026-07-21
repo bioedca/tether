@@ -167,12 +167,14 @@ population plot shows anyway — see [apparent E](glossary.md#apparent-e)), or a
 long enough to capture acceptor photobleaching in ≥ 10 molecules.
 
 The correction overrides are a **provenance** tool, not a third option. `compute_corrected_fret`
-accepts `alpha_override` / `gamma_override` (`tether.project.correct`), and they must be
-supplied **together**: the gate is
-`np.isfinite(eff_alpha) and np.isfinite(eff_gamma) and eff_gamma > 0.0`, and the *other*
-factor is still the stored NaN, so passing only one leaves every molecule stamped
-`apparent-E (corrections unavailable)` exactly as before. Even when both are supplied, the
-visible effect is provenance only: the applied factors are persisted to `/molecules.alpha` /
+accepts `alpha_override` / `gamma_override` (`tether.project.correct`), and **in this state**
+they must be supplied together: the gate is
+`np.isfinite(eff_alpha) and np.isfinite(eff_gamma) and eff_gamma > 0.0`, an override replaces
+only the factor it names, and here the *other* factor is still the stored NaN — so passing
+only one leaves every molecule stamped `apparent-E (corrections unavailable)` exactly as
+before. (Where the other factor *was* estimated, one override is enough: it combines with the
+stored value and the row is stamped `manual`.) Even when both are supplied, the visible
+effect is provenance only: the applied factors are persisted to `/molecules.alpha` /
 `.gamma`, `/settings/correction` records the overrides, and `correction_method` becomes
 `manual` — but plots and CSV exports still show apparent E, because
 `tether.fret.efficiency.corrected_fret` has **no call sites** outside the `tether.fret`
@@ -564,14 +566,14 @@ whether that has already happened.
 step downgrades it after the env is created. Do not go looking for the pin in the lock file or
 the workflow — `.github/workflows/sidecar.yml` just calls the script.
 
-*Sidecar that came with the installer.* The pin is applied for you. `envs/sidecar` is
-materialised from the rendered `sidecar/conda-lock.yml`, which resolves setuptools `82.0.1`,
-so the installer bundles `setuptools<81` as a third offline wheel and the `post_install`
-script lays it over that env before installing tMAVEN. You should not see this error on an
-installed app; if you do, it is a bug worth reporting.
+*Sidecar that came with the installer.* The pin is **not** applied. `envs/sidecar` is
+materialised straight from the rendered `sidecar/conda-lock.yml`, which resolves setuptools
+`82.0.1`, and the constructor `post_install` scripts pip-install only the bundled
+`tether-*.whl` and `tmaven-*.whl` — they never touch setuptools. Downgrade it yourself with
+the command below.
 
-*Environment you built by hand.* Nothing applies the pin, so downgrade it yourself with the
-sidecar's own interpreter (needs network):
+*Environment you built by hand.* Nothing applies the pin here either, so downgrade it
+yourself with the sidecar's own interpreter (needs network):
 
 ```text
 # Linux / macOS

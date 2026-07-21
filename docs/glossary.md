@@ -88,8 +88,12 @@ behaviour.
 The detection-efficiency / quantum-yield ratio between the channels
 (`tether.fret.gamma`). Estimated across the **acceptor-bleach step** as `ΔI_A / ΔI_D` on
 leakage-corrected intensities, with levels averaged over a 3-frame half-window each side.
-Same 20-frame / 10-trace gates as α; per-trace γ outside `(0, GAMMA_CEILING = 5.0]` is
-dropped ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)).
+Same `DEFAULT_MIN_WINDOW_FRAMES = 20` / 10-trace parameters as α, but the frame gate is
+**stricter and two-sided**: both the pre-step FRET segment `[0, step)` and the post-step
+donor-only segment `[step, donor_bleach)` must be **strictly longer than** 20 frames (`> 20`,
+where the α tail only needs `≥ 20`), or the trace is dropped as `short-pre` / `short-post`.
+Per-trace γ outside `(0, GAMMA_CEILING = 5.0]` is dropped
+([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)).
 
 **Scope:** γ is **per-molecule with a population-median fallback** — a qualifying molecule
 keeps its own γ, a non-qualifying one silently takes the dataset median and is counted in
@@ -127,9 +131,9 @@ statistical interval**.
 ### withheld factor / NaN sentinel
 
 α or γ arriving as **NaN** means the min-qualifying-traces gate withheld it. The NaN **stays
-in `/molecules.alpha` / `.gamma`** — `compute_corrected_fret` never overwrites a withheld
-factor, it only stamps `correction_method` / `correction_confidence` — so NaN factors sitting
-next to `apparent-E (corrections unavailable)` are the *expected* signature of a withhold, not
+in `/molecules.alpha` / `.gamma`** — absent a manual override `compute_corrected_fret` only
+stamps `correction_method` / `correction_confidence` — so NaN factors sitting next to
+`apparent-E (corrections unavailable)` are the *expected* signature of a withhold, not
 corruption (see
 [the batch says `correct=done` but no corrections were applied](troubleshooting.md#the-batch-says-correctdone-but-no-corrections-were-applied)).
 What the writer never emits is a NaN **corrected E**: a non-finite factor routes the molecule
@@ -191,8 +195,10 @@ Three **independent** fields on `/molecules` (PRD §5.1):
 
 A **reject is a reversible sticky tag, never a deletion**: it persists, carries across files
 on [molecule_key](#molecule-vs-trace), is one-click reversible, and is excluded by the
-**toggleable** curation filter (`include_rejected=False` by default). Every keystroke also
-appends one provenance-stamped row to `/labels/table`.
+**toggleable** curation filter (`include_rejected=False` by default). Each accept, reject and
+un-reject appends one provenance-stamped row to `/labels/table`; a category assignment does
+not — `tether.project.labels` scopes that append-only log to the accept/reject events, and
+`category` lives only on `/molecules`.
 
 ---
 
