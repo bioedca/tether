@@ -309,42 +309,85 @@ _CEILINGS = {
     "relative_elbo": "relative_elbo_max",
 }
 
-# Which fixtures each frozen block was measured on, and how many comparisons each
-# contributed (a cross-seed spread anchored on run00 spends one of its `n_runs` on
-# the anchor, hence 19 of 20). Pinned here because *which evidence exists* is part
-# of the freeze: dropping a fixture or a run is a re-freeze (`$.freeze_policy`,
-# ADR-0009/ADR-0043), never a silent edit. Without this a PR could satisfy a bound
-# by deleting the runs that stressed it, and every remaining value would still pass.
-_EXPECTED_COMPARISONS = {"smd_4mol": 19, "smd_281mol": 20}
-_EXPECTED_COMPARISONS_BY_METHOD = {"ebhmm": {"smd_281mol": 19}}
 # The literal `reference` value scripts/measure_parity.py records for a spread
 # anchored on its own first run (`measure_parity.py:222`); anything else names a
 # committed reference model.
 _ANCHOR_REFERENCE = "cross-seed (run00 anchor)"
 
+# What each frozen block was measured on: the SMD fixture, the reference anchor and
+# the fitted state count, plus how many comparisons each fixture contributed (a
+# cross-seed spread anchored on run00 spends one of its `n_runs` on the anchor,
+# hence 19 of 20). Pinned here because *which evidence exists* is part of the
+# freeze: dropping a fixture or a run, or re-pointing one at a different SMD file,
+# reference model or state count, is a re-freeze (`$.freeze_policy`,
+# ADR-0009/ADR-0043), never a silent edit. Without this a PR could satisfy a bound
+# by deleting the runs that stressed it, and every remaining value would still pass,
+# or re-label the anchor the evidence claims to have been measured against while
+# every number stayed put. Values mirror `scripts/measure_parity.py:70-81`.
+_EXPECTED_EVIDENCE = {
+    "smd_4mol": {
+        "smd": "tests/fixtures/smd_4mol.hdf5",
+        "reference": _ANCHOR_REFERENCE,  # producer `reference=None` -> the sentinel
+        "nstates": 2,
+        "n_comparisons": 19,
+    },
+    "smd_281mol": {
+        "smd": "tests/fixtures/large/smd_281mol.hdf5",
+        "reference": "tests/fixtures/large/model_281mol.hdf5",
+        "nstates": 4,
+        "n_comparisons": 20,
+    },
+}
+# ebFRET was measured on the 281-mol fixture in `--cross-seed` mode (ADR-0043), so
+# its anchor is the sentinel, not the committed reference model.
+_EXPECTED_EVIDENCE_BY_METHOD = {
+    "ebhmm": {
+        "smd_281mol": {
+            "smd": "tests/fixtures/large/smd_281mol.hdf5",
+            "reference": _ANCHOR_REFERENCE,
+            "nstates": 4,
+            "n_comparisons": 19,
+        }
+    }
+}
 
-def _assert_spread_within(spread_by_fixture, tol, *, expected_comparisons, n_runs):
+
+def _assert_spread_within(spread_by_fixture, tol, *, expected_evidence, n_runs):
     """Every recorded per-run value must sit within ``tol``'s floors/ceilings.
 
     Also asserts the evidence is *complete and self-consistent*, so a bound can
     never be satisfied by deleting the runs that stressed it: the measured fixture
-    set and each fixture's comparison count must match ``expected_comparisons``
-    exactly, that count must equal the block's declared ``n_runs``, less the anchor
-    run for a cross-seed spread, every fixture must carry all four metrics with
-    their declared direction, and the recorded ``n``/``min``/``max``/``mean``/``worst``
-    must be reproducible from the ``values`` list via the production
-    :class:`SpreadSummary`. Dropping an outlier therefore fails on the count, and
-    doctoring the count fails here too.
+    set must match ``expected_evidence`` exactly and each fixture must still name
+    the SMD path, reference anchor, state count and comparison count pinned there;
+    that comparison count must equal the block's declared ``n_runs``, less the
+    anchor run for a cross-seed spread; every fixture must carry all four metrics
+    with their declared direction; and the recorded
+    ``n``/``min``/``max``/``mean``/``worst`` must be reproducible from the ``values``
+    list via the production :class:`SpreadSummary`. Dropping an outlier therefore
+    fails on the count, doctoring the count fails here too, and re-labelling the
+    anchor or fixture path fails on the identity check.
+
+    The identity check pins the *strings the frozen artifact records*. It does not
+    open the named files, so it cannot attest that ``model_281mol.hdf5`` exists, is
+    unmodified, or is the file the fit actually loaded — only that the artifact
+    still names the anchor it claims to have been measured against. File identity
+    is Git-LFS plus the live sidecar fit in ``tests/test_parity_sidecar.py``.
     """
-    assert set(spread_by_fixture) == set(expected_comparisons), "measured fixture set changed"
+    assert set(spread_by_fixture) == set(expected_evidence), "measured fixture set changed"
     for name, fixture in spread_by_fixture.items():
-        expected_n = expected_comparisons[name]
+        expected = expected_evidence[name]
+        for key in ("smd", "reference", "nstates"):
+            assert fixture[key] == expected[key], (
+                f"{name}: frozen {key} is {fixture[key]!r}, pinned evidence is {expected[key]!r}"
+            )
+        expected_n = expected["n_comparisons"]
         # Exact, not a band: a run00-anchored spread spends its first run on the
         # anchor and yields n_runs - 1 comparisons, while one measured against a
         # committed reference model yields n_runs (`parity.measure_spread`). The
-        # fixture records which mode it used, so a doctored `n_runs_per_fixture`
-        # cannot hide behind the other mode's count.
-        anchored = fixture["reference"] == _ANCHOR_REFERENCE
+        # mode comes from the pin, not from the artifact, so neither a doctored
+        # `n_runs_per_fixture` nor a re-labelled `reference` can hide behind the
+        # other mode's count.
+        anchored = expected["reference"] == _ANCHOR_REFERENCE
         assert expected_n == (n_runs - 1 if anchored else n_runs), (
             f"{name}: pinned {expected_n} comparisons vs declared n_runs={n_runs} "
             f"(reference={fixture['reference']})"
@@ -402,7 +445,7 @@ def test_frozen_artifact_covers_its_own_measured_evidence():
     _assert_spread_within(
         data["spread_by_fixture"],
         data["tolerance"],
-        expected_comparisons=_EXPECTED_COMPARISONS,
+        expected_evidence=_EXPECTED_EVIDENCE,
         n_runs=data["method"]["n_runs_per_fixture"],
     )
 
@@ -427,22 +470,23 @@ def test_per_method_tolerances_cover_their_own_measured_evidence():
     selection is more seed-variable than vbconhmm's, so its bounds are validated
     against its *own* measured evidence, never the vbconhmm top-level row. Also runs
     in the base matrix. It fails on a per-method tolerance with no recorded evidence,
-    on a missing bound, on evidence deleted or truncated from under a bound, and on
-    a tolerance tightened below its evidence — not on a loosened one (see the
-    direction caveat above).
+    on a missing bound, on evidence deleted or truncated from under a bound, on a
+    re-labelled fixture path, reference anchor or state count, and on a tolerance
+    tightened below its evidence — not on a loosened one (see the direction caveat
+    above).
     """
     data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
     by_tol = data.get("tolerance_by_method", {})
     by_measured = data.get("measured_by_method", {})
     assert set(by_tol) == set(by_measured), "every per-method tolerance needs its evidence"
-    assert set(by_tol) == set(_EXPECTED_COMPARISONS_BY_METHOD), "per-method freeze set changed"
+    assert set(by_tol) == set(_EXPECTED_EVIDENCE_BY_METHOD), "per-method freeze set changed"
     for method, tol in by_tol.items():
         assert set(tol) == set(PROVISIONAL), f"{method} tolerance must carry the four bounds"
         measured = by_measured[method]
         _assert_spread_within(
             measured["spread_by_fixture"],
             tol,
-            expected_comparisons=_EXPECTED_COMPARISONS_BY_METHOD[method],
+            expected_evidence=_EXPECTED_EVIDENCE_BY_METHOD[method],
             n_runs=measured["method"]["n_runs_per_fixture"],
         )
 

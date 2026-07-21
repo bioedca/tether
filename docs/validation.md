@@ -247,16 +247,23 @@ Be precise about what that does and does not catch, because it is a validation c
 The core assertion in `_assert_spread_within` is `recorded value ≥ floor` /
 `recorded value ≤ ceiling`, which on its own would let a pull request satisfy a bound by
 *deleting* the runs that stressed it, so the same helper additionally pins the evidence
-itself: the measured fixture set and each fixture's comparison count are pinned to
-`_EXPECTED_COMPARISONS` (19 of 20 runs for the run00-anchored `smd_4mol` spread, 20 for the
-reference-anchored `smd_281mol` one; 19 for ebFRET), each count is cross-checked against
-that block's `$.method.n_runs_per_fixture`, every fixture must carry all four metrics in
+itself: the measured fixture set, and for each fixture the SMD path, the reference anchor,
+the fitted state count and the comparison count, are pinned to `_EXPECTED_EVIDENCE` (the
+run00-anchored `smd_4mol` spread at 2 states and 19 of 20 runs; `smd_281mol` at 4 states and
+20 runs against `tests/fixtures/large/model_281mol.hdf5`; ebFRET on `smd_281mol` at 4 states,
+run00-anchored, 19). Each count is cross-checked against that block's
+`$.method.n_runs_per_fixture` — with the anchored-or-not mode taken from the pin, not read
+back from the artifact — every fixture must carry all four metrics in
 their declared direction, and each summary's `n`/`min`/`max`/`mean`/`worst` is recomputed
 from its own `values` list with the production `SpreadSummary`. So on every pull request
 these two tests fail on a bound **tightened** below its own evidence, on a deleted fixture,
 on a dropped or truncated run — including one removed cleanly with every summary statistic
-recomputed — on a `$.provisional` that has drifted from `PROVISIONAL`, and on a per-method
-tolerance with no `measured_by_method` entry. They do **not** fail on a **loosened** bound:
+recomputed — on a re-labelled reference anchor, SMD path or state count, on a
+`$.provisional` that has drifted from `PROVISIONAL`, and on a per-method
+tolerance with no `measured_by_method` entry. The anchor pin is a check on the *strings the
+artifact records*: it asserts the frozen block still names the anchor it was measured
+against, not that the named model file exists or is unchanged — that is Git-LFS plus the
+live sidecar fit. They do **not** fail on a **loosened** bound:
 widening a ceiling or lowering a floor leaves every recorded value comfortably inside it. Nor
 do they fail on a pull request that edits `$.provisional` and `PROVISIONAL` *in lockstep* —
 only one of them alone. The live `sidecar / parity` arm cannot catch a loosened bound
