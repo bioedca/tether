@@ -71,14 +71,17 @@ class SMDData:
 
     @property
     def n_molecules(self) -> int:
+        """Number of molecules (traces) held in ``raw``."""
         return int(self.raw.shape[0])
 
     @property
     def n_frames(self) -> int:
+        """Number of frames (time points) per trace."""
         return int(self.raw.shape[1])
 
     @property
     def n_channels(self) -> int:
+        """Number of intensity channels per frame (2: donor, acceptor)."""
         return int(self.raw.shape[2])
 
     @property

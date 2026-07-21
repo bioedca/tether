@@ -35,14 +35,17 @@ class MatchResult:
 
     @property
     def n_matched(self) -> int:
+        """Number of returning traces resolved to a store molecule."""
         return len(self.matched)
 
     @property
     def n_unmatched(self) -> int:
+        """Number of returning traces left unresolved."""
         return len(self.unmatched)
 
     @property
     def all_matched(self) -> bool:
+        """True when every returning trace was resolved to a store molecule."""
         return not self.unmatched
 
 

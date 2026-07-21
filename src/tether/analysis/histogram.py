@@ -221,11 +221,13 @@ class Histogram1D:
 
     @property
     def bin_centers(self) -> np.ndarray:
+        """Bin-center abscissa in apparent-E."""
         e = self.bin_edges
         return 0.5 * (e[:-1] + e[1:])
 
     @property
     def nbins(self) -> int:
+        """Number of bins in the histogram."""
         return int(self.counts.shape[0])
 
 
@@ -251,26 +253,32 @@ class HistogramBootstrapCI:
 
     @property
     def counts(self) -> np.ndarray:
+        """Per-bin density or counts of the point estimate (from the wrapped histogram)."""
         return self.histogram.counts
 
     @property
     def bin_edges(self) -> np.ndarray:
+        """Apparent-E bin edges of the point estimate (from the wrapped histogram)."""
         return self.histogram.bin_edges
 
     @property
     def bin_centers(self) -> np.ndarray:
+        """Bin-center abscissa in apparent-E (from the wrapped point-estimate histogram)."""
         return self.histogram.bin_centers
 
     @property
     def nbins(self) -> int:
+        """Number of bins shared by the point estimate and the band."""
         return self.histogram.nbins
 
     @property
     def value_range(self) -> tuple[float, float]:
+        """The ``(low, high)`` apparent-E binning range (from the wrapped histogram)."""
         return self.histogram.value_range
 
     @property
     def n_molecules(self) -> int | None:
+        """Molecules pooled into the point estimate (``None`` for the pure core)."""
         return self.histogram.n_molecules
 
     @property
@@ -1119,20 +1127,24 @@ class Histogram2D:
 
     @property
     def time_centers(self) -> np.ndarray:
+        """Time-column centres in seconds (``time_dt`` per frame) after the window start."""
         e = self.time_edges
         return 0.5 * (e[:-1] + e[1:])
 
     @property
     def signal_centers(self) -> np.ndarray:
+        """Signal-bin centre abscissa on the binned signal axis (apparent-E for A2)."""
         e = self.signal_edges
         return 0.5 * (e[:-1] + e[1:])
 
     @property
     def time_bins(self) -> int:
+        """Number of time columns (rows of ``counts``)."""
         return int(self.counts.shape[0])
 
     @property
     def signal_bins(self) -> int:
+        """Number of signal bins (columns of ``counts``)."""
         return int(self.counts.shape[1])
 
 
@@ -1388,6 +1400,7 @@ class TransitionSyncHistogram2D:
 
     @property
     def signal_centers(self) -> np.ndarray:
+        """Signal-bin centre abscissa on the binned signal axis (apparent-E for A2)."""
         e = self.signal_edges
         return 0.5 * (e[:-1] + e[1:])
 
@@ -1398,6 +1411,7 @@ class TransitionSyncHistogram2D:
 
     @property
     def signal_bins(self) -> int:
+        """Number of signal bins (columns of ``counts``)."""
         return int(self.counts.shape[1])
 
     @property
