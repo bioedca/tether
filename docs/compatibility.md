@@ -9,9 +9,11 @@ site will change that.
 ## The short version
 
 Tether reads **uncompressed multi-page TIFF movies from a single camera whose frame is
-split into two horizontal halves** — one donor channel, one acceptor channel — recorded
-with **one excitation laser** and **two colours**. That is the dual-view TIRF geometry the
-whole pipeline is built around.
+split side by side, down the vertical midline, into a left and a right half** — one donor
+channel, one acceptor channel — recorded with **one excitation laser** and **two colours**.
+That is the dual-view TIRF geometry the whole pipeline is built around. A top/bottom
+(stacked) dual-view export does not fit: the splitter cuts on width only, so it would slice
+each channel in two rather than separating them.
 
 If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*,
 *three-colour*, or *confocal point detectors* describes your setup, it does not — see
@@ -59,7 +61,15 @@ The reference acquisition the performance envelope is written against is a
 
 Tether splits each frame into a left half and a right half and treats one as donor and the
 other as acceptor. Which half is which is yours to declare, with `--donor-side` (default
-`left`); the split itself is `tether.project.extract._half_split_geometry`.
+`left`); the split itself is `tether.project.extract._half_split_geometry`, which crops
+both halves from the frame *width* — there is no top/bottom split.
+
+**`--donor-side` is a `tether extract` flag only.** The headless batch runner (`tether
+batch`) does not expose it: `_run_batch` builds its `MovieJob`s without an `ExtractOptions`,
+so every movie in a batch run uses the default **left** donor. If your acquisition puts the
+donor on the right, run it through `tether extract` per movie, supply a `.tmap` (whose
+reference channel then defines donor), or drive `tether.project.batch.run_batch` from Python
+with `extract_options=ExtractOptions(donor_side="right")`.
 
 With `--tmap`, the split instead comes from an imported Deep-LASI map's own per-channel
 crops, and `--donor-side` is ignored — donor is the map's reference channel. **Crop is the
