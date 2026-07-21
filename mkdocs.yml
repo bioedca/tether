@@ -38,6 +38,8 @@ theme:
 
 nav:
   - Home: index.md
+  - Glossary: glossary.md
+  - Troubleshooting: troubleshooting.md
   - Import:
       - Legacy Deep-LASI import: io/legacy-import.md
   - Idealization:

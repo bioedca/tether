@@ -40,6 +40,12 @@ confirms the bundled sidecar interpreter imports offline.
 
 ## Release signing
 
-Released installers are code-signed — Authenticode on Windows, and `productsign` with
-Apple notarization on macOS — as part of the tagged release pipeline. Development builds
-produced by the advisory workflow are unsigned.
+The tagged release pipeline has code-signing wired in — Authenticode on Windows, and
+`productsign` with Apple notarization on macOS — but both legs are **gated on repository
+variables** (`SIGNPATH_ORGANIZATION_ID`, `APPLE_SIGNING_ENABLED`) that are not yet set. Until
+they are, **every installer ships unsigned**, release and advisory build alike, and each build
+emits a `::warning::` saying so. The integrity anchors in the meantime are the published
+`SHA256SUMS-<platform>.txt` files and the build-provenance attestation. The maintainer-side
+enrollment steps are in [Releasing (signed installers)](release.md), and the OS warning a user
+sees is covered in
+[the installer is flagged as unsigned](troubleshooting.md#the-installer-is-flagged-as-unsigned).

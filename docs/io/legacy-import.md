@@ -1,8 +1,10 @@
 # Legacy Deep-LASI import
 
 Tether re-analyses an existing **Deep-LASI** acquisition *without re-extracting the movie*
-(PRD §7.8). The import path reads the legacy file set — the raw movie, the `TIRFdata`
-`.tdat`, the `DeepLASI_MAT_export_*.mat`, the `…-donc-accc-w.txt`, and the tMAVEN SMD —
+(PRD §7.8). The import path reads the legacy file set — the raw movie, the
+[`TIRFdata`](../glossary.md#tirfdata-mcos-refs)
+[`.tdat`](../glossary.md#tmap-tdat), the `DeepLASI_MAT_export_*.mat`, the
+`…-donc-accc-w.txt`, and the tMAVEN [SMD](../glossary.md#smd) —
 recovers the per-molecule coordinates and pre-integrated traces, applies the Deep-LASI →
 Tether correction-factor remap, and writes a `.tether` project store.
 
