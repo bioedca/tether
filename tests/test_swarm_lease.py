@@ -816,6 +816,36 @@ def test_duplicate_json_keys_are_rejected_without_reflecting_input() -> None:
     assert str(ROOT) not in result.stderr
 
 
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+@pytest.mark.parametrize(
+    ("command", "marker", "message"),
+    [
+        (
+            "run-transition-inspect",
+            "tether-swarm-run-transition",
+            "run transition JSON contains non-finite constant",
+        ),
+        (
+            "merge-authority-inspect",
+            "tether-swarm-merge-authority",
+            "merge authority JSON contains non-finite constant",
+        ),
+    ],
+)
+def test_coordination_inspectors_reject_nonfinite_json_constants(
+    constant: str, command: str, marker: str, message: str
+) -> None:
+    result = _run(
+        command,
+        input_text=f'<!-- {marker}\n{{"version":{constant}}}\n-->',
+    )
+
+    assert result.returncode == 2
+    assert message in result.stderr
+    assert "Traceback" not in result.stderr
+    assert str(ROOT) not in result.stderr
+
+
 def test_deeply_nested_json_is_rejected_without_a_traceback() -> None:
     payload = (
         '<!-- tether-agent-lease\n{"issue":' + ("[" * 60_000) + "0" + ("]" * 60_000) + "}\n-->"

@@ -307,6 +307,14 @@ def _record_sha256(record: dict[str, Any]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _validate_merge_authority_binding(record: dict[str, Any]) -> None:
+    authority_id = record["merge_authority_comment_id"]
+    if record["terminal_policy"] == "merge":
+        _positive_github_id(authority_id, "merge_authority_comment_id")
+    elif authority_id is not None:
+        raise LeaseError("PR-ready policy must not contain merge authority")
+
+
 def _validate_run_record(record: dict[str, Any]) -> None:
     missing = sorted(RUN_RECORD_FIELDS - record.keys())
     if missing:
@@ -342,11 +350,7 @@ def _validate_run_record(record: dict[str, Any]) -> None:
         raise LeaseError("run start mode must be running")
     if record["terminal_policy"] not in TERMINAL_POLICIES:
         raise LeaseError("invalid terminal policy")
-    authority_id = record["merge_authority_comment_id"]
-    if record["terminal_policy"] == "merge":
-        _positive_github_id(authority_id, "merge_authority_comment_id")
-    elif authority_id is not None:
-        raise LeaseError("PR-ready policy must not contain merge authority")
+    _validate_merge_authority_binding(record)
     if not SHA_RE.fullmatch(record["start_sha"]):
         raise LeaseError("start_sha must be a full lowercase object ID")
     created_at = _now(record["created_at"])
@@ -389,11 +393,7 @@ def _validate_run_transition(record: dict[str, Any]) -> None:
         raise LeaseError("run transition count must be between 1 and 8")
     if record["terminal_policy"] not in TERMINAL_POLICIES:
         raise LeaseError("invalid terminal policy")
-    authority_id = record["merge_authority_comment_id"]
-    if record["terminal_policy"] == "merge":
-        _positive_github_id(authority_id, "merge_authority_comment_id")
-    elif authority_id is not None:
-        raise LeaseError("PR-ready policy must not contain merge authority")
+    _validate_merge_authority_binding(record)
     if not SHA_RE.fullmatch(record["start_sha"]):
         raise LeaseError("start_sha must be a full lowercase object ID")
     _positive_github_id(record["run_comment_id"], "run_comment_id")
@@ -652,8 +652,15 @@ def _extract_run_transition(text: str) -> dict[str, Any]:
             result[key] = value
         return result
 
+    def reject_constant(value: str) -> None:
+        raise LeaseError(f"run transition JSON contains non-finite constant: {value}")
+
     try:
-        record = json.loads(matches[0], object_pairs_hook=unique_object)
+        record = json.loads(
+            matches[0],
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+        )
     except LeaseError:
         raise
     except (ValueError, RecursionError) as exc:
@@ -684,8 +691,15 @@ def _extract_merge_authority(text: str) -> dict[str, Any]:
             result[key] = value
         return result
 
+    def reject_constant(value: str) -> None:
+        raise LeaseError(f"merge authority JSON contains non-finite constant: {value}")
+
     try:
-        record = json.loads(matches[0], object_pairs_hook=unique_object)
+        record = json.loads(
+            matches[0],
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+        )
     except LeaseError:
         raise
     except (ValueError, RecursionError) as exc:
