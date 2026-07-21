@@ -82,6 +82,7 @@ class RecoveredCoordinates:
 
     @property
     def n_molecules(self) -> int:
+        """Number of molecules carrying recovered donor/acceptor coordinates."""
         return int(self.donor_xy.shape[0])
 
 
@@ -107,18 +108,22 @@ class SmdCoordinateMatch:
 
     @property
     def n_smd(self) -> int:
+        """Number of SMD trace rows covered by this match, matched or not."""
         return int(self.mapping.shape[0])
 
     @property
     def n_matched(self) -> int:
+        """Number of SMD rows resolved to an acquisition molecule."""
         return len(self.matched)
 
     @property
     def n_unmatched(self) -> int:
+        """Number of SMD rows that matched no reference molecule."""
         return len(self.unmatched)
 
     @property
     def all_matched(self) -> bool:
+        """True when every SMD row resolved to an acquisition molecule."""
         return not self.unmatched
 
 

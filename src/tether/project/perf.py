@@ -290,10 +290,12 @@ class OvernightEstimate:
 
     @property
     def total_seconds(self) -> float:
+        """Projected whole-condition extract time in seconds (all ``n_movies``)."""
         return self.per_movie_seconds * self.n_movies
 
     @property
     def total_hours(self) -> float:
+        """The same whole-condition projection in hours, for comparison with ``window_hours``."""
         return self.total_seconds / 3600.0
 
     @property

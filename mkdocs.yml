@@ -38,6 +38,7 @@ theme:
 
 nav:
   - Home: index.md
+  - Does Tether fit my data?: compatibility.md
   - Import:
       - Legacy Deep-LASI import: io/legacy-import.md
   - Idealization:
@@ -48,10 +49,12 @@ nav:
       - Deep trace classifier (GPU add-on): ml/deep-classifier.md
   - Reference:
       - Command line: cli.md
+      - Exports (files, columns, units): reference/exports.md
   - Packaging:
       - Installers &amp; offline bundle: packaging.md
       - Releasing (signed installers): release.md
   - Architecture decisions: adr/README.md
+  - Stability policy: stability.md
   - Privacy policy: privacy.md
 
 # The product spec (PRD.md) is large and section-numbered for the repo; it stays

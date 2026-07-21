@@ -122,6 +122,7 @@ class TraceView:
 
     @property
     def n_frames(self) -> int:
+        """Number of frames in this trace (donor and acceptor share this length)."""
         return int(self.donor.size)
 
     @property
@@ -310,34 +311,42 @@ class TraceDock:
 
     @property
     def intensity_plot(self) -> pg.PlotItem:
+        """The top-left ``PlotItem``: the donor/acceptor/total intensity time-series (a.u.)."""
         return self._intensity_plot
 
     @property
     def fret_plot(self) -> pg.PlotItem:
+        """The bottom-left ``PlotItem``: the apparent-E time-series and its step overlay."""
         return self._fret_plot
 
     @property
     def intensity_histogram(self) -> pg.PlotItem:
+        """The top-right ``PlotItem``: the intensity panel's total-intensity marginal (y-linked)."""
         return self._intensity_hist
 
     @property
     def fret_histogram(self) -> pg.PlotItem:
+        """The bottom-right ``PlotItem``: the apparent-E marginal, y-linked to the FRET panel."""
         return self._fret_hist
 
     @property
     def donor_curve(self) -> pg.PlotDataItem:
+        """The green donor-intensity curve (a.u.) in the intensity panel."""
         return self._donor_curve
 
     @property
     def acceptor_curve(self) -> pg.PlotDataItem:
+        """The red acceptor-intensity curve (a.u.) in the intensity panel."""
         return self._acceptor_curve
 
     @property
     def total_curve(self) -> pg.PlotDataItem:
+        """The grey total-intensity (donor + acceptor) curve (a.u.) in the intensity panel."""
         return self._total_curve
 
     @property
     def fret_curve(self) -> pg.PlotDataItem:
+        """The blue apparent-E curve in the FRET panel, broken at non-finite samples."""
         return self._fret_curve
 
     @property
