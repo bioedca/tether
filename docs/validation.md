@@ -197,8 +197,14 @@ The pin every live assertion uses is `10f4230b6d13c6d2ad67b05d801696b4a40eff4a` 
 > both floors and 8.35e-09 / 1.00e-09 against ceilings of 0.02 and 0.01, and the freeze
 > *confirmed* the provisional PRD §11.2 defaults rather than widening them — `$.tolerance`
 > holds exactly `$.provisional` — so no bound was derived from the older build's numbers.
-> Closing the gap means re-measuring under `sidecar-measure.yml`, which is a deliberate
-> re-freeze and needs an ADR (PRD §11.2).
+> Closing the gap means re-measuring in the pinned sidecar build, which is a deliberate
+> re-freeze and needs an ADR (PRD §11.2). `sidecar-measure.yml` cannot do it as written: its
+> measurement step always passes `--cross-seed`, which forces `reference=None` for every
+> fixture in `scripts/measure_parity.py`, so it would anchor `smd_281mol` on its own first run
+> rather than on the committed `model_281mol.hdf5` that the default row was measured against
+> and that the live gate asserts. The faithful invocation is the one in that script's own
+> docstring — `scripts/measure_parity.py --n-runs 20` with **no** `--cross-seed`, which the
+> script permits for `--model-type vbconhmm` — run in the pinned sidecar interpreter.
 
 **Enforcing tests.** Live fits are `tests/test_parity_sidecar.py`
 (`pytestmark = pytest.mark.sidecar`, so deselected from the 3-OS matrix and run instead by

@@ -317,6 +317,10 @@ _CEILINGS = {
 # by deleting the runs that stressed it, and every remaining value would still pass.
 _EXPECTED_COMPARISONS = {"smd_4mol": 19, "smd_281mol": 20}
 _EXPECTED_COMPARISONS_BY_METHOD = {"ebhmm": {"smd_281mol": 19}}
+# The literal `reference` value scripts/measure_parity.py records for a spread
+# anchored on its own first run (`measure_parity.py:222`); anything else names a
+# committed reference model.
+_ANCHOR_REFERENCE = "cross-seed (run00 anchor)"
 
 
 def _assert_spread_within(spread_by_fixture, tol, *, expected_comparisons, n_runs):
@@ -325,17 +329,26 @@ def _assert_spread_within(spread_by_fixture, tol, *, expected_comparisons, n_run
     Also asserts the evidence is *complete and self-consistent*, so a bound can
     never be satisfied by deleting the runs that stressed it: the measured fixture
     set and each fixture's comparison count must match ``expected_comparisons``
-    exactly, that count must be consistent with the block's declared ``n_runs``,
-    every fixture must carry all four metrics with their declared direction, and
-    the recorded ``n``/``min``/``max``/``mean``/``worst`` must be reproducible from
-    the ``values`` list via the production :class:`SpreadSummary`. Dropping an
-    outlier therefore fails on the count, and doctoring the count fails here too.
+    exactly, that count must equal the block's declared ``n_runs``, less the anchor
+    run for a cross-seed spread, every fixture must carry all four metrics with
+    their declared direction, and the recorded ``n``/``min``/``max``/``mean``/``worst``
+    must be reproducible from the ``values`` list via the production
+    :class:`SpreadSummary`. Dropping an outlier therefore fails on the count, and
+    doctoring the count fails here too.
     """
     assert set(spread_by_fixture) == set(expected_comparisons), "measured fixture set changed"
     for name, fixture in spread_by_fixture.items():
         expected_n = expected_comparisons[name]
-        # Anchored spreads yield n_runs - 1 comparisons; referenced ones yield n_runs.
-        assert n_runs - 1 <= expected_n <= n_runs, f"{name}: pinned count vs declared n_runs"
+        # Exact, not a band: a run00-anchored spread spends its first run on the
+        # anchor and yields n_runs - 1 comparisons, while one measured against a
+        # committed reference model yields n_runs (`parity.measure_spread`). The
+        # fixture records which mode it used, so a doctored `n_runs_per_fixture`
+        # cannot hide behind the other mode's count.
+        anchored = fixture["reference"] == _ANCHOR_REFERENCE
+        assert expected_n == (n_runs - 1 if anchored else n_runs), (
+            f"{name}: pinned {expected_n} comparisons vs declared n_runs={n_runs} "
+            f"(reference={fixture['reference']})"
+        )
         assert fixture["n_comparisons"] == expected_n, (
             f"{name}: {fixture['n_comparisons']} comparisons, frozen evidence has {expected_n}"
         )
@@ -373,12 +386,15 @@ def test_frozen_artifact_covers_its_own_measured_evidence():
 
     Be precise about the direction it protects: the assertions are `value within
     bound`, so a bound **tightened** below its own evidence, evidence deleted or
-    truncated from under a bound (see ``_assert_spread_within``), or an altered
-    ``$.provisional`` all fail here — but a **loosened** bound does not, because
-    widening a ceiling (or lowering a floor) only leaves the recorded values
-    further inside it. Loosening is held by review plus the deliberate re-freeze
-    rule (``$.freeze_policy``, PRD 11.2, ADR-0009), not by this test. Same caveat
-    applies to the per-method check below.
+    truncated from under a bound (see ``_assert_spread_within``), or a
+    ``$.provisional`` that has drifted from the imported ``PROVISIONAL`` all fail
+    here — but a **loosened** bound does not, because widening a ceiling (or
+    lowering a floor) only leaves the recorded values further inside it. The
+    ``$.provisional`` assertion is a *drift* check, not a pin to literals: editing
+    the artifact or ``PROVISIONAL`` alone fails, but a PR that moves both in
+    lockstep does not. Loosening, and the PRD 11.2 defaults themselves, are held
+    by review plus the deliberate re-freeze rule (``$.freeze_policy``, PRD 11.2,
+    ADR-0009), not by this test. Same caveat applies to the per-method check below.
     """
     data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
     # Provisional defaults are the documented floor/ceiling design intent.
