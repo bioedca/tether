@@ -250,11 +250,12 @@ The core assertion in `_assert_spread_within` is `recorded value ≥ floor` /
 itself: the measured fixture set, and for each fixture the SMD path, the reference anchor,
 the fitted state count and the comparison count, are pinned to `_EXPECTED_EVIDENCE` (the
 run00-anchored `smd_4mol` spread at 2 states and 19 of 20 runs; `smd_281mol` at 4 states and
-20 runs against `tests/fixtures/large/model_281mol.hdf5`; ebFRET on `smd_281mol` at 4 states,
-run00-anchored, 19). Each count is cross-checked against that block's
-`$.method.n_runs_per_fixture` — with the anchored-or-not mode taken from the pin, not read
-back from the artifact — every fixture must carry all four metrics in
-their declared direction, and each summary's `n`/`min`/`max`/`mean`/`worst` is recomputed
+20 runs against `tests/fixtures/large/model_281mol.hdf5`) and, for the per-method blocks, to
+`_EXPECTED_EVIDENCE_BY_METHOD` (ebFRET on `smd_281mol` at 4 states, run00-anchored, 19).
+Each count is cross-checked against that block's `$.method.n_runs_per_fixture`, with the
+anchored-or-not mode taken from the pin, not read back from the artifact. Every fixture must
+carry all four metrics in their declared direction, and each summary's
+`n`/`min`/`max`/`mean`/`worst` is recomputed
 from its own `values` list with the production `SpreadSummary`. So on every pull request
 these two tests fail on a bound **tightened** below its own evidence, on a deleted fixture,
 on a dropped or truncated run — including one removed cleanly with every summary statistic

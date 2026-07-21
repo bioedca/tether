@@ -370,8 +370,7 @@ def _assert_spread_within(spread_by_fixture, tol, *, expected_evidence, n_runs):
     The identity check pins the *strings the frozen artifact records*. It does not
     open the named files, so it cannot attest that ``model_281mol.hdf5`` exists, is
     unmodified, or is the file the fit actually loaded — only that the artifact
-    still names the anchor it claims to have been measured against. File identity
-    is Git-LFS plus the live sidecar fit in ``tests/test_parity_sidecar.py``.
+    still names the anchor it claims to have been measured against.
     """
     assert set(spread_by_fixture) == set(expected_evidence), "measured fixture set changed"
     for name, fixture in spread_by_fixture.items():
