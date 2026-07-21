@@ -327,9 +327,7 @@ def test_merge_run_requires_a_bound_authority_comment() -> None:
     assert "server ID does not match" in rejected_id.stderr
 
     edited_authority = json.loads(json.dumps(lineage_document))
-    edited_authority["merge_authority_comment"][
-        "server_updated_at"
-    ] = "2026-07-21T00:00:01Z"
+    edited_authority["merge_authority_comment"]["server_updated_at"] = "2026-07-21T00:00:01Z"
     rejected_edit = _run("run-lineage", input_text=json.dumps(edited_authority))
     assert rejected_edit.returncode == 2
     assert "immutable comment was edited" in rejected_edit.stderr
@@ -347,12 +345,8 @@ def test_merge_run_requires_a_bound_authority_comment() -> None:
     assert "server target does not match" in rejected_target.stderr
 
     later_authority = json.loads(json.dumps(lineage_document))
-    later_authority["merge_authority_comment"][
-        "server_created_at"
-    ] = "2026-07-21T00:01:00Z"
-    later_authority["merge_authority_comment"][
-        "server_updated_at"
-    ] = "2026-07-21T00:01:00Z"
+    later_authority["merge_authority_comment"]["server_created_at"] = "2026-07-21T00:01:00Z"
+    later_authority["merge_authority_comment"]["server_updated_at"] = "2026-07-21T00:01:00Z"
     rejected_time = _run("run-lineage", input_text=json.dumps(later_authority))
     assert rejected_time.returncode == 2
     assert "distinct prior" in rejected_time.stderr
