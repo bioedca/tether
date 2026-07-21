@@ -396,8 +396,8 @@ Empty in a fresh store. **Up to six** datasets, named
 `{donor,acceptor}_{raw,corrected,background}`
 ([ADR-0016](../adr/0016-extraction-trace-store-layout.md)); `write_extraction` writes
 all six **only for a movie that yielded at least one molecule**. A movie that
-colocalized zero molecules still appends its `/movies` row and
-`/settings/extraction`, but creates no `/traces` or `/patches` dataset at all
+colocalized zero molecules still appends its `/movies` row, but creates no
+`/traces` or `/patches` dataset at all
 (`if molecules.n_molecules:`, `src/tether/imaging/extract.py`) — so a valid,
 error-free store can have a populated `/movies` and an entirely empty `/traces`.
 The other provenances write fewer layers:
@@ -411,7 +411,7 @@ The other provenances write fewer layers:
 Whichever are present are `(n_molecules, max_T)`, dtype **float32**
 (`_TRACE_DTYPE = "<f4"`, `src/tether/imaging/extract.py`), chunked and
 gzip-compressed, with `maxshape=(None, None)`. **Do not assume all six exist** — see
-the last two bullets below.
+the zero-molecule case above and the last two bullets below.
 
 - **The time axis is zero-padded to the longest movie in the store.** Appending a
   shorter movie leaves zeros past its end; appending a longer one grows the axis and
@@ -446,7 +446,7 @@ the last two bullets below.
 ## `/patches` — the cached image crops
 
 Empty until `write_extraction` runs **on a movie with at least one molecule** —
-a zero-molecule movie leaves both datasets uncreated, as under `/traces` above.
+a zero-molecule movie creates neither dataset, as under `/traces` above.
 Two datasets, `donor` and `acceptor`, each
 `(n_molecules, window, window)` float32, chunked and gzip-compressed, with
 `maxshape=(None, window, window)` — only the molecule axis grows, because the
