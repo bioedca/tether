@@ -135,8 +135,10 @@ class MovieReader:
         The reference movies carry no frame-time tag, and no shipped importer
         supplies one either: the ``.tdat``/``.mat`` decode reads no ``FrameTime``
         (:mod:`tether.io.tdat`, :mod:`tether.io.deeplasi`). This tag is therefore the
-        only source ``/movies.frame_time`` has, and a store built from those legacy
-        files keeps the ``0.0`` "unknown" default.
+        only source ``/movies.frame_time`` has: a store built from those legacy files
+        still reads the value off the raw movie TIFF the reconstruction points at, so
+        it keeps the ``0.0`` "unknown" default only when that TIFF declares no
+        ``finterval`` either.
         """
         return self._frame_time
 
