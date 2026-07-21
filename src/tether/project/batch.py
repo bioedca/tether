@@ -364,6 +364,10 @@ def _assert_output_not_newer(path: Path) -> None:
     reason. Falling through hands it to ``write_extraction``, which rejects it
     accurately as "not a .tether project".
 
+    A genuine newer-schema project **is** refused even under ``overwrite=True``. That is
+    deliberate: ``--overwrite`` means "redo my extraction", not "discard whatever a newer
+    Tether wrote", and re-creating the store would destroy a colleague's work.
+
     Raises
     ------
     ValueError

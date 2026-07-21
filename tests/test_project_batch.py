@@ -303,6 +303,29 @@ def test_resume_still_reattempts_an_unreadable_or_incomplete_output(tmp_path: Pa
     assert r.ok
 
 
+def test_overwrite_does_not_reclaim_a_newer_schema_output(tmp_path: Path) -> None:
+    """``overwrite=True`` does not license destroying a newer Tether's project.
+
+    A deliberate behaviour change, pinned here because it is one: before this guard,
+    ``overwrite=True`` would have re-created the store. ``--overwrite`` means "redo my
+    extraction", not "discard whatever a newer Tether wrote" — and re-creating would
+    silently destroy a colleague's work. The movie fails in isolation; the queue runs on.
+    """
+    jobs = _jobs(tmp_path, "future", "fine")
+    _run(jobs)
+    _stamp_future_schema(tmp_path / "future.tether")
+
+    summary = _run(jobs, overwrite=True)
+
+    by_stem = {r.job.output_path.stem: r for r in summary.results}
+    assert by_stem["future"].stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "newer than this app's" in (by_stem["future"].stages[STAGE_EXTRACT].error or "")
+    assert by_stem["fine"].ok
+    # Still the newer file: `create_project` would have reset the stamp to ours.
+    with h5py.File(tmp_path / "future.tether", "r") as f:
+        assert int(f.attrs["schema_version"]) == SCHEMA_VERSION + 1
+
+
 def test_foreign_hdf5_with_a_version_attr_is_not_treated_as_a_future_project(
     tmp_path: Path,
 ) -> None:
