@@ -198,7 +198,13 @@ jobs:
           # how issue #212 reached a shipped installer past this smoke. Drive the real
           # headless entry point the batch runner's startup probe uses: it constructs
           # maven_class and exits non-zero with a JSON status on failure.
-          "$prefix/envs/sidecar/bin/python" src/tether/idealize/_sidecar_runner.py --probe
+          # Resolve the runner from the INSTALLED app env, not the checkout: at runtime
+          # the driver launches `Path(driver.__file__).with_name("_sidecar_runner.py")`
+          # (`_RUNNER`, src/tether/idealize/driver.py — the path supervisor.py hands the
+          # sidecar interpreter), so probing the checkout copy would still pass if the
+          # wheel never shipped it.
+          runner="$("$prefix/envs/tether/bin/python" -c 'from tether.idealize.driver import _RUNNER; print(_RUNNER)')"
+          "$prefix/envs/sidecar/bin/python" "$runner" --probe
           # And assert the pin itself, so a regression names its cause rather than
           # surfacing as an opaque probe failure.
           "$prefix/envs/sidecar/bin/python" -c "import setuptools, pkg_resources; assert tuple(int(p) for p in setuptools.__version__.split('.')[:1]) < (81,), setuptools.__version__; print('sidecar setuptools OK', setuptools.__version__)"
@@ -241,8 +247,10 @@ jobs:
           "$prefix\\envs\\tether\\python.exe" -m tether --version
           "$prefix\\envs\\sidecar\\python.exe" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
           # Importing tmaven is NOT enough — see the Unix smoke for why (issue #212).
-          # Drive the real headless entry point, which constructs maven_class.
-          "$prefix\\envs\\sidecar\\python.exe" src/tether/idealize/_sidecar_runner.py --probe
+          # Drive the real headless entry point, resolved from the INSTALLED app env
+          # exactly as the driver resolves it, which constructs maven_class.
+          runner="$("$prefix\\envs\\tether\\python.exe" -c 'from tether.idealize.driver import _RUNNER; print(_RUNNER)')"
+          "$prefix\\envs\\sidecar\\python.exe" "$runner" --probe
           "$prefix\\envs\\sidecar\\python.exe" -c "import setuptools, pkg_resources; assert tuple(int(p) for p in setuptools.__version__.split('.')[:1]) < (81,), setuptools.__version__; print('sidecar setuptools OK', setuptools.__version__)"
           # The USER-FACING launch surface (ADR-0051). The absolute env path above
           # proves the env was built; these prove the app can actually be STARTED.

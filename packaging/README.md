@@ -29,7 +29,7 @@ documented install.
 | File | Role |
 |---|---|
 | `construct.yaml` | The recipe. Uses conda-build selectors + Jinja, so it is **not** plain YAML — render before use, and it is excluded from the `check-yaml` pre-commit hook. |
-| `scripts/post_install.sh` / `.bat` | Offline `pip --no-index --no-deps` of the two wheels into their envs; wire `TETHER_SIDECAR_PYTHON`. |
+| `scripts/post_install.sh` / `.bat` | Offline `pip --no-index --no-deps` of the three wheels into their envs; wire `TETHER_SIDECAR_PYTHON`. |
 | `locks/`, `staging/` | **Build-time only** (git-ignored): rendered explicit locks; the staged wheels + `LICENSE.txt`. |
 | `dist/` | Built installers (git-ignored). |
 
@@ -46,10 +46,12 @@ micromamba create -n pkgbuild -c conda-forge "constructor>=3.16" conda-lock=4.0.
     conda-standalone python-build pip "setuptools<81" wheel
 micromamba activate pkgbuild
 
-# 2. Build the two wheels into packaging/staging/.
+# 2. Build the two wheels into packaging/staging/, plus the setuptools<81 pin the
+#    sidecar needs for tMAVEN's `pkg_resources` import (issue #212).
 python -m build --wheel --outdir packaging/staging .
 python -m pip wheel --no-deps --no-build-isolation -w packaging/staging \
     "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230b6d13c6d2ad67b05d801696b4a40eff4a"
+python -m pip download --only-binary=:all: --no-deps -d packaging/staging "setuptools<81"
 
 # 3. Render the committed locks to per-platform explicit locks (pin-and-hold).
 mkdir -p packaging/locks && cd packaging/locks
@@ -60,7 +62,8 @@ cd ../..
 # 4. Stage the license and export the wheel names the recipe reads.
 cp LICENSE packaging/staging/LICENSE.txt
 export TETHER_VERSION=... TETHER_WHEEL=staging/tether-*.whl TETHER_WHEEL_NAME=... \
-       TMAVEN_WHEEL=staging/tmaven-*.whl TMAVEN_WHEEL_NAME=...
+       TMAVEN_WHEEL=staging/tmaven-*.whl TMAVEN_WHEEL_NAME=... \
+       SETUPTOOLS_WHEEL=staging/setuptools-*.whl SETUPTOOLS_WHEEL_NAME=...
 
 # 5. Validate the recipe, then build.
 constructor --render packaging/     # offline: selectors + Jinja + YAML

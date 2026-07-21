@@ -98,7 +98,7 @@ extra_files:
 # build driver). Must be plain .txt for the shell (Linux) installer.
 license_file: staging/LICENSE.txt
 
-# Offline pip-install of the two wheels + wire the bundled sidecar interpreter.
+# Offline pip-install of the three wheels + wire the bundled sidecar interpreter.
 # ONE key, per-OS by selector; constructor builds one installer per target OS.
 post_install: scripts/post_install.sh    # [unix]
 post_install: scripts/post_install.bat   # [win]
