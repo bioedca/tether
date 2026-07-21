@@ -12,11 +12,19 @@ The defaults are read straight out of the source with :mod:`ast` rather than by
 importing ``tether``, so the guard runs on the plain 3-OS ``test`` matrix without
 pulling SciPy/h5py/matplotlib in and without executing module-import side effects.
 
+A registry entry reads its live value from a module constant
+(:func:`module_constant`), a dataclass field (:func:`dataclass_field`) or a
+function-signature default (:func:`function_default`) — the last because much of what
+the page prints (the per-mode detector thresholds, ``intensity_quantity``, the
+population functions' boolean switches) is a plain keyword default with no constant
+behind it.
+
 The page side is parsed from its Markdown tables: for each registered entry, *every*
 row whose **Parameter** cell carries the entry's backticked tokens must state the live
 value in its **Default** cell. A parameter documented twice (``min_window_frames``
 gates both the leakage and the gamma estimator) therefore has to agree with itself as
-well as with the code.
+well as with the code. A second pass walks the rows rather than the entries, so on a
+row that prints several values no drifted default can hide behind a sibling's.
 """
 
 from __future__ import annotations
@@ -62,6 +70,46 @@ def module_constant(dotted: str, name: str) -> object:
                 if isinstance(target, ast.Name) and target.id == name:
                     return _literal(stmt.value)
     raise AssertionError(f"{dotted} has no module-level constant {name!r}")
+
+
+def function_default(dotted: str, func: str, param: str) -> object:
+    """The default of the parameter ``param`` on ``func`` in module ``dotted``.
+
+    Function-signature defaults are the other half of what the page prints. The
+    per-mode detector thresholds, ``intensity_quantity``, the population
+    functions' boolean switches and the cross-correlation lag arguments are plain
+    keyword defaults rather than module constants, so :func:`module_constant`
+    cannot reach them and they would otherwise drift unguarded. A default that is
+    itself a name (``bins=DEFAULT_NBINS``) is rejected: that value belongs to a
+    :func:`module_constant` entry, so no registry line can silently pin a name
+    instead of a value.
+    """
+    for stmt in _module_source(dotted).body:
+        if not (isinstance(stmt, ast.FunctionDef) and stmt.name == func):
+            continue
+        args = stmt.args
+        positional = args.posonlyargs + args.args
+        defaulted = positional[len(positional) - len(args.defaults) :]
+        pairs: list[tuple[str, ast.expr | None]] = [
+            (arg.arg, default) for arg, default in zip(defaulted, args.defaults, strict=True)
+        ]
+        pairs += [
+            (arg.arg, default)
+            for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=True)
+        ]
+        for name, node in pairs:
+            if name != param:
+                continue
+            if node is None:
+                raise AssertionError(f"{dotted}.{func} parameter {param!r} has no default")
+            if isinstance(node, ast.Name):
+                raise AssertionError(
+                    f"{dotted}.{func} defaults {param!r} to the constant {node.id} — "
+                    f"pin it with module_constant() instead"
+                )
+            return _literal(node)
+        raise AssertionError(f"{dotted}.{func} has no defaulted parameter {param!r}")
+    raise AssertionError(f"{dotted} has no module-level function {func!r}")
 
 
 def dataclass_field(dotted: str, class_name: str, field: str) -> object:
@@ -138,13 +186,45 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             "bg_window",
         )
     ]
+    detect = "tether.imaging.detect"
     entries += [
+        # Per-mode detector defaults. ``ExtractOptions`` stores ``None`` for both and
+        # the mode's own function supplies the number the page prints, so these are
+        # reachable only as function-signature defaults.
+        (("detection_threshold",), function_default(detect, "detect_spots_intensity", "threshold")),
+        (("detection_threshold",), function_default(detect, "detect_spots_bandpass", "threshold")),
+        (("min_separation",), function_default(detect, "detect_spots", "min_separation")),
+        (
+            ("min_separation",),
+            function_default(detect, "detect_spots_intensity", "min_separation"),
+        ),
+        (("min_separation",), function_default(detect, "detect_spots_bandpass", "min_separation")),
+        # Batch over-gate policy (the row names no constant, only its module).
+        (("tether.project.batch",), module_constant("tether.project.batch", "POLICY_WARN")),
         # Photobleaching priors.
         (("PB_PRIOR_A",), module_constant("tether.fret.photobleach", "PB_PRIOR_A")),
         (("PB_PRIOR_B",), module_constant("tether.fret.photobleach", "PB_PRIOR_B")),
         (("PB_PRIOR_BETA",), module_constant("tether.fret.photobleach", "PB_PRIOR_BETA")),
         (("PB_PRIOR_MU",), module_constant("tether.fret.photobleach", "PB_PRIOR_MU")),
+        (
+            ("intensity_quantity", "tether.project.photobleach"),
+            function_default(
+                "tether.project.photobleach", "compute_photobleach", "intensity_quantity"
+            ),
+        ),
         # Corrections.
+        (
+            ("alpha_override",),
+            function_default("tether.project.correct", "compute_corrected_fret", "alpha_override"),
+        ),
+        (
+            ("gamma_override",),
+            function_default("tether.project.correct", "compute_corrected_fret", "gamma_override"),
+        ),
+        (
+            ("apparent_e_only",),
+            function_default("tether.project.correct", "compute_corrected_fret", "apparent_e_only"),
+        ),
         (("LEAKAGE_CEILING",), module_constant("tether.fret.leakage", "LEAKAGE_CEILING")),
         (
             ("DEFAULT_MIN_WINDOW_FRAMES",),
@@ -177,7 +257,61 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             ("DEFAULT_PROBE_TIMEOUT",),
             module_constant("tether.idealize.supervisor", "DEFAULT_PROBE_TIMEOUT"),
         ),
+        (
+            ("nstates", "tether.project.idealize"),
+            function_default("tether.project.idealize", "idealize_molecules", "nstates"),
+        ),
+        (
+            ("nrestarts",),
+            function_default("tether.project.idealize", "idealize_molecules", "nrestarts"),
+        ),
+        (
+            ("intensity_quantity", "tether.project.idealize"),
+            function_default("tether.project.idealize", "idealize_molecules", "intensity_quantity"),
+        ),
+        (
+            ("defer_if_unavailable",),
+            dataclass_field(
+                "tether.idealize.supervisor", "SidecarSupervision", "defer_if_unavailable"
+            ),
+        ),
         # Analysis — science tunables.
+        (
+            ("intensity_quantity", "tether.analysis"),
+            function_default(
+                "tether.analysis.histogram",
+                "population_apparent_e_histogram",
+                "intensity_quantity",
+            ),
+        ),
+        (
+            ("include_first",),
+            function_default("tether.analysis.dwell", "population_dwell_times", "include_first"),
+        ),
+        (
+            ("per_molecule_equal_weight",),
+            function_default(
+                "tether.analysis.histogram",
+                "population_apparent_e_histogram",
+                "per_molecule_equal_weight",
+            ),
+        ),
+        (
+            ("include_rejected",),
+            function_default(
+                "tether.analysis.histogram",
+                "population_apparent_e_histogram",
+                "include_rejected",
+            ),
+        ),
+        (
+            ("include_stale",),
+            function_default("tether.analysis.dwell", "population_dwell_times", "include_stale"),
+        ),
+        (
+            ("model", "tether.analysis.dwell"),
+            function_default("tether.analysis.dwell", "population_dwell_times", "model"),
+        ),
         (
             ("DEFAULT_BOOTSTRAP_RESAMPLES",),
             module_constant("tether.analysis.histogram", "DEFAULT_BOOTSTRAP_RESAMPLES"),
@@ -248,6 +382,20 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
         (
             ("DEFAULT_STATE_NUMBER_LOW",),
             module_constant("tether.analysis.state_number", "DEFAULT_STATE_NUMBER_LOW"),
+        ),
+        (
+            ("states_high",),
+            function_default(
+                "tether.analysis.state_number", "population_state_number", "states_high"
+            ),
+        ),
+        (
+            ("max_lag",),
+            function_default("tether.analysis.crosscorr", "cross_correlation", "max_lag"),
+        ),
+        (
+            ("normalize",),
+            function_default("tether.analysis.crosscorr", "cross_correlation", "normalize"),
         ),
         (
             ("DEFAULT_CLOUD_SIGNAL_BINS",),
@@ -336,6 +484,10 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             dataclass_field("tether.ml.gbranker", "RankerHyperparams", "random_state"),
         ),
         # Optional deep add-on.
+        (
+            ("DEFAULT_DEEP_CHANNELS",),
+            module_constant("tether.ml.deep.dataset", "DEFAULT_DEEP_CHANNELS"),
+        ),
         (
             ("DEFAULT_WINDOW_LENGTH",),
             module_constant("tether.ml.deep.dataset", "DEFAULT_WINDOW_LENGTH"),
@@ -432,6 +584,49 @@ def test_documented_default_matches_the_code(tokens: tuple[str, ...], value: obj
             f"docs/reference/parameters.md documents {literals} for `{label}`, "
             f"but the code says {_fmt(value)!r}"
         )
+
+
+def test_a_multi_value_row_states_each_registered_default_separately() -> None:
+    """A changed default may not hide behind a sibling's value on the same row.
+
+    ``test_documented_default_matches_the_code`` accepts *any* backticked literal
+    in the Default cell, so on a row that prints several values a drifted constant
+    passes as soon as its new value collides with a neighbour's: flip
+    ``DEFAULT_CONV_CHANNELS`` from ``32`` to ``5`` and the ``5`` already printed
+    for ``kernel_size`` absorbs it. This walks the row instead of the entry and
+    makes every registered default claim its **own** literal.
+
+    Two registry lines that carry the same tokens *and* the same value are one
+    documented claim, not two — ``min_separation`` prints a single ``3.0`` for both
+    the intensity and the bandpass detector — so they collapse before the walk. A
+    row that still prints fewer literals than it has entries has collapsed values
+    the registry cannot tell apart (``dt`` / ``time_dt`` print one ``1.0`` for
+    three separately-named constants); it keeps the per-entry check only.
+    """
+    for row in ROWS:
+        parameter_tokens = set(_BACKTICKED_RE.findall(row[0]))
+        seen: set[tuple[tuple[str, ...], str, str]] = set()
+        entries: list[tuple[tuple[str, ...], object]] = []
+        for tokens, value in REGISTRY:
+            key = (tokens, type(value).__name__, repr(value))
+            if set(tokens) <= parameter_tokens and key not in seen:
+                seen.add(key)
+                entries.append((tokens, value))
+        literals = _BACKTICKED_RE.findall(row[1]) if len(row) > 1 else []
+        if len(entries) < 2 or len(literals) < len(entries):
+            continue
+        unclaimed = list(literals)
+        for tokens, value in entries:
+            for i, text in enumerate(unclaimed):
+                if _states(text, value):
+                    del unclaimed[i]
+                    break
+            else:
+                raise AssertionError(
+                    f"the row for `{tokens[0]}` prints {literals} but has no literal left "
+                    f"for its live value {_fmt(value)!r} — a default on this row has "
+                    f"drifted and is hiding behind a sibling's value"
+                )
 
 
 def test_every_constant_the_page_prints_a_value_for_is_registered() -> None:
