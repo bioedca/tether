@@ -199,14 +199,17 @@ class BatchSummary:
 
     @property
     def n_movies(self) -> int:
+        """Number of movies in the run (one result per queued job)."""
         return len(self.results)
 
     @property
     def n_ok(self) -> int:
+        """Number of movies in which no stage failed."""
         return sum(1 for r in self.results if r.ok)
 
     @property
     def n_failed(self) -> int:
+        """Number of movies with at least one failed stage."""
         return sum(1 for r in self.results if not r.ok)
 
     def format_report(self) -> str:

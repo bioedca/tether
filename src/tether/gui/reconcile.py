@@ -176,14 +176,17 @@ class ReconcileDialog:
 
     @property
     def dialog(self) -> QtWidgets.QDialog:
+        """The wrapped ``QDialog`` holding the prompt's table, checkbox and buttons."""
         return self._dialog
 
     @property
     def report(self) -> ReconcileReport:
+        """The return-leg :class:`ReconcileReport` this prompt renders."""
         return self._report
 
     @property
     def import_checkbox(self) -> QtWidgets.QCheckBox:
+        """The project-level idealization-import checkbox (disabled without a model)."""
         return self._import_box
 
     def change_rows(self) -> list[TraceReconcile]:
