@@ -18,9 +18,17 @@ Two comparison anchors (PRD §8 NFR-VALID(b), §9 M0.5):
 
 Run (sidecar env on PATH via the env var)::
 
-    TETHER_SIDECAR_PYTHON=C:/ProgramData/miniconda3/envs/tmaven/python.exe \
+    TETHER_SIDECAR_PYTHON=<sidecar env>/bin/python \
     NUMBA_CACHE_DIR=<persistent dir> PYTHONPATH=src \
     python scripts/measure_parity.py --n-runs 20 --out schema/parity_tolerance.json
+
+The written ``method`` block records **what was compared against** — the sidecar
+CPython version and the tMAVEN upstream commit (:func:`probe_sidecar_build`) —
+never ``$TETHER_SIDECAR_PYTHON`` itself: an absolute path names a machine, not a
+build, and would put a local filesystem layout into a committed public artifact.
+That holds on the failure path too: a probe error is rebuilt from safe attributes
+and redacted (:func:`_sanitized_probe_error`), because ``CalledProcessError`` and
+``TimeoutExpired`` render the whole argv — path included — in their ``str()``.
 
 The frozen numbers are a one-time M0.5 ratification: regenerate only with an ADR
 + a deliberate re-freeze (PRD §11.2 "frozen from the measured cross-seed spread
@@ -32,10 +40,30 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 
 from tether.idealize.parity import PROVISIONAL, freeze, measure_spread
+
+#: Run inside the *sidecar* interpreter to identify the tMAVEN build that was
+#: compared against. ``direct_url.json`` is PEP 610 metadata that ``pip install
+#: git+…@<ref>`` writes, so it carries the resolved 40-char upstream commit even
+#: when the spec named a short ref or a branch.
+_BUILD_PROBE = """
+import json, platform
+out = {"sidecar_python_version": platform.python_version(), "tmaven_commit": "unrecorded"}
+try:
+    import importlib.metadata as md
+
+    raw = md.distribution("tmaven").read_text("direct_url.json")
+    commit = (json.loads(raw).get("vcs_info") or {}).get("commit_id") if raw else None
+    if commit:
+        out["tmaven_commit"] = commit
+except Exception as exc:  # a non-VCS install (wheel/sdist) records no commit
+    out["tmaven_commit_probe_error"] = f"{type(exc).__name__}: {exc}"
+print(json.dumps(out))
+"""
 
 # Fixture -> (reference anchor, fitted state count). 281-mol anchors on the
 # committed reference model; 4-mol anchors cross-seed on its own first run.
@@ -51,6 +79,70 @@ _FIXTURES = {
         "nstates": 4,
     },
 }
+
+
+_REDACTED = "$TETHER_SIDECAR_PYTHON"
+
+
+def _redact(text: str, secret: str) -> str:
+    """Replace ``secret`` — raw and backslash-escaped — with a placeholder."""
+    out = text
+    for form in {secret, secret.replace("\\", "\\\\")}:
+        if form:
+            out = out.replace(form, _REDACTED)
+    return out
+
+
+def _sanitized_probe_error(exc: BaseException, sidecar_python: str) -> str:
+    """Describe ``exc`` **without** leaking the interpreter path into the artifact.
+
+    ``CalledProcessError.__str__`` and ``TimeoutExpired.__str__`` both render the whole
+    argv, whose first element is the absolute sidecar interpreter path — precisely the
+    machine-identifying string this module exists to keep out of a committed public
+    file. So their messages are rebuilt from safe attributes instead of ``str(exc)``,
+    and every message is redacted before it is returned.
+    """
+    if isinstance(exc, subprocess.CalledProcessError):
+        detail = f"exit {exc.returncode}"
+    elif isinstance(exc, subprocess.TimeoutExpired):
+        detail = f"timed out after {exc.timeout}s"
+    else:
+        detail = str(exc)
+    stderr = getattr(exc, "stderr", None) or ""
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    tail = stderr.strip().splitlines()[-1] if stderr.strip() else ""
+    if tail:
+        detail = f"{detail}; {tail}"
+    return _redact(f"{type(exc).__name__}: {detail}", sidecar_python)
+
+
+def probe_sidecar_build(sidecar_python: str | None) -> dict[str, str]:
+    """Return the reproducibility facts that identify the measured comparison.
+
+    ``{"sidecar_python_version": ..., "tmaven_commit": ...}`` — the CPython version
+    of the sidecar interpreter and the tMAVEN upstream commit installed into it.
+    Deliberately **not** the interpreter path: the frozen artifact is committed and
+    published, and a path identifies a machine rather than a build. Any failure
+    degrades to ``"unrecorded"`` plus a *sanitized* probe-error field (see
+    :func:`_sanitized_probe_error`) so a long measurement run is never lost to a
+    provenance probe — and never leaks the path through an exception message either.
+    """
+    unrecorded = {"sidecar_python_version": "unrecorded", "tmaven_commit": "unrecorded"}
+    if not sidecar_python:
+        return {**unrecorded, "build_probe_error": f"{_REDACTED} is unset"}
+    try:
+        proc = subprocess.run(  # noqa: S603 - sidecar_python is the configured interpreter
+            [sidecar_python, "-c", _BUILD_PROBE],
+            capture_output=True,
+            text=True,
+            timeout=120.0,
+            check=True,
+        )
+        probed = json.loads(proc.stdout.strip().splitlines()[-1])
+    except Exception as exc:
+        return {**unrecorded, "build_probe_error": _sanitized_probe_error(exc, sidecar_python)}
+    return {**unrecorded, **probed}
 
 
 def main() -> int:
@@ -159,7 +251,7 @@ def main() -> int:
         "method": {
             "model_type": args.model_type,
             "n_runs_per_fixture": args.n_runs,
-            "sidecar_python": os.environ.get("TETHER_SIDECAR_PYTHON", "unset"),
+            **probe_sidecar_build(os.environ.get("TETHER_SIDECAR_PYTHON")),
             "note": "tMAVEN self-reseeds; parity is statistical, never bit-exact (PRD §7.4).",
         },
         "coverage": {

@@ -5,7 +5,9 @@
   "method": {
     "model_type": "vbconhmm",
     "n_runs_per_fixture": 20,
-    "sidecar_python": "C:/ProgramData/miniconda3/envs/tmaven/python.exe",
+    "sidecar_python_version": "3.9.23",
+    "tmaven_commit": "71cfa1afcaaa1038a821bc198c30e67a321067a2",
+    "build_provenance": "Replaces an absolute workstation interpreter path, which named a machine but identified no build. The M0.5 run predates automatic build capture (scripts/measure_parity.py now probes both fields at measure time), so these two values were recovered on 2026-07-20 from the interpreter that path still resolves to on the ratifying workstation - platform.python_version() and the tMAVEN distribution's PEP 610 direct_url.json - and the environment is not guaranteed unchanged since 2026-06-26. That tMAVEN checkout is an EARLIER upstream commit than the one the project pins for CI, installers and every live sidecar assertion (10f4230b6d13c6d2ad67b05d801696b4a40eff4a; see NOTICE, scripts/setup_sidecar.py, .github/workflows/sidecar.yml) - 13 upstream commits behind it, with tmaven/controllers/modeler/ changed in between. The interpreter differs too: the shipped sidecar stack pins python 3.12.* (sidecar/environment.yml), resolving to 3.12.13 in sidecar/conda-lock.yml. So this top-level tolerance was NOT measured on the build the live sidecar assertions run against; the ebhmm block under measured_by_method WAS. Mitigation: the measured worst cases here are 1.0 on both floors and 8.35e-09 / 1.00e-09 against ceilings of 0.02 / 0.01 (see pooled_worst), and the freeze only CONFIRMED the provisional PRD 11.2 defaults rather than widening them (tolerance == provisional), so no bound was derived from the older build's numbers. Re-measuring is a deliberate re-freeze and needs an ADR.",
     "note": "tMAVEN self-reseeds; parity is statistical, never bit-exact (PRD \u00a77.4)."
   },
   "coverage": {
@@ -305,7 +307,9 @@
       "method": {
         "model_type": "ebhmm",
         "n_runs_per_fixture": 20,
-        "sidecar_python": "/home/runner/micromamba/envs/tether-sidecar/bin/python",
+        "sidecar_python_version": "3.12.13",
+        "tmaven_commit": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
+        "build_provenance": "Replaces a CI-runner interpreter path, which identified no build. Like the M0.5 block, these two values were NOT captured at measure time (scripts/measure_parity.py only grew a build probe on 2026-07-20); they were re-derived on 2026-07-20 from the measuring run's own inputs. Primary evidence: the 2026-07-08 workflow_dispatch run 28963324581 of .github/workflows/sidecar-measure.yml on main, whose log records 'python 3.12.13 hd63d673_0_cpython conda-forge' and resolves TMAVEN_SPEC to git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230. Corroborated by sidecar/conda-lock.yml (pins python 3.12.13 on every platform, unchanged since 2026-06-24) and by NOTICE, which records the same 10f4230b6d13c6d2ad67b05d801696b4a40eff4a pin. Unlike the M0.5 block, this build IS the one CI, the installers and every live sidecar assertion run.",
         "note": "tMAVEN self-reseeds; parity is statistical, never bit-exact (PRD \u00a77.4)."
       },
       "coverage": {

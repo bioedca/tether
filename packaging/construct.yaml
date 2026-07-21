@@ -11,10 +11,11 @@
 #   constructor --render packaging/     # offline: selector + Jinja + YAML parse
 #   constructor --dry-run  packaging/    # full JSON-Schema key validation + solve
 #
-# The build driver (.github/workflows/packaging.yml, and packaging/README.md for
-# local builds) sets the env vars this recipe reads and stages the artifacts it
-# references (the rendered per-platform locks under locks/, the two wheels, and
-# the GPL license text under staging/). See ADR-0049 for the architecture.
+# The build driver (.github/workflows/packaging.yml and release.yml, and
+# packaging/README.md for local builds) sets the env vars this recipe reads and
+# stages the artifacts it references (the rendered per-platform locks under locks/,
+# the THREE wheels — see `extra_files` below — and the GPL license text under
+# staging/). See ADR-0049 for the architecture.
 #
 # UNSIGNED in this PR: the `*_signing_*` keys below are documented but left
 # INACTIVE — constructor produces unsigned installers by default. Authenticode
@@ -77,21 +78,30 @@ extra_envs:
     environment_file: locks/sidecar-win-64.lock       # [win]
 
 # --- Non-packaged payloads bundled into the installer ---------------------------
-# The two wheels are NOT conda packages: `tether` is a hatchling wheel and tMAVEN
-# is a pip/git project (pinned commit 10f4230…, NOTICE / ADR-0049), both built at
-# build time and offline pip-installed by the post_install script below (`tether`
-# into `envs/tether`, tMAVEN into `envs/sidecar`). Paths are relative to this
-# construct.yaml directory; the build driver sets the env vars.
+# Three wheels, none of them conda packages. The first two are BUILT here: `tether`
+# is a hatchling wheel and tMAVEN is a pip/git project (pinned commit 10f4230…,
+# NOTICE / ADR-0049), both offline pip-installed by the post_install script below
+# (`tether` into `envs/tether`, tMAVEN into `envs/sidecar`). Paths are relative to
+# this construct.yaml directory; the build driver sets the env vars.
+#
+# The third wheel is DOWNLOADED: `setuptools<81`. tMAVEN's `maven_class.__init__`
+# imports `pkg_resources`, which setuptools deprecated by 80.9.0 (still shipped
+# through 81.0.0) and removed in 82.0.0, while sidecar/conda-lock.yml resolves
+# 82.0.1 — so the sidecar env needs the older setuptools laid over it or the first
+# idealization fails (issue #212). The `<81` bound is the one setuptools' own
+# deprecation warning names. It is a pure-Python `py3-none-any` wheel, so the same
+# file serves every platform.
 extra_files:
   - {{ environ.get("TETHER_WHEEL", "staging/tether.whl") }}: wheelhouse/{{ environ.get("TETHER_WHEEL_NAME", "tether.whl") }}
   - {{ environ.get("TMAVEN_WHEEL", "staging/tmaven.whl") }}: wheelhouse/{{ environ.get("TMAVEN_WHEEL_NAME", "tmaven.whl") }}
+  - {{ environ.get("SETUPTOOLS_WHEEL", "staging/setuptools.whl") }}: wheelhouse/{{ environ.get("SETUPTOOLS_WHEEL_NAME", "setuptools.whl") }}
 
 # GPL-3.0 license text shown during install and shipped beside the installer
 # (NOTICE: the bundled sidecar also ships tMAVEN's own GPL-3.0 text — staged by the
 # build driver). Must be plain .txt for the shell (Linux) installer.
 license_file: staging/LICENSE.txt
 
-# Offline pip-install of the two wheels + wire the bundled sidecar interpreter.
+# Offline pip-install of the three wheels + wire the bundled sidecar interpreter.
 # ONE key, per-OS by selector; constructor builds one installer per target OS.
 post_install: scripts/post_install.sh    # [unix]
 post_install: scripts/post_install.bat   # [win]

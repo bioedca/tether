@@ -309,13 +309,110 @@ _CEILINGS = {
     "relative_elbo": "relative_elbo_max",
 }
 
+# The literal `reference` value scripts/measure_parity.py records for a spread
+# anchored on its own first run (`measure_parity.py:222`); anything else names a
+# committed reference model.
+_ANCHOR_REFERENCE = "cross-seed (run00 anchor)"
 
-def _assert_spread_within(spread_by_fixture, tol):
-    """Every recorded per-run value must sit within ``tol``'s floors/ceilings."""
-    for fixture in spread_by_fixture.values():
+# What each frozen block was measured on: the SMD fixture, the reference anchor and
+# the fitted state count, plus how many comparisons each fixture contributed (a
+# cross-seed spread anchored on run00 spends one of its `n_runs` on the anchor,
+# hence 19 of 20). Pinned here because *which evidence exists* is part of the
+# freeze: dropping a fixture or a run, or re-pointing one at a different SMD file,
+# reference model or state count, is a re-freeze (`$.freeze_policy`,
+# ADR-0009/ADR-0043), never a silent edit. Without this a PR could satisfy a bound
+# by deleting the runs that stressed it, and every remaining value would still pass,
+# or re-label the anchor the evidence claims to have been measured against while
+# every number stayed put. Values mirror `scripts/measure_parity.py:70-81`.
+_EXPECTED_EVIDENCE = {
+    "smd_4mol": {
+        "smd": "tests/fixtures/smd_4mol.hdf5",
+        "reference": _ANCHOR_REFERENCE,  # producer `reference=None` -> the sentinel
+        "nstates": 2,
+        "n_comparisons": 19,
+    },
+    "smd_281mol": {
+        "smd": "tests/fixtures/large/smd_281mol.hdf5",
+        "reference": "tests/fixtures/large/model_281mol.hdf5",
+        "nstates": 4,
+        "n_comparisons": 20,
+    },
+}
+# ebFRET was measured on the 281-mol fixture in `--cross-seed` mode (ADR-0043), so
+# its anchor is the sentinel, not the committed reference model.
+_EXPECTED_EVIDENCE_BY_METHOD = {
+    "ebhmm": {
+        "smd_281mol": {
+            "smd": "tests/fixtures/large/smd_281mol.hdf5",
+            "reference": _ANCHOR_REFERENCE,
+            "nstates": 4,
+            "n_comparisons": 19,
+        }
+    }
+}
+
+
+def _assert_spread_within(spread_by_fixture, tol, *, expected_evidence, n_runs):
+    """Every recorded per-run value must sit within ``tol``'s floors/ceilings.
+
+    Also asserts the evidence is *complete and self-consistent*, so a bound can
+    never be satisfied by deleting the runs that stressed it: the measured fixture
+    set must match ``expected_evidence`` exactly and each fixture must still name
+    the SMD path, reference anchor, state count and comparison count pinned there;
+    that comparison count must equal the block's declared ``n_runs``, less the
+    anchor run for a cross-seed spread; every fixture must carry all four metrics
+    with their declared direction; and the recorded
+    ``n``/``min``/``max``/``mean``/``worst`` must be reproducible from the ``values``
+    list via the production :class:`SpreadSummary`. Dropping an outlier therefore
+    fails on the count, doctoring the count fails here too, and re-labelling the
+    anchor or fixture path fails on the identity check.
+
+    The identity check pins the *strings the frozen artifact records*. It does not
+    open the named files, so it cannot attest that ``model_281mol.hdf5`` exists, is
+    unmodified, or is the file the fit actually loaded — only that the artifact
+    still names the anchor it claims to have been measured against.
+    """
+    assert set(spread_by_fixture) == set(expected_evidence), "measured fixture set changed"
+    for name, fixture in spread_by_fixture.items():
+        expected = expected_evidence[name]
+        for key in ("smd", "reference", "nstates"):
+            assert fixture[key] == expected[key], (
+                f"{name}: frozen {key} is {fixture[key]!r}, pinned evidence is {expected[key]!r}"
+            )
+        expected_n = expected["n_comparisons"]
+        # Exact, not a band: a run00-anchored spread spends its first run on the
+        # anchor and yields n_runs - 1 comparisons, while one measured against a
+        # committed reference model yields n_runs (`parity.measure_spread`). The
+        # mode comes from the pin, not from the artifact, so neither a doctored
+        # `n_runs_per_fixture` nor a re-labelled `reference` can hide behind the
+        # other mode's count.
+        anchored = expected["reference"] == _ANCHOR_REFERENCE
+        assert expected_n == (n_runs - 1 if anchored else n_runs), (
+            f"{name}: pinned {expected_n} comparisons vs declared n_runs={n_runs} "
+            f"(reference={fixture['reference']})"
+        )
+        assert fixture["n_comparisons"] == expected_n, (
+            f"{name}: {fixture['n_comparisons']} comparisons, frozen evidence has {expected_n}"
+        )
+        assert set(fixture["metrics"]) == set(_FLOORS) | set(_CEILINGS), (
+            f"{name} must record all four metrics"
+        )
         for metric, summ in fixture["metrics"].items():
-            for v in summ["values"]:
-                if metric in _FLOORS:
+            is_floor = metric in _FLOORS
+            assert summ["direction"] == ("floor" if is_floor else "ceiling")
+            # Evidence completeness: no run may vanish from under the bound.
+            values = summ["values"]
+            assert len(values) == summ["n"] == expected_n, (
+                f"{name}/{metric}: recorded n disagrees with the frozen evidence"
+            )
+            # Summary consistency: recompute from `values` with the production
+            # aggregator, so an edited-out value cannot leave the worst case behind.
+            recomputed = SpreadSummary(metric, summ["direction"], values).as_dict()
+            for key in ("n", "min", "max", "worst"):
+                assert recomputed[key] == summ[key], f"{name}/{metric}: stale {key}"
+            assert recomputed["mean"] == pytest.approx(summ["mean"], rel=1e-12)
+            for v in values:
+                if is_floor:
                     assert v >= tol[_FLOORS[metric]], f"{metric}={v} below frozen floor"
                 else:
                     assert v <= tol[_CEILINGS[metric]], f"{metric}={v} above frozen ceiling"
@@ -327,13 +424,29 @@ def test_frozen_artifact_covers_its_own_measured_evidence():
     This is the PR-facing parity check: it needs no sidecar (it asserts the
     *frozen JSON* against its own recorded spread), so branch protection can gate
     on it via the base `test` matrix, while the live sidecar fit stays in the
-    out-of-band `sidecar.yml`. A tampered/loosened artifact or a freeze that does
-    not cover its evidence fails here.
+    out-of-band `sidecar.yml`.
+
+    Be precise about the direction it protects: the assertions are `value within
+    bound`, so a bound **tightened** below its own evidence, evidence deleted or
+    truncated from under a bound (see ``_assert_spread_within``), or a
+    ``$.provisional`` that has drifted from the imported ``PROVISIONAL`` all fail
+    here — but a **loosened** bound does not, because widening a ceiling (or
+    lowering a floor) only leaves the recorded values further inside it. The
+    ``$.provisional`` assertion is a *drift* check, not a pin to literals: editing
+    the artifact or ``PROVISIONAL`` alone fails, but a PR that moves both in
+    lockstep does not. Loosening, and the PRD 11.2 defaults themselves, are held
+    by review plus the deliberate re-freeze rule (``$.freeze_policy``, PRD 11.2,
+    ADR-0009), not by this test. Same caveat applies to the per-method check below.
     """
     data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
     # Provisional defaults are the documented floor/ceiling design intent.
     assert data["provisional"] == PROVISIONAL
-    _assert_spread_within(data["spread_by_fixture"], data["tolerance"])
+    _assert_spread_within(
+        data["spread_by_fixture"],
+        data["tolerance"],
+        expected_evidence=_EXPECTED_EVIDENCE,
+        n_runs=data["method"]["n_runs_per_fixture"],
+    )
 
 
 def test_load_frozen_tolerance_returns_the_four_bounds():
@@ -355,15 +468,26 @@ def test_per_method_tolerances_cover_their_own_measured_evidence():
     is frozen separately (ADR-0043) because its empirical-Bayes per-trace state
     selection is more seed-variable than vbconhmm's, so its bounds are validated
     against its *own* measured evidence, never the vbconhmm top-level row. Also runs
-    in the base matrix, so a tampered/loosened per-method block fails here.
+    in the base matrix. It fails on a per-method tolerance with no recorded evidence,
+    on a missing bound, on evidence deleted or truncated from under a bound, on a
+    re-labelled fixture path, reference anchor or state count, and on a tolerance
+    tightened below its evidence — not on a loosened one (see the direction caveat
+    above).
     """
     data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
     by_tol = data.get("tolerance_by_method", {})
     by_measured = data.get("measured_by_method", {})
     assert set(by_tol) == set(by_measured), "every per-method tolerance needs its evidence"
+    assert set(by_tol) == set(_EXPECTED_EVIDENCE_BY_METHOD), "per-method freeze set changed"
     for method, tol in by_tol.items():
         assert set(tol) == set(PROVISIONAL), f"{method} tolerance must carry the four bounds"
-        _assert_spread_within(by_measured[method]["spread_by_fixture"], tol)
+        measured = by_measured[method]
+        _assert_spread_within(
+            measured["spread_by_fixture"],
+            tol,
+            expected_evidence=_EXPECTED_EVIDENCE_BY_METHOD[method],
+            n_runs=measured["method"]["n_runs_per_fixture"],
+        )
 
 
 def test_load_frozen_tolerance_selects_per_method():
