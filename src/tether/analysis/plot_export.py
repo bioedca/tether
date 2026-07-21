@@ -605,7 +605,9 @@ def render_raw_fret_cloud(
     the KDE density surface and highest-density-region contours when present.
 
     ``max_points`` caps the scatter overlay for a manageable vector file; the density
-    surface (when computed) always covers the full population.
+    surface (when computed) is unaffected by that cap — but it was fit by
+    :func:`tether.analysis.cloud.raw_fret_cloud` on the in-range points only
+    (``n_out_of_range`` counts the rest).
     """
     points = np.asarray(cloud.points, dtype="float64")
     time_edges = np.asarray(cloud.time_edges, dtype="float64")
