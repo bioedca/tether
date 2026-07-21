@@ -119,17 +119,21 @@ jobs:
 
       - name: Stage the setuptools<81 wheel (restores pkg_resources in the sidecar)
         # tMAVEN's `maven_class.__init__` does `import pkg_resources`, which setuptools
-        # REMOVED in v81 — and sidecar/conda-lock.yml resolves setuptools 82.0.1 on every
-        # platform. The source path handles this with scripts/setup_sidecar.py's
+        # 81.0.0 DEPRECATED (still shipped, `UserWarning`) and 82.0.0 REMOVED — and
+        # sidecar/conda-lock.yml resolves setuptools 82.0.1 on every platform, i.e. past
+        # the removal. The source path handles this with scripts/setup_sidecar.py's
         # SETUPTOOLS_PIN, applied by pip after the env is created; the installer had no
         # equivalent, so an installed app built the sidecar env fine and then failed at
         # the FIRST idealization (issue #212). Bundle the pin as a third offline wheel.
+        # The bound is `<81`, not `<82`, because that is the bound setuptools' own
+        # deprecation warning names ("pin to Setuptools<81") — one release of headroom.
         #
         # setuptools publishes a pure-Python `py3-none-any` wheel, so ONE file serves all
         # four platforms — no per-platform matrix entry needed. --only-binary=:all: keeps
         # this a download, never a build.
-        # Block scalar, not an inline value: `--only-binary=:all:` contains a
-        # colon-space, which YAML would otherwise read as a nested mapping.
+        # Block scalar, not an inline value: the trailing colon of `--only-binary=:all:`
+        # plus the following space form a YAML `key: value` separator mid-line, and the
+        # parser rejects the step outright (`ScannerError`).
         run: |
           python -m pip download --only-binary=:all: --no-deps \
             -d packaging/staging "setuptools<81"
@@ -194,20 +198,26 @@ jobs:
           "$prefix/envs/sidecar/bin/python" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
           # Importing tmaven is NOT enough. tMAVEN does `import pkg_resources` inside
           # `maven_class.__init__`, not at module import, so a sidecar whose setuptools
-          # is >= 81 imports cleanly and then dies at the first idealization — exactly
-          # how issue #212 reached a shipped installer past this smoke. Drive the real
-          # headless entry point the batch runner's startup probe uses: it constructs
-          # maven_class and exits non-zero with a JSON status on failure.
-          # Resolve the runner from the INSTALLED app env, not the checkout: at runtime
-          # the driver launches `Path(driver.__file__).with_name("_sidecar_runner.py")`
+          # no longer ships pkg_resources (removed in 82.0.0; the lock resolves 82.0.1)
+          # imports cleanly and then dies at the first idealization — exactly how issue
+          # #212 reached a shipped installer past this smoke.
+          #
+          # Assert the pin FIRST: the run step is `bash -el {0}` (`-e`), so whichever
+          # check fails first is the one the operator sees, and this one names the cause
+          # instead of surfacing as an opaque probe failure. `import pkg_resources` is
+          # the load-bearing half; the version bound pins the INTENT (the bundled wheel
+          # was actually applied over the lock's setuptools) and is deliberately `< 81`,
+          # matching the bundled `setuptools<81`, not the 82.0.0 breakage point.
+          "$prefix/envs/sidecar/bin/python" -c "import setuptools, pkg_resources; assert tuple(int(p) for p in setuptools.__version__.split('.')[:1]) < (81,), setuptools.__version__; print('sidecar setuptools OK', setuptools.__version__)"
+          # Then drive the real headless entry point the batch runner's startup probe
+          # uses: it constructs maven_class and exits non-zero with a JSON status on
+          # failure. Resolve the runner from the INSTALLED app env, not the checkout: at
+          # runtime the driver launches `Path(driver.__file__).with_name("_sidecar_runner.py")`
           # (`_RUNNER`, src/tether/idealize/driver.py — the path supervisor.py hands the
           # sidecar interpreter), so probing the checkout copy would still pass if the
           # wheel never shipped it.
           runner="$("$prefix/envs/tether/bin/python" -c 'from tether.idealize.driver import _RUNNER; print(_RUNNER)')"
           "$prefix/envs/sidecar/bin/python" "$runner" --probe
-          # And assert the pin itself, so a regression names its cause rather than
-          # surfacing as an opaque probe failure.
-          "$prefix/envs/sidecar/bin/python" -c "import setuptools, pkg_resources; assert tuple(int(p) for p in setuptools.__version__.split('.')[:1]) < (81,), setuptools.__version__; print('sidecar setuptools OK', setuptools.__version__)"
           # The USER-FACING launch surface (ADR-0051). The absolute env paths above
           # prove the envs were built; these prove the app can actually be STARTED,
           # which is the thing an install guide has to document. Exercised through
@@ -247,11 +257,12 @@ jobs:
           "$prefix\\envs\\tether\\python.exe" -m tether --version
           "$prefix\\envs\\sidecar\\python.exe" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
           # Importing tmaven is NOT enough — see the Unix smoke for why (issue #212).
-          # Drive the real headless entry point, resolved from the INSTALLED app env
-          # exactly as the driver resolves it, which constructs maven_class.
+          # Same order as the Unix smoke and for the same reason: assert the pin first so
+          # a regression names its cause, then drive the real headless entry point,
+          # resolved from the INSTALLED app env exactly as the driver resolves it.
+          "$prefix\\envs\\sidecar\\python.exe" -c "import setuptools, pkg_resources; assert tuple(int(p) for p in setuptools.__version__.split('.')[:1]) < (81,), setuptools.__version__; print('sidecar setuptools OK', setuptools.__version__)"
           runner="$("$prefix\\envs\\tether\\python.exe" -c 'from tether.idealize.driver import _RUNNER; print(_RUNNER)')"
           "$prefix\\envs\\sidecar\\python.exe" "$runner" --probe
-          "$prefix\\envs\\sidecar\\python.exe" -c "import setuptools, pkg_resources; assert tuple(int(p) for p in setuptools.__version__.split('.')[:1]) < (81,), setuptools.__version__; print('sidecar setuptools OK', setuptools.__version__)"
           # The USER-FACING launch surface (ADR-0051). The absolute env path above
           # proves the env was built; these prove the app can actually be STARTED.
           prefix_u="$(cygpath -u "$prefix")"

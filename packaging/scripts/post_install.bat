@@ -5,7 +5,7 @@ rem
 rem constructor post_install (Windows .exe / NSIS) — ADR-0049, PRD Section 9 M9.
 rem
 rem Runs AFTER all conda packages and the bundled wheels are linked into the
-rem prefix. Offline-installs the two non-conda wheels (no network: --no-index
+rem prefix. Offline-installs the three non-conda wheels (no network: --no-index
 rem --no-deps; deps come from the bundled conda envs) and wires the isolated
 rem sidecar interpreter for conda-activated launches. Both runtime stacks are
 rem constructor `extra_envs` (ADR-0049): the GUI/tether stack in envs\tether and
@@ -30,10 +30,12 @@ for %%W in ("%WHEELHOUSE%\tether-*.whl") do (
 )
 
 rem setuptools<81 -> the sidecar env, BEFORE tMAVEN. tMAVEN's maven_class.__init__
-rem does `import pkg_resources`, which setuptools REMOVED in v81, and the sidecar lock
-rem resolves setuptools 82 — so without this the env builds cleanly and then dies at
-rem the first idealization (issue #212). scripts/setup_sidecar.py applies the same pin
-rem (SETUPTOOLS_PIN) on the source path; this is the installer's equivalent.
+rem does `import pkg_resources`, which setuptools 81.0.0 DEPRECATED and 82.0.0 REMOVED,
+rem and the sidecar lock resolves setuptools 82.0.1 — so without this the env builds
+rem cleanly and then dies at the first idealization (issue #212). `<81` rather than
+rem `<82` is the bound setuptools' own deprecation warning names.
+rem scripts/setup_sidecar.py applies the same pin (SETUPTOOLS_PIN) on the source path;
+rem this is the installer's equivalent.
 rem
 rem pip is given the wheel by PATH, not by requirement spec, so it downgrades the conda
 rem setuptools rather than reporting "already satisfied".

@@ -364,6 +364,32 @@ def test_packaging_install_smoke_asserts_version_and_offline_sidecar() -> None:
     )
 
 
+def test_packaging_install_smoke_exercises_the_pkg_resources_path() -> None:
+    """The smoke must CONSTRUCT ``maven_class``, not merely import tMAVEN (issue #212).
+
+    ``import tmaven`` passes on a sidecar whose setuptools no longer ships ``pkg_resources``
+    (removed in setuptools 82.0.0; ``sidecar/conda-lock.yml`` resolves 82.0.1), because tMAVEN does
+    that import inside ``maven_class.__init__`` — which is how a broken installer shipped past the
+    old smoke. Two checks close it, and both need pinning or the next edit can silently drop them:
+
+    * ``_sidecar_runner.py --probe`` really constructs ``maven_class`` (see
+      ``src/tether/idealize/_sidecar_runner.py``), and is resolved from the INSTALLED app env via
+      ``driver._RUNNER`` so a wheel that stopped shipping the runner also fails; and
+    * an explicit ``import pkg_resources`` + ``setuptools.__version__`` bound, which names the cause
+      instead of leaving an opaque probe failure.
+    """
+    workflow = PACKAGING_WORKFLOW.read_text(encoding="utf-8")
+    assert "--probe" in workflow and "_RUNNER" in workflow, (
+        "packaging.yml install-smoke must drive `_sidecar_runner.py --probe`, resolved from the "
+        "installed app env via `tether.idealize.driver._RUNNER` — importing tMAVEN is not enough "
+        "(issue #212)"
+    )
+    assert "import setuptools, pkg_resources" in workflow, (
+        "packaging.yml install-smoke must assert the bundled `setuptools<81` pin was applied to "
+        "the sidecar env, so a regression names its cause (issue #212)"
+    )
+
+
 # --- The release pipeline (release.yml, M9 / ADR-0050) ---
 # release.yml builds + code-signs + publishes the installers on a signed `v*` tag. It runs
 # ONLY on a tag push and manual dispatch — never on pull_request/branch-push/merge_group —
@@ -553,6 +579,34 @@ def test_release_staging_gate_matches_the_constructor_installer_types() -> None:
             f"EXPECTED_LEGS says '{platform}' produces a .{ext}, but {CONSTRUCT_RECIPE.name} "
             f"builds `installer_type: {by_selector[selector]}` for [{selector}]. "
             "Update whichever is wrong -- they must agree."
+        )
+
+
+def test_both_build_drivers_export_every_extra_files_env_var() -> None:
+    """Both installer builds must set every env var ``construct.yaml``'s ``extra_files`` reads.
+
+    ``extra_files`` entries are UNCONDITIONAL: an unset var falls back to a literal
+    ``staging/<name>.whl`` that nothing ever creates, and constructor's
+    ``preconda.copy_extra_files`` raises ``FileNotFoundError`` on it. packaging.yml (advisory) and
+    release.yml (the leg that ships installers to users) duplicate the same build recipe, so a wheel
+    added to the recipe and staged in only one of them breaks the other -- and release.yml has no
+    install-smoke to catch it, so the breakage would first surface on a signed tag. Same drift
+    class, and same remedy, as ``test_every_setup_micromamba_call_site_pins_the_same_version``
+    (issue #212).
+    """
+    recipe = CONSTRUCT_RECIPE.read_text(encoding="utf-8")
+    extra_files = recipe.split("extra_files:", 1)[1].split("\nlicense_file:", 1)[0]
+    wanted = sorted(set(re.findall(r'environ\.get\(\s*"(\w+)"', extra_files)))
+    assert wanted, f"could not parse `extra_files` env vars from {CONSTRUCT_RECIPE.name}"
+
+    for path in (PACKAGING_WORKFLOW, RELEASE_WORKFLOW):
+        text = path.read_text(encoding="utf-8")
+        missing = [var for var in wanted if f"{var}=" not in text]
+        assert not missing, (
+            f"{path.name} builds the installer but never exports {missing}, which "
+            f"{CONSTRUCT_RECIPE.name}'s `extra_files` reads unconditionally -- constructor would "
+            "abort with FileNotFoundError on the unstaged fallback path. Stage the artifact and "
+            "export the var, or drop the `extra_files` entry."
         )
 
 

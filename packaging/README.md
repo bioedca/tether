@@ -13,6 +13,16 @@ Architecture and rationale: **[ADR-0049](../docs/adr/0049-m9-packaging-construct
 - The **isolated tMAVEN sidecar** (`sidecar/conda-lock.yml` — PyQt5 / `numpy<2`) as a
   constructor `extra_envs` at `<prefix>/envs/sidecar`, with the pinned tMAVEN
   (commit `10f4230…`, see `NOTICE`) offline-installed from a bundled wheel.
+- A bundled **`setuptools<81`** wheel, offline-installed into `<prefix>/envs/sidecar`
+  ahead of tMAVEN (issue #212). This is a **deliberate deviation** from pin-and-hold —
+  the only one in the sidecar env: `sidecar/conda-lock.yml` resolves setuptools 82.0.1,
+  which no longer ships the `pkg_resources` API that tMAVEN's `maven_class.__init__`
+  imports, so `post_install` *downgrades* the locked setuptools rather than holding it.
+  The env's conda metadata therefore still reads 82.0.1 while the interpreter has the
+  older version installed. Pinning it in `sidecar/environment.yml` instead would force a
+  full sidecar re-lock, so the deviation is deliberate and contained; issue #212 records
+  the trade-off. The source path applies the same pin through
+  `scripts/setup_sidecar.py`'s `SETUPTOOLS_PIN`.
 - A thin **`python` + `conda` bootstrap** as the constructor `base` — required so the
   installer's own conda can lay down the two pinned `extra_envs` offline (constructor
   refuses `extra_envs` without `conda` in `base`). It is solved fresh at build time, holds

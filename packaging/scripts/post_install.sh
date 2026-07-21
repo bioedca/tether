@@ -5,7 +5,7 @@
 # constructor post_install (Unix: Linux .sh + macOS .pkg) — ADR-0049, PRD §9 M9.
 #
 # Runs AFTER all conda packages and the bundled wheels are linked into the prefix.
-# It offline-installs the two non-conda wheels (no network: --no-index --no-deps;
+# It offline-installs the three non-conda wheels (no network: --no-index --no-deps;
 # every runtime dependency already comes from the bundled conda envs) and wires the
 # isolated sidecar interpreter for conda-activated launches. POSIX sh only.
 #
@@ -23,10 +23,12 @@ SIDECAR_PY="$PREFIX/envs/sidecar/bin/python"
 "$TETHER_PY" -m pip install --no-index --no-deps "$WHEELHOUSE"/tether-*.whl
 
 # setuptools<81 -> the sidecar env, BEFORE tMAVEN. tMAVEN's `maven_class.__init__`
-# does `import pkg_resources`, which setuptools REMOVED in v81, and the sidecar lock
-# resolves setuptools 82 — so without this the env builds cleanly and then dies at the
-# first idealization (issue #212). scripts/setup_sidecar.py applies the same pin
-# (SETUPTOOLS_PIN) on the source path; this is the installer's equivalent.
+# does `import pkg_resources`, which setuptools 81.0.0 DEPRECATED and 82.0.0 REMOVED,
+# and the sidecar lock resolves setuptools 82.0.1 — so without this the env builds
+# cleanly and then dies at the first idealization (issue #212). `<81` rather than `<82`
+# is the bound setuptools' own deprecation warning names. scripts/setup_sidecar.py
+# applies the same pin (SETUPTOOLS_PIN) on the source path; this is the installer's
+# equivalent.
 #
 # pip is given the wheel by PATH, not by requirement spec, so it downgrades the conda
 # setuptools rather than reporting "already satisfied". Ordering is deliberate: tMAVEN's
