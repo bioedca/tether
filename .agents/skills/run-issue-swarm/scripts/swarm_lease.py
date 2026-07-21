@@ -83,12 +83,8 @@ PERSONAS = (
 PERSONA_BY_SLUG = {slug: (title, quip) for slug, title, quip in PERSONAS}
 LEASE_RE = re.compile(r"<!--\s*tether-agent-lease\s*(\{.*?\})\s*-->", re.DOTALL)
 RUN_CONTROL_RE = re.compile(r"<!--\s*tether-swarm-run\s*(\{.*?\})\s*-->", re.DOTALL)
-RUN_TRANSITION_RE = re.compile(
-    r"<!--\s*tether-swarm-run-transition\s*(\{.*?\})\s*-->", re.DOTALL
-)
-MERGE_AUTHORITY_RE = re.compile(
-    r"<!--\s*tether-swarm-merge-authority\s*(\{.*?\})\s*-->", re.DOTALL
-)
+RUN_TRANSITION_RE = re.compile(r"<!--\s*tether-swarm-run-transition\s*(\{.*?\})\s*-->", re.DOTALL)
+MERGE_AUTHORITY_RE = re.compile(r"<!--\s*tether-swarm-merge-authority\s*(\{.*?\})\s*-->", re.DOTALL)
 MARKER_TOKEN_RE = re.compile(
     r"<!--\s*(tether-swarm-merge-authority|tether-swarm-run-transition|"
     r"tether-swarm-run|tether-agent-lease)\b",
@@ -249,11 +245,7 @@ def _owner(value: str) -> str:
 
 def _repository(value: str) -> str:
     match = REPOSITORY_RE.fullmatch(value)
-    if (
-        match is None
-        or "--" in match.group("owner")
-        or match.group("name") in {".", ".."}
-    ):
+    if match is None or "--" in match.group("owner") or match.group("name") in {".", ".."}:
         raise LeaseError("repository must use canonical GitHub owner/name form")
     return value
 
@@ -649,9 +641,7 @@ def _extract_run_transition(text: str) -> dict[str, Any]:
         raise LeaseError("run transition exceeds the safe parse limit")
     matches = RUN_TRANSITION_RE.findall(text)
     if len(matches) != 1:
-        raise LeaseError(
-            f"expected one tether-swarm-run-transition block, found {len(matches)}"
-        )
+        raise LeaseError(f"expected one tether-swarm-run-transition block, found {len(matches)}")
     _require_single_marker_token(text, "tether-swarm-run-transition")
 
     def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -683,9 +673,7 @@ def _extract_merge_authority(text: str) -> dict[str, Any]:
         raise LeaseError("merge authority exceeds the safe parse limit")
     matches = MERGE_AUTHORITY_RE.findall(text)
     if len(matches) != 1:
-        raise LeaseError(
-            f"expected one tether-swarm-merge-authority block, found {len(matches)}"
-        )
+        raise LeaseError(f"expected one tether-swarm-merge-authority block, found {len(matches)}")
     _require_single_marker_token(text, "tether-swarm-merge-authority")
 
     def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -766,10 +754,9 @@ def _validate_comment_envelope(
         raise LeaseError(f"{label} server timestamps must be strings")
     server_created = _now(envelope["server_created_at"])
     server_updated = _now(envelope["server_updated_at"])
-    if (
-        envelope["server_created_at"] != _iso(server_created)
-        or envelope["server_updated_at"] != _iso(server_updated)
-    ):
+    if envelope["server_created_at"] != _iso(server_created) or envelope[
+        "server_updated_at"
+    ] != _iso(server_updated):
         raise LeaseError(f"{label} server timestamps must use canonical UTC form")
     if server_created != server_updated:
         raise LeaseError(f"{label} immutable comment was edited")
@@ -1363,9 +1350,7 @@ def _parser() -> argparse.ArgumentParser:
     run_comment.add_argument("--owner", default="bioedca")
     run_comment.add_argument("--filter", required=True)
     run_comment.add_argument("--count", type=int, required=True)
-    run_comment.add_argument(
-        "--terminal-policy", choices=sorted(TERMINAL_POLICIES), required=True
-    )
+    run_comment.add_argument("--terminal-policy", choices=sorted(TERMINAL_POLICIES), required=True)
     run_comment.add_argument("--merge-authority-comment-id", type=int)
     run_comment.add_argument("--merge-authority-repository")
     run_comment.add_argument("--merge-authority-issue", type=int)
@@ -1402,9 +1387,7 @@ def _parser() -> argparse.ArgumentParser:
     run_transition.add_argument("--predecessor-author", required=True)
     run_transition.add_argument("--predecessor-server-created-at", required=True)
     run_transition.add_argument("--predecessor-server-updated-at", required=True)
-    run_transition.add_argument(
-        "--mode", choices=sorted(RUN_MODES - {"running"}), required=True
-    )
+    run_transition.add_argument("--mode", choices=sorted(RUN_MODES - {"running"}), required=True)
     _add_clock_argument(run_transition)
     run_transition.set_defaults(func=_cmd_run_transition)
 

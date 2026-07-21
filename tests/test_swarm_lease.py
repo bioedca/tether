@@ -193,9 +193,7 @@ def _run_record(comment: str) -> dict[str, object]:
 
 
 def _run_transition_record(comment: str) -> dict[str, object]:
-    match = re.search(
-        r"<!-- tether-swarm-run-transition\s*(\{.*\})\s*-->", comment, re.DOTALL
-    )
+    match = re.search(r"<!-- tether-swarm-run-transition\s*(\{.*\})\s*-->", comment, re.DOTALL)
     assert match, "rendered comment must contain exactly one run transition"
     return json.loads(match.group(1))
 
@@ -225,8 +223,7 @@ def test_identities_are_unique_public_safe_and_four_hours() -> None:
     assert len({worker["agent_id"] for worker in workers}) == 4
     assert all(worker["persona_slug"] != PERSONA for worker in workers)
     assert all(
-        re.fullmatch(r"codex-[a-z0-9-]+-[0-9a-f]{8}", worker["agent_id"])
-        for worker in workers
+        re.fullmatch(r"codex-[a-z0-9-]+-[0-9a-f]{8}", worker["agent_id"]) for worker in workers
     )
 
 
@@ -273,9 +270,7 @@ def test_merge_run_requires_a_bound_authority_comment(tmp_path: Path) -> None:
     assert mismatched.returncode == 2
     assert "does not match" in mismatched.stderr
     assert accepted.returncode == 0, accepted.stderr
-    assert _run_record(accepted.stdout)["merge_authority_comment_id"] == int(
-        APPROVAL_COMMENT_ID
-    )
+    assert _run_record(accepted.stdout)["merge_authority_comment_id"] == int(APPROVAL_COMMENT_ID)
 
     unbound_inspect = _run("run-inspect", input_text=accepted.stdout)
     assert unbound_inspect.returncode == 2
@@ -687,15 +682,11 @@ def test_renew_and_transition_require_the_full_immutable_binding() -> None:
         ("approval_comment_id", "1235", "approval_comment_id"),
     ],
 )
-def test_every_binding_field_is_checked(
-    command: str, key: str, value: str, field: str
-) -> None:
+def test_every_binding_field_is_checked(command: str, key: str, value: str, field: str) -> None:
     comment = _comment()
     assert comment.returncode == 0, comment.stderr
     operation_args = (
-        ["--now", "2026-07-21T01:00:00Z"]
-        if command == "renew"
-        else ["--state", "handoff"]
+        ["--now", "2026-07-21T01:00:00Z"] if command == "renew" else ["--state", "handoff"]
     )
 
     result = _run(
@@ -827,11 +818,7 @@ def test_duplicate_json_keys_are_rejected_without_reflecting_input() -> None:
 
 def test_deeply_nested_json_is_rejected_without_a_traceback() -> None:
     payload = (
-        '<!-- tether-agent-lease\n{"issue":'
-        + ("[" * 60_000)
-        + "0"
-        + ("]" * 60_000)
-        + "}\n-->"
+        '<!-- tether-agent-lease\n{"issue":' + ("[" * 60_000) + "0" + ("]" * 60_000) + "}\n-->"
     )
 
     result = _run("inspect", input_text=payload)
@@ -957,9 +944,7 @@ def test_missing_input_file_never_emits_its_path() -> None:
         ),
     ],
 )
-def test_inspect_rejects_malformed_field_types(
-    field: str, value: object, message: str
-) -> None:
+def test_inspect_rejects_malformed_field_types(field: str, value: object, message: str) -> None:
     comment = _comment()
     assert comment.returncode == 0, comment.stderr
     record = _record(comment.stdout)
