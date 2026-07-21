@@ -7,8 +7,10 @@ headless surface — there is no third subcommand. If you are curating traces by
 picking states by eye, or reading plots, you want the desktop application instead; this
 page only tells you how to start it.
 
-Everything below was transcribed from `--help` on an installed build. Where a default is
-quoted, it is the string argparse prints, not a value read out of the source.
+Everything below was transcribed from the live argparse parser in `src/tether/cli.py` —
+the same parser `--help` prints from — and a guard test (`tests/test_cli_reference.py`)
+fails if that parser gains, loses or renames an option without a matching edit here. Where
+a default is quoted, it is the string argparse prints, not a value read out of the source.
 
 ## Launching Tether after an installer install
 
@@ -46,13 +48,14 @@ every command below; nothing else changes. Verify the install with:
 
 ```console
 $ tether --version
-tether 1.0.0
+tether <version>
 ```
 
 `--version` is the one flag that never touches your data, so it is the right smoke test.
-The version is derived from git at build time: a source checkout with no git metadata
-reports `tether 0.0.0+unknown`, which means you are running an unbuilt tree, not that the
-install is broken.
+The version string is generated from git at build time, so what prints identifies the
+build you installed rather than a fixed number. Running straight out of a source tree that
+was never built prints `tether 0.0.0+unknown` instead — that means no build-time version
+file was generated, not that an install is broken.
 
 Running `tether` with no subcommand prints the top-level help and exits 0.
 
@@ -238,9 +241,11 @@ already checkpointed is skipped.
 | `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage |
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` |
 
-Exit code `2` always means nothing was written: either argparse rejected the command line
-before `main()` ran, or `tether batch` refused to start. It is safe to fix the arguments
-and re-run.
+Exit code `2` means no movie was processed: either argparse rejected the command line
+before `main()` ran, or `tether batch` refused to start. Nothing is read and no project is
+written on either path, so it is safe to fix the arguments and re-run — with one wrinkle,
+`tether batch` creates `--out-dir` before it checks for colliding basenames, so that
+particular refusal can leave an empty output directory behind.
 
 Exit code `1` means the command *ran*. From `tether extract` it is a clean one-line error
 on stderr, never a traceback — an unhandled traceback from either subcommand is a bug

@@ -15,13 +15,16 @@ reads the *live* parser rather than a transcript, so it cannot drift the way a c
 ``--help`` block can.
 
 Direction 1 is scoped to each subcommand's own section rather than to the whole page.
-``--tmap``, ``--tdat`` and ``--overwrite`` exist on *both* parsers, so a page-wide
-substring search would happily accept an ``extract``-only flag that had been documented
-under ``batch`` and never mentioned where a reader of ``tether extract`` would look.
+``--tmap``, ``--tdat`` and ``--overwrite`` exist on *both* parsers, so a page-wide check
+would happily accept an ``extract``-only flag that had been documented under ``batch``
+and never mentioned where a reader of ``tether extract`` would look.
 
 Base-matrix only: :func:`tether.cli.build_parser` imports nothing beyond ``argparse``
-(the imaging/HDF5 stack is deliberately lazy so ``--version`` stays fast), and the page
-is read with :mod:`pathlib`. No optional dependency, so this runs on all three OSes.
+(the imaging/HDF5 stack is deliberately lazy so ``--version`` stays fast), and the page is
+read with :mod:`pathlib`. The two tests that reach into :mod:`tether.project` do pull that
+stack in transitively (the package ``__init__`` imports :mod:`tether.io`, and so h5py and
+numpy), but those are locked base-environment dependencies rather than optional extras —
+nothing here needs Qt, torch or the sidecar, so this runs on all three OSes.
 """
 
 from __future__ import annotations
@@ -50,8 +53,13 @@ _FLAG_RE = re.compile(r"--[a-zA-Z][a-zA-Z0-9-]*")
 
 # A short alias (`-o`, `-d`) in the same places. The lookarounds keep it off the tail of a
 # hyphenated word and out of the middle of a long flag, so `--donor-side` does not read as a
-# documented `-d`. Every command the page shows is a `tether` invocation, so anything this
-# matches is expected to be a tether option.
+# documented `-d`. Nothing scopes the match to a `tether` command line, and it cannot be: the
+# option tables spell `-o`/`-d` in rows that never name `tether`, which direction 1 has to
+# see. So the assumption is about the page as it stands — every short flag on it today is a
+# tether option — not an invariant the page enforces. A non-tether example carrying its own
+# short flag (`python -m tether`, `ls -l`) would be reported by `test_the_page_invents_no_flags`
+# as an invented tether flag; if the page ever grows one, scope *that* test's extraction to
+# lines mentioning `tether` rather than loosening the regex.
 _SHORT_FLAG_RE = re.compile(r"(?<![\w-])-[a-zA-Z](?![\w-])")
 
 
@@ -61,6 +69,12 @@ def _documented_flags(text: str) -> set[str]:
     Matching whole tokens rather than substrings is what makes the short aliases count:
     ``"-d" in "--donor-side"`` is true, so a plain ``in`` test can never tell a documented
     ``-d`` from an incidental one.
+
+    The flip side of tokenising is that only the spellings tether actually uses round-trip.
+    ``_FLAG_RE`` wants a letter after the ``--`` and then letters, digits and hyphens only,
+    so a hypothetical ``--out_dir`` tokenises as ``--out`` (reported missing *and* invented
+    from a correctly written page) and ``--2color`` tokenises as nothing at all. No such
+    option exists; adding one means widening ``_FLAG_RE`` in the same commit.
     """
     return set(_FLAG_RE.findall(text)) | set(_SHORT_FLAG_RE.findall(text))
 
@@ -103,8 +117,8 @@ def _subcommand_section(name: str) -> str:
 
     Membership checks have to be scoped to the owning subcommand, not run against the
     whole page: ``--tmap``, ``--tdat`` and ``--overwrite`` exist on *both* parsers, so a
-    page-wide substring search would accept an ``extract``-only flag that had been
-    documented under ``batch`` and never mentioned in its own section.
+    page-wide check would accept an ``extract``-only flag that had been documented under
+    ``batch`` and never mentioned in its own section.
 
     The slice runs to the next level-2 heading, so the ``###`` subsections (the
     ``--donor-side`` callout, the worked examples) count as part of their subcommand.
@@ -241,15 +255,29 @@ def test_argparse_rejects_bad_arguments_with_code_2() -> None:
 
 
 def test_batch_refuses_a_basename_collision_with_code_2(tmp_path: Path) -> None:
-    """The documented ``batch`` startup refusal returns 2, before any work happens.
+    """The documented ``batch`` startup refusal returns 2 — and still creates ``--out-dir``.
 
     Two movies sharing a basename map to one output project; the checkpoint would treat
-    the second as already done using the first's data. Nothing is read from disk on this
-    path, so it is cheap to exercise directly.
+    the second as already done using the first's data. No movie is read on this path, so it
+    is cheap to exercise directly — but ``out_dir.mkdir()`` runs *before* the collision
+    loop, so "exit 2 means nothing was written" is not quite true here. The page carries
+    that caveat, and both halves are pinned together: move the ``mkdir`` after the check
+    and this fails, telling whoever did it that the caveat now has to come off the page.
     """
-    out_dir = tmp_path / "out"
+    out_dir = tmp_path / "nested" / "out"
     code = main(["batch", "a/movie_010.tif", "b/movie_010.tif", "-d", str(out_dir)])
     assert code == 2, f"expected a basename collision to return 2, got {code}"
+    assert out_dir.is_dir(), (
+        "`tether batch` no longer creates --out-dir before refusing a basename collision; "
+        "docs/cli.md's empty-output-directory caveat is now wrong"
+    )
+    assert not list(out_dir.iterdir()), (
+        f"the collision refusal wrote something into {out_dir}: {sorted(out_dir.iterdir())}"
+    )
+    assert "empty output directory" in _exit_code_section(), (
+        "docs/cli.md no longer warns that the basename-collision refusal can leave an "
+        "empty --out-dir behind"
+    )
 
 
 def test_the_exit_code_table_documents_every_code() -> None:
@@ -302,9 +330,10 @@ def test_the_policy_fail_resume_caveat_matches_the_runner() -> None:
     both directions: if the ordering is ever changed so the policy wins over the
     checkpoint, this fails and the caveat must come off the page.
 
-    Source-order only, so it stays base-matrix: :mod:`tether.project.batch` imports
-    nothing beyond the standard library at module scope (h5py is deferred into the
-    checkpoint probes).
+    Source-order only — no movie, no project file, no sidecar. Importing
+    :mod:`tether.project.batch` does cost the base scientific stack even so: the module
+    itself is standard-library-only at module scope, but the package ``__init__`` it runs
+    through imports :mod:`tether.io`, and so h5py and numpy.
     """
     from tether.project import batch  # noqa: PLC0415 - keep the module import test-local
 
