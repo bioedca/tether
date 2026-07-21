@@ -44,6 +44,7 @@ nav:
       - Standalone-tMAVEN hand-off: idealize/standalone-tmaven-handoff.md
   - Analysis:
       - Seven-plot parity gallery: analysis/parity-gallery.md
+  - Validation &amp; benchmarks: validation.md
   - Machine learning:
       - Deep trace classifier (GPU add-on): ml/deep-classifier.md
   - Packaging:

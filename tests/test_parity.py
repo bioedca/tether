@@ -327,8 +327,15 @@ def test_frozen_artifact_covers_its_own_measured_evidence():
     This is the PR-facing parity check: it needs no sidecar (it asserts the
     *frozen JSON* against its own recorded spread), so branch protection can gate
     on it via the base `test` matrix, while the live sidecar fit stays in the
-    out-of-band `sidecar.yml`. A tampered/loosened artifact or a freeze that does
-    not cover its evidence fails here.
+    out-of-band `sidecar.yml`.
+
+    Be precise about the direction it protects: the assertions are `value within
+    bound`, so a bound **tightened** below its own evidence, evidence edited out
+    from under a bound, or an altered ``$.provisional`` all fail here — but a
+    **loosened** bound does not, because widening a ceiling (or lowering a floor)
+    only leaves the recorded values further inside it. Loosening is held by review
+    plus the deliberate re-freeze rule (``$.freeze_policy``, PRD 11.2, ADR-0009),
+    not by this test. Same caveat applies to the per-method check below.
     """
     data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
     # Provisional defaults are the documented floor/ceiling design intent.
@@ -355,7 +362,9 @@ def test_per_method_tolerances_cover_their_own_measured_evidence():
     is frozen separately (ADR-0043) because its empirical-Bayes per-trace state
     selection is more seed-variable than vbconhmm's, so its bounds are validated
     against its *own* measured evidence, never the vbconhmm top-level row. Also runs
-    in the base matrix, so a tampered/loosened per-method block fails here.
+    in the base matrix. It fails on a per-method tolerance with no recorded evidence,
+    on a missing bound, and on a tolerance tightened below its evidence — not on a
+    loosened one (see the direction caveat above).
     """
     data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
     by_tol = data.get("tolerance_by_method", {})
