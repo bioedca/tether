@@ -12,8 +12,11 @@ Tether reads **uncompressed multi-page TIFF movies from a single camera whose fr
 split side by side, down the vertical midline, into a left and a right half** — one donor
 channel, one acceptor channel — recorded with **one excitation laser** and **two colours**.
 That is the dual-view TIRF geometry the whole pipeline is built around. A top/bottom
-(stacked) dual-view export does not fit: the splitter cuts on width only, so it would slice
-each channel in two rather than separating them.
+(stacked) dual-view export does not fit native extraction: the built-in splitter cuts on
+width only, so it would slice each channel in two rather than separating them. (If you have
+a Deep-LASI `.tmap` whose per-channel crops describe the stacked tiles, extracting with
+`--tmap` splits at those crops instead — but that combination is untested, so treat it as
+unsupported.)
 
 If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*,
 *three-colour*, or *confocal point detectors* describes your setup, it does not — see
@@ -201,10 +204,14 @@ movie pixels stay where they are.
 Reopening a project does not read your movie files, so it can never force a cloud-storage
 placeholder to hydrate just to check whether something changed.
 
-The one thing the store does cache from the pixels is a `window × window` temporal-mean
-patch per molecule per channel (`/patches/{donor,acceptor}`), so curation and the static
-overlap view still work with the movies offline. At the default 21-pixel window that is
-about 3.5 kB per molecule, already inside the 5 kB fixed-per-molecule figure above.
+The one thing a **natively extracted** store caches from the pixels is a `window × window`
+temporal-mean patch per molecule per channel (`/patches/{donor,acceptor}`), so curation and
+the static overlap view still work with the movies offline. At the default 21-pixel window
+that is about 3.5 kB per molecule, already inside the 5 kB fixed-per-molecule figure above.
+A project reconstructed from a Deep-LASI export is the exception: that path never reads the
+movie pixels, so its patches are written zero-filled. Curation, the overlap distance and the
+overlap flag still work, but the patch image itself renders blank rather than reporting a
+missing patch.
 
 Practical consequence: the traces, patches and all analysis survive moving or renaming
 your movies. What you lose is the trip back to the pixels — re-extraction, and inspecting a
