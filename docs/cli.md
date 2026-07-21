@@ -52,10 +52,12 @@ tether <version>
 ```
 
 `--version` is the one flag that never touches your data, so it is the right smoke test.
-The version string is generated from git at build time, so what prints identifies the
-build you installed rather than a fixed number. Running straight out of a source tree that
-was never built prints `tether 0.0.0+unknown` instead — that means no build-time version
-file was generated, not that an install is broken.
+The version string is generated from git at build time, so an installer or CI build — built
+from the git checkout — prints a version that identifies the build you installed rather than
+a fixed number. Two other outputs are not signs of a broken install: running straight out of
+a source tree that was never built prints `tether 0.0.0+unknown`, meaning no build-time
+version file was generated; and a build made from a tree with no git metadata, such as a
+downloaded source zip, falls back to the fixed `tether 0.0.0`.
 
 Running `tether` with no subcommand prints the top-level help and exits 0.
 
@@ -242,7 +244,7 @@ already checkpointed is skipped.
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
-before `main()` ran, or `tether batch` refused to start. Nothing is read and no project is
+before any subcommand handler ran, or `tether batch` refused to start. Nothing is read and no project is
 written on either path, so it is safe to fix the arguments and re-run — with one wrinkle,
 `tether batch` creates `--out-dir` before it checks for colliding basenames, so that
 particular refusal can leave an empty output directory behind.

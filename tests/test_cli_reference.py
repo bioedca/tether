@@ -53,13 +53,14 @@ _FLAG_RE = re.compile(r"--[a-zA-Z][a-zA-Z0-9-]*")
 
 # A short alias (`-o`, `-d`) in the same places. The lookarounds keep it off the tail of a
 # hyphenated word and out of the middle of a long flag, so `--donor-side` does not read as a
-# documented `-d`. Nothing scopes the match to a `tether` command line, and it cannot be: the
-# option tables spell `-o`/`-d` in rows that never name `tether`, which direction 1 has to
-# see. So the assumption is about the page as it stands — every short flag on it today is a
-# tether option — not an invariant the page enforces. A non-tether example carrying its own
-# short flag (`python -m tether`, `ls -l`) would be reported by `test_the_page_invents_no_flags`
-# as an invented tether flag; if the page ever grows one, scope *that* test's extraction to
-# lines mentioning `tether` rather than loosening the regex.
+# documented `-d`. Nothing scopes the match to a `tether` command line, so the assumption is
+# about the page as it stands — every short flag on it today is a tether option, on a
+# `tether ...` usage or example line or in the option-table row documenting it — not an
+# invariant the page enforces. A non-tether short flag (`ls -l`, or the `-m` in
+# `python -m tether`) would be reported by `test_the_page_invents_no_flags` as an invented
+# tether flag; if the page ever grows one, scope *that* test's extraction to actual `tether`
+# invocation lines rather than loosening the regex. Filtering to lines that merely mention
+# `tether` would not be enough — `python -m tether` mentions it.
 _SHORT_FLAG_RE = re.compile(r"(?<![\w-])-[a-zA-Z](?![\w-])")
 
 
