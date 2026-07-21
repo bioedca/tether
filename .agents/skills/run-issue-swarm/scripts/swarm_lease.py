@@ -1073,7 +1073,7 @@ def _cmd_run_comment(args: argparse.Namespace) -> None:
     if args.merge_authority_file is None:
         authority = None
     else:
-        _, authority, authority_server_created = _validate_comment_envelope(
+        authority_id, authority, authority_server_created = _validate_comment_envelope(
             {
                 "comment_id": args.merge_authority_comment_id,
                 "repository": args.merge_authority_repository,
@@ -1086,6 +1086,8 @@ def _cmd_run_comment(args: argparse.Namespace) -> None:
             _extract_merge_authority,
             "merge authority",
         )
+        if authority_id != record["merge_authority_comment_id"]:
+            raise LeaseError("merge authority server ID does not match the run record")
         if authority_server_created > now:
             raise LeaseError("merge authority server time is after run creation")
     _require_merge_authority_binding(record, authority)
