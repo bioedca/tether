@@ -214,7 +214,9 @@ class MoviePanelLike(Protocol):
     """
 
     @property
-    def active_index(self) -> int: ...
+    def active_index(self) -> int:
+        """The registration index of the movie currently displayed (``-1`` when none)."""
+        ...
 
     def set_active_movie(self, index: int) -> object: ...
 
@@ -284,6 +286,7 @@ class RoundTripNavigator:
 
     @property
     def index(self) -> RoundTripIndex:
+        """The :class:`RoundTripIndex` resolver driving both round-trip legs."""
         return self._index
 
     @property

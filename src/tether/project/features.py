@@ -102,6 +102,7 @@ class StoredFeatures:
 
     @property
     def n_molecules(self) -> int:
+        """Number of featured molecules (one per ``matrix`` row)."""
         return len(self.molecule_ids)
 
 

@@ -268,6 +268,7 @@ class SpreadSummary:
 
     @property
     def worst(self) -> float:
+        """Worst value of this metric over the runs — a floor's minimum, a ceiling's maximum."""
         # Non-finite values are sentinel failures (an incomparable run) and MUST
         # surface as the worst case — never be filtered out — or freeze() could
         # ratify a finite tolerance over invalid comparisons. A ceiling's worst

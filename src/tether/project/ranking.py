@@ -78,6 +78,7 @@ class RankingDataset:
 
     @property
     def n_molecules(self) -> int:
+        """Number of candidate molecules — rows of ``X``, labeled and uncurated alike."""
         return len(self.molecule_ids)
 
     @property
@@ -87,6 +88,7 @@ class RankingDataset:
 
     @property
     def n_labeled(self) -> int:
+        """Number of rows carrying a human accept/reject label (the ground-truth count)."""
         return int(np.count_nonzero(self.labeled_mask))
 
     @property

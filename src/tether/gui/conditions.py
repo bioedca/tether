@@ -168,6 +168,7 @@ class ConditionKeyEditor:
 
     @property
     def dialog(self) -> QtWidgets.QDialog:
+        """The wrapped "Correct condition key" ``QDialog`` holding the eight-field form."""
         return self._dialog
 
     def field(self, attr: str) -> QtWidgets.QLineEdit:
@@ -271,10 +272,12 @@ class ConditionValidationDialog:
 
     @property
     def dialog(self) -> QtWidgets.QDialog:
+        """The wrapped "Validate conditions" ``QDialog`` holding the header, table and buttons."""
         return self._dialog
 
     @property
     def table(self) -> QtWidgets.QTableWidget:
+        """The single-row-selection ``QTableWidget`` of Condition / Molecules / Status."""
         return self._table
 
     def row_condition_ids(self) -> list[str]:
