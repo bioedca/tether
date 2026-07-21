@@ -281,11 +281,13 @@ def _missing_skeleton(f: h5py.File) -> list[str]:
 def assert_is_compatible_project(path: str | Path) -> int:
     """Validate that ``path`` is a readable, complete, compatible ``.tether`` store.
 
-    Checks, in order: the file is HDF5-readable; its root ``format`` attribute is
-    the :data:`FORMAT_TAG` marker; the frozen §5.1 top-level skeleton is present
-    (so a foreign **or truncated** HDF5 file is rejected, not silently accepted as
-    a project); and its ``schema_version`` is not newer than this app
-    (:func:`assert_compatible`, PRD §5.4). Returns the on-disk ``schema_version``.
+    Checks, in this order: the file is HDF5-readable; its root ``format`` attribute
+    is the :data:`FORMAT_TAG` marker; a ``schema_version`` stamp is present; the
+    frozen §5.1 top-level skeleton is present (so a foreign **or truncated** HDF5
+    file is rejected, not silently accepted as a project); and that version is not
+    newer than this app (:func:`assert_compatible`, PRD §5.4). The stamp is checked
+    **before** the skeleton, so a stamp-less file reports the missing stamp rather
+    than the missing groups. Returns the on-disk ``schema_version``.
 
     Raises
     ------

@@ -7,8 +7,9 @@ FR-ROUNDTRIP browser: donor/acceptor/total intensity + the FRET time-series with
 its marginal histograms. It is tMAVEN's per-trace viewer (Appendix C, **D1**)
 reimagined as Tether's curation surface, so it keeps the familiar conventions —
 **donor green / acceptor red / FRET blue**, the FRET axis fixed to ``0–1``, the
-x-axis in **seconds** (from the movie ``FrameTime``) with a **frame-index
-toggle**, and an idealization **step overlay** drawn over the FRET panel.
+x-axis in **seconds** (from the linked ``/movies`` row's ``frame_time``, when the
+movie declares one) with a **frame-index toggle**, and an idealization **step
+overlay** drawn over the FRET panel.
 
 At the MVP the FRET axis reads **"apparent E"**: the uncorrected proximity ratio
 ``A / (D + A)`` (see :func:`tether.fret.apparent_fret`); leakage/gamma
