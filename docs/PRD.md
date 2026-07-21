@@ -39,8 +39,9 @@ its trace.
 
 ### Source-citation conventions
 
-All source citations are relative to the configurable **reference root** `$SMFRET_REFERENCE_ROOT`, which is set
-outside the repository and holds read-only local clones of the reference implementations and a fixture set:
+All source citations are relative to the configurable **reference root** named by the
+`SMFRET_REFERENCE_ROOT` environment variable. It is set outside the repository and points to read-only local
+clones of the reference implementations and a fixture set:
 
 - **Deep-LASI** (MATLAB) [Wanninger2023] — paths are relative to `deeplasi/functions/` (e.g.
   `deeplasi/functions/traces/extractTracesC.m:20-33`).

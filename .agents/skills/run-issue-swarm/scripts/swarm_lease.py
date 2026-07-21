@@ -559,7 +559,7 @@ def _extract(text: str) -> dict[str, Any]:
         encoded_length = len(text.encode("utf-8"))
     except UnicodeError as exc:
         raise LeaseError("lease comment is not valid UTF-8 text") from exc
-    if encoded_length > 131_072:
+    if encoded_length > MAX_INPUT_CHARS:
         raise LeaseError("lease comment exceeds the safe parse limit")
     matches = LEASE_RE.findall(text)
     if len(matches) != 1:
@@ -598,7 +598,7 @@ def _extract_run(text: str) -> dict[str, Any]:
         encoded_length = len(text.encode("utf-8"))
     except UnicodeError as exc:
         raise LeaseError("run comment is not valid UTF-8 text") from exc
-    if encoded_length > 131_072:
+    if encoded_length > MAX_INPUT_CHARS:
         raise LeaseError("run comment exceeds the safe parse limit")
     matches = RUN_CONTROL_RE.findall(text)
     if len(matches) != 1:
@@ -637,7 +637,7 @@ def _extract_run_transition(text: str) -> dict[str, Any]:
         encoded_length = len(text.encode("utf-8"))
     except UnicodeError as exc:
         raise LeaseError("run transition is not valid UTF-8 text") from exc
-    if encoded_length > 131_072:
+    if encoded_length > MAX_INPUT_CHARS:
         raise LeaseError("run transition exceeds the safe parse limit")
     matches = RUN_TRANSITION_RE.findall(text)
     if len(matches) != 1:
@@ -676,7 +676,7 @@ def _extract_merge_authority(text: str) -> dict[str, Any]:
         encoded_length = len(text.encode("utf-8"))
     except UnicodeError as exc:
         raise LeaseError("merge authority is not valid UTF-8 text") from exc
-    if encoded_length > 131_072:
+    if encoded_length > MAX_INPUT_CHARS:
         raise LeaseError("merge authority exceeds the safe parse limit")
     matches = MERGE_AUTHORITY_RE.findall(text)
     if len(matches) != 1:
