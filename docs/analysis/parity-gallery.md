@@ -14,10 +14,14 @@ implementation, and the committed test that establishes the correspondence.
 The seven types are enumerated from tMAVEN source at its pinned commit: six
 `controller_base_analysisplot` subclasses registered in
 `tmaven/tmaven/controllers/analysis_plots/analysisplots.py`, plus the per-trace viewer in
-`tmaven/tmaven/trace_plot/`. The smFRET / ND-Normalized / ND-Raw signal modes and
-post-synchronization are *variants* of a type, not separate types. Groups **B** and **C**
-are idealization-gated, as is A2's post-synchronized variant (**A2b**, which needs a model's
-Viterbi paths); **A1**, **raw A2**, and **D1** render without a model.
+`tmaven/tmaven/trace_plot/`. The smFRET /
+[ND-Normalized / ND-Raw](../glossary.md#nd-normalized-nd-raw) signal modes and
+[post-synchronization](../glossary.md#post-synchronization) are *variants* of a type, not
+separate types. Groups **B** and **C** are idealization-gated, as is A2's post-synchronized
+variant (**A2b**, which needs a model's
+[Viterbi paths](../glossary.md#viterbi-path-state-path)); **A1**, **raw A2**, and **D1**
+render without a model. Terms used throughout this page are defined in the
+[Glossary](../glossary.md).
 
 > **Where parity actually lives.** The **numeric and visual parity is asserted by each
 > plot's own committed tests** (the "Parity evidence" rows below), which the 3-OS CI `test`

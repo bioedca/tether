@@ -1,8 +1,10 @@
 # Legacy Deep-LASI import
 
 Tether re-analyses an existing **Deep-LASI** acquisition *without re-extracting the movie*
-(PRD §7.8). The import path reads the legacy file set — the raw movie, the `TIRFdata`
-`.tdat`, the `DeepLASI_MAT_export_*.mat`, the `…-donc-accc-w.txt`, and the tMAVEN SMD —
+(PRD §7.8). The import path reads the legacy file set — the raw movie, the
+[`TIRFdata`](../glossary.md#tirfdata-mcos-refs)
+[`.tdat`](../glossary.md#tmap-tdat), the `DeepLASI_MAT_export_*.mat`, the
+`…-donc-accc-w.txt`, and the tMAVEN [SMD](../glossary.md#smd) —
 recovers the per-molecule coordinates and pre-integrated traces, applies the Deep-LASI →
 Tether correction-factor remap, and writes a `.tether` project store.
 
@@ -20,6 +22,12 @@ to the on-disk formats (the **coordinate-availability matrix**, PRD Appendix A),
 > writers never touch HDF5 directly (they drive the M0-frozen schema writers), and the
 > `tether.gui.*` wizard only orchestrates — so `schema-guard` stays green across the whole
 > path.
+
+This page is the **input** half of the story. Its counterpart,
+[Exports — what Tether writes out](../reference/exports.md), documents everything Tether
+writes *back* out: the molecule-table CSV column-by-column, the Deep-LASI `…-donc-accc-w.txt`
+matrix on the write side, the subset `.tether`, the plot exports, and the provenance
+sidecar every one of them carries.
 
 ## Coordinate-availability matrix
 
