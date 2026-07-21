@@ -87,7 +87,8 @@ def test_out_of_range_frame_raises() -> None:
 
 
 def test_frame_time_absent_on_raw_movie() -> None:
-    # The reference TIFF carries no frame-time tag; it arrives from the .tdat/.mat.
+    # The reference TIFF carries no frame-time tag, and no shipped importer supplies
+    # one either (the .tdat/.mat decode reads no FrameTime), so it stays unknown.
     with MovieReader(FIXTURE) as movie:
         assert movie.frame_time is None
 

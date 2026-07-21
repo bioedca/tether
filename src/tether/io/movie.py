@@ -132,8 +132,15 @@ class MovieReader:
     def frame_time(self) -> float | None:
         """Seconds per frame if the TIFF declares it (ImageJ ``finterval``), else None.
 
-        The reference movies carry no frame-time tag; the authoritative value
-        comes from the Deep-LASI ``.tdat``/``.mat`` (``FrameTime``) at import.
+        The reference movies carry no frame-time tag, and no shipped importer
+        supplies one either: the ``.tdat``/``.mat`` decode reads no ``FrameTime``
+        (:mod:`tether.io.tdat`, :mod:`tether.io.deeplasi`). This tag is therefore the
+        only source ``/movies.frame_time`` has: a store built from those legacy files
+        still reads the value off the raw movie TIFF the reconstruction points at, so
+        it carries a real interval whenever that TIFF declares a finite, positive
+        ``finterval``. Anything else — no tag, or a value that is unparseable,
+        non-finite or non-positive — is rejected by :func:`_read_frame_time` and
+        collapses to the ``0.0`` "unknown" default.
         """
         return self._frame_time
 

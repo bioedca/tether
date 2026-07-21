@@ -51,6 +51,7 @@ nav:
   - Reference:
       - Command line: cli.md
       - Exports (files, columns, units): reference/exports.md
+      - Project store (.tether HDF5 schema): reference/tether-format.md
   - Glossary: glossary.md
   - Troubleshooting: troubleshooting.md
   - Packaging:
