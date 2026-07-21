@@ -169,7 +169,7 @@ tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]
 | `-d OUT_DIR`, `--out-dir OUT_DIR` | *(required)* | directory for the per-movie `.tether` projects (created if absent) |
 | `--tmap PATH` | none | a shared imported Deep-LASI `.tmap` applied to every movie |
 | `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie |
-| `--policy {warn,fail}` | `warn` | over-gate registration policy: `warn` keeps an over-gate movie with a flag; `fail` fails it |
+| `--policy {warn,fail}` | `warn` | over-gate registration policy: `warn` keeps an over-gate movie with a flag; `fail` records that movie's extract stage as failed — the project file is still written, and the verdict does not survive a re-run ([see below](#a-policy-fail-rejection-does-not-survive-the-re-run)) |
 | `--no-idealize` | off | skip the idealization stage (extract + correct only) |
 | `--overwrite` | off | re-extract a movie whose output exists but is not a completed extraction |
 | `--log PATH` | `<out-dir>/batch-log.jsonl` | write a JSONL structured log here |
@@ -193,6 +193,26 @@ rejected before any work starts:
 $ tether batch a/movie_010.tif b/movie_010.tif -d out
 tether batch: movies 'a/movie_010.tif' and 'b/movie_010.tif' both map to 'out/movie_010.tether'; rename one or use a separate --out-dir
 ```
+
+### A `--policy fail` rejection does not survive the re-run
+
+`fail` is a verdict recorded about a movie, not a veto on its output. Extraction writes
+the `.tether` first and the gate is applied afterwards, to the summary that write
+returns — so an over-gate movie under `--policy fail` leaves a **complete, checkpointed**
+project in `<out-dir>`, with its extract stage recorded `failed` and correct/idealize
+`blocked`. That run exits `1`, as documented.
+
+> **The rejection does not survive the re-run.** Resuming is the whole point of the
+> checkpoint, and the checkpoint is consulted *before* the policy: on a second run of the
+> same command the extract stage is `skipped` ("already extracted"), which counts as
+> satisfied, so correction and — unless you passed `--no-idealize` — idealization run to
+> completion on the movie the policy rejected. With no failed stage left, that second run
+> exits `0`. `--overwrite` does not change this: it only covers an output that is *not* a
+> completed extraction, and a completed one is always skipped.
+>
+> So `--policy fail` is a gate on the *first* run only. If you rely on it, delete (or move
+> aside) each rejected `<out-dir>/<stem>.tether` before re-running, and treat the first
+> run's JSONL log — not the presence of a project on disk — as the record of what passed.
 
 ### Example — a folder of movies, extraction and correction only
 

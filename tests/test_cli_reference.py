@@ -26,6 +26,7 @@ is read with :mod:`pathlib`. No optional dependency, so this runs on all three O
 from __future__ import annotations
 
 import argparse
+import inspect
 import re
 from pathlib import Path
 
@@ -263,4 +264,36 @@ def test_the_deferred_idealization_caveat_survives() -> None:
     assert "defer" in section.lower(), (
         "the exit-code section no longer warns that `tether batch` can exit 0 with "
         "idealization deferred"
+    )
+
+
+def test_the_policy_fail_resume_caveat_matches_the_runner() -> None:
+    """``--policy fail`` gates only the first run, and the page must still say so.
+
+    ``_do_extract`` calls the extract runner — which has already written the ``.tether``
+    by the time it returns — and applies the over-gate policy to its summary afterwards;
+    on the next run the ``_is_extracted`` checkpoint is consulted *before* that policy
+    branch, so the rejected movie resumes as ``skipped`` and correction/idealization
+    complete. Reading the runner's source order is what keeps the paragraph honest in
+    both directions: if the ordering is ever changed so the policy wins over the
+    checkpoint, this fails and the caveat must come off the page.
+
+    Source-order only, so it stays base-matrix: :mod:`tether.project.batch` imports
+    nothing beyond the standard library at module scope (h5py is deferred into the
+    checkpoint probes).
+    """
+    from tether.project import batch  # noqa: PLC0415 - keep the module import test-local
+
+    source = inspect.getsource(batch._do_extract)  # noqa: SLF001 - the ordering is the point
+    checkpoint = source.index("_is_extracted(")
+    gate = source.index("POLICY_FAIL")
+    assert checkpoint < gate, (
+        "`_do_extract` no longer skips an already-extracted movie before applying the "
+        "over-gate policy; docs/cli.md's `--policy fail` resume caveat is now wrong"
+    )
+
+    section = _subcommand_section("batch")
+    assert "does not survive the re-run" in section, (
+        "docs/cli.md no longer warns that a `--policy fail` rejection is undone by a "
+        "resume (the project is written before the gate, and the checkpoint skips it)"
     )
