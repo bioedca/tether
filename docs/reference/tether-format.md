@@ -156,7 +156,7 @@ The rest of this page describes the native-extraction case unless it says otherw
 | Store provenance | Writer | What differs |
 |---|---|---|
 | Native extraction | `write_extraction` (`src/tether/imaging/extract.py`) | The full record: `/movies` rows, coordinates, all six `/traces` layers, `/patches`. |
-| Deep-LASI reconstruction | `reconstruct_project` (`src/tether/project/reconstruct.py`) | Also goes through `write_extraction`, so the layout is identical — but the trace values are the legacy `.mat` series copied verbatim, **not** an integration this build performed. |
+| Deep-LASI reconstruction | `reconstruct_project` (`src/tether/project/reconstruct.py`) | Also goes through `write_extraction`, so the `/movies`, `/molecules`, `/traces` and `/patches` layout is the same — but the trace values are the legacy `.mat` series copied verbatim, **not** an integration this build performed, and **no calibration is written**: `reconstruct_project` never calls `write_calibration`, so `/calibration` stays empty, `/movies.calibration_id` is `""` and the channel crop/rotation/flip fields are all zero. |
 | Analysis-only import | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) | No `/movies` rows, `movie_id = ""`, `donor_xy`/`acceptor_xy` `NaN`, `/patches` empty, only the two corrected `/traces` layers. |
 | Subset export | `export_subset_tether` (`src/tether/project/export.py`) | A new store: `/molecules` rows copied verbatim (so `movie_id` survives as a **dangling** key), no `/movies` rows, corrected `/traces` only unless `include_raw=True`. |
 
@@ -212,7 +212,7 @@ of the movie and therefore never hydrates a cloud placeholder.
 | `width` | `i4` | scalar | Full-frame width, **pixels** — the whole frame, before the two-channel split. |
 | `pixel_dtype` | `str:utf-8` | scalar | On-disk pixel dtype string, e.g. `>u2` (`src/tether/io/movie.py`). |
 | `byteorder` | `str:utf-8` | scalar | `>` (big-endian) or `<` (little-endian). |
-| `frame_time` | `f8` | scalar | **Seconds per frame**, from the ImageJ `finterval` tag or a Deep-LASI `FrameTime`; `0.0` when the source declares none. |
+| `frame_time` | `f8` | scalar | **Seconds per frame**, read only from the movie TIFF's ImageJ `finterval` tag, and only when it is finite and positive (`_read_frame_time`, `src/tether/io/movie.py`); `0.0` otherwise. A **Deep-LASI reconstruction** is no exception — it builds this row from the raw TIFF as well, and the shipped `.tdat`/`.mat` decode reads no `FrameTime`, so a reconstructed store does **not** preserve a Deep-LASI timebase. |
 | `head_tail_hash` | `str:utf-8` | scalar | Reserved partial-content digest for the fast signature; no shipped writer sets it (stays `""`). |
 | `calibration_id` | `str:utf-8` | scalar | Join key into `/calibration`. |
 | `donor_crop` | `i4` | `(4,)` | `[y1, x1, y2, x2]`, **1-based inclusive** pixel bounds (`src/tether/imaging/split.py`). All-zero means full frame / unspecified. |
@@ -246,8 +246,8 @@ rewrites `condition_id`.
 | `frame_range` | `i4` | `(2,)` | `[start, stop)` **frame indices** of the molecule's valid native extent inside the zero-padded trace arrays. |
 | `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analysed. `frame_range` at native extraction, but an SMD import seeds it from the source's window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed window wins. |
 | `bleach_frames` | `i4` | `(2,)` | `(donor, acceptor)` first-bleach **absolute frame indices**. `-1` is the pre-detection sentinel (see below), *not* "no bleach". |
-| `alpha` | `f8` | scalar | Donor leakage α, dimensionless. `NaN` = not yet computed. |
-| `gamma` | `f8` | scalar | Detection-correction γ, dimensionless. `NaN` = not yet computed. |
+| `alpha` | `f8` | scalar | Donor leakage α, dimensionless. `NaN` = **no factor applied**, which is not the same as "the pass has not run": `compute_leakage_alpha` *withholds* the factor — leaving the column untouched — when fewer than `min_qualifying_traces` molecules yield a valid donor-only tail (`src/tether/project/leakage.py`), and an analysis-only import seeds every row at `NaN` (`src/tether/project/analysis_import.py`). `compute_corrected_fret` then stamps `apparent-E (corrections unavailable)` with the factor still `NaN`, so read `correction_method` and `/settings/leakage` (`withheld`), never this cell, to tell the cases apart. |
+| `gamma` | `f8` | scalar | Detection-correction γ, dimensionless. Same `NaN` convention as `alpha` — `compute_gamma` withholds the dataset γ below `min_qualifying_traces` (`src/tether/project/gamma.py`) and stamps `/settings/gamma` with `withheld = True`, so read `correction_method` / `/settings/gamma` rather than this cell. |
 | `delta` | `f8` | scalar | Direct-excitation δ, dimensionless. Inert in two-colour work; written `0.0`. |
 | `correction_method` | `str:utf-8` | scalar | Closed vocabulary from `src/tether/project/correct.py`: `corrected`, `manual`, `apparent-E (corrections unavailable)`, `apparent-E (user toggle)`. `""` before any correction pass. |
 | `correction_confidence` | `f8` | scalar | A **provenance flag, not a confidence interval**: `1.0` when a real correction was applied, `0.0` on apparent-E fallback, `NaN` before any pass. |
@@ -372,8 +372,8 @@ so a crash leaves at worst an orphan label row, never an unaudited state change.
 |---|---|---|---|
 | `molecule_key` | `str:utf-8` | scalar | Join key into `/molecules.molecule_key` — the cross-file key, so labels survive split-file merge-back. |
 | `labeler` | `str:utf-8` | scalar | Curator identity; defaults to the OS login, or `unknown`. |
-| `timestamp` | `str:utf-8` | scalar | ISO-8601 UTC with an explicit offset, e.g. `2026-07-21T00:52:09.949494+00:00`. |
-| `source_file` | `str:utf-8` | scalar | Basename of the `.tether` the event was logged in. |
+| `timestamp` | `str:utf-8` | scalar | Offset-aware ISO-8601, e.g. `2026-07-21T00:52:09.949494+00:00`. Tether's own writes are UTC, but the writer only requires an explicit offset (`set_curation_label`, `src/tether/project/labels.py`), so a merged-in row may carry another one. |
+| `source_file` | `str:utf-8` | scalar | Caller-supplied source provenance, stored **verbatim**; it only *defaults* to the basename of the `.tether` being curated (`set_curation_label`, `src/tether/project/labels.py`). Not always a `.tether` name — the Deep-LASI reconstruction seeds its `deeplasi-provisional` rows with the acquisition filename instead (`parsed.source_filename`, `src/tether/project/reconstruct.py`). |
 | `source` | `str:utf-8` | scalar | Closed vocabulary (`src/tether/project/labels.py`): `human`, `deeplasi-provisional`, `cross-condition-seed`. The latter two are provisional cold-start priors. |
 | `weight` | `f8` | scalar | Effective training weight, dimensionless. Human labels are `1.0`; provisional weights decay as human labels accrue and this column is **rewritten** at retrain. |
 | `label_value` | `i4` | scalar | The same signed codec as `curation_label`: `0` uncurated, `1` accept, `-1` reject. |
@@ -436,8 +436,11 @@ aperture window is fixed per project and validated on every later append.
 
 In a **natively extracted** store each entry is the **temporal mean** image crop for
 that molecule and channel, in `(row, col)` image order, centred on the molecule's
-rounded coordinate; a molecule whose window falls outside the frame yields an all-zero
-patch (`_mean_patches` in `src/tether/imaging/extract.py`). The default window is 21 px
+rounded coordinate. `_mean_patches` (`src/tether/imaging/extract.py`) zero-fills a
+molecule whose window falls outside the frame, but no such molecule reaches disk:
+`colocalize` keeps only molecules whose window fits in **both** channels, and
+`write_extraction` refuses the whole write if any integrated trace is invalid
+(`_validate_alignment` — "refusing to write an all-zero trace"). The default window is 21 px
 (`extract_molecules(..., window=21)`); the value actually used is recorded as
 `/settings/extraction@window`. Row order matches `/molecules/table`. A subset export
 carries both stacks, row-subset to the exported molecules; **analysis-only imports
@@ -451,10 +454,12 @@ leave `/patches` empty**, because they have no coordinates.
 > `reconstruct_project` call omits both), so in practice **every** reconstructed store's
 > `/patches` are entirely zero: a real reconstruction of the committed 4-molecule
 > UCKOPSB `.mat` writes `donor` and `acceptor` of shape `(4, 21, 21)` float32 with
-> `max() == 0.0`. An all-zero patch therefore means "out-of-frame native crop" *only*
-> in a natively extracted store. Check the store's provenance first —
-> `/settings/extraction@profile_json` carries `"source": "m7-deeplasi-reconstruction"`
-> for this path — rather than inferring anything from the pixels.
+> `max() == 0.0`. Do **not** read an all-zero patch as an out-of-frame crop in any
+> store: the native writer rejects those before they reach disk, so a zero patch is
+> either a reconstruction placeholder or a genuinely dark in-frame crop. Check the
+> store's provenance first — `/settings/extraction@profile_json` carries
+> `"source": "m7-deeplasi-reconstruction"` for this path — rather than inferring
+> anything from the pixels.
 
 ## `/settings` — provenance of each pipeline stage
 
