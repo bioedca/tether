@@ -186,6 +186,7 @@ class StoredIdealization:
 
     @property
     def n_molecules(self) -> int:
+        """Number of per-molecule rows in this model (one per fitted molecule)."""
         return len(self.molecule_keys)
 
 
