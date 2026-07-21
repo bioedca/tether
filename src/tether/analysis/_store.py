@@ -157,10 +157,12 @@ def windowed_state_and_channels(
     The idealization is joined to ``/molecules`` on ``molecule_id`` (the **unique**
     per-molecule identity — the ``molecule_key`` is not unique, §7.10), then the
     §7.5 curation filter and the optional ``molecule_keys`` selection are applied.
-    A molecule whose idealized extent runs past its current trace width (a
-    re-extraction shortened it) is skipped rather than misaligned — the honest
-    answer, never a fabricated pairing. Rows are returned in idealization (fit)
-    order.
+    A molecule whose idealized extent runs past the width of the ``/traces`` arrays
+    is skipped rather than misaligned — the honest answer, never a fabricated
+    pairing. That width is store-wide and zero-padded to the experiment-max frame
+    count, not trimmed per molecule, so a re-extraction that shortened *this*
+    molecule alone does **not** trip the guard: the vanished frames are read out of
+    its zero pad. Rows are returned in idealization (fit) order.
 
     Parameters
     ----------
@@ -240,7 +242,7 @@ def windowed_state_and_channels(
         if valid.size == 0:
             continue
         lo, hi = int(valid[0]), int(valid[-1]) + 1
-        if hi > trace_len:  # state path outruns the current trace (re-extracted) -> skip
+        if hi > trace_len:  # state path outruns the shared (padded) /traces width -> skip
             continue
         state_win = np.asarray(state_full[lo:hi], dtype=np.int64)
         donor_win = np.asarray(donor_all[j, lo:hi], dtype=np.float64)
