@@ -152,13 +152,16 @@ view (see the row below).
 | `mu`<br>`PB_PRIOR_MU` in `tether.fret.photobleach` | `1000.0` | raw detector counts (ADU) of the background-subtracted trace | Prior mean of the pre-bleach signal level. **This is an absolute intensity, not a normalised one, and the asymmetry matters.** A level far *above* `mu` is harmless. A level far *below* it is the dangerous case, and it bites at the **default** `beta` — no raised `beta` needed — because the prior's evidence penalty does not shrink as the trace lengthens. Measured on a 200-frame synthetic trace bleaching at frame 100: levels of 1e6 down to 100 counts all recover frame 100, while a level of 10 counts collapses to the all-bleached hypothesis at frame 0. `compute_photobleach` then reads that as a dark trace — `bleach_frames` records the start frame and the analysis window is deliberately left at full extent, because a zero-length window is indistinguishable from "unset" downstream. Setting `mu` to your own single-molecule level restores detection. Lower `mu` if your traces are dim. | `compute_photobleach(mu=…)` / `detect_photobleach(mu=…)` — no CLI flag, no GUI control | **no** |
 | analysis window override | auto (start → first bleach of the summed intensity) | frames | The window the **windowed readers** slice to: the analysis store behind the FRET histograms and cloud, the anticorrelation/cross-correlation scan, the per-molecule engineered features, the per-molecule exports and idealization each cut a trace to it, falling back to `frame_range` when it is unset. The **correction-factor stages do not read it** — `compute_leakage_alpha`, `compute_gamma` and `compute_corrected_fret` slice each trace by its native `frame_range` and locate their tails from the stored `bleach_frames`, so narrowing the window does not change α, γ or the corrected traces. Because manual bounds win, re-running detection will not restore the automatic one. **There is no in-app curation control for the window** — the curation view's window keys are status-message stubs that persist nothing. | `apply_reconcile(accept_windows=…)` — the standalone-tMAVEN return leg, surfaced as the GUI reconcile dialog — or `import_analysis_only_project` from a legacy SMD; auto-set by `compute_photobleach` only where the window is still at the extraction default | `/molecules` (`analysis_window`, `bleach_frames`) |
 
-> **The photobleach priors are the one gap on this page.** `tether.project.photobleach` writes
+> **Photobleach detection records none of its own inputs.** `tether.project.photobleach` writes
 > the *results* — `bleach_frames` and `analysis_window` — into `/molecules`, but it writes no
-> attributes recording the priors that produced them. If you change any of `a`, `b`, `beta` or
-> `mu`, that choice is **not recoverable from the project file**, and a reader of your
-> `.tether` cannot tell a default run from a re-prioritised one. Record the values yourself in
-> your methods section, or leave them at the defaults so the defaults on this page describe
-> your run. Every other correction stage stamps its own settings; this one does not.
+> attributes at all: not the priors that produced them, and not the trace layer they were
+> detected on. The layer choice travels only in the transient `PhotobleachSummary` the call
+> returns. So if you change any of `a`, `b`, `beta`, `mu` or `intensity_quantity`, that choice
+> is **not recoverable from the project file**, and a reader of your `.tether` cannot tell a
+> default run from a re-prioritised one, nor a `corrected` pass from a `raw` one. Record the
+> values yourself in your methods section, or leave them at the defaults so the defaults on
+> this page describe your run. Every other correction stage stamps its own settings; this one
+> does not.
 
 ## Correction factors
 
@@ -280,7 +283,7 @@ order you see them in, not the population that enters an analysis.
 | Parameter | Default | Units | Effect on the result | Set via | Recorded in `.tether` |
 | --- | --- | --- | --- | --- | --- |
 | `intensity_quantity` / `include_rejected`<br>`compute_features` in `tether.project.features` | `corrected`, `True` | enum `corrected`/`raw`, boolean | Which trace layer the cached `/features/table` is computed on, and which molecules get a row in it. The ranker is trained and scored on that table (`ranking_dataset` reads it), so both settings propagate into every ranking: changing the layer changes all seven trace-derived features, and a molecule with no row cannot be ranked at all. The two spatial features (`neighbor_distance`, `aperture_overlap`) are computed from `/molecules` coordinates and are unaffected by the layer. **`include_rejected` defaults the opposite way here to everywhere else on this page**: feature generation keeps rejected molecules by design, because a reject is the ranker's negative training label, whereas the `tether.analysis` population functions exclude them. Recompute the table after a re-extraction or a recalibration — it is a derived cache, not a record. | `compute_features(intensity_quantity=…, include_rejected=…)` — no CLI flag, no GUI control | `intensity_quantity` **yes**, as the `/features/table` attribute of the same name; `include_rejected` **no** |
-| `w0`<br>`DEFAULT_SEED_WEIGHT` in `tether.ml.weighting` | `0.3` | relative weight | Weight of a provisional seed label relative to a human one, which is fixed at `1.0`. Seed weight decays as human labels accumulate, so the model leans on the seed only while you have labelled little. Raising it makes a cold-start model trust its own priors longer; lowering it makes early rankings closer to random until you have labelled enough. | `train_ranker(w0=…)`, `recompute_label_weights(w0=…)` — no CLI flag, no GUI control | the resulting per-label `weight` values are written to `/labels`; `w0` itself is **not** stamped |
+| `w0`<br>`DEFAULT_SEED_WEIGHT` in `tether.ml.weighting` | `0.3` | relative weight | Weight of a provisional seed label relative to a human one, which is fixed at `1.0`. Seed weight decays as human labels accumulate, so the model leans on the seed only while you have labelled little. Raising it makes a cold-start model trust its own priors longer; lowering it makes early rankings closer to random until you have labelled enough. | `train_ranker(w0=…)`, `recompute_label_weights(w0=…)` — no CLI flag, no GUI control | depends on the surface. `train_ranker` is read-only: it derives the decayed weights in memory for the fit and writes nothing, so a non-default `w0` training run leaves no trace in the project. `recompute_label_weights` is the store-mutating one — it rewrites the resulting per-label `weight` values into `/labels/table`. Even then `w0` itself is **not** stamped |
 | `learning_rate`<br>`RankerHyperparams` in `tether.ml.gbranker` | `0.1` | dimensionless | Gradient-boosting shrinkage. Lower learns more slowly and needs more iterations; higher can overfit a small label set. | `train_quality_ranker(hyperparams=…)`, `ranker_prequential_uplift(hyperparams=…)` — no CLI flag, no GUI control | **no** — recorded in the portable model artifact's `manifest.json` |
 | `max_iter`<br>`RankerHyperparams` in `tether.ml.gbranker` | `100` | boosting iterations | Number of trees. More capacity, more overfitting risk on the modest label sets this ranker is built for. | as above | **no** — model `manifest.json` |
 | `max_leaf_nodes`<br>`RankerHyperparams` in `tether.ml.gbranker` | `15` | leaves per tree | Tree capacity, deliberately below the library default because a curator's label set is small. Raising it lets the model carve finer distinctions and memorise noise. | as above | **no** — model `manifest.json` |
@@ -368,8 +371,9 @@ changed anything, what you can recover afterwards depends on the stage:
   recorded on the `/idealization/<model>` group, together with the per-K evidence whenever the
   state count was chosen automatically. The sidecar timeout and restart budget are not, and
   neither is `nrestarts` — if you overrode the fitter's restart count, write it down.
-- **Photobleaching** — the *results* are recorded, the *priors are not*. If you changed them,
-  write them down yourself.
+- **Photobleaching** — the *results* are recorded, the *inputs are not*: neither the priors nor
+  the `intensity_quantity` trace layer detection ran on. If you changed either, write it down
+  yourself.
 - **Analysis** — nothing is recorded, because analysis outputs are computed on demand rather
   than stored. Any bin count, bootstrap setting, trace layer or frame interval you passed must
   be stated in your methods section. The frame interval is the one to check first: at the
