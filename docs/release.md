@@ -65,24 +65,37 @@ produce `/tether/latest/1.0/…`, which does not exist.
 
 ### Manual fallback
 
-If the dispatch fails, or you need to republish, run `docs.yml` yourself. It also accepts
-a `workflow_dispatch` from *Actions → docs → Run workflow*:
+If the dispatch fails, or you need to republish, run `docs.yml` yourself:
 
 ```bash
-gh workflow run docs.yml -f version=1.0
+gh workflow run docs.yml --ref v1.0.0 -f version=1.0
 ```
+
+**Pass `--ref` and pass the tag**, exactly as the automatic dispatch does. Without it `gh`
+targets the default branch, so you would publish whatever `main` holds right now under a
+released version's label — the mistake the manual path exists to recover from. The same
+applies to *Actions → docs → Run workflow*: set **Use workflow from** to the release tag,
+not `main`.
 
 The `version` input accepts `MAJOR.MINOR`, `MAJOR.MINOR.PATCH` (a leading `v` is stripped,
 and the patch component is dropped to give the doc tree) or the literal `dev`. Anything
 else — including a four-component `1.0.0.0` or a pre-release `1.0.0-rc1` — is **rejected**
 at the version-resolution step rather than silently truncated to a plausible label.
 
+Whatever you publish takes over the `latest` alias and the site default: `docs.yml` always
+runs `mike deploy --update-aliases <label> latest` followed by `mike set-default --push
+latest`. There is no way to publish a version *without* promoting it, so do not dispatch an
+older branch to "just refresh" an old tree.
+
 ### Verify it published
 
 ```bash
-gh api repos/bioedca/tether/contents/versions.json?ref=gh-pages \
+gh api "repos/bioedca/tether/contents/versions.json?ref=gh-pages" \
   --jq '.content' | base64 -d
 ```
+
+> Keep the quotes. `?` is a glob character in zsh — the default shell on macOS — and an
+> unquoted URL fails with `no matches found` before `gh` ever runs.
 
 The new version must appear in the list with `latest` among its `aliases`, e.g.
 `[{"version": "1.0", "title": "1.0", "aliases": ["latest"]}]`. Then load
