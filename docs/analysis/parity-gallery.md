@@ -1,5 +1,10 @@
 # Seven-plot parity gallery
 
+This page documents **plot and feature parity** with tMAVEN — which plots exist and how
+they correspond — **not** numerical accuracy. For the accuracy evidence (the seven
+NFR-VALID oracles, the frozen tolerances and the external benchmark) see
+[Validation & benchmarks](../validation.md).
+
 Tether reproduces **exactly seven tMAVEN plot types** natively (PRD Appendix C; the
 *bounded plot parity* non-goal, N3). Any other tMAVEN plot stays reachable through the
 standalone-tMAVEN hand-off — it is **not** reimplemented. This gallery is the single

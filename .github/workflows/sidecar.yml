@@ -14,8 +14,21 @@
 # The parity gate is layered:
 #   * PR-facing, pure (always required): the base `test` matrix runs
 #     `tests/test_parity.py`, which asserts the FROZEN JSON against its own recorded
-#     evidence (top-level + per-method) — no sidecar, gates every PR, catches a
-#     tampered/loosened tolerance.
+#     evidence (top-level + per-method) — no sidecar, gates every PR. It catches a
+#     tolerance TIGHTENED below its own evidence, and evidence deleted or truncated
+#     from under a bound. Against LOOSENING it constrains the SHAPE of a tolerance
+#     block, not the magnitude of a bound inside it: each block must carry exactly the
+#     four bound keys (deleting any one of the eight fails at least two tests), the four
+#     `$.tolerance` values must also be finite (an infinite ceiling there fails
+#     `test_load_frozen_tolerance_returns_the_four_bounds`; the per-method bounds carry
+#     no finiteness check), and `test_load_frozen_tolerance_selects_per_method` asserts
+#     ebFRET's state-count floor stays strictly below the default one, so it fails once
+#     `$.tolerance.state_count_min_fraction` is dropped to ebFRET's frozen 0.5249 or
+#     below (0.40 fails; 0.60 still passes). Widening a bound to any OTHER finite value
+#     is caught by nothing — it only leaves the recorded values further inside the
+#     bound — and is held by review plus the deliberate re-freeze rule
+#     (`$.freeze_policy`, PRD §11.2, ADR-0009).
+#     See docs/validation.md, "(b) Idealization parity vs tMAVEN".
 #   * Live (this workflow): drives the real fits vs the frozen tolerance, which needs
 #     the heavy sidecar env + tMAVEN.
 #
@@ -135,7 +148,7 @@ jobs:
         # two steps that live OUTSIDE `sidecar/conda-lock.yml`: the pip-layered tMAVEN (the
         # GPL reference app driven over IPC, layered onto the lock, not in it) and the
         # `setuptools<81` pin that restores the legacy `pkg_resources` API tMAVEN imports at
-        # runtime (setuptools removed it in v81; the sidecar env resolves to 82). Running it
+        # runtime (setuptools removed it in 82.0.0; the lock resolves 82.0.1). Running it
         # HERE means the SAME script a user (and the 2-OS hand-off check) runs is exercised
         # on this Linux runner, so "the setup script runs clean" is continuously tested — the
         # CI leg of issue #13's two-OS requirement. The micromamba step above already

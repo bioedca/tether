@@ -177,6 +177,22 @@ jobs:
       - name: Build the pinned trimmed tMAVEN wheel (offline sidecar payload)
         run: python -m pip wheel --no-deps --no-build-isolation -w packaging/staging "${TMAVEN_SPEC}"
 
+      - name: Stage the setuptools<81 wheel (restores pkg_resources in the sidecar)
+        # tMAVEN's `maven_class.__init__` does `import pkg_resources`, which setuptools
+        # DEPRECATED by 80.9.0 (still shipped through 81.0.0) and REMOVED in 82.0.0, while
+        # sidecar/conda-lock.yml resolves 82.0.1 on every platform — so the installed
+        # sidecar needs the pin laid over it or the first idealization fails (issue #212).
+        # `<81` rather than `<82` is the bound that setuptools' own deprecation warning
+        # names. Mirrors packaging.yml: `extra_files` in construct.yaml is unconditional,
+        # so without this step constructor aborts with FileNotFoundError. setuptools
+        # publishes a pure-Python `py3-none-any` wheel, so ONE file serves all four
+        # platforms. Block scalar, not an inline value: the trailing colon of
+        # `--only-binary=:all:` plus the following space form a YAML `key: value`
+        # separator mid-line and the parser rejects the step outright (`ScannerError`).
+        run: |
+          python -m pip download --only-binary=:all: --no-deps \
+            -d packaging/staging "setuptools<81"
+
       - name: Render per-platform EXPLICIT locks (pin-and-hold; no re-solve)
         run: |
           mkdir -p packaging/locks
@@ -191,6 +207,7 @@ jobs:
           cp LICENSE packaging/staging/LICENSE.txt
           tether_whl="$(ls packaging/staging/tether-*.whl | head -1)"
           tmaven_whl="$(ls packaging/staging/tmaven-*.whl | head -1)"
+          setuptools_whl="$(ls packaging/staging/setuptools-*.whl | head -1)"
           {
             # construct.yaml reads `version: {{ environ.get("TETHER_VERSION", "0.0.0") }}`;
             # without this the installer would be built + named 0.0.0 for a real tag.
@@ -199,6 +216,8 @@ jobs:
             echo "TETHER_WHEEL_NAME=$(basename "$tether_whl")"
             echo "TMAVEN_WHEEL=staging/$(basename "$tmaven_whl")"
             echo "TMAVEN_WHEEL_NAME=$(basename "$tmaven_whl")"
+            echo "SETUPTOOLS_WHEEL=staging/$(basename "$setuptools_whl")"
+            echo "SETUPTOOLS_WHEEL_NAME=$(basename "$setuptools_whl")"
           } >> "$GITHUB_ENV"
 
       - name: Validate the recipe (offline render + schema)
