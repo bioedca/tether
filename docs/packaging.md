@@ -35,8 +35,10 @@ Maintainers build the installers with the recipe under `packaging/` — see the
 `packaging/README.md` in the source tree for the full build contract. In continuous
 integration the build runs on all three operating systems in an advisory,
 manually-triggered workflow, which also **install-smokes** each installer: it installs
-into a clean prefix with networking neutralised, launches `tether --version`, and
-confirms the bundled sidecar interpreter imports offline.
+into a clean prefix with networking neutralised, launches `tether --version` through the
+same shims a user has on `PATH`, and drives the sidecar's real headless entry point
+offline — constructing the tMAVEN driver, not merely importing the package, since that
+is where an environment problem actually surfaces.
 
 ## Release signing
 
