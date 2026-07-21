@@ -73,7 +73,7 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   locked/installed version. Use `@Browser` when Context7 is insufficient or live/visual UI state is
   material. Record version and authoritative finding; do not rely on memory for unstable behavior.
 - For scientific claims, algorithms, validation oracles, and dataset interpretation, search
-  Consensus (`@App-6943e6f4a928819195962de16fb9ffe4`) and `@Scite` first; use both for load-bearing claims. Then use the most specific
+  Consensus and `@Scite` first; use both for load-bearing claims. Then use the most specific
   Life-Science-Research or NGS-Analysis tool. Prefer primary evidence and official records; check
   retractions/corrections and reconcile conflicting evidence.
 - Record DOI/accession, source and tool/database version, query/config, retrieval date, license,

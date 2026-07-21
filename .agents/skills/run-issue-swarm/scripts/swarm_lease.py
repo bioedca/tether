@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-FileCopyrightText: 2026 The Tether Authors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Generate and inspect public-safe issue-swarm identities and lease comments."""
 
