@@ -1,0 +1,309 @@
+# Analysis parameters
+
+This page is for the person running the experiment, not the person maintaining the code. It
+answers three questions for every number Tether applies to your data:
+
+1. **What is the default, and where does it live?** Every row names the constant or field and
+   the module it is defined in, so you can read the value straight out of the source.
+2. **What happens if you change it?** Each row states the direction of the trade-off — what
+   you gain and what you lose by raising or lowering the value.
+3. **Can you recover it afterwards?** Each row says whether the value you used is written into
+   the `.tether` project file, which is what makes a run reproducible and a methods section
+   honest.
+
+Every default on this page was read out of the code, not out of a specification. Where the
+frozen spec and the code disagree, **the code is what ships and the code is what is printed
+here**.
+
+## How to read this page
+
+| Column | What it means |
+| --- | --- |
+| **Parameter** | The keyword or field you actually set, and the module its default is defined in. |
+| **Default** | The shipped value. |
+| **Units** | Physical units where they exist. Several parameters are dimensionless fractions or frame counts — the difference matters. |
+| **Effect on the result** | What the parameter controls and which way the trade-off runs. |
+| **Set via** | A real surface: a `tether` CLI flag, a GUI control, or a documented keyword argument. Where a value is *not* user-settable this is stated explicitly. |
+| **Recorded in `.tether`** | The store path where the value you used is persisted, or **no** if it is not recoverable from the project file. |
+
+Tether has no settings dialog. Extraction parameters are set on the `tether extract` command
+line **only**. `tether batch` deliberately exposes none of them: its flags are `--tmap`,
+`--tdat`, `--policy` and the sidecar-supervision options, so every movie in a batch is
+extracted at the `ExtractOptions` defaults tabled below unless you drive
+`run_batch(extract_options=ExtractOptions(...))` from Python. Downstream stages
+(photobleaching, corrections, idealization, analysis) are driven from Python, so their
+"Set via" cells name the keyword argument of the project-level function. Anything with no
+surface at all is called out as fixed.
+
+## Science tunables vs rendering defaults
+
+Not every default is a scientific choice, and the split below is the one the source itself
+draws: most constants say which kind they are in their own comment, and this page follows that
+labelling — with three deliberate promotions, named explicitly below.
+
+- A **science tunable** changes a reported number. The leakage ceiling, the γ half-window, the
+  bootstrap resample count and the idealization state grid all change what you would publish.
+- A **rendering default** changes only how a distribution is drawn. The histogram bin count,
+  the transition-density grid resolution and the dwell-time histogram bin count are faithful
+  ports of the corresponding tMAVEN display defaults; the raw-FRET cloud, the anticorrelation
+  event finder and the plot-export settings are Tether's own presentation choices with no
+  tMAVEN counterpart. Changing any of them redraws a plot; it does not change a fitted value.
+
+**The three promotions.** Under [Analysis and histograms](#analysis-and-histograms), the frame interval (`dt` / `time_dt`), the dwell-fit model and CI
+level, and the HMM convergence budget (`n_iter`) are labelled *analysis/rendering* parameters
+in their own source comments, but are tabled here as **science tunables**, because each of
+them changes a number you would report — most sharply the frame interval, which silently
+mis-units every published rate.
+
+The distinction is not cosmetic in one direction: **halving a bin count will visibly move a
+peak's apparent position without changing a single fitted state mean.** If you are chasing a
+number, tune the science parameters; if you are chasing a picture, tune the rendering ones.
+The two groups are tabled separately under [Analysis and histograms](#analysis-and-histograms).
+
+## Detection and extraction
+
+Defaults are the fields of `ExtractOptions` (`tether.project.extract`), which is the pinned
+CLI contract. Fifteen of the seventeen fields pin an explicit value rather than passing
+through to whatever the underlying primitive happens to default to; `detection_threshold` and
+`min_separation` are deliberate `None` sentinels that defer to each detection mode's own
+faithful default (tabled below). All seventeen fields are serialised verbatim into the
+`profile_json` attribute of `/settings/extraction` on the **first** extraction into a project;
+later movies appended to the same project leave that record untouched, and their
+aperture/integration parameters are checked against it rather than re-recorded.
+
+| Parameter | Default | Units | Effect on the result | Set via | Recorded in `.tether` |
+| --- | --- | --- | --- | --- | --- |
+| `donor_side`<br>`tether.project.extract` | `left` | enum `left`/`right` | Which horizontal half of the frame is the donor channel. Getting it backwards swaps donor and acceptor, which inverts every FRET efficiency. Ignored entirely when a Deep-LASI `.tmap` is imported, because the channels are then split at the map's own crop geometry. | `tether extract --donor-side` | `/settings/extraction` |
+| `detection_mode`<br>`tether.project.extract` | `wavelet` | enum `wavelet`/`intensity`/`bandpass` | Which particle finder runs. `wavelet` is an à trous multi-scale detector that is robust to smooth background gradients; `intensity` and `bandpass` are Crocker-Grier style band-pass finders driven by a brightness threshold. The choice also changes the default minimum separation (see below), so it moves both which spots are found and how close two of them may sit. | `tether extract --detection-mode`; supplied automatically by `--tdat` | `/settings/extraction` |
+| `detection_threshold`<br>`tether.project.extract` | `None` (per-mode: `0.5` intensity, `0.98` bandpass) | dimensionless fraction of the detection-image maximum | How bright a pixel must be to survive. Raising it finds fewer, brighter molecules; lowering it finds more, at the cost of false positives that later have to be curated out. Under `bandpass` the value is dual-use — it both floors the image and keeps only the top `1 - threshold` fraction of band-pass values — so it bites much harder there than under `intensity`. **Recorded but inert under `wavelet`.** | `tether extract --detection-threshold`; supplied automatically by `--tdat` | `/settings/extraction` |
+| `detection_block`<br>`tether.project.extract` | `50` | frames | Block size of the moving-average max-projection that the detector runs on. Raising it averages away more blinking and shot noise, but the trailing partial block (the `T % block` remainder frames) is dropped, so a large block silently discards more of the end of the movie. Lowering it lets single-frame spikes into the per-pixel maximum and shifts which spots are found. Movies shorter than one block fall back to a sum projection. | `tether extract --detection-block` | `/settings/extraction` |
+| `min_separation`<br>`tether.project.extract` | `None` (per-mode: `8.0` wavelet, `3.0` intensity and bandpass) | px | Non-maximum-suppression radius: two candidates closer than this collapse to one. Raising it merges genuinely distinct molecules and costs recall; lowering it keeps duplicate centroids on a single PSF. Supplying a value overrides the per-mode default for **every** mode. | `tether extract --min-separation` | `/settings/extraction` |
+| `window`<br>`tether.project.extract` | `21` | px, odd | Side length of the aperture and colocalization crop box. It must be odd and must be at least twice `ring_outer`. Raising it excludes more molecules near the frame edge (their crop no longer fits); lowering it toward the ring diameter is rejected outright. | `tether extract --window` | `/settings/extraction` |
+| `disk_radius`<br>`tether.imaging.aperture` | `3.0` | px | Radius of the signal disk that is summed per frame — 29 pixels at the default, on the default 21 px window. Raising it captures more of the PSF tail but admits more shot noise and risks a neighbour's PSF; lowering it clips real signal and depresses both channels. | `ExtractOptions(disk_radius=…)` or `integrate_traces(disk_radius=…)` — no CLI flag, no GUI control | `/settings/extraction` |
+| `ring_inner`<br>`tether.imaging.aperture` | `6.0` | px | Inner radius of the background annulus. The gap between the disk and this radius is a deliberate dead zone that keeps PSF tail out of the background estimate; shrinking it toward `disk_radius` lets signal leak into the background and biases the integrated intensity down. | `ExtractOptions(ring_inner=…)` or `integrate_traces(ring_inner=…)` — no CLI flag, no GUI control | `/settings/extraction` |
+| `ring_outer`<br>`tether.imaging.aperture` | `8.0` | px | Outer radius of the background annulus — 84 pixels at the defaults. Raising it averages the background over more pixels (a quieter estimate) but reaches further into neighbouring molecules; it also forces a larger `window`. | `ExtractOptions(ring_outer=…)` or `integrate_traces(ring_outer=…)` — no CLI flag, no GUI control | `/settings/extraction` |
+| `bg_window`<br>`tether.imaging.aperture` | `10` | frames | Length of the uniform temporal moving average applied to the crop before the ring mean is taken. Raising it produces a smoother background but lags a genuine background change (for example a slow lamp drift); `1` gives the instantaneous per-frame ring mean, which is noisier and pushes that noise straight into every trace. | `ExtractOptions(bg_window=…)` or `integrate_traces(bg_window=…)` — no CLI flag, no GUI control | `/settings/extraction` |
+
+Not reachable from the pipeline: `ExtractOptions` carries no field for the à trous scale count
+(`n_scales`) or scale pair, the MAD multiplier (`k`), the band-pass `lnoise`/`lobject` lengths
+(`lobject` differs per mode — 7 under `intensity`, 9 under `bandpass`), the intensity mode's
+`fine_threshold`, the `border_margin`, or the sub-pixel refinement switch (`refine`). No CLI
+flag, no batch run and no GUI control can change them; they are the faithful Deep-LASI values.
+They do remain keyword arguments with those defaults on `detect_spots`,
+`detect_spots_intensity` and `detect_spots_bandpass` in `tether.imaging.detect` if you call a
+detector directly — but a value set that way is not what the pipeline runs and is **not**
+recorded in `/settings/extraction`. Molecule-key quantisation
+(`MOLECULE_KEY_QUANTUM_PX` in `tether.imaging.extract`) is likewise fixed; it is recorded as
+`molecule_key_quantum_px` in `/settings/extraction` because a change to it would break
+cross-file molecule identity.
+
+## Registration and colocalization
+
+| Parameter | Default | Units | Effect on the result | Set via | Recorded in `.tether` |
+| --- | --- | --- | --- | --- | --- |
+| `prealign`<br>`tether.project.extract` | `translation` | enum `translation`/`similarity` | Degrees of freedom of the coarse pre-alignment before control points are paired. The default resolves translation only. `similarity` adds rotation and isotropic scale via a Fourier-Mellin log-polar pass and is reliable only in the near-identity regime (sub-degree rotation, sub-percent scale). Use it when your two channels are genuinely rotated; it costs time and can mislead on large warps. The prealign never enters the fitted map — it only helps the pairing step find partners. | `tether extract --prealign` | `/settings/extraction` |
+| `prealign_upsample`<br>`tether.imaging.register` | `10` | reciprocal px (shift resolved to `1/upsample` px) | Sub-pixel resolution of the phase-correlation shift. Raising it refines the prealign at a compute cost; `1` gives whole-pixel alignment only, which can leave true partners outside `pair_tol`. | `ExtractOptions(prealign_upsample=…)` — no CLI flag, no GUI control | `/settings/extraction` |
+| `prealign_low_sigma`<br>`tether.imaging.register` | `3.0` | px (Gaussian standard deviation) | Low cut of the difference-of-Gaussians band-pass applied before the log-polar pass. **Consumed only when `prealign` is `similarity`; inert under the default.** Raising it strips fine structure the rotation estimate needs. | `ExtractOptions(prealign_low_sigma=…)` — no CLI flag, no GUI control | `/settings/extraction` |
+| `prealign_high_sigma`<br>`tether.imaging.register` | `20.0` | px (Gaussian standard deviation) | High cut of the same band-pass; must be strictly greater than the low cut. **Inert under the default `translation` prealign.** Raising it lets saturated background into the FFT magnitude and destabilises the estimate. | `ExtractOptions(prealign_high_sigma=…)` — no CLI flag, no GUI control | `/settings/extraction` |
+| `pair_tol`<br>`tether.imaging.register` | `2.0` | px (Euclidean, inclusive) | Mutual nearest-neighbour gate for accepting a control-point pair. Raising it pairs more points — including spurious ones, which drag the fitted map. Lowering it can leave fewer than the two pairs extraction requires, and the movie fails outright. | `tether extract --pair-tol` | `/settings/extraction` |
+| `rms_gate`<br>`tether.imaging.calibrate` | `0.5` | px | Residual gate on the fitted channel map. A fit whose RMS residual is strictly above the gate is **not** rejected: the calibration is flagged low-confidence and every molecule it extracts is tagged, so a marginal registration is visible downstream instead of silently dropped. Raising it hides a bad map; lowering it flags more runs for review. | `tether extract --rms-gate` | `/settings/extraction` |
+| over-gate policy<br>`tether.project.batch` | `warn` | enum `warn`/`fail` | What a batch run does with an over-gate movie. `warn` keeps it, flagged; `fail` fails that movie's stage so it does not enter the pooled analysis. `tether extract` on a single movie always warns — only the batch runner can fail. | `tether batch --policy` | `/settings/batch` (`policy`) |
+| `coloc_distance`<br>`tether.imaging.coloc` | `3.0` | px (strict `<`) | Nearest-neighbour radius for the informational `acceptor_detected` flag, and **nothing else**. Tether is donor-anchored: every in-frame donor spot becomes a molecule and its acceptor intensity is read at the *mapped* position whether or not an acceptor was independently detected there, so changing this value does not add, remove or re-pair a single molecule (`tether.imaging.coloc`). It is Deep-LASI's `findColoc` gate, kept as a diagnostic rather than a filter, because filtering on it discards the low-FRET and acceptor-dark population a FRET histogram must keep. A separation of exactly the threshold is **not** a match. No downstream stage currently consumes the flag. | `tether extract --coloc-distance` | `/settings/extraction` |
+
+Fixed, not settable: the polynomial map degree and the fallback ladder. Six or more control
+points fit a degree-2 polynomial; two to five fall back to a four-degree-of-freedom
+similarity; fewer than two is an error. Those thresholds are constants in
+`tether.imaging.calibrate` with no user surface.
+
+## Photobleaching and the analysis window
+
+Photobleaching is detected per channel with a Bayesian single-step change-point model, and the
+default analysis window runs from the start of the trace to the first bleach of the **summed**
+donor + acceptor intensity. A window that has already been narrowed by hand is a manual
+override and is never overwritten by a later detection pass — but note that the only surfaces
+that narrow it are the tMAVEN return-leg reconcile and a legacy-SMD import, not the curation
+view (see the row below).
+
+| Parameter | Default | Units | Effect on the result | Set via | Recorded in `.tether` |
+| --- | --- | --- | --- | --- | --- |
+| `intensity_quantity`<br>`tether.project.photobleach` | `corrected` | enum `corrected`/`raw` | Which trace layer the detector runs on. The model treats the post-bleach segment as mean-zero, which only holds once the background pedestal has been removed. Detection tolerates a modest pedestal, but once the pedestal grows to roughly twice the bleach step the trace stops looking bleached at all and the window silently spans the whole movie — which is what running on `raw` traces risks. | `compute_photobleach(intensity_quantity=…)` — no CLI flag, no GUI control | **no** |
+| `a`<br>`PB_PRIOR_A` in `tether.fret.photobleach` | `1.0` | dimensionless | Shape of the inverse-Gamma prior over the per-segment noise variance. At the default the prior is weak and the data dominate on any trace longer than a few frames. Raising it makes the detector more conservative about calling a small step. | `compute_photobleach(a=…)` / `detect_photobleach(a=…)` — no CLI flag, no GUI control | **no** |
+| `b`<br>`PB_PRIOR_B` in `tether.fret.photobleach` | `1.0` | intensity² (same units as the trace, squared) | Scale of the same inverse-Gamma prior — effectively an assumed noise floor. It enters only as an additive term alongside the trace's summed squared deviations, so it bites only when raised to something comparable with that sum: on a 200-frame trace with a 1000-count step it is inert from `1e-9` up to about `1e6` and suppresses the step only around `1e8`. Lowering it below the default has no practical effect — the data term dominates. | `compute_photobleach(b=…)` / `detect_photobleach(b=…)` — no CLI flag, no GUI control | **no** |
+| `beta`<br>`PB_PRIOR_BETA` in `tether.fret.photobleach` | `1.0` | dimensionless (pseudo-observations) | Precision of the Normal prior over the pre-bleach signal level. At `1.0` the prior contributes about one pseudo-observation at `mu`, so it barely moves a fit on a trace of tens of frames. Raising it pulls the fitted pre-bleach level toward `mu` and will bias the change point on short or dim traces. | `compute_photobleach(beta=…)` / `detect_photobleach(beta=…)` — no CLI flag, no GUI control | **no** |
+| `mu`<br>`PB_PRIOR_MU` in `tether.fret.photobleach` | `1000.0` | raw detector counts (ADU) of the background-subtracted trace | Prior mean of the pre-bleach signal level. **This is an absolute intensity, not a normalised one, and the asymmetry matters.** A level far *above* `mu` is harmless. A level far *below* it is the dangerous case, and it bites at the **default** `beta` — no raised `beta` needed — because the prior's evidence penalty does not shrink as the trace lengthens. Measured on a 200-frame synthetic trace bleaching at frame 100: levels of 1e6 down to 100 counts all recover frame 100, while a level of 10 counts collapses to the all-bleached hypothesis at frame 0. `compute_photobleach` then reads that as a dark trace — `bleach_frames` records the start frame and the analysis window is deliberately left at full extent, because a zero-length window is indistinguishable from "unset" downstream. Setting `mu` to your own single-molecule level restores detection. Lower `mu` if your traces are dim. | `compute_photobleach(mu=…)` / `detect_photobleach(mu=…)` — no CLI flag, no GUI control | **no** |
+| analysis window override | auto (start → first bleach of the summed intensity) | frames | The window every downstream stage reads. A manual window narrows what enters histograms, corrections and idealization; because manual bounds win, re-running detection will not restore the automatic one. **There is no in-app curation control for the window** — the curation view's window keys are status-message stubs that persist nothing. | `apply_reconcile(accept_windows=…)` — the standalone-tMAVEN return leg, surfaced as the GUI reconcile dialog — or `import_analysis_only_project` from a legacy SMD; auto-set by `compute_photobleach` only where the window is still at the extraction default | `/molecules` (`analysis_window`, `bleach_frames`) |
+
+> **The photobleach priors are the one gap on this page.** `tether.project.photobleach` writes
+> the *results* — `bleach_frames` and `analysis_window` — into `/molecules`, but it writes no
+> attributes recording the priors that produced them. If you change any of `a`, `b`, `beta` or
+> `mu`, that choice is **not recoverable from the project file**, and a reader of your
+> `.tether` cannot tell a default run from a re-prioritised one. Record the values yourself in
+> your methods section, or leave them at the defaults so the defaults on this page describe
+> your run. Every other correction stage stamps its own settings; this one does not.
+
+## Correction factors
+
+Leakage α and the detection-correction factor γ are estimated per trace and then pooled to a
+dataset median. Both estimators are deliberately conservative: a trace that does not qualify
+contributes nothing, and if too few traces qualify the factor is **withheld** rather than
+guessed. Corrections are never required — a project with no usable factors degrades to
+apparent E rather than producing NaNs.
+
+| Parameter | Default | Units | Effect on the result | Set via | Recorded in `.tether` |
+| --- | --- | --- | --- | --- | --- |
+| `min_window_frames` (α)<br>`DEFAULT_MIN_WINDOW_FRAMES` in `tether.fret.leakage` | `20` | frames | Shortest post-acceptor-bleach tail from which α may be measured. A tail of exactly this length qualifies. Raising it keeps only long, well-averaged tails — fewer contributing traces, a noisier median if you go too far. Lowering it admits short tails whose mean is dominated by shot noise. | `compute_leakage_alpha(min_window_frames=…)` — no CLI flag, no GUI control | `/settings/leakage` |
+| `ceiling` (α)<br>`LEAKAGE_CEILING` in `tether.fret.leakage` | `0.3` | dimensionless | A per-trace α outside the inclusive range from zero to the ceiling is rejected as unphysical. Raising it admits traces whose "leakage" is really a mis-detected bleach or a contaminating acceptor; lowering it discards real high-leakage dye pairs and can push the dataset below the qualifying count. | `compute_leakage_alpha(ceiling=…)` — no CLI flag, no GUI control | `/settings/leakage` |
+| `min_qualifying_traces` (α)<br>`DEFAULT_MIN_QUALIFYING_TRACES` in `tether.fret.leakage` | `10` | molecules | How many traces must yield an α before the dataset median is trusted. Exactly this many is enough. Below the bar the factor is withheld and the project falls back to apparent E — a deliberate refusal, not a failure. Lowering it lets a median built from a handful of traces correct an entire condition. | `compute_leakage_alpha(min_qualifying_traces=…)` — no CLI flag, no GUI control | `/settings/leakage` |
+| `half_window` (γ)<br>`DEFAULT_GAMMA_HALF_WINDOW` in `tether.fret.gamma` | `3` | frames each side of the acceptor-bleach step | How many frames are averaged either side of the step to measure the acceptor drop and the donor rise. Raising it averages away noise but smears a step that is not perfectly sharp, and risks reaching past the donor bleach (the post window is clamped so it cannot). Lowering it makes γ hostage to single-frame noise. | `compute_gamma(half_window=…)` — no CLI flag, no GUI control | `/settings/gamma` |
+| `min_window_frames` (γ)<br>`DEFAULT_MIN_WINDOW_FRAMES` in `tether.fret.leakage` | `20` | frames | Both the pre-step FRET segment and the post-step donor-only segment must be **strictly longer** than this — note the difference from the α gate, which is inclusive. Raising it demands longer stable segments and yields fewer, cleaner γ values. | `compute_gamma(min_window_frames=…)` — no CLI flag, no GUI control | `/settings/gamma` |
+| `ceiling` (γ)<br>`GAMMA_CEILING` in `tether.fret.gamma` | `5.0` | dimensionless | A per-trace γ outside the half-open range above zero up to and including the ceiling is rejected. Raising it admits extreme ratios that usually mean the "step" was not a true acceptor-before-donor bleach; lowering it discards genuinely bright-acceptor dye pairs. | `compute_gamma(ceiling=…)` — no CLI flag, no GUI control | `/settings/gamma` |
+| `min_qualifying_traces` (γ)<br>`DEFAULT_MIN_QUALIFYING_TRACES` in `tether.fret.leakage` | `10` | molecules | Same contract as for α: below the bar γ is withheld. | `compute_gamma(min_qualifying_traces=…)` — no CLI flag, no GUI control | `/settings/gamma` |
+| `alpha_override` / `gamma_override`<br>`tether.project.correct` | `None` | dimensionless | Substitute a factor measured elsewhere — for example on a dedicated donor-only or acceptor-only sample. An override replaces the dataset median for every molecule and is stamped as such, so the corrected traces are labelled `manual` rather than `corrected`. | `compute_corrected_fret(alpha_override=…, gamma_override=…)` — no CLI flag, no GUI control | `/settings/correction` |
+| `apparent_e_only`<br>`tether.project.correct` | `False` | boolean | Force apparent E even when factors are available. Use it when you distrust the corrections and want the uncorrected quantity on record; the stamp distinguishes a user choice from unavailable corrections. | `compute_corrected_fret(apparent_e_only=True)` — no CLI flag, no GUI control | `/settings/correction` |
+
+## Idealization
+
+Idealization runs in an isolated sidecar interpreter. The default model is a variational-Bayes
+**consensus** HMM (`vbconhmm` — the `con` is *consensus*): one global HMM fitted across all of
+the project's molecules, not a model per trace. The state count is chosen automatically by
+maximising the evidence lower bound over a small grid.
+
+| Parameter | Default | Units | Effect on the result | Set via | Recorded in `.tether` |
+| --- | --- | --- | --- | --- | --- |
+| `model_type`<br>`MODEL_TYPE_DEFAULT` in `tether.project.idealize` | `vbconhmm` | enum | Which fitter the sidecar runs. Both documented models are population fits, so "pools across traces" is not what separates them: the ebFRET alternative (`ebhmm`) adds an empirical-Bayes hierarchy — it learns a shared prior across the molecules and keeps per-trace posteriors with per-trace state selection, which makes it more seed-variable and is why it is ratified against its own, looser parity tolerance (see [Tolerances and gates](#tolerances-and-gates)). It is a different statistical object, not a tuning knob. Four further keys exist in the sidecar dispatch (`vbconhmm_modelselection`, `ebhmm_modelselection`, `vbgmm_vbhmm`, `kmeans_vbhmm`) and are accepted but not documented here. | `idealize_molecules(model_type=…)` — no CLI flag; the GUI one-click idealize passes whatever it was constructed with | `/idealization/<model>` (`type`) |
+| `nstates`<br>`tether.project.idealize` | `None` (automatic) | count | Leave it unset and the state count is selected by maximum ELBO over the grid; set it and you are forcing K. Forcing a K larger than the data support splits one state into two noise-separated states and inflates your transition counts; forcing it smaller merges states and hides transitions. | `idealize_molecules(nstates=…)` — no CLI flag | `/idealization/<model>` (`nstates`, `nstates_selected_by`) |
+| `nstates_grid`<br>`NSTATES_GRID_DEFAULT` in `tether.project.idealize` | `(1, 2, 3, 4)` | counts | The candidate state counts the automatic selection searches. Widening it lets the ELBO pick a larger K — at the cost of one fit per candidate, so run time scales with the grid. Ties break toward the smaller K. | `idealize_molecules(nstates_grid=…)` — no CLI flag | `/idealization/<model>` (`elbo_by_nstates`, written when the grid was searched) |
+| `intensity_quantity`<br>`tether.project.idealize` | `corrected` | enum `corrected`/`raw` | Which trace layer is idealized. Fitting `raw` traces fits the uncorrected FRET, so the state means are not comparable to a corrected run. | `idealize_molecules(intensity_quantity=…)` — no CLI flag | `/idealization/<model>` (`intensity_quantity`) |
+| `nrestarts`<br>`tether.project.idealize` | `None` (tMAVEN's own default) | restarts per fit | Overrides tMAVEN's `modeler.nrestarts` preference: how many restarts the variational fitter runs before the best model is kept. Lowering it is faster — its documented use is speeding up tests — and correspondingly more likely to settle in a local optimum. **Distinct from `max_restarts` below**, which retries a *crashed* sidecar and has no effect on the fit. Forwarded to the sidecar but never stamped on the model group. | `idealize_molecules(nrestarts=…)` — no CLI flag | **no** |
+| `timeout`<br>`DEFAULT_SIDECAR_TIMEOUT` in `tether.idealize.supervisor` | `1800.0` | seconds per idealization call | How long one fit may run before the sidecar is killed. The first fit of a session is dominated by just-in-time compilation and is far slower than the rest, so a short timeout will kill cold runs that would have succeeded. `None` waits forever. | `tether batch --sidecar-timeout`; `idealize_molecules(timeout=…)` | **no** |
+| `max_restarts`<br>`DEFAULT_MAX_RESTARTS` in `tether.idealize.supervisor` | `3` | restarts per movie | How many times a *transient* sidecar failure (a crash or a timeout) is retried — **not** to be confused with `nrestarts`, which is a property of the fit itself. A fit error reported by the sidecar itself is never retried. `0` disables restarts, so one transient crash fails that movie. Raising it can turn a systematically broken environment into a very long batch run. | `tether batch --max-restarts` | **no** |
+| `probe_timeout`<br>`DEFAULT_PROBE_TIMEOUT` in `tether.idealize.supervisor` | `120.0` | seconds | Budget for the one-shot startup liveness probe that decides whether the sidecar environment works at all. Too short on a cold filesystem and a healthy environment is declared unavailable. | `SidecarSupervision(probe_timeout=…)` — no CLI flag | **no** |
+| `defer_if_unavailable`<br>`tether.idealize.supervisor` | `True` | boolean | With the default, a missing sidecar defers idealization for the whole run instead of failing every movie one at a time. Turn it off to make each movie's idealization stage fail in isolation. | `tether batch --no-defer` | **no** |
+
+## Analysis and histograms
+
+### Science tunables
+
+These change a reported number.
+
+| Parameter | Default | Units | Effect on the result | Set via | Recorded in `.tether` |
+| --- | --- | --- | --- | --- | --- |
+| `intensity_quantity`<br>the `tether.analysis` population functions | `corrected` | enum `corrected`/`raw` | Which trace layer a population statistic is computed on, and the largest single swing in a reported E on this table. `corrected` uses the background-subtracted, leakage/γ-corrected layer; `raw` reports the uncorrected quantity, so its E values are not comparable to a corrected run or to another lab's. The same argument, with the same default, is on `compute_leakage_alpha` and `compute_gamma`, so it also decides which layer α and γ are measured from. | `population_apparent_e_histogram(intensity_quantity=…)` and the equivalent argument on the other population and correction functions — no CLI flag, no GUI control | **no** |
+| `include_first`<br>`tether.analysis.dwell` | `False` | boolean | Whether the first dwell of each trace — which is left-censored, because the molecule was already in that state when the window opened — enters the survival fit. The default excludes it. Turning it on biases the fitted lifetime, and is for auditing the censoring, not for reporting. | `population_dwell_times(include_first=True)` — no CLI flag, no GUI control | **no** |
+| `n_resamples`<br>`DEFAULT_BOOTSTRAP_RESAMPLES` in `tether.analysis.histogram` | `1000` | resamples | How many molecule-level bootstrap replicates build the confidence band on a population FRET histogram. Lowering it makes the band a coarser estimate of the true interval. It does **not** make the band jitter run to run: the resampling is seeded (`seed`, next row but one), so a band is bit-identical on identical data at any resample count — change the seed and a low-resample band visibly moves. Raising it costs time and buys little once the band has stabilised. | `bootstrap_histogram_ci(n_resamples=…)` — no CLI flag, no GUI control | **no** (analysis results are computed on demand, not stored) |
+| `ci_level`<br>`DEFAULT_CI_LEVEL` in `tether.analysis.histogram` | `0.95` | probability | Coverage of the percentile interval — the default takes the 2.5th and 97.5th percentiles of the replicate distribution. Raising it widens the band. | `bootstrap_histogram_ci(ci_level=…)` — no CLI flag, no GUI control | **no** |
+| `seed`<br>`DEFAULT_SEED` in `tether.analysis.histogram` | `0` | seed | Fixes the resampling so the band is reproducible run to run. Change it only if you want to demonstrate that the band is insensitive to the draw; report the value you used, because a band computed with a different seed is a different band. | `bootstrap_histogram_ci(seed=…)` — no CLI flag, no GUI control | **no** |
+| `per_molecule_equal_weight`<br>`tether.analysis.histogram` | `False` | boolean | With the default, every *frame* in the population contributes equally, so a long trace counts for more than a short one. Turning it on gives every *molecule* equal weight, which is the right choice when trace lengths vary systematically between conditions. | `population_apparent_e_histogram(per_molecule_equal_weight=True)` — no CLI flag, no GUI control | **no** |
+| `include_rejected`<br>`tether.analysis` population functions | `False` | boolean | Whether curator-rejected molecules enter a population statistic. The default excludes them, which is the whole point of curation. Turning it on is for auditing the effect of curation, not for reporting. | `population_apparent_e_histogram(include_rejected=True)` and the equivalent argument on the other population functions — no CLI flag, no GUI control | **no** |
+| `dt` / `time_dt`<br>`DEFAULT_DWELL_DT` in `tether.analysis.dwell`, `DEFAULT_TIME_DT` in `tether.analysis.histogram`, `DEFAULT_CLOUD_TIME_DT` in `tether.analysis.cloud` | `1.0` | seconds per frame | Converts frames to physical time. **This is the one default that will silently mis-unit a published number.** At `1.0` every dwell time is in frames and every fitted rate is per frame, not per second. The frame interval *is* carried per movie in `/movies` as `frame_time` (zero when the source movie declared none), but no analysis function reads it automatically — you must pass it. | `population_dwell_times(dt=…)`, `time_signal_histogram2d(time_dt=…)`, `raw_fret_cloud(time_dt=…)` — no CLI flag, no GUI control | **no** |
+| `model` / `ci_level` (dwell fits)<br>`DEFAULT_DWELL_CI_LEVEL` in `tether.analysis.dwell` | `single`, `0.95` | model name, probability | Which survival form is fitted to the dwell-time distribution and the coverage of the reported parameter intervals. Moving from a single exponential to a double or stretched form changes the reported rate constants, not just the fit quality; choose the model on physical grounds, and report which you used. | `population_dwell_times(model=…, ci_level=…)` — no CLI flag, no GUI control | **no** |
+| `n_iter` / `tol`<br>`DEFAULT_HMM_MAX_ITER`, `DEFAULT_HMM_TOL` in `tether.analysis.kinetics` | `200`, `1e-6` | iterations, relative log-likelihood change | Convergence budget of the Gaussian HMM used for rate-constant estimation. **They run in opposite directions**: `n_iter` is an iteration cap, `tol` is the stopping threshold on the relative log-likelihood change (EM stops as soon as the absolute change in the total log-likelihood falls to `tol`·(1 + its magnitude)). Lowering `n_iter` *or raising* `tol` can return an unconverged fit that still looks plausible; raising `n_iter` or lowering `tol` costs time only. | `fit_gaussian_hmm(n_iter=…, tol=…)` — no CLI flag, no GUI control | **no** |
+
+### Rendering defaults
+
+These redraw a plot; none of them changes a fitted value. Most are faithful ports of the
+corresponding tMAVEN display defaults and cite the tMAVEN file they came from — the 1-D
+histogram (`data_hist1d.py`), the 2-D and post-synchronised heatmaps (`data_hist2d.py`), the
+transition-density grid (`data_tdp.py`), the dwell histogram (`survival_dwell.py`) and the
+transition-probability view (`tm_hist.py`). The last four rows are Tether's own, with no
+tMAVEN counterpart: the raw-FRET cloud, its k-vs-RMSE elbow helper, the anticorrelation event
+finder (a QC aid, the pre-idealization counterpart to the HMM's transition list), and the
+plot-export settings (the three formats are a §7.9 requirement; the DPI and figure size are
+cosmetic output knobs). Most, but not all, carry the rendering-default label in the constant's
+own comment in the source: the 1-D histogram bins/range and the plot-export constants do not.
+
+| Parameter | Default | Units | Effect on the result | Set via | Recorded in `.tether` |
+| --- | --- | --- | --- | --- | --- |
+| `bins` / `value_range`<br>`DEFAULT_NBINS`, `DEFAULT_RANGE` in `tether.analysis.histogram` | `151`, `(-0.25, 1.25)` | bin count, apparent-E units | Resolution and extent of the one-dimensional FRET histogram. The range is deliberately wider than zero to one so that out-of-range values are visible rather than silently clipped. Fewer bins smooth the distribution and can move a peak's apparent position; more bins expose sampling noise. | `apparent_e_histogram(bins=…, value_range=…)` — no CLI flag, no GUI control | **no** |
+| `time_bins` / `signal_bins` / `signal_range`<br>`DEFAULT_TIME_BINS`, `DEFAULT_SIGNAL_BINS`, `DEFAULT_SIGNAL_RANGE` in `tether.analysis.histogram` | `100`, `61`, `(-0.2, 1.2)` | bin counts, apparent-E units | Grid of the time-versus-signal two-dimensional histogram. These intentionally differ from the one-dimensional defaults above, exactly as in tMAVEN; pass the one-dimensional range if you want a shared E axis across the two plots. | `time_signal_histogram2d(…)` — no CLI flag, no GUI control | **no** |
+| `sync_preframe`<br>`DEFAULT_SYNC_PREFRAME` in `tether.analysis.histogram` | `50` | time columns before the transition | Where the selected transition sits on the post-synchronised plot. At half the time-bin count the transition is centred; lower it to show more of the departure, raise it to show more of the approach. | `transition_sync_histogram2d(sync_preframe=…)` — no CLI flag, no GUI control | **no** |
+| `nskip` / `signal_bins` / `signal_range`<br>`DEFAULT_TDP_NSKIP`, `DEFAULT_TDP_SIGNAL_BINS`, `DEFAULT_TDP_SIGNAL_RANGE` in `tether.analysis.tdp` | `2`, `101`, `(-0.25, 1.25)` | frames, bin count per axis, apparent-E units | Grid of the transition-density plot, and how many frames apart the initial and final points of a transition are read so the transition frame itself is skipped. | `population_transition_density(…)` — no CLI flag, no GUI control | **no** |
+| `nbins` (dwell histogram)<br>`DEFAULT_DWELL_NBINS` in `tether.analysis.dwell` | `51` | bins | Bin count of the dwell-time distribution *view*. The survival fit is not binned, so this changes only the picture. | `DwellTimeAnalysis.histogram(nbins=…)` — no CLI flag, no GUI control | **no** |
+| `prob_bins` / `prob_range` / `kde_bandwidth` / `kde_points`<br>`DEFAULT_TPROB_NBINS`, `DEFAULT_TPROB_RANGE`, `DEFAULT_TPROB_KDE_BANDWIDTH`, `DEFAULT_TPROB_KDE_POINTS` in `tether.analysis.transition_prob` | `25`, `(-0.05, 1.05)`, `0.25`, `100` | bin count, probability units, bandwidth, grid points | Histogram and kernel-density overlay of per-trace transition probabilities. A wider bandwidth smooths the overlay; it does not change the underlying probabilities. | `transition_prob_histogram(…)` — no CLI flag, no GUI control | **no** |
+| cloud grid and contours<br>`DEFAULT_CLOUD_SIGNAL_BINS`, `DEFAULT_CLOUD_TIME_BINS`, `DEFAULT_CLOUD_SIGNAL_RANGE`, `DEFAULT_CLOUD_HDR_COVERAGES`, `DEFAULT_CLOUD_BW_METHOD` in `tether.analysis.cloud` | `100`, `100`, `(-0.25, 1.25)`, `(0.5, 0.95)`, `scott` | bin counts, apparent-E units, coverage fractions, rule name | Resolution of the raw-FRET cloud and the highest-density contours drawn on it. The coverages are the contour levels, not a test; the bandwidth rule controls how smooth the density looks. | `raw_fret_cloud(…)` — no CLI flag, no GUI control | **no** |
+| k-vs-RMSE elbow<br>`DEFAULT_ELBOW_K_MAX`, `DEFAULT_ELBOW_RESTARTS`, `DEFAULT_ELBOW_SEED` in `tether.analysis.cloud` | `8`, `10`, `0` | cluster count, restarts, seed | A k-means sweep over pooled apparent-E that hints at a state count, and a separate helper from the cloud above — it takes **none** of the grid/contour parameters in the previous row. `k_max` caps the sweep (further capped at the number of distinct pooled E values); more restarts keep the lowest-distortion codebook and steady the RMSE curve; the seed fixes the initialisation. It is a pre-idealization **hint, not a determination** — the state count of record comes from the model view. | `k_rmse_elbow(k_min=…, k_max=…, restarts=…, seed=…)` — no CLI flag, no GUI control | **no** |
+| anticorrelation event finder<br>`DEFAULT_ANTICORR_WINDOW`, `DEFAULT_ANTICORR_STEP`, `DEFAULT_ANTICORR_MIN_MAGNITUDE`, `DEFAULT_ANTICORR_MIN_WINDOWS` in `tether.analysis.anticorrelation` | `15`, `1`, `0.5`, `1` | frames, frames, correlation magnitude, consecutive windows | Tether's own sliding-window quality-control flagger for anti-phase donor/acceptor behaviour — there is no tMAVEN counterpart. The `0.5` magnitude cut is the classical "clear correlation" threshold, chosen to reject white same-frame shot-noise anticorrelation. Nothing downstream consumes the events, so tuning these changes only what is highlighted for your attention: raise the magnitude or the window count to suppress marginal flags. | `population_anticorrelation_events(…)` — no CLI flag, no GUI control | **no** |
+| plot export<br>`DEFAULT_EXPORT_DPI`, `DEFAULT_FIGSIZE`, `DEFAULT_PLOT_FORMATS` in `tether.analysis.plot_export` | `200`, `(6.4, 4.8)`, `("pdf", "svg", "png")` | dots per inch, inches, formats | Resolution, size and file formats of exported figures. The raster resolution is ignored by the two vector formats. The three formats are a §7.9 requirement rather than a preference; the DPI and figure size are cosmetic output knobs. Purely presentational. | `export_figure(dpi=…, formats=…)` and the `render_*` functions' `figsize=` — no CLI flag, no GUI control | **no** |
+
+## Curation ranker
+
+The quality ranker orders molecules for review. It never drops a molecule: ranking changes the
+order you see them in, not the population that enters an analysis.
+
+| Parameter | Default | Units | Effect on the result | Set via | Recorded in `.tether` |
+| --- | --- | --- | --- | --- | --- |
+| `w0`<br>`DEFAULT_SEED_WEIGHT` in `tether.ml.weighting` | `0.3` | relative weight | Weight of a provisional seed label relative to a human one, which is fixed at `1.0`. Seed weight decays as human labels accumulate, so the model leans on the seed only while you have labelled little. Raising it makes a cold-start model trust its own priors longer; lowering it makes early rankings closer to random until you have labelled enough. | `train_ranker(w0=…)`, `recompute_label_weights(w0=…)` — no CLI flag, no GUI control | the resulting per-label `weight` values are written to `/labels`; `w0` itself is **not** stamped |
+| `learning_rate`<br>`RankerHyperparams` in `tether.ml.gbranker` | `0.1` | dimensionless | Gradient-boosting shrinkage. Lower learns more slowly and needs more iterations; higher can overfit a small label set. | `train_quality_ranker(hyperparams=…)`, `ranker_prequential_uplift(hyperparams=…)` — no CLI flag, no GUI control | **no** — recorded in the portable model artifact's `manifest.json` |
+| `max_iter`<br>`RankerHyperparams` in `tether.ml.gbranker` | `100` | boosting iterations | Number of trees. More capacity, more overfitting risk on the modest label sets this ranker is built for. | as above | **no** — model `manifest.json` |
+| `max_leaf_nodes`<br>`RankerHyperparams` in `tether.ml.gbranker` | `15` | leaves per tree | Tree capacity, deliberately below the library default because a curator's label set is small. Raising it lets the model carve finer distinctions and memorise noise. | as above | **no** — model `manifest.json` |
+| `min_samples_leaf`<br>`RankerHyperparams` in `tether.ml.gbranker` | `5` | labelled molecules | Minimum labels behind any leaf, again lowered from the library default so the model can split on modest label sets. Raising it makes the model refuse to split until you have labelled more. | as above | **no** — model `manifest.json` |
+| `l2_regularization`<br>`RankerHyperparams` in `tether.ml.gbranker` | `1.0` | dimensionless | Guards against overfitting a small sample. | as above | **no** — model `manifest.json` |
+| `early_stopping`<br>`RankerHyperparams` in `tether.ml.gbranker` | `False` | boolean | Off by design: enabling it would carve an internal validation split out of an already small label set and make the fit depend on that split. | as above | **no** — model `manifest.json` |
+| `random_state`<br>`RankerHyperparams` in `tether.ml.gbranker` | `0` | seed | Fixes the histogram-binning subsample so a ranking is reproducible. | as above | **no** — model `manifest.json` |
+| `alpha` (drift advisory)<br>`DEFAULT_DRIFT_ALPHA` in `tether.ml.drift` | `0.05` | family-wise probability | Family-wise significance for the per-feature two-sample test that warns when a model trained on one condition is being applied to a visibly different one. It is Bonferroni-corrected across the features actually tested, and the report is **advisory** — nothing is blocked. Raising it produces more warnings. | `cross_condition_drift(alpha=…)` — no CLI flag, no GUI control | **no** |
+| `ship_bar_pts`<br>`DEFAULT_SHIP_BAR_PTS` in `tether.ml.prequential` | `10.0` | percentage points of precision-at-k | The uplift over file order, median across videos, at which the prequential evaluation calls the ranker worth using. It is a reporting threshold on an evaluation, not something that changes a ranking. | `ranker_prequential_uplift(ship_bar_pts=…)` — no CLI flag, no GUI control | **no** |
+
+## Deep trace classifier
+
+The optional GPU add-on has its own defaults; see
+[Deep trace classifier (optional GPU add-on)](../ml/deep-classifier.md) for setup and usage.
+None of them affect the base application, and none are recorded in `.tether` — a trained deep
+model is a separate artifact.
+
+| Parameter | Default | Units | Effect on the result | Set via | Recorded in `.tether` |
+| --- | --- | --- | --- | --- | --- |
+| `window_length`<br>`DEFAULT_WINDOW_LENGTH` in `tether.ml.deep.dataset` | `500` | frames | Fixed length every trace is cropped or zero-padded to. Shorter windows discard the tail of long traces — real data thrown away. Longer ones only cost compute: a boolean mask marks the real frames, the convolutional stack is length-preserving, and the LSTM is packed against the per-trace valid lengths, so padded frames never reach the recurrent summary or the classification head. | `assemble_dataset(window_length=…)` — no CLI flag, no GUI control | **no** |
+| `normalization`<br>`DEFAULT_NORMALIZATION` in `tether.ml.deep.dataset` | `per_trace_total` | enum | Per-trace scaling of the two channels by their combined total, which preserves the donor/acceptor ratio while removing absolute brightness. `none` keeps absolute counts, which makes the model sensitive to gain and exposure. | `assemble_dataset(normalization=…)` — no CLI flag, no GUI control | **no** |
+| `val_fraction` / `split_seed`<br>`DEFAULT_VAL_FRACTION`, `DEFAULT_SPLIT_SEED` in `tether.ml.deep.dataset` | `0.2`, `0` | fraction, seed | Size and reproducibility of the stratified held-out split. A smaller validation fraction leaves more data for training and a noisier estimate of how well it worked. | `train_val_split(val_fraction=…, seed=…)` — no CLI flag, no GUI control | **no** |
+| `epochs` / `batch_size` / `learning_rate`<br>`DEFAULT_EPOCHS`, `DEFAULT_BATCH_SIZE`, `DEFAULT_LEARNING_RATE` in `tether.ml.deep.model` | `20`, `32`, `0.001` | epochs, traces, dimensionless | Training budget. Too few epochs underfits; too many overfits a small label set with no early stopping to catch it. | `train_classifier(…)` — no CLI flag, no GUI control | **no** |
+| `num_conv_layers` / `conv_channels` / `kernel_size` / `lstm_hidden` / `bidirectional` / `dropout`<br>`DEFAULT_NUM_CONV_LAYERS`, `DEFAULT_CONV_CHANNELS`, `DEFAULT_KERNEL_SIZE`, `DEFAULT_LSTM_HIDDEN`, `DEFAULT_BIDIRECTIONAL`, `DEFAULT_DROPOUT` in `tether.ml.deep.model` | `2`, `32`, `5`, `32`, `True`, `0.0` | layers, channels, frames, units, boolean, probability | Network shape. Larger capacity fits more complex trace morphologies and overfits sooner; dropout above zero trades training fit for generalisation. | `train_classifier(…)` — no CLI flag, no GUI control | **no** |
+| fine-tuning `epochs` / `learning_rate` / `freeze_conv`<br>`DEFAULT_FINE_TUNE_EPOCHS`, `DEFAULT_FINE_TUNE_LEARNING_RATE`, `DEFAULT_FREEZE_CONV` in `tether.ml.deep.model` | `10`, `0.0001`, `False` | epochs, dimensionless, boolean | Transfer of a trained model to a new condition. The low fine-tuning rate is what keeps the transferred model from forgetting the source condition; freezing the convolutional stack restricts adaptation to the recurrent head, which helps when the new condition has very few labels. | `fine_tune(…)` — no CLI flag, no GUI control | **no** |
+| `device`<br>`DEFAULT_DEVICE` in `tether.ml.deep.model` | `cpu` | device string | Where training runs. Not a scientific parameter, but it is the one you will change first. | `train_classifier(device=…)` — no CLI flag, no GUI control | **no** |
+
+## Tolerances and gates
+
+Some numbers in Tether are not really knobs: they are acceptance thresholds that decide
+whether a result is trustworthy. Their values are deliberately **not** restated here, because
+the evidence that justifies each one lives with the decision record that set it, and a second
+copy would drift. Use this section to find the authority for each, then read the value from
+there. Where one of them *is* settable per call, the row says so.
+
+| Gate | Where the value lives | What it decides |
+| --- | --- | --- |
+| Registration RMS residual | `DEFAULT_RMS_GATE_PX` in `tether.imaging.calibrate`; rationale in [ADR-0014](../adr/0014-registration-map-rms-gate-and-over-gate.md) | Whether a channel map is flagged low-confidence, and — under `tether batch --policy fail` — whether the movie is failed. Settable as `--rms-gate`; the *policy* is the gate. |
+| Leakage α acceptance range | `LEAKAGE_CEILING` in `tether.fret.leakage`; estimator rationale in [ADR-0027](../adr/0027-leakage-alpha-tail-estimator.md) | Which per-trace α values enter the dataset median. |
+| γ acceptance range | `GAMMA_CEILING` in `tether.fret.gamma`; estimator rationale in [ADR-0028](../adr/0028-gamma-acceptor-bleach-step-estimator.md) | Which per-trace γ values enter the dataset median. |
+| Idealization parity tolerance | `schema/parity_tolerance.json`, loaded by `load_frozen_tolerance` in `tether.idealize.parity`; rationale in [ADR-0009](../adr/0009-parity-metrics-and-freeze.md) and [ADR-0043](../adr/0043-per-method-parity-tolerance.md) | Whether Tether's idealization is accepted as matching the reference implementation. The file carries a **per-method** row: the empirical-Bayes model is ratified against its own, looser tolerance, not the default one. Read the method's own row, not the top-level one. |
+| Bleach-frame agreement | asserted directly in `tests/test_fret_photobleach.py` | How closely the detector must recover a known bleach frame. It exists only as a test assertion — there is no module constant, and therefore nothing to set. |
+| Photobleach window default | rationale in [ADR-0026](../adr/0026-photobleach-detection-and-window-default.md) | How the automatic analysis window is derived and why a manual window always wins. |
+| Per-trace interaction budget | `PER_TRACE_LATENCY_BUDGET_S` in `tether.project.perf` | A performance budget, not a scientific one: how long one molecule may take to render and advance. |
+| Lock staleness | `DEFAULT_STALENESS_TIMEOUT_S` in `tether.project.lock` | When another process's write lock on a project is treated as abandoned. Unlike the other rows here it is settable per call — `Project.acquire_lock(timeout_s=…)` and `Project.write_lock(timeout_s=…)` both accept it — but the value you used is not persisted. |
+
+## Recording parameters in a methods section
+
+If you ran everything at the defaults, this page describes your run and you can cite it. If you
+changed anything, what you can recover afterwards depends on the stage:
+
+- **Extraction and registration** — fully recoverable. Read `/settings/extraction`; the
+  `profile_json` attribute holds every field of `ExtractOptions` as it was applied. Note that
+  it is written by the *first* extraction into a project and not rewritten afterwards.
+- **Batch policy** — recoverable from `/settings/batch`. The sidecar supervision settings
+  (timeout, restarts) are not recorded. A batch run has no extraction flags, so its
+  `/settings/extraction` is the shipped `ExtractOptions` defaults unless the run was driven
+  from Python with an explicit `extract_options`.
+- **Corrections** — fully recoverable. `/settings/leakage` and `/settings/gamma` record the
+  window, ceiling and qualifying-count thresholds actually used, along with the resulting
+  factor and how many molecules qualified; `/settings/correction` records any overrides and
+  whether apparent E was forced.
+- **Idealization** — the model type, the selected state count and how it was selected are
+  recorded on the `/idealization/<model>` group, together with the per-K evidence whenever the
+  state count was chosen automatically. The sidecar timeout and restart budget are not, and
+  neither is `nrestarts` — if you overrode the fitter's restart count, write it down.
+- **Photobleaching** — the *results* are recorded, the *priors are not*. If you changed them,
+  write them down yourself.
+- **Analysis** — nothing is recorded, because analysis outputs are computed on demand rather
+  than stored. Any bin count, bootstrap setting, trace layer or frame interval you passed must
+  be stated in your methods section. The frame interval is the one to check first: at the
+  default, dwell times and rates come out per frame, not per second. State the
+  `intensity_quantity` too — a histogram computed on `raw` traces is not comparable to one
+  computed on `corrected`, and nothing in the project file records which you used.

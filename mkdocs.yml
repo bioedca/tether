@@ -46,6 +46,8 @@ nav:
       - Seven-plot parity gallery: analysis/parity-gallery.md
   - Machine learning:
       - Deep trace classifier (GPU add-on): ml/deep-classifier.md
+  - Reference:
+      - Analysis parameters: reference/parameters.md
   - Packaging:
       - Installers &amp; offline bundle: packaging.md
       - Releasing (signed installers): release.md
