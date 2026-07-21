@@ -58,9 +58,10 @@ _FLAG_RE = re.compile(r"--[a-zA-Z][a-zA-Z0-9-]*")
 # `tether ...` usage or example line or in the option-table row documenting it — not an
 # invariant the page enforces. A non-tether short flag (`ls -l`, or the `-m` in
 # `python -m tether`) would be reported by `test_the_page_invents_no_flags` as an invented
-# tether flag; if the page ever grows one, scope *that* test's extraction to actual `tether`
-# invocation lines rather than loosening the regex. Filtering to lines that merely mention
-# `tether` would not be enough — `python -m tether` mentions it.
+# tether flag; if the page ever grows one, scope *that* test's extraction rather than loosening
+# the regex. The discriminator is the line's command word, not whether it invokes tether:
+# `python -m tether extract ...` does invoke tether (that is what `tether.__main__` is for, and
+# ADR-0049 recommends it on Windows), yet its `-m` belongs to `python`, not to a tether parser.
 _SHORT_FLAG_RE = re.compile(r"(?<![\w-])-[a-zA-Z](?![\w-])")
 
 
