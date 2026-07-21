@@ -208,14 +208,25 @@ The pin every live assertion uses is `10f4230b6d13c6d2ad67b05d801696b4a40eff4a` 
 > pinned sidecar build. (The script itself runs under the base interpreter. Two things then
 > execute in the sidecar: the fits, which `tether.idealize.driver` spawns from that variable,
 > and the script's own short build-provenance probe, which `scripts/measure_parity.py` spawns
-> directly.) Two caveats on that command: `--out` defaults to `schema/parity_tolerance.json`,
-> and the dict the script writes carries no `tolerance_by_method`, `measured_by_method` or
-> `build_provenance` key — so running it as written overwrites the committed artifact and takes
-> the ebFRET freeze with it, after which both
+> directly.) Two caveats on that command. `--out` defaults to `schema/parity_tolerance.json`, so
+> running it as written writes over the committed artifact in place — and the write is a full
+> replacement, not a merge. The script assembles one literal dict (the `out = {...}` at the end of
+> `main()` in `scripts/measure_parity.py` — that dict, not this paragraph, is the authority) with
+> exactly ten top-level keys: `schema_version`, `frozen_at_milestone`, `measured_utc`, `method`,
+> `coverage`, `freeze_policy`, `provisional`, `tolerance`, `pooled_worst`, `spread_by_fixture`. It
+> then dumps that over the target. So point `--out` at a scratch file, treat the result as *only*
+> the re-measured numbers, and carry back by hand everything in the committed artifact that the
+> fresh dict does not reproduce. Against today's artifact that is three things.
+> `$.tolerance_by_method` and `$.measured_by_method` fall outside the ten keys entirely, so the
+> ebFRET freeze (ADR-0043) vanishes and both
 > `test_per_method_tolerances_cover_their_own_measured_evidence` and
-> `test_load_frozen_tolerance_selects_per_method` fail. Point `--out` at a scratch file and
-> merge the per-method blocks back by hand — along with `$.method.build_provenance`, the
-> hand-written string the script does not write either.
+> `test_load_frozen_tolerance_selects_per_method` fail. `$.method.build_provenance` is a
+> hand-written string inside a block the script *does* rewrite, so it is dropped with no test
+> noticing. And all three sub-keys of `$.coverage` are hand-curated in the artifact but rebuilt
+> from the script's own pre-ADR-0043 literals: `measured_methods` becomes `["vbconhmm"]` rather
+> than the committed `"vbconhmm (vb Consensus HMM)"` quoted below, `applied_to` gains
+> `"ebFRET (M6)"`, and `note` reverts to text asserting one shared tolerance for every
+> idealization method — which contradicts ADR-0043 and this page, and which no test reads.
 
 **Enforcing tests.** Live fits are `tests/test_parity_sidecar.py`
 (`pytestmark = pytest.mark.sidecar`, so deselected from the 3-OS matrix and run instead by
@@ -250,14 +261,27 @@ widening a ceiling or lowering a floor leaves every recorded value comfortably i
 do they fail on a pull request that edits `$.provisional` and `PROVISIONAL` *in lockstep* —
 only one of them alone. The live `sidecar / parity` arm cannot catch a loosened bound
 either — a looser tolerance only makes its assertions easier to pass — and nothing pins
-`$.tolerance` or `$.provisional` to their committed values. One loosening *is* caught, by a
-third test rather than by either evidence test: `test_load_frozen_tolerance_selects_per_method`
-asserts ebFRET's state-count floor is strictly below the default one, so it fails once
-`$.tolerance.state_count_min_fraction` is dropped to ebFRET's frozen `0.5249` or below
-(0.40 fails; 0.60 still passes, and loosening any of the other three default bounds, or any
-of the four ebFRET bounds, is not caught at all). Short of that one threshold, the freeze is
-protected in the loosening direction by review plus the deliberate re-freeze rule
-(`$.freeze_policy`, PRD §11.2, ADR-0009), not by a test.
+`$.tolerance` or `$.provisional` to their committed values.
+
+What the suite does still enforce against loosening is the *shape* of a tolerance block rather
+than the magnitude of any bound inside it, plus one ordering between two blocks:
+
+* Every block must carry exactly the four bound keys — checked by
+  `test_load_frozen_tolerance_returns_the_four_bounds` for `$.tolerance` and by
+  `test_per_method_tolerances_cover_their_own_measured_evidence` for each
+  `$.tolerance_by_method` entry — so a bound cannot be loosened by deleting it. Deleting any
+  one of the eight fails at least two tests.
+* The four `$.tolerance` values must additionally be finite, so an infinite ceiling there also
+  fails `test_load_frozen_tolerance_returns_the_four_bounds`. The per-method bounds carry no
+  finiteness check: `$.tolerance_by_method.ebhmm.relative_elbo_max` set to infinity passes.
+* `test_load_frozen_tolerance_selects_per_method` asserts ebFRET's state-count floor is strictly
+  below the default one, so it fails once `$.tolerance.state_count_min_fraction` is dropped to
+  ebFRET's frozen `0.5249` or below (0.5249 and 0.40 fail; 0.5250 and 0.60 pass).
+
+Widening any of the eight bounds to some *other* finite value is caught by nothing — including
+all eight widened at once, as long as the default state-count floor stays above `0.5249`. In
+that region the freeze is protected in the loosening direction by review plus the deliberate
+re-freeze rule (`$.freeze_policy`, PRD §11.2, ADR-0009), not by a test.
 
 > Gap, stated plainly. PRD §8 asks for per-trace **vbFRET** parity on the small fixtures as
 > well as the consensus fit. `$.coverage.measured_methods` records only
