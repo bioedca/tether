@@ -103,12 +103,19 @@ anywhere in `tether.imaging`, so nothing any export writes is in photons. What t
 | Store built by | What an exported intensity is |
 |---|---|
 | **Native extraction** — `tether.project.extract.extract_movie` → `tether.imaging.extract.write_extraction` | An **integrated camera value in the movie's own pixel units**, produced here by `tether.imaging.aperture.integrate_traces` over the aperture below: counts/ADU, tied to Tether's own extraction settings |
-| **Deep-LASI reconstruction** — `tether.project.reconstruct.reconstruct_project` | The **pre-integrated Deep-LASI `.mat` series, stored verbatim**. `_traces_from_export` maps `donc`/`accc` → the corrected layer, `don`/`acc` → raw, `bdon`/`bacc` → background; its docstring states that "the aperture integration `extract_molecules` would run is skipped". The units are whatever Deep-LASI's own integration produced |
-| **Analysis-only import** — `tether.project.analysis_import.import_analysis_only_project` | The **SMD / `.txt` intensity series, stored verbatim** as the corrected pair (`_write_corrected_traces`), the module's "apparent-E analysis substrate". No `raw` or `background` layers are synthesized — there is "no movie to decompose the intensities against" |
+| **Deep-LASI reconstruction** — `tether.project.reconstruct.reconstruct_project` | The **pre-integrated Deep-LASI `.mat` series, carried through without re-integration**. `_traces_from_export` maps `donc`/`accc` → the corrected layer, `don`/`acc` → raw, `bdon`/`bacc` → background; its docstring states that "the aperture integration `extract_molecules` would run is skipped". The units are whatever Deep-LASI's own integration produced |
+| **Analysis-only import** — `tether.project.analysis_import.import_analysis_only_project` | The **SMD / `.txt` intensity series, carried through without re-integration** as the corrected pair (`_write_corrected_traces`), the module's "apparent-E analysis substrate". No `raw` or `background` layers are synthesized — there is "no movie to decompose the intensities against" |
 
 Only the first row is a number Tether itself measured. For the other two the units are the
 upstream tool's, and the aperture parameters below describe the *provenance* of the
-imported layers rather than an integration Tether performed.
+imported layers rather than an integration Tether performed. Carried through is not
+bit-preserved, though: every reader parses the upstream numbers as `float64`
+(`tether.io.deeplasi` for the `.mat` and the `.txt`, `tether.idealize.read_smd` for the
+SMD), while every `/traces` layer is stored as `float32`
+(`_TRACE_DTYPE = "<f4"`, in both `tether.imaging.extract._append_padded_2d` and
+`tether.project.analysis_import._write_corrected_traces`). An export compared back
+against a double-precision `.mat` or SMD input therefore differs by single-precision
+rounding.
 
 Which of the three layers you get is not the same number:
 
@@ -285,7 +292,7 @@ The serializer is `tether.io.deeplasi.write_deeplasi_txt`; its read-side mirror 
 | Number format | `numpy.savetxt(..., fmt="%.5f")` — fixed-point, exactly 5 decimals (`_TXT_DECIMALS = 5`). A round trip is therefore lossy to that rounding |
 | Delimiter | A single space |
 | Line ending | OS-translated (`savetxt` opens in text mode; no `newline=` is passed) — CRLF on Windows, LF elsewhere. Unlike the CSV, this is *not* fixed |
-| Values | Uncalibrated intensities — never photons, and **not necessarily movie pixel units**: what the number is depends on how the *source store* was built (integrated camera counts for a native extraction; the upstream tool's pre-integrated series, verbatim, for a Deep-LASI reconstruction or an analysis-only import). See [Intensity units](#intensity-units). Signed either way, so background-subtracted values may be negative |
+| Values | Uncalibrated intensities — never photons, and **not necessarily movie pixel units**: what the number is depends on how the *source store* was built (integrated camera counts for a native extraction; the upstream tool's pre-integrated series, not re-integrated, for a Deep-LASI reconstruction or an analysis-only import). See [Intensity units](#intensity-units). Signed either way, so background-subtracted values may be negative |
 
 A real first line, from a three-molecule store:
 
@@ -445,7 +452,12 @@ The eight renderers, and the plot each produces (Appendix-C ids as used in the
 
 `render_raw_fret_cloud` decimates its scatter overlay when the population exceeds
 `max_points` (default 20 000) to keep the vector file manageable; the density surface
-underneath still covers every point.
+underneath is untouched by that decimation. It is not, however, fit on every point:
+`raw_fret_cloud` keeps all finite samples in `points`, but fits the KDE — and the HDR
+levels derived from it — on the samples inside `time_range` × `signal_range` only, so
+un-clipped apparent-E outliers cannot inflate the bandwidth. The excluded count is
+`n_out_of_range`; the on-figure annotation reports only `n_samples` and `n_molecules`,
+so read it off the dataclass.
 
 ## Provenance sidecar
 
@@ -529,9 +541,13 @@ set on import: keep blank cells as missing rather than `0`, and treat `molecule_
 by a numeric or scientific-notation guess.
 
 The Deep-LASI `.txt` is whitespace-delimited with **no header**, so `readmatrix` /
-`numpy.loadtxt` read it as a plain `T × 2N` numeric matrix. Counting molecules from zero,
-molecule *k*'s donor is 0-based column `2k` and its acceptor `2k + 1` — in MATLAB's
-1-based indexing, columns `2k + 1` and `2k + 2`.
+`numpy.loadtxt` read it as a plain `T × 2N` numeric matrix. Pass `ndmin=2` to
+`numpy.loadtxt` — a single-frame export is a one-row file, which plain `loadtxt`
+collapses to a 1-D array; Tether's own `read_deeplasi_txt` reads it as
+`np.loadtxt(path, dtype=np.float64, ndmin=2)` for exactly that reason. `readmatrix`
+needs no equivalent flag. Counting molecules from zero, molecule *k*'s donor is
+0-based column `2k` and its acceptor `2k + 1` — in MATLAB's 1-based indexing, columns
+`2k + 1` and `2k + 2`.
 
 ### Frames to seconds
 
