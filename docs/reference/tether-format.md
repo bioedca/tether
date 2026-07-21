@@ -4,7 +4,7 @@ This page is for anyone who has been handed a `.tether` file and wants to read i
 with plain `h5py`, in another language, or in a script that must keep working across
 Tether releases. It is the reference for the **internal** project store only. What
 Tether *writes out* (SMD-HDF5 hand-off, CSV/Parquet tables, plot exports) is a
-separate surface and is not described here.
+separate surface, described in [Exports (files, columns, units)](exports.md).
 
 A `.tether` file is an ordinary HDF5 file. There is no proprietary container, no
 sidecar index, and no compression scheme beyond stock gzip on the bulk arrays.
