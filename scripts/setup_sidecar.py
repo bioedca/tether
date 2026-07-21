@@ -15,8 +15,10 @@ cross-OS hand-off check) does the same steps every time:
 1. **tMAVEN itself** — the GPL reference app driven over IPC, pinned by commit and
    installed from git (never a conda-lock dep).
 2. **``setuptools<81``** — tMAVEN imports the legacy ``pkg_resources`` API at runtime
-   without declaring it; setuptools removed ``pkg_resources`` in v81, so it must be
-   pinned back into the sidecar env alongside tMAVEN.
+   without declaring it; setuptools deprecated ``pkg_resources`` by 80.9.0 (still shipped
+   through 81.0.0) and removed it in 82.0.0, so it must be pinned back into the sidecar
+   env alongside tMAVEN (``<81`` is the bound that setuptools' own deprecation warning
+   names).
 
 Flow (each phase is skippable):
 
@@ -49,8 +51,10 @@ from pathlib import Path
 #: ``TMAVEN_SPEC`` env — ``test_setup_sidecar.py`` binds the two). tMAVEN is the GPL
 #: reference app driven over IPC, not a conda-lock dep, so it is git-installed here.
 DEFAULT_TMAVEN_SPEC = "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230"
-#: setuptools pin restoring the ``pkg_resources`` API tMAVEN imports at runtime (removed
-#: in setuptools 81), matching ``sidecar.yml``'s ``"setuptools<81"``.
+#: setuptools pin restoring the ``pkg_resources`` API tMAVEN imports at runtime
+#: (deprecated by setuptools 80.9.0, still shipped through 81.0.0, removed in 82.0.0;
+#: ``<81`` is the bound that setuptools' own deprecation warning names), matching
+#: ``sidecar.yml``'s ``"setuptools<81"``.
 SETUPTOOLS_PIN = "setuptools<81"
 #: Default name of the created sidecar env.
 DEFAULT_ENV_NAME = "tether-sidecar"

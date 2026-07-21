@@ -557,9 +557,11 @@ sidecar idealization failed (exit 1): <the sidecar's own error>
 ```
 
 **Cause.** tMAVEN calls `import pkg_resources` at runtime while setting up its version log
-(`tmaven/maven.py`), without declaring the dependency. setuptools **removed `pkg_resources`
-in v81**, so a sidecar environment built with a newer setuptools cannot construct
-`maven_class` at all.
+(`tmaven/maven.py`), without declaring the dependency. setuptools **deprecated
+`pkg_resources` by 80.9.0** (still shipped through 81.0.0, with a `UserWarning` on import)
+and **removed it in 82.0.0**, so a sidecar environment on 82 or newer cannot construct
+`maven_class` at all. `sidecar/conda-lock.yml` resolves setuptools `82.0.1`, i.e. past the
+removal.
 
 **Remedy.** Get `setuptools<81` into the sidecar environment. Which side you are on decides
 whether that has already happened.
@@ -570,13 +572,14 @@ whether that has already happened.
 step downgrades it after the env is created. Do not go looking for the pin in the lock file or
 the workflow — `.github/workflows/sidecar.yml` just calls the script.
 
-*Sidecar that came with the installer.* The pin is **not** applied. `envs/sidecar` is
-materialised straight from the rendered `sidecar/conda-lock.yml`, which resolves setuptools
-`82.0.1`, and the constructor `post_install` scripts pip-install only the bundled
-`tether-*.whl` and `tmaven-*.whl` — they never touch setuptools. Downgrade it yourself with
-the command below.
+*Sidecar that came with the installer.* The pin is applied for you. `envs/sidecar` is
+materialised from the rendered `sidecar/conda-lock.yml` (setuptools `82.0.1`), and the
+constructor `post_install` script then lays a bundled `setuptools<81` wheel over it — a
+third offline wheel alongside `tether-*.whl` and `tmaven-*.whl` — before installing tMAVEN.
+So on an installed app this failure should not happen; if it does, the sidecar env has been
+changed after installation (see below), and it is worth reporting.
 
-*Environment you built by hand.* Nothing applies the pin here either, so downgrade it
+*Environment you built by hand.* Nothing applies the pin here, so downgrade it
 yourself with the sidecar's own interpreter (needs network):
 
 ```text

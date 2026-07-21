@@ -148,7 +148,7 @@ jobs:
         # two steps that live OUTSIDE `sidecar/conda-lock.yml`: the pip-layered tMAVEN (the
         # GPL reference app driven over IPC, layered onto the lock, not in it) and the
         # `setuptools<81` pin that restores the legacy `pkg_resources` API tMAVEN imports at
-        # runtime (setuptools removed it in v81; the sidecar env resolves to 82). Running it
+        # runtime (setuptools removed it in 82.0.0; the lock resolves 82.0.1). Running it
         # HERE means the SAME script a user (and the 2-OS hand-off check) runs is exercised
         # on this Linux runner, so "the setup script runs clean" is continuously tested — the
         # CI leg of issue #13's two-OS requirement. The micromamba step above already
