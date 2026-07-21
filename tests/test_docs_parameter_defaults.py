@@ -35,6 +35,9 @@ SRC = ROOT / "src"
 # rows are filtered out by the separator pattern below.
 _SEPARATOR_RE = re.compile(r"^\|[\s:|-]+\|$")
 _BACKTICKED_RE = re.compile(r"`([^`]+)`")
+# A module-level constant as the page spells one: SCREAMING_CASE. Distinguishes the
+# constants a Parameter cell names from the keyword arguments beside them.
+_CONSTANT_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 def _module_source(dotted: str) -> ast.Module:
@@ -82,6 +85,26 @@ def _fmt(value: object) -> str:
     if isinstance(value, str):
         return value
     return repr(value)
+
+
+def _states(text: str, value: object) -> bool:
+    """Does the backticked Default-cell literal ``text`` state ``value``?
+
+    Compared by *value* and type, not by spelling, because prose is allowed to
+    write a number the way a reader would: the page says ``1e-6`` and
+    ``("pdf", "svg", "png")`` where ``repr`` would give ``1e-06`` and
+    ``('pdf', 'svg', 'png')``. Requiring the parsed type to match exactly keeps the
+    guard honest anyway — ``1`` does not satisfy ``True``, and ``0`` does not
+    satisfy ``0.0``. Bare enum words (``wavelet``, ``cpu``, ``scott``) are not
+    Python literals, so a live ``str`` is compared as text.
+    """
+    if isinstance(value, str):
+        return text == value
+    try:
+        parsed = ast.literal_eval(text)
+    except (SyntaxError, ValueError):
+        return False
+    return type(parsed) is type(value) and bool(parsed == value)
 
 
 # --- The registry -------------------------------------------------------------
@@ -165,22 +188,86 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             ("DEFAULT_HMM_MAX_ITER",),
             module_constant("tether.analysis.kinetics", "DEFAULT_HMM_MAX_ITER"),
         ),
+        (("DEFAULT_HMM_TOL",), module_constant("tether.analysis.kinetics", "DEFAULT_HMM_TOL")),
+        (
+            ("DEFAULT_HMM_VAR_FLOOR",),
+            module_constant("tether.analysis.kinetics", "DEFAULT_HMM_VAR_FLOOR"),
+        ),
+        (("DEFAULT_DWELL_DT",), module_constant("tether.analysis.dwell", "DEFAULT_DWELL_DT")),
+        (("DEFAULT_TIME_DT",), module_constant("tether.analysis.histogram", "DEFAULT_TIME_DT")),
+        (
+            ("DEFAULT_CLOUD_TIME_DT",),
+            module_constant("tether.analysis.cloud", "DEFAULT_CLOUD_TIME_DT"),
+        ),
+        (
+            ("DEFAULT_DWELL_CI_LEVEL",),
+            module_constant("tether.analysis.dwell", "DEFAULT_DWELL_CI_LEVEL"),
+        ),
         # Analysis — rendering defaults.
         (("DEFAULT_NBINS",), module_constant("tether.analysis.histogram", "DEFAULT_NBINS")),
         (("DEFAULT_RANGE",), module_constant("tether.analysis.histogram", "DEFAULT_RANGE")),
+        (("DEFAULT_TIME_BINS",), module_constant("tether.analysis.histogram", "DEFAULT_TIME_BINS")),
+        (
+            ("DEFAULT_SIGNAL_BINS",),
+            module_constant("tether.analysis.histogram", "DEFAULT_SIGNAL_BINS"),
+        ),
+        (
+            ("DEFAULT_SIGNAL_RANGE",),
+            module_constant("tether.analysis.histogram", "DEFAULT_SIGNAL_RANGE"),
+        ),
         (
             ("DEFAULT_SYNC_PREFRAME",),
             module_constant("tether.analysis.histogram", "DEFAULT_SYNC_PREFRAME"),
         ),
         (("DEFAULT_TDP_NSKIP",), module_constant("tether.analysis.tdp", "DEFAULT_TDP_NSKIP")),
+        (
+            ("DEFAULT_TDP_SIGNAL_BINS",),
+            module_constant("tether.analysis.tdp", "DEFAULT_TDP_SIGNAL_BINS"),
+        ),
+        (
+            ("DEFAULT_TDP_SIGNAL_RANGE",),
+            module_constant("tether.analysis.tdp", "DEFAULT_TDP_SIGNAL_RANGE"),
+        ),
         (("DEFAULT_DWELL_NBINS",), module_constant("tether.analysis.dwell", "DEFAULT_DWELL_NBINS")),
+        (
+            ("DEFAULT_TPROB_NBINS",),
+            module_constant("tether.analysis.transition_prob", "DEFAULT_TPROB_NBINS"),
+        ),
+        (
+            ("DEFAULT_TPROB_RANGE",),
+            module_constant("tether.analysis.transition_prob", "DEFAULT_TPROB_RANGE"),
+        ),
         (
             ("DEFAULT_TPROB_KDE_BANDWIDTH",),
             module_constant("tether.analysis.transition_prob", "DEFAULT_TPROB_KDE_BANDWIDTH"),
         ),
         (
+            ("DEFAULT_TPROB_KDE_POINTS",),
+            module_constant("tether.analysis.transition_prob", "DEFAULT_TPROB_KDE_POINTS"),
+        ),
+        (
+            ("DEFAULT_STATE_NUMBER_LOW",),
+            module_constant("tether.analysis.state_number", "DEFAULT_STATE_NUMBER_LOW"),
+        ),
+        (
+            ("DEFAULT_CLOUD_SIGNAL_BINS",),
+            module_constant("tether.analysis.cloud", "DEFAULT_CLOUD_SIGNAL_BINS"),
+        ),
+        (
+            ("DEFAULT_CLOUD_TIME_BINS",),
+            module_constant("tether.analysis.cloud", "DEFAULT_CLOUD_TIME_BINS"),
+        ),
+        (
+            ("DEFAULT_CLOUD_SIGNAL_RANGE",),
+            module_constant("tether.analysis.cloud", "DEFAULT_CLOUD_SIGNAL_RANGE"),
+        ),
+        (
             ("DEFAULT_CLOUD_HDR_COVERAGES",),
             module_constant("tether.analysis.cloud", "DEFAULT_CLOUD_HDR_COVERAGES"),
+        ),
+        (
+            ("DEFAULT_CLOUD_BW_METHOD",),
+            module_constant("tether.analysis.cloud", "DEFAULT_CLOUD_BW_METHOD"),
         ),
         (("DEFAULT_ELBOW_K_MAX",), module_constant("tether.analysis.cloud", "DEFAULT_ELBOW_K_MAX")),
         (
@@ -189,12 +276,29 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
         ),
         (("DEFAULT_ELBOW_SEED",), module_constant("tether.analysis.cloud", "DEFAULT_ELBOW_SEED")),
         (
+            ("DEFAULT_ANTICORR_WINDOW",),
+            module_constant("tether.analysis.anticorrelation", "DEFAULT_ANTICORR_WINDOW"),
+        ),
+        (
+            ("DEFAULT_ANTICORR_STEP",),
+            module_constant("tether.analysis.anticorrelation", "DEFAULT_ANTICORR_STEP"),
+        ),
+        (
             ("DEFAULT_ANTICORR_MIN_MAGNITUDE",),
             module_constant("tether.analysis.anticorrelation", "DEFAULT_ANTICORR_MIN_MAGNITUDE"),
         ),
         (
+            ("DEFAULT_ANTICORR_MIN_WINDOWS",),
+            module_constant("tether.analysis.anticorrelation", "DEFAULT_ANTICORR_MIN_WINDOWS"),
+        ),
+        (
             ("DEFAULT_EXPORT_DPI",),
             module_constant("tether.analysis.plot_export", "DEFAULT_EXPORT_DPI"),
+        ),
+        (("DEFAULT_FIGSIZE",), module_constant("tether.analysis.plot_export", "DEFAULT_FIGSIZE")),
+        (
+            ("DEFAULT_PLOT_FORMATS",),
+            module_constant("tether.analysis.plot_export", "DEFAULT_PLOT_FORMATS"),
         ),
         # Curation ranker.
         (("DEFAULT_SEED_WEIGHT",), module_constant("tether.ml.weighting", "DEFAULT_SEED_WEIGHT")),
@@ -244,6 +348,7 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             ("DEFAULT_VAL_FRACTION",),
             module_constant("tether.ml.deep.dataset", "DEFAULT_VAL_FRACTION"),
         ),
+        (("DEFAULT_SPLIT_SEED",), module_constant("tether.ml.deep.dataset", "DEFAULT_SPLIT_SEED")),
         (("DEFAULT_EPOCHS",), module_constant("tether.ml.deep.model", "DEFAULT_EPOCHS")),
         (("DEFAULT_BATCH_SIZE",), module_constant("tether.ml.deep.model", "DEFAULT_BATCH_SIZE")),
         (
@@ -251,10 +356,30 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             module_constant("tether.ml.deep.model", "DEFAULT_LEARNING_RATE"),
         ),
         (
+            ("DEFAULT_NUM_CONV_LAYERS",),
+            module_constant("tether.ml.deep.model", "DEFAULT_NUM_CONV_LAYERS"),
+        ),
+        (
+            ("DEFAULT_CONV_CHANNELS",),
+            module_constant("tether.ml.deep.model", "DEFAULT_CONV_CHANNELS"),
+        ),
+        (("DEFAULT_KERNEL_SIZE",), module_constant("tether.ml.deep.model", "DEFAULT_KERNEL_SIZE")),
+        (("DEFAULT_LSTM_HIDDEN",), module_constant("tether.ml.deep.model", "DEFAULT_LSTM_HIDDEN")),
+        (
+            ("DEFAULT_BIDIRECTIONAL",),
+            module_constant("tether.ml.deep.model", "DEFAULT_BIDIRECTIONAL"),
+        ),
+        (("DEFAULT_DROPOUT",), module_constant("tether.ml.deep.model", "DEFAULT_DROPOUT")),
+        (
             ("DEFAULT_FINE_TUNE_EPOCHS",),
             module_constant("tether.ml.deep.model", "DEFAULT_FINE_TUNE_EPOCHS"),
         ),
+        (
+            ("DEFAULT_FINE_TUNE_LEARNING_RATE",),
+            module_constant("tether.ml.deep.model", "DEFAULT_FINE_TUNE_LEARNING_RATE"),
+        ),
         (("DEFAULT_FREEZE_CONV",), module_constant("tether.ml.deep.model", "DEFAULT_FREEZE_CONV")),
+        (("DEFAULT_DEVICE",), module_constant("tether.ml.deep.model", "DEFAULT_DEVICE")),
     ]
     return entries
 
@@ -300,14 +425,37 @@ def test_documented_default_matches_the_code(tokens: tuple[str, ...], value: obj
     label = tokens[0]
     matches = [row for row in ROWS if set(tokens) <= set(_BACKTICKED_RE.findall(row[0]))]
     assert matches, f"no Parameter cell on the page mentions `{label}`"
-    expected = _fmt(value)
     for row in matches:
         literals = _BACKTICKED_RE.findall(row[1])
         assert literals, f"the Default cell for `{label}` has no backticked literal"
-        assert expected in literals, (
+        assert any(_states(text, value) for text in literals), (
             f"docs/reference/parameters.md documents {literals} for `{label}`, "
-            f"but the code says {expected!r}"
+            f"but the code says {_fmt(value)!r}"
         )
+
+
+def test_every_constant_the_page_prints_a_value_for_is_registered() -> None:
+    """The registry may not lag the page.
+
+    ``test_documented_default_matches_the_code`` only checks what ``REGISTRY``
+    names, so a row added to the page with an unregistered constant would be
+    unguarded and could drift away from the code unnoticed. Every SCREAMING_CASE
+    constant named in a **Parameter** cell of a six-column parameter table is
+    therefore required to have an entry. The three-column "Tolerances and gates"
+    table is exempt on purpose: it deliberately does not restate values, so it has
+    no Default cell to check.
+    """
+    registered = {token for tokens, _ in REGISTRY for token in tokens}
+    documented: set[str] = set()
+    for row in ROWS:
+        if len(row) != 6:
+            continue
+        documented |= {t for t in _BACKTICKED_RE.findall(row[0]) if _CONSTANT_RE.match(t)}
+    missing = sorted(documented - registered)
+    assert not missing, (
+        "docs/reference/parameters.md prints a default for these constants but "
+        f"_registry() does not pin them to the code: {missing}"
+    )
 
 
 def test_every_row_states_whether_it_is_recorded_in_the_project() -> None:
