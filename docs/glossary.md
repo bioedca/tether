@@ -201,9 +201,12 @@ each append one provenance-stamped row to `/labels/table` — `unreject` only wh
 really is rejected, since on any other state it is a documented no-op that writes nothing.
 Nothing appends a row for a category assignment; `category` lives only on `/molecules`. No row
 is ever deleted (a reversal is logged as its own row), but those three wrappers are not the
-log's only writers: `tether.project.reconstruct` records provisional Deep-LASI accept priors
-through `set_curation_label`, and `tether.project.merge` appends a contributor's rows to the
-table directly when two projects are merged.
+log's only appenders: `tether.project.reconstruct` records provisional Deep-LASI accept priors
+through `set_curation_label`, and `tether.project.merge` appends a contributor's human rows
+when two projects are merged — matched and de-duplicated, with each appended row's
+`condition_id` rewritten to the owner project's value. Append-only does not mean immutable
+either: retraining the ranker rewrites the `weight` column of every existing row in place
+(`tether.project.weighting.recompute_label_weights`).
 
 ---
 
