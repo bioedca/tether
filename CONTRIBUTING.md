@@ -1,20 +1,22 @@
 # Contributing to Tether
 
-Thanks for your interest in Tether. This document is the contributor-facing
-summary of the development & version-control protocol specified in
-[`docs/PRD.md` §12](docs/PRD.md). The PRD is the source of truth; where this file
-abbreviates, §12 governs.
+Thanks for your interest in Tether. This is the contributor-facing summary of
+[`docs/PRD.md` §12](docs/PRD.md). `AGENTS.md` governs agent operations and safety;
+the PRD governs product and science. Where this file abbreviates either, that
+respective contract governs.
 
-## Development model — solo + CI gate (scales up cleanly)
+## Development model — solo + CI and review gates (scales up cleanly)
 
-Tether is currently maintained **solo (account `bioedca`) with CI as the merge
-gate**: branch protection on `main` requires green required CI plus a self-review
-checklist on every PR, with **no mandated second human reviewer**. Every rule
-here is written so it scales up to required human reviews + `CODEOWNERS` if
-contributors join, without rework (PRD §12.3).
+Tether is currently maintained **solo (account `bioedca`) with CI and a
+risk-classified review path as merge gates**: branch protection on `main` requires
+green required CI plus a self-review checklist on every PR, while `AGENTS.md`
+defines the required Copilot/Codex/CodeRabbit layers. The ruleset still requires
+zero GitHub approval reviews; load-bearing changes additionally require the
+qualified human/domain judgment specified in `AGENTS.md`. This scales to required
+human reviews + `CODEOWNERS` if contributors join (PRD §12.3).
 
 `main` is **always releasable and protected**. Never push to `main` directly;
-never advance work or cut a summary while a PR's checks are red.
+never merge, release, or declare a PR ready while required checks are red or pending.
 
 ## Identity & signed commits (PRD §12.1)
 
@@ -41,12 +43,12 @@ never advance work or cut a summary while a PR's checks are red.
   opened as a PR, merged via **squash-merge**, branch **deleted on merge**. No
   long-lived `develop`/`release` branches; milestones M0–M9 are GitHub
   Milestones, not git branches.
-- **Branch naming:** `type/short-slug`, optionally milestone/FR-scoped —
-  e.g. `feat/m1-fr-extract-atrous-detector`, `fix/m3-fr-correct-nan-guard`. The
+- **Branch naming:** `type/issue-N-short-slug`, optionally milestone/FR-scoped —
+  e.g. `feat/issue-123-m1-atrous-detector`, `fix/issue-124-correct-nan-guard`. The
   slug is kebab-case, ≤ ~5 words. The branch name is not load-bearing (the PR
   title + linked issue carry authoritative metadata).
 - **Conventional Commits** govern **both commit messages and PR titles**:
-  `type(scope): summary (FR-ID)`. Types: `feat fix docs chore refactor test ci
+  `type(scope): summary (FR-ID when applicable)`. Types: `feat fix docs chore refactor test ci
   build perf revert`. The **scope is a §4.2 module** without the `tether.`
   prefix — `io | imaging | fret | idealize | ml | analysis | gui | project` —
   plus cross-cutting `schema | ci | deps | docs | release`. Examples:
@@ -173,9 +175,9 @@ header; non-code files are covered by `REUSE.toml`. `reuse lint` must be green
    gate enforces it. A legitimate structural change carries an **ADR + an
    explicit schema-version bump** — never a silent structural edit.
 2. **`conda-lock` is pin-and-hold.** Never casually bump a dependency.
-   Regenerate the lock (base **and/or** the isolated sidecar lock, kept
-   separate — the sidecar's `numpy<2`/PyQt5 must never merge into the PySide6
-   base stack) and confirm `conda-lock-verify` is green when deps change.
+   Regenerate the affected lock(s): base, isolated sidecar, and/or isolated deep.
+   Keep all three separate—the sidecar's `numpy<2`/PyQt5 and deep PyTorch stack
+   must never merge into the PySide6 base—and confirm `conda-lock-verify` is green.
 
 ## Proposing an ADR (PRD §12.7)
 
@@ -217,8 +219,8 @@ modes are silent:
   service's data-retention terms. This repository is public, but not everything in your
   working tree is.
 
-Note that an automated reviewer reads every diff opened against this repository (see
-**Merging**), which is itself a third-party service processing the contents of your PR.
+Cloud reviewers process PR diffs according to the risk path in `AGENTS.md`; this is
+third-party processing. Do not open a PR until its contents are safe to send.
 
 ## PR self-review checklist (PRD §12.4)
 
@@ -228,7 +230,7 @@ Before requesting review / merging, confirm:
       behavior has a `pytest-qt` test.
 - [ ] **Schema freeze respected** (`schema-guard` green; structural change ⇒
       ADR + version bump).
-- [ ] **conda-lock** regenerated if deps changed (base and/or sidecar, isolated);
+- [ ] **conda-lock** regenerated if deps changed (base, sidecar, and/or deep, isolated);
       `conda-lock-verify` green.
 - [ ] Any new tunable registered in PRD §11.2 (single source of truth), not
       hardcoded.
@@ -238,11 +240,14 @@ Before requesting review / merging, confirm:
       green.
 - [ ] **Docs updated** — the `mkdocs` pages under `docs/` *and* the public docstrings
       for anything user-facing this PR changes; `docs-build` green.
-- [ ] **No large data committed** — no movie, `.tether`, or reference dataset in the
-      tree; small fixtures live in `tests/fixtures/`, anything large is gated.
+- [ ] **Data policy respected** — no raw/private/unlicensed data or large data in ordinary
+      Git; issue-authorized redistributable fixtures carry license and provenance in named
+      small or LFS/gated paths.
 - [ ] **No secrets committed** — no token, key, credential or private path in code,
       tests, logs or fixtures; `secret-scan` green.
 - [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
+- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`, with the
+      required Copilot/Codex/CodeRabbit and domain-review layers from `AGENTS.md`.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
       **same** PR.
 
@@ -266,12 +271,14 @@ is what PRD §12.8 recommends for a solo maintainer — and is gated by a separa
 
 **Reviews.** The ruleset requires **0 approving reviews** but does require
 **conversation resolution**: an unresolved review thread blocks the merge even when
-every check is green. An automated reviewer (CodeRabbit) reads every diff, so in
-practice that is the thread you will need to resolve — push the fix, reply on the
-thread, and let the re-review resolve it. If its status check goes green while the PR
-shows **zero** reviews and zero inline comments, that is a rate-limit artifact, not an
-approval: re-request explicitly with a `@coderabbitai review` comment and wait for a
-real walkthrough before merging.
+every check is green. Classify the final diff before merge and follow `AGENTS.md`:
+Copilot is the first layer for every PR; standard changes also require Codex GitHub
+Code Review; high/load-bearing changes additionally require an `@coderabbitai review`
+comment on the stable, green diff and any specified human/domain review.
+CodeRabbit is limited to five reviews per developer per rolling hour. Reserve that
+quota for high-risk PRs and wait when limited—never downgrade the path or trust a
+green bot check without a substantive walkthrough. Resolve every actionable thread
+and rerun affected layers after material pushes.
 
 ## Reporting bugs & security issues
 

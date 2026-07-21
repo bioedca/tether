@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Issue Swarm"
+  short_description: "Run a leased concurrent issue worker pool"
+  default_prompt: "Use $run-issue-swarm to run 4 isolated workers, merge every eligible issue, and keep refilling until the ready queue is empty or I tell the swarm to stop."

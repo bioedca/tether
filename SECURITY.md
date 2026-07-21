@@ -54,7 +54,8 @@ shared.
 ## Supply-chain note
 
 Dependencies are pinned via committed `conda-lock` files (base stack) and an
-isolated `sidecar/conda-lock.yml` (tMAVEN sidecar). Dependabot updates `pip`
+isolated `sidecar/conda-lock.yml` (tMAVEN sidecar), and isolated
+`deep/conda-lock.yml` (PyTorch). Dependabot updates `pip`
 and `github-actions`, but **does not re-solve the conda lock files**; a
 scheduled dependency audit (`deps-audit.yml`, `pip-audit` / `safety`) backstops
 that gap. Secret scanning and push protection are enabled on the repository.

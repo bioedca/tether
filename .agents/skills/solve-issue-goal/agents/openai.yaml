@@ -1,0 +1,4 @@
+interface:
+  display_name: "Solve Issue Goal"
+  short_description: "Run one Tether work item safely end to end"
+  default_prompt: "Use $solve-issue-goal under /goal to solve an accepted issue or advisory in an isolated worktree."

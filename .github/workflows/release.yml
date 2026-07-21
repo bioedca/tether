@@ -400,17 +400,18 @@ jobs:
           # The authoritative bill-of-materials: the frozen SOURCE locks. Note the per-platform
           # RENDERED locks the build uploads (packaging/locks/{base,sidecar}-<platform>.lock)
           # land under dist/locks/ and are deliberately NOT staged — docs/release.md ships "the
-          # frozen conda locks", which these two satisfy. If that ever changes, add '*.lock' to
-          # the find name-filter above AND assert 2x<leg count> of them below.
+          # frozen conda locks", which these three satisfy. If that ever changes, add '*.lock' to
+          # the find name-filter above AND assert the rendered set explicitly below.
           cp conda-lock.yml "out/conda-lock.yml"
           cp sidecar/conda-lock.yml "out/sidecar-conda-lock.yml"
+          cp deep/conda-lock.yml "out/deep-conda-lock.yml"
           ls -l out
 
           # --- Completeness gate (unconditional — it MUST also run in a dry run) --------
           # `find ... -exec cp` exits 0 when it matches NOTHING, even under `set -euo pipefail`.
           # The two steps that would otherwise notice — attest-build-provenance over
           # out/*.exe|*.pkg|*.sh, and `gh release create` — are BOTH gated on publish == 'true'.
-          # So a dry run would stage two lock files, skip the gated steps and report GREEN: the
+          # So a dry run could stage only lock files, skip the gated steps and report GREEN: the
           # rehearsal could not detect its own worst failure. Assert the whole expected set here
           # instead, on every run. (Even on a real publish, attest only requires >=1 match per
           # pattern, so "1 .pkg where 2 were required" is caught ONLY here.)
@@ -460,6 +461,7 @@ jobs:
           # is left: a zero-byte lock would publish an unusable bill-of-materials.
           [ -s out/conda-lock.yml ] || problems+=("out/conda-lock.yml staged empty")
           [ -s out/sidecar-conda-lock.yml ] || problems+=("out/sidecar-conda-lock.yml staged empty")
+          [ -s out/deep-conda-lock.yml ] || problems+=("out/deep-conda-lock.yml staged empty")
 
           if [ "${#problems[@]}" -eq 0 ]; then
             echo "Staged a complete release — every expected leg present (${EXPECTED_LEGS})."
