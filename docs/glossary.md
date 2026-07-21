@@ -47,7 +47,7 @@ specifics worth knowing:
 > **Tether does not scale the donor by `(1 + α)` the way Deep-LASI does.** γ is defined
 > consistently with the bare `I_D`, so Tether's γ is systematically ≈`(1 + α)`× Deep-LASI's
 > on the same bleach step (≈9 % at α ≈ 0.09). A cross-tool γ comparison must control for
-> that (`tether.fret.gamma`; [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)).
+> that (`tether.fret.gamma`; ADR-0028).
 
 ### correction order
 
@@ -67,7 +67,7 @@ tail** as `mean(I_DA) / mean(I_DD)` — a ratio of window means, not a mean of p
 ratios. Gates: tail ≥ `DEFAULT_MIN_WINDOW_FRAMES = 20` frames; per-trace α outside
 `[0, LEAKAGE_CEILING = 0.3]` dropped; the dataset value is the **median** of qualifying
 traces and is **withheld** below `DEFAULT_MIN_QUALIFYING_TRACES = 10` rather than fabricated
-([ADR-0027](adr/0027-leakage-alpha-tail-estimator.md)).
+(ADR-0027).
 
 **Scope:** α is **store-wide** in Tether. `compute_leakage_alpha` fits one dataset median over
 every analysable molecule in the `.tether` — it does **not** partition by
@@ -93,7 +93,7 @@ Same `DEFAULT_MIN_WINDOW_FRAMES = 20` / 10-trace parameters as α, but the frame
 donor-only segment `[step, donor_bleach)` must be **strictly longer than** 20 frames (`> 20`,
 where the α tail only needs `≥ 20`), or the trace is dropped as `short-pre` / `short-post`.
 Per-trace γ outside `(0, GAMMA_CEILING = 5.0]` is dropped
-([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)).
+(ADR-0028).
 
 **Scope:** γ is **per-molecule with a population-median fallback** — a qualifying molecule
 keeps its own γ, a non-qualifying one silently takes the dataset median and is counted in
@@ -105,7 +105,7 @@ Direct excitation of the acceptor by the donor laser. Measuring it requires the
 acceptor-under-acceptor-excitation channel that only [ALEX/PIE](#alex-pie) provides, and
 Tether is single-laser two-colour by design (non-goal N1) — so δ is carried as an **inert
 `0.0`**, not "unset" (`rows["delta"] = 0.0` in `tether.imaging.extract`;
-[ADR-0008](adr/0008-correction-factor-remap.md)).
+ADR-0008).
 
 > **The naming inversion trap.** Deep-LASI's stored `Beta` is what Tether calls **α**
 > (leakage), and Deep-LASI's stored `Alpha` is direct excitation, which Tether calls **δ**
@@ -137,7 +137,7 @@ stamps `correction_method` / `correction_confidence` — so NaN factors sitting 
 corruption (see
 [the batch says `correct=done` but no corrections were applied](troubleshooting.md#the-batch-says-correctdone-but-no-corrections-were-applied)).
 What the writer never emits is a NaN **corrected E**: a non-finite factor routes the molecule
-to apparent E instead ([ADR-0003](adr/0003-apparent-e-never-nan.md)). This NaN is distinct
+to apparent E instead (ADR-0003). This NaN is distinct
 from the `-1` [undetected sentinel](#photobleach-frames-first-bleach-frame) and from
 [`NO_STATE`](#no_state).
 
@@ -151,7 +151,7 @@ from the `-1` [undetected sentinel](#photobleach-frames-first-bleach-frame) and 
 Tether's detector is a headless reimplementation of tMAVEN's Bayesian **single-step
 change-point** model (`tether.fret.photobleach`), run **independently per channel** so α
 and γ each get the bleach frame they need
-([ADR-0026](adr/0026-photobleach-detection-and-window-default.md)).
+(ADR-0026).
 
 Two values must not be confused:
 
@@ -169,7 +169,7 @@ every downstream reader honours (histograms, cross-correlation, features, ideali
 each falling back to `frame_range` when it is unset.
 
 The **auto** default is trace start → first bleach of the **summed** donor+acceptor
-intensity — not per-channel ([ADR-0026](adr/0026-photobleach-detection-and-window-default.md)).
+intensity — not per-channel (ADR-0026).
 **Manual wins**: the auto value is written only where the window still equals the extraction
 default, so a curator-narrowed window is never overwritten.
 
@@ -188,17 +188,22 @@ Three **independent** fields on `/molecules` (PRD §5.1):
 
 - `curation_label` — the accept/reject state. Codec `CurationLabel` in
   `tether.project.labels`: `UNCURATED = 0`, `ACCEPT = +1`, `REJECT = -1`
-  ([ADR-0023](adr/0023-curation-label-codec-and-labels-log.md)).
+  (ADR-0023).
 - `category` — an optional value from the editable per-condition list. Assigning one does
   **not** imply accept.
 - `quality_class` — read-only ML ranker output, never a user input.
 
 A **reject is a reversible sticky tag, never a deletion**: it persists, carries across files
-on [molecule_key](#molecule-vs-trace), is one-click reversible, and is excluded by the
-**toggleable** curation filter (`include_rejected=False` by default). Each accept, reject and
-un-reject appends one provenance-stamped row to `/labels/table`; a category assignment does
-not — `tether.project.labels` scopes that append-only log to the accept/reject events, and
-`category` lives only on `/molecules`.
+on [molecule_key](#molecule-vs-trace), is reversible in one call
+(`tether.project.labels.unreject`), and is excluded by the **toggleable** curation filter
+(`include_rejected=False` by default). `tether.project.labels.accept` / `reject` / `unreject`
+each append one provenance-stamped row to `/labels/table` — `unreject` only when the molecule
+really is rejected, since on any other state it is a documented no-op that writes nothing.
+Nothing appends a row for a category assignment; `category` lives only on `/molecules`. No row
+is ever deleted (a reversal is logged as its own row), but those three wrappers are not the
+log's only writers: `tether.project.reconstruct` records provisional Deep-LASI accept priors
+through `set_curation_label`, and `tether.project.merge` appends a contributor's rows to the
+table directly when two projects are merged.
 
 ---
 
@@ -249,7 +254,7 @@ FRET histogram must keep. Tether instead anchors on the donor: **every in-frame 
 becomes a molecule**, and acceptor intensity is read at the *mapped* position whether or not
 an acceptor was independently detected. The independent-detection test survives only as the
 informational `ColocalizedMolecules.acceptor_detected` flag and **never drops a molecule**
-(`tether.imaging.coloc`; [ADR-0015](adr/0015-donor-anchored-colocalization.md)).
+(`tether.imaging.coloc`; ADR-0015).
 
 Two adjacent facts: **the movie is never resampled** — the map is applied to *coordinates*,
 never pixels, to avoid interpolation bias in integrated intensities; and a molecule is
@@ -275,7 +280,7 @@ Tether's improvement over Deep-LASI's visual-only QA.
 
 Over-gate is **never a silent drop**: the calibration is marked `low_confidence` and every
 molecule it produces is tagged `low-confidence-registration` (`LOW_CONFIDENCE_TAG`), then
-kept ([ADR-0014](adr/0014-registration-map-rms-gate-and-over-gate.md)). Batch policy is
+kept (ADR-0014). Batch policy is
 `warn` (accept-with-flag) by default, `fail` on request.
 
 > The residual only *measures* something when the control points over-determine the fit —
@@ -292,7 +297,7 @@ The undecimated wavelet transform whose multiscale product is Tether's default s
 ([Olivo-Marin 2002](https://doi.org/10.1016/S0031-3203%2801%2900127-3)); **MAD** (median
 absolute deviation) is its per-scale noise estimate. The alternatives are the `intensity` and
 `bandpass` modes ported from Deep-LASI's `findPart`
-([ADR-0021](adr/0021-particle-detection-modes.md)).
+(ADR-0021).
 
 ---
 
@@ -331,7 +336,7 @@ Evidence Lower BOund — the variational objective. Tether uses it for **state-c
 selection**: `nstates` is either fixed, or auto-selected as the maximum ELBO over
 `NSTATES_GRID_DEFAULT = (1, 2, 3, 4)`, recorded as
 `nstates_selected_by ∈ {"max-elbo", "fixed"}`
-([ADR-0024](adr/0024-idealization-store-layout-staleness-and-nstates.md)).
+(ADR-0024).
 
 ### state
 
@@ -395,7 +400,7 @@ trace, the analysis-window bounds, and the molecule's **effective applied α and
 of those change, the recomputed hash diverges and the molecule is **stale**;
 `live_molecule_keys()` is the complement that TDP / dwell / state-number /
 transition-probability keep by default
-([ADR-0029](adr/0029-idealization-correction-provenance-hash-and-per-factor-staleness.md)).
+(ADR-0029).
 
 Consequence: re-estimating **α** re-stales **every molecule in the project**, because the α
 estimator is **store-wide** — one median written to every analysable
@@ -418,7 +423,7 @@ scored gets a NaN score (never a fabricated `0`), is ranked **last**, and is kep
 
 A blind community benchmark of single-molecule kinetics analysis tools
 ([Götz 2022](https://doi.org/10.1038/s41467-022-33023-3)), used as Tether's advisory kinetics
-oracle ([ADR-0048](adr/0048-kinsoft-kinetics-oracle.md)).
+oracle (ADR-0048).
 
 ---
 
@@ -467,7 +472,7 @@ key, and validation is **referential**: an id is valid only if it resolves to a
 
 **Keep-separate by default** — two near-miss filename parses yield different ids and stay
 separate; collapsing them requires an explicit confirmed re-key
-([ADR-0033](adr/0033-condition-identity-and-rekey.md)). At extraction the id is
+(ADR-0033). At extraction the id is
 *provisional-from-filename* and is retained forever in `condition_id_provisional`.
 
 ### `TIRFdata` / MCOS / `#refs#`
@@ -490,7 +495,7 @@ correction factors and the particle-detection mode.
 Single-Molecule Dataset — a generalized HDF5 storage format for single-molecule data
 ([Greenfeld 2015](https://doi.org/10.1186/s12859-014-0429-4)), and tMAVEN's interchange
 container. Tether writes a **superset** SMD carrying coordinates
-([ADR-0002](adr/0002-smd-superset-round-trip.md)), because a tMAVEN-written SMD has no
+(ADR-0002), because a tMAVEN-written SMD has no
 per-molecule metadata slot — so after a standalone-tMAVEN round trip the trace↔movie link
 survives only by exact intensity-trace matching. See the
 [hand-off page](idealize/standalone-tmaven-handoff.md).
@@ -500,7 +505,7 @@ survives only by exact intensity-trace matching. See the
 One HDF5 file per experiment, with root attribute `format = "tether-project"` and a
 monotonic `schema_version` (currently `1`). The **entire group skeleton was forward-declared
 at M0**, so later milestones add *data*, never *structure*
-([ADR-0005](adr/0005-m0-schema-freeze.md)); a `schema-guard` CI gate enforces it.
+(ADR-0005); a `schema-guard` CI gate enforces it.
 
 A file stamped with a **higher** `schema_version` than the running app is refused outright
 rather than partially read.
@@ -511,7 +516,7 @@ A coordinate-less import — traces without a movie. Every molecule is tagged
 `round-trip-unavailable`, `/settings/analysis_only` records the banner
 `coordinates and patches absent; movie round-trip and spot/overlap views unavailable`, and
 the shell leaves the spot/overlap seam unwired
-([ADR-0046](adr/0046-analysis-only-smd-import.md)). Idealization, histograms, TDP and
+(ADR-0046). Idealization, histograms, TDP and
 kinetics all still work. See
 [Round-trip vs analysis-only](io/legacy-import.md#round-trip-vs-analysis-only).
 
@@ -523,10 +528,10 @@ kinetics all still work. See
 
 The isolated conda environment (`numpy<2` + PyQt5 + tMAVEN) in which idealization runs,
 because tMAVEN's pins cannot share a process with Tether's PySide6 / current-numpy base
-stack ([ADR-0004](adr/0004-pin-and-hold-dual-lock-isolation.md)). Resolution order for the
+stack (ADR-0004). Resolution order for the
 interpreter is: explicit argument → `TETHER_SIDECAR_PYTHON` → the installer's sibling
 `envs/sidecar` derived from `sys.prefix`
-([ADR-0051](adr/0051-installed-app-launch-surface.md)). That last fallback exists because a
+(ADR-0051). That last fallback exists because a
 menu shortcut, `PATH` shim or `.desktop` launch never runs the conda `activate.d` hook that
 would have set the variable.
 

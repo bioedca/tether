@@ -3,8 +3,9 @@
 **Who this page is for.** Anyone whose Tether run did something other than what they
 expected — including the runs that *looked* fine. Entries are keyed by **what you saw**, not
 by which module owns the problem, so scan the headings or paste your error text into your
-browser's find bar: every message quoted here is copied verbatim from `src/` and each entry
-names the module that raises it. Any term that reads as jargon is defined in the
+browser's find bar: every message quoted here is copied verbatim from the code that raises it
+— Tether's own `src/` unless the entry says otherwise — and each entry names the module
+responsible. Any term that reads as jargon is defined in the
 [Glossary](glossary.md).
 
 The **silent** failures come first, because nothing will tell you about them. They are marked
@@ -294,7 +295,7 @@ they tell you which half of the problem you have.
 Defaults worth knowing: `--detection-threshold` is ignored by the `wavelet` mode, and
 defaults to `0.5` for `intensity` and `0.98` for `bandpass`. Omitting `--min-separation`
 gives each mode its own faithful default (wavelet 8 px, intensity/bandpass 3 px;
-[ADR-0022](adr/0022-m1-acceptance-reframe-and-close.md)).
+ADR-0022).
 
 ### Extraction found far fewer, or far more, molecules than expected
 
@@ -319,8 +320,11 @@ re-extract. There is no post-hoc re-detection: detection happens once, at extrac
 ### The movie will not load
 
 All three of these arrive wrapped by `extract_movie` as
-`could not extract from <name>: …`, exit `1`. The inner message comes from
-`tether.io.movie`.
+`could not extract from <name>: …`, exit `1` — that wrapper catches any non-`ExtractionError`,
+so the inner text is passed through unchanged from whatever raised it. The first two come from
+`tether.io.movie`; the third is **not** a Tether message — it is `tifffile`'s own
+`TiffFileError`, raised inside `MovieReader.__init__` when `tifffile.TiffFile` opens the path,
+so grepping `src/` for it finds nothing.
 
 | Message | What it means | Remedy |
 |---|---|---|
@@ -531,7 +535,7 @@ restart budget.
 On a proper install the third step should cover you even when the environment was never
 activated — that fallback exists precisely because a menu shortcut, a `PATH` shim or a
 `.desktop` entry never runs the conda `activate.d` hook that sets the variable
-([ADR-0051](adr/0051-installed-app-launch-surface.md)). If you see this error from an
+(ADR-0051). If you see this error from an
 installed app, the `envs/sidecar` environment is missing or was moved.
 
 **Remedy.** From a source checkout, build the sidecar with `python scripts/setup_sidecar.py`,
@@ -629,7 +633,7 @@ tether extract: could not use --tdat notdat.tdat: 'notdat.tdat' is not a Deep-LA
 
 **Remedy.** Re-run **without** `--tdat` and choose a supported `--detection-mode` yourself.
 Tether refuses rather than silently substituting a mode, so an import can never mis-detect
-under the wrong method ([ADR-0021](adr/0021-particle-detection-modes.md)).
+under the wrong method (ADR-0021).
 
 > A related non-error: the threshold decode is deliberately best-effort. If the `.tdat`'s
 > MCOS threshold blob cannot be decoded, `tether.io.tdat` returns `None` and the detector
@@ -676,7 +680,7 @@ coordinates and patches absent; movie round-trip and spot/overlap views unavaila
 or a `…-donc-accc-w.txt` with no `.tdat` or `.mat` to supply pixel coordinates. It is not a
 failure: `tether.gui.shell` deliberately leaves the overlap seam unwired because the view is
 meaningless without coordinates, and surfaces the marker banner once
-([ADR-0046](adr/0046-analysis-only-smd-import.md)). Every molecule also carries the
+(ADR-0046). Every molecule also carries the
 `round-trip-unavailable` tag.
 
 **Remedy.** To get the round-trip views you must re-import with a coordinate source present —
@@ -718,7 +722,7 @@ in the optional `deep/` environment.
 
 **Cause.** The committed `deep/conda-lock.yml` is **CPU-only on purpose**, so that CI stays
 reproducible; a CUDA build is selected at install time and is deliberately outside
-pin-and-hold ([ADR-0047](adr/0047-deep-model-optional-stack-and-dataset.md)). The usual
+pin-and-hold (ADR-0047). The usual
 failure is a wheel whose CUDA channel (`cu124` / `cu126` / `cu128`) does not match the
 installed NVIDIA driver.
 
