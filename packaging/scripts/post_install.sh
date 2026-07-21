@@ -22,6 +22,18 @@ SIDECAR_PY="$PREFIX/envs/sidecar/bin/python"
 # tether wheel -> the GUI env (PySide6/napari/current-numpy).
 "$TETHER_PY" -m pip install --no-index --no-deps "$WHEELHOUSE"/tether-*.whl
 
+# setuptools<81 -> the sidecar env, BEFORE tMAVEN. tMAVEN's `maven_class.__init__`
+# does `import pkg_resources`, which setuptools REMOVED in v81, and the sidecar lock
+# resolves setuptools 82 — so without this the env builds cleanly and then dies at the
+# first idealization (issue #212). scripts/setup_sidecar.py applies the same pin
+# (SETUPTOOLS_PIN) on the source path; this is the installer's equivalent.
+#
+# pip is given the wheel by PATH, not by requirement spec, so it downgrades the conda
+# setuptools rather than reporting "already satisfied". Ordering is deliberate: tMAVEN's
+# wheel is already built, so nothing here needs pkg_resources at install time, but
+# putting the pin first means the sidecar is never momentarily in the broken state.
+"$SIDECAR_PY" -m pip install --no-index --no-deps "$WHEELHOUSE"/setuptools-*.whl
+
 # tMAVEN wheel -> the ISOLATED sidecar env (PyQt5/numpy<2); never the GUI env.
 "$SIDECAR_PY" -m pip install --no-index --no-deps "$WHEELHOUSE"/tmaven-*.whl
 
@@ -84,4 +96,4 @@ EOF
 fi
 
 # Drop the staged wheels; the environments now own the installed packages.
-rm -f "$WHEELHOUSE"/tether-*.whl "$WHEELHOUSE"/tmaven-*.whl
+rm -f "$WHEELHOUSE"/tether-*.whl "$WHEELHOUSE"/tmaven-*.whl "$WHEELHOUSE"/setuptools-*.whl

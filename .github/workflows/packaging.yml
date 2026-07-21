@@ -117,6 +117,23 @@ jobs:
         # (pkg_resources); --no-deps because the sidecar conda env provides them.
         run: python -m pip wheel --no-deps --no-build-isolation -w packaging/staging "${TMAVEN_SPEC}"
 
+      - name: Stage the setuptools<81 wheel (restores pkg_resources in the sidecar)
+        # tMAVEN's `maven_class.__init__` does `import pkg_resources`, which setuptools
+        # REMOVED in v81 — and sidecar/conda-lock.yml resolves setuptools 82.0.1 on every
+        # platform. The source path handles this with scripts/setup_sidecar.py's
+        # SETUPTOOLS_PIN, applied by pip after the env is created; the installer had no
+        # equivalent, so an installed app built the sidecar env fine and then failed at
+        # the FIRST idealization (issue #212). Bundle the pin as a third offline wheel.
+        #
+        # setuptools publishes a pure-Python `py3-none-any` wheel, so ONE file serves all
+        # four platforms — no per-platform matrix entry needed. --only-binary=:all: keeps
+        # this a download, never a build.
+        # Block scalar, not an inline value: `--only-binary=:all:` contains a
+        # colon-space, which YAML would otherwise read as a nested mapping.
+        run: |
+          python -m pip download --only-binary=:all: --no-deps \
+            -d packaging/staging "setuptools<81"
+
       - name: Render per-platform EXPLICIT locks (pin-and-hold; no re-solve)
         # conda-lock render emits `conda-<platform>.lock` (@EXPLICIT) from the
         # committed unified locks; rename into the names construct.yaml expects.
@@ -136,12 +153,15 @@ jobs:
           cp LICENSE packaging/staging/LICENSE.txt
           tether_whl="$(ls packaging/staging/tether-*.whl | head -1)"
           tmaven_whl="$(ls packaging/staging/tmaven-*.whl | head -1)"
+          setuptools_whl="$(ls packaging/staging/setuptools-*.whl | head -1)"
           {
             echo "TETHER_VERSION=$(python -c 'import tether._version as v; print(v.__version__)' 2>/dev/null || git describe --tags --always | sed 's/^v//')"
             echo "TETHER_WHEEL=staging/$(basename "$tether_whl")"
             echo "TETHER_WHEEL_NAME=$(basename "$tether_whl")"
             echo "TMAVEN_WHEEL=staging/$(basename "$tmaven_whl")"
             echo "TMAVEN_WHEEL_NAME=$(basename "$tmaven_whl")"
+            echo "SETUPTOOLS_WHEEL=staging/$(basename "$setuptools_whl")"
+            echo "SETUPTOOLS_WHEEL_NAME=$(basename "$setuptools_whl")"
           } >> "$GITHUB_ENV"
 
       - name: Validate the recipe (offline render + schema)
@@ -172,6 +192,16 @@ jobs:
           # envs/tether, the sidecar in envs/sidecar; `base` is only python+conda.
           "$prefix/envs/tether/bin/tether" --version
           "$prefix/envs/sidecar/bin/python" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
+          # Importing tmaven is NOT enough. tMAVEN does `import pkg_resources` inside
+          # `maven_class.__init__`, not at module import, so a sidecar whose setuptools
+          # is >= 81 imports cleanly and then dies at the first idealization — exactly
+          # how issue #212 reached a shipped installer past this smoke. Drive the real
+          # headless entry point the batch runner's startup probe uses: it constructs
+          # maven_class and exits non-zero with a JSON status on failure.
+          "$prefix/envs/sidecar/bin/python" src/tether/idealize/_sidecar_runner.py --probe
+          # And assert the pin itself, so a regression names its cause rather than
+          # surfacing as an opaque probe failure.
+          "$prefix/envs/sidecar/bin/python" -c "import setuptools, pkg_resources; assert tuple(int(p) for p in setuptools.__version__.split('.')[:1]) < (81,), setuptools.__version__; print('sidecar setuptools OK', setuptools.__version__)"
           # The USER-FACING launch surface (ADR-0051). The absolute env paths above
           # prove the envs were built; these prove the app can actually be STARTED,
           # which is the thing an install guide has to document. Exercised through
@@ -210,6 +240,10 @@ jobs:
           # envs\tether, the sidecar in envs\sidecar; `base` is only python+conda.
           "$prefix\\envs\\tether\\python.exe" -m tether --version
           "$prefix\\envs\\sidecar\\python.exe" -c "import tmaven, PyQt5, numpy; assert numpy.__version__ < '2', numpy.__version__; print('sidecar OK', numpy.__version__)"
+          # Importing tmaven is NOT enough — see the Unix smoke for why (issue #212).
+          # Drive the real headless entry point, which constructs maven_class.
+          "$prefix\\envs\\sidecar\\python.exe" src/tether/idealize/_sidecar_runner.py --probe
+          "$prefix\\envs\\sidecar\\python.exe" -c "import setuptools, pkg_resources; assert tuple(int(p) for p in setuptools.__version__.split('.')[:1]) < (81,), setuptools.__version__; print('sidecar setuptools OK', setuptools.__version__)"
           # The USER-FACING launch surface (ADR-0051). The absolute env path above
           # proves the env was built; these prove the app can actually be STARTED.
           prefix_u="$(cygpath -u "$prefix")"

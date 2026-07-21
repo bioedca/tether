@@ -29,6 +29,23 @@ for %%W in ("%WHEELHOUSE%\tether-*.whl") do (
   if errorlevel 1 exit /b 1
 )
 
+rem setuptools<81 -> the sidecar env, BEFORE tMAVEN. tMAVEN's maven_class.__init__
+rem does `import pkg_resources`, which setuptools REMOVED in v81, and the sidecar lock
+rem resolves setuptools 82 — so without this the env builds cleanly and then dies at
+rem the first idealization (issue #212). scripts/setup_sidecar.py applies the same pin
+rem (SETUPTOOLS_PIN) on the source path; this is the installer's equivalent.
+rem
+rem pip is given the wheel by PATH, not by requirement spec, so it downgrades the conda
+rem setuptools rather than reporting "already satisfied".
+if not exist "%WHEELHOUSE%\setuptools-*.whl" (
+  echo ERROR: setuptools wheel not found in %WHEELHOUSE%
+  exit /b 1
+)
+for %%W in ("%WHEELHOUSE%\setuptools-*.whl") do (
+  "%SIDECAR_PY%" -m pip install --no-index --no-deps "%%W"
+  if errorlevel 1 exit /b 1
+)
+
 rem tMAVEN wheel -> the ISOLATED sidecar env (PyQt5/numpy<2); never the GUI env.
 if not exist "%WHEELHOUSE%\tmaven-*.whl" (
   echo ERROR: tmaven wheel not found in %WHEELHOUSE%
@@ -90,5 +107,5 @@ powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
 if errorlevel 1 echo WARNING: could not create the Start Menu shortcut; launch via %BIN_D%\tether-gui.bat
 
 rem Drop the staged wheels; the environments now own the installed packages.
-del "%WHEELHOUSE%\tether-*.whl" "%WHEELHOUSE%\tmaven-*.whl" 2>nul
+del "%WHEELHOUSE%\tether-*.whl" "%WHEELHOUSE%\tmaven-*.whl" "%WHEELHOUSE%\setuptools-*.whl" 2>nul
 exit /b 0
