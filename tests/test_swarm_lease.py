@@ -868,6 +868,15 @@ def test_oversized_stdin_is_rejected_before_unbounded_reading() -> None:
     assert str(ROOT) not in result.stderr
 
 
+def test_multibyte_stdin_is_bounded_by_encoded_size() -> None:
+    result = _run("run-lineage", input_text="é" * 65_537)
+
+    assert result.returncode == 2
+    assert result.stderr.strip() == "error: input exceeds the safe read limit"
+    assert "Traceback" not in result.stderr
+    assert str(ROOT) not in result.stderr
+
+
 @pytest.mark.parametrize("untrusted_key", ["\n::error:: forged", "\ud800"])
 def test_unknown_json_keys_cannot_inject_logs(untrusted_key: str) -> None:
     comment = _comment()

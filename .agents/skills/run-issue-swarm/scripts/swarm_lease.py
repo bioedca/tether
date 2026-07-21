@@ -109,7 +109,7 @@ TERMINAL_STATES = {"completed", "released"}
 ALL_STATES = ACTIVE_STATES | TERMINAL_STATES | {"blocked", "handoff"}
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_GITHUB_ID = 2**63 - 1
-MAX_INPUT_CHARS = 131_072
+MAX_INPUT_BYTES = 131_072
 TEST_CLOCK_ENV = "TETHER_SWARM_ALLOW_TEST_CLOCK"
 RECORD_FIELDS = {
     "version",
@@ -559,7 +559,7 @@ def _extract(text: str) -> dict[str, Any]:
         encoded_length = len(text.encode("utf-8"))
     except UnicodeError as exc:
         raise LeaseError("lease comment is not valid UTF-8 text") from exc
-    if encoded_length > MAX_INPUT_CHARS:
+    if encoded_length > MAX_INPUT_BYTES:
         raise LeaseError("lease comment exceeds the safe parse limit")
     matches = LEASE_RE.findall(text)
     if len(matches) != 1:
@@ -598,7 +598,7 @@ def _extract_run(text: str) -> dict[str, Any]:
         encoded_length = len(text.encode("utf-8"))
     except UnicodeError as exc:
         raise LeaseError("run comment is not valid UTF-8 text") from exc
-    if encoded_length > MAX_INPUT_CHARS:
+    if encoded_length > MAX_INPUT_BYTES:
         raise LeaseError("run comment exceeds the safe parse limit")
     matches = RUN_CONTROL_RE.findall(text)
     if len(matches) != 1:
@@ -637,7 +637,7 @@ def _extract_run_transition(text: str) -> dict[str, Any]:
         encoded_length = len(text.encode("utf-8"))
     except UnicodeError as exc:
         raise LeaseError("run transition is not valid UTF-8 text") from exc
-    if encoded_length > MAX_INPUT_CHARS:
+    if encoded_length > MAX_INPUT_BYTES:
         raise LeaseError("run transition exceeds the safe parse limit")
     matches = RUN_TRANSITION_RE.findall(text)
     if len(matches) != 1:
@@ -676,7 +676,7 @@ def _extract_merge_authority(text: str) -> dict[str, Any]:
         encoded_length = len(text.encode("utf-8"))
     except UnicodeError as exc:
         raise LeaseError("merge authority is not valid UTF-8 text") from exc
-    if encoded_length > MAX_INPUT_CHARS:
+    if encoded_length > MAX_INPUT_BYTES:
         raise LeaseError("merge authority exceeds the safe parse limit")
     matches = MERGE_AUTHORITY_RE.findall(text)
     if len(matches) != 1:
@@ -873,17 +873,18 @@ def _resolve_run_lineage(payload: dict[str, Any]) -> dict[str, Any]:
 def _read(path: str) -> str:
     try:
         if path == "-":
-            text = sys.stdin.read(MAX_INPUT_CHARS + 1)
+            payload = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
         else:
-            with Path(path).open(encoding="utf-8") as stream:
-                text = stream.read(MAX_INPUT_CHARS + 1)
-    except UnicodeError as exc:
-        raise LeaseError("lease input is not valid UTF-8 text") from exc
+            with Path(path).open("rb") as stream:
+                payload = stream.read(MAX_INPUT_BYTES + 1)
     except OSError as exc:
         raise LeaseError("lease input could not be read") from exc
-    if len(text) > MAX_INPUT_CHARS:
+    if len(payload) > MAX_INPUT_BYTES:
         raise LeaseError("input exceeds the safe read limit")
-    return text
+    try:
+        return payload.decode("utf-8")
+    except UnicodeError as exc:
+        raise LeaseError("lease input is not valid UTF-8 text") from exc
 
 
 def _scope_hash(title: str, body: str) -> str:
