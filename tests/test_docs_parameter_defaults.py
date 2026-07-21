@@ -214,6 +214,16 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
         ),
         # Corrections.
         (
+            ("intensity_quantity", "tether.project.leakage"),
+            function_default(
+                "tether.project.leakage", "compute_leakage_alpha", "intensity_quantity"
+            ),
+        ),
+        (
+            ("intensity_quantity", "tether.project.gamma"),
+            function_default("tether.project.gamma", "compute_gamma", "intensity_quantity"),
+        ),
+        (
             ("alpha_override",),
             function_default("tether.project.correct", "compute_corrected_fret", "alpha_override"),
         ),
@@ -297,7 +307,23 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             ),
         ),
         (
-            ("include_rejected",),
+            ("density",),
+            function_default(
+                "tether.analysis.histogram",
+                "population_apparent_e_histogram",
+                "density",
+            ),
+        ),
+        (
+            ("density",),
+            function_default(
+                "tether.analysis.histogram",
+                "population_time_signal_histogram2d",
+                "density",
+            ),
+        ),
+        (
+            ("include_rejected", "tether.analysis"),
             function_default(
                 "tether.analysis.histogram",
                 "population_apparent_e_histogram",
@@ -323,6 +349,10 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             module_constant("tether.analysis.kinetics", "DEFAULT_HMM_MAX_ITER"),
         ),
         (("DEFAULT_HMM_TOL",), module_constant("tether.analysis.kinetics", "DEFAULT_HMM_TOL")),
+        (
+            ("nstates", "tether.analysis.kinetics"),
+            function_default("tether.analysis.kinetics", "fit_gaussian_hmm", "nstates"),
+        ),
         (
             ("DEFAULT_HMM_VAR_FLOOR",),
             module_constant("tether.analysis.kinetics", "DEFAULT_HMM_VAR_FLOOR"),
@@ -352,6 +382,24 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
         (
             ("DEFAULT_SYNC_PREFRAME",),
             module_constant("tether.analysis.histogram", "DEFAULT_SYNC_PREFRAME"),
+        ),
+        (
+            ("from_state",),
+            function_default(
+                "tether.analysis.histogram", "transition_sync_histogram2d", "from_state"
+            ),
+        ),
+        (
+            ("to_state",),
+            function_default(
+                "tether.analysis.histogram", "transition_sync_histogram2d", "to_state"
+            ),
+        ),
+        (
+            ("single_dwell",),
+            function_default(
+                "tether.analysis.histogram", "transition_sync_histogram2d", "single_dwell"
+            ),
         ),
         (("DEFAULT_TDP_NSKIP",), module_constant("tether.analysis.tdp", "DEFAULT_TDP_NSKIP")),
         (
@@ -417,12 +465,36 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             ("DEFAULT_CLOUD_BW_METHOD",),
             module_constant("tether.analysis.cloud", "DEFAULT_CLOUD_BW_METHOD"),
         ),
+        (
+            ("time_range",),
+            function_default("tether.analysis.cloud", "raw_fret_cloud", "time_range"),
+        ),
+        (("kde",), function_default("tether.analysis.cloud", "raw_fret_cloud", "kde")),
         (("DEFAULT_ELBOW_K_MAX",), module_constant("tether.analysis.cloud", "DEFAULT_ELBOW_K_MAX")),
         (
             ("DEFAULT_ELBOW_RESTARTS",),
             module_constant("tether.analysis.cloud", "DEFAULT_ELBOW_RESTARTS"),
         ),
         (("DEFAULT_ELBOW_SEED",), module_constant("tether.analysis.cloud", "DEFAULT_ELBOW_SEED")),
+        (("k_min",), function_default("tether.analysis.cloud", "k_rmse_elbow", "k_min")),
+        (
+            ("in_grid_only",),
+            function_default(
+                "tether.analysis.cloud",
+                "population_fret_cloud_state_number_elbow",
+                "in_grid_only",
+            ),
+        ),
+        (
+            ("DEFAULT_ALPHA_FACTOR",),
+            module_constant("tether.analysis.cloud", "DEFAULT_ALPHA_FACTOR"),
+        ),
+        (
+            ("in_grid_only",),
+            function_default(
+                "tether.analysis.cloud", "population_fret_cloud_alpha_shape", "in_grid_only"
+            ),
+        ),
         (
             ("DEFAULT_ANTICORR_WINDOW",),
             module_constant("tether.analysis.anticorrelation", "DEFAULT_ANTICORR_WINDOW"),
@@ -449,6 +521,14 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             module_constant("tether.analysis.plot_export", "DEFAULT_PLOT_FORMATS"),
         ),
         # Curation ranker.
+        (
+            ("intensity_quantity", "tether.project.features"),
+            function_default("tether.project.features", "compute_features", "intensity_quantity"),
+        ),
+        (
+            ("include_rejected", "tether.project.features"),
+            function_default("tether.project.features", "compute_features", "include_rejected"),
+        ),
         (("DEFAULT_SEED_WEIGHT",), module_constant("tether.ml.weighting", "DEFAULT_SEED_WEIGHT")),
         (("DEFAULT_DRIFT_ALPHA",), module_constant("tether.ml.drift", "DEFAULT_DRIFT_ALPHA")),
         (
@@ -485,6 +565,12 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
         ),
         # Optional deep add-on.
         (
+            ("intensity_quantity", "tether.project.deep_dataset"),
+            function_default(
+                "tether.project.deep_dataset", "build_deep_dataset", "intensity_quantity"
+            ),
+        ),
+        (
             ("DEFAULT_DEEP_CHANNELS",),
             module_constant("tether.ml.deep.dataset", "DEFAULT_DEEP_CHANNELS"),
         ),
@@ -501,6 +587,10 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             module_constant("tether.ml.deep.dataset", "DEFAULT_VAL_FRACTION"),
         ),
         (("DEFAULT_SPLIT_SEED",), module_constant("tether.ml.deep.dataset", "DEFAULT_SPLIT_SEED")),
+        (
+            ("stratify",),
+            function_default("tether.ml.deep.dataset", "train_val_split", "stratify"),
+        ),
         (("DEFAULT_EPOCHS",), module_constant("tether.ml.deep.model", "DEFAULT_EPOCHS")),
         (("DEFAULT_BATCH_SIZE",), module_constant("tether.ml.deep.model", "DEFAULT_BATCH_SIZE")),
         (
