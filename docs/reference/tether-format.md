@@ -165,8 +165,14 @@ The rest of this page describes the native-extraction case unless it says otherw
 | Analysis-only import | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) | No `/movies` rows, `movie_id = ""`, `donor_xy`/`acceptor_xy` `NaN`, `/patches` empty, only the two corrected `/traces` layers. |
 | Subset export | `export_subset_tether` (`src/tether/project/export.py`) | A new store: `/molecules` rows copied verbatim (so `movie_id` survives as a **dangling** key), no `/movies` rows, corrected `/traces` only unless `include_raw=True`. |
 
-Groups and datasets are created with `track_order=True`, so links are stored in
-creation order; note that `h5py.Group.visit` iterates **alphabetically** regardless.
+`create_project` opens the file with `track_order=True` and creates every skeleton
+group with it, and the later `/settings/*`, `/calibration/<id>` and
+`/conditions/categories` writers do the same, so those links are stored in creation
+order. The promise is **not** store-wide: the per-model `/idealization/<name>` groups
+and the `priors` subgroup inside them are created without `track_order`
+(`write_idealization_model`, `src/tether/project/idealize.py`; the copy in
+`_copy_idealization`, `src/tether/project/export.py`), so their members fall back to
+HDF5's default ordering. Either way, `h5py.Group.visit` iterates **alphabetically**.
 
 ## Type notation used below
 
@@ -413,11 +419,15 @@ Whichever are present are `(n_molecules, max_T)`, dtype **float32**
 gzip-compressed, with `maxshape=(None, None)`. **Do not assume all six exist** — see
 the zero-molecule case above and the last two bullets below.
 
-- **The time axis is zero-padded to the longest movie in the store.** Appending a
-  shorter movie leaves zeros past its end; appending a longer one grows the axis and
-  zero-fills the tail of every existing row (`_append_padded_2d`). The valid extent
-  of row `i` is `/molecules.frame_range[i]` — use it, do not infer it from where the
-  zeros start.
+- **In a natively appended store the time axis is zero-padded to the longest movie in
+  that store.** Appending a shorter movie leaves zeros past its end; appending a
+  longer one grows the axis and zero-fills the tail of every existing row
+  (`_append_padded_2d`). A **subset export** instead inherits the *source* store's
+  width — `_copy_trace_layers` copies `ds[rows]` with the source dataset's full second
+  dimension (`src/tether/project/export.py`) — so a subset's width need not match the
+  longest movie behind its own molecules, and it has no `/movies` rows to check
+  against. In every case the valid extent of row `i` is `/molecules.frame_range[i]` —
+  use it, do not infer it from where the zeros start.
 - Row order matches `/molecules/table` exactly.
 - The time axis unit is **frames**; seconds-per-frame lives only in
   `/movies.frame_time`.
