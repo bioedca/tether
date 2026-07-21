@@ -85,8 +85,16 @@ excluded from the freeze — only `format` and `schema_version` have their value
 (`_VALUE_ATTRS` in `tether.io.schema`), so the stamp changes every release without failing
 `schema-guard`. The attribute itself is in the manifest as `{"dtype": "str"}`: removing it
 fails with `frozen attribute removed: /@app_version`, and retyping it fails naming the
-dtype change. A reader of `.tether` files may therefore rely on `/@app_version` being
-present and a string; the version it carries is not a covered value.
+dtype change.
+
+What that freezes is the **writer**, not every file. `create_project(path,
+stamp_app_version=False)` is on the covered list and deliberately omits the attribute,
+and `assert_is_compatible_project` does not look for it — a project written that way is
+a complete, valid `.tether`. So read the stamp as *optional, string-typed when present*
+(`f.attrs.get("app_version")`), not as guaranteed; rejecting a file for its absence
+would reject output the stable API is documented to produce. What is frozen is that a
+build which stamps it writes a string under that name, and that the name is never
+removed or retyped. The version it carries is not a covered value.
 
 See [Project file compatibility](#project-file-compatibility) below for what happens across
 versions.
@@ -156,14 +164,27 @@ it is cheap to say yes to a concrete request and expensive to say yes to a blank
 ## Project file compatibility
 
 The on-disk contract in one line: **`schema_version` is monotonic and additive-only; older
-files open in newer apps; newer files never open in older apps.**
+files open in newer apps; a file stamped with a newer `schema_version` never opens in an
+older app.**
 
 | Rule | What it means |
 |---|---|
 | Monotonic | `schema_version` only ever increases. `SCHEMA_VERSION` is currently **1** (`tether.io.schema`). |
-| Additive-only | A new release may add a group, a dataset, or a field *appended to the end of* a compound dtype. It may not remove, rename, retype or reorder one. |
+| Additive-only | A new release may add a group, a dataset, or a field *appended to the end of* a compound dtype. It may not remove, rename, retype or reorder one. Whatever is added has to be **optional on read**: a project written by an earlier `1.x` will not contain it, so a newer app must treat it as absent-or-defaulted rather than assume it. |
 | Structural changes are deliberate | A change that is not purely additive requires an ADR, a `schema_version` bump, and a regenerated `schema/schema_frozen.json` in the same pull request. `schema-guard` fails the PR otherwise. |
-| Forward-only | A file written by a newer Tether is refused by an older one, loudly. There is no downgrade path and no partial read. |
+| Forward-only | A file stamped with a `schema_version` newer than the running app's is refused, loudly. There is no downgrade path and no partial read. |
+
+> **What "forward-only" does and does not promise.** The check is `schema_version`, and
+> only `schema_version`: `assert_compatible` compares the file's stamp against the running
+> app's `SCHEMA_VERSION` and never reads `app_version` (whose value is deliberately
+> unfrozen). So the promise is "a file stamped newer never opens in an older app" — not
+> "an older app never sees bytes a newer app wrote". A purely additive release that adds a
+> group, a dataset or an appended field *without* bumping the stamp is deliberately not
+> refused, and that is the point of additive-only: the older app still finds the whole
+> skeleton it declares, ignores the structure it does not know about, and the new data sits
+> out of its way rather than being misread. Anything an older app could **not** safely
+> ignore is by definition not additive, and a non-additive change carries a `schema_version`
+> bump under the rule above — which is what puts it back behind the refusal.
 
 ### Older files in newer apps
 
@@ -176,6 +197,16 @@ older file fail that presence check. Any such bump must therefore also make the 
 structure optional for files stamped at the older version. It has not come up —
 `SCHEMA_VERSION` is still 1 and every group in the skeleton was forward-declared empty at
 M0 precisely so that later milestones add *data*, not structure.
+
+The same constraint applies one level down, where no guard can see it.
+`assert_is_compatible_project` validates the *top-level* skeleton only (`_missing_skeleton`),
+so a dataset added inside `/traces` or `/models`, or a field appended to a frozen compound
+dtype, is invisible to it: an older file passes validation cleanly and then a reader that
+assumed the new thing is there fails on real data. Additive **data** therefore carries the
+same obligation as additive structure — read it defensively (`group.get(name)`,
+`name in table.dtype.names`), or backfill a default, or bump `schema_version` and migrate.
+Making newly added data *required* is a break of the older-files promise, not an addition,
+and is not permitted inside `1.x` without the bump.
 
 ### Newer files in older apps
 
@@ -255,9 +286,9 @@ at any time and are owed no deprecation period at all — that is what "not cove
 | Question | Answer |
 |---|---|
 | How long does a deprecated name survive? | **At least two further minor releases, and in practice the rest of the `1.x` line.** A covered name deprecated in `1.4.0` still works in `1.5.0`, `1.6.0` and every later `1.x`. It is removed only in `2.0.0`, and `2.0.0` will not be tagged sooner than two minor releases after the deprecation is announced. Removing a covered name inside `1.x` is not permitted, whatever notice was given. |
-| Is a `DeprecationWarning` raised? | **Yes, and at call time rather than import time** — but note that none of this machinery exists yet. A deprecated function or method **will raise** `DeprecationWarning` when it is called; a deprecated constant or module attribute **will raise** it on attribute access, via a module-level `__getattr__` ([PEP 562](https://peps.python.org/pep-0562/)). Importing an unrelated part of `tether` will never emit one. The message will name the release that deprecated the name and the replacement to use, or say plainly that there is no replacement. There is no deprecation helper, decorator or `__getattr__` in `src/` today; it will be written with the first deprecation. |
+| Is a `DeprecationWarning` emitted? | **Yes, and at call time rather than import time** — but note that none of this machinery exists yet. A deprecated function or method **emits** a `DeprecationWarning` through `warnings.warn` and then does what it always did; a deprecated constant or module attribute emits one on attribute access, via a module-level `__getattr__` ([PEP 562](https://peps.python.org/pep-0562/)), and still returns its value. The warning is emitted, never raised: a deprecated name keeps working for the rest of `1.x`, so a caller who ignores the warning is not broken by it. Importing an unrelated part of `tether` will never emit one. The message will name the release that deprecated the name and the replacement to use, or say plainly that there is no replacement. There is no deprecation helper, decorator or `__getattr__` in `src/` today; it will be written with the first deprecation. |
 | Where is it announced? | **The GitHub release notes** for the release that introduces the deprecation, at [github.com/bioedca/tether/releases](https://github.com/bioedca/tether/releases). There is no `CHANGELOG.md` in this repository, so do not go looking for one. Note the current state: the repository has nine tags and **no published Releases** — release notes begin with the first tag cut through the signed [release pipeline](release.md). |
-| Does the `2.0.0` release note list the removals? | The notes are generated mechanically from Conventional-Commit subjects (`release.yml`), and the generator emits seven fixed groups — Features, Bug fixes, Performance, Documentation, Refactoring, Build & packaging, CI. There is no breaking-changes group, and a `feat!:` subject is folded into **Features**. So a removal appears in the notes, but not under a heading that sets it apart. Commits that deprecate or remove a covered name use `feat!:` so they are at least greppable in the changelog. |
+| Does the `2.0.0` release note list the removals? | The notes are generated mechanically from Conventional-Commit subjects (`release.yml`), and the generator emits seven fixed groups — Features, Bug fixes, Performance, Documentation, Refactoring, Build & packaging, CI. There is no breaking-changes group, and a `feat!:` subject is folded into **Features**. So a removal appears in the notes, but not under a heading that sets it apart. `feat!:` marks the break itself — the `2.0.0` commit that actually removes a covered name; the [pull-request template](https://github.com/bioedca/tether/blob/main/.github/pull_request_template.md) likewise reserves `!` / `BREAKING CHANGE:` for a deliberate breaking change, and a deprecated name that still works is not one. A deprecation ships as an ordinary `feat:` or `docs:` commit whose subject names the deprecated symbol, so search the notes for the symbol rather than for a `!`. |
 
 Python hides `DeprecationWarning` by default outside `__main__`. To see them in a script or
 a batch job, run with `python -W default::DeprecationWarning`; `pytest` shows them by

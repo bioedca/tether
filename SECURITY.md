@@ -11,18 +11,24 @@ new tag cut from it. Older `0.x` tags are not back-patched.
 patch release. Older `1.x` releases are not back-patched; upgrade to the latest
 `1.x`. By policy that upgrade keeps your `.tether` projects readable and keeps
 the `tether` command line and the small covered Python API working — see the
-[stability policy](https://bioedca.github.io/tether/latest/stability/) for
+stability policy ([`docs/stability.md`](docs/stability.md) in this repository;
+published at `/stability/` on the [documentation
+site](https://bioedca.github.io/tether/) once that release is deployed) for
 exactly which names are covered. Anything outside that list may change in any
 release, so pin your version if you script against it. At that point the `0.x`
 development line becomes end-of-life.
 
-| Version                 | Supported          |
-|-------------------------|--------------------|
-| `main` (latest)         | :white_check_mark: |
-| `v0.8.0` (latest tag)   | :white_check_mark: |
-| older `0.x` tags        | :x:                |
-| `1.x` (once released)   | :white_check_mark: |
-| older `1.x` tags        | :x:                |
+The table below is read against that changeover: the `0.x` rows apply until
+`v1.0.0` is tagged, the `1.x` rows from then on. No release line is supported on
+both sides of it.
+
+| Version                 | Supported                             |
+|-------------------------|---------------------------------------|
+| `main` (latest)         | :white_check_mark: always              |
+| `v0.8.0` (latest tag)   | :white_check_mark: until `v1.0.0`; :x: after |
+| older `0.x` tags        | :x:                                    |
+| `1.x` (latest release)  | :white_check_mark: once `v1.0.0` ships |
+| older `1.x` tags        | :x:                                    |
 
 ## Reporting a vulnerability
 
