@@ -590,9 +590,12 @@ def test_both_build_drivers_export_every_extra_files_env_var() -> None:
     ``preconda.copy_extra_files`` raises ``FileNotFoundError`` on it. packaging.yml (advisory) and
     release.yml (the leg that ships installers to users) duplicate the same build recipe, so a wheel
     added to the recipe and staged in only one of them breaks the other -- and release.yml has no
-    install-smoke to catch it, so the breakage would first surface on a signed tag. Same drift
-    class, and same remedy, as ``test_every_setup_micromamba_call_site_pins_the_same_version``
-    (issue #212).
+    install-smoke to catch it, so the only thing that fails is the ``constructor`` build itself. A
+    ``workflow_dispatch`` dry run does exercise that build (``dry_run`` defaults true; only the
+    signed-tag check and the publish steps are gated on ``publish == 'true'``), so a maintainer who
+    dry-runs first would see it -- but nothing on the tag path catches it earlier, and there the
+    failure lands mid-release. Same drift class, and same remedy, as
+    ``test_every_setup_micromamba_call_site_pins_the_binary`` (issue #212).
     """
     recipe = CONSTRUCT_RECIPE.read_text(encoding="utf-8")
     extra_files = recipe.split("extra_files:", 1)[1].split("\nlicense_file:", 1)[0]

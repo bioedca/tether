@@ -119,12 +119,13 @@ jobs:
 
       - name: Stage the setuptools<81 wheel (restores pkg_resources in the sidecar)
         # tMAVEN's `maven_class.__init__` does `import pkg_resources`, which setuptools
-        # 81.0.0 DEPRECATED (still shipped, `UserWarning`) and 82.0.0 REMOVED — and
-        # sidecar/conda-lock.yml resolves setuptools 82.0.1 on every platform, i.e. past
-        # the removal. The source path handles this with scripts/setup_sidecar.py's
-        # SETUPTOOLS_PIN, applied by pip after the env is created; the installer had no
-        # equivalent, so an installed app built the sidecar env fine and then failed at
-        # the FIRST idealization (issue #212). Bundle the pin as a third offline wheel.
+        # DEPRECATED by 80.9.0 (still SHIPPED through 81.0.0, `UserWarning` on import) and
+        # REMOVED in 82.0.0 — and sidecar/conda-lock.yml resolves setuptools 82.0.1 on
+        # every platform, i.e. past the removal. The source path handles this with
+        # scripts/setup_sidecar.py's SETUPTOOLS_PIN, applied by pip after the env is
+        # created; the installer had no equivalent, so an installed app built the sidecar
+        # env fine and then failed at the FIRST idealization (issue #212). Bundle the pin
+        # as a third offline wheel.
         # The bound is `<81`, not `<82`, because that is the bound setuptools' own
         # deprecation warning names ("pin to Setuptools<81") — one release of headroom.
         #

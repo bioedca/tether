@@ -85,11 +85,12 @@ extra_envs:
 # this construct.yaml directory; the build driver sets the env vars.
 #
 # The third wheel is DOWNLOADED: `setuptools<81`. tMAVEN's `maven_class.__init__`
-# imports `pkg_resources`, which setuptools 81.0.0 deprecated and 82.0.0 removed,
-# while sidecar/conda-lock.yml resolves 82.0.1 — so the sidecar env needs the older
-# setuptools laid over it or the first idealization fails (issue #212). The `<81`
-# bound is the one setuptools' own deprecation warning names. It is a pure-Python
-# `py3-none-any` wheel, so the same file serves every platform.
+# imports `pkg_resources`, which setuptools deprecated by 80.9.0 (still shipped
+# through 81.0.0) and removed in 82.0.0, while sidecar/conda-lock.yml resolves
+# 82.0.1 — so the sidecar env needs the older setuptools laid over it or the first
+# idealization fails (issue #212). The `<81` bound is the one setuptools' own
+# deprecation warning names. It is a pure-Python `py3-none-any` wheel, so the same
+# file serves every platform.
 extra_files:
   - {{ environ.get("TETHER_WHEEL", "staging/tether.whl") }}: wheelhouse/{{ environ.get("TETHER_WHEEL_NAME", "tether.whl") }}
   - {{ environ.get("TMAVEN_WHEEL", "staging/tmaven.whl") }}: wheelhouse/{{ environ.get("TMAVEN_WHEEL_NAME", "tmaven.whl") }}

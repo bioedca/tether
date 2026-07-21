@@ -23,12 +23,12 @@ SIDECAR_PY="$PREFIX/envs/sidecar/bin/python"
 "$TETHER_PY" -m pip install --no-index --no-deps "$WHEELHOUSE"/tether-*.whl
 
 # setuptools<81 -> the sidecar env, BEFORE tMAVEN. tMAVEN's `maven_class.__init__`
-# does `import pkg_resources`, which setuptools 81.0.0 DEPRECATED and 82.0.0 REMOVED,
-# and the sidecar lock resolves setuptools 82.0.1 — so without this the env builds
-# cleanly and then dies at the first idealization (issue #212). `<81` rather than `<82`
-# is the bound setuptools' own deprecation warning names. scripts/setup_sidecar.py
-# applies the same pin (SETUPTOOLS_PIN) on the source path; this is the installer's
-# equivalent.
+# does `import pkg_resources`, which setuptools DEPRECATED by 80.9.0 (still shipped
+# through 81.0.0) and REMOVED in 82.0.0, and the sidecar lock resolves setuptools 82.0.1
+# — so without this the env builds cleanly and then dies at the first idealization
+# (issue #212). `<81` rather than `<82` is the bound that setuptools' own deprecation
+# warning names ("pin to Setuptools<81"). scripts/setup_sidecar.py applies the same pin
+# (SETUPTOOLS_PIN) on the source path; this is the installer's equivalent.
 #
 # pip is given the wheel by PATH, not by requirement spec, so it downgrades the conda
 # setuptools rather than reporting "already satisfied". Ordering is deliberate: tMAVEN's

@@ -30,10 +30,11 @@ for %%W in ("%WHEELHOUSE%\tether-*.whl") do (
 )
 
 rem setuptools<81 -> the sidecar env, BEFORE tMAVEN. tMAVEN's maven_class.__init__
-rem does `import pkg_resources`, which setuptools 81.0.0 DEPRECATED and 82.0.0 REMOVED,
-rem and the sidecar lock resolves setuptools 82.0.1 — so without this the env builds
-rem cleanly and then dies at the first idealization (issue #212). `<81` rather than
-rem `<82` is the bound setuptools' own deprecation warning names.
+rem does `import pkg_resources`, which setuptools DEPRECATED by 80.9.0 (still shipped
+rem through 81.0.0) and REMOVED in 82.0.0, and the sidecar lock resolves setuptools
+rem 82.0.1 — so without this the env builds cleanly and then dies at the first
+rem idealization (issue #212). `<81` rather than `<82` is the bound that setuptools'
+rem own deprecation warning names ("pin to Setuptools<81").
 rem scripts/setup_sidecar.py applies the same pin (SETUPTOOLS_PIN) on the source path;
 rem this is the installer's equivalent.
 rem

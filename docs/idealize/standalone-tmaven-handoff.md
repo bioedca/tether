@@ -26,9 +26,9 @@ command. It encodes the two things that live **outside** the committed
 1. **tMAVEN itself** — the GPL reference app, driven over IPC and installed from a pinned
    git commit (it is not a conda-lock dependency); and
 2. **`setuptools<81`** — tMAVEN imports the legacy `pkg_resources` API at runtime, which
-   setuptools 81.0.0 deprecated and 82.0.0 removed, so it must be pinned back into the
-   sidecar env. `<81` rather than `<82` is the bound setuptools' own deprecation warning
-   names.
+   setuptools deprecated by 80.9.0 (still shipped through 81.0.0) and removed in 82.0.0,
+   so it must be pinned back into the sidecar env. `<81` rather than `<82` is the bound
+   that setuptools' own deprecation warning names ("pin to Setuptools<81").
 
 The script runs three phases — **create** the env from the lock, **install** tMAVEN +
 `setuptools<81`, then **probe** liveness (import and instantiate `maven_class`, no fit) —

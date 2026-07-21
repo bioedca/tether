@@ -179,16 +179,16 @@ jobs:
 
       - name: Stage the setuptools<81 wheel (restores pkg_resources in the sidecar)
         # tMAVEN's `maven_class.__init__` does `import pkg_resources`, which setuptools
-        # 81.0.0 DEPRECATED (still shipped) and 82.0.0 REMOVED, while sidecar/conda-lock.yml
-        # resolves 82.0.1 on every platform — so the installed sidecar needs the pin laid
-        # over it or the first idealization fails (issue #212). `<81` rather than `<82` is
-        # the bound setuptools' own deprecation warning names. Mirrors packaging.yml:
-        # `extra_files` in construct.yaml is unconditional, so without this step
-        # constructor aborts with FileNotFoundError. setuptools publishes a pure-Python
-        # `py3-none-any` wheel, so ONE file serves all four platforms. Block scalar, not
-        # an inline value: the trailing colon of `--only-binary=:all:` plus the following
-        # space form a YAML `key: value` separator mid-line and the parser rejects the
-        # step outright (`ScannerError`).
+        # DEPRECATED by 80.9.0 (still shipped through 81.0.0) and REMOVED in 82.0.0, while
+        # sidecar/conda-lock.yml resolves 82.0.1 on every platform — so the installed
+        # sidecar needs the pin laid over it or the first idealization fails (issue #212).
+        # `<81` rather than `<82` is the bound that setuptools' own deprecation warning
+        # names. Mirrors packaging.yml: `extra_files` in construct.yaml is unconditional,
+        # so without this step constructor aborts with FileNotFoundError. setuptools
+        # publishes a pure-Python `py3-none-any` wheel, so ONE file serves all four
+        # platforms. Block scalar, not an inline value: the trailing colon of
+        # `--only-binary=:all:` plus the following space form a YAML `key: value`
+        # separator mid-line and the parser rejects the step outright (`ScannerError`).
         run: |
           python -m pip download --only-binary=:all: --no-deps \
             -d packaging/staging "setuptools<81"
