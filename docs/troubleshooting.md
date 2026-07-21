@@ -564,10 +564,14 @@ whether that has already happened.
 step downgrades it after the env is created. Do not go looking for the pin in the lock file or
 the workflow — `.github/workflows/sidecar.yml` just calls the script.
 
-*Sidecar that came with the installer.* The pin is **not** applied. `envs/sidecar` is
-materialised straight from the rendered `sidecar/conda-lock.yml` (so setuptools `82.0.1`), and
-the constructor `post_install` scripts pip-install only the bundled `tmaven-*.whl` — they never
-touch setuptools. Downgrade it yourself with the sidecar's own interpreter (needs network):
+*Sidecar that came with the installer.* The pin is applied for you. `envs/sidecar` is
+materialised from the rendered `sidecar/conda-lock.yml`, which resolves setuptools `82.0.1`,
+so the installer bundles `setuptools<81` as a third offline wheel and the `post_install`
+script lays it over that env before installing tMAVEN. You should not see this error on an
+installed app; if you do, it is a bug worth reporting.
+
+*Environment you built by hand.* Nothing applies the pin, so downgrade it yourself with the
+sidecar's own interpreter (needs network):
 
 ```text
 # Linux / macOS
@@ -577,9 +581,9 @@ touch setuptools. Downgrade it yourself with the sidecar's own interpreter (need
 <install-prefix>\envs\sidecar\python.exe -m pip install "setuptools<81"
 ```
 
-Same command for an environment you built by hand; then re-run the liveness probe or the
-idealization. This affects the **sidecar** environment only — Tether's base environment does
-not import `pkg_resources`.
+Then re-run the liveness probe or the idealization. The same command is the recovery step if
+you have upgraded setuptools inside `envs/sidecar` yourself. This affects the **sidecar**
+environment only — Tether's base environment does not import `pkg_resources`.
 
 ### Idealization times out, or is restarted repeatedly
 
