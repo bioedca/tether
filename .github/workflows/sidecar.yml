@@ -14,8 +14,12 @@
 # The parity gate is layered:
 #   * PR-facing, pure (always required): the base `test` matrix runs
 #     `tests/test_parity.py`, which asserts the FROZEN JSON against its own recorded
-#     evidence (top-level + per-method) — no sidecar, gates every PR, catches a
-#     tampered/loosened tolerance.
+#     evidence (top-level + per-method) — no sidecar, gates every PR. It catches a
+#     tolerance TIGHTENED below its own evidence, and evidence deleted or truncated
+#     from under a bound; it does NOT catch a LOOSENED one, since widening a bound
+#     only leaves the recorded values further inside it. Loosening is held by review
+#     plus the deliberate re-freeze rule (`$.freeze_policy`, PRD §11.2, ADR-0009).
+#     See docs/validation.md, "(b) Idealization parity vs tMAVEN".
 #   * Live (this workflow): drives the real fits vs the frozen tolerance, which needs
 #     the heavy sidecar env + tMAVEN.
 #

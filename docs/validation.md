@@ -204,7 +204,14 @@ The pin every live assertion uses is `10f4230b6d13c6d2ad67b05d801696b4a40eff4a` 
 > rather than on the committed `model_281mol.hdf5` that the default row was measured against
 > and that the live gate asserts. The faithful invocation is the one in that script's own
 > docstring — `scripts/measure_parity.py --n-runs 20` with **no** `--cross-seed`, which the
-> script permits for `--model-type vbconhmm` — run in the pinned sidecar interpreter.
+> script permits for `--model-type vbconhmm` — run with `TETHER_SIDECAR_PYTHON` pointed at the
+> pinned sidecar build. (The script itself runs under the base interpreter; only the fits
+> execute in the sidecar, which `tether.idealize.driver` spawns from that variable.) Two
+> caveats on that command: `--out` defaults to `schema/parity_tolerance.json`, and the dict the
+> script writes carries no `tolerance_by_method`, `measured_by_method` or `build_provenance`
+> key — so running it as written overwrites the committed artifact and takes the ebFRET freeze
+> with it, after which `test_per_method_tolerances_cover_their_own_measured_evidence` fails.
+> Point `--out` at a scratch file and merge the per-method blocks back by hand.
 
 **Enforcing tests.** Live fits are `tests/test_parity_sidecar.py`
 (`pytestmark = pytest.mark.sidecar`, so deselected from the 3-OS matrix and run instead by
@@ -215,8 +222,9 @@ pull request touching an idealization path, and reports a "not applicable" pass 
 `test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance`. On the required matrix,
 `tests/test_parity.py` checks the artifact against itself:
 `test_frozen_artifact_covers_its_own_measured_evidence` requires *every* recorded per-run
-value to satisfy `$.tolerance` and pins `$.provisional` to the `PROVISIONAL` constant in
-`src/tether/idealize/parity.py`, and
+value to satisfy `$.tolerance` and requires `$.provisional` to still equal the `PROVISIONAL`
+constant in `src/tether/idealize/parity.py` — a *drift* check between the two, not a pin to
+the literal §11.2 numbers, and
 `test_per_method_tolerances_cover_their_own_measured_evidence` requires every per-method
 tolerance to carry the four bounds and to be satisfied by its own recorded evidence.
 
@@ -232,13 +240,15 @@ their declared direction, and each summary's `n`/`min`/`max`/`mean`/`worst` is r
 from its own `values` list with the production `SpreadSummary`. So on every pull request
 these two tests fail on a bound **tightened** below its own evidence, on a deleted fixture,
 on a dropped or truncated run — including one removed cleanly with every summary statistic
-recomputed — on an altered `$.provisional`, and on a per-method tolerance with no
-`measured_by_method` entry. They do **not** fail on a **loosened** bound: widening a ceiling
-or lowering a floor leaves every recorded value comfortably inside it. The live `sidecar / parity` arm cannot catch that
+recomputed — on a `$.provisional` that has drifted from `PROVISIONAL`, and on a per-method
+tolerance with no `measured_by_method` entry. They do **not** fail on a **loosened** bound:
+widening a ceiling or lowering a floor leaves every recorded value comfortably inside it. Nor
+do they fail on a pull request that edits `$.provisional` and `PROVISIONAL` *in lockstep* —
+only one of them alone. The live `sidecar / parity` arm cannot catch a loosened bound
 either — a looser tolerance only makes its assertions easier to pass — and nothing pins
-`$.tolerance` to its committed values. The freeze is therefore protected in the loosening
-direction by review plus the deliberate re-freeze rule (`$.freeze_policy`, PRD §11.2, ADR-0009),
-not by a test.
+`$.tolerance` or `$.provisional` to their committed values. The freeze is therefore
+protected in the loosening direction by review plus the deliberate re-freeze rule
+(`$.freeze_policy`, PRD §11.2, ADR-0009), not by a test.
 
 > Gap, stated plainly. PRD §8 asks for per-trace **vbFRET** parity on the small fixtures as
 > well as the consensus fit. `$.coverage.measured_methods` records only
