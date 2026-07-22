@@ -5,9 +5,12 @@ built and published by [`.github/workflows/release.yml`](https://github.com/bioe
 (see [ADR-0050](adr/0050-release-pipeline-and-code-signing.md)). The pipeline runs on a
 signed `v*` tag: it **verifies** the tag, **builds** the installers (the
 [constructor recipe](packaging.md)), **code-signs** them, and **publishes** a GitHub
-Release with checksums, a CycloneDX SBOM, the frozen base, sidecar, and deep conda locks,
-a Conventional-Commits changelog and a build-provenance attestation. The deep lock is a
-standalone reproducibility asset; the deep environment is not bundled into the desktop installers.
+Release with checksums, a CycloneDX SBOM, the frozen Tether GUI/runtime (`conda-lock.yml`), sidecar
+(`sidecar-conda-lock.yml`), and deep (`deep-conda-lock.yml`) source-lock assets, a
+Conventional-Commits changelog, and a build-provenance attestation. Constructor consumes the first
+two as its `tether` and `sidecar` extra environments; its own `base` is a live-solved Python + conda
+bootstrap excluded from that reproducibility bill of materials. The deep lock is standalone; the
+deep environment is not bundled into the desktop installers.
 
 Code-signing is **gated on repository variables**, so the pipeline is green before any
 signing credential exists. Until you complete the setup below, the installers ship

@@ -67,12 +67,15 @@ until the maintainer enrolls:
   holds bioedca's registered SSH signing key), and whose commit is an ancestor of
   `origin/main`. A `workflow_dispatch` **dry-run** builds + signs + checksums but does not
   publish, satisfying the §9 M9 "dry-run on a pre-release tag first" clause.
-- **Release assets** — the signed installers, per-platform + combined `SHA256SUMS`, a
-  CycloneDX SBOM, and the frozen base, sidecar, and deep source locks (the authoritative
-  reproducibility bill-of-materials), a Conventional-Commits changelog, and an
-  `actions/attest-build-provenance` attestation over the installers. Constructor consumes only
-  the base and sidecar locks; the deep lock recreates ADR-0047's optional environment and does not
-  place that environment in the installers.
+- **Release assets** — the signed installers, per-platform + combined `SHA256SUMS`, a CycloneDX
+  SBOM, and the frozen Tether GUI/runtime (`conda-lock.yml`), sidecar
+  (`sidecar-conda-lock.yml`), and deep (`deep-conda-lock.yml`) source-lock assets (the authoritative
+  reproducibility bill of materials), a Conventional-Commits changelog, and an
+  `actions/attest-build-provenance` attestation over the installers. Constructor consumes rendered
+  forms of the GUI/runtime and sidecar locks as its `tether` and `sidecar` extra environments; its
+  own `base` is the live-solved Python + conda bootstrap and is excluded from that bill of materials.
+  The deep lock recreates ADR-0047's optional environment and does not place that environment in the
+  installers.
 
 ### Consequences
 
