@@ -58,11 +58,11 @@ compatible clarifications require an explicitly labeled amendment. Update the ex
 Copilot is optional, best-effort feedback and its availability or quota never blocks a worker slot or
 merge. Every low, standard, and high lane instead requires a substantive PR diff review or walkthrough
 bound to the final head SHA from Codex GitHub Code Review or CodeRabbit; low and standard may select
-either, while high/load-bearing changes require CodeRabbit after the stable diff is green. Applicable
-qualified human/domain review remains separate. Author-side or local review, a status/check alone,
+either, while high/load-bearing changes require CodeRabbit after the stable diff is green. Qualified
+human/domain review is required when scientific, security, or release judgment is material. Author-side or local review, a status/check alone,
 denial, provider unavailability, or a summary without a diff walkthrough is not independent review
-evidence. Every head change invalidates the universal final-head review; a material change also requires
-every affected layer again. Every conversation and every actionable finding is resolved. CodeRabbit quota
+evidence. Any head change invalidates final-head review evidence; a material change requires every affected
+review layer again. Every conversation and every actionable finding is resolved. CodeRabbit quota
 occupies the slot only when CodeRabbit is required or selected.
 
 Workers remain PR-ready producers and never merge. Under explicit run-scoped `merge` authority, only the coordinator

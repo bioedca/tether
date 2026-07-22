@@ -135,13 +135,14 @@ The protocol rationale and invariants are recorded in
 - The coordinator alone routes external reviews. Copilot is optional and best-effort; record whether it
   was not requested, unavailable, quota-exhausted, pending, or complete, but it never blocks a slot or
   merge. Low and standard lanes select Codex GitHub Code Review or CodeRabbit; high/load-bearing lanes
-  require CodeRabbit after the stable diff is green. Accept only a substantive PR diff walkthrough from
-  Codex GitHub Code Review or CodeRabbit, bound to the final head SHA. For either provider, refetch the
+  require CodeRabbit after the stable diff is green. Qualified human/domain review is required when
+  scientific, security, or release judgment is material. Accept only a substantive PR diff walkthrough from Codex
+  GitHub Code Review or CodeRabbit, bound to the final head SHA. For either provider, refetch the
   expected reviewer identity, server-bound reviewed
   commit/head, and walkthrough before accepting evidence. Author-side `/review`, local CodeRabbit output,
   a status/check alone, denial, provider unavailability, or a summary without a diff walkthrough never
-  satisfies that independent gate. Resolve every conversation and every actionable finding; any head
-  change invalidates the SHA binding, and a material change requires each affected layer again.
+  satisfies that independent gate. Resolve every conversation and every actionable finding. Any head
+  change invalidates final-head review evidence; a material change requires every affected review layer again.
 - When CodeRabbit is required or selected, keep one durable PR comment keyed by
   `(repository, PR, head SHA)` with marker `<!-- tether-coderabbit-queue RECORD -->`; `RECORD` contains
   version, head SHA, state (`queued|triggered|rate-limited|complete`), attempt time, and retry time.
@@ -167,7 +168,8 @@ The protocol rationale and invariants are recorded in
   does so only when CodeRabbit is required or selected; optional Copilot quota never blocks. Never
   downgrade, duplicate the worker, or refill the slot merely to improve throughput.
 - Only when the recorded policy is exactly `merge` and explicit run-scoped authority still exists may
-  the coordinator refetch both comments, resolve their full server envelopes with `run-lineage`, and
+  the coordinator perform an exact-head/exact-base guarded squash merge and, after confirming it, refill
+  the worker slot. Before the merge, refetch both comments, resolve their full server envelopes with `run-lineage`, and
   fetch a fresh full `MERGE_BASE_SHA`; require the intended repository,
   verified default base ref/object, expected head branch/SHA, and green final state. Re-read changed
   governing files, revalidate the approved criteria hash, require the selected substantive review to

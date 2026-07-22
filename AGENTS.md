@@ -97,10 +97,11 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
 - **High/load-bearing** — scientific logic/claims, data/provenance/schema, security, dependencies,
   CI/release, public API, persistence/migration, concurrency, HPC/Slurm, or broad cross-component work:
   require CodeRabbit after the diff is stable and CI is green; it satisfies the universal reviewer gate.
-  Add qualified human/domain review when scientific, security, or release judgment is material.
-- Any head change invalidates final-head evidence; a material change requires every affected layer again.
+  Qualified human/domain review is required when scientific, security, or release judgment is material.
+- Any head change invalidates final-head review evidence; a material change requires every affected review layer again.
   CodeRabbit's five-per-hour quota blocks only when it is required or selected; queue then, never
-  downgrade or retrigger an unchanged head. Copilot quota never blocks.
+  downgrade or retrigger a completed unchanged-head review. A denied/unperformed attempt may retry once
+  after its recorded wait. Copilot quota never blocks.
 - Before sending a diff, confirm policy permits the reviewer. Low/standard choose either Codex or
   CodeRabbit before dispatch; never switch to evade selected CodeRabbit quota. If both are disallowed, or a
   required/selected provider is unavailable, freeze as `pending-review` and do not merge.

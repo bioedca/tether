@@ -281,12 +281,13 @@ every check is green. Classify the final diff before merge and follow `AGENTS.md
 Copilot is optional and best-effort, while every lane needs a substantive PR diff
 walkthrough bound to the final head SHA from Codex GitHub Code Review or CodeRabbit.
 Low and standard may select either; high/load-bearing requires CodeRabbit on the
-stable, green diff and any specified human/domain review. Author-side or local review,
+stable, green diff. Qualified human/domain review is required when scientific, security,
+or release judgment is material. Author-side or local review,
 status-only output, denial, unavailability, or a summary without a diff walkthrough
 does not satisfy the independent gate. CodeRabbit's five-per-hour quota blocks only
 when CodeRabbit is required or selected; Copilot quota never blocks. Resolve every
-conversation and every actionable finding. Any head change invalidates the universal
-review; a material change also requires every affected review layer again.
+conversation and every actionable finding. Any head change invalidates final-head review
+evidence; a material change requires every affected review layer again.
 
 ## Reporting bugs & security issues
 

@@ -876,8 +876,8 @@ for the public GPL-3.0 repository `github.com/bioedca/tether` (§4.1). Its scope
 large-dataset versioning is already handled by the LFS / gated-CI fixture tiers (§8 NFR-FIXTURES) and is not
 re-litigated here, and **no external data-versioning tool is introduced**. The governing posture is **solo
 developer (bioedca) with CI and risk-classified review gates**: branch protection on `main` requires green CI plus
-the §12.4 review path. There is no universal human-approval count, but material high-risk work requires the
-qualified human/domain judgment defined there. The rules scale to required reviews + `CODEOWNERS` (§12.3). Unless flagged
+the §12.4 review path. There is no universal human-approval count. Qualified human/domain review is required when
+scientific, security, or release judgment is material. The rules scale to required reviews + `CODEOWNERS` (§12.3). Unless flagged
 otherwise, every GitHub capability below is **free for this public repo**.
 
 ### 12.1 Repository, account & identity
@@ -987,12 +987,12 @@ becomes the squash commit and feeds the changelog. CodeQL remains enforced throu
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
 `AGENTS.md` risk path: Copilot is optional and best-effort, while every lane requires a substantive PR diff
 walkthrough bound to the final head SHA from Codex GitHub Code Review or CodeRabbit. Low and standard may use
-either; high/load-bearing changes require CodeRabbit on the stable, green diff plus qualified human/domain judgment
-when scientific, security, or release judgment is material. Author-side/local review, a green or status-only
+either; high/load-bearing changes require CodeRabbit on the stable, green diff. Qualified human/domain review is
+required when scientific, security, or release judgment is material. Author-side/local review, a green or status-only
 result, denial, provider unavailability, or a summary without a diff walkthrough does not satisfy the independent
-gate. CodeRabbit quota blocks only when CodeRabbit is required or selected; Copilot quota never blocks. Material
-head changes require affected review layers again, and every head change invalidates the universal final-head
-review evidence. Every conversation and every actionable finding must be resolved.
+gate. CodeRabbit quota blocks only when CodeRabbit is required or selected; Copilot quota never blocks. Any head
+change invalidates final-head review evidence; a material change requires every affected review layer again. Every
+conversation and every actionable finding must be resolved.
 
 `.github/pull_request_template.md` carries the **self-review checklist** — the human-judgment gate in the solo model:
 
