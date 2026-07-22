@@ -10,10 +10,11 @@ respective contract governs.
 Tether is currently maintained **solo (account `bioedca`) with CI and a
 risk-classified review path as merge gates**: branch protection on `main` requires
 green required CI plus a self-review checklist on every PR, while `AGENTS.md`
-defines the required Copilot/Codex/CodeRabbit layers. The ruleset still requires
-zero GitHub approval reviews; load-bearing changes additionally require the
-qualified human/domain judgment specified in `AGENTS.md`. This scales to required
-human reviews + `CODEOWNERS` if contributors join (PRD §12.3).
+requires a substantive final-head review from Codex or CodeRabbit on every lane.
+Copilot is optional and best-effort. The ruleset still requires zero GitHub approval
+reviews; load-bearing changes require CodeRabbit and any qualified human/domain
+judgment specified in `AGENTS.md`. This scales to required human reviews +
+`CODEOWNERS` if contributors join (PRD §12.3).
 
 `main` is **always releasable and protected**. Never push to `main` directly;
 never merge, release, or declare a PR ready while required checks are red or pending.
@@ -246,8 +247,9 @@ Before requesting review / merging, confirm:
 - [ ] **No secrets committed** — no token, key, credential or private path in code,
       tests, logs or fixtures; `secret-scan` green.
 - [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
-- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`, with the
-      required Copilot/Codex/CodeRabbit and domain-review layers from `AGENTS.md`.
+- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; optional
+      Copilot state; substantive final-head Codex-or-CodeRabbit result; high-risk
+      CodeRabbit and applicable domain-review state from `AGENTS.md`.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
       **same** PR.
 
@@ -256,6 +258,10 @@ Before requesting review / merging, confirm:
 Merge **squash-only** (linear history, delete-branch-on-merge) once the review is
 addressed **and all required CI checks are green** — wait for in-progress checks;
 **never merge over a red or pending check**.
+
+In an issue swarm, workers stop at PR-ready and never merge. Only the coordinator with
+explicit run-scoped `merge` authority performs the exact-head/exact-base guarded squash
+merge and refills the completed slot.
 
 The `main-baseline` ruleset requires these **11** status checks:
 
@@ -272,13 +278,16 @@ is what PRD §12.8 recommends for a solo maintainer — and is gated by a separa
 **Reviews.** The ruleset requires **0 approving reviews** but does require
 **conversation resolution**: an unresolved review thread blocks the merge even when
 every check is green. Classify the final diff before merge and follow `AGENTS.md`:
-Copilot is the first layer for every PR; standard changes also require Codex GitHub
-Code Review; high/load-bearing changes additionally require an `@coderabbitai review`
-comment on the stable, green diff and any specified human/domain review.
-CodeRabbit is limited to five reviews per developer per rolling hour. Reserve that
-quota for high-risk PRs and wait when limited—never downgrade the path or trust a
-green bot check without a substantive walkthrough. Resolve every actionable thread
-and rerun affected layers after material pushes.
+Copilot is optional and best-effort, while every lane needs a substantive PR diff
+walkthrough bound to the final head SHA from Codex GitHub Code Review or CodeRabbit.
+Low and standard may select either; high/load-bearing requires CodeRabbit on the
+stable, green diff. Qualified human/domain review is required when scientific, security,
+or release judgment is material. Author-side or local review,
+status-only output, denial, unavailability, or a summary without a diff walkthrough
+does not satisfy the independent gate. CodeRabbit's five-per-hour quota blocks only
+when CodeRabbit is required or selected; Copilot quota never blocks. Resolve every
+conversation and every actionable finding. Any head change invalidates final-head review
+evidence; a material change requires every affected review layer again.
 
 ## Reporting bugs & security issues
 

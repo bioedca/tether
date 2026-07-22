@@ -876,8 +876,8 @@ for the public GPL-3.0 repository `github.com/bioedca/tether` (§4.1). Its scope
 large-dataset versioning is already handled by the LFS / gated-CI fixture tiers (§8 NFR-FIXTURES) and is not
 re-litigated here, and **no external data-versioning tool is introduced**. The governing posture is **solo
 developer (bioedca) with CI and risk-classified review gates**: branch protection on `main` requires green CI plus
-the §12.4 review path. There is no universal human-approval count, but material high-risk work requires the
-qualified human/domain judgment defined there. The rules scale to required reviews + `CODEOWNERS` (§12.3). Unless flagged
+the §12.4 review path. There is no universal human-approval count. Qualified human/domain review is required when
+scientific, security, or release judgment is material. The rules scale to required reviews + `CODEOWNERS` (§12.3). Unless flagged
 otherwise, every GitHub capability below is **free for this public repo**.
 
 ### 12.1 Repository, account & identity
@@ -968,10 +968,11 @@ are exportable as JSON, version-history-tracked, and layer cleanly):
 - **Block force-pushes** and **block branch deletion** on `main`.
 
 **How the solo dev merges.** With 0 ruleset approvals, bioedca squash-merges only after the §12.4 risk path is
-complete on the exact head SHA and required checks are green on the current base. An agent may use auto-merge only
-when a server rule or merge queue enforces that same head/base binding; otherwise the coordinator performs a
-guarded merge. **No standing "include administrators / bypass" exemption** — a rare genuine emergency uses a
-deliberate, logged temporary bypass, not a permanent admin exception.
+complete on the exact head SHA and required checks are green on the current base. An authorized coordinator may
+use auto-merge only when a server rule or merge queue enforces that same head/base binding; otherwise the
+coordinator performs the exact-head/exact-base guarded squash merge. **No standing "include
+administrators / bypass" exemption** — a rare genuine emergency uses a deliberate, logged temporary bypass, not a
+permanent admin exception.
 
 **Scale-up path (documented, not active).** If contributors join: set **required approvals ≥ 1**, uncomment a
 `CODEOWNERS` mapping §4.2 modules to owners (e.g. `/src/tether/idealize/ @bioedca`), enable **require review from
@@ -984,8 +985,14 @@ Small, **milestone-scoped** PRs are the unit of work (ideally one issue ↔ one 
 as a **draft PR** and cannot merge. The PR title is a Conventional-Commits string (§12.2) — it
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
-`AGENTS.md` risk path: Copilot first; Codex for standard/high changes; `@coderabbitai review` plus qualified
-human/domain judgment for high/load-bearing changes. Reviews and checks bind to the final head SHA.
+`AGENTS.md` risk path: Copilot is optional and best-effort, while every lane requires a substantive PR diff
+walkthrough bound to the final head SHA from Codex GitHub Code Review or CodeRabbit. Low and standard may use
+either; high/load-bearing changes require CodeRabbit on the stable, green diff. Qualified human/domain review is
+required when scientific, security, or release judgment is material. Author-side/local review, a green or status-only
+result, denial, provider unavailability, or a summary without a diff walkthrough does not satisfy the independent
+gate. CodeRabbit quota blocks only when CodeRabbit is required or selected; Copilot quota never blocks. Any head
+change invalidates final-head review evidence; a material change requires every affected review layer again. Every
+conversation and every actionable finding must be resolved.
 
 `.github/pull_request_template.md` carries the **self-review checklist** — the human-judgment gate in the solo model:
 
@@ -1018,6 +1025,10 @@ Concurrent automated work follows [ADR-0052](adr/0052-concurrent-agent-swarm-coo
 originate only from authenticated maintainer-approved `status:ready` scope. Same-snapshot renewals and
 authorized resumes may retain or re-establish that lease after `in-progress` or `in-review`; every lease
 coordinates one isolated issue/branch/worktree/PR and never grants merge authority.
+
+Workers remain PR-ready producers and never merge. Only a coordinator with explicit run-scoped `merge` authority
+may perform an exact-head/exact-base guarded squash merge after the final review/check state is verified; after a
+confirmed merge it completes the lease, cleans only the owned state, and refills the available worker slot.
 
 **Label taxonomy** (prefixed namespaces, so labels group and filter cleanly):
 

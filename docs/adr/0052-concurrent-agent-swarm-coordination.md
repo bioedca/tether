@@ -53,12 +53,28 @@ The standard-library swarm helper and its tests are the executable protocol. A m
 schemas, canonical election, transition edges, or authority separation requires a superseding ADR;
 compatible clarifications require an explicitly labeled amendment. Update the executable tests with either.
 
+## Amendment — exact-head independent review (2026-07-22)
+
+Copilot is optional, best-effort feedback and its availability or quota never blocks a worker slot or
+merge. Every low, standard, and high lane instead requires a substantive PR diff review or walkthrough
+bound to the final head SHA from Codex GitHub Code Review or CodeRabbit; low and standard may select
+either, while high/load-bearing changes require CodeRabbit after the stable diff is green. Qualified
+human/domain review is required when scientific, security, or release judgment is material. Author-side or local review, a status/check alone,
+denial, provider unavailability, or a summary without a diff walkthrough is not independent review
+evidence. Any head change invalidates final-head review evidence; a material change requires every affected
+review layer again. Every conversation and every actionable finding is resolved. CodeRabbit quota
+occupies the slot only when CodeRabbit is required or selected.
+
+Workers remain PR-ready producers and never merge. Under explicit run-scoped `merge` authority, only the coordinator
+may verify the exact head/base, perform the guarded squash merge, complete the owned lease, and refill
+the worker slot. An explicit `PR-ready` run remains a non-merging terminal path.
+
 ### Consequences
 
 - Good: claims are visible, duplicate work is reduced, and recovery does not depend on one process.
 - Good: least authority is explicit; a forged or stale local record cannot authorize a merge.
 - Trade-off: public comment/API traffic increases, and ambiguity deliberately freezes progress.
-- Trade-off: CI, review, and quota waits keep a worker slot occupied until its safe terminal state.
+- Trade-off: CI and required/selected-review waits keep a worker slot occupied until its safe terminal state.
 
 ## More information
 
