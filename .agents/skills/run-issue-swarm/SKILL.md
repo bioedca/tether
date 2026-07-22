@@ -24,9 +24,10 @@ The protocol rationale and invariants are recorded in
    app tasks, worktrees, branches, PRs, and jobs before the first claim.
 4. Verify the GitHub connector's authenticated login matches the requested owner (`bioedca` here)
    and verify that login has `maintain`/`admin` repository permission or appears in a checked-in
-   maintainer allowlist before accepting its approval. If `gh` is used, require the same login and prove
-   its token can enumerate every repository in which that owner can trigger the quota-limited review;
-   otherwise queue that review.
+   maintainer allowlist before accepting its approval. When CodeRabbit is required or selected and `gh`
+   is used, require the same login and prove its token can enumerate every repository in which that owner
+   can trigger the quota-limited review; otherwise queue CodeRabbit. This account-wide quota preflight
+   does not apply to a Codex-selected low/standard lane or optional Copilot feedback.
    Comments appear under the owner account but must disclose the automated Codex worker.
 5. Validate the first eligible scan. If none exist, finish only after the required second scan without
    creating public run state. Otherwise choose its lowest-numbered candidate as immutable `anchor_issue`.
@@ -131,7 +132,17 @@ The protocol rationale and invariants are recorded in
   git; never trust only in-memory state.
 - Renew active leases hourly. If a lease expires or ownership changes, tell that worker to freeze and
   require coordinator reauthorization. Send follow-ups to the same thread for CI/review fixes.
-- The coordinator alone routes reviews. For CodeRabbit, keep one durable PR comment keyed by
+- The coordinator alone routes external reviews. Copilot is optional and best-effort; record whether it
+  was not requested, unavailable, quota-exhausted, pending, or complete, but it never blocks a slot or
+  merge. Low and standard lanes select Codex GitHub Code Review or CodeRabbit; high/load-bearing lanes
+  require CodeRabbit after the stable diff is green. Accept only a substantive PR diff walkthrough from
+  Codex GitHub Code Review or CodeRabbit, bound to the final head SHA. For either provider, refetch the
+  expected reviewer identity, server-bound reviewed
+  commit/head, and walkthrough before accepting evidence. Author-side `/review`, local CodeRabbit output,
+  a status/check alone, denial, provider unavailability, or a summary without a diff walkthrough never
+  satisfies that independent gate. Resolve every conversation and every actionable finding; any head
+  change invalidates the SHA binding, and a material change requires each affected layer again.
+- When CodeRabbit is required or selected, keep one durable PR comment keyed by
   `(repository, PR, head SHA)` with marker `<!-- tether-coderabbit-queue RECORD -->`; `RECORD` contains
   version, head SHA, state (`queued|triggered|rate-limited|complete`), attempt time, and retry time.
   Use fully paginated `gh api graphql` search for accessible PRs
@@ -152,13 +163,15 @@ The protocol rationale and invariants are recorded in
 - A worker completion is only a PR-ready handoff. Verify clean tree, linked issue, final diff, tests,
   provenance, required review path, conversations, and exact PR/head/base state independently. For a
   `PR-ready` run this is terminal; do not enter the merge path, including while draining.
-- A pending required review, CI run, or CodeRabbit quota keeps that slot occupied and its lease
-  renewed. Never downgrade, duplicate the worker, or refill the slot merely to improve throughput.
+- A pending required review or CI run keeps that slot occupied and its lease renewed. CodeRabbit quota
+  does so only when CodeRabbit is required or selected; optional Copilot quota never blocks. Never
+  downgrade, duplicate the worker, or refill the slot merely to improve throughput.
 - Only when the recorded policy is exactly `merge` and explicit run-scoped authority still exists may
   the coordinator refetch both comments, resolve their full server envelopes with `run-lineage`, and
   fetch a fresh full `MERGE_BASE_SHA`; require the intended repository,
   verified default base ref/object, expected head branch/SHA, and green final state. Re-read changed
-  governing files, revalidate the approved criteria hash, and pause for user resolution on conflict.
+  governing files, revalidate the approved criteria hash, require the selected substantive review to
+  match the exact head, and pause for user resolution on conflict.
   With strict up-to-date protection, require
   the head contains that base and direct merge with `squash` plus `expected_head_sha`. With a verified
   queue, enqueue that head under the squash policy and monitor; never direct merge. Any drift freezes it.

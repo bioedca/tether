@@ -1,4 +1,4 @@
 interface:
   display_name: "Run Issue Swarm"
   short_description: "Run a leased concurrent issue worker pool"
-  default_prompt: "/goal $run-issue-swarm Run 4 isolated workers to PR-ready handoff and keep refilling until the ready queue is empty or I tell the swarm to stop."
+  default_prompt: "/goal $run-issue-swarm Run 4 isolated workers through merge. I explicitly authorize the coordinator to perform exact-head/exact-base guarded squash merges after all required gates and reviews pass; keep refilling until the ready queue is empty or I tell the swarm to stop."

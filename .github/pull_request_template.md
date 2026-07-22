@@ -32,11 +32,12 @@ linked work maps to one. The checklist, not CI, enforces those fields.
 - FR:
 - Review path (may only increase): low | standard | high
 - Risk rationale:
-- Reviewed head SHA:
-- Copilot review: pending | complete
-- Codex review (standard/high): n/a | pending | complete
-- CodeRabbit `@coderabbitai review` walkthrough (high): n/a | pending | complete
-- Human/domain review or maintainer-approved equivalent:
+- Final head SHA:
+- Optional Copilot state: not requested | pending | complete | unavailable | quota-exhausted
+- Required independent reviewer: Codex GitHub Code Review | CodeRabbit PR walkthrough
+- Required independent review result: pending | substantive exact-head walkthrough complete
+- CodeRabbit state: n/a (Codex selected for low/standard) | queued | triggered | rate-limited | substantive exact-head walkthrough complete
+- Human/domain state: n/a (reason) | pending | complete (reviewer and evidence)
 
 ## Type of change
 
@@ -56,7 +57,7 @@ Confirm before requesting review:
 - [ ] **Data policy respected** — no raw/private/unlicensed data or large data in ordinary Git; issue-authorized redistributable fixtures carry license and provenance in named small or LFS/gated paths.
 - [ ] **No secrets committed** — no token, key, credential, or private path in code, tests, logs, or fixtures; `secret-scan` and push protection are green.
 - [ ] **Code scanning clean** — CodeQL (GitHub code-scanning *default setup*, hence no `codeql.yml` workflow) reports no new alerts on this PR.
-- [ ] **Review path complete** — Copilot first; Codex for standard/high; `@coderabbitai review` for high/load-bearing changes; required human/domain review recorded.
+- [ ] **Review path complete** — optional Copilot state recorded; required substantive final-head review from Codex or CodeRabbit complete; high/load-bearing CodeRabbit and applicable human/domain review complete; every conversation and every actionable finding resolved.
 - [ ] **Provenance stamped** — coordinates / corrections / app-version / parameters written into the `.tether` for any new analysis (NFR-REPRO).
 - [ ] **New tunables registered in PRD §11.2** (single source of truth), not hardcoded.
 - [ ] **Scientific/statistical claims carry a citation**; **SPDX `GPL-3.0-or-later`** header on every new source file (`reuse lint` green).

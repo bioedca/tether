@@ -85,29 +85,29 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
 - Before merge, classify and record `low`, `standard`, or `high` in the PR with a reason. Risk may
   only increase as the diff evolves. The authoring agent is never the only reviewer.
 - Every path: complete the template and author-side built-in `/review` (outside the external ladder),
-  inspect the final diff, run gates, request Copilot Cloud Agent review first, and resolve every finding/thread.
-  A local CodeRabbit skill review may supplement this only for a committed public-safe diff when
-  authenticated and quota-safe; it never replaces a required PR review.
+  inspect the final diff, run gates, and resolve every conversation/thread and every actionable finding.
+  Copilot Cloud Agent is optional and best-effort; record its state, but absence or quota never blocks.
+- Every lane requires a substantive PR diff walkthrough bound to the final head SHA from Codex GitHub
+  Code Review or CodeRabbit. Author-side `/review`, local CodeRabbit output, a green/status-only result,
+  denial, provider unavailability, or a summary without a diff walkthrough never satisfies this gate.
 - **Low** — prose, comments, formatting, or non-executable metadata with no behavior, science, or
-  configuration effect: base path plus green required CI/security checks.
+  configuration effect: base path plus green required CI/security checks and either qualifying reviewer.
 - **Standard** — bounded bug, feature, refactor, test, or ordinary configuration: low path plus
-  Codex GitHub Code Review as the overall quality gate.
+  either Codex or CodeRabbit as the qualifying reviewer.
 - **High/load-bearing** — scientific logic/claims, data/provenance/schema, security, dependencies,
-  CI/release, public API, persistence/migration, concurrency, HPC/Slurm, or broad cross-component
-  work: standard path plus an `@coderabbitai review` PR comment after the diff is stable and CI
-  is green; add a qualified human/domain review when scientific, security, or release judgment is
-  material.
-- CodeRabbit permits five reviews per developer per rolling hour. Reserve them for high-risk PRs;
-  never retrigger an unchanged commit. If limited, wait and queue the review—do not downgrade. A
-  green check without a substantive walkthrough is not a review.
-- Before sending a diff, confirm its repository/data policy permits that reviewer. If a required
-  reviewer is unavailable or disallowed, do not silently substitute or merge; obtain an explicit
-  maintainer-approved qualified private equivalent. A quota wait is not an outage: freeze the diff,
-  queue once, and hand off as `pending-review` for later resume.
-- Merge only under explicit PR or recorded swarm-run authority; bind exact `(PR, head SHA, base ref,
-  base SHA)` with green reviews/checks. Under strict up-to-date protection, direct squash-merge with
-  an expected-head guard. Under a merge queue, enqueue the exact head for the repository's squash
-  policy and monitor it; never direct-merge. If neither safe path is verifiable, stop.
+  CI/release, public API, persistence/migration, concurrency, HPC/Slurm, or broad cross-component work:
+  require CodeRabbit after the diff is stable and CI is green; it satisfies the universal reviewer gate.
+  Add qualified human/domain review when scientific, security, or release judgment is material.
+- Any head change invalidates final-head evidence; a material change requires every affected layer again.
+  CodeRabbit's five-per-hour quota blocks only when it is required or selected; queue then, never
+  downgrade or retrigger an unchanged head. Copilot quota never blocks.
+- Before sending a diff, confirm policy permits the reviewer. Low/standard choose either Codex or
+  CodeRabbit before dispatch; never switch to evade selected CodeRabbit quota. If both are disallowed, or a
+  required/selected provider is unavailable, freeze as `pending-review` and do not merge.
+- Merge only under explicit PR or recorded swarm-run authority. Workers stop PR-ready and never merge; an authorized
+  coordinator alone performs a guarded merge and refills the slot. Bind exact `(PR, head SHA, base ref,
+  base SHA)` with green reviews/checks. Under strict up-to-date protection, direct squash-merge with an
+  expected-head guard; under a verified merge queue, enqueue that head. Otherwise stop.
 
 ## WSL clusters and Slurm
 
