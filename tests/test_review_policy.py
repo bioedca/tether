@@ -22,40 +22,43 @@ DETAILED_POLICY_SURFACES = POLICY_SURFACES[:-1]
 SHORTCUT = Path(".agents/skills/run-issue-swarm/agents/openai.yaml")
 COPILOT_SURFACES = (*POLICY_SURFACES, SHORTCUT)
 
-REVIEWER_SOURCE_RE = re.compile(
-    r"\b(?:review\w*|walkthrough)\b.{0,180}\bfrom\b.{0,80}\bcodex\b"
-    r".{0,80}\bor\b.{0,80}\b(?:coderabbit|coderabbitai)\b",
-    re.IGNORECASE,
+REVIEWER_PAIR_PATTERN = (
+    r"\bfrom\b.{0,64}\bcodex\b.{0,64}\bor\b.{0,64}"
+    r"\b(?:coderabbit|coderabbitai)\b"
 )
-HEAD_BINDING_RE = re.compile(
-    r"\b(?:exact|final)(?:[- ]reviewed)?[- ]head(?:[- ]sha)?\b", re.IGNORECASE
-)
-REVIEW_EVIDENCE_RE = re.compile(r"\b(?:review\w*|walkthrough)\b", re.IGNORECASE)
-REVIEW_OBLIGATION_RE = re.compile(
-    r"(?:\b(?:requires?|needs?|must|shall)\s+(?:an?\s+)?substantive\b"
-    r"|\baccept only\s+(?:an?\s+)?substantive\b"
-    r"|\brequired\s+substantive\b)",
+INDEPENDENT_REVIEW_CONTRACT_RE = re.compile(
+    rf"\b(?:requires?|needs?|required|accept\s+only)\b[^;.!?]{{0,96}}\bsubstantive\b(?:"
+    rf"[^;.!?]{{0,96}}\b(?:final|exact)(?:[- ]reviewed)?[- ]head(?:[- ]sha)?\b"
+    rf"[^;.!?]{{0,48}}\b(?:review\w*|walkthrough)\b[^;.!?]{{0,120}}"
+    rf"{REVIEWER_PAIR_PATTERN}|"
+    rf"[^;.!?]{{0,96}}\b(?:review\w*|walkthrough)\b[^;.!?]{{0,120}}"
+    rf"\bbound\s+to\s+(?:the\s+)?(?:final|exact)(?:[- ]reviewed)?[- ]head"
+    rf"(?:[- ]sha)?\b[^;.!?]{{0,120}}{REVIEWER_PAIR_PATTERN}|"
+    rf"[^;.!?]{{0,96}}\b(?:review\w*|walkthrough)\b[^;.!?]{{0,120}}"
+    rf"{REVIEWER_PAIR_PATTERN}[^;.!?]{{0,120}}\bbound\s+to\s+(?:the\s+)?"
+    rf"(?:final|exact)(?:[- ]reviewed)?[- ]head(?:[- ]sha)?\b)",
     re.IGNORECASE,
 )
 REVIEW_NEGATION_RES = (
     re.compile(
-        r"\b(?:substantive\s+)?(?:final|exact)[- ]head\b.{0,80}"
+        r"\b(?:substantive\s+)?(?:final|exact)[- ]head\b[^.!?]{0,80}"
         r"\b(?:is|are)\s+(?:not\s+required|optional)\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:does|do)\s+not\s+(?:require|need)\b.{0,120}"
+        r"\b(?:does|do)\s+not\s+(?:require|need)\b[^.!?]{0,120}"
         r"\b(?:review\w*|walkthrough)\b",
         re.IGNORECASE,
     ),
-    re.compile(r"\bneed\s+not\b.{0,120}\b(?:review\w*|walkthrough)\b", re.IGNORECASE),
+    re.compile(r"\bneed\s+not\b[^.!?]{0,120}\b(?:review\w*|walkthrough)\b", re.IGNORECASE),
     re.compile(
-        r"\bno\s+(?:substantive\s+)?(?:final|exact)[- ]head\b.{0,40}"
-        r"\b(?:review\w*|walkthrough)\b.{0,40}\brequired\b",
+        r"\bno\s+(?:substantive\s+)?(?:final|exact)[- ]head\b[^.!?]{0,40}"
+        r"\b(?:review\w*|walkthrough)\b[^.!?]{0,40}\brequired\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bsubstantive\b.{0,200}\b(?:may be skipped|recommended only|not mandatory)\b",
+        r"\bsubstantive\b[^.!?]{0,200}"
+        r"\b(?:may be skipped|recommended only|not mandatory)\b",
         re.IGNORECASE,
     ),
 )
@@ -96,6 +99,11 @@ MANDATORY_COPILOT_RES = (
         r"\bblocks?\b",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"\bcopilot\b.{0,48}\b(?:has|needs?)\s+to\s+"
+        r"(?:run|complete|finish|precede\w*|be requested|be used|be awaited)\b",
+        re.IGNORECASE,
+    ),
 )
 LOW_STANDARD_EITHER_RE = re.compile(
     r"\blow(?:\s+and|/)\s*standard\b.{0,80}\b(?:may|choose|select|use)\b.{0,80}"
@@ -110,21 +118,60 @@ LOW_STANDARD_NEGATION_RE = re.compile(
 )
 HIGH_CODERABBIT_RE = re.compile(
     r"\bhigh(?:[-/ ]risk|/load[- ]bearing|[-/ ]load[- ]bearing)?\b.{0,240}"
-    r"\brequires?\b.{0,32}\bcoderabbit\b",
+    r"\brequires?\b(?:(?!\bcodex\b|\bor\b|\boptional\b|\breview\b|[.;]).){0,64}"
+    r"\bcoderabbit\b",
     re.IGNORECASE,
 )
 HIGH_CODERABBIT_NEGATION_RE = re.compile(
     r"\bhigh(?:[-/ ]risk|/load[- ]bearing|[-/ ]load[- ]bearing)?\b.{0,240}"
     r"\b(?:does|do|need|must|shall)\s+not\s+require\b.{0,48}\bcoderabbit\b|"
     r"\bhigh(?:[-/ ]risk|/load[- ]bearing|[-/ ]load[- ]bearing)?\b.{0,240}"
-    r"\bno longer requires?\b.{0,48}\bcoderabbit\b",
+    r"\bno longer requires?\b.{0,48}\bcoderabbit\b|"
+    r"\bhigh(?:[-/ ]risk|/load[- ]bearing|[-/ ]load[- ]bearing)?\b"
+    r"[^.!?]{0,240}\bcoderabbit\b[^.!?]{0,64}\b(?:is|becomes?|remains?)\s+optional\b",
     re.IGNORECASE,
 )
 HIGH_CODERABBIT_FALLBACK_RE = re.compile(
     r"\bhigh(?:[-/ ]risk|/load[- ]bearing|[-/ ]load[- ]bearing)?\b.{0,280}"
-    r"\bcoderabbit\b.{0,120}\b(?:unless|except)\b|"
-    r"\bhigh(?:[-/ ]risk|/load[- ]bearing|[-/ ]load[- ]bearing)?\b.{0,280}"
-    r"\bcoderabbit\b.{0,160}\bcodex\b.{0,48}\b(?:substitut\w*|fallback)\b",
+    r"\bcoderabbit\b(?:"
+    r".{0,160}\b(?:may|can)\s+use\s+codex\b.{0,32}"
+    r"\b(?:instead|as\s+(?:a\s+)?fallback)\b|"
+    r".{0,160}\bcodex\b.{0,48}\b(?:may|can)\s+(?:be\s+)?"
+    r"(?:substitut\w*|replace(?:\s+it)?|serve\s+as\s+(?:a\s+)?fallback)\b|"
+    r".{0,160}\bcodex\b.{0,48}\b(?:may|can)\s+(?:be\s+)?used\b"
+    r"(?:.{0,24}\binstead\b|.{0,48}\b(?:if|when)\b.{0,48}"
+    r"\b(?:quota|rate[- ]limit|unavail\w*)\b)|"
+    r".{0,160}\bcodex\b.{0,48}\bis\s+(?:an?\s+)?"
+    r"(?:acceptable|allowed|permitted)(?:\s+(?:substitute|fallback))?\b"
+    r".{0,48}\b(?:if|when)\b.{0,48}"
+    r"\b(?:quota|rate[- ]limit|unavail\w*)\b|"
+    r".{0,160}\b(?:if|when)\b.{0,48}\b(?:quota|rate[- ]limit|unavail\w*)\b"
+    r".{0,80}\bcodex\b.{0,48}(?:"
+    r"\b(?:may|can)\s+(?:be\s+)?(?:used|substitut\w*)\b|"
+    r"\bis\s+(?:an?\s+)?(?:acceptable|allowed|permitted)"
+    r"(?:\s+(?:substitute|fallback))?\b))",
+    re.IGNORECASE,
+)
+CODERABBIT_SUPPLEMENT_ONLY_RE = re.compile(
+    r"\bcodex\b.{0,96}\bsupplement(?:al|ary)\b.{0,96}"
+    r"\b(?:never|not)\b.{0,48}\b(?:substitut\w*|fallback|replace\w*)\b",
+    re.IGNORECASE,
+)
+CODERABBIT_EXPLICIT_FALLBACK_RE = re.compile(
+    r"\b(?:may|can)\s+use\s+codex\b.{0,32}"
+    r"\b(?:instead|as\s+(?:a\s+)?fallback)\b|"
+    r"\bcodex\b.{0,48}\b(?:may|can)\s+(?:be\s+)?"
+    r"(?:substitut\w*|replace(?:\s+it)?|serve\s+as\s+(?:a\s+)?fallback)\b|"
+    r"\bcodex\b.{0,48}\bis\s+(?:an?\s+)?(?:acceptable|allowed|permitted)"
+    r"(?:\s+(?:substitute|fallback))\b",
+    re.IGNORECASE,
+)
+HIGH_CODERABBIT_QUOTA_EXCEPTION_RE = re.compile(
+    r"\bhigh(?:[-/ ]risk|/load[- ]bearing|[-/ ]load[- ]bearing)?\b[^;.!?]{0,240}"
+    r"\brequires?\b[^;.!?]{0,64}\bcoderabbit\b[^;.!?]{0,64}"
+    r"\b(?:unless|except\s+(?:if|when))\b[^;.!?]{0,64}"
+    r"\b(?:quota|rate[- ]limit)\b[^;.!?]{0,32}"
+    r"\b(?:exhausted|unavailable|limited|denied)\b",
     re.IGNORECASE,
 )
 CODERABBIT_QUOTA_RE = re.compile(
@@ -142,7 +189,8 @@ FINDING_SCOPE_RE = re.compile(r"\b(?:every|all|each)\s+actionable\s+findings?\b"
 RESOLUTION_RE = re.compile(r"\bresolve(?:s|d)?\b", re.IGNORECASE)
 RESOLUTION_NEGATION_RE = re.compile(
     r"\b(?:need not|do not|must not|may|can)\s+resolve\b|"
-    r"\b(?:not|never)\s+(?:be\s+)?resolved\b|\bremain(?:s)?\s+unresolved\b",
+    r"\b(?:not|never)\s+(?:be\s+)?resolved\b|\bremain(?:s)?\s+unresolved\b|"
+    r"\b(?:may|can)\s+remain\s+(?:open|unresolved)\b",
     re.IGNORECASE,
 )
 PR_DIFF_RE = re.compile(
@@ -156,7 +204,12 @@ STATUS_ONLY_RE = re.compile(
     r"green or status-only|green/status-only)\b",
     re.IGNORECASE,
 )
-UNAVAILABLE_RE = re.compile(r"\b(?:unavailability|unavailable)\b", re.IGNORECASE)
+PROVIDER_UNAVAILABLE_PATTERN = (
+    r"(?:\b(?:provider\s+)?unavail\w*\b|"
+    r"\bno\s+(?:review\s+)?provider\b.{0,24}\b(?:is\s+)?available\b|"
+    r"\b(?:review\s+)?provider\b.{0,24}\b(?:outage|offline|down)\b)"
+)
+UNAVAILABLE_RE = re.compile(PROVIDER_UNAVAILABLE_PATTERN, re.IGNORECASE)
 SUMMARY_WITHOUT_DIFF_RE = re.compile(
     r"\bsummary\b.{0,48}\bwithout\b.{0,48}\bdiff walkthrough\b", re.IGNORECASE
 )
@@ -167,8 +220,8 @@ EVIDENCE_REJECTION_RE = re.compile(
 )
 FALLBACK_ACCEPTANCE_RES = (
     re.compile(
-        r"\b(?:if|when)\b.{0,32}\bunavail\w*\b.{0,80}\b(?:author[- ]side|local)\b"
-        r".{0,80}\bsatisf(?:y|ies)\b",
+        rf"{PROVIDER_UNAVAILABLE_PATTERN}.{{0,80}}\b(?:author[- ]side|local)\b"
+        r"(?:(?!\b(?:not|never|cannot)\b).){0,80}\bsatisf(?:y|ies)\b",
         re.IGNORECASE,
     ),
     re.compile(
@@ -177,9 +230,27 @@ FALLBACK_ACCEPTANCE_RES = (
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:provider\s+)?unavail\w*\b.{0,80}"
+        r"\b(?:status(?:/check)?[- ]only|status/check alone|status-only output)\b"
+        r"(?:(?!\bnever\b|\b(?:does|is)\s+not\b).){0,80}"
+        r"\b(?:counts?\s+as|qualif(?:y|ies)\s+as|is\s+accepted\s+as)\b.{0,40}"
+        r"\bindependent\s+review\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"{PROVIDER_UNAVAILABLE_PATTERN}"
+        r"(?:(?!\b(?:not|never|cannot)\b).){0,80}"
         r"\b(?:waives?|bypasses?|allows?\b.{0,32}\bwithout review|proceed\w*\b.{0,32}"
         r"\bwithout review)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"{PROVIDER_UNAVAILABLE_PATTERN}"
+        r"(?:(?!\b(?:not|never|cannot)\b).){0,96}"
+        r"\b(?:(?:makes?|renders?)\b.{0,48}\b(?:review|gate|requirement)\b.{0,24}"
+        r"\boptional\b|(?:review|gate|requirement)\b.{0,24}"
+        r"\b(?:becomes?|is)\s+optional\b|"
+        r"removes?\b.{0,40}\b(?:review\s+)?requirement\b|"
+        r"(?:review|gate|requirement)\b.{0,32}\b(?:may|can)\s+be\s+skipped\b)",
         re.IGNORECASE,
     ),
 )
@@ -199,6 +270,16 @@ EXPLICIT_AUTHORITY_RE = re.compile(
 AUTHORITY_NEGATION_RE = re.compile(
     r"\b(?:explicit\w*\s+)?(?:merge\s+)?authority\b.{0,48}"
     r"\b(?:is|remains?)\s+not\s+required\b|"
+    r"\b(?:explicit\w*\s+)?(?:merge\s+)?authority\b.{0,32}"
+    r"\bneed\s+not\s+be\s+(?:obtained|held)\b|"
+    r"\b(?:does|do)\s+not\s+(?:need|require)\b.{0,48}"
+    r"\b(?:explicit\w*\s+)?(?:merge\s+)?authority\b|"
+    r"\bneed\s+not\s+(?:obtain|hold)\b.{0,32}"
+    r"\b(?:explicit\w*\s+)?(?:merge\s+)?authority\b|"
+    r"\b(?:is|are)\s+not\s+required\s+to\s+(?:obtain|hold|have)\b.{0,48}"
+    r"\b(?:explicit\w*\s+)?(?:merge\s+)?authority\b|"
+    r"\b(?:explicit\w*\s+)?(?:merge\s+)?authority\b.{0,32}"
+    r"\b(?:is|becomes?|remains?)\s+optional\b|"
     r"\b(?:no|without)\s+(?:explicit\w*\s+(?:merge\s+)?|merge\s+)authority\b",
     re.IGNORECASE,
 )
@@ -210,11 +291,19 @@ EXACT_HEAD_BASE_RE = re.compile(
 EXACT_HEAD_BASE_NEGATION_RE = re.compile(
     r"\bexact\b.{0,48}\bhead\b.{0,48}\bbase\b.{0,64}"
     r"\b(?:need not|do not need to|may fail to|may not)\s+(?:match|bind)\b|"
+    r"\bexact\b.{0,48}\bhead\b.{0,48}\bbase\b.{0,64}"
+    r"\b(?:is|are)\s+not\s+required\s+to\s+(?:match|bind)\b|"
+    r"\bexact\b.{0,48}\bhead\b.{0,48}\bbase\b.{0,64}"
+    r"\b(?:does|do)\s+not\s+have\s+to\s+(?:match|bind)\b|"
+    r"\bexact\b.{0,48}\bhead\b.{0,48}\bbase\b.{0,64}"
+    r"\b(?:validation|binding|matching|check)\b.{0,32}"
+    r"\b(?:(?:may|can)\s+be\s+skipped|is\s+optional)\b|"
     r"\bhead\b.{0,48}\bbase\b.{0,64}\bmay differ\b",
     re.IGNORECASE,
 )
 WORKER_MERGE_CONTRADICTION_RE = re.compile(
-    r"\bworkers?\b.{0,64}\b(?:may|can|shall|must)\s+(?:also\s+)?merge\b",
+    r"\bworkers?\b.{0,64}\b(?:may|can|shall|must)\s+(?:also\s+)?merge\b|"
+    r"\bworkers?\b.{0,64}\b(?:is|are)\s+(?:allowed|permitted|authorized)\s+to\s+merge\b",
     re.IGNORECASE,
 )
 
@@ -258,15 +347,50 @@ def _visible_units(text: str) -> tuple[str, ...]:
     return tuple(units)
 
 
+def _policy_clauses(units: tuple[str, ...]) -> tuple[str, ...]:
+    """Keep semantic checks inside one subject-level policy clause."""
+    return tuple(
+        clause.strip()
+        for unit in units
+        for clause in re.split(r"(?<=[.!?])\s+|\s*;\s*|,\s+(?:while|whereas)\s+", unit)
+        if clause.strip()
+    )
+
+
 def _is_required_review_unit(unit: str) -> bool:
     return bool(
-        "substantive" in unit.casefold()
-        and REVIEW_EVIDENCE_RE.search(unit)
-        and HEAD_BINDING_RE.search(unit)
-        and REVIEWER_SOURCE_RE.search(unit)
-        and REVIEW_OBLIGATION_RE.search(unit)
+        INDEPENDENT_REVIEW_CONTRACT_RE.search(unit)
         and not any(pattern.search(unit) for pattern in REVIEW_NEGATION_RES)
     )
+
+
+def _has_required_review_contract(unit: str) -> bool:
+    clauses = _policy_clauses((unit,))
+    return bool(
+        any(_is_required_review_unit(clause) for clause in clauses)
+        and not any(pattern.search(unit) for pattern in REVIEW_NEGATION_RES)
+    )
+
+
+def _has_high_coderabbit_fallback(unit: str) -> bool:
+    """Reject explicit substitution; exempt only clearly supplemental Codex feedback."""
+    for sentence in re.split(r"(?<=[.!?])\s+", unit):
+        scoped = re.sub(
+            r"(?:,\s*(?:while|whereas)\s+|;\s*)?"
+            r"\blow(?:\s+and|/)\s*standard\b[^;.!?]*",
+            "",
+            sentence,
+            flags=re.IGNORECASE,
+        )
+        if HIGH_CODERABBIT_QUOTA_EXCEPTION_RE.search(scoped):
+            return True
+        if not HIGH_CODERABBIT_FALLBACK_RE.search(scoped):
+            continue
+        if CODERABBIT_EXPLICIT_FALLBACK_RE.search(scoped):
+            return True
+        if not CODERABBIT_SUPPLEMENT_ONLY_RE.search(scoped):
+            return True
+    return False
 
 
 def _is_evidence_exclusion_unit(unit: str) -> bool:
@@ -286,10 +410,13 @@ def test_policy_surfaces_bind_substantive_review_to_final_head() -> None:
     """Do not let scattered keywords masquerade as the independent-review rule."""
     for relative_path in POLICY_SURFACES:
         units = _visible_units(_read(relative_path))
-        matches = [unit for unit in units if _is_required_review_unit(unit)]
+        matches = [unit for unit in units if _has_required_review_contract(unit)]
         assert matches, (
             f"{relative_path} needs one policy unit requiring a substantive final-head "
             "review from Codex or CodeRabbit"
+        )
+        assert not any(pattern.search(unit) for unit in units for pattern in REVIEW_NEGATION_RES), (
+            f"{relative_path} negates its substantive final-head review contract"
         )
 
 
@@ -300,10 +427,10 @@ def test_policy_surfaces_reject_non_walkthrough_substitutes() -> None:
             f"{relative_path} must reject local/author, status-only, denial, unavailable, "
             "and summary-only review substitutes"
         )
-        visible = " ".join(units)
-        assert not any(pattern.search(visible) for pattern in FALLBACK_ACCEPTANCE_RES), (
-            f"{relative_path} explicitly allows a disallowed review substitute"
-        )
+        clauses = _policy_clauses(units)
+        assert not any(
+            pattern.search(clause) for clause in clauses for pattern in FALLBACK_ACCEPTANCE_RES
+        ), f"{relative_path} explicitly allows a disallowed review substitute"
 
 
 def test_evidence_matcher_rejects_local_unavailable_fallback() -> None:
@@ -315,9 +442,24 @@ def test_evidence_matcher_rejects_local_unavailable_fallback() -> None:
     negatives = (
         positive + " If unavailable, local CodeRabbit satisfies the gate.",
         positive + " Provider unavailability waives the review gate.",
+        positive + " Provider unavailability makes the review optional.",
+        positive + " Provider unavailability renders the review requirement optional.",
+        positive + " Provider unavailability removes the review requirement.",
+        positive + " If no provider is available, review becomes optional.",
+        positive + " A review provider outage means the gate may be skipped.",
+        positive + " If no review provider is available, local CodeRabbit satisfies the gate.",
+        positive + " Status-only output counts as independent review.",
+    )
+    protections = (
+        positive + " Provider unavailability does not waive the review gate.",
+        positive + " Provider unavailability never makes review optional.",
+        positive + " Provider unavailability cannot remove the review requirement.",
+        positive + " Provider unavailability is not sufficient to waive the review gate.",
+        positive + " Provider unavailability means local review does not satisfy the gate.",
     )
     assert _is_evidence_exclusion_unit(positive)
     assert all(not _is_evidence_exclusion_unit(unit) for unit in negatives)
+    assert all(_is_evidence_exclusion_unit(unit) for unit in protections)
 
 
 def test_core_review_matcher_rejects_negated_policy() -> None:
@@ -335,33 +477,36 @@ def test_core_review_matcher_rejects_negated_policy() -> None:
         "A substantive final-head review from Codex or CodeRabbit is not mandatory.",
         "Complete the template; a substantive final-head review from Codex or "
         "CodeRabbit may be skipped.",
+        "Every lane requires a substantive review of the base branch from Codex or "
+        "CodeRabbit; the final head SHA is recorded for reference.",
     )
-    assert _is_required_review_unit(positive)
-    assert all(not _is_required_review_unit(unit) for unit in negatives)
+    assert _has_required_review_contract(positive)
+    assert all(not _has_required_review_contract(unit) for unit in negatives)
 
 
 def test_detailed_surfaces_preserve_risk_and_quota_semantics() -> None:
     for relative_path in DETAILED_POLICY_SURFACES:
-        visible = " ".join(_visible_units(_read(relative_path)))
-        assert LOW_STANDARD_EITHER_RE.search(visible), (
+        units = _visible_units(_read(relative_path))
+        clauses = _policy_clauses(units)
+        assert any(LOW_STANDARD_EITHER_RE.search(clause) for clause in clauses), (
             f"{relative_path} must let low/standard work select Codex or CodeRabbit"
         )
-        assert not LOW_STANDARD_NEGATION_RE.search(visible), (
+        assert not any(LOW_STANDARD_NEGATION_RE.search(clause) for clause in clauses), (
             f"{relative_path} negates the low/standard reviewer choice"
         )
-        assert HIGH_CODERABBIT_RE.search(visible), (
+        assert any(HIGH_CODERABBIT_RE.search(clause) for clause in clauses), (
             f"{relative_path} must require CodeRabbit for high/load-bearing work"
         )
-        assert not HIGH_CODERABBIT_NEGATION_RE.search(visible), (
+        assert not any(HIGH_CODERABBIT_NEGATION_RE.search(clause) for clause in clauses), (
             f"{relative_path} negates the high/load-bearing CodeRabbit requirement"
         )
-        assert not HIGH_CODERABBIT_FALLBACK_RE.search(visible), (
+        assert not any(_has_high_coderabbit_fallback(unit) for unit in units), (
             f"{relative_path} allows a high/load-bearing CodeRabbit fallback"
         )
-        assert CODERABBIT_QUOTA_RE.search(visible), (
+        assert any(CODERABBIT_QUOTA_RE.search(clause) for clause in clauses), (
             f"{relative_path} must block only for required/selected CodeRabbit quota"
         )
-        assert COPILOT_QUOTA_RE.search(visible), (
+        assert any(COPILOT_QUOTA_RE.search(clause) for clause in clauses), (
             f"{relative_path} must say Copilot quota never blocks"
         )
 
@@ -371,9 +516,39 @@ def test_risk_matchers_reject_negated_policy() -> None:
     low_negative = "Low and standard must not use either Codex or CodeRabbit."
     high_positive = "High/load-bearing work requires CodeRabbit."
     high_negative = "High/load-bearing work does not require CodeRabbit."
-    high_fallback = (
-        "High/load-bearing work requires CodeRabbit unless quota is exhausted, when "
-        "Codex may substitute."
+    high_fallbacks = (
+        "High/load-bearing work requires CodeRabbit; Codex may substitute when quota is exhausted.",
+        "High/load-bearing work requires CodeRabbit, but Codex is acceptable when quota "
+        "is exhausted.",
+        "High/load-bearing work requires CodeRabbit, but may use Codex instead.",
+        "High/load-bearing work requires CodeRabbit; when CodeRabbit is unavailable, "
+        "Codex may be used.",
+        "High/load-bearing work requires CodeRabbit; Codex may be used when quota is exhausted.",
+        "High/load-bearing work requires CodeRabbit; Codex may serve as a fallback.",
+        "High/load-bearing work requires CodeRabbit; Codex is an acceptable substitute when "
+        "quota is exhausted.",
+        "High/load-bearing work requires CodeRabbit; Codex may replace it when quota is exhausted.",
+        "High/load-bearing work requires CodeRabbit; Codex may replace it when unavailable, but "
+        "supplemental Codex review is not a substitute.",
+        "High/load-bearing work requires CodeRabbit unless its quota is exhausted.",
+    )
+    high_protections = (
+        "High/load-bearing work requires CodeRabbit; do not merge unless CodeRabbit completes.",
+        "High/load-bearing work requires CodeRabbit; Codex is not acceptable when quota "
+        "is exhausted.",
+        "High/load-bearing work requires CodeRabbit; do not merge unless CodeRabbit quota "
+        "is available.",
+        "High/load-bearing work requires CodeRabbit; Codex may be used for supplemental feedback "
+        "when quota is exhausted, but never as a substitute.",
+        "High/load-bearing work requires CodeRabbit. Low and standard may use Codex instead of "
+        "CodeRabbit.",
+        "High/load-bearing work requires CodeRabbit, while low and standard may use Codex instead "
+        "of CodeRabbit.",
+    )
+    high_not_required = (
+        "High/load-bearing work requires Codex or CodeRabbit.",
+        "High/load-bearing work requires a Codex review; CodeRabbit is optional.",
+        "High/load-bearing work requires a human review; CodeRabbit is optional.",
     )
 
     assert LOW_STANDARD_EITHER_RE.search(low_positive)
@@ -384,8 +559,10 @@ def test_risk_matchers_reject_negated_policy() -> None:
     assert not HIGH_CODERABBIT_NEGATION_RE.search(high_positive)
     assert HIGH_CODERABBIT_RE.search(high_negative)
     assert HIGH_CODERABBIT_NEGATION_RE.search(high_negative)
-    assert HIGH_CODERABBIT_RE.search(high_fallback)
-    assert HIGH_CODERABBIT_FALLBACK_RE.search(high_fallback)
+    assert all(HIGH_CODERABBIT_RE.search(unit) for unit in high_fallbacks)
+    assert all(_has_high_coderabbit_fallback(unit) for unit in high_fallbacks)
+    assert all(not _has_high_coderabbit_fallback(unit) for unit in high_protections)
+    assert all(not HIGH_CODERABBIT_RE.search(unit) for unit in high_not_required)
 
 
 def test_copilot_is_optional_everywhere_it_is_visible() -> None:
@@ -410,6 +587,8 @@ def test_copilot_matcher_rejects_mandatory_policy() -> None:
         "Copilot shall precede independent review.",
         "Copilot is a merge prerequisite.",
         "Copilot blocks merge when quota is exhausted.",
+        "Copilot has to run before merge.",
+        "Copilot needs to run before merge.",
     )
     valid = (
         "Copilot must not block merges and remains optional.",
@@ -441,6 +620,7 @@ def test_resolution_matcher_rejects_unresolved_policy() -> None:
     )
     negatives = (
         "Every conversation and every actionable finding may remain unresolved.",
+        "Every conversation may remain open and every actionable finding is resolved.",
         "We need not resolve all review threads and all actionable findings.",
     )
 
@@ -458,7 +638,8 @@ def test_resolution_matcher_rejects_unresolved_policy() -> None:
 
 def test_detailed_surfaces_preserve_coordinator_only_guarded_merge() -> None:
     for relative_path in DETAILED_POLICY_SURFACES:
-        visible = " ".join(_visible_units(_read(relative_path)))
+        units = _visible_units(_read(relative_path))
+        visible = " ".join(units)
         assert WORKER_PR_READY_RE.search(visible), f"{relative_path} must keep workers PR-ready"
         assert WORKER_NO_MERGE_RE.search(visible), f"{relative_path} must prohibit worker merges"
         assert COORDINATOR_ONLY_RE.search(visible), (
@@ -467,13 +648,13 @@ def test_detailed_surfaces_preserve_coordinator_only_guarded_merge() -> None:
         assert EXPLICIT_AUTHORITY_RE.search(visible), (
             f"{relative_path} must require explicit merge authority"
         )
-        assert not AUTHORITY_NEGATION_RE.search(visible), (
+        assert not any(AUTHORITY_NEGATION_RE.search(unit) for unit in units), (
             f"{relative_path} negates explicit merge authority"
         )
         assert EXACT_HEAD_BASE_RE.search(visible), (
             f"{relative_path} must bind the guarded merge to exact head/base"
         )
-        assert not EXACT_HEAD_BASE_NEGATION_RE.search(visible), (
+        assert not any(EXACT_HEAD_BASE_NEGATION_RE.search(unit) for unit in units), (
             f"{relative_path} negates exact head/base binding"
         )
         assert re.search(r"\bsquash(?:[- ]merge)?\b", visible, re.IGNORECASE), (
@@ -482,18 +663,21 @@ def test_detailed_surfaces_preserve_coordinator_only_guarded_merge() -> None:
         assert re.search(r"\brefill\w*\b", visible, re.IGNORECASE), (
             f"{relative_path} must refill after a confirmed merge"
         )
-        assert not WORKER_MERGE_CONTRADICTION_RE.search(visible), (
+        assert not any(WORKER_MERGE_CONTRADICTION_RE.search(unit) for unit in units), (
             f"{relative_path} permits worker merging"
         )
 
 
 def test_merge_matcher_rejects_worker_merge_permission() -> None:
     positive = "Workers remain PR-ready and never merge."
-    negative = positive + " Workers may also merge when checks pass."
+    negatives = (
+        positive + " Workers may also merge when checks pass.",
+        positive + " Workers are allowed to merge when checks pass.",
+    )
     assert WORKER_PR_READY_RE.search(positive)
     assert WORKER_NO_MERGE_RE.search(positive)
     assert not WORKER_MERGE_CONTRADICTION_RE.search(positive)
-    assert WORKER_MERGE_CONTRADICTION_RE.search(negative)
+    assert all(WORKER_MERGE_CONTRADICTION_RE.search(unit) for unit in negatives)
 
 
 def test_merge_matchers_reject_negated_authority_and_binding() -> None:
@@ -501,15 +685,29 @@ def test_merge_matchers_reject_negated_authority_and_binding() -> None:
         "Only the coordinator with explicit merge authority performs the exact head and base "
         "guarded squash merge."
     )
-    negative = (
-        positive + " Explicit merge authority is not required; exact head and base need not match."
+    negatives = (
+        positive + " Explicit merge authority is not required; exact head and base need not match.",
+        positive
+        + " Explicit merge authority need not be obtained; exact head and base are not required "
+        "to match.",
+        positive
+        + " Explicit merge authority need not be held; exact head and base are not required "
+        "to bind.",
+        positive
+        + " The coordinator does not need explicit merge authority; exact head and base do not "
+        "have to match.",
+        positive
+        + " The coordinator is not required to obtain explicit merge authority; exact head and "
+        "base validation may be skipped.",
+        positive
+        + " Explicit merge authority is optional; exact head and base matching is optional.",
     )
     assert EXPLICIT_AUTHORITY_RE.search(positive)
     assert EXACT_HEAD_BASE_RE.search(positive)
     assert not AUTHORITY_NEGATION_RE.search(positive)
     assert not EXACT_HEAD_BASE_NEGATION_RE.search(positive)
-    assert AUTHORITY_NEGATION_RE.search(negative)
-    assert EXACT_HEAD_BASE_NEGATION_RE.search(negative)
+    assert all(AUTHORITY_NEGATION_RE.search(unit) for unit in negatives)
+    assert all(EXACT_HEAD_BASE_NEGATION_RE.search(unit) for unit in negatives)
 
 
 def test_deprecated_markdown_does_not_count_as_active_policy() -> None:
