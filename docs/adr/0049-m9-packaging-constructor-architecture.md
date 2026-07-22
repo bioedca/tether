@@ -120,8 +120,13 @@ not a stub: the recipe and the artifacts it bundles are real, locked and buildab
 - **New files:** `packaging/construct.yaml`, `packaging/scripts/post_install.sh`,
   `packaging/scripts/post_install.bat`, `packaging/README.md`, `.github/workflows/packaging.yml`,
   `docs/packaging.md`; contract clause in `tests/test_marker_contract.py`.
-- **Locks consumed (unchanged):** `conda-lock.yml` (base) and `sidecar/conda-lock.yml` (sidecar),
-  rendered per-platform at build time; `deep/conda-lock.yml` is intentionally **not** bundled.
+- **Locks consumed (unchanged):** root `conda-lock.yml` (the frozen Tether GUI/runtime installed as
+  `extra_envs.tether`) and `sidecar/conda-lock.yml` (installed as `extra_envs.sidecar`), rendered per
+  platform at build time. Constructor's own `base` is a live-solved Python + conda bootstrap and is
+  not part of the reproducibility bill of materials. `deep/conda-lock.yml` is intentionally **not**
+  consumed or bundled by constructor; `release.yml` publishes it only as the standalone
+  `deep-conda-lock.yml` reproducibility asset for the optional deep environment, so no deep packages
+  enter the desktop installers.
 - Related: [ADR-0004](0004-pin-and-hold-dual-lock-isolation.md) (pin-and-hold + dual-lock isolation),
   [ADR-0047](0047-deep-model-optional-stack-and-dataset.md) (optional stack + the non-required advisory
   CI-leg precedent), [ADR-0010](0010-defer-cross-os-gui-handoff.md) (the standalone-tMAVEN GUI

@@ -10,15 +10,15 @@ mechanism that stops docs, fixtures and secrets hygiene from silently rotting.
 
 ## PR title
 
-**This PR's title must be a Conventional Commit** — `type(scope): summary (FR-ID)` —
+**This PR's title must be a Conventional Commit** — `type(scope): summary (FR-ID when applicable)` —
 because it becomes the squash-merge commit and feeds the changelog (PRD §12.2).
 Scope is a §4.2 module (`io` | `imaging` | `fret` | `idealize` | `ml` | `analysis` |
 `gui` | `project`) or a cross-cutting area (`schema` | `ci` | `deps` | `docs` |
 `release`).
 
 The `commitlint` check validates the **type** prefix only — it runs unconfigured, so it
-will pass a title with no scope and no FR-ID. The scope and FR-ID are a convention this
-checklist enforces, not something CI can catch for you.
+will pass a title with no scope. Scope is required by convention; include an FR-ID when the
+linked work maps to one. The checklist, not CI, enforces those fields.
 
 ## Summary
 
@@ -30,6 +30,13 @@ checklist enforces, not something CI can catch for you.
 - Closes: #
 - Milestone: M
 - FR:
+- Review path (may only increase): low | standard | high
+- Risk rationale:
+- Reviewed head SHA:
+- Copilot review: pending | complete
+- Codex review (standard/high): n/a | pending | complete
+- CodeRabbit `@coderabbitai review` walkthrough (high): n/a | pending | complete
+- Human/domain review or maintainer-approved equivalent:
 
 ## Type of change
 
@@ -43,12 +50,13 @@ checklist enforces, not something CI can catch for you.
 Confirm before requesting review:
 
 - [ ] **Schema freeze respected** — no structural change to the §5 HDF5 skeleton frozen at M0; only additive *data* (`schema-guard` green). A legitimate structural change carries an ADR + an explicit schema-version bump.
-- [ ] **conda-lock updated if dependencies changed** — base stack *and/or* the isolated tMAVEN sidecar lock, kept distinct (§4.1/§4.3); `conda-lock-verify` is green.
+- [ ] **conda-lock updated if dependencies changed** — base, isolated tMAVEN sidecar, and/or isolated deep lock, kept distinct (§4.1/§4.3); `conda-lock-verify` is green.
 - [ ] **Tests added/updated** for the change; new GUI behavior has a headless `pytest-qt` test.
 - [ ] **Docs updated** — the `mkdocs` pages under `docs/` *and* the public docstrings for anything user-facing this PR changes; a new page is registered in `mkdocs.yml` nav; `docs-build` (`mkdocs build --strict`) is green.
-- [ ] **No large data committed** — no movie, `.tether`, or reference dataset in the tree; small fixtures live in `tests/fixtures/`, anything large is gated (`tests/fixtures/large/`, `large-fixtures.yml`).
+- [ ] **Data policy respected** — no raw/private/unlicensed data or large data in ordinary Git; issue-authorized redistributable fixtures carry license and provenance in named small or LFS/gated paths.
 - [ ] **No secrets committed** — no token, key, credential, or private path in code, tests, logs, or fixtures; `secret-scan` and push protection are green.
 - [ ] **Code scanning clean** — CodeQL (GitHub code-scanning *default setup*, hence no `codeql.yml` workflow) reports no new alerts on this PR.
+- [ ] **Review path complete** — Copilot first; Codex for standard/high; `@coderabbitai review` for high/load-bearing changes; required human/domain review recorded.
 - [ ] **Provenance stamped** — coordinates / corrections / app-version / parameters written into the `.tether` for any new analysis (NFR-REPRO).
 - [ ] **New tunables registered in PRD §11.2** (single source of truth), not hardcoded.
 - [ ] **Scientific/statistical claims carry a citation**; **SPDX `GPL-3.0-or-later`** header on every new source file (`reuse lint` green).
