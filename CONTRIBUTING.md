@@ -292,7 +292,19 @@ evidence; a material change requires every affected review layer again.
 ## Reporting bugs & security issues
 
 Blank issues are disabled: open a new issue and pick from the forms offered, which
-route the report and apply the right labels for you.
+route the report and apply the right labels for you. Every public form starts at
+`status:backlog`; no form can apply `status:ready`. Work moves through
+**new → `status:backlog` → groomed → exact-body maintainer approval →
+`status:ready`**. Grooming confirms testable acceptance criteria, dependencies,
+execution autonomy, related-work/file overlap, and a one-PR scope before a maintainer
+approves the exact title/body snapshot.
+
+Bug, documentation, feature, validation-oracle, and maintenance forms are
+work-producing intake. The maintenance form covers chore, CI, test, refactor, and
+governance work while blank issues remain disabled; it starts as `type:chore`, and a
+maintainer may correct that type during grooming. Every form also requires the same
+attestations for duplicate search, private vulnerability reporting, secrets, and
+private/raw/unlicensed/user/lab data.
 
 - **Security vulnerabilities:** do **not** use a public issue — see
   [`SECURITY.md`](SECURITY.md) (GitHub Private Vulnerability Reporting). This is the
@@ -304,8 +316,10 @@ route the report and apply the right labels for you.
 - **Open-ended questions** — "how should I approach…?" — belong in
   [Discussions Q&A](https://github.com/bioedca/tether/discussions/categories/q-a)
   rather than the issue tracker. A question whose answer turns out to be missing from
-  the docs becomes a `type:docs` issue; a question that had to be asked is itself a
-  documentation signal.
+  the docs becomes a separate `type:docs` issue; a question that had to be asked is
+  itself a documentation signal. The concrete Question form is explicitly non-worker
+  intake: it may remain in `status:backlog`, but it cannot become `status:ready` or
+  enter the swarm without conversion to a separate work issue.
 
 By contributing, you agree your contributions are licensed under
 `GPL-3.0-or-later`.

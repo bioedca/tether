@@ -9,7 +9,7 @@
 name: Documentation problem
 description: Report something wrong, missing, unclear, stale, or broken in the docs.
 title: "docs(<scope>): <summary>"
-labels: ["type:docs", "area:docs"]
+labels: ["type:docs", "area:docs", "status:backlog"]
 body:
   - type: markdown
     attributes:
@@ -92,16 +92,66 @@ body:
         A rough draft is welcome — prose is easier to edit than to invent.
     validations:
       required: false
-  - type: checkboxes
-    id: checks
+  - type: textarea
+    id: acceptance
     attributes:
-      label: Pre-submission checks
+      label: Acceptance criteria
+      description: Testable conditions that prove the documentation problem is resolved.
+      placeholder: |
+        - [ ] The named page states the current behavior accurately.
+        - [ ] `mkdocs build --strict` passes.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and non-goals
+      description: Bound the documentation change to one PR and state what it will not cover.
+      placeholder: "In scope: ...; out of scope: ..."
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies / blockers
+      description: Link blocking work or write the literal `none`.
+      placeholder: none
+    validations:
+      required: true
+  - type: dropdown
+    id: autonomy
+    attributes:
+      label: Execution autonomy
+      description: What kind of action or decision is needed to finish this work?
+      options:
+        - "agent-can-do-alone"
+        - "maintainer decision required"
+        - "external/human action required"
+    validations:
+      required: true
+  - type: textarea
+    id: overlap
+    attributes:
+      label: Related work / file overlap
+      description: Link related issues or name likely overlapping files; write `none` if there is no overlap.
+      placeholder: none
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Required safety attestations
       options:
         - label: I searched existing issues and this is not a duplicate.
           required: true
-        - label: This is not a security report (those go through the private advisory link).
+        - label: I am not reporting a vulnerability publicly; security reports use the private advisory flow.
           required: true
-        - label: No real lab data or user `.tether` project is attached.
+        - label: I included no secrets or private, raw, unlicensed, user, or lab data.
           required: true
+  - type: checkboxes
+    id: contributor-interest
+    attributes:
+      label: Contributor interest
+      options:
         - label: I am willing to open the PR for this myself.
           required: false
