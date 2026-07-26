@@ -931,7 +931,7 @@ though **tMAVEN is never vendored** — reference clones are algorithm-reference
 
 - **Model — GitHub Flow.** `main` is **always releasable and protected** (§12.3). All work happens on short-lived
   branches off `main`, opened as a PR, merged via **squash-merge**, branch **deleted on merge**. No long-lived
-  `develop`/`release` branches — milestones M0–M9 (§9) are tracked as GitHub Milestones (§12.5), not git branches.
+  `develop`/`release` branches — milestones M0–M10 (§9) are tracked as GitHub Milestones (§12.5), not git branches.
 - **Branch naming.** `type/issue-N-short-slug`, optionally scoped to a milestone or FR-ID: `feat/`, `fix/`, `docs/`,
   `chore/`, `refactor/`, `test/`, `ci/`, `build/`, `perf/`, `revert/`. Examples:
   `feat/issue-123-m1-atrous-detector`, `fix/issue-124-correct-nan-guard`, `docs/issue-125-mkdocs-deploy`. The slug is
@@ -1301,7 +1301,7 @@ Governance is **established whole at M0** and then enforced continuously — no 
   `scorecard.yml` scheduled.
 - Repo metadata + `.github/` scaffolding landed (§12.1): LICENSE, README, CONTRIBUTING, CODE_OF_CONDUCT,
   SECURITY.md, CITATION.cff, NOTICE, `.gitattributes` LFS, `.gitignore`, PR template + self-review checklist, issue
-  forms, labels, GitHub Milestones M0–M9 with §9 acceptance criteria, Projects-v2 board, pre-commit config.
+  forms, labels, GitHub Milestones M0–M10 (M0–M9 with §9 acceptance criteria), Projects-v2 board, pre-commit config.
 - **M0 acceptance additions:** branch protection rejects a PR with red CI; a signed/verified commit lands on
   `main`; `schema-guard` fails a deliberately structure-breaking schema change (§9 M0).
 

@@ -42,7 +42,7 @@ never merge, release, or declare a PR ready while required checks are red or pen
 
 - **Model — GitHub Flow.** All work happens on short-lived branches off `main`,
   opened as a PR, merged via **squash-merge**, branch **deleted on merge**. No
-  long-lived `develop`/`release` branches; milestones M0–M9 are GitHub
+  long-lived `develop`/`release` branches; milestones M0–M10 are GitHub
   Milestones, not git branches.
 - **Branch naming:** `type/issue-N-short-slug`, optionally milestone/FR-scoped —
   e.g. `feat/issue-123-m1-atrous-detector`, `fix/issue-124-correct-nan-guard`. The
