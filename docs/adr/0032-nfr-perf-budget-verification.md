@@ -69,7 +69,9 @@ projection helpers) plus a `tests/test_project_perf.py` gate, verifying each tar
 - **Only the latency target is a §11.2 tunable.** The size/overnight figures are
   *derived engineering envelopes* consequent on the frozen §5.1 data model and the §8
   reference-hardware floor, which the PRD deliberately left soft ("not an SLA matrix"), so
-  they live as documented module constants — the PRD (`docs/PRD.md`) is **not** edited.
+  they live as documented module constants — the
+  [internal product specification](https://github.com/bioedca/tether/blob/main/docs/PRD.md)
+  is **not** edited.
 - **The full-movie + real-sidecar SLA is deferred to the gated tier.** The default matrix
   scales from a small synthetic slice; the full ≈0.9 GB UCKOPSB movie and the real vbFRET
   sidecar timing belong in `large-fixtures.yml` (PLAN §2.2), never a required check.

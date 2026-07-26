@@ -11,13 +11,14 @@ acquisition geometry and file formats Tether reads, what it deliberately does no
 what a dataset costs in time and disk. It is the fastest way to find out whether Tether
 suits your experiment before you install anything.
 
-This site is the project documentation skeleton. The authoritative documents today are:
+Use the site as a route to the level of detail you need:
 
-- **Product spec** — `docs/PRD.md` in the repository (the section-numbered source of truth for requirements).
-- **Architecture decisions** — the MADR log under `docs/adr/`.
-
-Both are tracked in the repository and will be wired into this rendered site in a later
-documentation pass.
+- **Public roadmap** — [what the current release contains, what comes next, and what is
+  explicitly out of scope](roadmap.md).
+- **Reference** — the stable project-store format, analysis parameters, exports, and
+  command-line behavior under the Reference navigation section.
+- **Architecture decisions** — the [MADR log](adr/README.md) for the reasoning behind
+  consequential design choices.
 
 ## Modules (PRD §4.2)
 
