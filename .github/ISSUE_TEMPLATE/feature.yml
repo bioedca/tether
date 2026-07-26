@@ -7,7 +7,7 @@
 name: Feature / enhancement
 description: Propose a new capability or a change to planned behavior.
 title: "feat(<scope>): <summary>"
-labels: ["type:feature"]
+labels: ["type:feature", "status:backlog"]
 body:
   - type: markdown
     attributes:
@@ -73,6 +73,7 @@ body:
         - "M7"
         - "M8"
         - "M9"
+        - "M10"
         - "unknown"
     validations:
       required: false
@@ -82,14 +83,58 @@ body:
       label: Acceptance criteria
       description: How we will know it is done (testable, ties to a §9 clause where possible).
     validations:
-      required: false
-  - type: checkboxes
-    id: checks
+      required: true
+  - type: textarea
+    id: scope
     attributes:
-      label: Pre-submission checks
+      label: Scope and non-goals
+      description: Bound the proposal to one PR and state what it will not change.
+      placeholder: "In scope: ...; out of scope: ..."
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies / blockers
+      description: Link blocking work or write the literal `none`.
+      placeholder: none
+    validations:
+      required: true
+  - type: dropdown
+    id: autonomy
+    attributes:
+      label: Execution autonomy
+      description: What kind of action or decision is needed to finish this work?
+      options:
+        - "agent-can-do-alone"
+        - "maintainer decision required"
+        - "external/human action required"
+    validations:
+      required: true
+  - type: textarea
+    id: overlap
+    attributes:
+      label: Related work / file overlap
+      description: Link related issues or name likely overlapping files; write `none` if there is no overlap.
+      placeholder: none
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Required safety attestations
       options:
         - label: I searched existing issues and this is not a duplicate.
           required: true
+        - label: I am not reporting a vulnerability publicly; security reports use the private advisory flow.
+          required: true
+        - label: I included no secrets or private, raw, unlicensed, user, or lab data.
+          required: true
+  - type: checkboxes
+    id: proposal-checks
+    attributes:
+      label: Proposal checks
+      options:
         - label: A new scientific/statistical claim, if any, will carry a literature citation.
           required: false
         - label: A new tunable, if any, will be registered in PRD §11.2 (not hardcoded).

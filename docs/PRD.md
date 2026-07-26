@@ -931,7 +931,7 @@ though **tMAVEN is never vendored** — reference clones are algorithm-reference
 
 - **Model — GitHub Flow.** `main` is **always releasable and protected** (§12.3). All work happens on short-lived
   branches off `main`, opened as a PR, merged via **squash-merge**, branch **deleted on merge**. No long-lived
-  `develop`/`release` branches — milestones M0–M9 (§9) are tracked as GitHub Milestones (§12.5), not git branches.
+  `develop`/`release` branches — milestones M0–M10 (§9) are tracked as GitHub Milestones (§12.5), not git branches.
 - **Branch naming.** `type/issue-N-short-slug`, optionally scoped to a milestone or FR-ID: `feat/`, `fix/`, `docs/`,
   `chore/`, `refactor/`, `test/`, `ci/`, `build/`, `perf/`, `revert/`. Examples:
   `feat/issue-123-m1-atrous-detector`, `fix/issue-124-correct-nan-guard`, `docs/issue-125-mkdocs-deploy`. The slug is
@@ -1036,29 +1036,37 @@ confirmed merge it completes the lease, cleans only the owned state, and refills
 |---|---|
 | `type:` | `bug`, `feature`, `refactor`, `docs`, `test`, `chore`, `ci`, `perf`, `question`, `validation-oracle-failure` (a dedicated type for a §8 NFR-VALID oracle regressing) |
 | `area:` | one per §4.2 module — `io`, `imaging`, `fret`, `idealize`, `ml`, `analysis`, `gui`, `project` — plus `schema`, `sidecar`, `packaging`, `docs` |
-| `milestone:` | `M0`, `M0.5`, `M1` … `M9` (one per §9 milestone **including the fractional de-risking gate M0.5**, mirroring its GitHub Milestone for cross-filtering; redundant by design so a closed-milestone search still works) |
+| `milestone:` | `M0`, `M0.5`, `M1` … `M10` (including the fractional de-risking gate M0.5 and post-1.0 documentation/community milestone M10, mirroring GitHub Milestones for cross-filtering; redundant by design so a closed-milestone search still works) |
 | `priority:` | `P0` (blocker) … `P3` (nice-to-have) |
 | `status:` | `backlog`, `ready`, `in-progress`, `in-review`, `blocked`, `done` (mirror the board columns) |
 | standalone | `good-first-issue`, `security`, `help-wanted` (the last two latent until contributors join) |
 
-**§9 milestones → GitHub Milestones.** Each of M0, M0.5, M1 … M9 is a GitHub Milestone whose description **embeds
-the §9 acceptance criteria verbatim as a markdown checklist**; an issue is filed per criterion (or coherent group)
-and assigned to that Milestone, so milestone progress *is* the §9 sign-off checklist. M0's "schema freeze" and
-M0.5's "freeze the §11.2 idealization-parity tolerance" become explicit checklist items, since later milestones
-gate on them (§9 M0.5/M2/M6).
+**Roadmap milestones → GitHub Milestones.** Each of M0, M0.5, M1 … M10 is a GitHub Milestone. M0–M9 descriptions
+**embed the §9 acceptance criteria verbatim as a markdown checklist**; M10 tracks post-1.0 documentation and
+community work. An issue is filed per criterion (or coherent group) and assigned to that Milestone, so milestone
+progress is the sign-off checklist. M0's "schema freeze" and M0.5's "freeze the §11.2
+idealization-parity tolerance" become explicit checklist items, since later milestones gate on them
+(§9 M0.5/M2/M6).
 
 **Project board — GitHub Projects (v2)**, a single board with columns **Backlog → Ready → In progress → In review
-→ Done** (the `status:` labels mirror the columns). Custom fields: `Milestone` (M0–M9), `Area` (§4.2 module),
+→ Done** (the `status:` labels mirror the columns). Custom fields: `Milestone` (M0–M10), `Area` (§4.2 module),
 `Priority`, `FR-ID`. The board is filtered by milestone to drive each §9 increment.
 
-**Issue templates** (`.github/ISSUE_TEMPLATE/`, YAML issue forms): `bug.yml` (repro, expected vs actual, OS,
-Tether version via `git describe`, fixture/`.tether` involved, traceback; auto-labels `type:bug`); `feature.yml`
-(motivation, FR-ID/§-ref, milestone, acceptance criteria; auto-labels `type:feature`);
-**`validation-oracle-failure.yml`** — *project-specific*: which §8 NFR-VALID oracle (a–g) and §9 milestone gate
-failed, the fixture used (small committed vs gated large tier), the measured-vs-§11.2-tolerance numbers, and the
-suspected §4.2 module; auto-labels `type:validation-oracle-failure` + `priority:P0`, making a parity/tolerance
-regression a first-class triagable event; `config.yml` routes security reports to the SECURITY.md private-advisory
-flow (§12.8), not public issues.
+**Issue templates** (`.github/ISSUE_TEMPLATE/`, YAML issue forms) are the structured backlog admission layer
+defined by [ADR-0053](adr/0053-structured-backlog-intake-gates-swarm-admission.md). Every public form auto-labels
+exactly one `status:backlog` and none auto-labels `status:ready`. Work-producing forms
+(`bug.yml`, `docs.yml`, `feature.yml`, `maintenance.yml`, and `validation-oracle-failure.yml`) require testable
+acceptance criteria, dependencies/blockers (`none` is valid), execution autonomy, related-work/file overlap
+(`none` is valid), and a one-PR scope/non-goals statement. Every form requires standardized attestations for
+duplicate search, private security reporting, secrets, and private/raw/unlicensed/user/lab data.
+
+`maintenance.yml` covers chore, CI, test, refactor, and governance intake while blank issues remain disabled. It
+starts as `type:chore`; maintainers may correct the type during grooming. `validation-oracle-failure.yml` records
+the §8 NFR-VALID oracle (a–g), §9 gate, fixture tier, measured-vs-§11.2-tolerance numbers, and suspected module; it
+alone also auto-labels `priority:P0`. Ordinary forms assign no priority. `question.yml` is non-worker intake: a
+question may remain `status:backlog`, but can never become ready or swarm-eligible without conversion to a separate
+work issue. Milestone selectors include M10. `config.yml` keeps blank issues disabled and routes security reports
+to the SECURITY.md private-advisory flow (§12.8), never public issues.
 
 ### 12.6 Continuous integration (GitHub Actions)
 
@@ -1293,7 +1301,7 @@ Governance is **established whole at M0** and then enforced continuously — no 
   `scorecard.yml` scheduled.
 - Repo metadata + `.github/` scaffolding landed (§12.1): LICENSE, README, CONTRIBUTING, CODE_OF_CONDUCT,
   SECURITY.md, CITATION.cff, NOTICE, `.gitattributes` LFS, `.gitignore`, PR template + self-review checklist, issue
-  forms, labels, GitHub Milestones M0–M9 with §9 acceptance criteria, Projects-v2 board, pre-commit config.
+  forms, labels, GitHub Milestones M0–M10 (M0–M9 with §9 acceptance criteria), Projects-v2 board, pre-commit config.
 - **M0 acceptance additions:** branch protection rejects a PR with red CI; a signed/verified commit lands on
   `main`; `schema-guard` fails a deliberately structure-breaking schema change (§9 M0).
 

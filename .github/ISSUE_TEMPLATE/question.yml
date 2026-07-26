@@ -10,7 +10,7 @@
 name: Question
 description: Ask a concrete question about using Tether.
 title: "question: <summary>"
-labels: ["type:question"]
+labels: ["type:question", "status:backlog"]
 body:
   - type: markdown
     attributes:
@@ -18,6 +18,11 @@ body:
         Questions are welcome. If the answer turns out to be missing from the
         docs, the maintainers will spin a `type:docs` issue off this one — a
         question that had to be asked is itself a documentation signal.
+
+        This form is **non-worker intake**. It may remain in `status:backlog`
+        while it is answered, but it cannot become `status:ready` or enter the
+        autonomous swarm. Any actionable work must be converted to a separate
+        work issue using the appropriate form.
 
         **Do not** paste real lab experimental data or the contents of a user
         `.tether` project; describe the shape of your data instead, or use a
@@ -62,13 +67,13 @@ body:
     validations:
       required: true
   - type: checkboxes
-    id: checks
+    id: safety
     attributes:
-      label: Pre-submission checks
+      label: Required safety attestations
       options:
-        - label: I searched existing issues and Discussions and did not find an answer.
+        - label: I searched existing issues and this is not a duplicate.
           required: true
-        - label: This is not a security report (those go through the private advisory link).
+        - label: I am not reporting a vulnerability publicly; security reports use the private advisory flow.
           required: true
-        - label: No real lab data or user `.tether` project is attached.
+        - label: I included no secrets or private, raw, unlicensed, user, or lab data.
           required: true
