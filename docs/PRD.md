@@ -1052,8 +1052,9 @@ idealization-parity tolerance" become explicit checklist items, since later mile
 → Done** (the `status:` labels mirror the columns). Custom fields: `Milestone` (M0–M10), `Area` (§4.2 module),
 `Priority`, `FR-ID`. The board is filtered by milestone to drive each §9 increment.
 
-**Issue templates** (`.github/ISSUE_TEMPLATE/`, YAML issue forms) are the structured backlog admission layer. Every
-public form auto-labels exactly one `status:backlog` and none auto-labels `status:ready`. Work-producing forms
+**Issue templates** (`.github/ISSUE_TEMPLATE/`, YAML issue forms) are the structured backlog admission layer
+defined by [ADR-0053](adr/0053-structured-backlog-intake-gates-swarm-admission.md). Every public form auto-labels
+exactly one `status:backlog` and none auto-labels `status:ready`. Work-producing forms
 (`bug.yml`, `docs.yml`, `feature.yml`, `maintenance.yml`, and `validation-oracle-failure.yml`) require testable
 acceptance criteria, dependencies/blockers (`none` is valid), execution autonomy, related-work/file overlap
 (`none` is valid), and a one-PR scope/non-goals statement. Every form requires standardized attestations for

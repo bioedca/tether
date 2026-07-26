@@ -22,6 +22,14 @@ EXPECTED_FORMS = {
     "question.yml",
     "validation-oracle-failure.yml",
 }
+EXPECTED_TYPE_LABELS = {
+    "bug.yml": "type:bug",
+    "docs.yml": "type:docs",
+    "feature.yml": "type:feature",
+    "maintenance.yml": "type:chore",
+    "question.yml": "type:question",
+    "validation-oracle-failure.yml": "type:validation-oracle-failure",
+}
 WORK_FORM_NAMES = EXPECTED_FORMS - {"question.yml"}
 ROUTING_FIELD_IDS = {"acceptance", "dependencies", "autonomy", "overlap", "scope"}
 AUTONOMY_OPTIONS = {
@@ -83,6 +91,10 @@ def _option_labels(control: dict[str, object]) -> set[str]:
 
 def test_public_issue_form_taxonomy_is_complete() -> None:
     assert {path.name for path in FORM_PATHS} == EXPECTED_FORMS
+    assert EXPECTED_TYPE_LABELS.keys() == EXPECTED_FORMS
+    for path in FORM_PATHS:
+        type_labels = [label for label in _labels(_load(path)) if label.startswith("type:")]
+        assert type_labels == [EXPECTED_TYPE_LABELS[path.name]], path.name
 
 
 @pytest.mark.parametrize("path", FORM_PATHS, ids=lambda path: path.stem)
