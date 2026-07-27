@@ -1,0 +1,122 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# wiki — mirror the reviewed, one-page `wiki/` source to this repository's GitHub wiki.
+# Content is authored only in the normal Tether branch/PR flow. This workflow runs only
+# from protected `main`; pull requests validate the publisher through the required CI suite.
+name: wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/wiki.yml
+      - scripts/publish_wiki.py
+      - wiki/**
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish after the mandatory transport dry run (false only validates).
+        type: boolean
+        required: true
+        default: false
+
+# Read-only is the repository convention. The one publishing job elevates only `contents`;
+# GitHub documents GITHUB_TOKEN as a short-lived installation token limited to this repository,
+# and wiki edits follow the parent repository's write permission.
+permissions:
+  contents: read
+
+concurrency:
+  group: wiki-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'bioedca/tether'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Verify the parent repository exposes a wiki
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          enabled="$(gh api "repos/$REPOSITORY" --jq '.has_wiki')"
+          if [ "$enabled" != "true" ]; then
+            echo "::error::the parent repository does not expose a wiki; refusing to change settings"
+            false
+          fi
+      - name: Resolve publication mode
+        id: mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            publish=true
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            publish="$DISPATCH_PUBLISH"
+          else
+            echo "::error::unsupported event '$EVENT_NAME'"
+            false
+          fi
+          if [ "$publish" != "true" ] && [ "$publish" != "false" ]; then
+            echo "::error::publish must resolve to true or false"
+            false
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+      - name: Validate and mirror the reviewed index
+        shell: bash
+        env:
+          PUBLISH: ${{ steps.mode.outputs.publish }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          WIKI_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ -z "$WIKI_TOKEN" ]; then
+            echo "::error::the short-lived repository token is unavailable"
+            false
+          fi
+
+          askpass="$RUNNER_TEMP/tether-wiki-askpass"
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'ASKPASS'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$WIKI_TOKEN" ;;
+            *) false ;;
+          esac
+          ASKPASS
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+          export GCM_INTERACTIVE=Never
+
+          args=(
+            scripts/publish_wiki.py
+            --source wiki
+            --repository "$REPOSITORY"
+            --source-sha "$SOURCE_SHA"
+          )
+          if [ "$PUBLISH" = "true" ]; then
+            args+=(--publish)
+          fi
+          python "${args[@]}"
