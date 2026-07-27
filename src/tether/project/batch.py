@@ -368,8 +368,15 @@ def _stored_extraction_is_over_gate(path: Path) -> bool:
         profile = json.loads(raw_profile)
         if not isinstance(profile, dict):
             return False
-        residual = float(profile["registration_rms_px"])
-        gate = float(profile["rms_gate"])
+        saved_residual = profile["registration_rms_px"]
+        saved_gate = profile["rms_gate"]
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in (saved_residual, saved_gate)
+        ):
+            return False
+        residual = float(saved_residual)
+        gate = float(saved_gate)
         return bool(
             math.isfinite(residual) and math.isfinite(gate) and gate > 0 and residual > gate
         )
@@ -800,6 +807,7 @@ def _do_extract(
         _assert_output_not_newer(job.output_path)
     except ValueError as exc:
         return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok
+    rejected_checkpoint = False
     if _is_extracted(job.output_path):
         rejected_checkpoint = policy == POLICY_FAIL and _stored_extraction_is_over_gate(
             job.output_path
@@ -813,6 +821,10 @@ def _do_extract(
         if not rejected_checkpoint:
             return rec.record(STAGE_EXTRACT, STATUS_SKIPPED, detail="already extracted").ok
     try:
+        if rejected_checkpoint:
+            from tether.project import lock  # noqa: PLC0415
+
+            lock.assert_writable(job.output_path)
         summary = runner(
             job.movie_path,
             job.output_path,

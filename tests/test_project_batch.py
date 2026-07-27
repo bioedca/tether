@@ -30,6 +30,7 @@ import numpy as np  # noqa: E402
 from tether.idealize.driver import SidecarError  # noqa: E402
 from tether.idealize.supervisor import ProbeResult, SidecarSupervision  # noqa: E402
 from tether.io.schema import SCHEMA_VERSION, create_project  # noqa: E402
+from tether.project import lock  # noqa: E402
 from tether.project.batch import (  # noqa: E402
     POLICY_FAIL,
     POLICY_WARN,
@@ -457,6 +458,45 @@ def test_policy_warn_may_resume_a_policy_fail_rejection(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("saved_residual", "saved_gate"),
+    [
+        (True, 0.5),
+        (0.75, False),
+        ("0.75", 0.5),
+    ],
+)
+def test_malformed_saved_profile_does_not_invent_policy_rejection(
+    tmp_path: Path,
+    saved_residual: object,
+    saved_gate: object,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(jobs, policy=POLICY_FAIL)
+    assert first.results[0].ok
+    with h5py.File(jobs[0].output_path, "r+") as store:
+        store["settings/extraction"].attrs["profile_json"] = json.dumps(
+            {
+                "registration_rms_px": saved_residual,
+                "rms_gate": saved_gate,
+            }
+        )
+
+    second = run_batch(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_raising_idealize,
+    )
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_CORRECT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_SKIPPED
+    assert r.ok
+
+
+@pytest.mark.parametrize(
     ("new_low_confidence", "expected_extract"),
     [(False, STATUS_DONE), (True, STATUS_FAILED)],
 )
@@ -499,6 +539,38 @@ def test_overwrite_reextracts_a_rejected_checkpoint_and_regates(
         assert r.stages[STAGE_CORRECT].status == STATUS_DONE
         assert r.stages[STAGE_IDEALIZE].status == STATUS_DONE
         assert r.ok
+
+
+def test_overwrite_rejected_checkpoint_refuses_a_foreign_lock(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    held = lock.acquire(
+        jobs[0].output_path,
+        identity=lock.LockIdentity(host="OTHER", user="owner", pid=999),
+    )
+    try:
+        second = run_batch(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            _extract=_raising_extract,
+            _correct=_raising_correct,
+            _idealize=_raising_idealize,
+        )
+    finally:
+        assert lock.release(jobs[0].output_path, held)
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "is locked" in r.stages[STAGE_EXTRACT].error
+    assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    assert not r.ok
 
 
 def test_overwrite_still_skips_an_in_gate_completed_checkpoint(tmp_path: Path) -> None:
