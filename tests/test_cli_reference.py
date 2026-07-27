@@ -21,16 +21,16 @@ and never mentioned where a reader of ``tether extract`` would look.
 
 Base-matrix only: :func:`tether.cli.build_parser` imports nothing beyond ``argparse``
 (the imaging/HDF5 stack is deliberately lazy so ``--version`` stays fast), and the page is
-read with :mod:`pathlib`. The two tests that reach into :mod:`tether.project` do pull that
-stack in transitively (the package ``__init__`` imports :mod:`tether.io`, and so h5py and
-numpy), but those are locked base-environment dependencies rather than optional extras —
-nothing here needs Qt, torch or the sidecar, so this runs on all three OSes.
+read with :mod:`pathlib`. The resume regression that reaches into
+:mod:`tether.project` does pull that stack in transitively (the package ``__init__``
+imports :mod:`tether.io`, and so h5py and numpy), but that stack is a locked
+base-environment dependency rather than an optional extra — nothing here needs Qt,
+torch or the sidecar, so this runs on all three OSes.
 """
 
 from __future__ import annotations
 
 import argparse
-import inspect
 import re
 from pathlib import Path
 
@@ -321,34 +321,68 @@ def test_the_deferred_idealization_caveat_survives() -> None:
     )
 
 
-def test_the_policy_fail_resume_caveat_matches_the_runner() -> None:
-    """``--policy fail`` gates only the first run, and the page must still say so.
+def test_policy_fail_rejection_survives_cli_resume(tmp_path, monkeypatch, capsys) -> None:
+    """The real CLI + checkpoint path keeps an over-gate movie failed on every run."""
+    import json  # noqa: PLC0415 - test-local base dependency
+    from types import SimpleNamespace  # noqa: PLC0415
 
-    ``_do_extract`` calls the extract runner — which has already written the ``.tether``
-    by the time it returns — and applies the over-gate policy to its summary afterwards;
-    on the next run the ``_is_extracted`` checkpoint is consulted *before* that policy
-    branch, so the rejected movie resumes as ``skipped`` and correction/idealization
-    complete. Reading the runner's source order is what keeps the paragraph honest in
-    both directions: if the ordering is ever changed so the policy wins over the
-    checkpoint, this fails and the caveat must come off the page.
+    import h5py  # noqa: PLC0415 - test-local base dependency
 
-    Source-order only — no movie, no project file, no sidecar. Importing
-    :mod:`tether.project.batch` does cost the base scientific stack even so: the module
-    itself is standard-library-only at module scope, but the package ``__init__`` it runs
-    through imports :mod:`tether.io`, and so h5py and numpy.
-    """
-    from tether.project import batch  # noqa: PLC0415 - keep the module import test-local
+    from tether.io.schema import create_project  # noqa: PLC0415
+    from tether.project import batch  # noqa: PLC0415
 
-    source = inspect.getsource(batch._do_extract)  # noqa: SLF001 - the ordering is the point
-    checkpoint = source.index("_is_extracted(")
-    gate = source.index("POLICY_FAIL")
-    assert checkpoint < gate, (
-        "`_do_extract` no longer skips an already-extracted movie before applying the "
-        "over-gate policy; docs/cli.md's `--policy fail` resume caveat is now wrong"
-    )
+    extract_calls = 0
+
+    def extract(movie_path, output_path, *, options=None, tmap=None, tdat=None, overwrite=False):
+        nonlocal extract_calls
+        extract_calls += 1
+        create_project(output_path, overwrite=True)
+        with h5py.File(output_path, "r+") as store:
+            profile = store["settings"].create_group("extraction")
+            profile.attrs["profile_json"] = json.dumps(
+                {"registration_rms_px": 0.75, "rms_gate": 0.5}
+            )
+        return SimpleNamespace(n_molecules=3, low_confidence_registration=True)
+
+    def forbidden_stage(*args, **kwargs):
+        raise AssertionError("a downstream stage ran for a policy-rejected movie")
+
+    real_run_batch = batch.run_batch
+
+    def run_with_stub_stages(jobs, **kwargs):
+        return real_run_batch(
+            jobs,
+            _extract=extract,
+            _correct=forbidden_stage,
+            _idealize=forbidden_stage,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(batch, "run_batch", run_with_stub_stages)
+    movie = tmp_path / "movie_001.tif"
+    movie.write_bytes(b"stub movie")
+    argv = [
+        "batch",
+        str(movie),
+        "--out-dir",
+        str(tmp_path / "out"),
+        "--policy",
+        "fail",
+        "--no-defer",
+    ]
+
+    assert main(argv) == 1
+    first = capsys.readouterr().out
+    assert "extract=failed" in first
+    assert "correct=blocked" in first
+    assert "idealize=blocked" in first
+
+    assert main(argv) == 1
+    second = capsys.readouterr().out
+    assert "extract=failed" in second
+    assert "correct=blocked" in second
+    assert "idealize=blocked" in second
+    assert extract_calls == 1
 
     section = _subcommand_section("batch")
-    assert "does not survive the re-run" in section, (
-        "docs/cli.md no longer warns that a `--policy fail` rejection is undone by a "
-        "resume (the project is written before the gate, and the checkpoint skips it)"
-    )
+    assert "does not survive the re-run" not in section

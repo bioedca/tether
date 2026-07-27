@@ -15,6 +15,7 @@ withheld-α → apparent-E path). Headless; runs in the base CI matrix.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -65,7 +66,15 @@ def _extract_stub(*, fail: frozenset[str] = frozenset(), low_conf: frozenset[str
         if stem in fail:
             raise RuntimeError(f"extract boom: {stem}")
         create_project(output_path, overwrite=True)
-        _add_group(Path(output_path), "settings/extraction")
+        path = Path(output_path)
+        _add_group(path, "settings/extraction")
+        with h5py.File(path, "r+") as f:
+            f["settings/extraction"].attrs["profile_json"] = json.dumps(
+                {
+                    "registration_rms_px": 0.75 if stem in low_conf else 0.25,
+                    "rms_gate": 0.5,
+                }
+            )
         return SimpleNamespace(n_molecules=3, low_confidence_registration=stem in low_conf)
 
     return run
@@ -399,6 +408,117 @@ def test_policy_fail_fails_low_confidence_movie(tmp_path: Path) -> None:
     assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
     assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
     assert not r.ok
+
+
+def test_policy_fail_rejection_survives_resume(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.results[0].stages[STAGE_EXTRACT].status == STATUS_FAILED
+
+    second = run_batch(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_raising_idealize,
+    )
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    assert second.n_failed == 1
+
+
+def test_policy_warn_may_resume_a_policy_fail_rejection(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+
+    second = run_batch(
+        jobs,
+        policy=POLICY_WARN,
+        _extract=_raising_extract,
+        _correct=_correct_stub(),
+        _idealize=_idealize_stub(),
+    )
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_CORRECT].status == STATUS_DONE
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_DONE
+    assert r.ok
+
+
+@pytest.mark.parametrize(
+    ("new_low_confidence", "expected_extract"),
+    [(False, STATUS_DONE), (True, STATUS_FAILED)],
+)
+def test_overwrite_reextracts_a_rejected_checkpoint_and_regates(
+    tmp_path: Path,
+    new_low_confidence: bool,
+    expected_extract: str,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+
+    calls = 0
+    low_conf = frozenset({"x"}) if new_low_confidence else frozenset()
+    replacement = _extract_stub(low_conf=low_conf)
+
+    def counted_extract(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return replacement(*args, **kwargs)
+
+    second = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=counted_extract,
+    )
+    r = second.results[0]
+    assert calls == 1
+    assert r.stages[STAGE_EXTRACT].status == expected_extract
+    if new_low_confidence:
+        assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+        assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+        assert not r.ok
+    else:
+        assert r.stages[STAGE_CORRECT].status == STATUS_DONE
+        assert r.stages[STAGE_IDEALIZE].status == STATUS_DONE
+        assert r.ok
+
+
+def test_overwrite_still_skips_an_in_gate_completed_checkpoint(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(jobs, policy=POLICY_FAIL)
+    assert first.results[0].stages[STAGE_EXTRACT].status == STATUS_DONE
+
+    second = run_batch(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_raising_idealize,
+    )
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_CORRECT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_SKIPPED
+    assert r.ok
 
 
 # --- idealize=False ----------------------------------------------------------

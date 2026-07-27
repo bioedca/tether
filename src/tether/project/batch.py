@@ -43,6 +43,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -341,6 +342,41 @@ def _is_extracted(path: Path) -> bool:
     return _group_present(path, f"/{_SETTINGS_GROUP}/{_EXTRACTION_SETTINGS}")
 
 
+def _stored_extraction_is_over_gate(path: Path) -> bool:
+    """Recompute an existing extraction's over-gate verdict from its saved profile.
+
+    ``extract_movie`` persists both the measured ``registration_rms_px`` and the
+    effective ``rms_gate`` in ``/settings/extraction.profile_json``.  A ``fail`` resume
+    must consult those values before treating the provenance group as a satisfied
+    checkpoint; otherwise the first run's policy rejection disappears on the next run.
+
+    Missing, unreadable, or malformed profile data is not enough evidence to reject a
+    checkpoint.  Those stores retain the historical checkpoint behavior and are skipped
+    when ``/settings/extraction`` is present.
+    """
+    if not path.exists():
+        return False
+    try:
+        import h5py  # noqa: PLC0415
+
+        with h5py.File(path, "r") as f:
+            raw_profile = f[f"/{_SETTINGS_GROUP}/{_EXTRACTION_SETTINGS}"].attrs.get("profile_json")
+        if isinstance(raw_profile, bytes):
+            raw_profile = raw_profile.decode("utf-8")
+        if not isinstance(raw_profile, str):
+            return False
+        profile = json.loads(raw_profile)
+        if not isinstance(profile, dict):
+            return False
+        residual = float(profile["registration_rms_px"])
+        gate = float(profile["rms_gate"])
+        return bool(
+            math.isfinite(residual) and math.isfinite(gate) and gate > 0 and residual > gate
+        )
+    except (KeyError, TypeError, ValueError, OSError):
+        return False
+
+
 def _is_corrected(path: Path) -> bool:
     return _group_present(path, f"/{_SETTINGS_GROUP}/{_CORRECTION_SETTINGS}")
 
@@ -600,7 +636,8 @@ def run_batch(
         The movies to process (each into its own ``output_path`` ``.tether``).
     policy
         Over-gate registration policy (PRD §11.2): ``"warn"`` (default) keeps an
-        over-gate movie with a flag; ``"fail"`` fails it.
+        over-gate movie with a flag; ``"fail"`` fails it, including on resume when
+        the persisted extraction profile remains over its recorded gate.
     extract_options
         A :class:`tether.project.extract.ExtractOptions` (or ``None`` for defaults),
         applied to every movie.
@@ -618,8 +655,9 @@ def run_batch(
         and per-movie auto-restart on transient sidecar failures. ``None`` (default)
         keeps the idealize stage a single error-isolated call.
     overwrite
-        Re-extract a movie whose ``output_path`` exists but is not a completed
-        extraction (a completed extraction is always skipped via checkpoint).
+        Re-extract a movie whose ``output_path`` is incomplete, or whose completed
+        extraction is rejected by ``policy="fail"``. Accepted completed extractions
+        remain skipped via checkpoint.
     stamp_provenance
         Write the additive ``/settings/batch`` provenance group into each project.
     log
@@ -763,7 +801,17 @@ def _do_extract(
     except ValueError as exc:
         return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok
     if _is_extracted(job.output_path):
-        return rec.record(STAGE_EXTRACT, STATUS_SKIPPED, detail="already extracted").ok
+        rejected_checkpoint = policy == POLICY_FAIL and _stored_extraction_is_over_gate(
+            job.output_path
+        )
+        if rejected_checkpoint and not overwrite:
+            return rec.record(
+                STAGE_EXTRACT,
+                STATUS_FAILED,
+                error="registration residual exceeds the gate (policy=fail)",
+            ).ok
+        if not rejected_checkpoint:
+            return rec.record(STAGE_EXTRACT, STATUS_SKIPPED, detail="already extracted").ok
     try:
         summary = runner(
             job.movie_path,
