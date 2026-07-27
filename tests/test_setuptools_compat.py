@@ -73,15 +73,49 @@ def test_lock_is_single_exact_hash_locked_wheel_source() -> None:
 
 @pytest.mark.parametrize("workflow", [PACKAGING_WORKFLOW, RELEASE_WORKFLOW])
 def test_packaging_drivers_download_and_verify_the_single_lock(workflow: Path) -> None:
-    runs = "\n".join(_execution_strings(workflow))
-    assert "--require-hashes" in runs
-    assert f"-r {LOCK_RELPATH}" in runs
+    execution_strings = _execution_strings(workflow)
+    lock_commands = [command for command in execution_strings if f"-r {LOCK_RELPATH}" in command]
+    assert len(lock_commands) == 1
+    lock_command = lock_commands[0]
+    assert "--require-hashes" in lock_command
+    assert "--only-binary=:all:" in lock_command
+    assert "--no-deps" in lock_command
+
+    runs = "\n".join(execution_strings)
     assert "scripts/verify_setuptools_wheel.py packaging/staging" in runs
     assert "SETUPTOOLS_WHEEL=staging/$(basename" in runs
     executable = "\n".join(line for line in runs.splitlines() if not line.lstrip().startswith("#"))
     assert not re.search(r"setuptools\s*(?:===|==|~=|!=|<=|>=|<|>)\s*\d", executable), (
         f"{workflow.name} contains an executable setuptools version spec outside {LOCK_RELPATH}"
     )
+
+
+@pytest.mark.parametrize("workflow", [PACKAGING_WORKFLOW, RELEASE_WORKFLOW])
+def test_pkgbuild_provides_ordinary_setuptools_for_no_isolation_build(workflow: Path) -> None:
+    execution_strings = _execution_strings(workflow)
+    create_args = [value for value in execution_strings if "constructor>=3.16" in value]
+    assert len(create_args) == 1
+    create_tokens = create_args[0].split()
+    assert create_tokens.count("setuptools") == 1
+    assert (
+        create_tokens.index("pip")
+        < create_tokens.index("setuptools")
+        < create_tokens.index("wheel")
+    )
+
+    tmaven_builds = [
+        command
+        for command in execution_strings
+        if "pip wheel" in command and "TMAVEN_SPEC" in command
+    ]
+    assert len(tmaven_builds) == 1
+    assert "--no-build-isolation" in tmaven_builds[0]
+
+
+def test_packaging_docs_provision_ordinary_setuptools_for_no_isolation_build() -> None:
+    packaging = PACKAGING_DOCS.read_text(encoding="utf-8")
+    assert "conda-standalone python-build pip setuptools wheel" in packaging
+    assert "--no-build-isolation" in packaging
 
 
 @pytest.mark.parametrize("workflow", [SIDECAR_WORKFLOW, MEASURE_WORKFLOW])
@@ -115,6 +149,11 @@ def test_verifier_accepts_only_the_derived_filename_and_digest(tmp_path: Path) -
 
     lock = verifier.load_lock(requirements)
     assert verifier.verify_wheel(tmp_path, lock=lock) == wheel
+
+    wheel.write_bytes(b"tampered compatibility wheel fixture")
+    with pytest.raises(verifier.VerificationError, match="SHA-256 mismatch"):
+        verifier.verify_wheel(tmp_path, lock=lock)
+    wheel.write_bytes(wheel_bytes)
 
     wheel.rename(tmp_path / "setuptools-1.2.4-py3-none-any.whl")
     with pytest.raises(verifier.VerificationError, match="expected exactly"):

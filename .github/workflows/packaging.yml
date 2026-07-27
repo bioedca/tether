@@ -91,13 +91,13 @@ jobs:
           environment-name: pkgbuild
           # A build-only env, NOT one of the pin-and-held stacks: it just needs
           # constructor (>=3.16 for --render), conda-lock to render the committed
-          # locks, and the wheel-build tools. The compatibility setuptools is NOT
-          # installed here: tMAVEN's setup.py imports setuptools, while pkg_resources
-          # is imported only when maven_class starts at runtime. Keeping the old wheel
-          # out of the build env also confines its recorded security exposure.
-          # `pip` is explicit: `python -m build` (tether wheel) and `python -m pip
-          # wheel` (tMAVEN) both require it and the base python pulls it in only by
-          # chance, not as a stated dep.
+          # locks, and the wheel-build tools. Ordinary current setuptools is explicit
+          # because --no-build-isolation makes this environment responsible for the
+          # build dependency imported by tMAVEN's setup.py. The older compatibility
+          # setuptools is NOT installed here: pkg_resources is imported only when
+          # maven_class starts at runtime. Keeping that old wheel out of the build env
+          # also confines its recorded security exposure. `pip` is explicit because
+          # both wheel builds require it rather than relying on a transitive install.
           create-args: >-
             python=3.12
             constructor>=3.16
@@ -105,6 +105,7 @@ jobs:
             conda-standalone
             python-build
             pip
+            setuptools
             wheel
           init-shell: bash
           cache-environment: true
@@ -113,9 +114,9 @@ jobs:
         run: python -m build --wheel --outdir packaging/staging .
 
       - name: Build the pinned trimmed tMAVEN wheel (offline sidecar payload)
-        # tMAVEN's setup.py needs ordinary setuptools but not pkg_resources; the latter
-        # is imported only when maven_class starts at runtime. Build before adopting the
-        # older runtime-only compatibility wheel. --no-deps because the sidecar provides deps.
+        # tMAVEN's setup.py uses the ordinary setuptools supplied by pkgbuild, not the
+        # older runtime-only compatibility wheel staged below. --no-deps because the
+        # sidecar provides runtime dependencies.
         run: python -m pip wheel --no-deps --no-build-isolation -w packaging/staging "${TMAVEN_SPEC}"
 
       - name: Stage and verify the hash-locked setuptools compatibility wheel

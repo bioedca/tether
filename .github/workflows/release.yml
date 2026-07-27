@@ -151,15 +151,15 @@ jobs:
           # so the pin is one knob; see setup-env for the #306/#307 rationale.
           #
           # SCOPE: this pins the SOLVER for the pkgbuild tool env only. It does NOT make
-          # the release toolchain reproducible — create-args below re-solves
-          # constructor/conda-standalone/python-build/pip/wheel from conda-forge on every
-          # run, and micromamba never restores a Tether lock on this path (the locks go
-          # through `conda-lock render` into constructor/conda-standalone).
+          # the release toolchain reproducible — create-args re-solves these conda-forge
+          # tools on every run: constructor, conda-standalone, python-build, pip,
+          # setuptools, and wheel. Micromamba never restores a Tether lock on this path
+          # (the locks go through `conda-lock render` into constructor/conda-standalone).
           micromamba-version: "2.8.1-0"
           environment-name: pkgbuild
-          # See packaging.yml for the create-args rationale. The older setuptools
-          # compatibility wheel is a hash-verified runtime payload, not a build tool,
-          # so it is deliberately absent from this freshly solved pkgbuild environment.
+          # See packaging.yml for the create-args rationale. Ordinary current setuptools
+          # supplies tMAVEN's build dependency. The older compatibility wheel remains a
+          # separate hash-verified runtime payload and is deliberately absent here.
           create-args: >-
             python=3.12
             constructor>=3.16
@@ -167,6 +167,7 @@ jobs:
             conda-standalone
             python-build
             pip
+            setuptools
             wheel
           init-shell: bash
           cache-environment: true
@@ -175,8 +176,8 @@ jobs:
         run: python -m build --wheel --outdir packaging/staging .
 
       - name: Build the pinned trimmed tMAVEN wheel (offline sidecar payload)
-        # tMAVEN's setup.py does not import pkg_resources; that happens only when
-        # maven_class starts. Build with the current toolchain before staging the older
+        # tMAVEN's setup.py uses the ordinary setuptools supplied by pkgbuild; pkg_resources
+        # is needed only when maven_class starts. Build before staging the separate older
         # runtime-only compatibility wheel.
         run: python -m pip wheel --no-deps --no-build-isolation -w packaging/staging "${TMAVEN_SPEC}"
 

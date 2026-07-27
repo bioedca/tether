@@ -52,10 +52,12 @@ CI does this on all three OSes in the advisory, non-required
 (`workflow_dispatch`). To build locally you reproduce the same contract:
 
 ```bash
-# 1. A build env with constructor + conda-lock + build tools. `pip` is needed by
-#    `python -m build` and `python -m pip wheel` below.
+# 1. A build env with constructor + conda-lock + build tools. `pip` drives both
+#    wheel builds; ordinary setuptools is explicit because --no-build-isolation
+#    makes this environment provide tMAVEN's setup.py build dependency. The older
+#    runtime compatibility wheel remains separate and is staged below.
 micromamba create -n pkgbuild -c conda-forge "constructor>=3.16" conda-lock=4.0.1 \
-    conda-standalone python-build pip wheel
+    conda-standalone python-build pip setuptools wheel
 micromamba activate pkgbuild
 
 # 2. Build the application/tMAVEN wheels, then download and independently verify the
