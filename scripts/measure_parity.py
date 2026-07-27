@@ -27,8 +27,9 @@ CPython version and the tMAVEN upstream commit (:func:`probe_sidecar_build`) —
 never ``$TETHER_SIDECAR_PYTHON`` itself: an absolute path names a machine, not a
 build, and would put a local filesystem layout into a committed public artifact.
 That holds on the failure path too: a probe error is rebuilt from safe attributes
-and redacted (:func:`_sanitized_probe_error`), because ``CalledProcessError`` and
-``TimeoutExpired`` render the whole argv — path included — in their ``str()``.
+(:func:`_sanitized_probe_error`) and never includes child-process diagnostics,
+because ``CalledProcessError`` and ``TimeoutExpired`` can carry the whole argv,
+stderr, URLs, credentials, and unrelated machine-identifying paths.
 
 The frozen numbers are a one-time M0.5 ratification: regenerate only with an ADR
 + a deliberate re-freeze (PRD §11.2 "frozen from the measured cross-seed spread
@@ -40,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -82,55 +84,85 @@ _FIXTURES = {
 
 
 _REDACTED = "$TETHER_SIDECAR_PYTHON"
+_BUILD_PROVENANCE = (
+    "The measurement-time build probe obtains sidecar_python_version by executing "
+    "platform.python_version() and tmaven_commit from the installed tMAVEN distribution's "
+    "PEP 610 direct_url.json vcs_info.commit_id inside the configured sidecar interpreter; "
+    "the interpreter path is intentionally not recorded."
+)
+_PYTHON_VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*")
+_TMAVEN_COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}")
 
 
-def _redact(text: str, secret: str) -> str:
-    """Replace ``secret`` — raw and backslash-escaped — with a placeholder."""
-    out = text
-    for form in {secret, secret.replace("\\", "\\\\")}:
-        if form:
-            out = out.replace(form, _REDACTED)
-    return out
+def _sanitized_probe_error(exc: BaseException, _sidecar_python: str) -> str:
+    """Describe ``exc`` using only allowlisted, non-payload diagnostics.
 
-
-def _sanitized_probe_error(exc: BaseException, sidecar_python: str) -> str:
-    """Describe ``exc`` **without** leaking the interpreter path into the artifact.
-
-    ``CalledProcessError.__str__`` and ``TimeoutExpired.__str__`` both render the whole
-    argv, whose first element is the absolute sidecar interpreter path — precisely the
-    machine-identifying string this module exists to keep out of a committed public
-    file. So their messages are rebuilt from safe attributes instead of ``str(exc)``,
-    and every message is redacted before it is returned.
+    Child-process stderr and generic exception messages are untrusted: either may
+    contain paths, URLs, credentials, or other machine-specific data unrelated to
+    the configured interpreter. Persist only the exception category plus a numeric
+    exit code or configured timeout where applicable. Parsing and validation
+    failures use fixed descriptions, and every other failure records only its type.
     """
     if isinstance(exc, subprocess.CalledProcessError):
-        detail = f"exit {exc.returncode}"
-    elif isinstance(exc, subprocess.TimeoutExpired):
-        detail = f"timed out after {exc.timeout}s"
+        return f"CalledProcessError: exit {exc.returncode}"
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return f"TimeoutExpired: timed out after {exc.timeout}s"
+    if isinstance(exc, json.JSONDecodeError):
+        return "JSONDecodeError: invalid JSON build probe output"
+    if isinstance(exc, ValueError):
+        return "ValueError: invalid build probe output"
+    return f"{type(exc).__name__}: build probe failed"
+
+
+def _unrecorded_build(error: str) -> dict[str, str]:
+    """Return a complete, path-free record for a probe that could not be trusted."""
+    return {
+        "sidecar_python_version": "unrecorded",
+        "tmaven_commit": "unrecorded",
+        "build_provenance": _BUILD_PROVENANCE,
+        "build_probe_error": error,
+    }
+
+
+def _validated_build(probed: object) -> dict[str, str]:
+    """Select and validate the two safe facts emitted by :data:`_BUILD_PROBE`."""
+    if not isinstance(probed, dict):
+        raise ValueError("build probe output is not a JSON object")
+    python_version = probed.get("sidecar_python_version")
+    tmaven_commit = probed.get("tmaven_commit")
+    if not isinstance(python_version, str) or not _PYTHON_VERSION_RE.fullmatch(python_version):
+        raise ValueError("build probe did not return a valid CPython version")
+    if not isinstance(tmaven_commit, str):
+        raise ValueError("build probe did not return a 40-hex tMAVEN commit")
+    if tmaven_commit == "unrecorded":
+        normalized_commit = tmaven_commit
+    elif _TMAVEN_COMMIT_RE.fullmatch(tmaven_commit):
+        normalized_commit = tmaven_commit.lower()
     else:
-        detail = str(exc)
-    stderr = getattr(exc, "stderr", None) or ""
-    if isinstance(stderr, bytes):
-        stderr = stderr.decode("utf-8", "replace")
-    tail = stderr.strip().splitlines()[-1] if stderr.strip() else ""
-    if tail:
-        detail = f"{detail}; {tail}"
-    return _redact(f"{type(exc).__name__}: {detail}", sidecar_python)
+        raise ValueError("build probe did not return a 40-hex tMAVEN commit")
+    return {
+        "sidecar_python_version": python_version,
+        "tmaven_commit": normalized_commit,
+        "build_provenance": _BUILD_PROVENANCE,
+    }
 
 
 def probe_sidecar_build(sidecar_python: str | None) -> dict[str, str]:
     """Return the reproducibility facts that identify the measured comparison.
 
-    ``{"sidecar_python_version": ..., "tmaven_commit": ...}`` — the CPython version
-    of the sidecar interpreter and the tMAVEN upstream commit installed into it.
-    Deliberately **not** the interpreter path: the frozen artifact is committed and
-    published, and a path identifies a machine rather than a build. Any failure
-    degrades to ``"unrecorded"`` plus a *sanitized* probe-error field (see
+    The result always includes ``sidecar_python_version``, ``tmaven_commit``, and
+    ``build_provenance``. The first two identify the sidecar CPython and installed
+    tMAVEN upstream commit; the last records how both facts were measured. Deliberately
+    absent is the interpreter path: the frozen artifact is committed and published,
+    and a path identifies a machine rather than a build. A non-VCS tMAVEN install
+    preserves the validated Python version while recording only its commit as
+    ``"unrecorded"``. Any other failure degrades both facts to ``"unrecorded"`` plus
+    a *sanitized* probe-error field (see
     :func:`_sanitized_probe_error`) so a long measurement run is never lost to a
     provenance probe — and never leaks the path through an exception message either.
     """
-    unrecorded = {"sidecar_python_version": "unrecorded", "tmaven_commit": "unrecorded"}
     if not sidecar_python:
-        return {**unrecorded, "build_probe_error": f"{_REDACTED} is unset"}
+        return _unrecorded_build(f"{_REDACTED} is unset")
     try:
         proc = subprocess.run(  # noqa: S603 - sidecar_python is the configured interpreter
             [sidecar_python, "-c", _BUILD_PROBE],
@@ -139,10 +171,13 @@ def probe_sidecar_build(sidecar_python: str | None) -> dict[str, str]:
             timeout=120.0,
             check=True,
         )
-        probed = json.loads(proc.stdout.strip().splitlines()[-1])
+        lines = proc.stdout.strip().splitlines()
+        if not lines:
+            raise ValueError("build probe returned no output")
+        probed = json.loads(lines[-1])
+        return _validated_build(probed)
     except Exception as exc:
-        return {**unrecorded, "build_probe_error": _sanitized_probe_error(exc, sidecar_python)}
-    return {**unrecorded, **probed}
+        return _unrecorded_build(_sanitized_probe_error(exc, sidecar_python))
 
 
 def main() -> int:
