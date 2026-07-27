@@ -32,8 +32,10 @@ those files. A matching version or shadow import alone cannot authorize a build.
 A rerun whose target already contains the runtime-only 80.9.0 overlay may reuse tMAVEN
 only when both its PEP 610 Git commit and its ``WHEEL`` generator prove that exact commit
 was built by the locked ordinary setuptools, every Python row in the raw wheel ``RECORD``
-still exists with matching bytes, and the imported tMAVEN module is one of those verified
-files. Commit identity and build metadata alone are insufficient. Every other
+still exists with matching bytes, and the imported tMAVEN initializer, absolute lexical
+package path, and actual ``tmaven.maven`` spec selected by the runner exactly match their
+raw ``RECORD`` paths. The selected module's resolved bytes must also be hash-verified.
+Commit identity and build metadata alone are insufficient. Every other
 existing-interpreter state fails closed with fresh-environment guidance. A permitted
 build disables pip's wheel cache, force-reinstalls the pinned source, and rechecks all
 provenance before the runtime compatibility layer is installed.
@@ -101,6 +103,7 @@ _BUILD_STATE_PROBE = f"""
 import base64
 import csv
 import importlib.metadata as md
+import importlib.util
 import hashlib
 import io
 import json
@@ -116,6 +119,8 @@ state = {{
     "tmaven_wheel_generator": None,
     "tmaven_python_files_verified": False,
     "tmaven_import_origin_verified": False,
+    "tmaven_package_path_verified": False,
+    "tmaven_maven_origin_verified": False,
 }}
 setuptools_origin = None
 try:
@@ -176,11 +181,27 @@ if len(matching_records) == 1:
         state["setuptools_conda_files_verified"]
         and setuptools_origin in verified_files
     )
-tmaven_origin = None
+tmaven_file = None
+tmaven_spec_origin = None
+tmaven_package_paths = ()
+tmaven_maven_origin = None
+tmaven_maven_resolved_origin = None
+tmaven_maven_spec_shape_verified = False
 try:
     import tmaven
 
-    tmaven_origin = pathlib.Path(tmaven.__file__).resolve(strict=True)
+    tmaven_file = pathlib.Path(tmaven.__file__).absolute()
+    tmaven_spec_origin = pathlib.Path(tmaven.__spec__.origin).absolute()
+    tmaven_package_paths = tuple(pathlib.Path(entry).absolute() for entry in tmaven.__path__)
+    tmaven_maven_spec = importlib.util.find_spec("tmaven.maven")
+    if tmaven_maven_spec is not None and tmaven_maven_spec.origin is not None:
+        tmaven_maven_spec_shape_verified = (
+            tmaven_maven_spec.name == "tmaven.maven"
+            and tmaven_maven_spec.has_location is True
+            and tmaven_maven_spec.submodule_search_locations is None
+        )
+        tmaven_maven_origin = pathlib.Path(tmaven_maven_spec.origin).absolute()
+        tmaven_maven_resolved_origin = tmaven_maven_origin.resolve(strict=True)
 except (ImportError, AttributeError, OSError, TypeError):
     pass
 try:
@@ -207,6 +228,8 @@ try:
         python_rows = []
     python_files_verified = bool(python_rows)
     verified_python_files = set()
+    verified_tmaven_initializers = []
+    verified_tmaven_mavens = []
     for row in python_rows:
         if len(row) < 2:
             python_files_verified = False
@@ -221,12 +244,14 @@ try:
             python_files_verified = False
             continue
         try:
-            installed_file = pathlib.Path(
+            installed_lexical_file = pathlib.Path(
                 distribution.locate_file(relative_text)
-            ).resolve(strict=True)
-            installed_file.relative_to(prefix)
+            ).absolute()
+            installed_lexical_file.relative_to(prefix)
+            installed_resolved_file = installed_lexical_file.resolve(strict=True)
+            installed_resolved_file.relative_to(prefix)
             digest = base64.urlsafe_b64encode(
-                hashlib.sha256(installed_file.read_bytes()).digest()
+                hashlib.sha256(installed_resolved_file.read_bytes()).digest()
             ).rstrip(b"=").decode("ascii")
         except (OSError, ValueError):
             python_files_verified = False
@@ -234,10 +259,29 @@ try:
         if digest != expected_digest:
             python_files_verified = False
         else:
-            verified_python_files.add(installed_file)
+            verified_python_files.add(installed_resolved_file)
+            if relative == pathlib.PurePosixPath("tmaven/__init__.py"):
+                verified_tmaven_initializers.append(installed_lexical_file)
+            elif relative == pathlib.PurePosixPath("tmaven/maven.py"):
+                verified_tmaven_mavens.append(installed_lexical_file)
     state["tmaven_python_files_verified"] = python_files_verified
     state["tmaven_import_origin_verified"] = (
-        python_files_verified and tmaven_origin in verified_python_files
+        python_files_verified
+        and len(verified_tmaven_initializers) == 1
+        and tmaven_file == verified_tmaven_initializers[0]
+        and tmaven_spec_origin == verified_tmaven_initializers[0]
+    )
+    state["tmaven_package_path_verified"] = (
+        state["tmaven_import_origin_verified"]
+        and len(tmaven_package_paths) == 1
+        and tmaven_package_paths[0] == verified_tmaven_initializers[0].parent
+    )
+    state["tmaven_maven_origin_verified"] = (
+        python_files_verified
+        and tmaven_maven_spec_shape_verified
+        and len(verified_tmaven_mavens) == 1
+        and tmaven_maven_origin == verified_tmaven_mavens[0]
+        and tmaven_maven_resolved_origin in verified_python_files
     )
 except (md.PackageNotFoundError, json.JSONDecodeError):
     pass
@@ -455,6 +499,8 @@ def _exact_installed_tmaven_commit(
         or state.get("tmaven_wheel_generator") != expected_generator
         or state.get("tmaven_python_files_verified") is not True
         or state.get("tmaven_import_origin_verified") is not True
+        or state.get("tmaven_package_path_verified") is not True
+        or state.get("tmaven_maven_origin_verified") is not True
         or not isinstance(commit, str)
         or re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", commit) is None
         or commit.lower() != expected_commit
@@ -506,7 +552,7 @@ def _tmaven_install_action(
             else ""
         )
         + ", the installed tMAVEN Python files against their complete wheel RECORD, "
-        "and the imported tMAVEN origin"
+        "the imported package path, and the selected tmaven.maven origin"
         + ". Create a genuinely fresh sidecar environment under a new --env-name, "
         "deterministically restore the target interpreter's setuptools files from the lock, "
         "or target an environment containing the exact requested tMAVEN commit built by the "
@@ -659,7 +705,8 @@ def build_parser() -> argparse.ArgumentParser:
             "use this existing interpreter as the sidecar (skips env creation); "
             "tMAVEN builds only with a matching platform artifact from the lock and "
             "verified setuptools import origin; reuse also requires exact installed Git, "
-            "build, complete Python RECORD, and verified tMAVEN import-origin provenance"
+            "build, complete Python RECORD, and verified tMAVEN package-path/module-origin "
+            "provenance"
         ),
     )
     parser.add_argument(
@@ -786,22 +833,26 @@ def main(argv: list[str] | None = None) -> int:
                         found_generator = rebuilt_state.get("tmaven_wheel_generator")
                         found_python_integrity = rebuilt_state.get("tmaven_python_files_verified")
                         found_import_origin = rebuilt_state.get("tmaven_import_origin_verified")
+                        found_package_path = rebuilt_state.get("tmaven_package_path_verified")
+                        found_maven_origin = rebuilt_state.get("tmaven_maven_origin_verified")
                         raise SetupError(
                             "rebuilt tMAVEN failed provenance verification: expected "
                             f"commit {expected_tmaven_commit} and "
                             "WHEEL Generator: "
                             f"setuptools ({locked_setuptools_version}) with a complete "
-                            "verified Python RECORD and imported origin; "
+                            "verified Python RECORD, package path, and tmaven.maven origin; "
                             f"found commit {found_commit or 'missing'} and "
                             f"{found_generator or 'missing generator'} with Python-file "
                             f"integrity {found_python_integrity} and imported-origin "
-                            f"integrity {found_import_origin}. Refusing to install "
+                            f"integrity {found_import_origin}, package-path integrity "
+                            f"{found_package_path}, and tmaven.maven-origin integrity "
+                            f"{found_maven_origin}. Refusing to install "
                             "the runtime compatibility wheel."
                         )
                     print(
                         "      Verified rebuilt tMAVEN commit "
                         f"{rebuilt_commit}, locked WHEEL generator, complete Python RECORD, "
-                        "and imported origin"
+                        "package path, and tmaven.maven origin"
                     )
             else:
                 print(f"      Reusing exact installed tMAVEN commit {installed_commit}")

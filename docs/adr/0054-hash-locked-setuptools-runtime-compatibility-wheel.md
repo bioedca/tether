@@ -68,16 +68,23 @@ The older wheel is a **runtime compatibility layer, not a build backend**:
    requested repository and exact resolved commit and the installed distribution's
    `WHEEL` metadata records the locked `Generator: setuptools (...)`, every Python row in
    the raw wheel `RECORD` resolves inside the sidecar prefix and still matches its
-   SHA-256, and the imported `tmaven.__file__` is one of those verified files. The probe
-   parses raw `RECORD` CSV because Python 3.12 `importlib.metadata.Distribution.files`
-   can omit a listed file that is missing on disk. Commit and generator metadata alone
-   cannot prove which bytes are present or imported. Every other state fails closed
-   and requires a genuinely fresh interpreter/new environment name or an explicit
+   SHA-256, absolute lexical `tmaven.__file__` and `tmaven.__spec__.origin` exactly equal
+   the raw-`RECORD` initializer path, and the sole absolute lexical `tmaven.__path__`
+   equals its parent. The actual `tmaven.maven` spec selected by the production runner
+   must be a located non-package module at the exact raw-`RECORD` `tmaven/maven.py`
+   path, with its resolved origin among the digest-verified files. Checking only a
+   resolved `tmaven.__file__` is insufficient: a symlinked genuine initializer can
+   retain a shadow package path and select an unverified submodule. The probe parses raw
+   `RECORD` CSV because Python 3.12 `importlib.metadata.Distribution.files` can omit a
+   listed file that is missing on disk. Commit and generator metadata alone cannot
+   prove which bytes are present or imported. Every other state fails closed and
+   requires a genuinely fresh interpreter/new environment name or an explicit
    deterministic restore; reinstalling into the same named conda env is insufficient
-   because pip overlays can leave stale files behind conda metadata. Optional live-suite
-   tooling is a separate layer: pytest 9.1.1 and its four dependencies absent from the
-   lock are pinned and wheel-hashed in `sidecar/pytest-requirements.txt`, then installed
-   with `--no-deps`. The compatibility wheel is installed last with binary-only hash
+   because pip overlays can leave stale files behind conda metadata. Optional
+   live-suite tooling is a separate layer: pytest 9.1.1 and its four dependencies absent
+   from the lock are pinned and wheel-hashed in `sidecar/pytest-requirements.txt`, then
+   installed with `--no-deps`. The compatibility wheel is installed last with
+   binary-only hash
    checking and `--force-reinstall`, so a rerun cannot trust an already-installed
    same-version distribution without verifying the locked artifact.
 3. Constructor installs the already-built compatibility and tMAVEN wheels offline into
