@@ -77,6 +77,8 @@ def test_packaging_drivers_download_and_verify_the_single_lock(workflow: Path) -
     lock_commands = [command for command in execution_strings if f"-r {LOCK_RELPATH}" in command]
     assert len(lock_commands) == 1
     lock_command = lock_commands[0]
+    assert "python -m pip download" in lock_command
+    assert "-d packaging/staging" in lock_command
     assert "--require-hashes" in lock_command
     assert "--only-binary=:all:" in lock_command
     assert "--no-deps" in lock_command
@@ -109,6 +111,7 @@ def test_pkgbuild_provides_ordinary_setuptools_for_no_isolation_build(workflow: 
         if "pip wheel" in command and "TMAVEN_SPEC" in command
     ]
     assert len(tmaven_builds) == 1
+    assert "--no-deps" in tmaven_builds[0]
     assert "--no-build-isolation" in tmaven_builds[0]
 
 

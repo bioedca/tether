@@ -80,6 +80,11 @@ def test_pytest_install_uses_a_separate_hash_locked_binary_source() -> None:
     assert setup.TEST_TOOLS_REQUIREMENTS.exists()
 
     requirements = setup.TEST_TOOLS_REQUIREMENTS.read_text(encoding="utf-8")
+    active_lines = [
+        line.strip()
+        for line in requirements.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
     for pin in (
         "pytest==9.1.1",
         "iniconfig==2.3.0",
@@ -87,14 +92,9 @@ def test_pytest_install_uses_a_separate_hash_locked_binary_source() -> None:
         "pygments==2.20.0",
         'colorama==0.4.6; sys_platform == "win32"',
     ):
-        assert pin in requirements
-    active_lines = [
-        line.strip()
-        for line in requirements.splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
+        assert any(pin in line for line in active_lines)
     assert not any(line.startswith("packaging==") for line in active_lines)
-    assert requirements.count("--hash=sha256:") == 5
+    assert sum(line.count("--hash=sha256:") for line in active_lines) == 5
 
 
 def test_setuptools_install_uses_the_single_hash_locked_binary_source() -> None:
