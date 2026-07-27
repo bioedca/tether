@@ -68,7 +68,7 @@ Useful options:
 | `--lock-file PATH` | conda-lock file to build the env from (default `sidecar/conda-lock.yml`). |
 | `--tmaven-spec SPEC` | pip spec for tMAVEN (default `$TMAVEN_SPEC` or the pinned commit). |
 | `--with-pytest` | Also install the separately hash-locked pytest test tools needed by the live sidecar suite. |
-| `--skip-install` | Skip the tMAVEN, optional pytest test-tool, and setuptools compatibility-wheel installs; only create the env / probe. |
+| `--skip-install` | Skip the tMAVEN, optional pytest test-tool, and setuptools compatibility-wheel installs; use only with an already-populated sidecar environment. The liveness probe still runs unless `--no-probe`. |
 | `--no-probe` | Skip the liveness probe. |
 | `--dry-run` | Print every command without running it. |
 

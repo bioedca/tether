@@ -388,6 +388,11 @@ def test_packaging_install_smoke_exercises_the_pkg_resources_path() -> None:
         "packaging.yml install-smoke must import setuptools and pkg_resources in the sidecar "
         "environment, so a regression names its cause (issue #212)"
     )
+    version_bound = "assert tuple(int(p) for p in setuptools.__version__.split('.')[:1]) < (81,)"
+    assert workflow.count(version_bound) == 2, (
+        "both Unix and Windows install-smoke commands must enforce the setuptools <81 "
+        "runtime compatibility bound"
+    )
 
 
 # --- The release pipeline (release.yml, M9 / ADR-0050) ---

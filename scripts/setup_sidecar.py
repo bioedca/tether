@@ -137,12 +137,12 @@ def build_tmaven_pip_cmd(sidecar_python: str, *, tmaven_spec: str) -> list[str]:
     ]
 
 
-def build_test_tools_pip_cmd(
+def _build_hash_locked_pip_cmd(
     sidecar_python: str,
     *,
-    requirements: Path = TEST_TOOLS_REQUIREMENTS,
+    requirements: Path,
 ) -> list[str]:
-    """Force-install only the hash-locked binary test tools from *requirements*."""
+    """Build the shared binary-only, no-dependency, hash-locked pip command."""
     return [
         sidecar_python,
         "-m",
@@ -155,6 +155,15 @@ def build_test_tools_pip_cmd(
         "-r",
         str(requirements),
     ]
+
+
+def build_test_tools_pip_cmd(
+    sidecar_python: str,
+    *,
+    requirements: Path = TEST_TOOLS_REQUIREMENTS,
+) -> list[str]:
+    """Force-install only the hash-locked binary test tools from *requirements*."""
+    return _build_hash_locked_pip_cmd(sidecar_python, requirements=requirements)
 
 
 def build_setuptools_pip_cmd(
@@ -163,18 +172,7 @@ def build_setuptools_pip_cmd(
     requirements: Path = SETUPTOOLS_REQUIREMENTS,
 ) -> list[str]:
     """Force-install only the hash-locked binary compatibility wheel from *requirements*."""
-    return [
-        sidecar_python,
-        "-m",
-        "pip",
-        "install",
-        "--force-reinstall",
-        "--only-binary=:all:",
-        "--no-deps",
-        "--require-hashes",
-        "-r",
-        str(requirements),
-    ]
+    return _build_hash_locked_pip_cmd(sidecar_python, requirements=requirements)
 
 
 def resolve_env_python(frontend: str, env_name: str) -> str:
@@ -306,7 +304,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--skip-install",
         action="store_true",
-        help="skip the tMAVEN, optional pytest test-tool, and compatibility-wheel installs",
+        help=(
+            "skip the tMAVEN, optional pytest test-tool, and compatibility-wheel installs; "
+            "use only with an already-populated sidecar environment "
+            "(probe still runs unless --no-probe)"
+        ),
     )
     parser.add_argument("--no-probe", action="store_true", help="skip the liveness probe")
     parser.add_argument(

@@ -20,6 +20,7 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPT = _REPO_ROOT / "scripts" / "setup_sidecar.py"
 _SIDECAR_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "sidecar.yml"
+_HANDOFF_DOC = _REPO_ROOT / "docs" / "idealize" / "standalone-tmaven-handoff.md"
 
 
 def _load_script():
@@ -312,8 +313,43 @@ def test_skip_install_skips_every_pip_layer(
     )
 
 
+def test_skip_install_still_probes_an_already_populated_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sidecar_python = tmp_path / "python"
+    sidecar_python.touch()
+    probes: list[str] = []
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("--skip-install must not run any install command")
+
+    def _probe(python: str) -> dict:
+        probes.append(python)
+        return {"ok": True, "detail": "already populated"}
+
+    monkeypatch.setattr(setup, "_run", _boom)
+    monkeypatch.setattr(setup, "run_probe", _probe)
+
+    assert setup.main(["--python", str(sidecar_python), "--skip-install"]) == 0
+    assert probes == [str(sidecar_python)]
+
+
 def test_skip_install_help_names_every_skipped_pip_layer() -> None:
     help_text = " ".join(setup.build_parser().format_help().split())
     assert (
         "skip the tMAVEN, optional pytest test-tool, and compatibility-wheel installs" in help_text
     )
+    assert "use only with an already-populated sidecar environment" in help_text
+    assert "probe still runs unless --no-probe" in help_text
+
+
+def test_skip_install_docs_require_an_already_populated_environment() -> None:
+    skip_row = next(
+        line
+        for line in _HANDOFF_DOC.read_text(encoding="utf-8").splitlines()
+        if line.startswith("| `--skip-install` |")
+    )
+    assert "already-populated sidecar environment" in skip_row
+    assert "probe still runs unless `--no-probe`" in skip_row
+    assert "only create the env / probe" not in skip_row
