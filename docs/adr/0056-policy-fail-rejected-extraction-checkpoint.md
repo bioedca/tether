@@ -58,14 +58,14 @@ completed checkpoint as policy-rejected:
 - under `policy=warn`, or when the saved result is not over its gate, the completed
   checkpoint remains skipped even if `overwrite` is set.
 
-The overwrite path holds the destination lock while it revalidates and re-extracts.
-`extract_movie` builds the replacement at a sibling temp path and, immediately before
-`os.replace`, calls a publish guard that compares the on-disk lock nonce with this
-run's acquisition nonce. If an operator stole the now-stale lock during a long
-extraction, the old run discards its temp project and reports failure instead of
-overwriting the successor owner's canonical file. Losing ownership also suppresses
-that job's end-of-run `/settings/batch` stamp, so no later provenance write bypasses
-the failed publish guard.
+The overwrite path acquires the destination lock before revalidation and keeps it
+through re-extraction, downstream correction and idealization, and the final
+`/settings/batch` stamp. `extract_movie` builds the replacement at a sibling temp path
+and, immediately before `os.replace`, calls a publish guard that compares the on-disk
+lock nonce with this run's acquisition nonce. The batch runner performs the same
+nonce check before and after every later canonical writer. If an operator steals the
+now-stale lock during a long stage, the old run stops that job, suppresses subsequent
+writes, and never releases the successor's lock.
 
 Missing or malformed legacy profile values do not invent a rejection; those completed
 checkpoints retain ADR-0030's presence-only skip behavior. The store remains the only

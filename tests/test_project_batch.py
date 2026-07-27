@@ -16,7 +16,6 @@ withheld-α → apparent-E path). Headless; runs in the base CI matrix.
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,6 +30,7 @@ import numpy as np  # noqa: E402
 from tether.idealize.driver import SidecarError  # noqa: E402
 from tether.idealize.supervisor import ProbeResult, SidecarSupervision  # noqa: E402
 from tether.io.schema import SCHEMA_VERSION, create_project  # noqa: E402
+from tether.project import batch as batch_module  # noqa: E402
 from tether.project import lock  # noqa: E402
 from tether.project.batch import (  # noqa: E402
     POLICY_FAIL,
@@ -509,6 +509,33 @@ def test_malformed_saved_profile_does_not_invent_policy_rejection(
     assert r.ok
 
 
+def test_deeply_nested_saved_profile_uses_malformed_checkpoint_fallback(
+    tmp_path: Path,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(jobs, policy=POLICY_FAIL)
+    assert first.results[0].ok
+    deeply_nested_json = "[" * 10_000 + "0" + "]" * 10_000
+    with pytest.raises(RecursionError):
+        json.loads(deeply_nested_json)
+    with h5py.File(jobs[0].output_path, "r+") as store:
+        store["settings/extraction"].attrs["profile_json"] = deeply_nested_json
+
+    second = run_batch(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_raising_idealize,
+    )
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_CORRECT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_SKIPPED
+    assert r.ok
+
+
 @pytest.mark.parametrize(
     ("new_low_confidence", "expected_extract"),
     [(False, STATUS_DONE), (True, STATUS_FAILED)],
@@ -586,7 +613,10 @@ def test_overwrite_rejected_checkpoint_refuses_a_foreign_lock(tmp_path: Path) ->
     assert not r.ok
 
 
-def test_overwrite_rejected_checkpoint_holds_lock_through_runner(tmp_path: Path) -> None:
+def test_overwrite_rejected_checkpoint_holds_lock_through_all_writes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     jobs = _jobs(tmp_path, "x")
     first = _run(
         jobs,
@@ -595,10 +625,11 @@ def test_overwrite_rejected_checkpoint_holds_lock_through_runner(tmp_path: Path)
     )
     assert first.n_failed == 1
     replacement = _extract_stub()
-    observed_lock = False
+    correction = _correct_stub()
+    idealization = _idealize_stub()
+    observed_writes: list[str] = []
 
-    def guarded_extract(*args, **kwargs):
-        nonlocal observed_lock
+    def assert_owned(write_name: str) -> None:
         owner = lock.read_lock(jobs[0].output_path)
         assert owner is not None
         assert owner.identity == lock.local_identity()
@@ -607,17 +638,38 @@ def test_overwrite_rejected_checkpoint_holds_lock_through_runner(tmp_path: Path)
                 jobs[0].output_path,
                 identity=lock.LockIdentity(host="OTHER", user="contender", pid=123),
             )
-        observed_lock = True
+        observed_writes.append(write_name)
+
+    def guarded_extract(*args, **kwargs):
+        assert_owned("extract")
         return replacement(*args, **kwargs)
+
+    def guarded_correct(*args, **kwargs):
+        assert_owned("correct")
+        return correction(*args, **kwargs)
+
+    def guarded_idealize(*args, **kwargs):
+        assert_owned("idealize")
+        return idealization(*args, **kwargs)
+
+    stamp_batch_settings = batch_module._stamp_batch_settings
+
+    def guarded_stamp(*args, **kwargs):
+        assert_owned("provenance")
+        return stamp_batch_settings(*args, **kwargs)
+
+    monkeypatch.setattr(batch_module, "_stamp_batch_settings", guarded_stamp)
 
     second = _run(
         jobs,
         policy=POLICY_FAIL,
         overwrite=True,
         _extract=guarded_extract,
+        _correct=guarded_correct,
+        _idealize=guarded_idealize,
     )
 
-    assert observed_lock
+    assert observed_writes == ["extract", "correct", "idealize", "provenance"]
     assert second.results[0].ok
     assert lock.read_lock(jobs[0].output_path) is None
 
@@ -670,7 +722,9 @@ def test_overwrite_rejected_checkpoint_aborts_if_lock_is_stolen_before_publish(
 
     r = second.results[0]
     assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
-    assert "lock ownership changed before publish" in r.stages[STAGE_EXTRACT].error
+    assert "lock ownership changed during rejected-checkpoint replacement" in (
+        r.stages[STAGE_EXTRACT].error
+    )
     assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
     assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
     with h5py.File(jobs[0].output_path, "r") as store:
@@ -688,21 +742,20 @@ def test_overwrite_rechecks_replaced_checkpoint_under_lock(tmp_path: Path, monke
         _extract=_extract_stub(low_conf=frozenset({"x"})),
     )
     assert first.n_failed == 1
-    real_held_lock = lock.held_lock
+    real_acquire = lock.acquire
 
-    @contextmanager
     def replace_with_accepted_checkpoint(project_path, *args, **kwargs):
-        with real_held_lock(project_path, *args, **kwargs) as owner:
-            with h5py.File(project_path, "r+") as store:
-                store["settings/extraction"].attrs["profile_json"] = json.dumps(
-                    {
-                        "registration_rms_px": 0.25,
-                        "rms_gate": 0.5,
-                    }
-                )
-            yield owner
+        owner = real_acquire(project_path, *args, **kwargs)
+        with h5py.File(project_path, "r+") as store:
+            store["settings/extraction"].attrs["profile_json"] = json.dumps(
+                {
+                    "registration_rms_px": 0.25,
+                    "rms_gate": 0.5,
+                }
+            )
+        return owner
 
-    monkeypatch.setattr(lock, "held_lock", replace_with_accepted_checkpoint)
+    monkeypatch.setattr(lock, "acquire", replace_with_accepted_checkpoint)
     second = _run(
         jobs,
         policy=POLICY_FAIL,
@@ -726,15 +779,14 @@ def test_overwrite_rechecks_future_schema_under_lock(tmp_path: Path, monkeypatch
         _extract=_extract_stub(low_conf=frozenset({"x"})),
     )
     assert first.n_failed == 1
-    real_held_lock = lock.held_lock
+    real_acquire = lock.acquire
 
-    @contextmanager
     def replace_with_future_project(project_path, *args, **kwargs):
-        with real_held_lock(project_path, *args, **kwargs) as owner:
-            _stamp_future_schema(Path(project_path))
-            yield owner
+        owner = real_acquire(project_path, *args, **kwargs)
+        _stamp_future_schema(Path(project_path))
+        return owner
 
-    monkeypatch.setattr(lock, "held_lock", replace_with_future_project)
+    monkeypatch.setattr(lock, "acquire", replace_with_future_project)
     second = run_batch(
         jobs,
         policy=POLICY_FAIL,

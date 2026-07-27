@@ -45,11 +45,12 @@ batch process).
 ADR-0056 adds one narrow lock boundary for an existing store: before destructively
 re-extracting a completed checkpoint that `policy=fail` rejects, the runner acquires
 and holds the destination's single-writer lock, then revalidates the schema and saved
-checkpoint verdict under that lock. Immediately before the extraction temp file is
-atomically published, the runner also verifies the acquisition nonce is still current;
-if the lock became stale and was stolen during a long extraction, publish is aborted
-and the successor owner's project is left unchanged. Other stage and fresh-output
-locking behavior is unchanged.
+checkpoint verdict under that lock. The same lock remains held through extraction,
+downstream correction and idealization, and the final batch-provenance stamp, with the
+acquisition nonce verified at each canonical-write boundary and after each runner
+returns. If the lock became stale and was stolen during a long stage, the old owner
+stops the job, suppresses later writes, and never releases the successor's lock. Other
+jobs and fresh-output locking behavior are unchanged.
 
 Per-condition aggregation of α/γ *across* movies (a dataset-level median) is **not**
 introduced here; each movie's corrections run over its own store with the existing

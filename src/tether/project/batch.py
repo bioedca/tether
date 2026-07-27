@@ -381,7 +381,7 @@ def _stored_extraction_is_over_gate(path: Path) -> bool:
         return bool(
             math.isfinite(residual) and math.isfinite(gate) and gate > 0 and residual > gate
         )
-    except (KeyError, TypeError, ValueError, OverflowError, OSError):
+    except (KeyError, TypeError, ValueError, OverflowError, RecursionError, OSError):
         return False
 
 
@@ -616,6 +616,45 @@ class _Recorder:
         return sr
 
 
+def _needs_rejected_checkpoint_lock(
+    job: MovieJob,
+    *,
+    policy: str,
+    overwrite: bool,
+) -> bool:
+    """Whether this run may replace a saved policy-rejected extraction checkpoint."""
+    return bool(
+        overwrite
+        and policy == POLICY_FAIL
+        and _is_extracted(job.output_path)
+        and _stored_extraction_is_over_gate(job.output_path)
+    )
+
+
+def _destination_ownership_guard(
+    job: MovieJob,
+    rec: _Recorder,
+    lock_module: Any,
+    owner: Any,
+) -> Callable[[], None]:
+    """Return a nonce check bound to one rejected-checkpoint replacement."""
+
+    def guard() -> None:
+        # Fail closed before and after every canonical write boundary. A stale lock
+        # may be explicitly stolen during a long runner; comparing the per-acquisition
+        # nonce prevents this job from proceeding as if it still owned the destination.
+        rec.canonical_write_safe = False
+        current_owner = lock_module.read_lock(job.output_path)
+        if current_owner is None or current_owner.nonce != owner.nonce:
+            raise lock_module.LockError(
+                f"{lock_module.lock_path(job.output_path)} lock ownership changed during "
+                "rejected-checkpoint replacement"
+            )
+        rec.canonical_write_safe = True
+
+    return guard
+
+
 def run_batch(
     jobs: Sequence[MovieJob],
     *,
@@ -738,11 +777,58 @@ def run_batch(
     try:
         for job in jobs:
             rec = _Recorder(job=job, log=log)
+            destination_lock_module: Any = None
+            destination_owner: Any = None
+            ownership_guard: Callable[[], None] | None = None
             # Isolate the ENTIRE per-job body — not just each runner call. A failure of
             # the log sink itself (disk full, permission change, share drop) inside a
             # `rec.record()` must not abort the queue; it is caught here so the loop
             # continues to the next movie (§7.11 "isolate each movie").
             try:
+                if _needs_rejected_checkpoint_lock(
+                    job,
+                    policy=policy,
+                    overwrite=overwrite,
+                ):
+                    from tether.project import lock as destination_lock_module  # noqa: PLC0415
+
+                    try:
+                        destination_owner = destination_lock_module.acquire(job.output_path)
+                    except Exception as exc:
+                        # A rejected checkpoint is an existing canonical project. If
+                        # another writer owns it, fail this movie before any stage can
+                        # write and preserve the normal downstream-blocked result.
+                        rec.canonical_write_safe = False
+                        extract_ok = rec.record(
+                            STAGE_EXTRACT,
+                            STATUS_FAILED,
+                            error=str(exc),
+                        ).ok
+                        correct_ok = _do_correct(
+                            job,
+                            rec,
+                            upstream_ok=extract_ok,
+                            runner=_correct,
+                        )
+                        _do_idealize(
+                            job,
+                            rec,
+                            upstream_ok=correct_ok,
+                            idealize=idealize,
+                            idealize_kwargs=idealize_kwargs,
+                            runner=_idealize,
+                            supervision=supervision,
+                            deferred=idealize_deferred,
+                        )
+                        continue
+
+                    ownership_guard = _destination_ownership_guard(
+                        job,
+                        rec,
+                        destination_lock_module,
+                        destination_owner,
+                    )
+
                 extract_ok = _do_extract(
                     job,
                     rec,
@@ -750,8 +836,15 @@ def run_batch(
                     options=extract_options,
                     overwrite=overwrite,
                     runner=_extract,
+                    ownership_guard=ownership_guard,
                 )
-                correct_ok = _do_correct(job, rec, upstream_ok=extract_ok, runner=_correct)
+                correct_ok = _do_correct(
+                    job,
+                    rec,
+                    upstream_ok=extract_ok,
+                    runner=_correct,
+                    ownership_guard=ownership_guard,
+                )
                 _do_idealize(
                     job,
                     rec,
@@ -761,15 +854,20 @@ def run_batch(
                     runner=_idealize,
                     supervision=supervision,
                     deferred=idealize_deferred,
+                    ownership_guard=ownership_guard,
                 )
                 if stamp_provenance and rec.canonical_write_safe and job.output_path.exists():
                     try:
+                        if ownership_guard is not None:
+                            ownership_guard()
                         _stamp_batch_settings(
                             job.output_path,
                             policy=policy,
                             idealize_requested=idealize,
                             stages=rec.stages,
                         )
+                        if ownership_guard is not None:
+                            ownership_guard()
                     except Exception as exc:  # provenance must never fail a movie
                         _safe_event(
                             log,
@@ -783,6 +881,8 @@ def run_batch(
                     log, movie=job.label, stage="batch", status=STATUS_FAILED, error=str(exc)
                 )
             finally:
+                if destination_owner is not None:
+                    destination_lock_module.release(job.output_path, destination_owner)
                 results.append(MovieResult(job=job, stages=dict(rec.stages)))
     finally:
         if own_log:
@@ -799,6 +899,7 @@ def _do_extract(
     options: Any,
     overwrite: bool,
     runner: Callable[..., Any],
+    ownership_guard: Callable[[], None] | None = None,
 ) -> bool:
     """Run (or skip) the extract stage; returns whether it is satisfied."""
     # Before trusting anything already in the output project, refuse one written by a
@@ -806,8 +907,10 @@ def _do_extract(
     # failing here fails the movie and leaves correct/idealize `blocked` — the run
     # carries on with the other movies (PRD §5.4, §7.11).
     try:
+        if ownership_guard is not None:
+            ownership_guard()
         _assert_output_not_newer(job.output_path)
-    except ValueError as exc:
+    except Exception as exc:
         return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok
     rejected_checkpoint = False
     if _is_extracted(job.output_path):
@@ -820,53 +923,32 @@ def _do_extract(
                 STATUS_FAILED,
                 error="registration residual exceeds the gate (policy=fail)",
             ).ok
+        if rejected_checkpoint and ownership_guard is None:
+            # The checkpoint changed after the job-level preflight. Never overwrite
+            # that newly rejected canonical project without first owning its lock.
+            rec.canonical_write_safe = False
+            return rec.record(
+                STAGE_EXTRACT,
+                STATUS_FAILED,
+                error="rejected extraction checkpoint changed before destination lock; retry",
+            ).ok
         if not rejected_checkpoint:
             return rec.record(STAGE_EXTRACT, STATUS_SKIPPED, detail="already extracted").ok
     try:
-        destination_lock = contextlib.nullcontext()
-        if rejected_checkpoint:
-            from tether.project import lock  # noqa: PLC0415
-
-            destination_lock = lock.held_lock(job.output_path)
-        with destination_lock as destination_owner:
-            runner_kwargs: dict[str, Any] = {}
-            if rejected_checkpoint:
-                # The initial verdict preceded lock acquisition. Re-read the canonical
-                # destination under the held lock so a concurrently replaced accepted
-                # or newer-schema project is never overwritten using that stale verdict.
-                _assert_output_not_newer(job.output_path)
-                if _is_extracted(job.output_path) and not _stored_extraction_is_over_gate(
-                    job.output_path
-                ):
-                    return rec.record(
-                        STAGE_EXTRACT,
-                        STATUS_SKIPPED,
-                        detail="already extracted",
-                    ).ok
-                assert destination_owner is not None
-
-                def publish_guard() -> None:
-                    # Fail closed: a read/parsing error is also insufficient proof that
-                    # this run may write either the replacement or end-of-job provenance.
-                    rec.canonical_write_safe = False
-                    current_owner = lock.read_lock(job.output_path)
-                    if current_owner is None or current_owner.nonce != destination_owner.nonce:
-                        raise lock.LockError(
-                            f"{lock.lock_path(job.output_path)} lock ownership changed "
-                            "before publish"
-                        )
-                    rec.canonical_write_safe = True
-
-                runner_kwargs["publish_guard"] = publish_guard
-            summary = runner(
-                job.movie_path,
-                job.output_path,
-                options=options,
-                tmap=job.tmap,
-                tdat=job.tdat,
-                overwrite=overwrite,
-                **runner_kwargs,
-            )
+        runner_kwargs: dict[str, Any] = {}
+        if ownership_guard is not None:
+            runner_kwargs["publish_guard"] = ownership_guard
+        summary = runner(
+            job.movie_path,
+            job.output_path,
+            options=options,
+            tmap=job.tmap,
+            tdat=job.tdat,
+            overwrite=overwrite,
+            **runner_kwargs,
+        )
+        if ownership_guard is not None:
+            ownership_guard()
     except Exception as exc:  # ExtractionError and any lower-level failure
         return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok
     low_conf = bool(getattr(summary, "low_confidence_registration", False))
@@ -889,6 +971,7 @@ def _do_correct(
     *,
     upstream_ok: bool,
     runner: Callable[[str | Path], str],
+    ownership_guard: Callable[[], None] | None = None,
 ) -> bool:
     """Run (or skip/block) the correct stage; returns whether it is satisfied."""
     if not upstream_ok:
@@ -896,7 +979,11 @@ def _do_correct(
     if _is_corrected(job.output_path):
         return rec.record(STAGE_CORRECT, STATUS_SKIPPED, detail="already corrected").ok
     try:
+        if ownership_guard is not None:
+            ownership_guard()
         detail = runner(job.output_path)
+        if ownership_guard is not None:
+            ownership_guard()
     except Exception as exc:
         return rec.record(STAGE_CORRECT, STATUS_FAILED, error=str(exc)).ok
     return rec.record(STAGE_CORRECT, STATUS_DONE, detail=detail).ok
@@ -912,6 +999,7 @@ def _do_idealize(
     runner: Callable[..., Any],
     supervision: SidecarSupervision | None = None,
     deferred: bool = False,
+    ownership_guard: Callable[[], None] | None = None,
 ) -> bool:
     """Run (or skip/block/decline/defer) the idealize stage; returns whether it is satisfied.
 
@@ -937,6 +1025,8 @@ def _do_idealize(
             detail="sidecar unavailable at startup — deferred to a later run",
         ).ok
     try:
+        if ownership_guard is not None:
+            ownership_guard()
         if supervision is not None:
             from tether.idealize.supervisor import supervise_idealize  # noqa: PLC0415
 
@@ -959,6 +1049,8 @@ def _do_idealize(
             )
         else:
             stored = runner(job.output_path, **idealize_kwargs)
+        if ownership_guard is not None:
+            ownership_guard()
     except Exception as exc:  # SidecarError / RestartsExhausted / any lower-level failure
         return rec.record(STAGE_IDEALIZE, STATUS_FAILED, error=str(exc)).ok
     return rec.record(STAGE_IDEALIZE, STATUS_DONE, detail=_idealize_detail(stored)).ok
