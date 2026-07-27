@@ -389,6 +389,7 @@ def idealize_molecules(
     scratch_dir: str | PathLike[str] | None = None,
     timeout: float | None = 1800.0,
     overwrite: bool = False,
+    write_guard: Callable[[], None] | None = None,
     _runner: Callable[..., IdealizationResult] = run_vbfret,
 ) -> StoredIdealization:
     """Idealize selected molecules and write ``/idealization/{model_name}``.
@@ -422,6 +423,10 @@ def idealize_molecules(
         temporary directory removed on exit.
     overwrite:
         Replace an existing ``/idealization/{model_name}``.
+    write_guard:
+        Optional ownership check invoked at the canonical persistence boundary,
+        after sidecar fitting and immediately before the HDF5 model write/swap.
+        Owning orchestrators use it to fail closed if a long fit outlives its lock.
 
     Returns
     -------
@@ -545,6 +550,7 @@ def idealize_molecules(
             selected_by=selected_by,
             elbo_by_nstates=elbo_by_nstates,
             overwrite=overwrite,
+            write_guard=write_guard,
         )
     finally:
         if owns_scratch:
@@ -613,6 +619,7 @@ def write_idealization_model(
     frac: np.ndarray | None = None,
     priors: dict[str, np.ndarray] | None = None,
     extra_attrs: dict[str, object] | None = None,
+    write_guard: Callable[[], None] | None = None,
 ) -> None:
     """Persist one ``/idealization/{model_name}`` subgroup as additive data.
 
@@ -643,7 +650,9 @@ def write_idealization_model(
     Raises ``ValueError`` if the row-aligned inputs (``molecule_ids`` / ``input_hashes``
     / ``idealized`` / ``state_paths``) disagree with ``molecule_keys`` in length, or if
     ``extra_attrs`` names a reserved attr — failing loud *before* any write rather than
-    persisting partially-aligned or clobbered data.
+    persisting partially-aligned or clobbered data. ``write_guard`` is an optional
+    caller-owned lock/lease check invoked immediately before opening the canonical
+    project and again before swapping the fully staged model into place.
     """
     import h5py
 
@@ -670,6 +679,8 @@ def write_idealization_model(
             )
 
     str_dt = h5py.string_dtype(encoding="utf-8")
+    if write_guard is not None:
+        write_guard()
     with h5py.File(path, "r+") as f:
         parent = f.require_group(IDEALIZATION_GROUP)
         if model_name in parent and not overwrite:  # re-checked under the write handle
@@ -727,6 +738,8 @@ def write_idealization_model(
         g.create_dataset("input_hash", data=list(input_hashes), dtype=str_dt)
 
         # Atomic swap: the staged group is complete, so replace the old model now.
+        if write_guard is not None:
+            write_guard()
         if model_name in parent:
             del parent[model_name]
         parent.move(staging, model_name)
@@ -746,6 +759,7 @@ def _write_model(
     selected_by: str,
     elbo_by_nstates: dict[int, float] | None,
     overwrite: bool,
+    write_guard: Callable[[], None] | None = None,
 ) -> StoredIdealization:
     """Write a fitted model subgroup (via :func:`write_idealization_model`) and
     return the in-memory :class:`StoredIdealization`."""
@@ -799,6 +813,7 @@ def _write_model(
         pi=pi,
         frac=frac,
         priors=priors,
+        write_guard=write_guard,
     )
 
     return StoredIdealization(

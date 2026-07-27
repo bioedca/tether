@@ -117,6 +117,9 @@ def _idealize_stub(*, fail: frozenset[str] = frozenset()):
         stem = Path(output_path).stem
         if stem in fail:
             raise RuntimeError(f"idealize boom: {stem}")
+        write_guard = kwargs.get("write_guard")
+        if write_guard is not None:
+            write_guard()
         _add_group(Path(output_path), "idealization/vbconhmm")
         return SimpleNamespace(model_name="vbconhmm", nstates=2, molecule_keys=["m1", "m2"])
 
@@ -731,6 +734,54 @@ def test_overwrite_rejected_checkpoint_aborts_if_lock_is_stolen_before_publish(
         profile = json.loads(store["settings/extraction"].attrs["profile_json"])
         assert store["settings/batch"].attrs["sentinel"] == "successor must keep this"
     assert profile["registration_rms_px"] == 0.75
+    assert not r.ok
+
+
+def test_overwrite_rejected_checkpoint_guards_idealization_persistence(
+    tmp_path: Path,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    contender = lock.LockIdentity(host="OTHER", user="successor", pid=456)
+    stolen = None
+
+    def stolen_before_persistence(output_path, *, write_guard=None, **kwargs):
+        nonlocal stolen
+        assert write_guard is not None
+        stolen, prior = lock.steal_lock(output_path, identity=contender)
+        assert prior is not None
+        assert prior.identity == lock.local_identity()
+        with h5py.File(output_path, "r+") as store:
+            store.require_group("settings/batch").attrs["sentinel"] = "successor must keep this"
+        write_guard()
+        raise AssertionError("write guard returned after lock ownership changed")
+
+    try:
+        second = _run(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            _idealize=stolen_before_persistence,
+        )
+    finally:
+        if stolen is not None:
+            assert lock.release(jobs[0].output_path, stolen)
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert r.stages[STAGE_CORRECT].status == STATUS_DONE
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_FAILED
+    assert "lock ownership changed during rejected-checkpoint replacement" in (
+        r.stages[STAGE_IDEALIZE].error
+    )
+    with h5py.File(jobs[0].output_path, "r") as store:
+        assert "vbconhmm" not in store["idealization"]
+        assert store["settings/batch"].attrs["sentinel"] == "successor must keep this"
     assert not r.ok
 
 

@@ -1027,6 +1027,12 @@ def _do_idealize(
     try:
         if ownership_guard is not None:
             ownership_guard()
+        runner_kwargs = idealize_kwargs
+        if ownership_guard is not None:
+            # The default idealizer can spend the full sidecar timeout fitting before
+            # it opens the canonical project. Carry the nonce check into that actual
+            # persistence boundary rather than relying only on this outer call seam.
+            runner_kwargs = {**idealize_kwargs, "write_guard": ownership_guard}
         if supervision is not None:
             from tether.idealize.supervisor import supervise_idealize  # noqa: PLC0415
 
@@ -1045,10 +1051,10 @@ def _do_idealize(
                 job.output_path,
                 supervision=supervision,
                 on_restart=_on_restart,
-                **idealize_kwargs,
+                **runner_kwargs,
             )
         else:
-            stored = runner(job.output_path, **idealize_kwargs)
+            stored = runner(job.output_path, **runner_kwargs)
         if ownership_guard is not None:
             ownership_guard()
     except Exception as exc:  # SidecarError / RestartsExhausted / any lower-level failure

@@ -63,9 +63,12 @@ through re-extraction, downstream correction and idealization, and the final
 `/settings/batch` stamp. `extract_movie` builds the replacement at a sibling temp path
 and, immediately before `os.replace`, calls a publish guard that compares the on-disk
 lock nonce with this run's acquisition nonce. The batch runner performs the same
-nonce check before and after every later canonical writer. If an operator steals the
-now-stale lock during a long stage, the old run stops that job, suppresses subsequent
-writes, and never releases the successor's lock.
+nonce check before and after every later canonical writer. Because supervised
+idealization may spend the full sidecar timeout fitting, its writer receives the
+guard too and invokes it after fitting, immediately before opening the canonical HDF5
+project for persistence. If an operator steals the now-stale lock during a long stage,
+the old run stops that job, suppresses subsequent writes, and never releases the
+successor's lock.
 
 Missing or malformed legacy profile values do not invent a rejection; those completed
 checkpoints retain ADR-0030's presence-only skip behavior. The store remains the only

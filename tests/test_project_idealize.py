@@ -313,6 +313,41 @@ def test_idealize_writes_model_group_and_round_trips(tmp_path) -> None:
     assert list_idealizations(proj) == ["vbconhmm"]
 
 
+def test_write_guard_runs_after_fit_before_canonical_persistence(tmp_path) -> None:
+    proj, _ = _build_store(
+        tmp_path / "e.tether",
+        _step_trace(2, 20),
+        _step_trace(2, 20),
+    )
+    fitted = False
+    runner = _make_runner({2: -1.0}, [])
+
+    def observed_runner(*args, **kwargs):
+        nonlocal fitted
+        result = runner(*args, **kwargs)
+        fitted = True
+        return result
+
+    guard_calls = 0
+
+    def reject_persistence() -> None:
+        nonlocal guard_calls
+        assert fitted
+        guard_calls += 1
+        raise RuntimeError("destination ownership changed")
+
+    with pytest.raises(RuntimeError, match="destination ownership changed"):
+        idealize_molecules(
+            proj,
+            nstates=2,
+            write_guard=reject_persistence,
+            _runner=observed_runner,
+        )
+
+    assert guard_calls == 1
+    assert list_idealizations(proj) == []
+
+
 def test_input_hash_matches_windowed_corrected_trace(tmp_path) -> None:
     n, t = 2, 24
     donor = _step_trace(n, t)
