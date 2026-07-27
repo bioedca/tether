@@ -767,8 +767,22 @@ class TetherShell:
         # (the prior project stays wired) — mirroring the catch-and-report contract of
         # the hand-off / import menu methods.
         try:
-            project = Project.open(path)
-            proj_path = project.path
+            opened_project = Project.open(path)
+            proj_path = opened_project.path
+            reusing_session = (
+                self._session_project is not None
+                and self._curation_project is self._session_project
+                and self._claimed_project_key is not None
+                and _project_owner_key(proj_path) == self._claimed_project_key
+            )
+            if reusing_session:
+                # Reopening this shell's existing file (including a hard-link alias)
+                # must not replace its retained nonce. Rebuild read/seam state against
+                # the lifecycle-bearing handle, then refresh that exact epoch below.
+                project = self._session_project
+                proj_path = project.path
+            else:
+                project = opened_project
             marker = read_analysis_only_marker(proj_path)
             analysis_only = marker is not None
             traces = traces_from_store(project, intensity_quantity=intensity_quantity)
@@ -782,48 +796,58 @@ class TetherShell:
             self._status(f"Open project failed: {exc}")
             return None
 
-        claimed_key = _claim_gui_project(proj_path, self._project_owner_token)
-        session_project = None
-        if claimed_key is None:
-            writable = False
-            read_only_reason = "already open writable in another Tether window"
-            idealizer = None
+        if reusing_session:
+            self._refresh_project_lock()
+            if self._curation_project is None or self._session_project is None:
+                return None
+            claimed_key = self._claimed_project_key
+            session_project = project
+            writable = True
+            read_only_reason = None
+            idealizer = idealizer_candidate
         else:
-            try:
-                project.acquire_lock()
-            except (LockedError, OSError) as exc:
-                _release_gui_project(claimed_key, self._project_owner_token)
-                claimed_key = None
+            claimed_key = _claim_gui_project(proj_path, self._project_owner_token)
+            session_project = None
+            if claimed_key is None:
                 writable = False
-                read_only_reason = f"write lock unavailable: {exc}"
+                read_only_reason = "already open writable in another Tether window"
                 idealizer = None
             else:
-                session_project = project
                 try:
-                    _probe_project_writable(proj_path)
-                except OSError as exc:
-                    try:
-                        released = project.release_lock()
-                    except OSError:
-                        # Retain both handle and process-local claim; the release
-                        # timer retries this exact nonce after state goes read-only.
-                        pass
-                    else:
-                        if released:
-                            session_project = None
-                            _release_gui_project(claimed_key, self._project_owner_token)
-                            claimed_key = None
+                    project.acquire_lock()
+                except (LockedError, OSError) as exc:
+                    _release_gui_project(claimed_key, self._project_owner_token)
+                    claimed_key = None
                     writable = False
-                    read_only_reason = f"project file is not writable: {exc}"
+                    read_only_reason = f"write lock unavailable: {exc}"
                     idealizer = None
                 else:
-                    writable = True
-                    read_only_reason = None
-                    idealizer = idealizer_candidate
+                    session_project = project
+                    try:
+                        _probe_project_writable(proj_path)
+                    except OSError as exc:
+                        try:
+                            released = project.release_lock()
+                        except OSError:
+                            # Retain both handle and process-local claim; the release
+                            # timer retries this exact nonce after state goes read-only.
+                            pass
+                        else:
+                            if released:
+                                session_project = None
+                                _release_gui_project(claimed_key, self._project_owner_token)
+                                claimed_key = None
+                        writable = False
+                        read_only_reason = f"project file is not writable: {exc}"
+                        idealizer = None
+                    else:
+                        writable = True
+                        read_only_reason = None
+                        idealizer = idealizer_candidate
 
         prior_session_project = self._session_project
         prior_claimed_key = self._claimed_project_key
-        if prior_session_project is not None:
+        if prior_session_project is not None and prior_session_project is not session_project:
             try:
                 if not prior_session_project.release_lock():
                     raise OSError("prior session lock release was indeterminate")
@@ -935,7 +959,7 @@ class TetherShell:
                     released = project.release_lock()
                 except OSError:
                     return False
-                if not released:
+                if not released and project._held_lock is not None:
                     return False
                 self._rollback_session_project = None
             _release_gui_project(
@@ -954,7 +978,7 @@ class TetherShell:
                     released = project.release_lock()
                 except OSError:
                     return False
-                if not released:
+                if not released and project._held_lock is not None:
                     return False
                 self._session_project = None
             _release_gui_project(self._claimed_project_key, self._project_owner_token)

@@ -100,11 +100,15 @@ DEFAULT_STALENESS_TIMEOUT_S: float = 30.0 * 60.0
 LOCK_SUFFIX = ".lock"
 
 #: Stable same-path sidecar used only as an OS advisory serialization inode.
-#: Lifecycle operations create it with ``0644`` permissions, open and lock it,
-#: and never unlink or replace it.
+#: Lifecycle operations request ``0666`` (subject to the site's umask) so a
+#: group-shared project can keep one cross-user ``O_RDWR`` guard, and never unlink
+#: or replace it.
 _GUARD_SUFFIX = ".guard"
 _GUARD_ACQUIRE_TIMEOUT_S = 5.0
 _GUARD_RETRY_INTERVAL_S = 0.01
+_ATOMIC_REPLACE_TIMEOUT_S = 5.0
+_ATOMIC_REPLACE_RETRY_INTERVAL_S = 0.01
+_WINDOWS_SHARING_WINERRORS = {5, 32, 33}
 _ACTIVE_GUARD_FDS: set[int] = set()
 _GUARD_REGISTRY_LOCK = Lock()
 
@@ -314,7 +318,23 @@ def _atomic_write(lp: Path, info: LockInfo) -> None:
     """Write the lock JSON via a temp file + atomic ``os.replace`` (crash/torn-write safe)."""
     tmp = lp.with_name(f"{lp.name}.tmp-{info.nonce}")
     tmp.write_text(json.dumps(info.to_dict(), indent=2), encoding="utf-8")
-    os.replace(tmp, lp)  # atomic on both POSIX and Windows for same-directory paths
+    deadline = time.monotonic() + _ATOMIC_REPLACE_TIMEOUT_S
+    try:
+        while True:
+            try:
+                os.replace(tmp, lp)
+                return
+            except OSError as exc:
+                windows_sharing_violation = os.name == "nt" and (
+                    isinstance(exc, PermissionError)
+                    or getattr(exc, "winerror", None) in _WINDOWS_SHARING_WINERRORS
+                )
+                if not windows_sharing_violation or time.monotonic() >= deadline:
+                    raise
+                time.sleep(_ATOMIC_REPLACE_RETRY_INTERVAL_S)
+    finally:
+        with suppress(FileNotFoundError):
+            tmp.unlink()
 
 
 def _guard_path(lp: Path) -> Path:
@@ -345,6 +365,30 @@ def _guard_registry_after_fork_child() -> None:
     _GUARD_REGISTRY_LOCK = Lock()
 
 
+def _ensure_windows_guard_byte(fd: int, gp: Path, *, deadline: float) -> None:
+    """Create the byte-range-lock target despite a concurrent first opener.
+
+    A peer may observe the zero-length guard just before another process writes
+    and locks byte zero. Its own stale first-use write then receives a Windows
+    sharing violation. Retry the size check/write within the same bounded guard
+    deadline; once the winner's byte is visible, ordinary lock acquisition below
+    serializes the contenders.
+    """
+    while True:
+        try:
+            if os.fstat(fd).st_size >= 1:
+                return
+            os.lseek(fd, 0, os.SEEK_SET)
+            if os.write(fd, b"\0") != 1:  # pragma: no cover - defensive short write
+                raise OSError("short write while initializing lock lifecycle guard")
+            os.fsync(fd)
+            return
+        except OSError as exc:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"timed out initializing lock lifecycle guard: {gp}") from exc
+            time.sleep(_GUARD_RETRY_INTERVAL_S)
+
+
 _register_at_fork = getattr(os, "register_at_fork", None)
 if _register_at_fork is not None:  # pragma: no branch - platform capability
     _register_at_fork(
@@ -367,7 +411,7 @@ def _lifecycle_guard(lp: Path) -> Iterator[None]:
     """
     gp = _guard_path(lp)
     with _GUARD_REGISTRY_LOCK:
-        fd = os.open(gp, os.O_CREAT | os.O_RDWR, 0o644)
+        fd = os.open(gp, os.O_CREAT | os.O_RDWR, 0o666)
         try:
             os.set_inheritable(fd, False)
             _ACTIVE_GUARD_FDS.add(fd)
@@ -381,12 +425,9 @@ def _lifecycle_guard(lp: Path) -> Iterator[None]:
             import msvcrt
 
             # msvcrt.locking requires a real byte range. Multiple first openers
-            # may race to write the same zero byte, which is idempotent and occurs
-            # before either can claim the advisory region.
-            if os.fstat(fd).st_size < 1:
-                os.lseek(fd, 0, os.SEEK_SET)
-                os.write(fd, b"\0")
-                os.fsync(fd)
+            # can retain a stale zero-size observation after a peer writes and locks
+            # byte zero, so initialization shares this operation's bounded retry.
+            _ensure_windows_guard_byte(fd, gp, deadline=deadline)
             while True:
                 os.lseek(fd, 0, os.SEEK_SET)
                 try:

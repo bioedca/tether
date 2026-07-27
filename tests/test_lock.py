@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import subprocess
 import sys
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -270,6 +272,173 @@ def test_lifecycle_guard_inode_persists_across_operations(tmp_path: Path) -> Non
     assert guard.stat().st_ino == first_inode
     assert lock.release(path, second)
     assert guard.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode/umask semantics")
+def test_lifecycle_guard_creation_allows_group_shared_writers(tmp_path: Path) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    guard = lock._guard_path(lock.lock_path(path))
+    directory_mode = stat.S_IMODE(tmp_path.stat().st_mode)
+    previous_umask = os.umask(0o002)
+    try:
+        with lock._lifecycle_guard(lock.lock_path(path)):
+            pass
+    finally:
+        os.umask(previous_umask)
+
+    assert stat.S_IMODE(guard.stat().st_mode) == 0o664
+    assert stat.S_IMODE(tmp_path.stat().st_mode) == directory_mode
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows byte-range lock semantics")
+def test_windows_guard_byte_initialization_retries_stale_zero_observation(
+    tmp_path: Path,
+) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    lock_file = lock.lock_path(path)
+    barrier = tmp_path / "guard-init-barrier"
+    barrier.mkdir()
+
+    contender_script = r"""
+import os
+import sys
+import time
+from pathlib import Path
+from types import SimpleNamespace
+from tether.project import lock
+
+lock_file = Path(sys.argv[1])
+barrier = Path(sys.argv[2])
+original_fstat = lock.os.fstat
+original_write = lock.os.write
+first_fstat = True
+
+def wait_for(path):
+    deadline = time.monotonic() + 5.0
+    while not path.exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError(path)
+        time.sleep(0.01)
+
+def coordinated_fstat(fd):
+    global first_fstat
+    current = original_fstat(fd)
+    if first_fstat:
+        first_fstat = False
+        (barrier / "contender-saw-zero").touch()
+        wait_for(barrier / "holder-locked")
+        return SimpleNamespace(st_size=0)
+    return current
+
+def signalled_write(fd, data):
+    (barrier / "contender-write-attempted").touch()
+    return original_write(fd, data)
+
+lock.os.fstat = coordinated_fstat
+lock.os.write = signalled_write
+with lock._lifecycle_guard(lock_file):
+    pass
+"""
+    holder_script = r"""
+import sys
+import time
+from pathlib import Path
+from tether.project import lock
+
+lock_file = Path(sys.argv[1])
+barrier = Path(sys.argv[2])
+
+def wait_for(path):
+    deadline = time.monotonic() + 5.0
+    while not path.exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError(path)
+        time.sleep(0.01)
+
+wait_for(barrier / "contender-saw-zero")
+with lock._lifecycle_guard(lock_file):
+    (barrier / "holder-locked").touch()
+    wait_for(barrier / "contender-write-attempted")
+"""
+    contender = subprocess.Popen(
+        [sys.executable, "-c", contender_script, os.fspath(lock_file), os.fspath(barrier)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=os.environ.copy(),
+    )
+    deadline = time.monotonic() + 5.0
+    while not (barrier / "contender-saw-zero").exists():
+        if time.monotonic() >= deadline:
+            contender.kill()
+            raise AssertionError("contender did not reach zero-size observation")
+        time.sleep(0.01)
+    holder = subprocess.Popen(
+        [sys.executable, "-c", holder_script, os.fspath(lock_file), os.fspath(barrier)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=os.environ.copy(),
+    )
+    contender_stdout, contender_stderr = contender.communicate(timeout=10.0)
+    holder_stdout, holder_stderr = holder.communicate(timeout=10.0)
+
+    assert holder.returncode == 0, holder_stdout + holder_stderr
+    assert contender.returncode == 0, contender_stdout + contender_stderr
+    assert lock._guard_path(lock_file).stat().st_size == 1
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows sharing-violation semantics")
+def test_windows_refresh_retries_atomic_replace_while_observer_is_open(
+    tmp_path: Path,
+) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    held = lock.acquire(path, identity=HOST_A)
+    observer = lock.lock_path(path).open("rb")
+    refreshed: list[LockInfo] = []
+    errors: list[BaseException] = []
+
+    def retained_refresh() -> None:
+        try:
+            refreshed.append(lock.refresh(path, held))
+        except BaseException as exc:  # noqa: BLE001 - propagate worker failures below
+            errors.append(exc)
+
+    worker = threading.Thread(target=retained_refresh)
+    worker.start()
+    time.sleep(0.1)
+    assert worker.is_alive()
+    observer.close()
+    worker.join(timeout=5.0)
+
+    assert not worker.is_alive()
+    assert errors == []
+    assert len(refreshed) == 1
+    assert lock.read_lock(path) == refreshed[0]
+    assert list(tmp_path.glob(f"{lock.lock_path(path).name}.tmp-*")) == []
+
+
+def test_atomic_write_removes_temp_after_replace_failure(tmp_path: Path, monkeypatch) -> None:
+    lock_file = tmp_path / "exp.tether.lock"
+    info = LockInfo(
+        host="HOST-A",
+        user="alice",
+        pid=111,
+        timestamp=datetime.now(UTC).isoformat(),
+        nonce="cleanup",
+    )
+
+    def fail_replace(_source, _destination):
+        raise PermissionError("destination is busy")
+
+    monkeypatch.setattr(lock.os, "replace", fail_replace)
+    monkeypatch.setattr(lock, "_ATOMIC_REPLACE_TIMEOUT_S", 0.0, raising=False)
+
+    with pytest.raises(PermissionError):
+        lock._atomic_write(lock_file, info)
+
+    assert not lock_file.exists()
+    assert list(tmp_path.glob(f"{lock_file.name}.tmp-*")) == []
 
 
 def test_fork_child_reset_closes_inherited_guard_descriptors(tmp_path: Path) -> None:
@@ -564,6 +733,7 @@ def test_project_release_lock_is_nonce_checked(tmp_path: Path) -> None:
     thief.steal_lock()
     # The ousted owner's release must not delete the thief's lock.
     assert owner.release_lock() is False
+    assert owner._held_lock is None
     assert thief.lock_owner().identity == HOST_B
 
 

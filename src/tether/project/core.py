@@ -289,16 +289,27 @@ class Project:
         Nonce-checked (:func:`lock.release`): never deletes a lock that was stolen
         away in the meantime. Resolving the identity first drops an inherited
         ``_held_lock`` in a forked child (see :meth:`_acting_identity`), so a child
-        never releases the parent's lock. An indeterminate ``False`` retains the
-        held nonce so lifecycle owners can retry rather than dropping their claim.
+        never releases the parent's lock. After a ``False`` result, a readable
+        missing or replacement sidecar definitively ends this handle's epoch and
+        clears the retained nonce. An unreadable sidecar, or the original nonce
+        still being present, is indeterminate and retains the nonce so lifecycle
+        owners can retry rather than dropping their claim.
         """
         from tether.project import lock
 
         self._acting_identity()  # fork-safety: clears a child's inherited held lock
-        if self._held_lock is None:
+        held = self._held_lock
+        if held is None:
             return False
-        released = lock.release(self.path, self._held_lock)
+        released = lock.release(self.path, held)
         if released:
+            self._held_lock = None
+            return True
+        try:
+            current = lock.read_lock(self.path)
+        except lock.CorruptLockError:
+            return False
+        if current is None or current.nonce != held.nonce:
             self._held_lock = None
         return released
 

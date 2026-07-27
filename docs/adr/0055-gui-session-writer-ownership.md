@@ -64,18 +64,25 @@ action refresh ownership well before the 30-minute stale boundary. Refresh advan
 held timestamp while preserving and requiring the exact acquisition nonce; it never
 recreates a vanished or replaced sidecar. If refresh or release encounters an I/O
 failure, write seams fail closed while a separate lifecycle handle retains the acquired
-nonce for retry and final teardown.
+nonce for retry and final teardown. A readable missing or replacement sidecar instead
+proves that the epoch ended, so the stale lifecycle handle and process-local claim are
+dropped rather than retried indefinitely. Reopening the same file in the same shell
+reuses and refreshes that retained epoch instead of replacing its nonce.
 
 For cooperating processes using the same lock-sidecar path, every acquire, explicit
 steal, retained refresh, and release holds an OS advisory lock on a stable
 `<project>.lock.guard` inode. Acquisition uses bounded non-blocking retry and fails
-closed; Tether creates the guard with ordinary sidecar permissions (`0644` on POSIX),
-locks its first byte on Windows, and intentionally never unlinks or path-replaces it.
-Refresh validates the held nonce inside that lifecycle critical section, publishes the
-timestamp with the existing same-directory atomic replace, and verifies the nonce
-again, so lock-free readers still observe complete old-or-new JSON. Fork hooks serialize
-descriptor registration with `fork()`, close inherited guard descriptors in the child,
-and replace the child's inherited registry mutex.
+closed; Tether requests sharing-capable guard permissions (`0666` subject to the site
+umask, so a group-writable project can retain cross-user `O_RDWR` access), locks its
+first byte on Windows, and intentionally never unlinks or path-replaces it. Windows
+first-use byte initialization retries a stale zero-length observation within the same
+bounded deadline. Refresh validates the held nonce inside that lifecycle critical
+section, publishes the timestamp with the existing same-directory atomic replace, and
+verifies the nonce again, so lock-free readers still observe complete old-or-new JSON.
+Windows sharing violations during replace receive bounded retry and the nonce-named
+temporary is removed on every terminal outcome. Fork hooks serialize descriptor
+registration with `fork()`, close inherited guard descriptors in the child, and replace
+the child's inherited registry mutex.
 
 The process-local GUI device/inode key closes hard-link aliases within one process.
 Different hard-link spellings used by separate processes still name distinct `.lock`
@@ -150,7 +157,8 @@ explicit include-rejected path.
 - **Trade-off.** A writable project remains exclusively locked for the GUI session, and
   project switching waits for any active idealizer.
 - **Follow-up.** Regression tests pin same-path cross-process lifecycle serialization,
-  fork cleanup, persistent guard identity, lock acquisition/refresh/release and retry,
+  fork cleanup, persistent shared-mode guard identity, Windows first-use/observer
+  contention, lock acquisition/refresh/release and retry,
   same-process hard-link-aware shell serialization, direct-window teardown, HDF5 update
   probing, read-only fallback/export/banner state, histogram refresh, floating-dock
   scope, out-of-scope key bypass, un-reject behavior, and all source-write guards during

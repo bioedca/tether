@@ -349,6 +349,24 @@ def test_gui_session_lock_refreshes_before_stale_timeout(shell, tmp_path) -> Non
     assert project.lock_owner() is None
 
 
+def test_reopening_loaded_project_preserves_session_epoch(shell, tmp_path) -> None:
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    retained = shell.load_project(project.path)
+    assert retained is not None
+    before = project.lock_owner()
+    assert before is not None
+
+    reopened = shell.load_project(project.path)
+
+    after = project.lock_owner()
+    assert reopened is retained
+    assert shell._session_project is retained
+    assert shell._curation_project is retained
+    assert after is not None
+    assert after.nonce == before.nonce
+    assert not shell._lock_release_timer.isActive()
+
+
 def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot, tmp_path) -> None:
     import threading
 
@@ -472,6 +490,41 @@ def test_lost_session_lock_disables_gui_writes_and_refresh(shell, tmp_path) -> N
         assert "locked" in shell.status_message
     finally:
         assert lock.release(project.path, foreign)
+
+
+def test_definitive_lock_loss_drops_session_claim_without_retry(
+    shell, qapp, qtbot, tmp_path
+) -> None:
+    from tether.gui.shell import TetherShell
+    from tether.project import lock
+    from tether.project.lock import LockIdentity
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    retained = shell.load_project(project.path)
+    assert retained is not None
+    foreign = lock.acquire(
+        project.path,
+        identity=LockIdentity(host="OTHER-HOST", user="other", pid=999),
+        steal=True,
+    )
+
+    shell._refresh_project_lock()
+
+    assert shell._curation_project is None
+    assert shell._session_project is None
+    assert shell._claimed_project_key is None
+    assert retained._held_lock is None
+    assert not shell._lock_release_timer.isActive()
+
+    assert lock.release(project.path, foreign)
+    successor = TetherShell()
+    qtbot.addWidget(successor.window)
+    try:
+        opened = successor.load_project(project.path)
+        assert opened is not None
+        assert successor._curation_project is opened
+    finally:
+        successor.close()
 
 
 def test_lock_loss_closes_open_conditions_dialog_before_unlocked_write(
