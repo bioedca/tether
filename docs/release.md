@@ -37,8 +37,12 @@ signing credential exists. Until you complete the setup below, the installers sh
 
 The retained [`v1.0.0-rc1` prerelease](https://github.com/bioedca/tether/releases/tag/v1.0.0-rc1)
 is the durable rehearsal record for the first successful end-to-end release run. It was
-published on 2026-07-21 with exactly the following 13 assets; the byte counts are the
-values reported by GitHub for the published files:
+published on 2026-07-21 with exactly the following 13 project-uploaded assets; the byte
+counts are the values reported by GitHub for the published files. The expanded Release
+asset list shows 15 downloads because GitHub also adds
+[on-demand source archives](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)
+for the tag as `Source code (zip)` and `Source code (tar.gz)`. Those two generated
+archives are not project-uploaded assets and are not part of the inventory below.
 
 | Asset | Recorded size (bytes) |
 | --- | ---: |
@@ -56,57 +60,71 @@ values reported by GitHub for the published files:
 | `Tether-1.0.0-rc1-Windows-x86_64.exe` | 786,182,158 |
 | `tether-sbom.cyclonedx.json` | 54,219 |
 
+`SHA256SUMS.txt` lists the other 12 project-uploaded assets (it cannot list itself).
+It does not cover the two GitHub-generated source archives.
+
 This historical RC predates the current pipeline's addition of
 `deep-conda-lock.yml` to release staging, so that file is not part of the 13-asset
-record above. License and notice material reaches users inside the installer;
-neither `LICENSE` nor `NOTICE` is a standalone RC1 Release download. Constructor
-presents and bundles the root GPL license via its `license_file`, while the bundled
-sidecar carries its own GPL text and notice.
+record above. Neither the root `LICENSE` nor the root `NOTICE` is a standalone RC1
+Release upload. Constructor presents and bundles Tether's root GPL license via its
+`license_file`, while the bundled sidecar carries its own GPL text. RC1 did not stage
+or package Tether's root `NOTICE`; it remains available in the source repository and
+the GitHub-generated source archives.
 
 #### Verify a downloaded installer
 
 Download an installer and its matching platform manifest into the same directory,
 then verify it before running it.
 
-=== "Linux"
-
-    ```bash
-    sha256sum -c SHA256SUMS-linux-64.txt
-    ```
-
-=== "macOS (Apple silicon)"
-
-    ```bash
-    shasum -a 256 -c SHA256SUMS-osx-arm64.txt
-    ```
-
-=== "macOS (Intel)"
-
-    ```bash
-    shasum -a 256 -c SHA256SUMS-osx-64.txt
-    ```
-
-=== "Windows PowerShell"
-
-    ```powershell
-    $expected = ((Get-Content .\SHA256SUMS-win-64.txt) -split '\s+')[0]
-    $actual = (Get-FileHash -Algorithm SHA256 `
-      .\Tether-1.0.0-rc1-Windows-x86_64.exe).Hash.ToLowerInvariant()
-    if ($actual -ne $expected) { throw "SHA-256 verification failed" }
-    ```
-
-`SHA256SUMS.txt` is the combined manifest over every other Release asset. GitHub's
-build-provenance attestation supplies a second, independent check for each installer:
+##### Linux
 
 ```bash
-gh attestation verify Tether-1.0.0-rc1-Linux-x86_64.sh \
-  --repo bioedca/tether
+sha256sum -c SHA256SUMS-linux-64.txt
 ```
 
-The rehearsal verified that command against a downloaded installer. The attestation
-binds all four installers to `.github/workflows/release.yml`, tag
-`refs/tags/v1.0.0-rc1`, and commit
-`1ba112683a0f2a5ba842e39893fd757bff2d18b3`.
+##### macOS (Apple silicon)
+
+```bash
+shasum -a 256 -c SHA256SUMS-osx-arm64.txt
+```
+
+##### macOS (Intel)
+
+```bash
+shasum -a 256 -c SHA256SUMS-osx-64.txt
+```
+
+##### Windows PowerShell
+
+```powershell
+$expected = ((Get-Content .\SHA256SUMS-win-64.txt) -split '\s+')[0]
+$actual = (Get-FileHash -Algorithm SHA256 `
+  .\Tether-1.0.0-rc1-Windows-x86_64.exe).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw "SHA-256 verification failed" }
+```
+
+GitHub's build-provenance attestation supplies a second, independent check for each
+installer. To verify the complete four-installer set after downloading it, run:
+
+```bash
+verify_rc1() {
+  gh attestation verify "$1" \
+    --repo bioedca/tether \
+    --signer-workflow bioedca/tether/.github/workflows/release.yml \
+    --source-ref refs/tags/v1.0.0-rc1 \
+    --source-digest 1ba112683a0f2a5ba842e39893fd757bff2d18b3
+}
+
+verify_rc1 Tether-1.0.0-rc1-Linux-x86_64.sh
+verify_rc1 Tether-1.0.0-rc1-MacOSX-arm64.pkg
+verify_rc1 Tether-1.0.0-rc1-MacOSX-x86_64.pkg
+verify_rc1 Tether-1.0.0-rc1-Windows-x86_64.exe
+```
+
+The published attestation names all four installers as subjects. Each invocation
+independently hashes its local installer and enforces the GitHub repository, signer
+workflow, source tag, and source commit shown above; verifying one local file does not
+checksum the other three.
 
 #### Signing and documentation status
 
