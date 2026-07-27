@@ -16,7 +16,7 @@ diagnosis out.
 
 ## Data and analysis failures
 
-### Every efficiency is mirrored — donor-side was backwards
+### Every efficiency is mirrored when donor-side is backwards
 
 **Symptom.** The run succeeded. Molecule counts look right. But the population histogram sits
 where you expected its mirror image — a low-FRET construct reads high, a high-FRET construct
@@ -221,7 +221,7 @@ Deleting is not enough if the parameter you fixed is an **extract** tunable
 (`--donor-side`, `--detection-mode`, `--detection-threshold`, `--min-separation`, `--window`,
 `--pair-tol`, `--rms-gate`). `tether batch` exposes none of them and never builds an
 `ExtractOptions`, so a clean re-run silently re-applies the same defaults
-(see [every efficiency is mirrored](#every-efficiency-is-mirrored-donor-side-was-backwards)).
+(see [every efficiency is mirrored](#every-efficiency-is-mirrored-when-donor-side-is-backwards)).
 Run those movies through `tether extract --overwrite` one at a time, or drive
 `run_batch(..., extract_options=ExtractOptions(...))` from the library, which *does* forward
 them.
