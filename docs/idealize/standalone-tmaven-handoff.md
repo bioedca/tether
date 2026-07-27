@@ -32,8 +32,11 @@ command. It encodes the two runtime layers and one optional test-tool layer that
 3. **setuptools 80.9.0** — tMAVEN imports the legacy `pkg_resources` API at runtime,
    which setuptools removed in 82.0.0. The exact wheel and SHA-256 are committed in
    `packaging/setuptools-compatibility.txt`; pip hash-checking mode installs it only
-   after the git-pinned tMAVEN has been built. This temporary exception is removed when
-   the pinned tMAVEN revision no longer imports `pkg_resources` (ADR-0054).
+   after the git-pinned tMAVEN has been built. Setup then verifies every raw-`RECORD`
+   `pkg_resources` Python source, safely discards its in-prefix bytecode caches, and
+   requires the actual initializer, spec origin, and sole package path to match those
+   verified files before tMAVEN runs. This temporary exception is removed when the pinned
+   tMAVEN revision no longer imports `pkg_resources` (ADR-0054).
 
 The script creates the env from the lock, installs only tMAVEN with dependency resolution
 disabled, optionally installs the separate hash-locked test tools, applies the separate
@@ -99,7 +102,7 @@ Useful options:
 | `--lock-file PATH` | conda-lock file to build the env from (default `sidecar/conda-lock.yml`). |
 | `--tmaven-spec SPEC` | Immutable tMAVEN pip spec: the repository's default pinned short spec or `git+URL@<full 40/64-hex commit>` only. Tags, branches, and abbreviated custom commits are rejected before the environment changes. |
 | `--with-pytest` | Also install the separately hash-locked pytest test tools needed by the live sidecar suite. |
-| `--skip-install` | Skip the tMAVEN, optional pytest test-tool, and setuptools compatibility-wheel installs; use only with an already-populated sidecar environment. The liveness probe still runs unless `--no-probe`. |
+| `--skip-install` | Skip the tMAVEN, optional pytest test-tool, and setuptools compatibility-wheel installs; use only with an already-populated sidecar environment. Runtime `pkg_resources` provenance verification still runs, and the liveness probe still runs unless `--no-probe`. |
 | `--no-probe` | Skip the liveness probe. |
 | `--dry-run` | Print every command without running it. |
 

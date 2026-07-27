@@ -59,6 +59,18 @@ def _locked_builder_state(**updates: object) -> dict:
     return state
 
 
+def _locked_runtime_state(**updates: object) -> dict:
+    state = {
+        "setuptools_distribution_version": "80.9.0",
+        "pkg_resources_python_files_verified": True,
+        "pkg_resources_import_origin_verified": True,
+        "pkg_resources_package_path_verified": True,
+        "pkg_resources_bytecode_cache_safe": True,
+    }
+    state.update(updates)
+    return state
+
+
 def _workflow_tmaven_spec(workflow: Path) -> str:
     for raw in workflow.read_text(encoding="utf-8").splitlines():
         stripped = raw.strip()
@@ -112,6 +124,42 @@ def _write_fake_tmaven_distribution(root: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     return module, helper
+
+
+def _write_timestamp_valid_malicious_cache(helper: Path) -> Path:
+    original = helper.read_bytes()
+    malicious = b"class maven_class:\n    X=10\n"
+    assert len(malicious) == len(original)
+    fixed_ns = 1_700_000_000_000_000_000
+    helper.write_bytes(malicious)
+    os.utime(helper, ns=(fixed_ns, fixed_ns))
+    cache = Path(importlib.util.cache_from_source(str(helper)))
+    py_compile.compile(str(helper), cfile=str(cache), doraise=True)
+    helper.write_bytes(original)
+    os.utime(helper, ns=(fixed_ns, fixed_ns))
+    return cache
+
+
+def _write_fake_pkg_resources_distribution(root: Path) -> Path:
+    package = root / "pkg_resources"
+    package.mkdir(parents=True)
+    initializer = package / "__init__.py"
+    source = b"RUNTIME_SENTINEL = 'locked'\n"
+    initializer.write_bytes(source)
+    dist_info = root / "setuptools-80.9.0.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: setuptools\nVersion: 80.9.0\n",
+        encoding="utf-8",
+    )
+    digest = base64.urlsafe_b64encode(hashlib.sha256(source).digest()).rstrip(b"=")
+    (dist_info / "RECORD").write_text(
+        f"pkg_resources/__init__.py,sha256={digest.decode()},{len(source)}\n"
+        "setuptools-80.9.0.dist-info/METADATA,,\n"
+        "setuptools-80.9.0.dist-info/RECORD,,\n",
+        encoding="utf-8",
+    )
+    return initializer
 
 
 # --- command construction ----------------------------------------------------
@@ -261,6 +309,10 @@ def test_locked_build_setuptools_version_comes_from_the_unified_lock() -> None:
     assert setup.load_locked_setuptools_artifact_sha256s(setup.DEFAULT_LOCK) == frozenset(
         {_LOCKED_SETUPTOOLS_SHA256}
     )
+
+
+def test_runtime_setuptools_version_comes_from_the_hash_locked_requirements() -> None:
+    assert setup.load_runtime_setuptools_version() == "80.9.0"
 
 
 def test_platform_specific_locked_setuptools_artifact_is_accepted(tmp_path: Path) -> None:
@@ -526,16 +578,7 @@ def test_build_state_probe_discards_timestamp_valid_unverified_tmaven_bytecode(
         "_BUILD_STATE_PROBE",
         f"import sys\nsys.prefix = {str(installed)!r}\n" + setup._BUILD_STATE_PROBE,
     )
-    original = helper.read_bytes()
-    malicious = b"class maven_class:\n    X=10\n"
-    assert len(malicious) == len(original)
-    fixed_ns = 1_700_000_000_000_000_000
-    helper.write_bytes(malicious)
-    os.utime(helper, ns=(fixed_ns, fixed_ns))
-    cache = Path(importlib.util.cache_from_source(str(helper)))
-    py_compile.compile(str(helper), cfile=str(cache), doraise=True)
-    helper.write_bytes(original)
-    os.utime(helper, ns=(fixed_ns, fixed_ns))
+    _write_timestamp_valid_malicious_cache(helper)
 
     selected_before = setup.subprocess.run(
         [
@@ -566,6 +609,86 @@ def test_build_state_probe_discards_timestamp_valid_unverified_tmaven_bytecode(
     assert selected_after.stdout.strip() == "None"
 
 
+def test_build_state_probe_does_not_trust_ambiguous_glob_enumeration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed = tmp_path / "installed"
+    _initializer, helper = _write_fake_tmaven_distribution(installed)
+    cache = _write_timestamp_valid_malicious_cache(helper)
+    monkeypatch.setenv("PYTHONPATH", str(installed))
+    monkeypatch.setattr(
+        setup,
+        "_BUILD_STATE_PROBE",
+        (
+            "import pathlib\n"
+            "_original_path_glob = pathlib.Path.glob\n"
+            "def _ambiguous_cache_glob(self, pattern):\n"
+            "    if self.name == '__pycache__':\n"
+            "        return iter(())\n"
+            "    return _original_path_glob(self, pattern)\n"
+            "pathlib.Path.glob = _ambiguous_cache_glob\n"
+            f"import sys\nsys.prefix = {str(installed)!r}\n" + setup._BUILD_STATE_PROBE
+        ),
+    )
+
+    state = setup.inspect_sidecar_build_state(sys.executable)
+    cache_exists_after_inspect = cache.exists()
+    selected_after = setup.subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from tmaven.maven import maven_class; print(getattr(maven_class, 'X', None))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert cache_exists_after_inspect is False
+    assert state["tmaven_bytecode_cache_safe"] is True
+    assert state["tmaven_maven_origin_verified"] is True
+    assert selected_after.stdout.strip() == "None"
+
+
+def test_build_state_probe_fails_closed_when_cache_enumeration_is_denied(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed = tmp_path / "installed"
+    _initializer, helper = _write_fake_tmaven_distribution(installed)
+    cache = _write_timestamp_valid_malicious_cache(helper)
+    monkeypatch.setenv("PYTHONPATH", str(installed))
+    monkeypatch.setattr(
+        setup,
+        "_BUILD_STATE_PROBE",
+        (
+            "import pathlib\n"
+            "_original_path_iterdir = pathlib.Path.iterdir\n"
+            "def _denied_cache_iterdir(self):\n"
+            "    if self.name == '__pycache__':\n"
+            "        raise PermissionError('cache listing denied')\n"
+            "    return _original_path_iterdir(self)\n"
+            "pathlib.Path.iterdir = _denied_cache_iterdir\n"
+            f"import sys\nsys.prefix = {str(installed)!r}\n" + setup._BUILD_STATE_PROBE
+        ),
+    )
+
+    state = setup.inspect_sidecar_build_state(sys.executable)
+
+    assert cache.exists() is True
+    assert state["tmaven_bytecode_cache_safe"] is False
+    assert state["tmaven_import_origin_verified"] is False
+    assert (
+        setup._exact_installed_tmaven_commit(
+            state,
+            tmaven_spec=setup.DEFAULT_TMAVEN_SPEC,
+            locked_setuptools_version="82.0.1",
+        )
+        is None
+    )
+
+
 def test_build_state_probe_rejects_external_bytecode_cache_for_reuse(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -592,6 +715,78 @@ def test_build_state_probe_rejects_external_bytecode_cache_for_reuse(
         )
         is None
     )
+
+
+def test_runtime_probe_rejects_shadowed_pkg_resources_origin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed = tmp_path / "installed"
+    _write_fake_pkg_resources_distribution(installed)
+    shadow = tmp_path / "shadow"
+    shadow_package = shadow / "pkg_resources"
+    shadow_package.mkdir(parents=True)
+    executed = tmp_path / "shadow-executed"
+    (shadow_package / "__init__.py").write_text(
+        f"from pathlib import Path\nPath({str(executed)!r}).write_text('executed')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join((str(shadow), str(installed))))
+    monkeypatch.setattr(
+        setup,
+        "_PKG_RESOURCES_PROBE",
+        f"import sys\nsys.prefix = {str(installed)!r}\n" + setup._PKG_RESOURCES_PROBE,
+    )
+
+    state = setup.inspect_runtime_pkg_resources(sys.executable)
+
+    assert state["setuptools_distribution_version"] == "80.9.0"
+    assert state["pkg_resources_python_files_verified"] is True
+    assert state["pkg_resources_import_origin_verified"] is False
+    assert executed.exists() is False
+    with pytest.raises(setup.SetupError, match="pkg_resources runtime provenance"):
+        setup.require_runtime_pkg_resources(state, expected_version="80.9.0")
+
+
+def test_runtime_probe_verifies_locked_pkg_resources_content_and_origin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed = tmp_path / "installed"
+    _write_fake_pkg_resources_distribution(installed)
+    monkeypatch.setenv("PYTHONPATH", str(installed))
+    monkeypatch.setattr(
+        setup,
+        "_PKG_RESOURCES_PROBE",
+        f"import sys\nsys.prefix = {str(installed)!r}\n" + setup._PKG_RESOURCES_PROBE,
+    )
+
+    state = setup.inspect_runtime_pkg_resources(sys.executable)
+
+    assert state == _locked_runtime_state()
+    setup.require_runtime_pkg_resources(state, expected_version="80.9.0")
+
+
+def test_runtime_probe_rejects_tampered_pkg_resources_content(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed = tmp_path / "installed"
+    initializer = _write_fake_pkg_resources_distribution(installed)
+    initializer.write_text("RUNTIME_SENTINEL = 'tampered'\n", encoding="utf-8")
+    monkeypatch.setenv("PYTHONPATH", str(installed))
+    monkeypatch.setattr(
+        setup,
+        "_PKG_RESOURCES_PROBE",
+        f"import sys\nsys.prefix = {str(installed)!r}\n" + setup._PKG_RESOURCES_PROBE,
+    )
+
+    state = setup.inspect_runtime_pkg_resources(sys.executable)
+
+    assert state["pkg_resources_python_files_verified"] is False
+    assert state["pkg_resources_import_origin_verified"] is False
+    with pytest.raises(setup.SetupError, match="pkg_resources runtime provenance"):
+        setup.require_runtime_pkg_resources(state, expected_version="80.9.0")
 
 
 def test_version_only_setuptools_match_cannot_authorize_tmaven_build() -> None:
@@ -774,7 +969,8 @@ def test_main_dry_run_python_mode_runs_nothing(
     tmaven_at = output.index(setup.DEFAULT_TMAVEN_SPEC)
     test_tools_at = output.index(str(setup.TEST_TOOLS_REQUIREMENTS))
     compatibility_at = output.index(str(setup.SETUPTOOLS_REQUIREMENTS))
-    assert state_check_at < tmaven_at < test_tools_at < compatibility_at, (
+    runtime_verify_at = output.index("verify hash-locked pkg_resources content + import origin")
+    assert state_check_at < tmaven_at < test_tools_at < compatibility_at < runtime_verify_at, (
         "the older compatibility wheel must be installed only after tMAVEN is built"
     )
     assert "unsafe existing states fail instead of building tMAVEN" in output
@@ -799,6 +995,13 @@ def test_main_runs_three_install_commands_in_dependency_safe_order(
         assert not dry_run
         commands.append(cmd)
 
+    runtime_inspections: list[str] = []
+
+    def _inspect_runtime(python: str) -> dict:
+        assert commands[-1] == setup.build_setuptools_pip_cmd(str(sidecar_python))
+        runtime_inspections.append(python)
+        return _locked_runtime_state()
+
     states = iter(
         [
             _locked_builder_state(),
@@ -822,6 +1025,7 @@ def test_main_runs_three_install_commands_in_dependency_safe_order(
         ]
     )
     monkeypatch.setattr(setup, "inspect_sidecar_build_state", lambda _python: next(states))
+    monkeypatch.setattr(setup, "inspect_runtime_pkg_resources", _inspect_runtime)
     monkeypatch.setattr(setup, "_run", _record)
     rc = setup.main(["--python", str(sidecar_python), "--with-pytest", "--no-probe"])
 
@@ -831,6 +1035,7 @@ def test_main_runs_three_install_commands_in_dependency_safe_order(
         setup.build_test_tools_pip_cmd(str(sidecar_python)),
         setup.build_setuptools_pip_cmd(str(sidecar_python)),
     ]
+    assert runtime_inspections == [str(sidecar_python)]
 
 
 def test_recovered_locked_builder_force_rebuilds_an_existing_unsafe_tmaven(
@@ -873,6 +1078,9 @@ def test_recovered_locked_builder_force_rebuilds_an_existing_unsafe_tmaven(
         ]
     )
     monkeypatch.setattr(setup, "inspect_sidecar_build_state", lambda _python: next(states))
+    monkeypatch.setattr(
+        setup, "inspect_runtime_pkg_resources", lambda _python: _locked_runtime_state()
+    )
     monkeypatch.setattr(
         setup, "_run", lambda cmd, *, dry_run: commands.append(cmd) if not dry_run else None
     )
@@ -957,6 +1165,9 @@ def test_rerun_reuses_only_the_exact_installed_tmaven_before_runtime_reinstall(
             "tmaven_maven_origin_verified": True,
             "tmaven_bytecode_cache_safe": True,
         },
+    )
+    monkeypatch.setattr(
+        setup, "inspect_runtime_pkg_resources", lambda _python: _locked_runtime_state()
     )
     monkeypatch.setattr(
         setup, "_run", lambda cmd, *, dry_run: commands.append(cmd) if not dry_run else None
@@ -1103,6 +1314,9 @@ def test_skip_install_skips_every_pip_layer(
         raise AssertionError("--skip-install must not run any install command")
 
     monkeypatch.setattr(setup, "_run", _boom)
+    monkeypatch.setattr(
+        setup, "inspect_runtime_pkg_resources", lambda _python: _locked_runtime_state()
+    )
     rc = setup.main(
         ["--python", str(sidecar_python), "--with-pytest", "--skip-install", "--no-probe"]
     )
@@ -1130,6 +1344,9 @@ def test_skip_install_still_probes_an_already_populated_environment(
         return {"ok": True, "detail": "already populated"}
 
     monkeypatch.setattr(setup, "_run", _boom)
+    monkeypatch.setattr(
+        setup, "inspect_runtime_pkg_resources", lambda _python: _locked_runtime_state()
+    )
     monkeypatch.setattr(setup, "run_probe", _probe)
 
     assert setup.main(["--python", str(sidecar_python), "--skip-install"]) == 0
@@ -1142,7 +1359,8 @@ def test_skip_install_help_names_every_skipped_pip_layer() -> None:
         "skip the tMAVEN, optional pytest test-tool, and compatibility-wheel installs" in help_text
     )
     assert "use only with an already-populated sidecar environment" in help_text
-    assert "probe still runs unless --no-probe" in help_text
+    assert "pkg_resources provenance verification still runs" in help_text
+    assert "liveness probe still runs unless --no-probe" in help_text
 
 
 def test_skip_install_docs_require_an_already_populated_environment() -> None:
@@ -1152,7 +1370,8 @@ def test_skip_install_docs_require_an_already_populated_environment() -> None:
         if line.startswith("| `--skip-install` |")
     )
     assert "already-populated sidecar environment" in skip_row
-    assert "probe still runs unless `--no-probe`" in skip_row
+    assert "Runtime `pkg_resources` provenance verification still runs" in skip_row
+    assert "liveness probe still runs unless `--no-probe`" in skip_row
     assert "only create the env / probe" not in skip_row
 
 
@@ -1179,6 +1398,7 @@ def test_existing_interpreter_docs_require_source_and_builder_provenance() -> No
     assert "symlinked genuine initializer" in normalized
     assert "timestamp-and-size-valid `.pyc`" in normalized
     assert "external `PYTHONPYCACHEPREFIX` disables reuse" in normalized
+    assert "requires the actual initializer, spec origin, and sole package path" in normalized
     assert "platform-specific conda package SHA-256" in normalized
     assert "every Python row in the raw wheel `RECORD` exists" in normalized
     assert "genuinely fresh environment under a new `--env-name`" in normalized

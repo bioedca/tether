@@ -24,6 +24,8 @@ every time:
    ``packaging/setuptools-compatibility.txt`` and are force-reinstalled in pip's
    hash-checking mode after tMAVEN has been built.  Force reinstallation makes reruns
    verify the locked wheel instead of trusting an already-installed same-version package.
+   Before liveness, the imported ``pkg_resources`` content and lexical package/spec paths
+   must match the installed wheel's raw ``RECORD`` after safe bytecode-cache cleanup.
 
 Before a no-isolation tMAVEN build, the script verifies that the target interpreter's
 actual setuptools distribution has the version, one platform artifact SHA-256, and
@@ -97,6 +99,8 @@ _SIDECAR_RUNNER = _REPO_ROOT / "src" / "tether" / "idealize" / "_sidecar_runner.
 STATUS_PREFIX = "TETHER_SIDECAR_STATUS "
 #: Prefix for the stdlib-only target-interpreter build-state probe below.
 _BUILD_STATE_PREFIX = "TETHER_SIDECAR_BUILD_STATE "
+#: Prefix for post-overlay ``pkg_resources`` provenance from the target interpreter.
+_PKG_RESOURCES_PREFIX = "TETHER_SIDECAR_PKG_RESOURCES_STATE "
 #: Run inside the target interpreter before any no-isolation tMAVEN build. pip 26.1.2
 #: makes that interpreter responsible for its build dependencies under
 #: ``--no-build-isolation``, so both the active setuptools version and any PEP 610
@@ -197,6 +201,15 @@ try:
     except csv.Error:
         cache_python_rows = []
     tmaven_bytecode_cache_safe = bool(cache_python_rows) and sys.pycache_prefix is None
+
+    def matching_bytecode(cache_directory, source_stem):
+        return [
+            candidate
+            for candidate in list(cache_directory.iterdir())
+            if candidate.suffix == ".pyc"
+            and candidate.name.startswith(source_stem + ".")
+        ]
+
     for row in cache_python_rows:
         if not row:
             tmaven_bytecode_cache_safe = False
@@ -216,8 +229,8 @@ try:
                 raise ValueError("tMAVEN bytecode cache directory is a symlink")
             if cache_dir.exists():
                 cache_dir.resolve(strict=True).relative_to(prefix)
-                cached_files = list(
-                    cache_dir.glob(installed_lexical_file.stem + ".*.pyc")
+                cached_files = matching_bytecode(
+                    cache_dir, installed_lexical_file.stem
                 )
                 for cached_file in cached_files:
                     cached_file.absolute().relative_to(prefix)
@@ -232,10 +245,12 @@ try:
                 legacy_cache.absolute().relative_to(prefix)
                 legacy_cache.resolve(strict=True).relative_to(prefix)
                 legacy_cache.unlink()
-            if (
-                list(cache_dir.glob(installed_lexical_file.stem + ".*.pyc"))
-                or legacy_cache.exists()
-            ):
+            remaining_cached_files = (
+                matching_bytecode(cache_dir, installed_lexical_file.stem)
+                if cache_dir.exists()
+                else []
+            )
+            if remaining_cached_files or legacy_cache.exists():
                 tmaven_bytecode_cache_safe = False
         except (OSError, ValueError):
             tmaven_bytecode_cache_safe = False
@@ -348,6 +363,189 @@ try:
 except (md.PackageNotFoundError, json.JSONDecodeError):
     pass
 print({_BUILD_STATE_PREFIX!r} + json.dumps(state, sort_keys=True))
+"""
+
+_PKG_RESOURCES_PROBE = f"""
+import base64
+import csv
+import hashlib
+import importlib.metadata as md
+import importlib.util
+import io
+import json
+import pathlib
+import sys
+
+state = {{
+    "setuptools_distribution_version": None,
+    "pkg_resources_python_files_verified": False,
+    "pkg_resources_import_origin_verified": False,
+    "pkg_resources_package_path_verified": False,
+    "pkg_resources_bytecode_cache_safe": False,
+}}
+prefix = pathlib.Path(sys.prefix).resolve()
+try:
+    distribution = md.distribution("setuptools")
+    state["setuptools_distribution_version"] = distribution.version
+    record_text = distribution.read_text("RECORD") or ""
+    try:
+        python_rows = [
+            row
+            for row in csv.reader(io.StringIO(record_text))
+            if row
+            and pathlib.PurePosixPath(row[0]).suffix == ".py"
+            and pathlib.PurePosixPath(row[0]).parts
+            and pathlib.PurePosixPath(row[0]).parts[0] == "pkg_resources"
+        ]
+    except csv.Error:
+        python_rows = []
+
+    def matching_bytecode(cache_directory, source_stem):
+        return [
+            candidate
+            for candidate in list(cache_directory.iterdir())
+            if candidate.suffix == ".pyc"
+            and candidate.name.startswith(source_stem + ".")
+        ]
+
+    bytecode_cache_safe = bool(python_rows) and sys.pycache_prefix is None
+    for row in python_rows:
+        relative = pathlib.PurePosixPath(row[0])
+        if relative.is_absolute() or ".." in relative.parts:
+            bytecode_cache_safe = False
+            continue
+        try:
+            installed_lexical_file = pathlib.Path(
+                distribution.locate_file(row[0])
+            ).absolute()
+            installed_lexical_file.relative_to(prefix)
+            installed_lexical_file.resolve(strict=True).relative_to(prefix)
+            cache_dir = installed_lexical_file.parent / "__pycache__"
+            if cache_dir.is_symlink():
+                raise ValueError("pkg_resources bytecode cache directory is a symlink")
+            if cache_dir.exists():
+                cache_dir.resolve(strict=True).relative_to(prefix)
+                for cached_file in matching_bytecode(
+                    cache_dir, installed_lexical_file.stem
+                ):
+                    cached_file.absolute().relative_to(prefix)
+                    if cached_file.is_symlink():
+                        raise ValueError("pkg_resources bytecode cache file is a symlink")
+                    cached_file.resolve(strict=True).relative_to(prefix)
+                    cached_file.unlink()
+            legacy_cache = installed_lexical_file.with_suffix(".pyc")
+            if legacy_cache.is_symlink():
+                raise ValueError("legacy pkg_resources bytecode cache is a symlink")
+            if legacy_cache.exists():
+                legacy_cache.absolute().relative_to(prefix)
+                legacy_cache.resolve(strict=True).relative_to(prefix)
+                legacy_cache.unlink()
+            remaining_cached_files = (
+                matching_bytecode(cache_dir, installed_lexical_file.stem)
+                if cache_dir.exists()
+                else []
+            )
+            if remaining_cached_files or legacy_cache.exists():
+                bytecode_cache_safe = False
+        except (OSError, ValueError):
+            bytecode_cache_safe = False
+    state["pkg_resources_bytecode_cache_safe"] = bytecode_cache_safe
+
+    python_files_verified = bool(python_rows)
+    verified_python_files = set()
+    verified_initializers = []
+    for row in python_rows:
+        if len(row) < 2:
+            python_files_verified = False
+            continue
+        relative_text, retained_hash = row[0], row[1]
+        algorithm, separator, expected_digest = retained_hash.partition("=")
+        if algorithm != "sha256" or not separator or not expected_digest:
+            python_files_verified = False
+            continue
+        relative = pathlib.PurePosixPath(relative_text)
+        if relative.is_absolute() or ".." in relative.parts:
+            python_files_verified = False
+            continue
+        try:
+            installed_lexical_file = pathlib.Path(
+                distribution.locate_file(relative_text)
+            ).absolute()
+            installed_lexical_file.relative_to(prefix)
+            installed_resolved_file = installed_lexical_file.resolve(strict=True)
+            installed_resolved_file.relative_to(prefix)
+            digest = base64.urlsafe_b64encode(
+                hashlib.sha256(installed_resolved_file.read_bytes()).digest()
+            ).rstrip(b"=").decode("ascii")
+        except (OSError, ValueError):
+            python_files_verified = False
+            continue
+        if digest != expected_digest:
+            python_files_verified = False
+        else:
+            verified_python_files.add(installed_resolved_file)
+            if relative == pathlib.PurePosixPath("pkg_resources/__init__.py"):
+                verified_initializers.append(installed_lexical_file)
+    state["pkg_resources_python_files_verified"] = python_files_verified
+
+    selected_spec_origin = None
+    selected_spec_paths = ()
+    selected_resolved_origin = None
+    selected_spec_shape_verified = False
+    if bytecode_cache_safe and python_files_verified:
+        try:
+            selected_spec = importlib.util.find_spec("pkg_resources")
+            selected_spec_shape_verified = (
+                selected_spec is not None
+                and selected_spec.name == "pkg_resources"
+                and selected_spec.has_location is True
+                and selected_spec.origin is not None
+                and selected_spec.submodule_search_locations is not None
+            )
+            if selected_spec_shape_verified:
+                selected_spec_origin = pathlib.Path(selected_spec.origin).absolute()
+                selected_spec_paths = tuple(
+                    pathlib.Path(entry).absolute()
+                    for entry in selected_spec.submodule_search_locations
+                )
+                selected_resolved_origin = selected_spec_origin.resolve(strict=True)
+        except (AttributeError, OSError, TypeError):
+            pass
+    selected_spec_verified = (
+        python_files_verified
+        and selected_spec_shape_verified
+        and len(verified_initializers) == 1
+        and selected_spec_origin == verified_initializers[0]
+        and len(selected_spec_paths) == 1
+        and selected_spec_paths[0] == verified_initializers[0].parent
+        and selected_resolved_origin in verified_python_files
+    )
+    if selected_spec_verified:
+        try:
+            import pkg_resources
+
+            pkg_resources_file = pathlib.Path(pkg_resources.__file__).absolute()
+            pkg_resources_spec_origin = pathlib.Path(
+                pkg_resources.__spec__.origin
+            ).absolute()
+            pkg_resources_paths = tuple(
+                pathlib.Path(entry).absolute() for entry in pkg_resources.__path__
+            )
+            state["pkg_resources_import_origin_verified"] = (
+                pkg_resources_file == verified_initializers[0]
+                and pkg_resources_spec_origin == verified_initializers[0]
+                and pkg_resources_file.resolve(strict=True) in verified_python_files
+            )
+            state["pkg_resources_package_path_verified"] = (
+                state["pkg_resources_import_origin_verified"]
+                and len(pkg_resources_paths) == 1
+                and pkg_resources_paths[0] == verified_initializers[0].parent
+            )
+        except (ImportError, AttributeError, OSError, TypeError):
+            pass
+except md.PackageNotFoundError:
+    pass
+print({_PKG_RESOURCES_PREFIX!r} + json.dumps(state, sort_keys=True))
 """
 
 
@@ -473,6 +671,30 @@ def load_locked_setuptools_artifact_sha256(lock_file: Path) -> str:
     return next(iter(hashes))
 
 
+def load_runtime_setuptools_version(
+    requirements: Path = SETUPTOOLS_REQUIREMENTS,
+) -> str:
+    """Return the sole exact setuptools pin in the compatibility requirements."""
+    try:
+        lines = requirements.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise SetupError(
+            f"could not read runtime compatibility lock {requirements}: {exc}"
+        ) from exc
+    versions = []
+    for raw in lines:
+        active = raw.split("#", 1)[0].strip()
+        match = re.fullmatch(r"setuptools==([A-Za-z0-9_.+-]+)\s*\\?", active)
+        if match:
+            versions.append(match.group(1))
+    if len(versions) != 1:
+        raise SetupError(
+            f"{requirements} must contain exactly one active exact setuptools pin; "
+            f"found {len(versions)}"
+        )
+    return versions[0]
+
+
 def inspect_sidecar_build_state(sidecar_python: str, *, timeout: float | None = 120.0) -> dict:
     """Read target setuptools conda provenance and installed tMAVEN provenance."""
     try:
@@ -505,6 +727,67 @@ def inspect_sidecar_build_state(sidecar_python: str, *, timeout: float | None = 
         if isinstance(state, dict):
             return state
     raise SetupError("target sidecar did not return build-state metadata")
+
+
+def inspect_runtime_pkg_resources(
+    sidecar_python: str,
+    *,
+    timeout: float | None = 120.0,
+) -> dict:
+    """Verify post-overlay ``pkg_resources`` content and actual import provenance."""
+    try:
+        proc = subprocess.run(  # noqa: S603 - sidecar_python is user-selected/resolved
+            [sidecar_python, "-c", _PKG_RESOURCES_PROBE],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SetupError(
+            f"target pkg_resources provenance inspection timed out after {timeout}s"
+        ) from exc
+    except OSError as exc:
+        raise SetupError(f"could not inspect target pkg_resources provenance: {exc}") from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or "").strip()
+        raise SetupError(
+            f"could not inspect target pkg_resources provenance (exit {proc.returncode})"
+            + (f": {detail}" if detail else "")
+        )
+    for line in reversed((proc.stdout or "").splitlines()):
+        if not line.startswith(_PKG_RESOURCES_PREFIX):
+            continue
+        try:
+            state = json.loads(line[len(_PKG_RESOURCES_PREFIX) :])
+        except json.JSONDecodeError as exc:
+            raise SetupError("target returned malformed pkg_resources provenance JSON") from exc
+        if isinstance(state, dict):
+            return state
+    raise SetupError("target did not return pkg_resources provenance metadata")
+
+
+def require_runtime_pkg_resources(state: dict, *, expected_version: str) -> None:
+    """Fail unless the imported runtime package is the exact verified wheel content."""
+    if (
+        state.get("setuptools_distribution_version") == expected_version
+        and state.get("pkg_resources_python_files_verified") is True
+        and state.get("pkg_resources_import_origin_verified") is True
+        and state.get("pkg_resources_package_path_verified") is True
+        and state.get("pkg_resources_bytecode_cache_safe") is True
+    ):
+        return
+    raise SetupError(
+        "pkg_resources runtime provenance verification failed after the hash-locked "
+        f"setuptools overlay: expected setuptools {expected_version}, complete matching "
+        "raw RECORD Python content, exact imported initializer/spec/package path, and "
+        "safely discarded in-prefix bytecode caches; found version "
+        f"{state.get('setuptools_distribution_version') or 'missing'}, Python integrity "
+        f"{state.get('pkg_resources_python_files_verified')}, import-origin integrity "
+        f"{state.get('pkg_resources_import_origin_verified')}, package-path integrity "
+        f"{state.get('pkg_resources_package_path_verified')}, and bytecode-cache safety "
+        f"{state.get('pkg_resources_bytecode_cache_safe')}. Refusing to run tMAVEN."
+    )
 
 
 def _expected_tmaven_commit(tmaven_spec: str) -> str | None:
@@ -804,7 +1087,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "skip the tMAVEN, optional pytest test-tool, and compatibility-wheel installs; "
             "use only with an already-populated sidecar environment "
-            "(probe still runs unless --no-probe)"
+            "(pkg_resources provenance verification still runs; liveness probe still "
+            "runs unless --no-probe)"
         ),
     )
     parser.add_argument("--no-probe", action="store_true", help="skip the liveness probe")
@@ -933,6 +1217,24 @@ def main(argv: list[str] | None = None) -> int:
             _run(
                 build_setuptools_pip_cmd(sidecar_python),
                 dry_run=args.dry_run,
+            )
+
+        if args.dry_run:
+            print(
+                "  $ "
+                f"{sidecar_python} -c <verify hash-locked pkg_resources content + import origin>"
+            )
+        else:
+            runtime_setuptools_version = load_runtime_setuptools_version()
+            runtime_state = inspect_runtime_pkg_resources(sidecar_python)
+            require_runtime_pkg_resources(
+                runtime_state,
+                expected_version=runtime_setuptools_version,
+            )
+            print(
+                "      Verified pkg_resources from setuptools "
+                f"{runtime_setuptools_version}: complete Python RECORD, exact import "
+                "origin/package path, and discarded bytecode caches"
             )
 
         # 4) Verify the env can build the tMAVEN driver (liveness).

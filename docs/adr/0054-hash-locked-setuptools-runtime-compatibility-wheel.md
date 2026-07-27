@@ -90,7 +90,13 @@ The older wheel is a **runtime compatibility layer, not a build backend**:
    installed with `--no-deps`. The compatibility wheel is installed last with
    binary-only hash
    checking and `--force-reinstall`, so a rerun cannot trust an already-installed
-   same-version distribution without verifying the locked artifact.
+   same-version distribution without verifying the locked artifact. Before liveness,
+   setup parses the installed setuptools wheel's raw `RECORD`, eagerly clears all
+   in-prefix `pkg_resources` bytecode caches, verifies every recorded Python source
+   digest, and requires absolute lexical `pkg_resources.__file__`,
+   `pkg_resources.__spec__.origin`, and the sole package path to match that verified
+   distribution. Shadowing through `PYTHONPATH` or `.pth` therefore fails before tMAVEN
+   runs. This post-overlay provenance check still runs with `--skip-install`.
 3. Constructor installs the already-built compatibility and tMAVEN wheels offline into
    the isolated sidecar. The base Tether environment never receives the older package.
 
