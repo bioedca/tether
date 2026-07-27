@@ -902,6 +902,61 @@ def test_overwrite_rejected_checkpoint_guards_correction_persistence(
     assert not r.ok
 
 
+def test_overwrite_rejected_checkpoint_guards_batch_provenance_persistence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    contender = lock.LockIdentity(host="OTHER", user="successor", pid=987)
+    stolen = None
+    real_stamp = batch_module._stamp_batch_settings
+
+    def stolen_before_provenance(path, *, write_guard=None, **kwargs):
+        nonlocal stolen
+        assert write_guard is not None
+        stolen, prior = lock.steal_lock(path, identity=contender)
+        assert prior is not None
+        assert prior.identity == lock.local_identity()
+        with h5py.File(path, "r+") as store:
+            store.require_group("settings/batch").attrs["sentinel"] = "successor must keep this"
+        return real_stamp(path, write_guard=write_guard, **kwargs)
+
+    monkeypatch.setattr(batch_module, "_stamp_batch_settings", stolen_before_provenance)
+    try:
+        with BatchLog() as log:
+            second = _run(
+                jobs,
+                policy=POLICY_FAIL,
+                overwrite=True,
+                log=log,
+            )
+            records = list(log.records)
+    finally:
+        if stolen is not None:
+            assert lock.release(jobs[0].output_path, stolen)
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert r.stages[STAGE_CORRECT].status == STATUS_DONE
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_DONE
+    assert r.ok
+    with h5py.File(jobs[0].output_path, "r") as store:
+        assert store["settings/batch"].attrs["sentinel"] == "successor must keep this"
+    assert any(
+        record["movie"] == "x"
+        and record["stage"] == "provenance"
+        and record["status"] == STATUS_WARNING
+        and "lock ownership changed during rejected-checkpoint replacement" in record["error"]
+        for record in records
+    )
+
+
 def test_overwrite_rechecks_replaced_checkpoint_under_lock(tmp_path: Path, monkeypatch) -> None:
     jobs = _jobs(tmp_path, "x")
     first = _run(

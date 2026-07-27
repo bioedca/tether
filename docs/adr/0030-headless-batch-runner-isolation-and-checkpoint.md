@@ -54,7 +54,9 @@ before each HDF5 mutation. For idealization, which may spend the full sidecar ti
 fitting and then compress large datasets, the guarded path builds the complete model
 inside a same-directory sibling copy of the project. It revalidates ownership after
 staging and changes the canonical project only through the final guarded
-`os.replace`. A pre-existing same-process destination lock is borrowed without
+`os.replace`. The final batch-provenance writer receives the guard too and revalidates
+before opening the canonical project and immediately before replacing
+`/settings/batch`. A pre-existing same-process destination lock is borrowed without
 refreshing its nonce or releasing the caller's session; release failures from locks
 acquired by the batch are reported per movie without terminating the queue. If the
 lock became stale and was stolen during a long stage, the old owner stops the job,

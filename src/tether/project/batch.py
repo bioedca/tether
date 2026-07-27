@@ -554,6 +554,7 @@ def _stamp_batch_settings(
     policy: str,
     idealize_requested: bool,
     stages: dict[str, StageResult],
+    write_guard: Callable[[], None] | None = None,
 ) -> None:
     """Write the additive ``/settings/batch`` provenance group (NFR-REPRO).
 
@@ -564,12 +565,18 @@ def _stamp_batch_settings(
     Stamping runs at the end of *every* job, including one whose stages failed, so it
     carries its own newer-schema guard: without it a movie refused above would still be
     written to here. The caller records the refusal as a provenance warning.
+    ``write_guard`` revalidates caller-owned lock/lease state before the canonical
+    file is opened and immediately before the provenance group is replaced.
     """
     import h5py  # noqa: PLC0415
 
     _assert_output_not_newer(path)
+    if write_guard is not None:
+        write_guard()
     with h5py.File(path, "r+") as f:
         settings = f[_SETTINGS_GROUP]
+        if write_guard is not None:
+            write_guard()
         if _BATCH_SETTINGS in settings:
             del settings[_BATCH_SETTINGS]
         grp = settings.create_group(_BATCH_SETTINGS, track_order=True)
@@ -884,6 +891,7 @@ def run_batch(
                             policy=policy,
                             idealize_requested=idealize,
                             stages=rec.stages,
+                            write_guard=ownership_guard,
                         )
                         if ownership_guard is not None:
                             ownership_guard()
