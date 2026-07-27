@@ -13,7 +13,7 @@ Design (ADR-0030):
 * **One ``.tether`` per movie** is the unit of isolation — it mirrors
   :func:`tether.project.extract.extract_movie` (which writes a fresh project per
   movie, atomically) and means a corrupt movie can never damage another's store.
-* **Checkpoint = provenance presence, with the ADR-0054 extraction exception.**
+* **Checkpoint = provenance presence, with the ADR-0056 extraction exception.**
   Presence normally means "already done" — ``/settings/extraction`` (extract),
   ``/settings/correction`` (correct), a non-empty ``/idealization`` (idealize).
   Under ``policy="fail"``, however, a saved over-gate extraction remains rejected on

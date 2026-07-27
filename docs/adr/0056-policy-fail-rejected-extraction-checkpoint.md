@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0054 - Preserve policy-fail rejection across batch resume
+# 0056 - Preserve policy-fail rejection across batch resume
 
 - **Status:** accepted
 - **Date:** 2026-07-26

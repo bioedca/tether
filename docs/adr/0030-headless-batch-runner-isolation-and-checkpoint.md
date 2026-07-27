@@ -55,7 +55,7 @@ A stage is "already done" iff the provenance group it writes is present in the
 - **correct** → `/settings/correction` (`compute_corrected_fret`);
 - **idealize** → a non-empty `/idealization` (any fitted `/idealization/{model}`).
 
-ADR-0054 supersedes the unconditional acceptance of the **extract** checkpoint under
+ADR-0056 supersedes the unconditional acceptance of the **extract** checkpoint under
 `policy=fail`: presence still proves extraction completed, but the saved residual and
 gate decide whether that completed result satisfies the current fail policy. Correction
 and idealization retain the presence-only rule.
