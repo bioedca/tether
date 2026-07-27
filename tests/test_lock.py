@@ -113,6 +113,22 @@ def test_reacquire_by_same_identity_refreshes(tmp_path: Path) -> None:
     assert lock.read_lock(path) == second
 
 
+def test_retained_refresh_preserves_nonce_and_requires_existing_epoch(tmp_path: Path) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    acquired = datetime(2020, 1, 1, 12, 0, tzinfo=UTC)
+    refreshed_at = datetime(2020, 1, 1, 12, 10, tzinfo=UTC)
+    first = lock.acquire(path, identity=HOST_A, now=acquired)
+
+    refreshed = lock.refresh(path, first, now=refreshed_at)
+
+    assert refreshed.nonce == first.nonce
+    assert refreshed.timestamp == refreshed_at.isoformat()
+    assert lock.read_lock(path) == refreshed
+    assert lock.release(path, refreshed)
+    with pytest.raises(LockedError):
+        lock.refresh(path, refreshed)
+
+
 # --- single-writer: a foreign lock prevents a second writer ------------------
 
 
@@ -386,6 +402,27 @@ def test_auto_identity_reresolves_after_pid_change(tmp_path: Path, monkeypatch) 
     # An *injected* identity is fixed — never re-resolved on a PID change.
     injected = Project(path, identity=HOST_A)
     assert injected._acting_identity() == HOST_A
+
+
+def test_pid_drift_never_waits_on_an_inherited_project_mutex(tmp_path: Path, monkeypatch) -> None:
+    class InheritedLockedMutex:
+        def __enter__(self):
+            raise AssertionError("fork child attempted to acquire an inherited mutex")
+
+        def __exit__(self, *_args):
+            return False
+
+    path = _seed(tmp_path, [("m1", "cond")])
+    project = Project(path)
+    held = project.acquire_lock()
+    project._lock_state_lock = InheritedLockedMutex()
+    monkeypatch.setattr(os, "getpid", lambda: held.pid + 1)
+    try:
+        child_identity = project._acting_identity()
+        assert child_identity.pid == held.pid + 1
+        assert project._held_lock is None
+    finally:
+        assert lock.release(path, held)
 
 
 def test_create_overwrite_refused_when_foreign_locked(tmp_path: Path) -> None:

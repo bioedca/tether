@@ -602,6 +602,27 @@ def test_reidealize_refreshes_stale_model(tmp_path) -> None:
     assert live_molecule_keys(proj, "vbconhmm") == keys
 
 
+def test_reidealize_preserves_stored_cohort_after_member_is_rejected(tmp_path) -> None:
+    n, t = 3, 24
+    proj, keys = _build_store(
+        tmp_path / "e.tether",
+        _step_trace(n, t),
+        _step_trace(n, t) * 0.5,
+    )
+    idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    proj.reject(keys[1])
+    calls = []
+
+    refreshed = reidealize(
+        proj,
+        "vbconhmm",
+        _runner=_make_runner({2: -1.0}, calls),
+    )
+
+    assert refreshed.molecule_keys == keys
+    assert calls[0]["smd"].molecule_keys == keys
+
+
 def test_project_live_and_reidealize_delegators(tmp_path) -> None:
     n, t = 2, 20
     proj, keys = _build_store(tmp_path / "e.tether", _step_trace(n, t), _step_trace(n, t) * 0.5)
@@ -680,10 +701,36 @@ def test_gui_idealization_requires_held_nonce_before_store_write(tmp_path) -> No
         assert lock.release(proj.path, stolen)
         return result
 
-    idealizer = make_store_idealizer(proj, nstates=2, _runner=steal_and_release_runner)
+    idealizer = make_store_idealizer(
+        proj,
+        nstates=2,
+        require_held_lock=True,
+        _runner=steal_and_release_runner,
+    )
     with pytest.raises(LockedError):
         idealizer(keys[0])
     assert list_idealizations(proj) == []
+
+
+def test_store_idealizer_project_handle_does_not_imply_retained_session(tmp_path) -> None:
+    from tether.gui.shell import make_store_idealizer
+
+    n, t = 2, 20
+    proj, keys = _build_store(
+        tmp_path / "e.tether",
+        _step_trace(n, t),
+        _step_trace(n, t) * 0.5,
+    )
+
+    idealized = make_store_idealizer(
+        Project.open(proj.path),
+        nstates=2,
+        _runner=_make_runner({2: -3.0}, []),
+    )(keys[0])
+
+    assert idealized is not None
+    assert idealized.shape == (t,)
+    assert list_idealizations(proj) == ["vbfret"]
 
 
 def test_idealize_excludes_rejected_rows_unless_explicitly_included(tmp_path) -> None:

@@ -129,9 +129,9 @@ _SMD_FILTER = "tMAVEN SMD (*.hdf5 *.smd);;All files (*)"
 #: File filter for the ``&File → Open project…`` dialog (a ``.tether`` HDF5 store).
 _TETHER_FILTER = "Tether project (*.tether);;All files (*)"
 
-# Project.acquire_lock() deliberately treats the same host/user/PID as a refresh.
-# Separate shells in one QApplication therefore need an additional process-local
-# ownership boundary or they can both become writable while sharing that identity.
+# Initial acquisition treats the same host/user/PID as one identity. Separate shells
+# in one QApplication therefore need an additional process-local ownership boundary
+# or they can both become writable before retained-session refresh takes over.
 _GUI_PROJECT_OWNERS: dict[str, object] = {}
 _GUI_PROJECT_OWNERS_LOCK = Lock()
 
@@ -374,6 +374,9 @@ class TetherShell:
         # None (no project) makes the menu report that a project must be loaded; a real
         # Project wires ConditionValidationDialog over the headless re-key core (§5.1).
         self._conditions = conditions
+        # The currently open modal wrapper, retained so timer-detected lock loss can
+        # reject it before its stale Project handle reaches another write action.
+        self._active_conditions_dialog: Any | None = None
         # The fit runs on a background worker (the sidecar can block for a cold-JIT
         # first run); a main-thread QTimer polls the future so the GUI stays live and
         # the overlay draw + status update always happen on the main thread.
@@ -389,9 +392,8 @@ class TetherShell:
         self._window = QtWidgets.QMainWindow()
         self._window.setWindowTitle(_APP_NAME)
         # Refresh a writable GUI session well before the canonical 30-minute
-        # staleness boundary. Re-acquiring as the same identity atomically
-        # replaces the nonce; Project.release_lock() always releases only the
-        # newest nonce held by this handle.
+        # staleness boundary. Retained refresh preserves the acquisition nonce and
+        # refuses a vanished/replaced sidecar, keeping long fits bound to one epoch.
         from tether.project.lock import DEFAULT_STALENESS_TIMEOUT_S
 
         self._lock_refresh_timer = QtCore.QTimer()
@@ -761,7 +763,7 @@ class TetherShell:
             traces = traces_from_store(project, intensity_quantity=intensity_quantity)
             histogram = make_store_histogram(project)
             overlap = None if analysis_only else make_store_overlap(project)
-            idealizer_candidate = make_store_idealizer(project)
+            idealizer_candidate = make_store_idealizer(project, require_held_lock=True)
             # Export is read-only with respect to the source project, so retain this
             # seam even when the canonical store must open browse-only.
             handoff = make_store_handoff(project)
@@ -878,9 +880,10 @@ class TetherShell:
             self._lock_refresh_timer.stop()
             return
         try:
-            project.acquire_lock()
+            project.refresh_lock()
         except (LockedError, OSError) as exc:
             self._lock_refresh_timer.stop()
+            self._reject_active_conditions_dialog()
             self._curation_project = None
             self._set_read_only_reason(f"session lock lost: {exc}")
             self._idealizer = None
@@ -1113,6 +1116,28 @@ class TetherShell:
         """The ``&Conditions`` menu (condition validation / confirm-correct / merge)."""
         return self._conditions_menu
 
+    def _reject_active_conditions_dialog(self) -> None:
+        """Close a modal conditions editor before a lost session can write unlocked."""
+        active = self._active_conditions_dialog
+        if active is not None:
+            with suppress(RuntimeError):
+                active.dialog.reject()
+
+    def _guard_conditions_write(self) -> None:
+        """Require the retained session nonce immediately before a dialog write."""
+        from tether.project.lock import LockedError
+
+        project = self._curation_project
+        if project is None:
+            raise RuntimeError("condition editor is no longer writable")
+        try:
+            project._assert_held_lock()
+        except (LockedError, OSError):
+            # The loss may occur entirely between heartbeat ticks. Route it through
+            # the normal fail-closed state transition before refusing this write.
+            self._refresh_project_lock()
+            raise
+
     def _validate_conditions_dialog(self) -> None:  # pragma: no cover - interactive dialog
         """Menu entry: open the condition validation / confirm-correct / merge dialog (§7.6)."""
         from tether.gui.conditions import ConditionValidationDialog
@@ -1122,10 +1147,22 @@ class TetherShell:
         if self._conditions is None:
             self._status("Conditions: load a project first")
             return
+        dialog = None
         try:
-            ConditionValidationDialog(self._conditions, parent=self._window).exec()
+            dialog = ConditionValidationDialog(
+                self._conditions,
+                writer_guard=self._guard_conditions_write,
+                parent=self._window,
+            )
+            self._active_conditions_dialog = dialog
+            dialog.exec()
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
             self._status(f"Conditions validation failed: {exc}")
+            return
+        finally:
+            if self._active_conditions_dialog is dialog:
+                self._active_conditions_dialog = None
+        if self._curation_read_only_reason is not None:
             return
         self._status("Conditions validation closed")
 
@@ -1510,6 +1547,7 @@ class TetherShell:
         if self._closed:
             return
         self._closed = True
+        self._reject_active_conditions_dialog()
         self._window.removeEventFilter(self._window_close_filter)
         self._window_close_filter = None
         if self._app is not None:
@@ -1530,7 +1568,7 @@ class TetherShell:
             from tether.project.lock import LockedError
 
             with suppress(LockedError, OSError):
-                writable_project.acquire_lock()
+                writable_project.refresh_lock()
         self._curation_project = None
         self._set_read_only_reason(None)
         if self._idealize_timer is not None:
@@ -1580,6 +1618,7 @@ def make_store_idealizer(
     *,
     model_name: str = "vbfret",
     overwrite: bool = True,
+    require_held_lock: bool = False,
     **kwargs: Any,
 ) -> Idealizer:
     """Build the store-backed one-click-idealize callable for a :class:`TetherShell`.
@@ -1593,14 +1632,17 @@ def make_store_idealizer(
     (``nstates`` / ``nstates_grid`` / ``intensity_quantity`` / ``sidecar_python`` /
     ``timeout`` …) pass straight through to :func:`idealize_molecules`.
 
+    ``require_held_lock=True`` is the explicit retained-session contract used by
+    :meth:`TetherShell.load_project`. An ordinary :class:`Project` handle keeps the
+    documented unlocked-or-self-owned writer guard.
+
     **MVP scope.** Idealizes the single selected molecule into a shared model,
     overwriting that model's prior contents; batch / accumulating idealization and
     model management are a later session (the deferred store↔shell hookup).
     """
-    from tether.project.core import Project as _Project
     from tether.project.idealize import idealize_molecules
 
-    retained_session = {"require_held_lock": True} if isinstance(project, _Project) else {}
+    retained_session = {"require_held_lock": True} if require_held_lock else {}
 
     def _idealize(molecule_key: str) -> np.ndarray | None:
         stored = idealize_molecules(

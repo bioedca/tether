@@ -178,13 +178,16 @@ class Project:
 
         lock.assert_writable(self.path, identity=self._acting_identity())
 
-    def _assert_held_lock(self) -> None:
-        """Require the sidecar to carry this handle's exact held nonce.
+    def _assert_held_lock(self, *, expected_nonce: str | None = None) -> str:
+        """Require and return this retained session's exact ownership nonce.
 
         GUI sessions retain a lock across long background writes. An identity-only
         writer check is insufficient for their point-of-persistence guard because a
         stolen lock may be released before the worker returns. This stricter boundary
-        refuses an absent, corrupt, or replacement sidecar.
+        refuses an absent, corrupt, or replacement sidecar. ``expected_nonce`` binds
+        a long-running write to the epoch it validated before work began. Retained
+        refresh preserves that nonce, so a timer heartbeat may interleave this read
+        without spuriously changing the ownership epoch.
         """
         from tether.project import lock
 
@@ -194,8 +197,14 @@ class Project:
             current = lock.read_lock(self.path)
         except lock.CorruptLockError as exc:
             raise lock.LockedError(None, corrupt=True, path=self.lock_path) from exc
-        if held is None or current is None or current.nonce != held.nonce:
+        if (
+            held is None
+            or current is None
+            or current.nonce != held.nonce
+            or (expected_nonce is not None and held.nonce != expected_nonce)
+        ):
             raise lock.LockedError(current, path=self.lock_path)
+        return held.nonce
 
     @property
     def lock_path(self) -> Path:
@@ -243,6 +252,23 @@ class Project:
         )
         self._held_lock = info
         return info
+
+    def refresh_lock(self) -> LockInfo:
+        """Refresh this retained lock's timestamp without changing its nonce.
+
+        This is the long-lived GUI-session heartbeat. It requires the sidecar to
+        carry the exact nonce already held by this handle and never recreates a
+        vanished lock, so ownership lost and later released is still detected as a
+        broken epoch rather than silently reacquired.
+        """
+        from tether.project import lock
+
+        self._assert_held_lock()
+        held = self._held_lock
+        assert held is not None  # established by _assert_held_lock
+        refreshed = lock.refresh(self.path, held)
+        self._held_lock = refreshed
+        return refreshed
 
     def steal_lock(self) -> tuple[LockInfo, LockInfo | None]:
         """Force-acquire the lock, returning ``(new_lock, ousted_owner_or_None)``.

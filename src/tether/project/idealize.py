@@ -472,8 +472,15 @@ def idealize_molecules(
     path = proj.path
     # This public function is also called directly (not only through
     # Project.idealize), so establish the canonical writer check here too.
-    writer_guard = proj._assert_held_lock if require_held_lock else proj._assert_writable
-    writer_guard()
+    if require_held_lock:
+        start_nonce = proj._assert_held_lock()
+
+        def writer_guard() -> None:
+            proj._assert_held_lock(expected_nonce=start_nonce)
+
+    else:
+        writer_guard = proj._assert_writable
+        writer_guard()
     donor_key, acceptor_key = _resolve_quantity(intensity_quantity)
     model_name = model_name or model_type
 
@@ -1058,7 +1065,9 @@ def reidealize(
     ``intensity_quantity``, and the state count — the same fixed ``nstates`` or a fresh
     max-ELBO sweep over the recorded grid) and re-runs :func:`idealize_molecules` with
     ``overwrite=True``. The refreshed model's provenance hashes are recomputed from the
-    current corrections, so the previously-stale molecules read live again. ``_runner``
+    current corrections, so the previously-stale molecules read live again. The stored
+    cohort is preserved even when one of its members is now rejected; rejection filters
+    new default selections, not the explicit membership of an existing model. ``_runner``
     is the same private sidecar test seam as :func:`idealize_molecules`.
     """
     stored = read_idealization(project, model_name)
@@ -1087,5 +1096,6 @@ def reidealize(
         scratch_dir=scratch_dir,
         timeout=timeout,
         overwrite=True,
+        include_rejected=True,
         **extra,
     )

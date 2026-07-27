@@ -81,6 +81,44 @@ def _analysis_only_store(tmp_path, *, name="ao.tether"):
     return out
 
 
+def _blocking_idealization_runner(project, started, gate, seen_nonces):
+    """Return a real store runner held behind ``gate`` after recording its lock epoch."""
+    from tether.idealize import IdealizationResult, StateModel, read_smd
+
+    def runner(smd_path, *, nstates, model_type="vbconhmm", **_kwargs):
+        current = project.lock_owner()
+        assert current is not None
+        seen_nonces.append(current.nonce)
+        started.set()
+        assert gate.wait(timeout=5.0)
+
+        smd = read_smd(smd_path)
+        n, t = smd.n_molecules, smd.n_frames
+        means = np.linspace(0.2, 0.8, nstates)
+        model = StateModel(
+            model_type=model_type,
+            nstates=nstates,
+            means=means,
+            variances=np.full(nstates, 0.01),
+            tmatrix=np.eye(nstates),
+            norm_tmatrix=np.eye(nstates) * 0.9,
+            elbo=-3.0,
+            dtype="FRET",
+            idealized=np.full((n, t), means[0]),
+            ran=np.arange(n, dtype="int64"),
+        )
+        return IdealizationResult(
+            model=model,
+            state_paths={},
+            dwells=[],
+            model_path=Path(smd_path),
+            status={"ok": True},
+            molecule_keys=smd.molecule_keys,
+        )
+
+    return runner
+
+
 # --------------------------------------------------------------------------- #
 # traces_from_store — the store → list[TraceView] builder
 # --------------------------------------------------------------------------- #
@@ -275,10 +313,113 @@ def test_gui_session_lock_refreshes_before_stale_timeout(shell, tmp_path) -> Non
     after = project.lock_owner()
     assert after is not None
     assert after.identity == before.identity
-    assert after.nonce != before.nonce
+    assert after.nonce == before.nonce
+    assert datetime.fromisoformat(after.timestamp) > datetime.fromisoformat(before.timestamp)
     shell.close()
     assert not shell._lock_refresh_timer.isActive()
     assert project.lock_owner() is None
+
+
+def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot, tmp_path) -> None:
+    import threading
+
+    from tether.gui.shell import make_store_idealizer
+    from tether.project import lock
+    from tether.project.idealize import list_idealizations
+    from tether.project.lock import LockIdentity
+
+    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    session_project = shell.load_project(project.path)
+    assert session_project is not None
+    started = threading.Event()
+    gate = threading.Event()
+    seen_nonces = []
+
+    shell._idealizer = make_store_idealizer(
+        session_project,
+        nstates=2,
+        require_held_lock=True,
+        _runner=_blocking_idealization_runner(
+            session_project,
+            started,
+            gate,
+            seen_nonces,
+        ),
+    )
+    shell._idealize_current()
+    try:
+        qtbot.waitUntil(started.is_set, timeout=2000)
+        assert len(seen_nonces) == 1
+        start_nonce = seen_nonces[0]
+        retained = project.lock_owner()
+        assert retained is not None
+        assert retained.nonce == start_nonce
+
+        foreign = lock.acquire(
+            project.path,
+            identity=LockIdentity(host="OTHER-HOST", user="other", pid=999),
+            steal=True,
+        )
+        assert lock.release(project.path, foreign)
+
+        # Exercise the live GUI timer seam after the retained epoch vanished. It must
+        # fail closed instead of silently establishing a successor session.
+        shell._refresh_project_lock()
+        assert project.lock_owner() is None
+        assert shell._curation_project is None
+        assert shell._curation_read_only_reason is not None
+    finally:
+        gate.set()
+        qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
+
+    assert list_idealizations(project) == []
+    assert "Idealize failed" in shell.status_message
+    assert project.lock_owner() is None
+    assert shell._curation_project is None
+    assert project.curation_label(keys[0]) == 0
+
+
+def test_idealization_survives_legitimate_same_epoch_session_refresh(
+    shell, qtbot, tmp_path
+) -> None:
+    import threading
+
+    from tether.gui.shell import make_store_idealizer
+    from tether.project.idealize import list_idealizations
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    session_project = shell.load_project(project.path)
+    assert session_project is not None
+    started = threading.Event()
+    gate = threading.Event()
+    seen_nonces = []
+    shell._idealizer = make_store_idealizer(
+        session_project,
+        nstates=2,
+        require_held_lock=True,
+        _runner=_blocking_idealization_runner(
+            session_project,
+            started,
+            gate,
+            seen_nonces,
+        ),
+    )
+
+    shell._idealize_current()
+    try:
+        qtbot.waitUntil(started.is_set, timeout=2000)
+        assert len(seen_nonces) == 1
+        shell._refresh_project_lock()
+        refreshed = session_project.lock_owner()
+        assert refreshed is not None
+        assert refreshed.nonce == seen_nonces[0]
+    finally:
+        gate.set()
+        qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
+
+    assert list_idealizations(project) == ["vbfret"]
+    assert "Idealized" in shell.status_message
+    assert session_project.lock_owner() == refreshed
 
 
 def test_lost_session_lock_disables_gui_writes_and_refresh(shell, tmp_path) -> None:
@@ -304,6 +445,122 @@ def test_lost_session_lock_disables_gui_writes_and_refresh(shell, tmp_path) -> N
         assert lock.release(project.path, foreign)
 
 
+def test_lock_loss_closes_open_conditions_dialog_before_unlocked_write(
+    shell, tmp_path, monkeypatch
+) -> None:
+    from tether.project import lock
+    from tether.project.lock import LockIdentity
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    session_project = shell.load_project(project.path)
+    assert session_project is not None
+    sync_calls = []
+
+    def record_sync():
+        sync_calls.append(True)
+
+    monkeypatch.setattr(session_project, "sync_conditions", record_sync)
+
+    class StealThenReleaseDialog:
+        instance = None
+
+        def __init__(self, target, *, writer_guard, parent):
+            self._project = target
+            self._writer_guard = writer_guard
+            self.dialog = self
+            self.rejected = False
+            type(self).instance = self
+
+        def reject(self):
+            self.rejected = True
+
+        def exec(self):
+            foreign = lock.acquire(
+                project.path,
+                identity=LockIdentity(host="OTHER-HOST", user="other", pid=999),
+                steal=True,
+            )
+            try:
+                shell._refresh_project_lock()
+            finally:
+                assert lock.release(project.path, foreign)
+            if not self.rejected:
+                self._project.sync_conditions()
+
+    monkeypatch.setattr(
+        "tether.gui.conditions.ConditionValidationDialog",
+        StealThenReleaseDialog,
+    )
+
+    shell._validate_conditions_dialog()
+
+    assert StealThenReleaseDialog.instance is not None
+    assert StealThenReleaseDialog.instance.rejected
+    assert sync_calls == []
+    assert shell._curation_project is None
+    assert project.lock_owner() is None
+    assert "became read-only" in shell.status_message
+    assert "Conditions validation closed" not in shell.status_message
+
+
+def test_conditions_dialog_guard_detects_steal_release_between_heartbeats(
+    shell, tmp_path, monkeypatch
+) -> None:
+    from tether.project import lock
+    from tether.project.lock import LockedError, LockIdentity
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    session_project = shell.load_project(project.path)
+    assert session_project is not None
+    sync_calls = []
+
+    def record_sync():
+        sync_calls.append(True)
+
+    monkeypatch.setattr(session_project, "sync_conditions", record_sync)
+
+    class BetweenHeartbeatDialog:
+        instance = None
+
+        def __init__(self, target, *, writer_guard, parent):
+            self._project = target
+            self._writer_guard = writer_guard
+            self.dialog = self
+            self.rejected = False
+            type(self).instance = self
+
+        def reject(self):
+            self.rejected = True
+
+        def exec(self):
+            foreign = lock.acquire(
+                project.path,
+                identity=LockIdentity(host="OTHER-HOST", user="other", pid=999),
+                steal=True,
+            )
+            assert lock.release(project.path, foreign)
+            try:
+                self._writer_guard()
+            except LockedError:
+                return
+            self._project.sync_conditions()
+
+    monkeypatch.setattr(
+        "tether.gui.conditions.ConditionValidationDialog",
+        BetweenHeartbeatDialog,
+    )
+
+    shell._validate_conditions_dialog()
+
+    assert BetweenHeartbeatDialog.instance is not None
+    assert BetweenHeartbeatDialog.instance.rejected
+    assert sync_calls == []
+    assert shell._curation_project is None
+    assert project.lock_owner() is None
+    assert "became read-only" in shell.status_message
+    assert "Conditions validation closed" not in shell.status_message
+
+
 def test_refresh_io_failure_retries_nonce_safe_session_release(
     shell, tmp_path, monkeypatch
 ) -> None:
@@ -324,7 +581,7 @@ def test_refresh_io_failure_retries_nonce_safe_session_release(
             raise OSError("temporary unlink failure")
         return original_release(project_ref)
 
-    monkeypatch.setattr(Project, "acquire_lock", fail_refresh)
+    monkeypatch.setattr(Project, "refresh_lock", fail_refresh)
     monkeypatch.setattr(Project, "release_lock", flaky_release)
 
     shell._refresh_project_lock()

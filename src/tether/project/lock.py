@@ -83,6 +83,7 @@ __all__ = [
     "local_identity",
     "lock_path",
     "read_lock",
+    "refresh",
     "release",
     "steal_lock",
 ]
@@ -450,6 +451,37 @@ def acquire(
     # Unlocked again (raced away) or already ours: (re)write and refresh.
     _atomic_write(lp, info)
     return info
+
+
+def refresh(
+    project_path: str | Path,
+    held: LockInfo,
+    *,
+    now: datetime | None = None,
+) -> LockInfo:
+    """Refresh one retained session without changing or recreating its nonce.
+
+    Unlike :func:`acquire`, this operation never claims an unlocked path and never
+    treats a matching process identity as sufficient. The current sidecar must carry
+    ``held.nonce``; a vanished, corrupt, or replacement record raises
+    :class:`LockedError`. A successful refresh advances only the timestamp, preserving
+    the ownership epoch that long-running writers validate before persistence.
+    """
+    lp = lock_path(project_path)
+    current, corrupt = _read_tolerant(lp)
+    if corrupt:
+        raise LockedError(None, corrupt=True, path=lp)
+    if current is None or current.nonce != held.nonce:
+        raise LockedError(current, path=lp)
+    refreshed = LockInfo(
+        host=held.host,
+        user=held.user,
+        pid=held.pid,
+        timestamp=(now if now is not None else _utc_now()).isoformat(),
+        nonce=held.nonce,
+    )
+    _atomic_write(lp, refreshed)
+    return refreshed
 
 
 def steal_lock(

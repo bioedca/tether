@@ -59,15 +59,17 @@ waits, so none of those HDF5 writers can overlap. Before enabling those seams, t
 proves the `.tether` HDF5 can open in `r+` mode. A process-local path registry prevents a
 second shell with the same host/user/PID identity from treating the canonical sidecar
 refresh as independent ownership. A repeating GUI timer and each curation/idealization
-action refresh ownership well before the 30-minute stale boundary. Refresh replaces the
-held nonce atomically. If refresh or release encounters an I/O failure, write seams fail
-closed while a separate lifecycle handle retains the acquired nonce for retry and final
-teardown.
+action refresh ownership well before the 30-minute stale boundary. Refresh advances the
+held timestamp while preserving and requiring the exact acquisition nonce; it never
+recreates a vanished or replaced sidecar. If refresh or release encounters an I/O
+failure, write seams fail closed while a separate lifecycle handle retains the acquired
+nonce for retry and final teardown.
 
 Because a sidecar fit can run for many minutes, GUI idealization requires the retained
-session's exact held nonce both before work starts and again immediately before opening
-HDF5 for persistence. A lock stolen and then released during the fit therefore still
-prevents the store write.
+session's exact held nonce before work starts and binds that starting epoch into the
+check immediately before opening HDF5 for persistence. Legitimate timer refresh keeps
+the same epoch, while a lock stolen and then released during the fit cannot be silently
+reacquired and therefore still prevents the store write.
 
 Replacing the loaded project releases the prior session lock after the new project has
 opened successfully. Closing the shell releases the current lock immediately when idle;
@@ -94,6 +96,14 @@ API. A successful curation write queues a short, coalescing refresh of any alrea
 population histogram. This keeps the keystroke path independent of the project-wide
 apparent-E recomputation while ensuring the visible pool is refreshed after the curator
 pauses.
+
+If the refresh timer detects ownership loss while the condition-validation modal is
+already open, the shell rejects that dialog before clearing its writable Project seam.
+The stale dialog therefore cannot write after the foreign owner subsequently releases
+the sidecar. Each materialize or re-key action also requires the retained session's exact
+nonce immediately before its Project mutation, so a steal-and-release entirely between
+heartbeat ticks is refused too. Standalone dialogs retain the normal unlocked-or-self-owned
+Project behavior.
 
 The application-wide curation event filter dispatches only when the event and focus belong
 to the registered main curation window. It passes all key presses through unchanged for

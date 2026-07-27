@@ -32,7 +32,9 @@ Design notes (mirroring the other :mod:`tether.gui` dialogs, e.g.
   module costs no Qt. A live ``QApplication`` (the shell / ``qtbot``) must exist to
   construct it.
 * **Writes go through the :class:`~tether.project.core.Project`** handle, so the §5.4
-  single-writer lock is honored (a foreign lock refuses the re-key/sync).
+  single-writer lock is honored (a foreign lock refuses the re-key/sync). A shell-owned
+  retained session also injects an exact-nonce guard at each persistence boundary;
+  standalone dialog construction keeps the ordinary Project behavior.
 * **The merge confirmation is an injected callback**, not a hard-wired modal, so the
   never-silent-merge contract is driven deterministically in headless tests.
 """
@@ -226,6 +228,7 @@ class ConditionValidationDialog:
         project: Project,
         *,
         confirm_merge: Callable[[RekeyPreview], bool] | None = None,
+        writer_guard: Callable[[], object] | None = None,
         parent: QtWidgets.QWidget | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtWidgets
@@ -236,6 +239,9 @@ class ConditionValidationDialog:
         self.confirm_merge: Callable[[RekeyPreview], bool] = (
             confirm_merge if confirm_merge is not None else self._default_confirm_merge
         )
+        #: Optional retained-session assertion supplied by TetherShell. Standalone
+        #: dialogs keep the Project mutators' normal identity-only guard.
+        self._writer_guard = writer_guard
         #: ``condition_id`` per table row, in row order (the table shows summaries).
         self._row_ids: list[str] = []
 
@@ -325,6 +331,8 @@ class ConditionValidationDialog:
 
     def materialize(self) -> None:
         """Confirm the provisional ids: materialize every faithful-witness ``/conditions`` row."""
+        if self._writer_guard is not None:
+            self._writer_guard()
         self._project.sync_conditions()
         self.refresh()
 
@@ -341,6 +349,8 @@ class ConditionValidationDialog:
             return None  # the edited key equals the current one — nothing to re-key
         if preview.is_merge and not self.confirm_merge(preview):
             return None  # human declined the merge — never silent, never forced
+        if self._writer_guard is not None:
+            self._writer_guard()
         result = self._project.rekey_condition(
             from_condition_id,
             to_key,
