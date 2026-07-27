@@ -25,14 +25,15 @@ every time:
    hash-checking mode after tMAVEN has been built.  Force reinstallation makes reruns
    verify the locked wheel instead of trusting an already-installed same-version package.
 
-Before a no-isolation tMAVEN build, the script reads the target interpreter's actual
-setuptools distribution version and compares it with the supplied conda lock. A rerun
-whose target already contains the runtime-only 80.9.0 overlay may reuse tMAVEN only when
-both its PEP 610 Git commit and its ``WHEEL`` generator prove that exact commit was built
-by the locked ordinary setuptools. Commit identity alone is insufficient. Every other
-existing-interpreter state fails closed with fresh-environment guidance. A permitted
-build disables pip's wheel cache, force-reinstalls the pinned source, and rechecks both
-provenance records before the runtime compatibility layer is installed.
+Before a no-isolation tMAVEN build, the script verifies that the target interpreter's
+actual setuptools distribution has the version, conda package SHA-256, and installed
+file digests from the supplied lock. A matching version alone cannot authorize a build.
+A rerun whose target already contains the runtime-only 80.9.0 overlay may reuse tMAVEN
+only when both its PEP 610 Git commit and its ``WHEEL`` generator prove that exact commit
+was built by the locked ordinary setuptools. Commit identity alone is insufficient.
+Every other existing-interpreter state fails closed with fresh-environment guidance. A
+permitted build disables pip's wheel cache, force-reinstalls the pinned source, and
+rechecks both provenance records before the runtime compatibility layer is installed.
 
 Flow (each phase is skippable):
 
@@ -95,10 +96,15 @@ _BUILD_STATE_PREFIX = "TETHER_SIDECAR_BUILD_STATE "
 #: tMAVEN VCS provenance are load-bearing inputs.
 _BUILD_STATE_PROBE = f"""
 import importlib.metadata as md
+import hashlib
 import json
+import pathlib
+import sys
 
 state = {{
     "setuptools_version": None,
+    "setuptools_conda_record_sha256": None,
+    "setuptools_conda_files_verified": False,
     "tmaven_direct_url": None,
     "tmaven_wheel_generator": None,
 }}
@@ -108,6 +114,49 @@ try:
     state["setuptools_version"] = setuptools.__version__
 except (ImportError, AttributeError):
     pass
+prefix = pathlib.Path(sys.prefix).resolve()
+matching_records = []
+for record_path in (prefix / "conda-meta").glob("setuptools-*.json"):
+    try:
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        continue
+    if (
+        record.get("name") == "setuptools"
+        and record.get("version") == state["setuptools_version"]
+    ):
+        matching_records.append(record)
+if len(matching_records) == 1:
+    record = matching_records[0]
+    state["setuptools_conda_record_sha256"] = record.get("sha256")
+    paths = record.get("paths_data", {{}}).get("paths", [])
+    verified = isinstance(paths, list) and bool(paths)
+    hashed_files = 0
+    for entry in paths if isinstance(paths, list) else []:
+        expected = entry.get("sha256_in_prefix") or entry.get("sha256")
+        if expected is None:
+            if entry.get("path_type") == "hardlink":
+                verified = False
+            continue
+        relative_text = entry.get("_path")
+        if not isinstance(relative_text, str):
+            verified = False
+            continue
+        relative = pathlib.PurePosixPath(relative_text)
+        if relative.is_absolute() or ".." in relative.parts:
+            verified = False
+            continue
+        candidate = prefix.joinpath(*relative.parts)
+        try:
+            candidate.resolve(strict=True).relative_to(prefix)
+            digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+        except (OSError, ValueError):
+            verified = False
+            continue
+        hashed_files += 1
+        if digest != expected:
+            verified = False
+    state["setuptools_conda_files_verified"] = verified and hashed_files > 0
 try:
     distribution = md.distribution("tmaven")
     raw = distribution.read_text("direct_url.json")
@@ -214,8 +263,36 @@ def load_locked_setuptools_version(lock_file: Path) -> str:
     return versions.pop()
 
 
+def load_locked_setuptools_artifact_sha256(lock_file: Path) -> str:
+    """Return the one exact setuptools conda artifact SHA-256 in *lock_file*."""
+    try:
+        lines = lock_file.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise SetupError(f"could not read sidecar lock {lock_file}: {exc}") from exc
+
+    hashes: set[str] = set()
+    for index, line in enumerate(lines):
+        if line != "- name: setuptools":
+            continue
+        for candidate in lines[index + 1 :]:
+            if candidate.startswith("- name: "):
+                break
+            if candidate.startswith("    sha256:"):
+                digest = candidate.split(":", 1)[1].strip().strip("'\"").lower()
+                if re.fullmatch(r"[0-9a-f]{64}", digest):
+                    hashes.add(digest)
+                break
+    if len(hashes) != 1:
+        detail = ", ".join(sorted(hashes)) if hashes else "none"
+        raise SetupError(
+            f"{lock_file} must pin one setuptools conda artifact SHA-256 across "
+            f"platforms; found {detail}"
+        )
+    return hashes.pop()
+
+
 def inspect_sidecar_build_state(sidecar_python: str, *, timeout: float | None = 120.0) -> dict:
-    """Read target setuptools and installed tMAVEN PEP 610 provenance."""
+    """Read target setuptools conda provenance and installed tMAVEN provenance."""
     try:
         proc = subprocess.run(  # noqa: S603 - sidecar_python is user-selected/resolved
             [sidecar_python, "-c", _BUILD_STATE_PROBE],
@@ -312,12 +389,17 @@ def _tmaven_install_action(
     state: dict,
     *,
     locked_setuptools_version: str,
+    locked_setuptools_artifact_sha256: str,
     tmaven_spec: str,
 ) -> tuple[str, str | None]:
     """Choose a locked-toolchain build or exact-provenance reuse; otherwise fail."""
     _require_immutable_tmaven_commit(tmaven_spec)
     installed_setuptools = state.get("setuptools_version")
-    if installed_setuptools == locked_setuptools_version:
+    if (
+        installed_setuptools == locked_setuptools_version
+        and state.get("setuptools_conda_record_sha256") == locked_setuptools_artifact_sha256
+        and state.get("setuptools_conda_files_verified") is True
+    ):
         return "install", None
     commit = _exact_installed_tmaven_commit(
         state,
@@ -329,7 +411,10 @@ def _tmaven_install_action(
     installed = str(installed_setuptools) if installed_setuptools else "missing"
     raise SetupError(
         "refusing to build tMAVEN with setuptools "
-        f"{installed}: the locked build version is {locked_setuptools_version}, and "
+        f"{installed}: the locked build version is {locked_setuptools_version}, but "
+        "the target does not prove the exact locked conda artifact files "
+        f"(expected package SHA-256 {locked_setuptools_artifact_sha256}; found "
+        f"{state.get('setuptools_conda_record_sha256') or 'no matching conda record'}). "
         "--no-build-isolation makes the target interpreter supply the build toolchain. "
         "The installed tMAVEN provenance also does not prove both the requested pinned Git "
         "commit and the expected "
@@ -583,10 +668,14 @@ def main(argv: list[str] | None = None) -> int:
                 tmaven_action, installed_commit = "install", None
             else:
                 locked_setuptools_version = load_locked_setuptools_version(args.lock_file)
+                locked_setuptools_artifact_sha256 = load_locked_setuptools_artifact_sha256(
+                    args.lock_file
+                )
                 state = inspect_sidecar_build_state(sidecar_python)
                 tmaven_action, installed_commit = _tmaven_install_action(
                     state,
                     locked_setuptools_version=locked_setuptools_version,
+                    locked_setuptools_artifact_sha256=locked_setuptools_artifact_sha256,
                     tmaven_spec=args.tmaven_spec,
                 )
             if tmaven_action == "install":

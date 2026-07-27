@@ -40,8 +40,10 @@ disabled, optionally installs the separate hash-locked test tools, applies the s
 hash-locked runtime wheel, then probes liveness (import and instantiate `maven_class`, no
 fit). It prints the line that points Tether at the interpreter.
 
-Before any `--no-build-isolation` tMAVEN build, the script compares the target
-interpreter's actual setuptools version with the version pinned in the supplied lock.
+Before any `--no-build-isolation` tMAVEN build, the script verifies the target
+interpreter's actual setuptools version, exact conda package SHA-256, and every
+hash-bearing installed file against the supplied lock. A same-version pip overlay does
+not satisfy that build-state gate.
 It accepts only the repository's default pinned short tMAVEN spec or a custom `git+`
 spec ending in a full 40- or 64-hex commit; tags, branches, and abbreviated custom
 commits fail before the environment is created or inspected.

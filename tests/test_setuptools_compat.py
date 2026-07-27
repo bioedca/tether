@@ -114,6 +114,7 @@ def test_pkgbuild_provides_ordinary_setuptools_for_no_isolation_build(workflow: 
         if "pip wheel" in command and "TMAVEN_SPEC" in command
     ]
     assert len(tmaven_builds) == 1
+    assert "--no-cache-dir" in tmaven_builds[0]
     assert "--no-deps" in tmaven_builds[0]
     assert "--no-build-isolation" in tmaven_builds[0]
 
@@ -121,6 +122,8 @@ def test_pkgbuild_provides_ordinary_setuptools_for_no_isolation_build(workflow: 
 def test_packaging_docs_provision_ordinary_setuptools_for_no_isolation_build() -> None:
     packaging = PACKAGING_DOCS.read_text(encoding="utf-8")
     assert "conda-standalone python-build pip setuptools wheel" in packaging
+    tmaven_build = next(line for line in packaging.splitlines() if "python -m pip wheel" in line)
+    assert "--no-cache-dir" in tmaven_build
     assert "--no-build-isolation" in packaging
 
 

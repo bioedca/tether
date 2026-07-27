@@ -13,6 +13,7 @@ guided setup would silently install a *different* sidecar than CI validates.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -33,6 +34,19 @@ def _load_script():
 
 
 setup = _load_script()
+_LOCKED_SETUPTOOLS_SHA256 = "82088a6e4daa33329a30bc26dc19a98c7c1d3f05c0f73ce9845d4eab4924e9e1"
+
+
+def _locked_builder_state(**updates: object) -> dict:
+    state = {
+        "setuptools_version": "82.0.1",
+        "setuptools_conda_record_sha256": _LOCKED_SETUPTOOLS_SHA256,
+        "setuptools_conda_files_verified": True,
+        "tmaven_direct_url": None,
+        "tmaven_wheel_generator": None,
+    }
+    state.update(updates)
+    return state
 
 
 def _workflow_tmaven_spec(workflow: Path) -> str:
@@ -183,16 +197,42 @@ def test_mutable_tmaven_spec_fails_before_any_sidecar_subprocess(
 
 def test_locked_build_setuptools_version_comes_from_the_unified_lock() -> None:
     assert setup.load_locked_setuptools_version(setup.DEFAULT_LOCK) == "82.0.1"
+    assert (
+        setup.load_locked_setuptools_artifact_sha256(setup.DEFAULT_LOCK)
+        == _LOCKED_SETUPTOOLS_SHA256
+    )
 
 
 def test_build_state_probe_reads_the_imported_backend_and_wheel_generator() -> None:
     import setuptools
 
     state = setup.inspect_sidecar_build_state(sys.executable)
+    record = next(
+        (Path(sys.prefix) / "conda-meta").glob(f"setuptools-{setuptools.__version__}-*.json")
+    )
+    record_sha256 = json.loads(record.read_text(encoding="utf-8"))["sha256"]
 
     assert state["setuptools_version"] == setuptools.__version__
+    assert state["setuptools_conda_record_sha256"] == record_sha256
+    assert state["setuptools_conda_files_verified"] is True
     assert "tmaven_direct_url" in state
     assert "tmaven_wheel_generator" in state
+
+
+def test_version_only_setuptools_match_cannot_authorize_tmaven_build() -> None:
+    with pytest.raises(setup.SetupError, match="locked conda artifact files"):
+        setup._tmaven_install_action(
+            {
+                "setuptools_version": "82.0.1",
+                "setuptools_conda_record_sha256": _LOCKED_SETUPTOOLS_SHA256,
+                "setuptools_conda_files_verified": False,
+                "tmaven_direct_url": None,
+                "tmaven_wheel_generator": None,
+            },
+            locked_setuptools_version="82.0.1",
+            locked_setuptools_artifact_sha256=_LOCKED_SETUPTOOLS_SHA256,
+            tmaven_spec=setup.DEFAULT_TMAVEN_SPEC,
+        )
 
 
 def test_build_state_probe_timeout_is_actionable(
@@ -386,11 +426,7 @@ def test_main_runs_three_install_commands_in_dependency_safe_order(
 
     states = iter(
         [
-            {
-                "setuptools_version": "82.0.1",
-                "tmaven_direct_url": None,
-                "tmaven_wheel_generator": None,
-            },
+            _locked_builder_state(),
             {
                 "setuptools_version": "82.0.1",
                 "tmaven_direct_url": {
@@ -426,9 +462,8 @@ def test_recovered_locked_builder_force_rebuilds_an_existing_unsafe_tmaven(
     commands: list[list[str]] = []
     states = iter(
         [
-            {
-                "setuptools_version": "82.0.1",
-                "tmaven_direct_url": {
+            _locked_builder_state(
+                tmaven_direct_url={
                     "url": "https://github.com/GonzalezBiophysicsLab/tmaven.git",
                     "vcs_info": {
                         "vcs": "git",
@@ -436,8 +471,8 @@ def test_recovered_locked_builder_force_rebuilds_an_existing_unsafe_tmaven(
                         "commit_id": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
                     },
                 },
-                "tmaven_wheel_generator": "setuptools (80.9.0)",
-            },
+                tmaven_wheel_generator="setuptools (80.9.0)",
+            ),
             {
                 "setuptools_version": "82.0.1",
                 "tmaven_direct_url": {
@@ -479,11 +514,7 @@ def test_rebuild_fails_before_runtime_overlay_when_generator_is_not_locked(
     commands: list[list[str]] = []
     states = iter(
         [
-            {
-                "setuptools_version": "82.0.1",
-                "tmaven_direct_url": None,
-                "tmaven_wheel_generator": None,
-            },
+            _locked_builder_state(),
             {
                 "setuptools_version": "82.0.1",
                 "tmaven_direct_url": {

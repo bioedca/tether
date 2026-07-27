@@ -44,13 +44,16 @@ constructor path.
 The older wheel is a **runtime compatibility layer, not a build backend**:
 
 1. The packaging and release jobs build the pinned tMAVEN wheel with their current build
-   toolchain; setuptools 80.9.0 is only downloaded and staged afterward.
+   toolchain and `--no-cache-dir`, so pip cannot reuse an immutable-commit wheel produced
+   by a different builder; setuptools 80.9.0 is only downloaded and staged afterward.
 2. `scripts/setup_sidecar.py` installs only the git-pinned tMAVEN source first with
    `--no-build-isolation --no-deps`, so pip cannot resolve or mutate the locked sidecar
    dependency set. Because disabling build isolation makes the caller responsible for
    the build dependencies, the script permits that build only when the target
-   interpreter's actual setuptools version equals the version in the supplied sidecar
-   lock. Before creating or inspecting an environment, it also accepts only the
+   interpreter's actual setuptools version, exact conda package SHA-256, and installed
+   file digests match the artifact in the supplied sidecar lock. Version equality alone
+   cannot let a pip overlay satisfy the conda build-state gate. Before creating or
+   inspecting an environment, the script also accepts only the
    repository's default pinned short tMAVEN spec or a custom `git+` spec ending in a
    full 40- or 64-hex commit; tags, branches, and abbreviated custom commits fail
    closed instead of being installed and rejected afterward. The VCS command uses

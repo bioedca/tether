@@ -60,10 +60,11 @@ micromamba create -n pkgbuild -c conda-forge "constructor>=3.16" conda-lock=4.0.
     conda-standalone python-build pip setuptools wheel
 micromamba activate pkgbuild
 
-# 2. Build the application/tMAVEN wheels, then download and independently verify the
-#    exact runtime compatibility wheel from the committed hash lock.
+# 2. Build the application/tMAVEN wheels, disabling pip's immutable-VCS wheel cache so
+#    tMAVEN is built by this environment's locked ordinary setuptools. Then download
+#    and independently verify the exact runtime wheel from the committed hash lock.
 python -m build --wheel --outdir packaging/staging .
-python -m pip wheel --no-deps --no-build-isolation -w packaging/staging \
+python -m pip wheel --no-cache-dir --no-deps --no-build-isolation -w packaging/staging \
     "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230b6d13c6d2ad67b05d801696b4a40eff4a"
 python -m pip download --require-hashes --only-binary=:all: --no-deps \
     -d packaging/staging -r packaging/setuptools-compatibility.txt

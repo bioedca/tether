@@ -117,7 +117,7 @@ jobs:
         # tMAVEN's setup.py uses the ordinary setuptools supplied by pkgbuild, not the
         # older runtime-only compatibility wheel staged below. --no-deps because the
         # sidecar provides runtime dependencies.
-        run: python -m pip wheel --no-deps --no-build-isolation -w packaging/staging "${TMAVEN_SPEC}"
+        run: python -m pip wheel --no-cache-dir --no-deps --no-build-isolation -w packaging/staging "${TMAVEN_SPEC}"
 
       - name: Stage and verify the hash-locked setuptools compatibility wheel
         # tMAVEN's `maven_class.__init__` does `import pkg_resources`, which setuptools
