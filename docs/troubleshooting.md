@@ -587,7 +587,7 @@ installer-managed environment with its prefix-relative interpreter (needs networ
   --only-binary=:all: --no-deps --require-hashes \
   -r packaging/setuptools-compatibility.txt
 
-# Windows
+# Windows (cmd.exe)
 <install-prefix>\envs\sidecar\python.exe -m pip install --force-reinstall ^
   --only-binary=:all: --no-deps --require-hashes ^
   -r packaging\setuptools-compatibility.txt

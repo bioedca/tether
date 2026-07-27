@@ -135,8 +135,10 @@ def test_troubleshooting_separates_source_and_installer_recovery_interpreters() 
 
     assert "<install-prefix>/envs/sidecar/bin/python" in installer
     assert r"<install-prefix>\envs\sidecar\python.exe" in installer
+    assert "# Windows (cmd.exe)" in installer
     assert '"$TETHER_SIDECAR_PYTHON" -m pip install' in source
     assert "& $env:TETHER_SIDECAR_PYTHON -m pip install" in source
+    assert "# Windows PowerShell" in source
     assert "<install-prefix>" not in source
     assert "envs/sidecar" not in source
 
