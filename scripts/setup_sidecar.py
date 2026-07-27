@@ -25,13 +25,23 @@ every time:
    hash-checking mode after tMAVEN has been built.  Force reinstallation makes reruns
    verify the locked wheel instead of trusting an already-installed same-version package.
 
+Before a no-isolation tMAVEN build, the script reads the target interpreter's actual
+setuptools distribution version and compares it with the supplied conda lock. A rerun
+whose target already contains the runtime-only 80.9.0 overlay may reuse tMAVEN only when
+both its PEP 610 Git commit and its ``WHEEL`` generator prove that exact commit was built
+by the locked ordinary setuptools. Commit identity alone is insufficient. Every other
+existing-interpreter state fails closed with fresh-environment guidance. A permitted
+build disables pip's wheel cache, force-reinstalls the pinned source, and rechecks both
+provenance records before the runtime compatibility layer is installed.
+
 Flow (each phase is skippable):
 
 * **create** the ``tether-sidecar`` env from ``sidecar/conda-lock.yml`` with a detected
   conda front-end (``conda-lock install``, else ``micromamba``/``mamba create -f``).
   Skipped when ``--python`` targets an already-built interpreter (e.g. in CI, where the
   micromamba action restored the env already).
-* **install** the pinned tMAVEN without dependencies, optionally install the separately
+* **install** the pinned tMAVEN without dependencies under the lock's setuptools (or
+  verify and reuse that exact locked-builder result), optionally install the separately
   hash-locked pytest test tools, then install the exact hash-locked setuptools
   compatibility wheel into the sidecar interpreter — the same split recipe
   ``sidecar.yml`` runs.
@@ -49,6 +59,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -58,6 +69,8 @@ from pathlib import Path
 #: ``TMAVEN_SPEC`` env — ``test_setup_sidecar.py`` binds the two). tMAVEN is the GPL
 #: reference app driven over IPC, not a conda-lock dep, so it is git-installed here.
 DEFAULT_TMAVEN_SPEC = "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230"
+#: Full commit resolved by the default short Git revision; reuse must match all 40 chars.
+DEFAULT_TMAVEN_COMMIT = "10f4230b6d13c6d2ad67b05d801696b4a40eff4a"
 #: Default name of the created sidecar env.
 DEFAULT_ENV_NAME = "tether-sidecar"
 #: Conda front-ends tried, in order, when ``--conda-exe`` is not given.
@@ -74,6 +87,44 @@ SETUPTOOLS_REQUIREMENTS = _REPO_ROOT / "packaging" / "setuptools-compatibility.t
 _SIDECAR_RUNNER = _REPO_ROOT / "src" / "tether" / "idealize" / "_sidecar_runner.py"
 #: Must match ``tether.idealize._sidecar_runner.STATUS_PREFIX`` (bound by a contract test).
 STATUS_PREFIX = "TETHER_SIDECAR_STATUS "
+#: Prefix for the stdlib-only target-interpreter build-state probe below.
+_BUILD_STATE_PREFIX = "TETHER_SIDECAR_BUILD_STATE "
+#: Run inside the target interpreter before any no-isolation tMAVEN build. pip 26.1.2
+#: makes that interpreter responsible for its build dependencies under
+#: ``--no-build-isolation``, so both the active setuptools version and any PEP 610
+#: tMAVEN VCS provenance are load-bearing inputs.
+_BUILD_STATE_PROBE = f"""
+import importlib.metadata as md
+import json
+
+state = {{
+    "setuptools_version": None,
+    "tmaven_direct_url": None,
+    "tmaven_wheel_generator": None,
+}}
+try:
+    import setuptools
+
+    state["setuptools_version"] = setuptools.__version__
+except (ImportError, AttributeError):
+    pass
+try:
+    distribution = md.distribution("tmaven")
+    raw = distribution.read_text("direct_url.json")
+    state["tmaven_direct_url"] = json.loads(raw) if raw else None
+    wheel = distribution.read_text("WHEEL") or ""
+    state["tmaven_wheel_generator"] = next(
+        (
+            line.removeprefix("Generator: ").strip()
+            for line in wheel.splitlines()
+            if line.startswith("Generator: ")
+        ),
+        None,
+    )
+except (md.PackageNotFoundError, json.JSONDecodeError):
+    pass
+print({_BUILD_STATE_PREFIX!r} + json.dumps(state, sort_keys=True))
+"""
 
 
 class SetupError(RuntimeError):
@@ -125,16 +176,170 @@ def build_env_create_cmd(frontend: str, env_name: str, lock: Path) -> list[str]:
 
 
 def build_tmaven_pip_cmd(sidecar_python: str, *, tmaven_spec: str) -> list[str]:
-    """Build/install only git-pinned tMAVEN without resolving the locked dependency set."""
+    """Rebuild/install only git-pinned tMAVEN without resolving the locked dependency set."""
     return [
         sidecar_python,
         "-m",
         "pip",
         "install",
+        "--force-reinstall",
+        "--no-cache-dir",
         "--no-build-isolation",
         "--no-deps",
         tmaven_spec,
     ]
+
+
+def load_locked_setuptools_version(lock_file: Path) -> str:
+    """Return the one setuptools version pinned for every platform in *lock_file*."""
+    try:
+        lines = lock_file.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise SetupError(f"could not read sidecar lock {lock_file}: {exc}") from exc
+
+    versions: set[str] = set()
+    for index, line in enumerate(lines):
+        if line != "- name: setuptools":
+            continue
+        if index + 1 >= len(lines) or not lines[index + 1].startswith("  version:"):
+            raise SetupError(f"setuptools entry in {lock_file} has no adjacent version")
+        version = lines[index + 1].split(":", 1)[1].strip().strip("'\"")
+        if version:
+            versions.add(version)
+    if len(versions) != 1:
+        detail = ", ".join(sorted(versions)) if versions else "none"
+        raise SetupError(
+            f"{lock_file} must pin one setuptools build version across platforms; found {detail}"
+        )
+    return versions.pop()
+
+
+def inspect_sidecar_build_state(sidecar_python: str) -> dict:
+    """Read target setuptools and installed tMAVEN PEP 610 provenance."""
+    try:
+        proc = subprocess.run(  # noqa: S603 - sidecar_python is user-selected/resolved
+            [sidecar_python, "-c", _BUILD_STATE_PROBE],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise SetupError(f"could not inspect target sidecar build state: {exc}") from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or "").strip()
+        raise SetupError(
+            f"could not inspect target sidecar build state (exit {proc.returncode})"
+            + (f": {detail}" if detail else "")
+        )
+    for line in reversed((proc.stdout or "").splitlines()):
+        if not line.startswith(_BUILD_STATE_PREFIX):
+            continue
+        try:
+            state = json.loads(line[len(_BUILD_STATE_PREFIX) :])
+        except json.JSONDecodeError as exc:
+            raise SetupError("target sidecar returned malformed build-state JSON") from exc
+        if isinstance(state, dict):
+            return state
+    raise SetupError("target sidecar did not return build-state metadata")
+
+
+def _expected_tmaven_commit(tmaven_spec: str) -> str | None:
+    """Resolve the exact full commit permitted for *tmaven_spec* provenance."""
+    source, separator, revision = tmaven_spec.rpartition("@")
+    if not separator or not source.startswith("git+"):
+        return None
+    if tmaven_spec == DEFAULT_TMAVEN_SPEC:
+        return DEFAULT_TMAVEN_COMMIT
+    if re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", revision):
+        return revision.lower()
+    return None
+
+
+def _require_immutable_tmaven_commit(tmaven_spec: str) -> str:
+    """Return the exact commit for a supported immutable tMAVEN specification."""
+    expected_commit = _expected_tmaven_commit(tmaven_spec)
+    if expected_commit is None:
+        raise SetupError(
+            "unsupported --tmaven-spec: use the repository's default pinned short "
+            "specification or a git+ URL ending in a full 40- or 64-hex commit; "
+            "tags, branches, abbreviated custom commits, and other mutable references "
+            "are rejected before the sidecar environment is changed"
+        )
+    return expected_commit
+
+
+def _exact_installed_tmaven_commit(
+    state: dict,
+    *,
+    tmaven_spec: str,
+    locked_setuptools_version: str,
+) -> str | None:
+    """Return the commit only when source and locked build-backend provenance match."""
+    source, separator, revision = tmaven_spec.rpartition("@")
+    expected_commit = _expected_tmaven_commit(tmaven_spec)
+    if not separator or expected_commit is None:
+        return None
+    direct_url = state.get("tmaven_direct_url")
+    if not isinstance(direct_url, dict):
+        return None
+    vcs_info = direct_url.get("vcs_info")
+    if not isinstance(vcs_info, dict):
+        return None
+    commit = vcs_info.get("commit_id")
+    requested = vcs_info.get("requested_revision")
+    installed_url = direct_url.get("url")
+    expected_url = source.removeprefix("git+")
+    expected_generator = f"setuptools ({locked_setuptools_version})"
+    if (
+        vcs_info.get("vcs") != "git"
+        or installed_url != expected_url
+        or requested != revision
+        or state.get("tmaven_wheel_generator") != expected_generator
+        or not isinstance(commit, str)
+        or re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", commit) is None
+        or commit.lower() != expected_commit
+    ):
+        return None
+    return commit.lower()
+
+
+def _tmaven_install_action(
+    state: dict,
+    *,
+    locked_setuptools_version: str,
+    tmaven_spec: str,
+) -> tuple[str, str | None]:
+    """Choose a locked-toolchain build or exact-provenance reuse; otherwise fail."""
+    _require_immutable_tmaven_commit(tmaven_spec)
+    installed_setuptools = state.get("setuptools_version")
+    if installed_setuptools == locked_setuptools_version:
+        return "install", None
+    commit = _exact_installed_tmaven_commit(
+        state,
+        tmaven_spec=tmaven_spec,
+        locked_setuptools_version=locked_setuptools_version,
+    )
+    if commit is not None:
+        return "reuse", commit
+    installed = str(installed_setuptools) if installed_setuptools else "missing"
+    raise SetupError(
+        "refusing to build tMAVEN with setuptools "
+        f"{installed}: the locked build version is {locked_setuptools_version}, and "
+        "--no-build-isolation makes the target interpreter supply the build toolchain. "
+        "The installed tMAVEN provenance also does not prove both the requested pinned Git "
+        "commit and the expected "
+        f"setuptools ({locked_setuptools_version}) WHEEL generator"
+        + (
+            f" (found {state.get('tmaven_wheel_generator')})"
+            if state.get("tmaven_wheel_generator")
+            else ""
+        )
+        + ". Create a genuinely fresh sidecar environment under a new --env-name, "
+        "deterministically restore the target interpreter's setuptools files from the lock, "
+        "or target an environment containing the exact requested tMAVEN commit built by the "
+        "locked setuptools. Merely rerunning against the same named conda environment is not "
+        "a restore because pip overlays can leave stale files behind its conda metadata."
+    )
 
 
 def _build_hash_locked_pip_cmd(
@@ -277,7 +482,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--python",
         metavar="PATH",
-        help="use this existing interpreter as the sidecar (skips env creation)",
+        help=(
+            "use this existing interpreter as the sidecar (skips env creation); "
+            "tMAVEN builds only with the lock's setuptools, otherwise exact installed "
+            "Git provenance is required"
+        ),
     )
     parser.add_argument(
         "--conda-exe",
@@ -294,7 +503,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--tmaven-spec",
         default=os.environ.get("TMAVEN_SPEC", DEFAULT_TMAVEN_SPEC),
-        help="pip spec for tMAVEN (default: $TMAVEN_SPEC or the pinned commit)",
+        help=(
+            "immutable tMAVEN pip spec: the repository's default pinned short spec or "
+            "git+URL@<full 40/64-hex commit> only (tags and branches are rejected)"
+        ),
     )
     parser.add_argument(
         "--with-pytest",
@@ -321,6 +533,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     try:
+        # Reject mutable/custom abbreviated VCS references before env creation, target
+        # inspection, or any other subprocess can change the sidecar.
+        expected_tmaven_commit = _require_immutable_tmaven_commit(args.tmaven_spec)
+
         # 1) Resolve the sidecar interpreter (create the env unless --python was given).
         if args.python:
             sidecar_python = args.python
@@ -349,11 +565,62 @@ def main(argv: list[str] | None = None) -> int:
                 "compatibility-wheel installs (--skip-install)"
             )
         else:
-            print("[2/4] Installing pinned tMAVEN into the sidecar env")
-            _run(
-                build_tmaven_pip_cmd(sidecar_python, tmaven_spec=args.tmaven_spec),
-                dry_run=args.dry_run,
-            )
+            print("[2/4] Inspecting target build state before the tMAVEN install")
+            if args.dry_run:
+                print(
+                    "  $ "
+                    f"{sidecar_python} -c <inspect locked setuptools + tMAVEN PEP 610 provenance>"
+                )
+                print(
+                    "      Dry-run shows the fresh locked-build path; unsafe existing states "
+                    "fail instead of building tMAVEN"
+                )
+                tmaven_action, installed_commit = "install", None
+            else:
+                locked_setuptools_version = load_locked_setuptools_version(args.lock_file)
+                state = inspect_sidecar_build_state(sidecar_python)
+                tmaven_action, installed_commit = _tmaven_install_action(
+                    state,
+                    locked_setuptools_version=locked_setuptools_version,
+                    tmaven_spec=args.tmaven_spec,
+                )
+            if tmaven_action == "install":
+                print("      Installing pinned tMAVEN with the locked setuptools build toolchain")
+                _run(
+                    build_tmaven_pip_cmd(sidecar_python, tmaven_spec=args.tmaven_spec),
+                    dry_run=args.dry_run,
+                )
+                if not args.dry_run:
+                    rebuilt_state = inspect_sidecar_build_state(sidecar_python)
+                    rebuilt_commit = _exact_installed_tmaven_commit(
+                        rebuilt_state,
+                        tmaven_spec=args.tmaven_spec,
+                        locked_setuptools_version=locked_setuptools_version,
+                    )
+                    if rebuilt_commit is None:
+                        direct_url = rebuilt_state.get("tmaven_direct_url")
+                        vcs_info = (
+                            direct_url.get("vcs_info") if isinstance(direct_url, dict) else None
+                        )
+                        found_commit = (
+                            vcs_info.get("commit_id") if isinstance(vcs_info, dict) else None
+                        )
+                        found_generator = rebuilt_state.get("tmaven_wheel_generator")
+                        raise SetupError(
+                            "rebuilt tMAVEN failed provenance verification: expected "
+                            f"commit {expected_tmaven_commit} and "
+                            "WHEEL Generator: "
+                            f"setuptools ({locked_setuptools_version}); "
+                            f"found commit {found_commit or 'missing'} and "
+                            f"{found_generator or 'missing generator'}. Refusing to install "
+                            "the runtime compatibility wheel."
+                        )
+                    print(
+                        "      Verified rebuilt tMAVEN commit "
+                        f"{rebuilt_commit} and locked WHEEL generator"
+                    )
+            else:
+                print(f"      Reusing exact installed tMAVEN commit {installed_commit}")
             if args.with_pytest:
                 print("      Installing hash-locked pytest test tools")
                 _run(

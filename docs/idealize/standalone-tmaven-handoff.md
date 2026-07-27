@@ -40,6 +40,22 @@ disabled, optionally installs the separate hash-locked test tools, applies the s
 hash-locked runtime wheel, then probes liveness (import and instantiate `maven_class`, no
 fit). It prints the line that points Tether at the interpreter.
 
+Before any `--no-build-isolation` tMAVEN build, the script compares the target
+interpreter's actual setuptools version with the version pinned in the supplied lock.
+It accepts only the repository's default pinned short tMAVEN spec or a custom `git+`
+spec ending in a full 40- or 64-hex commit; tags, branches, and abbreviated custom
+commits fail before the environment is created or inspected.
+When they match, `--force-reinstall --no-cache-dir` makes pip rebuild the pinned source
+instead of retaining an already-installed same-version wheel or reusing an
+immutable-commit wheel cached under a different builder. The script then rechecks the
+exact Git commit and locked `WHEEL` generator before it installs the runtime overlay.
+On a rerun after the 80.9.0 runtime overlay, it skips that build only when tMAVEN's PEP
+610 `direct_url.json` proves the exact requested Git commit **and** its `WHEEL` metadata
+names the locked setuptools version as the generator. Commit identity alone does not
+prove which backend built the installed wheel. Every other existing-interpreter state
+fails closed; create a genuinely fresh environment under a new `--env-name` or perform
+an explicit deterministic restore instead of reinstalling into the same named env.
+
 From a fresh checkout, with a conda front-end on `PATH`
 ([`micromamba`](https://mamba.readthedocs.io/), `mamba`, or `conda` +
 [`conda-lock`](https://conda.github.io/conda-lock/)):
@@ -62,11 +78,11 @@ Useful options:
 
 | Option | Effect |
 |---|---|
-| `--python PATH` | Use an existing interpreter as the sidecar; skip env creation. |
+| `--python PATH` | Use an existing interpreter as the sidecar; skip env creation. A tMAVEN build requires the lock's actual setuptools version; reuse requires exact Git-commit and locked `WHEEL`-generator provenance. |
 | `--conda-exe EXE` | Force a specific conda front-end (default: first of micromamba/mamba/conda). |
 | `--env-name NAME` | Name of the created env (default `tether-sidecar`). |
 | `--lock-file PATH` | conda-lock file to build the env from (default `sidecar/conda-lock.yml`). |
-| `--tmaven-spec SPEC` | pip spec for tMAVEN (default `$TMAVEN_SPEC` or the pinned commit). |
+| `--tmaven-spec SPEC` | Immutable tMAVEN pip spec: the repository's default pinned short spec or `git+URL@<full 40/64-hex commit>` only. Tags, branches, and abbreviated custom commits are rejected before the environment changes. |
 | `--with-pytest` | Also install the separately hash-locked pytest test tools needed by the live sidecar suite. |
 | `--skip-install` | Skip the tMAVEN, optional pytest test-tool, and setuptools compatibility-wheel installs; use only with an already-populated sidecar environment. The liveness probe still runs unless `--no-probe`. |
 | `--no-probe` | Skip the liveness probe. |

@@ -47,12 +47,30 @@ The older wheel is a **runtime compatibility layer, not a build backend**:
    toolchain; setuptools 80.9.0 is only downloaded and staged afterward.
 2. `scripts/setup_sidecar.py` installs only the git-pinned tMAVEN source first with
    `--no-build-isolation --no-deps`, so pip cannot resolve or mutate the locked sidecar
-   dependency set. Optional live-suite tooling is a separate layer: pytest 9.1.1 and
-   its four dependencies absent from the lock are pinned and wheel-hashed in
-   `sidecar/pytest-requirements.txt`, then installed with `--no-deps`. The compatibility
-   wheel is installed last with binary-only hash checking and `--force-reinstall`, so a
-   rerun cannot trust an already-installed same-version distribution without verifying
-   the locked artifact.
+   dependency set. Because disabling build isolation makes the caller responsible for
+   the build dependencies, the script permits that build only when the target
+   interpreter's actual setuptools version equals the version in the supplied sidecar
+   lock. Before creating or inspecting an environment, it also accepts only the
+   repository's default pinned short tMAVEN spec or a custom `git+` spec ending in a
+   full 40- or 64-hex commit; tags, branches, and abbreviated custom commits fail
+   closed instead of being installed and rejected afterward. The VCS command uses
+   `--force-reinstall --no-cache-dir`, so restoring the
+   locked builder cannot let pip retain an already-installed same-version tMAVEN wheel
+   or reuse an immutable-commit wheel cached under the runtime-only backend. The script
+   re-inspects the installed PEP 610 and `WHEEL` records immediately after the command
+   and refuses the runtime overlay unless both match. After the runtime-only overlay, a
+   rerun may instead reuse tMAVEN only when PEP 610 `direct_url.json` proves the
+   requested repository and exact resolved commit and the installed distribution's
+   `WHEEL` metadata records the locked `Generator: setuptools (...)`. Commit identity
+   alone cannot prove which setuptools built the wheel. Every other state fails closed
+   and requires a genuinely fresh interpreter/new environment name or an explicit
+   deterministic restore; reinstalling into the same named conda env is insufficient
+   because pip overlays can leave stale files behind conda metadata. Optional live-suite
+   tooling is a separate layer: pytest 9.1.1 and its four dependencies absent from the
+   lock are pinned and wheel-hashed in `sidecar/pytest-requirements.txt`, then installed
+   with `--no-deps`. The compatibility wheel is installed last with binary-only hash
+   checking and `--force-reinstall`, so a rerun cannot trust an already-installed
+   same-version distribution without verifying the locked artifact.
 3. Constructor installs the already-built compatibility and tMAVEN wheels offline into
    the isolated sidecar. The base Tether environment never receives the older package.
 
@@ -75,8 +93,9 @@ Neither answer provides a compatible upgrade: setuptools removed `pkg_resources`
 
 Tether does not waive or hide that finding. Its exposure is bounded because the
 compatibility version never builds a source distribution in these paths: tMAVEN is built
-before the downgrade, constructor receives prebuilt wheels, and source setup applies the
-older wheel only after the git-sourced tMAVEN install. If a future path uses this
+under the lock's ordinary setuptools before the downgrade, constructor receives prebuilt
+wheels, and a source-setup rerun either verifies both that exact Git commit and its
+locked-setuptools `WHEEL` generator or refuses the build. If a future path uses this
 interpreter to build an sdist, the exception no longer matches this decision and must
 fail review. Dependency-audit output remains visible in CI and the PR requires qualified
 security/release judgment.
@@ -111,9 +130,17 @@ security/release judgment.
 - [pip download](https://pip.pypa.io/en/stable/cli/pip_download/), consulted through
   Context7 for pip 26.1.2: `-r`, `--require-hashes`, `--only-binary`, `--no-deps`, and
   `--dest` are supported together.
-- [pip install](https://pip.pypa.io/en/stable/cli/pip_install/), consulted through
-  Context7 for pip 26.1.2: `--no-deps` disables dependency installation and
-  `--no-build-isolation` requires the build dependencies to already be present.
+- [pip build-system interface](https://pip.pypa.io/en/stable/reference/build-system/),
+  consulted through Context7 for locked pip 26.1.2: default build isolation uses a
+  temporary environment independent of the runtime environment; with
+  `--no-build-isolation`, the caller must preinstall and manage all PEP 518 build
+  dependencies. The target interpreter's setuptools is therefore the tMAVEN build
+  toolchain on these source installs.
+- [pip caching](https://pip.pypa.io/en/stable/topics/caching/), consulted through
+  Context7 for locked pip 26.1.2: pip caches locally built wheels, including wheels from
+  immutable VCS commit references, and may reuse them on later installs. The source
+  rebuild therefore disables pip's cache and verifies installed build provenance before
+  applying the runtime-only compatibility wheel.
 - PyPI JSON for [pytest 9.1.1](https://pypi.org/pypi/pytest/9.1.1/json),
   [iniconfig 2.3.0](https://pypi.org/pypi/iniconfig/2.3.0/json),
   [pluggy 1.6.0](https://pypi.org/pypi/pluggy/1.6.0/json),

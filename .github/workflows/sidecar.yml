@@ -163,6 +163,25 @@ jobs:
         run: |
           python scripts/setup_sidecar.py \
             --python "$(python -c 'import sys; print(sys.executable)')" --with-pytest
+      - name: Verify a guided setup rerun reuses locked-builder tMAVEN
+        if: steps.relevance.outputs.run == 'true'
+        # The first invocation leaves the runtime-only setuptools 80.9.0 overlay in this
+        # interpreter. A second invocation is the direct oracle for the rerun protocol:
+        # it must verify tMAVEN's exact Git + WHEEL-generator provenance and reuse it,
+        # never run the no-isolation source build under the runtime compatibility layer.
+        env:
+          NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache
+        run: |
+          set -euo pipefail
+          rerun_log="${RUNNER_TEMP}/setup-sidecar-rerun.log"
+          python scripts/setup_sidecar.py \
+            --python "$(python -c 'import sys; print(sys.executable)')" --with-pytest \
+            | tee "${rerun_log}"
+          grep -F "Reusing exact installed tMAVEN commit" "${rerun_log}"
+          if grep -Fq "Installing pinned tMAVEN with the locked setuptools" "${rerun_log}"; then
+            echo "rerun attempted to rebuild tMAVEN under the runtime setuptools overlay" >&2
+            false
+          fi
       - name: Assert idealization parity against the frozen tolerance
         if: steps.relevance.outputs.run == 'true'
         env:

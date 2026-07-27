@@ -57,6 +57,8 @@ def test_tmaven_install_is_tmaven_only_and_cannot_resolve_dependencies() -> None
         "-m",
         "pip",
         "install",
+        "--force-reinstall",
+        "--no-cache-dir",
         "--no-build-isolation",
         "--no-deps",
         "spec",
@@ -123,6 +125,68 @@ def test_default_tmaven_spec_matches_sidecar_yml() -> None:
     # The script reads $TMAVEN_SPEC (set in sidecar.yml) but must default to the SAME pin,
     # so a fresh developer setup installs the tMAVEN the live parity job validates.
     assert _workflow_tmaven_spec() == setup.DEFAULT_TMAVEN_SPEC
+    assert setup.DEFAULT_TMAVEN_COMMIT == "10f4230b6d13c6d2ad67b05d801696b4a40eff4a"
+    assert setup.DEFAULT_TMAVEN_COMMIT.startswith(setup.DEFAULT_TMAVEN_SPEC.rsplit("@", 1)[1])
+
+
+def test_tmaven_specs_resolve_only_the_default_pin_or_a_full_commit() -> None:
+    custom_commit = "a" * 40
+    assert (
+        setup._require_immutable_tmaven_commit(setup.DEFAULT_TMAVEN_SPEC)
+        == setup.DEFAULT_TMAVEN_COMMIT
+    )
+    assert (
+        setup._require_immutable_tmaven_commit(
+            f"git+https://example.test/tmaven.git@{custom_commit}"
+        )
+        == custom_commit
+    )
+    assert setup._expected_tmaven_commit("git+https://example.test/tmaven.git@main") is None
+    assert setup._expected_tmaven_commit("git+https://example.test/tmaven.git@" + "b" * 39) is None
+
+
+@pytest.mark.parametrize("revision", ["main", "v1.2.3", "deadbeef", "b" * 39])
+def test_mutable_tmaven_spec_fails_before_any_sidecar_subprocess(
+    revision: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sidecar_python = tmp_path / "python"
+    sidecar_python.touch()
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("an unsupported tMAVEN spec must fail before any subprocess")
+
+    monkeypatch.setattr(setup, "inspect_sidecar_build_state", _boom)
+    monkeypatch.setattr(setup, "_run", _boom)
+
+    assert (
+        setup.main(
+            [
+                "--python",
+                str(sidecar_python),
+                "--tmaven-spec",
+                f"git+https://example.test/tmaven.git@{revision}",
+                "--no-probe",
+            ]
+        )
+        == 1
+    )
+    error = capsys.readouterr().err
+    assert "unsupported --tmaven-spec" in error
+    assert "rejected before the sidecar environment is changed" in error
+
+
+def test_locked_build_setuptools_version_comes_from_the_unified_lock() -> None:
+    assert setup.load_locked_setuptools_version(setup.DEFAULT_LOCK) == "82.0.1"
+
+
+def test_build_state_probe_reads_the_imported_backend_and_wheel_generator() -> None:
+    assert "import setuptools" in setup._BUILD_STATE_PROBE
+    assert "setuptools.__version__" in setup._BUILD_STATE_PROBE
+    assert 'distribution.read_text("WHEEL")' in setup._BUILD_STATE_PROBE
+    assert 'line.startswith("Generator: ")' in setup._BUILD_STATE_PROBE
 
 
 def test_sidecar_yml_installs_via_setup_script() -> None:
@@ -137,6 +201,20 @@ def test_sidecar_yml_installs_via_setup_script() -> None:
     assert "--with-pytest" in workflow
     # It targets the already-restored env (no env creation on the runner).
     assert "--python" in workflow
+
+
+def test_sidecar_yml_exercises_the_runtime_overlay_rerun_path() -> None:
+    workflow = _SIDECAR_WORKFLOW.read_text(encoding="utf-8")
+    rerun_step = workflow.split(
+        "- name: Verify a guided setup rerun reuses locked-builder tMAVEN", 1
+    )[1].split("- name:", 1)[0]
+    assert workflow.count("python scripts/setup_sidecar.py") == 2
+    assert rerun_step.index("set -euo pipefail") < rerun_step.index(
+        "python scripts/setup_sidecar.py"
+    )
+    assert 'grep -F "Reusing exact installed tMAVEN commit"' in rerun_step
+    assert 'grep -Fq "Installing pinned tMAVEN with the locked setuptools"' in rerun_step
+    assert "rerun attempted to rebuild tMAVEN under the runtime setuptools overlay" in rerun_step
 
 
 def test_status_prefix_matches_runner() -> None:
@@ -253,13 +331,18 @@ def test_main_dry_run_python_mode_runs_nothing(
     rc = setup.main(["--dry-run", "--python", "/does/not/matter", "--with-pytest"])
     assert rc == 0
     output = capsys.readouterr().out
+    state_check_at = output.index("Inspecting target build state")
     tmaven_at = output.index(setup.DEFAULT_TMAVEN_SPEC)
     test_tools_at = output.index(str(setup.TEST_TOOLS_REQUIREMENTS))
     compatibility_at = output.index(str(setup.SETUPTOOLS_REQUIREMENTS))
-    assert tmaven_at < test_tools_at < compatibility_at, (
+    assert state_check_at < tmaven_at < test_tools_at < compatibility_at, (
         "the older compatibility wheel must be installed only after tMAVEN is built"
     )
-    assert f"--no-build-isolation --no-deps {setup.DEFAULT_TMAVEN_SPEC}" in output
+    assert "unsafe existing states fail instead of building tMAVEN" in output
+    assert (
+        f"--force-reinstall --no-cache-dir --no-build-isolation --no-deps "
+        f"{setup.DEFAULT_TMAVEN_SPEC}" in output
+    )
     assert (
         f"--only-binary=:all: --no-deps --require-hashes "
         f"-r {setup.TEST_TOOLS_REQUIREMENTS}" in output
@@ -277,17 +360,249 @@ def test_main_runs_three_install_commands_in_dependency_safe_order(
         assert not dry_run
         commands.append(cmd)
 
-    monkeypatch.setattr(setup, "_run", _record)
-    rc = setup.main(
-        ["--python", str(sidecar_python), "--with-pytest", "--no-probe", "--tmaven-spec", "spec"]
+    states = iter(
+        [
+            {
+                "setuptools_version": "82.0.1",
+                "tmaven_direct_url": None,
+                "tmaven_wheel_generator": None,
+            },
+            {
+                "setuptools_version": "82.0.1",
+                "tmaven_direct_url": {
+                    "url": "https://github.com/GonzalezBiophysicsLab/tmaven.git",
+                    "vcs_info": {
+                        "vcs": "git",
+                        "requested_revision": "10f4230",
+                        "commit_id": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
+                    },
+                },
+                "tmaven_wheel_generator": "setuptools (82.0.1)",
+            },
+        ]
     )
+    monkeypatch.setattr(setup, "inspect_sidecar_build_state", lambda _python: next(states))
+    monkeypatch.setattr(setup, "_run", _record)
+    rc = setup.main(["--python", str(sidecar_python), "--with-pytest", "--no-probe"])
 
     assert rc == 0
     assert commands == [
-        setup.build_tmaven_pip_cmd(str(sidecar_python), tmaven_spec="spec"),
+        setup.build_tmaven_pip_cmd(str(sidecar_python), tmaven_spec=setup.DEFAULT_TMAVEN_SPEC),
         setup.build_test_tools_pip_cmd(str(sidecar_python)),
         setup.build_setuptools_pip_cmd(str(sidecar_python)),
     ]
+
+
+def test_recovered_locked_builder_force_rebuilds_an_existing_unsafe_tmaven(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sidecar_python = tmp_path / "python"
+    sidecar_python.touch()
+    commands: list[list[str]] = []
+    states = iter(
+        [
+            {
+                "setuptools_version": "82.0.1",
+                "tmaven_direct_url": {
+                    "url": "https://github.com/GonzalezBiophysicsLab/tmaven.git",
+                    "vcs_info": {
+                        "vcs": "git",
+                        "requested_revision": "10f4230",
+                        "commit_id": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
+                    },
+                },
+                "tmaven_wheel_generator": "setuptools (80.9.0)",
+            },
+            {
+                "setuptools_version": "82.0.1",
+                "tmaven_direct_url": {
+                    "url": "https://github.com/GonzalezBiophysicsLab/tmaven.git",
+                    "vcs_info": {
+                        "vcs": "git",
+                        "requested_revision": "10f4230",
+                        "commit_id": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
+                    },
+                },
+                "tmaven_wheel_generator": "setuptools (82.0.1)",
+            },
+        ]
+    )
+    monkeypatch.setattr(setup, "inspect_sidecar_build_state", lambda _python: next(states))
+    monkeypatch.setattr(
+        setup, "_run", lambda cmd, *, dry_run: commands.append(cmd) if not dry_run else None
+    )
+
+    assert setup.main(["--python", str(sidecar_python), "--no-probe"]) == 0
+    tmaven_cmd = commands[0]
+    assert tmaven_cmd == setup.build_tmaven_pip_cmd(
+        str(sidecar_python), tmaven_spec=setup.DEFAULT_TMAVEN_SPEC
+    )
+    assert "--force-reinstall" in tmaven_cmd
+    assert "--no-cache-dir" in tmaven_cmd
+    assert tmaven_cmd.index("--force-reinstall") < tmaven_cmd.index("--no-build-isolation")
+    assert tmaven_cmd.index("--no-cache-dir") < tmaven_cmd.index("--no-build-isolation")
+    assert commands[1] == setup.build_setuptools_pip_cmd(str(sidecar_python))
+
+
+def test_rebuild_fails_before_runtime_overlay_when_generator_is_not_locked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sidecar_python = tmp_path / "python"
+    sidecar_python.touch()
+    commands: list[list[str]] = []
+    states = iter(
+        [
+            {
+                "setuptools_version": "82.0.1",
+                "tmaven_direct_url": None,
+                "tmaven_wheel_generator": None,
+            },
+            {
+                "setuptools_version": "82.0.1",
+                "tmaven_direct_url": {
+                    "url": "https://github.com/GonzalezBiophysicsLab/tmaven.git",
+                    "vcs_info": {
+                        "vcs": "git",
+                        "requested_revision": "10f4230",
+                        "commit_id": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
+                    },
+                },
+                "tmaven_wheel_generator": "setuptools (80.9.0)",
+            },
+        ]
+    )
+    monkeypatch.setattr(setup, "inspect_sidecar_build_state", lambda _python: next(states))
+    monkeypatch.setattr(
+        setup, "_run", lambda cmd, *, dry_run: commands.append(cmd) if not dry_run else None
+    )
+
+    assert setup.main(["--python", str(sidecar_python), "--no-probe"]) == 1
+    assert commands == [
+        setup.build_tmaven_pip_cmd(str(sidecar_python), tmaven_spec=setup.DEFAULT_TMAVEN_SPEC)
+    ]
+    error = capsys.readouterr().err
+    assert "rebuilt tMAVEN failed provenance verification" in error
+    assert "setuptools (80.9.0)" in error
+    assert "WHEEL Generator: setuptools (82.0.1)" in error
+
+
+def test_rerun_reuses_only_the_exact_installed_tmaven_before_runtime_reinstall(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sidecar_python = tmp_path / "python"
+    sidecar_python.touch()
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        setup,
+        "inspect_sidecar_build_state",
+        lambda _python: {
+            "setuptools_version": "80.9.0",
+            "tmaven_direct_url": {
+                "url": "https://github.com/GonzalezBiophysicsLab/tmaven.git",
+                "vcs_info": {
+                    "vcs": "git",
+                    "requested_revision": "10f4230",
+                    "commit_id": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
+                },
+            },
+            "tmaven_wheel_generator": "setuptools (82.0.1)",
+        },
+    )
+    monkeypatch.setattr(
+        setup, "_run", lambda cmd, *, dry_run: commands.append(cmd) if not dry_run else None
+    )
+
+    rc = setup.main(["--python", str(sidecar_python), "--with-pytest", "--no-probe"])
+
+    assert rc == 0
+    assert commands == [
+        setup.build_test_tools_pip_cmd(str(sidecar_python)),
+        setup.build_setuptools_pip_cmd(str(sidecar_python)),
+    ]
+    output = capsys.readouterr().out
+    assert "Reusing exact installed tMAVEN commit" in output
+    assert "10f4230b6d13c6d2ad67b05d801696b4a40eff4a" in output
+
+
+def test_rerun_with_runtime_setuptools_and_unverified_tmaven_fails_before_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sidecar_python = tmp_path / "python"
+    sidecar_python.touch()
+
+    monkeypatch.setattr(
+        setup,
+        "inspect_sidecar_build_state",
+        lambda _python: {
+            "setuptools_version": "80.9.0",
+            "tmaven_direct_url": {
+                "url": "https://github.com/GonzalezBiophysicsLab/tmaven.git",
+                "vcs_info": {
+                    "vcs": "git",
+                    "requested_revision": "different",
+                    "commit_id": "0" * 40,
+                },
+            },
+            "tmaven_wheel_generator": "setuptools (80.9.0)",
+        },
+    )
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("tMAVEN must never build under runtime setuptools 80.9.0")
+
+    monkeypatch.setattr(setup, "_run", _boom)
+
+    rc = setup.main(["--python", str(sidecar_python), "--no-probe"])
+
+    assert rc == 1
+    error = capsys.readouterr().err
+    assert "refusing to build tMAVEN" in error
+    assert "setuptools 80.9.0" in error
+    assert "locked build version is 82.0.1" in error
+    assert "genuinely fresh sidecar environment under a new --env-name" in error
+
+
+def test_matching_tmaven_commit_built_by_runtime_setuptools_is_not_reused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sidecar_python = tmp_path / "python"
+    sidecar_python.touch()
+    monkeypatch.setattr(
+        setup,
+        "inspect_sidecar_build_state",
+        lambda _python: {
+            "setuptools_version": "80.9.0",
+            "tmaven_direct_url": {
+                "url": "https://github.com/GonzalezBiophysicsLab/tmaven.git",
+                "vcs_info": {
+                    "vcs": "git",
+                    "requested_revision": "10f4230",
+                    "commit_id": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
+                },
+            },
+            "tmaven_wheel_generator": "setuptools (80.9.0)",
+        },
+    )
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("a stale tMAVEN build must not be reused or rebuilt")
+
+    monkeypatch.setattr(setup, "_run", _boom)
+
+    assert setup.main(["--python", str(sidecar_python), "--no-probe"]) == 1
+    error = capsys.readouterr().err
+    assert "setuptools (80.9.0)" in error
+    assert "expected setuptools (82.0.1)" in error
+    assert "genuinely fresh sidecar environment under a new --env-name" in error
 
 
 def test_skip_install_skips_every_pip_layer(
@@ -353,3 +668,29 @@ def test_skip_install_docs_require_an_already_populated_environment() -> None:
     assert "already-populated sidecar environment" in skip_row
     assert "probe still runs unless `--no-probe`" in skip_row
     assert "only create the env / probe" not in skip_row
+
+
+def test_existing_interpreter_docs_require_source_and_builder_provenance() -> None:
+    handoff = _HANDOFF_DOC.read_text(encoding="utf-8")
+    normalized = " ".join(handoff.split())
+    python_row = next(
+        line for line in handoff.splitlines() if line.startswith("| `--python PATH` |")
+    )
+    assert "exact Git-commit" in python_row
+    assert "locked `WHEEL`-generator provenance" in python_row
+    assert "Commit identity alone does not prove which backend built" in normalized
+    assert "genuinely fresh environment under a new `--env-name`" in normalized
+    assert "instead of reinstalling into the same named env" in normalized
+    tmaven_row = next(
+        line for line in handoff.splitlines() if line.startswith("| `--tmaven-spec SPEC` |")
+    )
+    assert "default pinned short spec" in tmaven_row
+    assert "`git+URL@<full 40/64-hex commit>` only" in tmaven_row
+    assert "Tags, branches, and abbreviated custom commits are rejected" in tmaven_row
+
+    help_text = " ".join(setup.build_parser().format_help().split())
+    assert "tMAVEN builds only with the lock's setuptools" in help_text
+    assert "exact installed Git provenance is required" in help_text
+    assert "default pinned short spec" in help_text
+    assert "full 40/64-hex commit" in help_text
+    assert "tags and branches are rejected" in help_text
