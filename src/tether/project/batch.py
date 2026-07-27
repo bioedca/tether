@@ -478,7 +478,11 @@ def _is_idealized(path: Path) -> bool:
 # --- The correct stage (Appendix-B ordered corrections) ----------------------
 
 
-def run_correct_stage(project_path: str | Path) -> str:
+def run_correct_stage(
+    project_path: str | Path,
+    *,
+    write_guard: Callable[[], None] | None = None,
+) -> str:
     """Run the ordered corrections on one extracted ``.tether`` (PRD §7.2, Appendix B).
 
     photobleach → leakage α → **(γ only when α was applied)** → corrected FRET. γ is
@@ -487,6 +491,10 @@ def run_correct_stage(project_path: str | Path) -> str:
     donor-only tails), and :func:`~tether.project.gamma.compute_gamma` would raise on
     the resulting NaN α-sentinel. The corrected-FRET pass then degrades the missing
     factors to apparent E — never a NaN factor (PRD §7.2, §1.3 invariant 3).
+
+    ``write_guard`` is an optional caller-owned lock/lease check. It is carried
+    into every correction writer so a long computation revalidates ownership
+    immediately before mutating the canonical HDF5 project.
 
     Returns a short human detail string for the log / summary.
 
@@ -503,11 +511,11 @@ def run_correct_stage(project_path: str | Path) -> str:
     from tether.project.photobleach import compute_photobleach  # noqa: PLC0415
 
     _assert_output_not_newer(Path(project_path))
-    pb = compute_photobleach(project_path)
-    lk = compute_leakage_alpha(project_path)
+    pb = compute_photobleach(project_path, write_guard=write_guard)
+    lk = compute_leakage_alpha(project_path, write_guard=write_guard)
     parts = [f"pb {pb.n_donor_bleached}D/{pb.n_acceptor_bleached}A"]
     if lk.applied and lk.alpha is not None:
-        gm = compute_gamma(project_path)
+        gm = compute_gamma(project_path, write_guard=write_guard)
         parts.append(f"α={lk.alpha:.3f}")
         if gm.applied and gm.gamma is not None:
             parts.append(f"γ={gm.gamma:.3f}")
@@ -515,7 +523,7 @@ def run_correct_stage(project_path: str | Path) -> str:
             parts.append("γ withheld")
     else:
         parts.append("α withheld")
-    cf = compute_corrected_fret(project_path)
+    cf = compute_corrected_fret(project_path, write_guard=write_guard)
     if cf.total_failure and not cf.apparent_e_only:
         parts.append(f"apparent-E fallback ({cf.n_apparent} mol)")
     else:
@@ -667,7 +675,7 @@ def run_batch(
     stamp_provenance: bool = True,
     log: BatchLog | None = None,
     _extract: Callable[..., Any] | None = None,
-    _correct: Callable[[str | Path], str] | None = None,
+    _correct: Callable[..., str] | None = None,
     _idealize: Callable[..., Any] | None = None,
     _probe: Callable[[SidecarSupervision], ProbeResult] | None = None,
 ) -> BatchSummary:
@@ -779,6 +787,7 @@ def run_batch(
             rec = _Recorder(job=job, log=log)
             destination_lock_module: Any = None
             destination_owner: Any = None
+            destination_lock_acquired = False
             ownership_guard: Callable[[], None] | None = None
             # Isolate the ENTIRE per-job body — not just each runner call. A failure of
             # the log sink itself (disk full, permission change, share drop) inside a
@@ -793,7 +802,17 @@ def run_batch(
                     from tether.project import lock as destination_lock_module  # noqa: PLC0415
 
                     try:
-                        destination_owner = destination_lock_module.acquire(job.output_path)
+                        existing_owner = destination_lock_module.read_lock(job.output_path)
+                        if (
+                            existing_owner is not None
+                            and existing_owner.identity == destination_lock_module.local_identity()
+                        ):
+                            # Borrow a caller-owned in-process lock without refreshing
+                            # its nonce or releasing its still-active write session.
+                            destination_owner = existing_owner
+                        else:
+                            destination_owner = destination_lock_module.acquire(job.output_path)
+                            destination_lock_acquired = True
                     except Exception as exc:
                         # A rejected checkpoint is an existing canonical project. If
                         # another writer owns it, fail this movie before any stage can
@@ -881,8 +900,19 @@ def run_batch(
                     log, movie=job.label, stage="batch", status=STATUS_FAILED, error=str(exc)
                 )
             finally:
-                if destination_owner is not None:
-                    destination_lock_module.release(job.output_path, destination_owner)
+                if destination_lock_acquired:
+                    try:
+                        destination_lock_module.release(job.output_path, destination_owner)
+                    except Exception as exc:
+                        # Cleanup infrastructure must not discard this movie's result
+                        # or terminate the remaining queue. Surface the stranded lock.
+                        _safe_event(
+                            log,
+                            movie=job.label,
+                            stage="lock-release",
+                            status=STATUS_WARNING,
+                            error=str(exc),
+                        )
                 results.append(MovieResult(job=job, stages=dict(rec.stages)))
     finally:
         if own_log:
@@ -970,7 +1000,7 @@ def _do_correct(
     rec: _Recorder,
     *,
     upstream_ok: bool,
-    runner: Callable[[str | Path], str],
+    runner: Callable[..., str],
     ownership_guard: Callable[[], None] | None = None,
 ) -> bool:
     """Run (or skip/block) the correct stage; returns whether it is satisfied."""
@@ -981,7 +1011,10 @@ def _do_correct(
     try:
         if ownership_guard is not None:
             ownership_guard()
-        detail = runner(job.output_path)
+        runner_kwargs = {}
+        if ownership_guard is not None:
+            runner_kwargs["write_guard"] = ownership_guard
+        detail = runner(job.output_path, **runner_kwargs)
         if ownership_guard is not None:
             ownership_guard()
     except Exception as exc:

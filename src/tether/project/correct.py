@@ -61,6 +61,7 @@ responsibility, mirroring :func:`tether.project.gamma.compute_gamma`.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -157,6 +158,7 @@ def compute_corrected_fret(
     apparent_e_only: bool = False,
     alpha_override: float | None = None,
     gamma_override: float | None = None,
+    write_guard: Callable[[], None] | None = None,
 ) -> CorrectionSummary:
     """Resolve + stamp each molecule's correction method and store the provenance.
 
@@ -181,6 +183,9 @@ def compute_corrected_fret(
         value is written into the applied ``/molecules.alpha`` / ``/molecules.gamma``
         for every examined molecule and the molecule is stamped :data:`METHOD_MANUAL`.
         ``gamma_override`` must be ``> 0`` (a non-physical γ is rejected).
+    write_guard
+        Optional caller-owned lock/lease check invoked before opening the canonical
+        project and at each persistence boundary after row classification.
 
     Returns
     -------
@@ -209,6 +214,8 @@ def compute_corrected_fret(
     path = Path(project_path)
     n_molecules = n_corrected = n_manual = n_apparent = 0
 
+    if write_guard is not None:
+        write_guard()
     with h5py.File(path, "r+") as f:
         table = f[_MOLECULES][TABLE][:]  # full copy; only the correction columns mutate
         frame_range = table["frame_range"]
@@ -256,9 +263,13 @@ def compute_corrected_fret(
             table["correction_method"][i] = method
             table["correction_confidence"][i] = confidence
 
+        if write_guard is not None:
+            write_guard()
         f[_MOLECULES][TABLE][:] = table
 
         total_failure = (n_corrected + n_manual) == 0
+        if write_guard is not None:
+            write_guard()
         _stamp_correction_settings(
             f,
             apparent_e_only=apparent_e_only,

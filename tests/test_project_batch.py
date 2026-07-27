@@ -98,10 +98,13 @@ def _raising_extract(movie_path, output_path, **kwargs):  # must never be called
 
 
 def _correct_stub(*, fail: frozenset[str] = frozenset()):
-    def run(output_path):
+    def run(output_path, **kwargs):
         stem = Path(output_path).stem
         if stem in fail:
             raise RuntimeError(f"correct boom: {stem}")
+        write_guard = kwargs.get("write_guard")
+        if write_guard is not None:
+            write_guard()
         _add_group(Path(output_path), "settings/correction")
         return "α withheld; apparent-E fallback (3 mol)"
 
@@ -616,6 +619,72 @@ def test_overwrite_rejected_checkpoint_refuses_a_foreign_lock(tmp_path: Path) ->
     assert not r.ok
 
 
+def test_overwrite_rejected_checkpoint_borrows_caller_owned_lock(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    caller_owner = lock.acquire(jobs[0].output_path)
+
+    try:
+        second = _run(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+        )
+        current_owner = lock.read_lock(jobs[0].output_path)
+        assert current_owner is not None
+        assert current_owner.nonce == caller_owner.nonce
+    finally:
+        assert lock.release(jobs[0].output_path, caller_owner)
+
+    assert second.results[0].ok
+
+
+def test_lock_release_failure_isolated_to_one_movie(tmp_path: Path, monkeypatch) -> None:
+    jobs = _jobs(tmp_path, "x", "y")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x", "y"})),
+    )
+    assert first.n_failed == 2
+    real_release = lock.release
+
+    def release_with_one_share_failure(project_path, info):
+        if Path(project_path) == jobs[0].output_path:
+            raise OSError("share refused lock cleanup")
+        return real_release(project_path, info)
+
+    monkeypatch.setattr(lock, "release", release_with_one_share_failure)
+    with BatchLog() as log:
+        second = _run(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            log=log,
+        )
+        records = list(log.records)
+
+    stranded_owner = lock.read_lock(jobs[0].output_path)
+    assert stranded_owner is not None
+    assert real_release(jobs[0].output_path, stranded_owner)
+
+    assert len(second.results) == 2
+    assert all(result.ok for result in second.results)
+    assert lock.read_lock(jobs[1].output_path) is None
+    assert any(
+        record["movie"] == "x"
+        and record["stage"] == "lock-release"
+        and record["status"] == STATUS_WARNING
+        and "share refused lock cleanup" in record["error"]
+        for record in records
+    )
+
+
 def test_overwrite_rejected_checkpoint_holds_lock_through_all_writes(
     tmp_path: Path,
     monkeypatch,
@@ -781,6 +850,54 @@ def test_overwrite_rejected_checkpoint_guards_idealization_persistence(
     )
     with h5py.File(jobs[0].output_path, "r") as store:
         assert "vbconhmm" not in store["idealization"]
+        assert store["settings/batch"].attrs["sentinel"] == "successor must keep this"
+    assert not r.ok
+
+
+def test_overwrite_rejected_checkpoint_guards_correction_persistence(
+    tmp_path: Path,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    contender = lock.LockIdentity(host="OTHER", user="successor", pid=789)
+    stolen = None
+
+    def stolen_before_persistence(output_path, *, write_guard=None):
+        nonlocal stolen
+        assert write_guard is not None
+        stolen, prior = lock.steal_lock(output_path, identity=contender)
+        assert prior is not None
+        assert prior.identity == lock.local_identity()
+        with h5py.File(output_path, "r+") as store:
+            store.require_group("settings/batch").attrs["sentinel"] = "successor must keep this"
+        write_guard()
+        raise AssertionError("write guard returned after lock ownership changed")
+
+    try:
+        second = _run(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            _correct=stolen_before_persistence,
+        )
+    finally:
+        if stolen is not None:
+            assert lock.release(jobs[0].output_path, stolen)
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert r.stages[STAGE_CORRECT].status == STATUS_FAILED
+    assert "lock ownership changed during rejected-checkpoint replacement" in (
+        r.stages[STAGE_CORRECT].error
+    )
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    with h5py.File(jobs[0].output_path, "r") as store:
+        assert "correction" not in store["settings"]
         assert store["settings/batch"].attrs["sentinel"] == "successor must keep this"
     assert not r.ok
 
@@ -1157,6 +1274,56 @@ def _build_real_store(path: Path, *, n_mol: int = 3, n_frames: int = 200) -> Non
         parsed=parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif"),
         registration_map=_reg_map(),
     )
+
+
+def test_run_correct_stage_carries_guard_into_every_writer(tmp_path: Path, monkeypatch) -> None:
+    from tether.project import correct as correct_module
+    from tether.project import gamma as gamma_module
+    from tether.project import leakage as leakage_module
+    from tether.project import photobleach as photobleach_module
+
+    path = tmp_path / "guarded.tether"
+    create_project(path)
+
+    def guard() -> None:
+        pass
+
+    observed: list[tuple[str, object]] = []
+
+    def photobleach_stub(project_path, *, write_guard=None):
+        observed.append(("photobleach", write_guard))
+        return SimpleNamespace(n_donor_bleached=1, n_acceptor_bleached=1)
+
+    def leakage_stub(project_path, *, write_guard=None):
+        observed.append(("leakage", write_guard))
+        return SimpleNamespace(applied=True, alpha=0.1)
+
+    def gamma_stub(project_path, *, write_guard=None):
+        observed.append(("gamma", write_guard))
+        return SimpleNamespace(applied=True, gamma=1.2)
+
+    def corrected_stub(project_path, *, write_guard=None):
+        observed.append(("corrected", write_guard))
+        return SimpleNamespace(
+            total_failure=False,
+            apparent_e_only=False,
+            n_corrected=3,
+        )
+
+    monkeypatch.setattr(photobleach_module, "compute_photobleach", photobleach_stub)
+    monkeypatch.setattr(leakage_module, "compute_leakage_alpha", leakage_stub)
+    monkeypatch.setattr(gamma_module, "compute_gamma", gamma_stub)
+    monkeypatch.setattr(correct_module, "compute_corrected_fret", corrected_stub)
+
+    detail = run_correct_stage(path, write_guard=guard)
+
+    assert observed == [
+        ("photobleach", guard),
+        ("leakage", guard),
+        ("gamma", guard),
+        ("corrected", guard),
+    ]
+    assert "3 corrected" in detail
 
 
 def test_integration_real_correct_stage_withheld_alpha(tmp_path: Path) -> None:

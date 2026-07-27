@@ -41,6 +41,7 @@ the :class:`~tether.project.core.Project` facade / batch runner holds the lock).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -113,6 +114,7 @@ def compute_leakage_alpha(
     min_window_frames: int = DEFAULT_MIN_WINDOW_FRAMES,
     ceiling: float = LEAKAGE_CEILING,
     min_qualifying_traces: int = DEFAULT_MIN_QUALIFYING_TRACES,
+    write_guard: Callable[[], None] | None = None,
 ) -> LeakageAlphaSummary:
     """Estimate the dataset leakage α from post-acceptor-bleach tails and store it.
 
@@ -132,6 +134,9 @@ def compute_leakage_alpha(
     min_qualifying_traces
         Withhold the dataset α below this many qualifying traces (PRD §11.2,
         default 10).
+    write_guard
+        Optional caller-owned lock/lease check invoked before opening the canonical
+        project and at each persistence boundary after estimation.
 
     Returns
     -------
@@ -157,6 +162,8 @@ def compute_leakage_alpha(
     donor_layer, acceptor_layer = INTENSITY_QUANTITY_LAYERS[intensity_quantity]
     path = Path(project_path)
 
+    if write_guard is not None:
+        write_guard()
     with h5py.File(path, "r+") as f:
         traces_grp = f[_TRACES]
         for layer in (donor_layer, acceptor_layer):
@@ -214,8 +221,12 @@ def compute_leakage_alpha(
         if applied:
             for i in processed_rows:
                 table["alpha"][i] = estimate.alpha
+            if write_guard is not None:
+                write_guard()
             f[_MOLECULES][TABLE][:] = table
 
+        if write_guard is not None:
+            write_guard()
         _stamp_leakage_settings(
             f,
             alpha=estimate.alpha,

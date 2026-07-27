@@ -48,11 +48,16 @@ and holds the destination's single-writer lock, then revalidates the schema and 
 checkpoint verdict under that lock. The same lock remains held through extraction,
 downstream correction and idealization, and the final batch-provenance stamp, with the
 acquisition nonce verified at each canonical-write boundary and after each runner
-returns. For idealization, which may spend the full sidecar timeout fitting, the same
-guard is passed into the idealization writer and runs after the fit immediately before
-HDF5 persistence. If the lock became stale and was stolen during a long stage, the old
-owner stops the job, suppresses later writes, and never releases the successor's lock.
-Other jobs and fresh-output locking behavior are unchanged.
+returns. The correction orchestrator passes that guard into each photobleach, leakage,
+gamma, and corrected-FRET writer, which checks again after its computation immediately
+before each HDF5 mutation. For idealization, which may spend the full sidecar timeout
+fitting, the same guard runs after the fit immediately before HDF5 persistence. A
+pre-existing same-process destination lock is borrowed without refreshing its nonce or
+releasing the caller's session; release failures from locks acquired by the batch are
+reported per movie without terminating the queue. If the lock became stale and was
+stolen during a long stage, the old owner stops the job, suppresses later writes, and
+never releases the successor's lock. Other jobs and fresh-output locking behavior are
+unchanged.
 
 Per-condition aggregation of α/γ *across* movies (a dataset-level median) is **not**
 introduced here; each movie's corrections run over its own store with the existing

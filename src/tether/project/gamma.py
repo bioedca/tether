@@ -42,6 +42,7 @@ The single-writer ``.lock`` is the caller's responsibility, mirroring
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -120,6 +121,7 @@ def compute_gamma(
     min_window_frames: int = DEFAULT_MIN_WINDOW_FRAMES,
     ceiling: float = GAMMA_CEILING,
     min_qualifying_traces: int = DEFAULT_MIN_QUALIFYING_TRACES,
+    write_guard: Callable[[], None] | None = None,
 ) -> GammaSummary:
     """Estimate the dataset γ from acceptor-bleach steps and store it per molecule.
 
@@ -142,6 +144,9 @@ def compute_gamma(
     min_qualifying_traces
         Withhold the dataset γ below this many qualifying traces (PRD §11.2,
         default 10).
+    write_guard
+        Optional caller-owned lock/lease check invoked before opening the canonical
+        project and at each persistence boundary after estimation.
 
     Returns
     -------
@@ -169,6 +174,8 @@ def compute_gamma(
     donor_layer, acceptor_layer = INTENSITY_QUANTITY_LAYERS[intensity_quantity]
     path = Path(project_path)
 
+    if write_guard is not None:
+        write_guard()
     with h5py.File(path, "r+") as f:
         traces_grp = f[_TRACES]
         for layer in (donor_layer, acceptor_layer):
@@ -244,8 +251,12 @@ def compute_gamma(
                 table["gamma"][row] = estimate.effective_gamma(local_i)
                 if estimate.is_fallback(local_i):
                     n_fallback += 1
+            if write_guard is not None:
+                write_guard()
             f[_MOLECULES][TABLE][:] = table
 
+        if write_guard is not None:
+            write_guard()
         _stamp_gamma_settings(
             f,
             gamma=estimate.gamma,
