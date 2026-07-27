@@ -599,6 +599,7 @@ class _Recorder:
     job: MovieJob
     log: BatchLog
     stages: dict[str, StageResult] = field(default_factory=dict)
+    canonical_write_safe: bool = True
 
     def record(
         self, stage: str, status: str, *, detail: str = "", error: str | None = None
@@ -761,7 +762,7 @@ def run_batch(
                     supervision=supervision,
                     deferred=idealize_deferred,
                 )
-                if stamp_provenance and job.output_path.exists():
+                if stamp_provenance and rec.canonical_write_safe and job.output_path.exists():
                     try:
                         _stamp_batch_settings(
                             job.output_path,
@@ -845,12 +846,16 @@ def _do_extract(
                 assert destination_owner is not None
 
                 def publish_guard() -> None:
+                    # Fail closed: a read/parsing error is also insufficient proof that
+                    # this run may write either the replacement or end-of-job provenance.
+                    rec.canonical_write_safe = False
                     current_owner = lock.read_lock(job.output_path)
                     if current_owner is None or current_owner.nonce != destination_owner.nonce:
                         raise lock.LockError(
                             f"{lock.lock_path(job.output_path)} lock ownership changed "
                             "before publish"
                         )
+                    rec.canonical_write_safe = True
 
                 runner_kwargs["publish_guard"] = publish_guard
             summary = runner(

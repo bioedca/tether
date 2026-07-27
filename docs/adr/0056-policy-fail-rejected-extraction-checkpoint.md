@@ -63,7 +63,9 @@ The overwrite path holds the destination lock while it revalidates and re-extrac
 `os.replace`, calls a publish guard that compares the on-disk lock nonce with this
 run's acquisition nonce. If an operator stole the now-stale lock during a long
 extraction, the old run discards its temp project and reports failure instead of
-overwriting the successor owner's canonical file.
+overwriting the successor owner's canonical file. Losing ownership also suppresses
+that job's end-of-run `/settings/batch` stamp, so no later provenance write bypasses
+the failed publish guard.
 
 Missing or malformed legacy profile values do not invent a rejection; those completed
 checkpoints retain ADR-0030's presence-only skip behavior. The store remains the only

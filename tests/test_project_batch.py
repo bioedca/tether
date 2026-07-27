@@ -632,6 +632,8 @@ def test_overwrite_rejected_checkpoint_aborts_if_lock_is_stolen_before_publish(
         _extract=_extract_stub(low_conf=frozenset({"x"})),
     )
     assert first.n_failed == 1
+    with h5py.File(jobs[0].output_path, "r+") as store:
+        store["settings/batch"].attrs["sentinel"] = "successor must keep this"
     contender = lock.LockIdentity(host="OTHER", user="contender", pid=123)
     stolen = None
 
@@ -673,6 +675,7 @@ def test_overwrite_rejected_checkpoint_aborts_if_lock_is_stolen_before_publish(
     assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
     with h5py.File(jobs[0].output_path, "r") as store:
         profile = json.loads(store["settings/extraction"].attrs["profile_json"])
+        assert store["settings/batch"].attrs["sentinel"] == "successor must keep this"
     assert profile["registration_rms_px"] == 0.75
     assert not r.ok
 
