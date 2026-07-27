@@ -385,9 +385,8 @@ def test_packaging_install_smoke_exercises_the_pkg_resources_path() -> None:
         "(issue #212)"
     )
     assert "import setuptools, pkg_resources" in workflow, (
-        "packaging.yml install-smoke must assert the hash-locked setuptools compatibility "
-        "wheel was applied to "
-        "the sidecar env, so a regression names its cause (issue #212)"
+        "packaging.yml install-smoke must import setuptools and pkg_resources in the sidecar "
+        "environment, so a regression names its cause (issue #212)"
     )
 
 

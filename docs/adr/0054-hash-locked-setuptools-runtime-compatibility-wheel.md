@@ -99,8 +99,8 @@ security/release judgment.
   off`, run 2026-07-26: reported the known `PYSEC-2026-3447` finding and fix version
   83.0.0; the proposed exception remains subject to qualified security/release review.
 - [pip secure installs](https://pip.pypa.io/en/stable/topics/secure-installs/), consulted
-  through Context7 for the locked pip 26.1.2: hash-checking mode requires pinned,
-  hashed requirements.
+  through Context7 for the locked pip 26.1.2: hash-checking mode requires requirements
+  to be pinned and hashed.
 - [pip download](https://pip.pypa.io/en/stable/cli/pip_download/), consulted through
   Context7 for pip 26.1.2: `-r`, `--require-hashes`, `--only-binary`, `--no-deps`, and
   `--dest` are supported together.
