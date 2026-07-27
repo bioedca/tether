@@ -51,13 +51,15 @@ acquisition nonce verified at each canonical-write boundary and after each runne
 returns. The correction orchestrator passes that guard into each photobleach, leakage,
 gamma, and corrected-FRET writer, which checks again after its computation immediately
 before each HDF5 mutation. For idealization, which may spend the full sidecar timeout
-fitting, the same guard runs after the fit immediately before HDF5 persistence. A
-pre-existing same-process destination lock is borrowed without refreshing its nonce or
-releasing the caller's session; release failures from locks acquired by the batch are
-reported per movie without terminating the queue. If the lock became stale and was
-stolen during a long stage, the old owner stops the job, suppresses later writes, and
-never releases the successor's lock. Other jobs and fresh-output locking behavior are
-unchanged.
+fitting and then compress large datasets, the guarded path builds the complete model
+inside a same-directory sibling copy of the project. It revalidates ownership after
+staging and changes the canonical project only through the final guarded
+`os.replace`. A pre-existing same-process destination lock is borrowed without
+refreshing its nonce or releasing the caller's session; release failures from locks
+acquired by the batch are reported per movie without terminating the queue. If the
+lock became stale and was stolen during a long stage, the old owner stops the job,
+suppresses later writes, and never releases the successor's lock. Other jobs and
+fresh-output locking behavior are unchanged.
 
 Per-condition aggregation of α/γ *across* movies (a dataset-level median) is **not**
 introduced here; each movie's corrections run over its own store with the existing

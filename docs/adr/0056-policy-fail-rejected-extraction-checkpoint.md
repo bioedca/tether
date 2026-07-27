@@ -66,13 +66,14 @@ lock nonce with this run's acquisition nonce. The batch runner performs the same
 nonce check before and after every later canonical writer. The correction orchestrator
 carries the guard into each photobleach, leakage, gamma, and corrected-FRET writer,
 where it runs again after computation immediately before each HDF5 mutation. Because
-supervised idealization may spend the full sidecar timeout fitting, its writer likewise
-invokes the guard after fitting, immediately before opening the canonical HDF5 project
-for persistence. A pre-existing same-process lock is borrowed without replacing its
-nonce or releasing the caller's session; a release error for a batch-acquired lock is
-reported against that movie without aborting the queue. If an operator steals the
-now-stale lock during a long stage, the old run stops that job, suppresses subsequent
-writes, and never releases the successor's lock.
+supervised idealization may spend the full sidecar timeout fitting and then compress
+large datasets, its guarded writer builds the complete model inside a same-directory
+sibling project copy. It revalidates ownership after staging and mutates the canonical
+project only through the final guarded `os.replace`. A pre-existing same-process lock
+is borrowed without replacing its nonce or releasing the caller's session; a release
+error for a batch-acquired lock is reported against that movie without aborting the
+queue. If an operator steals the now-stale lock during a long stage, the old run stops
+that job, suppresses subsequent writes, and never releases the successor's lock.
 
 Missing or malformed legacy profile values do not invent a rejection; those completed
 checkpoints retain ADR-0030's presence-only skip behavior. The store remains the only

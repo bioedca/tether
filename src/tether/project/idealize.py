@@ -62,12 +62,13 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from shutil import rmtree
-from tempfile import mkdtemp
+from shutil import copy2, rmtree
+from tempfile import mkdtemp, mkstemp
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -650,9 +651,11 @@ def write_idealization_model(
     Raises ``ValueError`` if the row-aligned inputs (``molecule_ids`` / ``input_hashes``
     / ``idealized`` / ``state_paths``) disagree with ``molecule_keys`` in length, or if
     ``extra_attrs`` names a reserved attr — failing loud *before* any write rather than
-    persisting partially-aligned or clobbered data. ``write_guard`` is an optional
-    caller-owned lock/lease check invoked immediately before opening the canonical
-    project and again before swapping the fully staged model into place.
+    persisting partially-aligned or clobbered data. With ``write_guard`` supplied,
+    the model is built in a same-directory sibling copy of the project, ownership is
+    checked after staging, and the canonical file changes only through the final
+    guarded ``os.replace``. Without a guard, the established in-file staging path is
+    retained.
     """
     import h5py
 
@@ -679,70 +682,102 @@ def write_idealization_model(
             )
 
     str_dt = h5py.string_dtype(encoding="utf-8")
+    canonical_path = Path(path)
+    guarded_stage: Path | None = None
+    write_path = canonical_path
     if write_guard is not None:
         write_guard()
-    with h5py.File(path, "r+") as f:
-        parent = f.require_group(IDEALIZATION_GROUP)
-        if model_name in parent and not overwrite:  # re-checked under the write handle
-            raise FileExistsError(f"/idealization/{model_name} already exists in {path.name}")
-        staging = f"{model_name}{_WRITING_SUFFIX}"
-        if staging in parent:
-            del parent[staging]  # clean up a prior aborted write
-        g = parent.create_group(staging)
-        g.attrs["type"] = model_type
-        g.attrs["nstates"] = int(nstates)
-        g.attrs["dtype"] = dtype
-        g.attrs["intensity_quantity"] = intensity_quantity
-        g.attrs["nstates_selected_by"] = selected_by
-        g.attrs["n_molecules"] = len(molecule_keys)
-        g.attrs["app_version"] = app_version
-        g.attrs["created_utc"] = created_utc
-        if elbo is not None:
-            g.attrs["elbo"] = elbo
-        if elbo_by_nstates is not None:
-            # Serialize a non-finite score (the -inf sentinel) as JSON null, so the
-            # attr is always valid JSON; read_idealization maps null back to -inf.
-            g.attrs["elbo_by_nstates"] = json.dumps(
-                {str(k): (v if math.isfinite(v) else None) for k, v in elbo_by_nstates.items()}
-            )
-        for key, value in (extra_attrs or {}).items():
-            g.attrs[key] = value
-
-        g.create_dataset("mean", data=np.asarray(means, dtype="float64"))
-        if variances is not None:
-            g.create_dataset("var", data=np.asarray(variances, dtype="float64"))
-        if tmatrix is not None:
-            g.create_dataset("tmatrix", data=np.asarray(tmatrix, dtype="float64"))
-        if norm_tmatrix is not None:
-            g.create_dataset("norm_tmatrix", data=np.asarray(norm_tmatrix, dtype="float64"))
-        # Appendix-D.2 population-model members (PRD §10). Written only when the fit
-        # produced them; a threshold/k-means model has no rate matrix or priors.
-        if rates is not None:
-            g.create_dataset("rates", data=np.asarray(rates, dtype="float64"))
-        if pi is not None:
-            g.create_dataset("pi", data=np.asarray(pi, dtype="float64"))
-        if frac is not None:
-            g.create_dataset("frac", data=np.asarray(frac, dtype="float64"))
-        if priors:
-            pg = g.create_group("priors")
-            for name, arr in priors.items():
-                pg.create_dataset(name, data=np.asarray(arr, dtype="float64"))
-        g.create_dataset(
-            "idealized", data=np.asarray(idealized, dtype="float64"), compression="gzip"
+        fd, raw_stage = mkstemp(
+            prefix=f".{canonical_path.name}.",
+            suffix=".idealization.tmp",
+            dir=canonical_path.parent,
         )
-        g.create_dataset(
-            "state_path", data=np.asarray(state_paths, dtype="int64"), compression="gzip"
-        )
-        g.create_dataset("molecule_key", data=list(molecule_keys), dtype=str_dt)
-        g.create_dataset("molecule_id", data=list(molecule_ids), dtype=str_dt)
-        g.create_dataset("input_hash", data=list(input_hashes), dtype=str_dt)
+        os.close(fd)
+        guarded_stage = Path(raw_stage)
+        try:
+            copy2(canonical_path, guarded_stage)
+            write_guard()
+        except Exception:
+            guarded_stage.unlink(missing_ok=True)
+            raise
+        write_path = guarded_stage
 
-        # Atomic swap: the staged group is complete, so replace the old model now.
+    try:
         if write_guard is not None:
             write_guard()
-        if model_name in parent:
-            del parent[model_name]
-        parent.move(staging, model_name)
+        with h5py.File(write_path, "r+") as f:
+            parent = f.require_group(IDEALIZATION_GROUP)
+            if model_name in parent and not overwrite:  # re-checked under the write handle
+                raise FileExistsError(
+                    f"/idealization/{model_name} already exists in {canonical_path.name}"
+                )
+            staging = f"{model_name}{_WRITING_SUFFIX}"
+            if staging in parent:
+                del parent[staging]  # clean up a prior aborted write
+            g = parent.create_group(staging)
+            g.attrs["type"] = model_type
+            g.attrs["nstates"] = int(nstates)
+            g.attrs["dtype"] = dtype
+            g.attrs["intensity_quantity"] = intensity_quantity
+            g.attrs["nstates_selected_by"] = selected_by
+            g.attrs["n_molecules"] = len(molecule_keys)
+            g.attrs["app_version"] = app_version
+            g.attrs["created_utc"] = created_utc
+            if elbo is not None:
+                g.attrs["elbo"] = elbo
+            if elbo_by_nstates is not None:
+                # Serialize a non-finite score (the -inf sentinel) as JSON null, so the
+                # attr is always valid JSON; read_idealization maps null back to -inf.
+                g.attrs["elbo_by_nstates"] = json.dumps(
+                    {str(k): (v if math.isfinite(v) else None) for k, v in elbo_by_nstates.items()}
+                )
+            for key, value in (extra_attrs or {}).items():
+                g.attrs[key] = value
+
+            g.create_dataset("mean", data=np.asarray(means, dtype="float64"))
+            if variances is not None:
+                g.create_dataset("var", data=np.asarray(variances, dtype="float64"))
+            if tmatrix is not None:
+                g.create_dataset("tmatrix", data=np.asarray(tmatrix, dtype="float64"))
+            if norm_tmatrix is not None:
+                g.create_dataset("norm_tmatrix", data=np.asarray(norm_tmatrix, dtype="float64"))
+            # Appendix-D.2 population-model members (PRD §10). Written only when the fit
+            # produced them; a threshold/k-means model has no rate matrix or priors.
+            if rates is not None:
+                g.create_dataset("rates", data=np.asarray(rates, dtype="float64"))
+            if pi is not None:
+                g.create_dataset("pi", data=np.asarray(pi, dtype="float64"))
+            if frac is not None:
+                g.create_dataset("frac", data=np.asarray(frac, dtype="float64"))
+            if priors:
+                pg = g.create_group("priors")
+                for name, arr in priors.items():
+                    pg.create_dataset(name, data=np.asarray(arr, dtype="float64"))
+            g.create_dataset(
+                "idealized", data=np.asarray(idealized, dtype="float64"), compression="gzip"
+            )
+            g.create_dataset(
+                "state_path", data=np.asarray(state_paths, dtype="int64"), compression="gzip"
+            )
+            g.create_dataset("molecule_key", data=list(molecule_keys), dtype=str_dt)
+            g.create_dataset("molecule_id", data=list(molecule_ids), dtype=str_dt)
+            g.create_dataset("input_hash", data=list(input_hashes), dtype=str_dt)
+
+            # Swap inside the staging project. For a guarded write the canonical
+            # project has not been opened or mutated by this process.
+            if write_guard is not None:
+                write_guard()
+            if model_name in parent:
+                del parent[model_name]
+            parent.move(staging, model_name)
+
+        if guarded_stage is not None:
+            write_guard()
+            os.replace(guarded_stage, canonical_path)
+            guarded_stage = None
+    finally:
+        if guarded_stage is not None:
+            guarded_stage.unlink(missing_ok=True)
 
 
 def _write_model(
