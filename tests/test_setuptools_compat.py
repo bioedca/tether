@@ -136,6 +136,7 @@ def test_troubleshooting_separates_source_and_installer_recovery_interpreters() 
     assert '"$TETHER_SIDECAR_PYTHON" -m pip install' in source
     assert "& $env:TETHER_SIDECAR_PYTHON -m pip install" in source
     assert "<install-prefix>" not in source
+    assert "envs/sidecar" not in source
 
 
 @pytest.mark.parametrize("workflow", [SIDECAR_WORKFLOW, MEASURE_WORKFLOW])

@@ -610,8 +610,9 @@ that interpreter (needs network):
 ```
 
 Then re-run the liveness probe or the idealization. In either case, the shown command is the
-recovery step if you have upgraded setuptools inside `envs/sidecar` yourself. `--force-reinstall` is
-deliberate: a rerun must download or reuse and hash-check the locked wheel instead of
+recovery step if you have upgraded setuptools inside the sidecar environment yourself.
+`--force-reinstall` is deliberate: a rerun must download or reuse and hash-check the locked
+wheel instead of
 trusting an already-installed same-version distribution. This affects the **sidecar**
 environment only — Tether's base environment does not import `pkg_resources`. The
 exception is temporary and must be removed when the pinned tMAVEN revision stops
