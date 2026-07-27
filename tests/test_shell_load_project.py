@@ -792,6 +792,46 @@ def test_project_switch_retains_new_lock_when_both_releases_fail(
     assert not shell._lock_release_timer.isActive()
 
 
+def test_project_switch_fails_closed_when_prior_session_epoch_was_lost(
+    shell, qtbot, tmp_path
+) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    from tether.project import lock
+    from tether.project.labels import read_labels
+    from tether.project.lock import LockIdentity
+
+    first, *_ = _round_trip_store(tmp_path, n=3, t=12, name="first.tether")
+    second, *_ = _round_trip_store(tmp_path, n=3, t=12, name="second.tether")
+    retained = shell.load_project(first.path)
+    assert retained is not None
+    foreign = lock.acquire(
+        first.path,
+        identity=LockIdentity(host="OTHER-HOST", user="other", pid=999),
+        steal=True,
+    )
+    assert lock.release(first.path, foreign)
+    assert first.lock_owner() is None
+
+    assert shell.load_project(second.path) is None
+
+    assert retained._held_lock is None
+    assert shell._curation_project is None
+    assert shell._session_project is None
+    assert shell._claimed_project_key is None
+    assert shell._curation_read_only_reason is not None
+    assert "session lock lost" in shell._curation_read_only_reason
+    assert not shell._lock_refresh_timer.isActive()
+    assert first.lock_owner() is None
+    assert second.lock_owner() is None
+
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Space)
+
+    assert read_labels(first.path).shape == (0,)
+    assert "Accept unavailable" in shell.status_message
+    assert "read-only" in shell.status_message
+
+
 @pytest.mark.parametrize(
     ("key_name", "method_name", "expected_label", "success_text"),
     [

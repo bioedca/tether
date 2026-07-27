@@ -441,6 +441,39 @@ def test_atomic_write_removes_temp_after_replace_failure(tmp_path: Path, monkeyp
     assert list(tmp_path.glob(f"{lock_file.name}.tmp-*")) == []
 
 
+def test_atomic_write_removes_partial_temp_after_write_failure(tmp_path: Path, monkeypatch) -> None:
+    lock_file = tmp_path / "exp.tether.lock"
+    info = LockInfo(
+        host="HOST-A",
+        user="alice",
+        pid=111,
+        timestamp=datetime.now(UTC).isoformat(),
+        nonce="partial-write",
+    )
+    original_write_text = Path.write_text
+
+    def partial_then_fail(path, data, *, encoding=None, errors=None, newline=None):
+        if path.name == f"{lock_file.name}.tmp-{info.nonce}":
+            with path.open("w", encoding=encoding, errors=errors, newline=newline) as stream:
+                stream.write(data[:5])
+            raise OSError("simulated partial temp write")
+        return original_write_text(
+            path,
+            data,
+            encoding=encoding,
+            errors=errors,
+            newline=newline,
+        )
+
+    monkeypatch.setattr(Path, "write_text", partial_then_fail)
+
+    with pytest.raises(OSError, match="partial temp write"):
+        lock._atomic_write(lock_file, info)
+
+    assert not lock_file.exists()
+    assert list(tmp_path.glob(f"{lock_file.name}.tmp-*")) == []
+
+
 def test_fork_child_reset_closes_inherited_guard_descriptors(tmp_path: Path) -> None:
     descriptor = os.open(tmp_path / "inherited.guard", os.O_CREAT | os.O_RDWR, 0o644)
     assert set() == lock._ACTIVE_GUARD_FDS

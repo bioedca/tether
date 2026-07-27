@@ -317,9 +317,9 @@ def _new_info(identity: LockIdentity, *, now: datetime | None = None) -> LockInf
 def _atomic_write(lp: Path, info: LockInfo) -> None:
     """Write the lock JSON via a temp file + atomic ``os.replace`` (crash/torn-write safe)."""
     tmp = lp.with_name(f"{lp.name}.tmp-{info.nonce}")
-    tmp.write_text(json.dumps(info.to_dict(), indent=2), encoding="utf-8")
     deadline = time.monotonic() + _ATOMIC_REPLACE_TIMEOUT_S
     try:
+        tmp.write_text(json.dumps(info.to_dict(), indent=2), encoding="utf-8")
         while True:
             try:
                 os.replace(tmp, lp)

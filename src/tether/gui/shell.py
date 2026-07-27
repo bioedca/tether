@@ -848,16 +848,27 @@ class TetherShell:
         prior_session_project = self._session_project
         prior_claimed_key = self._claimed_project_key
         if prior_session_project is not None and prior_session_project is not session_project:
+            prior_release_error = None
+            prior_epoch_lost = False
             try:
-                if not prior_session_project.release_lock():
-                    raise OSError("prior session lock release was indeterminate")
+                prior_released = prior_session_project.release_lock()
             except OSError as exc:
+                prior_release_error = exc
+            else:
+                if not prior_released:
+                    if prior_session_project._held_lock is None:
+                        prior_epoch_lost = True
+                    else:
+                        prior_release_error = OSError(
+                            "prior session lock release was indeterminate"
+                        )
+            if prior_release_error is not None or prior_epoch_lost:
                 if session_project is not None:
                     try:
                         new_released = session_project.release_lock()
                     except OSError:
                         new_released = False
-                    if not new_released:
+                    if not new_released and session_project._held_lock is not None:
                         self._rollback_session_project = session_project
                         self._rollback_claimed_project_key = claimed_key
                         self._lock_release_timer.start()
@@ -865,7 +876,25 @@ class TetherShell:
                         _release_gui_project(claimed_key, self._project_owner_token)
                 elif claimed_key != prior_claimed_key:
                     _release_gui_project(claimed_key, self._project_owner_token)
-                self._status(f"Open project unavailable: prior session release failed: {exc}")
+                if prior_epoch_lost:
+                    self._lock_refresh_timer.stop()
+                    self._reject_active_conditions_dialog()
+                    self._curation_project = None
+                    self._session_project = None
+                    self._claimed_project_key = None
+                    self._set_read_only_reason("session lock lost while opening another project")
+                    self._idealizer = None
+                    self._conditions = None
+                    _release_gui_project(prior_claimed_key, self._project_owner_token)
+                    self._status(
+                        "Open project unavailable: prior session lock was lost; "
+                        "current project is read-only"
+                    )
+                else:
+                    self._status(
+                        "Open project unavailable: prior session release failed: "
+                        f"{prior_release_error}"
+                    )
                 return None
 
         self._curation_project = project if writable else None

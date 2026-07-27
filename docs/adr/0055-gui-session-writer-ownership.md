@@ -97,7 +97,10 @@ the same epoch, while a lock stolen and then released during the fit cannot be s
 reacquired and therefore still prevents the store write.
 
 Replacing the loaded project releases the prior session lock after the new project has
-opened successfully. Closing the shell releases the current lock immediately when idle;
+opened successfully. If that release instead proves the prior epoch was already lost,
+the candidate switch is rolled back and the old project is immediately presented
+read-only with its stale process claim cleared. Closing the shell releases the current
+lock immediately when idle;
 a transient or indeterminate-false release retains the lifecycle handle and process-local
 claim while a timer retries the exact held nonce instead of waiting for staleness.
 If idealization is still running, the visual result is abandoned but the lock remains
