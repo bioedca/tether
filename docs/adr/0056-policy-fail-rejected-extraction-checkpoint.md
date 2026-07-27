@@ -73,12 +73,13 @@ the final `/settings/batch` stamp. `extract_movie` builds the replacement at a s
 temp path and, immediately before `os.replace`, calls a publish guard that compares the
 on-disk lock nonce with this run's acquisition nonce. The batch runner performs the same
 nonce check before and after every later canonical writer. The correction orchestrator
-carries the guard into each photobleach, leakage, gamma, and corrected-FRET writer,
-where it runs again after computation immediately before each HDF5 mutation. Because
-supervised idealization may spend the full sidecar timeout fitting and then compress
-large datasets, its guarded writer builds the complete model inside a same-directory
-sibling project copy. It revalidates ownership after staging and mutates the canonical
-project only through the final guarded `os.replace`. The final `/settings/batch`
+carries the guard into each writer. Photobleach revalidates its mutation boundaries;
+guarded leakage, gamma, and corrected-FRET stage their complete dependent
+`/molecules` update plus `/settings/*` stamp inside a same-directory sibling project.
+They publish that pair only through a final nonce check and atomic `os.replace`, so lock
+loss cannot leave canonical data without its provenance. Unguarded callers retain their
+in-place behavior. Guarded idealization likewise builds the complete model in a sibling
+project before final publication. The final `/settings/batch`
 provenance writer also revalidates before opening the canonical project and immediately
 before replacing its group. Any pre-existing lock fails closed, including one with this
 process's identity, unless a future API explicitly transfers that writer's critical

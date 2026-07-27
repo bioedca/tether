@@ -492,9 +492,10 @@ def run_correct_stage(
     the resulting NaN α-sentinel. The corrected-FRET pass then degrades the missing
     factors to apparent E — never a NaN factor (PRD §7.2, §1.3 invariant 3).
 
-    ``write_guard`` is an optional caller-owned lock/lease check. It is carried
-    into every correction writer so a long computation revalidates ownership
-    immediately before mutating the canonical HDF5 project.
+    ``write_guard`` is an optional caller-owned lock/lease check carried into every
+    correction writer. Guarded leakage, gamma, and corrected-FRET passes stage their
+    complete data-plus-provenance update in a sibling project and publish only after a
+    final ownership check; ordinary unguarded callers retain in-place persistence.
 
     Returns a short human detail string for the log / summary.
 
@@ -845,6 +846,9 @@ def run_batch(
                             destination_reservation,
                         )
                         ownership_guard()
+                        # Intentionally run and discard this checkpoint classification
+                        # under fresh ownership. It surfaces a fallible read here;
+                        # _do_extract re-derives the actual ADR-0056 stage decision.
                         _needs_rejected_checkpoint_lock(
                             job,
                             policy=policy,

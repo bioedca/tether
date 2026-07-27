@@ -469,6 +469,7 @@ def acquire_process_reservation(project_path: str | Path) -> ProcessReservation:
     key = _reservation_key(project_path)
     state = _checkout_reservation_state(key)
     acquired = False
+    token: ProcessReservation | None = None
     try:
         with _PROCESS_RESERVATIONS_GUARD:
             already_reserved = bool(state.tokens)
@@ -491,7 +492,7 @@ def acquire_process_reservation(project_path: str | Path) -> ProcessReservation:
     except Exception:
         if acquired:
             with _PROCESS_RESERVATIONS_GUARD:
-                if "token" in locals():
+                if token is not None:
                     state.tokens.discard(token.nonce)
             state.gate.release()
         _return_reservation_state(key, state)

@@ -55,13 +55,14 @@ decision under that ownership: an accepted completed checkpoint is skipped befor
 release, while an absent, rejected, or incomplete checkpoint keeps the same lock through
 extraction, downstream correction and idealization, and the final batch-provenance
 stamp, with the acquisition nonce verified at each canonical-write boundary and after
-each runner returns. The correction orchestrator passes that guard into each photobleach,
-leakage, gamma, and corrected-FRET writer, which checks again after its computation
-immediately before each HDF5 mutation. For idealization, which may spend the full sidecar timeout
-fitting and then compress large datasets, the guarded path builds the complete model
-inside a same-directory sibling copy of the project. It revalidates ownership after
-staging and changes the canonical project only through the final guarded
-`os.replace`. The final batch-provenance writer receives the guard too and revalidates
+each runner returns. The correction orchestrator passes that guard into each writer.
+Photobleach revalidates at its mutation boundaries; guarded leakage, gamma, and
+corrected-FRET each build their complete dependent `/molecules` update plus
+`/settings/*` provenance stamp inside a same-directory sibling project. Only a final
+nonce check followed by atomic `os.replace` can publish that paired state, so ownership
+loss cannot leave data without its stamp. Unguarded callers retain the established
+in-place behavior. Idealization uses the same whole-project publication boundary after
+fitting and compression. The final batch-provenance writer receives the guard too and revalidates
 before opening the canonical project and immediately before replacing
 `/settings/batch`. Any pre-existing destination lock fails closed, including one owned
 by this process, because process identity alone does not transfer another thread's or

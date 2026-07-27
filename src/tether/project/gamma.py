@@ -57,6 +57,7 @@ from tether.fret.gamma import (
     estimate_gamma,
 )
 from tether.io.schema import TABLE
+from tether.project._guarded_publish import guarded_project_write
 from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
 
 __all__ = ["GammaSummary", "compute_gamma"]
@@ -145,8 +146,10 @@ def compute_gamma(
         Withhold the dataset γ below this many qualifying traces (PRD §11.2,
         default 10).
     write_guard
-        Optional caller-owned lock/lease check invoked before opening the canonical
-        project and at each persistence boundary after estimation.
+        Optional caller-owned lock/lease check. With a guard, the complete
+        ``/molecules.gamma`` update and ``/settings/gamma`` stamp are written to a
+        same-directory sibling project and published together by one final guarded
+        atomic replace. Without a guard, the established in-place write path remains.
 
     Returns
     -------
@@ -174,9 +177,10 @@ def compute_gamma(
     donor_layer, acceptor_layer = INTENSITY_QUANTITY_LAYERS[intensity_quantity]
     path = Path(project_path)
 
-    if write_guard is not None:
-        write_guard()
-    with h5py.File(path, "r+") as f:
+    with (
+        guarded_project_write(path, write_guard=write_guard, label="gamma") as write_path,
+        h5py.File(write_path, "r+") as f,
+    ):
         traces_grp = f[_TRACES]
         for layer in (donor_layer, acceptor_layer):
             if layer not in traces_grp:

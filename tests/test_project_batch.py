@@ -78,8 +78,6 @@ def _extract_stub(*, fail: frozenset[str] = frozenset(), low_conf: frozenset[str
         stem = Path(output_path).stem
         if stem in fail:
             raise RuntimeError(f"extract boom: {stem}")
-        if publish_guard is not None:
-            publish_guard()
         create_project(output_path, overwrite=True)
         path = Path(output_path)
         _add_group(path, "settings/extraction")
@@ -90,6 +88,8 @@ def _extract_stub(*, fail: frozenset[str] = frozenset(), low_conf: frozenset[str
                     "rms_gate": 0.5,
                 }
             )
+        if publish_guard is not None:
+            publish_guard()
         return SimpleNamespace(n_molecules=3, low_confidence_registration=stem in low_conf)
 
     return run

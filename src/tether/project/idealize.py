@@ -772,6 +772,7 @@ def write_idealization_model(
             parent.move(staging, model_name)
 
         if guarded_stage is not None:
+            assert write_guard is not None
             write_guard()
             os.replace(guarded_stage, canonical_path)
             guarded_stage = None

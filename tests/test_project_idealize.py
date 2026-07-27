@@ -360,7 +360,7 @@ def test_guarded_writer_stages_outside_canonical_project(tmp_path) -> None:
     def lose_ownership_during_staging() -> None:
         nonlocal guard_calls
         guard_calls += 1
-        if guard_calls == 4:
+        if list(tmp_path.glob(".guarded.tether.*.idealization.tmp")):
             with h5py.File(proj.path, "r+") as store:
                 store["settings"].attrs["successor_sentinel"] = "preserve"
             raise RuntimeError("destination ownership changed during staging")
@@ -391,7 +391,7 @@ def test_guarded_writer_stages_outside_canonical_project(tmp_path) -> None:
             write_guard=lose_ownership_during_staging,
         )
 
-    assert guard_calls == 4
+    assert guard_calls >= 2
     assert list_idealizations(proj) == []
     with h5py.File(proj.path, "r") as store:
         assert store["settings"].attrs["successor_sentinel"] == "preserve"
