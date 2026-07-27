@@ -69,7 +69,9 @@ work starts and again immediately before opening HDF5 for persistence. A lock st
 during the fit therefore prevents the store write.
 
 Replacing the loaded project releases the prior session lock after the new project has
-opened successfully. Closing the shell releases the current lock immediately when idle.
+opened successfully. Closing the shell releases the current lock immediately when idle;
+a transient release failure retains the lifecycle handle and process-local claim while a
+timer retries the exact held nonce instead of waiting for staleness.
 If idealization is still running, the visual result is abandoned but the lock remains
 held until the worker future finishes; its completion callback then releases ownership.
 Both `QApplication.aboutToQuit` and the exposed main window's own Close event route
@@ -79,12 +81,16 @@ shell's lock or application-wide event filter.
 If lock acquisition fails because another owner holds it or the sidecar cannot be created,
 the project HDF5 is not update-openable, or another shell in the process owns the path,
 the shell opens the project read-only. Read seams remain available, including outbound
-Hand-to-tMAVEN export to a separate SMD; return-leg import and every source-project write
+Hand-to-tMAVEN export to a separate SMD; a destination that identifies the loaded
+`.tether` source (including a file-system alias) is rejected before any write.
+Return-leg import and every source-project write
 seam stay disabled. The Browser dock carries a persistent read-only banner so navigation
 cannot erase the ownership warning. It also exposes **Un-reject selected** as the visible
 reversal of a sticky reject and records the reversal through the same append-only labels
-API. A successful curation write recomputes any already-open population histogram so the
-visible pool never retains a newly rejected molecule.
+API. A successful curation write queues a short, coalescing refresh of any already-open
+population histogram. This keeps the keystroke path independent of the project-wide
+apparent-E recomputation while ensuring the visible pool is refreshed after the curator
+pauses.
 
 The application-wide curation event filter dispatches only when the event and focus belong
 to the registered main curation window. It passes all key presses through unchanged for
@@ -102,7 +108,8 @@ unregistered top-level dialogs and popup menus remain outside curation scope.
 - **Good.** Contended projects remain browseable with an actionable read-only banner.
 - **Good.** Safe outbound export remains available from read-only projects, while return-leg
   import remains disabled.
-- **Good.** Open population histograms track successful accept/reject/un-reject writes.
+- **Good.** Open population histograms track successful accept/reject/un-reject writes
+  without putting a project-wide recomputation in the synchronous curation path.
 - **Good.** Sticky rejection has a discoverable, provenance-preserving reversal path.
 - **Trade-off.** A writable project remains exclusively locked for the GUI session, and
   project switching waits for any active idealizer.

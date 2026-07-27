@@ -19,6 +19,7 @@ PR-B GUI follow-up.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -281,6 +282,25 @@ def test_hand_off_unknown_quantity_raises(tmp_path):
     proj, _ = _build_store(tmp_path / "p.tether", _step_trace(2, 10), _step_trace(2, 10))
     with pytest.raises(ValueError, match="intensity_quantity"):
         hand_off_to_tmaven(proj, out_path=tmp_path / "o.hdf5", intensity_quantity="bogus")
+
+
+@pytest.mark.parametrize("alias_kind", ["source", "hardlink"])
+def test_hand_off_rejects_source_project_and_file_aliases(tmp_path, alias_kind):
+    proj, _ = _build_store(
+        tmp_path / "p.tether",
+        _step_trace(2, 10),
+        _step_trace(2, 10),
+    )
+    out = proj.path
+    if alias_kind == "hardlink":
+        out = tmp_path / "project-alias.hdf5"
+        os.link(proj.path, out)
+
+    with pytest.raises(ValueError, match="source .tether project"):
+        hand_off_to_tmaven(proj, out_path=out)
+
+    with h5py.File(proj.path, "r") as h5:
+        assert "dataset" not in h5
 
 
 # --------------------------------------------------------------------------- #

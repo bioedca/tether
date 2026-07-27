@@ -120,6 +120,9 @@ _IDEALIZE_POLL_MS = 25
 #: Retry a failed nonce-safe session-lock release without waiting for staleness.
 _LOCK_RELEASE_RETRY_MS = 1000
 
+#: Coalesce rapid curation keystrokes before recomputing a project-wide histogram.
+_HISTOGRAM_REFRESH_DEBOUNCE_MS = 250
+
 #: File filter for the hand-off SMD / model open+save dialogs (tMAVEN uses HDF5).
 _SMD_FILTER = "tMAVEN SMD (*.hdf5 *.smd);;All files (*)"
 
@@ -387,6 +390,10 @@ class TetherShell:
         self._lock_release_timer = QtCore.QTimer()
         self._lock_release_timer.setInterval(_LOCK_RELEASE_RETRY_MS)
         self._lock_release_timer.timeout.connect(self._retry_session_release)
+        self._histogram_refresh_timer = QtCore.QTimer()
+        self._histogram_refresh_timer.setSingleShot(True)
+        self._histogram_refresh_timer.setInterval(_HISTOGRAM_REFRESH_DEBOUNCE_MS)
+        self._histogram_refresh_timer.timeout.connect(self._run_queued_histogram_refresh)
 
         # Central surface: the pyqtgraph trace dock.
         self._trace_dock = TraceDock()
@@ -876,8 +883,7 @@ class TetherShell:
         try:
             project.release_lock()
         except OSError:
-            if not self._closed:
-                self._lock_release_timer.start()
+            self._lock_release_timer.start()
             return
         self._session_project = None
         self._lock_release_timer.stop()
@@ -886,6 +892,7 @@ class TetherShell:
 
     def _reset_store_docks(self) -> None:
         """Discard the lazily-built histogram / overlap docks so a re-open rebuilds them."""
+        self._histogram_refresh_timer.stop()
         for dock_attr, widget_attr in (
             ("_histogram_dock", "_histogram_dock_widget"),
             ("_overlap_dock", "_overlap_dock_widget"),
@@ -974,6 +981,7 @@ class TetherShell:
         if self._handoff is None:
             self._status("Import: load a project with extracted molecules first")
             return None
+        store_session = self._session_project is not None
         try:
             report = self._handoff.preview(smd_path, model_path=model_path)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
@@ -983,6 +991,23 @@ class TetherShell:
         if decision is None:
             self._status("Return-leg import cancelled")
             return None
+        # A modal event loop keeps the lock-refresh timer alive. Another writer can
+        # steal ownership while the curator is deciding, so revalidate immediately
+        # after the dialog and before the return leg opens the project for mutation.
+        if self._idealization_blocks_write("Import"):
+            return None
+        if self._curation_read_only_reason is not None:
+            self._status(
+                f"Import unavailable: project is read-only: {self._curation_read_only_reason}"
+            )
+            return None
+        if store_session:
+            if self._curation_project is not None:
+                self._refresh_project_lock()
+            if self._curation_project is None:
+                reason = self._curation_read_only_reason or "session writer ownership was lost"
+                self._status(f"Import unavailable: project is read-only: {reason}")
+                return None
         try:
             applied = self._handoff.apply(smd_path, decision, model_path=model_path)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
@@ -1187,6 +1212,17 @@ class TetherShell:
             return str(exc)
         return None
 
+    def _queue_open_histogram_refresh(self) -> None:
+        """Debounce a project-wide refresh so curation keystrokes remain responsive."""
+        if self._histogram_dock is not None and self._histogram_seam is not None:
+            self._histogram_refresh_timer.start()
+
+    def _run_queued_histogram_refresh(self) -> None:
+        """Apply one coalesced refresh and surface a delayed failure without crashing."""
+        error = self._refresh_open_histogram()
+        if error:
+            self._status(f"Histogram refresh failed: {error}")
+
     def _attach_histogram_dock(self) -> None:
         """Dock the (already-built, successfully-drawn) histogram into the window."""
         from pyqtgraph.Qt import QtCore, QtWidgets
@@ -1272,9 +1308,8 @@ class TetherShell:
             return
 
         target = trace.name or trace.molecule_key
-        histogram_error = self._refresh_open_histogram()
-        suffix = f"; histogram refresh failed: {histogram_error}" if histogram_error else ""
-        self._status(f"{completed} {target}{suffix}")
+        self._queue_open_histogram_refresh()
+        self._status(f"{completed} {target}")
 
     def _assign_category(self, integer_class: int) -> None:
         name = (
@@ -1421,6 +1456,7 @@ class TetherShell:
         self._event_filter.remove()
         self._lock_refresh_timer.stop()
         self._lock_release_timer.stop()
+        self._histogram_refresh_timer.stop()
         future = self._idealize_future
         writable_project = self._curation_project
         session_project = self._session_project
@@ -1434,8 +1470,6 @@ class TetherShell:
             with suppress(LockedError, OSError):
                 writable_project.acquire_lock()
         self._curation_project = None
-        self._session_project = None
-        self._claimed_project_key = None
         self._set_read_only_reason(None)
         if self._idealize_timer is not None:
             self._idealize_timer.stop()
@@ -1446,6 +1480,8 @@ class TetherShell:
             self._idealize_future = None
             QtWidgets.QApplication.restoreOverrideCursor()
         if session_project is not None and future is not None and not future.done():
+            self._session_project = None
+            self._claimed_project_key = None
 
             def release_after_fit(_done: Any) -> None:
                 with suppress(OSError):
@@ -1454,10 +1490,10 @@ class TetherShell:
 
             future.add_done_callback(release_after_fit)
         else:
-            if session_project is not None:
-                with suppress(OSError):
-                    session_project.release_lock()
-            _release_gui_project(claimed_key, self._project_owner_token)
+            # Keep the lifecycle handle and process-local claim until the exact held
+            # nonce is released. A transient unlink failure is retried by the timer
+            # even though the visible shell has already closed.
+            self._retry_session_release()
         self._idealize_executor.shutdown(wait=False)
         if self._histogram_dock is not None:
             self._histogram_dock.close()
@@ -1690,18 +1726,26 @@ class _StoreHandoff:
         *,
         model_path: str | PathLike[str] | None = None,
     ) -> AppliedReconcile:
+        from tether.project.core import Project as _Project
         from tether.project.handoff import apply_reconcile
 
+        kwargs = {
+            "model_path": model_path,
+            "intensity_quantity": self._intensity_quantity,
+            "model_name": self._model_name,
+            "accept_windows": decision.accept_windows,
+            "accept_classes": decision.accept_classes,
+            "import_idealization": decision.import_idealization,
+            "overwrite": self._overwrite,
+        }
+        if isinstance(self._project, _Project):
+            # Use the Project facade for a live GUI store so its final point-of-write
+            # ownership assertion backs up the post-dialog refresh.
+            return self._project.apply_reconcile(smd_path, **kwargs)
         return apply_reconcile(
             self._project,
             smd_path,
-            model_path=model_path,
-            intensity_quantity=self._intensity_quantity,
-            model_name=self._model_name,
-            accept_windows=decision.accept_windows,
-            accept_classes=decision.accept_classes,
-            import_idealization=decision.import_idealization,
-            overwrite=self._overwrite,
+            **kwargs,
         )
 
 

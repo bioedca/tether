@@ -38,6 +38,7 @@ Return leg — :func:`read_return_leg` (preview) + :func:`apply_reconcile` (comm
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -255,6 +256,19 @@ def _project_path(project: Project | str | PathLike[str]) -> Path:
     return project.path if isinstance(project, _Project) else Path(project)
 
 
+def _same_file(left: Path, right: Path) -> bool:
+    """Return whether two paths identify one file, including links and path aliases."""
+    try:
+        return left.samefile(right)
+    except OSError:
+        # ``right`` commonly does not exist yet. Resolve parent symlinks and apply
+        # platform case-folding so a differently-spelled path to ``left`` still
+        # fails closed before write_smd can modify the canonical project.
+        return os.path.normcase(str(left.resolve(strict=False))) == os.path.normcase(
+            str(right.resolve(strict=False))
+        )
+
+
 def _store_window(molecules: np.ndarray, row: int) -> tuple[int, int]:
     """The molecule's current analysis window, falling back to its native extent."""
     aw = molecules["analysis_window"][row]
@@ -362,6 +376,9 @@ def hand_off_to_tmaven(
         The written path + the exported molecules' identities in SMD-row order.
     """
     path = _project_path(project)
+    out = Path(out_path)
+    if _same_file(path, out):
+        raise ValueError("hand-off destination must not be the source .tether project")
     molecules = read_molecules(path)
     if molecules.shape[0] == 0:
         raise ValueError(f"{path.name} has no extracted molecules to hand off")
@@ -382,7 +399,6 @@ def hand_off_to_tmaven(
     donor_xy = np.stack([molecules["donor_xy"][i] for i in rows]).astype("float64")
     acceptor_xy = np.stack([molecules["acceptor_xy"][i] for i in rows]).astype("float64")
 
-    out = Path(out_path)
     write_smd(
         out,
         raw,

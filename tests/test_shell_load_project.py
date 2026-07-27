@@ -343,6 +343,40 @@ def test_refresh_io_failure_retries_nonce_safe_session_release(
     assert not shell._lock_release_timer.isActive()
 
 
+def test_close_retries_transient_nonce_safe_session_release(shell, tmp_path, monkeypatch) -> None:
+    from tether.project.core import Project
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    original_release = Project.release_lock
+    release_calls = 0
+
+    def flaky_release(project_ref):
+        nonlocal release_calls
+        release_calls += 1
+        if release_calls == 1:
+            raise OSError("temporary unlink failure")
+        return original_release(project_ref)
+
+    monkeypatch.setattr(Project, "release_lock", flaky_release)
+
+    shell.close()
+
+    assert release_calls == 1
+    assert shell._session_project is not None
+    assert shell._claimed_project_key is not None
+    assert project.lock_owner() is not None
+    assert shell._lock_release_timer.isActive()
+
+    shell._retry_session_release()
+
+    assert release_calls == 2
+    assert shell._session_project is None
+    assert shell._claimed_project_key is None
+    assert project.lock_owner() is None
+    assert not shell._lock_release_timer.isActive()
+
+
 @pytest.mark.parametrize(
     ("key_name", "method_name", "expected_label", "success_text"),
     [
@@ -649,6 +683,53 @@ def test_close_retains_session_lock_until_background_idealization_finishes(
     qtbot.waitUntil(lambda: not project.lock_path.exists(), timeout=5000)
 
 
+def test_return_leg_revalidates_writer_ownership_after_modal_dialog(
+    shell, tmp_path, monkeypatch
+) -> None:
+    from tether.gui import reconcile as reconcile_mod
+    from tether.gui.reconcile import ReconcileDecision
+    from tether.project import lock
+    from tether.project.handoff import AppliedReconcile
+    from tether.project.lock import LockIdentity
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    returning = tmp_path / "return.hdf5"
+    assert shell.hand_off_to_tmaven(returning) is not None
+    report = shell._handoff.preview(returning)
+    apply_calls = []
+
+    class RecordingHandoff:
+        def preview(self, _smd_path, *, model_path=None):
+            return report
+
+        def apply(self, smd_path, decision, *, model_path=None):
+            apply_calls.append((smd_path, decision, model_path))
+            return AppliedReconcile()
+
+    shell._handoff = RecordingHandoff()
+    foreign = None
+
+    def steal_while_modal(_dialog):
+        nonlocal foreign
+        foreign = lock.acquire(
+            project.path,
+            identity=LockIdentity(host="OTHER-HOST", user="other", pid=999),
+            steal=True,
+        )
+        return ReconcileDecision()
+
+    monkeypatch.setattr(reconcile_mod.ReconcileDialog, "exec", steal_while_modal)
+    try:
+        assert shell.import_return_leg(returning) is None
+        assert apply_calls == []
+        assert shell._curation_project is None
+        assert "read-only" in shell.status_message
+    finally:
+        if foreign is not None:
+            assert lock.release(project.path, foreign)
+
+
 def test_main_window_close_releases_session_state_while_application_lives(
     shell, qapp, qtbot, tmp_path
 ) -> None:
@@ -688,19 +769,34 @@ def test_curation_write_error_adds_no_row_and_never_reports_success(
     assert "Accepted" not in shell.status_message
 
 
-def test_successful_curation_refreshes_an_open_population_histogram(shell, qtbot, tmp_path) -> None:
+def test_successful_curation_defers_open_population_histogram_refresh(
+    shell, qtbot, tmp_path
+) -> None:
     from pyqtgraph.Qt import QtCore
 
     project, *_ = _round_trip_store(tmp_path, n=3, t=12)
     assert shell.load_project(project.path) is not None
+    histogram = shell._histogram_seam
+    histogram_calls = 0
+
+    def counted_histogram():
+        nonlocal histogram_calls
+        histogram_calls += 1
+        return histogram()
+
+    shell._histogram_seam = counted_histogram
     dock = shell.show_histogram()
     assert dock is not None
     assert dock.histogram.n_molecules == 3
+    assert histogram_calls == 1
 
     qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
 
-    assert dock.histogram.n_molecules == 2
+    assert histogram_calls == 1
+    assert shell._histogram_refresh_timer.isActive()
     assert "Rejected" in shell.status_message
+    qtbot.waitUntil(lambda: histogram_calls == 2, timeout=2000)
+    assert dock.histogram.n_molecules == 2
 
 
 def test_load_project_analysis_only_gates_overlap_and_banners(shell, tmp_path) -> None:
