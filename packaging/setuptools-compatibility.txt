@@ -3,5 +3,7 @@
 #
 # Temporary runtime compatibility wheel for tMAVEN's pkg_resources import.
 # Remove this requirement when the pinned tMAVEN revision no longer imports pkg_resources.
+# Canonical wheel RECORD-row anchor for post-install content verification:
+# RECORD-SHA256: 1ba9151ad91c4102de543716e97094f073be6d4e279b4b4e9a5eefee44f7a236
 setuptools==80.9.0 \
     --hash=sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922

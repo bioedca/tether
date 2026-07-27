@@ -32,6 +32,45 @@ import sys
 #: Sentinel prefixing the JSON status line on stdout (tMAVEN logs verbosely).
 STATUS_PREFIX = "TETHER_SIDECAR_STATUS "
 
+#: Bootstrap used by every base-to-sidecar launch. ``-I -S`` prevents environment,
+#: user-site, and executable ``.pth`` preloads; this code then adds only the exact sidecar
+#: site-packages and the hash-verified setuptools vendored-dependency directory.
+ISOLATED_BOOTSTRAP = r"""
+import pathlib
+import runpy
+import sys
+import sysconfig
+
+prefix = pathlib.Path(sys.prefix).resolve()
+site_packages = pathlib.Path(
+    sysconfig.get_path(
+        "purelib",
+        vars={"base": str(prefix), "platbase": str(prefix)},
+    )
+).resolve(strict=True)
+site_packages.relative_to(prefix)
+vendor_path = (site_packages / "setuptools" / "_vendor").resolve(strict=True)
+vendor_path.relative_to(prefix)
+protected_roots = (
+    "pkg_resources",
+    "tmaven",
+    "packaging",
+    "jaraco",
+    "platformdirs",
+    "more_itertools",
+)
+if any(
+    name == root or name.startswith(root + ".")
+    for name in sys.modules
+    for root in protected_roots
+):
+    raise RuntimeError("protected sidecar module was preloaded before isolated startup")
+sys.path[:0] = [str(vendor_path), str(site_packages)]
+runner = sys.argv.pop(1)
+sys.argv[0] = runner
+runpy.run_path(runner, run_name="__main__")
+"""
+
 #: model_type -> (maven.modeler method name, nstates pref key | None).
 #: ``vbconhmm`` (global consensus VB-HMM) is the default: it is the idealizer
 #: behind the reference model fixture (Appendix D.2 ``@type='vb Consensus HMM'``)

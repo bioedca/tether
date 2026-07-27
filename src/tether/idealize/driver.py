@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from tether.idealize._sidecar_runner import STATUS_PREFIX
+from tether.idealize._sidecar_runner import ISOLATED_BOOTSTRAP, STATUS_PREFIX
 from tether.idealize.smd import DEFAULT_GROUP, read_smd
 
 if TYPE_CHECKING:
@@ -61,6 +61,19 @@ NO_STATE = -1
 DEFAULT_OPEN_CHECK_TIMEOUT = 120.0
 
 _RUNNER = Path(__file__).with_name("_sidecar_runner.py")
+
+
+def _sidecar_runner_cmd(sidecar_python: Path, *args: str) -> list[str]:
+    """Build the isolated/no-site command shared by every sidecar launch."""
+    return [
+        str(sidecar_python),
+        "-I",
+        "-S",
+        "-c",
+        ISOLATED_BOOTSTRAP,
+        str(_RUNNER),
+        *args,
+    ]
 
 
 class SidecarError(RuntimeError):
@@ -397,15 +410,14 @@ def run_vbfret(
         model_out = smd_path.with_name(smd_path.stem + ".model.hdf5")
     model_out = Path(model_out)
 
-    cmd = [
-        str(py),
-        str(_RUNNER),
+    cmd = _sidecar_runner_cmd(
+        py,
         str(smd_path),
         group,
         model_type,
         str(int(nstates)),
         str(model_out),
-    ]
+    )
     if nrestarts is not None:
         cmd.append(str(int(nrestarts)))
 
@@ -565,7 +577,7 @@ def check_smd_opens(
     if not smd_path.exists():
         raise FileNotFoundError(smd_path)
 
-    cmd = [str(py), str(_RUNNER), "--load-check", str(smd_path), group]
+    cmd = _sidecar_runner_cmd(py, "--load-check", str(smd_path), group)
     env = _sidecar_env()
 
     runner = _run if _run is not None else _default_run

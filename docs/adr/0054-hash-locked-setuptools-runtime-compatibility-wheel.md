@@ -52,9 +52,12 @@ The older wheel is a **runtime compatibility layer, not a build backend**:
    the build dependencies, the script permits that build only when the target
    interpreter's actual setuptools version, conda package SHA-256, and installed file
    digests match one platform artifact in the supplied unified sidecar lock, and the
-   imported `setuptools.__file__` resolves to one of those verified files. Version
-   equality alone cannot let a `PYTHONPATH` or `.pth` overlay satisfy the conda
-   build-state gate, while valid platform-specific artifact hashes remain accepted.
+   selected absolute lexical `setuptools` package path and `setuptools.build_meta`
+   origin resolve to those verified files after all matching bytecode caches are removed.
+   The probe runs with isolated/no-site startup before any target import, so version
+   equality, `PYTHONPATH`, `.pth`, preloaded modules, symlinked package paths, or
+   timestamp-valid cache bytes cannot satisfy the conda build-state gate, while valid
+   platform-specific artifact hashes remain accepted.
    Before creating or inspecting an environment, the script also accepts only the
    repository's default pinned short tMAVEN spec or a custom `git+` spec ending in a
    full 40- or 64-hex commit; tags, branches, and abbreviated custom commits fail
@@ -76,9 +79,10 @@ The older wheel is a **runtime compatibility layer, not a build backend**:
    resolved `tmaven.__file__` is insufficient: a symlinked genuine initializer can
    retain a shadow package path and select an unverified submodule. Before importing
    tMAVEN, the probe safely discards every matching in-prefix legacy and `__pycache__`
-   bytecode file named by the raw Python source rows. Cleanup failure, a symlinked cache,
-   or an external `PYTHONPYCACHEPREFIX` disables reuse, so timestamp-and-size-valid
-   unrecorded `.pyc` bytes cannot override the verified `.py` sources. The probe parses
+   bytecode file named by the raw Python source rows. Cleanup failure or a symlinked cache
+   disables reuse; isolated/no-site startup ignores external `PYTHONPYCACHEPREFIX`,
+   `PYTHONPATH`, and site hooks, so timestamp-and-size-valid unrecorded `.pyc` bytes
+   cannot override the verified `.py` sources. The probe parses
    raw `RECORD` CSV because Python 3.12 `importlib.metadata.Distribution.files` can omit
    a listed file that is missing on disk. Commit and generator metadata alone cannot
    prove which bytes are present or imported. Every other state fails closed and
@@ -91,12 +95,17 @@ The older wheel is a **runtime compatibility layer, not a build backend**:
    binary-only hash
    checking and `--force-reinstall`, so a rerun cannot trust an already-installed
    same-version distribution without verifying the locked artifact. Before liveness,
-   setup parses the installed setuptools wheel's raw `RECORD`, eagerly clears all
-   in-prefix `pkg_resources` bytecode caches, verifies every recorded Python source
-   digest, and requires absolute lexical `pkg_resources.__file__`,
-   `pkg_resources.__spec__.origin`, and the sole package path to match that verified
-   distribution. Shadowing through `PYTHONPATH` or `.pth` therefore fails before tMAVEN
-   runs. This post-overlay provenance check still runs with `--skip-install`.
+   setup first canonicalizes the installed raw `RECORD` by sorting the original wheel
+   rows and excluding only pip-generated cache/installer rows, then requires its digest
+   to match the source-controlled `RECORD-SHA256` derived from the hash-locked wheel.
+   Only then does an isolated/no-site
+   probe eagerly clear all in-prefix bytecode caches, verify every recorded
+   `pkg_resources` and `setuptools/_vendor` Python source, import with the verified
+   vendored path first, and require the actual initializer, spec, sole package path, and
+   loaded `packaging`, `jaraco.text`, `platformdirs`, and transitive vendored origins to
+   match those anchored files. Mutable installed metadata, preloaded modules, and
+   `PYTHONPATH`/`.pth` shadows therefore fail closed before tMAVEN runs. This independent
+   post-overlay check still runs with `--skip-install`; it never silently reinstalls.
 3. Constructor installs the already-built compatibility and tMAVEN wheels offline into
    the isolated sidecar. The base Tether environment never receives the older package.
 

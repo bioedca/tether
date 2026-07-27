@@ -37,10 +37,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from tether.idealize.driver import (
-    _RUNNER,
     SidecarError,
     _parse_status,
     _sidecar_env,
+    _sidecar_runner_cmd,
     _tail,
     resolve_sidecar_python,
 )
@@ -166,7 +166,7 @@ def probe_sidecar(
     except SidecarError as exc:
         return ProbeResult(available=False, detail=str(exc))
 
-    cmd = [str(py), str(_RUNNER), "--probe"]
+    cmd = _sidecar_runner_cmd(py, "--probe")
     env = _sidecar_env()
 
     runner = _run if _run is not None else _default_probe_run

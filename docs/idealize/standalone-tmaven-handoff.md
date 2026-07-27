@@ -32,11 +32,13 @@ command. It encodes the two runtime layers and one optional test-tool layer that
 3. **setuptools 80.9.0** — tMAVEN imports the legacy `pkg_resources` API at runtime,
    which setuptools removed in 82.0.0. The exact wheel and SHA-256 are committed in
    `packaging/setuptools-compatibility.txt`; pip hash-checking mode installs it only
-   after the git-pinned tMAVEN has been built. Setup then verifies every raw-`RECORD`
-   `pkg_resources` Python source, safely discards its in-prefix bytecode caches, and
-   requires the actual initializer, spec origin, and sole package path to match those
-   verified files before tMAVEN runs. This temporary exception is removed when the pinned
-   tMAVEN revision no longer imports `pkg_resources` (ADR-0054).
+   after the git-pinned tMAVEN has been built. Setup then canonicalizes the installed
+   raw `RECORD` (excluding only pip-generated rows) and anchors it to the committed
+   wheel-derived digest, verifies every `pkg_resources` and
+   vendored-dependency Python source, safely discards their in-prefix bytecode caches, and
+   requires the actual initializer, spec, package path, and loaded dependency origins to
+   match those files under isolated/no-site startup. This temporary exception is removed
+   when the pinned tMAVEN revision no longer imports `pkg_resources` (ADR-0054).
 
 The script creates the env from the lock, installs only tMAVEN with dependency resolution
 disabled, optionally installs the separate hash-locked test tools, applies the separate
@@ -44,10 +46,12 @@ hash-locked runtime wheel, then probes liveness (import and instantiate `maven_c
 fit). It prints the line that points Tether at the interpreter.
 
 Before any `--no-build-isolation` tMAVEN build, the script verifies the target
-interpreter's actual setuptools version, one platform-specific conda package SHA-256,
-and every hash-bearing installed file against the supplied unified lock. The imported
-`setuptools.__file__` must also resolve to one of those verified files, so a same-version
-`PYTHONPATH` or `.pth` shadow does not satisfy that build-state gate.
+interpreter's setuptools version, one platform-specific conda package SHA-256, and every
+hash-bearing installed file against the supplied unified lock before importing target
+code. It removes matching setuptools bytecode caches and binds the selected lexical
+package path plus `setuptools.build_meta` origin to those verified files. Isolated/no-site
+startup rejects preloaded targets and ignores `PYTHONPATH` and `.pth`, so a same-version
+shadow does not satisfy that build-state gate.
 It accepts only the repository's default pinned short tMAVEN spec or a custom `git+`
 spec ending in a full 40- or 64-hex commit; tags, branches, and abbreviated custom
 commits fail before the environment is created or inspected.
@@ -66,9 +70,10 @@ non-package module at the exact raw-`RECORD` `tmaven/maven.py` path, with its re
 origin among the digest-verified files. Checking only a resolved `tmaven.__file__` is
 insufficient because a symlinked genuine initializer can retain a shadow package path
 and select an unverified submodule. Before importing tMAVEN, setup safely discards every
-matching in-prefix legacy and `__pycache__` bytecode file; cleanup failure, symlinked
-caches, or an external `PYTHONPYCACHEPREFIX` disables reuse. Thus an unrecorded
-timestamp-and-size-valid `.pyc` cannot override the verified source. Commit and generator
+matching in-prefix legacy and `__pycache__` bytecode file; cleanup failure or symlinked
+caches disables reuse. Isolated/no-site startup ignores external `PYTHONPYCACHEPREFIX`,
+`PYTHONPATH`, and site hooks. Thus an unrecorded timestamp-and-size-valid `.pyc` cannot
+override the verified source. Commit and generator
 metadata do not prove the installed or imported content remains unchanged. Every other
 existing-interpreter state fails closed; create a genuinely fresh environment under a
 new `--env-name` or perform an explicit deterministic restore instead of reinstalling
@@ -96,13 +101,13 @@ Useful options:
 
 | Option | Effect |
 |---|---|
-| `--python PATH` | Use an existing interpreter as the sidecar; skip env creation. A tMAVEN build requires a matching platform artifact from the lock and verified setuptools import origin; reuse also requires exact Git-commit, locked `WHEEL` generator, every raw Python `RECORD` row, the verified tMAVEN package path, the verified `tmaven.maven` origin, and safely discarded in-prefix bytecode caches. |
+| `--python PATH` | Use an existing interpreter as the sidecar; skip env creation. A tMAVEN build requires a matching platform artifact from the lock, verified lexical setuptools package and `build_meta` specs, and safely discarded caches under isolated/no-site startup; reuse also requires exact Git-commit, locked `WHEEL` generator, every raw Python `RECORD` row, the verified tMAVEN package path, and the verified `tmaven.maven` origin. |
 | `--conda-exe EXE` | Force a specific conda front-end (default: first of micromamba/mamba/conda). |
 | `--env-name NAME` | Name of the created env (default `tether-sidecar`). |
 | `--lock-file PATH` | conda-lock file to build the env from (default `sidecar/conda-lock.yml`). |
 | `--tmaven-spec SPEC` | Immutable tMAVEN pip spec: the repository's default pinned short spec or `git+URL@<full 40/64-hex commit>` only. Tags, branches, and abbreviated custom commits are rejected before the environment changes. |
 | `--with-pytest` | Also install the separately hash-locked pytest test tools needed by the live sidecar suite. |
-| `--skip-install` | Skip the tMAVEN, optional pytest test-tool, and setuptools compatibility-wheel installs; use only with an already-populated sidecar environment. Runtime `pkg_resources` provenance verification still runs, and the liveness probe still runs unless `--no-probe`. |
+| `--skip-install` | Skip the tMAVEN, optional pytest test-tool, and setuptools compatibility-wheel installs; use only with an already-populated sidecar environment. Independent wheel-`RECORD`-anchored runtime `pkg_resources`/vendored-dependency verification still runs without reinstalling, and the isolated liveness probe still runs unless `--no-probe`. |
 | `--no-probe` | Skip the liveness probe. |
 | `--dry-run` | Print every command without running it. |
 

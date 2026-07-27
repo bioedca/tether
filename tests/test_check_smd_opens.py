@@ -94,6 +94,7 @@ def test_check_smd_opens_passes_group_to_runner(tmp_path, monkeypatch: pytest.Mo
 
     check_smd_opens(_smd_file(tmp_path), group="other", _run=_capture)
     assert "--load-check" in seen["cmd"]
+    assert seen["cmd"][1:4] == ["-I", "-S", "-c"]
     assert seen["cmd"][-1] == "other"  # group is the last argv token
 
 

@@ -17,8 +17,10 @@ and **[ADR-0054](../docs/adr/0054-hash-locked-setuptools-runtime-compatibility-w
 - The exact **`setuptools-80.9.0-py3-none-any.whl`** runtime compatibility wheel,
   offline-installed into `<prefix>/envs/sidecar` before the already-built tMAVEN wheel
   (issues #212 and #218). `packaging/setuptools-compatibility.txt` is the sole
-  version/hash source; both build drivers use pip hash-checking mode and then independently
-  verify the staged filename and SHA-256 before constructor adopts it. This is a deliberate,
+  version/wheel-hash/raw-`RECORD`-hash source; both build drivers use pip hash-checking
+  mode and then independently verify the staged filename and SHA-256 before constructor
+  adopts it. Guided setup also uses the committed `RECORD-SHA256` to reject mutable
+  installed metadata before importing runtime code. This is a deliberate,
   bounded deviation from the sidecar lock: `sidecar/conda-lock.yml` resolves setuptools
   82.0.1, which no longer ships the `pkg_resources` API that tMAVEN imports at runtime.
   The old version is never a packaging build tool, and the base Tether environment never
