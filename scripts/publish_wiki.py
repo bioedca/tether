@@ -17,9 +17,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Sequence
 
 WIKI_REF = "refs/heads/master"
 MAX_VISIBLE_WORDS = 110
@@ -83,8 +83,7 @@ def _plain_paragraphs(text: str) -> list[str]:
     return [
         " ".join(line.strip() for line in paragraph.splitlines())
         for paragraph in paragraphs
-        if paragraph.strip()
-        and not paragraph.lstrip().startswith(("#", ">", "-", "*"))
+        if paragraph.strip() and not paragraph.lstrip().startswith(("#", ">", "-", "*"))
     ]
 
 

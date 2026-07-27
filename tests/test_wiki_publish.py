@@ -4,18 +4,25 @@
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
-from scripts import publish_wiki
-
 ROOT = Path(__file__).resolve().parents[1]
 HOME = ROOT / "wiki" / "Home.md"
 WORKFLOW = ROOT / ".github" / "workflows" / "wiki.yml"
 PUBLISHER = ROOT / "scripts" / "publish_wiki.py"
+
+_SPEC = importlib.util.spec_from_file_location("tether_wiki_publish", PUBLISHER)
+if _SPEC is None or _SPEC.loader is None:
+    raise RuntimeError(f"cannot load wiki publisher from {PUBLISHER}")
+publish_wiki = importlib.util.module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = publish_wiki
+_SPEC.loader.exec_module(publish_wiki)
 
 
 def _git(*args: str, cwd: Path | None = None) -> str:
@@ -223,9 +230,9 @@ def test_workflow_is_main_only_least_privilege_and_reviewable() -> None:
     assert "merge_group" not in triggers
     assert "workflow_run" not in triggers
 
-    assert (
-        "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0" in text
-    ), "use the repository's reviewed checkout SHA pin"
+    assert "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0" in text, (
+        "use the repository's reviewed checkout SHA pin"
+    )
     assert "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1" in text
     assert 'python-version: "3.12"' in text
     assert "persist-credentials: false" in text
