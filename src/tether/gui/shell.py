@@ -26,9 +26,11 @@ subclass one) so importing this module costs no Qt, matching the rest of
 
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Any
 
 from tether.gui.curation import (
@@ -115,11 +117,53 @@ _APP_NAME = "Tether"
 #: How often (ms) the main thread polls the background idealize fit for completion.
 _IDEALIZE_POLL_MS = 25
 
+#: Retry a failed nonce-safe session-lock release without waiting for staleness.
+_LOCK_RELEASE_RETRY_MS = 1000
+
 #: File filter for the hand-off SMD / model open+save dialogs (tMAVEN uses HDF5).
 _SMD_FILTER = "tMAVEN SMD (*.hdf5 *.smd);;All files (*)"
 
 #: File filter for the ``&File → Open project…`` dialog (a ``.tether`` HDF5 store).
 _TETHER_FILTER = "Tether project (*.tether);;All files (*)"
+
+# Project.acquire_lock() deliberately treats the same host/user/PID as a refresh.
+# Separate shells in one QApplication therefore need an additional process-local
+# ownership boundary or they can both become writable while sharing that identity.
+_GUI_PROJECT_OWNERS: dict[str, object] = {}
+_GUI_PROJECT_OWNERS_LOCK = Lock()
+
+
+def _project_owner_key(path: str | Path) -> str:
+    """Return one process-local identity for equivalent project paths."""
+    return os.path.normcase(os.path.realpath(os.fspath(path)))
+
+
+def _claim_gui_project(path: str | Path, token: object) -> str | None:
+    """Claim ``path`` for one shell token, returning its key or ``None`` if busy."""
+    key = _project_owner_key(path)
+    with _GUI_PROJECT_OWNERS_LOCK:
+        owner = _GUI_PROJECT_OWNERS.get(key)
+        if owner is not None and owner is not token:
+            return None
+        _GUI_PROJECT_OWNERS[key] = token
+    return key
+
+
+def _release_gui_project(key: str | None, token: object) -> None:
+    """Release a process-local claim only when ``token`` still owns it."""
+    if key is None:
+        return
+    with _GUI_PROJECT_OWNERS_LOCK:
+        if _GUI_PROJECT_OWNERS.get(key) is token:
+            del _GUI_PROJECT_OWNERS[key]
+
+
+def _probe_project_writable(path: str | Path) -> None:
+    """Require the project HDF5 itself to open for update before enabling writes."""
+    import h5py
+
+    with h5py.File(path, "r+"):
+        pass
 
 
 class OverflowCategoryPicker:
@@ -280,6 +324,15 @@ class TetherShell:
         # successful load_project call: synthetic/demo traces and a bare shell must
         # never acquire an accidental persistence target.
         self._curation_project: Project | None = None
+        # Lifecycle handle for the acquired sidecar nonce. It remains populated
+        # after a refresh I/O failure even though write seams fail closed, so retry
+        # and close can still release exactly the nonce this shell acquired.
+        self._session_project: Project | None = None
+        # The sidecar lock identifies a process, so two shells in this process would
+        # otherwise refresh the same identity and both become writable. This opaque
+        # token owns at most the currently loaded writable path in the local registry.
+        self._project_owner_token = object()
+        self._claimed_project_key: str | None = None
         # Why the loaded project is browse-only. Kept separately from
         # _curation_project so a blocked writer gets an actionable status instead
         # of the bare-shell "load a writable project" message.
@@ -331,6 +384,9 @@ class TetherShell:
         self._lock_refresh_timer = QtCore.QTimer()
         self._lock_refresh_timer.setInterval(max(1000, int(DEFAULT_STALENESS_TIMEOUT_S * 1000 / 3)))
         self._lock_refresh_timer.timeout.connect(self._refresh_project_lock)
+        self._lock_release_timer = QtCore.QTimer()
+        self._lock_release_timer.setInterval(_LOCK_RELEASE_RETRY_MS)
+        self._lock_release_timer.timeout.connect(self._retry_session_release)
 
         # Central surface: the pyqtgraph trace dock.
         self._trace_dock = TraceDock()
@@ -351,8 +407,17 @@ class TetherShell:
         self._unreject_button.setToolTip(
             "Reverse a rejected trace to uncurated and append the reversal to /labels"
         )
+        self._read_only_banner = QtWidgets.QLabel()
+        self._read_only_banner.setAccessibleName("Read-only project warning")
+        self._read_only_banner.setWordWrap(True)
+        self._read_only_banner.setStyleSheet(
+            "QLabel { background: #fff3cd; color: #664d03; "
+            "border: 1px solid #ffecb5; padding: 6px; }"
+        )
+        self._read_only_banner.hide()
         vbox.addWidget(QtWidgets.QLabel("Movie"))
         vbox.addWidget(self._movie_switcher)
+        vbox.addWidget(self._read_only_banner)
         vbox.addWidget(QtWidgets.QLabel("Molecules"))
         vbox.addWidget(self._molecule_list, stretch=1)
         vbox.addWidget(QtWidgets.QLabel("Category name"))
@@ -361,6 +426,7 @@ class TetherShell:
         browser = QtWidgets.QDockWidget("Browser", self._window)
         browser.setWidget(panel)
         self._window.addDockWidget(QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, browser)
+        self._browser_dock = browser
 
         # Curation controller + keymap + the application-level event filter.
         self._controller = CurationController(self._build_handlers())
@@ -373,6 +439,7 @@ class TetherShell:
             self._keymap,
             focus_dock=self._trace_dock.widget,
             scope_window=self._window,
+            scope_widgets=(self._browser_dock,),
         )
         self._event_filter.install()
         self._closed = False
@@ -464,6 +531,11 @@ class TetherShell:
         return self._movie_switcher
 
     @property
+    def browser_dock(self) -> QtWidgets.QDockWidget:
+        """The Browser dock, including when the curator floats it."""
+        return self._browser_dock
+
+    @property
     def category_field(self) -> QtWidgets.QLineEdit:
         """The browser-panel category-name ``QLineEdit`` — the text-entry exempt from the keymap."""
         return self._category_field
@@ -472,6 +544,11 @@ class TetherShell:
     def unreject_button(self) -> QtWidgets.QPushButton:
         """The visible one-click control that reverses the selected sticky reject."""
         return self._unreject_button
+
+    @property
+    def read_only_banner(self) -> QtWidgets.QLabel:
+        """The persistent Browser warning shown while the loaded project is browse-only."""
+        return self._read_only_banner
 
     @property
     def controller(self) -> CurationController:
@@ -580,6 +657,20 @@ class TetherShell:
         """The ``&File`` menu (open a ``.tether`` project live in the shell)."""
         return self._file_menu
 
+    def _set_read_only_reason(self, reason: str | None) -> None:
+        """Keep browse-only state visible and disable the exposed source-write controls."""
+        self._curation_read_only_reason = reason
+        if reason is None:
+            self._read_only_banner.clear()
+            self._read_only_banner.hide()
+        else:
+            self._read_only_banner.setText(f"Read-only project: {reason}")
+            self._read_only_banner.show()
+        enabled = reason is None
+        self._unreject_button.setEnabled(enabled)
+        self._act_import.setEnabled(enabled)
+        self._act_validate_conditions.setEnabled(enabled)
+
     def load_project(
         self, path: str | PathLike[str], *, intensity_quantity: str = "corrected"
     ) -> Project | None:
@@ -624,6 +715,9 @@ class TetherShell:
         if self._idealize_future is not None:
             self._status("Open project unavailable: wait for idealization to finish")
             return None
+        if self._session_project is not None and self._curation_project is None:
+            self._status("Open project unavailable: waiting to release the prior session lock")
+            return None
 
         # Do every fallible read BEFORE touching shell state, so a bad open is atomic
         # (the prior project stays wired) — mirroring the catch-and-report contract of
@@ -636,48 +730,90 @@ class TetherShell:
             traces = traces_from_store(project, intensity_quantity=intensity_quantity)
             histogram = make_store_histogram(project)
             overlap = None if analysis_only else make_store_overlap(project)
+            idealizer_candidate = make_store_idealizer(project)
+            # Export is read-only with respect to the source project, so retain this
+            # seam even when the canonical store must open browse-only.
+            handoff = make_store_handoff(project)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
             self._status(f"Open project failed: {exc}")
             return None
 
-        try:
-            project.acquire_lock()
-        except (LockedError, OSError) as exc:
+        claimed_key = _claim_gui_project(proj_path, self._project_owner_token)
+        session_project = None
+        if claimed_key is None:
             writable = False
-            read_only_reason = f"write lock unavailable: {exc}"
+            read_only_reason = "already open writable in another Tether window"
             idealizer = None
-            handoff = None
         else:
-            writable = True
-            read_only_reason = None
             try:
-                idealizer = make_store_idealizer(project)
-                handoff = make_store_handoff(project)
-            except Exception as exc:  # noqa: BLE001 - preserve the prior atomic load
-                project.release_lock()
-                self._status(f"Open project failed: {exc}")
+                project.acquire_lock()
+            except (LockedError, OSError) as exc:
+                _release_gui_project(claimed_key, self._project_owner_token)
+                claimed_key = None
+                writable = False
+                read_only_reason = f"write lock unavailable: {exc}"
+                idealizer = None
+            else:
+                session_project = project
+                try:
+                    _probe_project_writable(proj_path)
+                except OSError as exc:
+                    try:
+                        project.release_lock()
+                    except OSError:
+                        # Retain both handle and process-local claim; the release
+                        # timer retries this exact nonce after state goes read-only.
+                        pass
+                    else:
+                        session_project = None
+                        _release_gui_project(claimed_key, self._project_owner_token)
+                        claimed_key = None
+                    writable = False
+                    read_only_reason = f"project file is not writable: {exc}"
+                    idealizer = None
+                else:
+                    writable = True
+                    read_only_reason = None
+                    idealizer = idealizer_candidate
+
+        prior_session_project = self._session_project
+        prior_claimed_key = self._claimed_project_key
+        if prior_session_project is not None:
+            try:
+                prior_session_project.release_lock()
+            except OSError as exc:
+                if session_project is not None:
+                    with suppress(OSError):
+                        session_project.release_lock()
+                if claimed_key != prior_claimed_key:
+                    _release_gui_project(claimed_key, self._project_owner_token)
+                self._status(f"Open project unavailable: prior session release failed: {exc}")
                 return None
 
-        prior_project = self._curation_project
         self._curation_project = project if writable else None
-        self._curation_read_only_reason = read_only_reason
+        self._session_project = session_project
+        self._claimed_project_key = claimed_key if session_project is not None else None
+        self._set_read_only_reason(read_only_reason)
         self._idealizer = idealizer
         self._histogram_seam = histogram
         self._handoff = handoff
         self._overlap_seam = overlap
         self._conditions = project if writable else None
         if writable:
+            self._lock_release_timer.stop()
             self._lock_refresh_timer.start()
         else:
             self._lock_refresh_timer.stop()
+            if session_project is not None:
+                self._lock_release_timer.start()
         # Drop any docks built against a prior project so they rebuild fresh against the
         # new store (no stale histogram / overlap leaking across a re-open).
         self._reset_store_docks()
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
         self.set_molecules(traces)
-        if prior_project is not None:
-            prior_project.release_lock()
+        if prior_claimed_key != self._claimed_project_key:
+            _release_gui_project(prior_claimed_key, self._project_owner_token)
 
         name = Path(proj_path).name
         modes = [
@@ -708,11 +844,34 @@ class TetherShell:
         except (LockedError, OSError) as exc:
             self._lock_refresh_timer.stop()
             self._curation_project = None
-            self._curation_read_only_reason = f"session lock lost: {exc}"
+            self._set_read_only_reason(f"session lock lost: {exc}")
             self._idealizer = None
-            self._handoff = None
             self._conditions = None
+            if self._idealize_future is None:
+                self._retry_session_release()
             self._status(f"Project became read-only: {self._curation_read_only_reason}")
+
+    def _retry_session_release(self) -> None:
+        """Release a disabled session's held nonce, retrying transient I/O failures."""
+        if self._curation_project is not None or self._idealize_future is not None:
+            self._lock_release_timer.stop()
+            return
+        project = self._session_project
+        if project is None:
+            self._lock_release_timer.stop()
+            _release_gui_project(self._claimed_project_key, self._project_owner_token)
+            self._claimed_project_key = None
+            return
+        try:
+            project.release_lock()
+        except OSError:
+            if not self._closed:
+                self._lock_release_timer.start()
+            return
+        self._session_project = None
+        self._lock_release_timer.stop()
+        _release_gui_project(self._claimed_project_key, self._project_owner_token)
+        self._claimed_project_key = None
 
     def _reset_store_docks(self) -> None:
         """Discard the lazily-built histogram / overlap docks so a re-open rebuilds them."""
@@ -794,6 +953,11 @@ class TetherShell:
         """
         from tether.gui.reconcile import ReconcileDialog
 
+        if self._curation_read_only_reason is not None:
+            self._status(
+                f"Import unavailable: project is read-only: {self._curation_read_only_reason}"
+            )
+            return None
         if self._handoff is None:
             self._status("Import: load a project with extracted molecules first")
             return None
@@ -833,6 +997,11 @@ class TetherShell:
         """Menu entry: pick the returning SMD (+ optional model), then reconcile."""
         from pyqtgraph.Qt import QtWidgets
 
+        if self._curation_read_only_reason is not None:
+            self._status(
+                f"Import unavailable: project is read-only: {self._curation_read_only_reason}"
+            )
+            return
         if self._handoff is None:
             self._status("Import: load a project with extracted molecules first")
             return
@@ -986,6 +1155,21 @@ class TetherShell:
         self._status(f"Population histogram — {n_mol} molecule(s), {hist.n_samples} frame(s)")
         return dock
 
+    def _refresh_open_histogram(self) -> str | None:
+        """Recompute an already-open population view after a successful curation write."""
+        dock = self._histogram_dock
+        if dock is None or self._histogram_seam is None:
+            return None
+        try:
+            hist = self._histogram_seam()
+            if hist is None:
+                dock.clear()
+            else:
+                dock.set_histogram(hist)
+        except Exception as exc:  # noqa: BLE001 - curation succeeded; keep the GUI alive
+            return str(exc)
+        return None
+
     def _attach_histogram_dock(self) -> None:
         """Dock the (already-built, successfully-drawn) histogram into the window."""
         from pyqtgraph.Qt import QtCore, QtWidgets
@@ -1073,7 +1257,9 @@ class TetherShell:
             return
 
         target = trace.name or trace.molecule_key
-        self._status(f"{completed} {target}")
+        histogram_error = self._refresh_open_histogram()
+        suffix = f"; histogram refresh failed: {histogram_error}" if histogram_error else ""
+        self._status(f"{completed} {target}{suffix}")
 
     def _assign_category(self, integer_class: int) -> None:
         name = (
@@ -1174,6 +1360,8 @@ class TetherShell:
         self._idealize_future = None
         self._idealize_key = None
         QtWidgets.QApplication.restoreOverrideCursor()
+        if self._curation_project is None:
+            self._retry_session_release()
 
     def _step(self, delta: int) -> None:
         if not self._traces:
@@ -1215,18 +1403,23 @@ class TetherShell:
             self._app = None
         self._event_filter.remove()
         self._lock_refresh_timer.stop()
+        self._lock_release_timer.stop()
         future = self._idealize_future
-        project = self._curation_project
-        if project is not None and future is not None and not future.done():
+        writable_project = self._curation_project
+        session_project = self._session_project
+        claimed_key = self._claimed_project_key
+        if writable_project is not None and future is not None and not future.done():
             # Give an abandoned in-flight writer a fresh full staleness window.
             # The write path re-checks ownership before committing, so a later
             # explicit steal still fails closed rather than racing HDF5.
             from tether.project.lock import LockedError
 
             with suppress(LockedError, OSError):
-                project.acquire_lock()
+                writable_project.acquire_lock()
         self._curation_project = None
-        self._curation_read_only_reason = None
+        self._session_project = None
+        self._claimed_project_key = None
+        self._set_read_only_reason(None)
         if self._idealize_timer is not None:
             self._idealize_timer.stop()
             self._idealize_timer = None
@@ -1235,11 +1428,19 @@ class TetherShell:
             # cursor it set is restored so it never leaks past close.
             self._idealize_future = None
             QtWidgets.QApplication.restoreOverrideCursor()
-        if project is not None:
-            if future is not None and not future.done():
-                future.add_done_callback(lambda _done, held=project: held.release_lock())
-            else:
-                project.release_lock()
+        if session_project is not None and future is not None and not future.done():
+
+            def release_after_fit(_done: Any) -> None:
+                with suppress(OSError):
+                    session_project.release_lock()
+                _release_gui_project(claimed_key, self._project_owner_token)
+
+            future.add_done_callback(release_after_fit)
+        else:
+            if session_project is not None:
+                with suppress(OSError):
+                    session_project.release_lock()
+            _release_gui_project(claimed_key, self._project_owner_token)
         self._idealize_executor.shutdown(wait=False)
         if self._histogram_dock is not None:
             self._histogram_dock.close()

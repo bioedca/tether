@@ -185,6 +185,81 @@ def test_load_project_opens_round_trip_store_live(shell, tmp_path) -> None:
     assert shell.overlap_dock is not None
 
 
+def test_second_shell_in_process_cannot_share_writable_project(qapp, qtbot, tmp_path) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui.shell import TetherShell
+    from tether.project.labels import read_labels
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    first = TetherShell()
+    second = TetherShell()
+    qtbot.addWidget(first.window)
+    qtbot.addWidget(second.window)
+    try:
+        assert first.load_project(project.path) is not None
+        assert second.load_project(project.path) is not None
+        assert second._curation_project is None
+        assert "another Tether window" in second.status_message
+
+        qtbot.keyClick(second.molecule_list, QtCore.Qt.Key.Key_Space)
+        assert read_labels(project.path).shape == (0,)
+        assert "read-only" in second.status_message
+
+        first.close()
+        assert second.load_project(project.path) is not None
+        assert second._curation_project is not None
+    finally:
+        first.close()
+        second.close()
+
+
+def test_read_only_project_keeps_export_but_disables_return_import(shell, tmp_path) -> None:
+    from tether.project import lock
+    from tether.project.lock import LockIdentity
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    held = lock.acquire(
+        project.path, identity=LockIdentity(host="OTHER-HOST", user="other", pid=999)
+    )
+    try:
+        assert shell.load_project(project.path) is not None
+        out = tmp_path / "read-only-export.hdf5"
+        manifest = shell.hand_off_to_tmaven(out)
+
+        assert manifest is not None
+        assert manifest.n_molecules == 3
+        assert out.exists()
+        assert shell._act_hand_off.isEnabled()
+        assert not shell._act_import.isEnabled()
+        assert shell.import_return_leg(tmp_path / "return.hdf5") is None
+        assert "Import unavailable: project is read-only" in shell.status_message
+    finally:
+        assert lock.release(project.path, held)
+
+
+def test_project_file_must_open_writable_before_gui_enables_mutations(
+    shell, tmp_path, monkeypatch
+) -> None:
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+
+    def deny_write(_path) -> None:
+        raise OSError("project file is read-only")
+
+    monkeypatch.setattr(
+        "tether.gui.shell._probe_project_writable",
+        deny_write,
+        raising=False,
+    )
+
+    assert shell.load_project(project.path) is not None
+
+    assert shell._curation_project is None
+    assert project.lock_owner() is None
+    assert "project file is not writable" in shell.status_message
+    assert "project file is read-only" in shell.status_message
+
+
 def test_gui_session_lock_refreshes_before_stale_timeout(shell, tmp_path) -> None:
     from tether.project.lock import DEFAULT_STALENESS_TIMEOUT_S
 
@@ -227,6 +302,45 @@ def test_lost_session_lock_disables_gui_writes_and_refresh(shell, tmp_path) -> N
         assert "locked" in shell.status_message
     finally:
         assert lock.release(project.path, foreign)
+
+
+def test_refresh_io_failure_retries_nonce_safe_session_release(
+    shell, tmp_path, monkeypatch
+) -> None:
+    from tether.project.core import Project
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    original_release = Project.release_lock
+    release_calls = 0
+
+    def fail_refresh(_project, **_kwargs):
+        raise OSError("temporary network-share failure")
+
+    def flaky_release(project_ref):
+        nonlocal release_calls
+        release_calls += 1
+        if release_calls == 1:
+            raise OSError("temporary unlink failure")
+        return original_release(project_ref)
+
+    monkeypatch.setattr(Project, "acquire_lock", fail_refresh)
+    monkeypatch.setattr(Project, "release_lock", flaky_release)
+
+    shell._refresh_project_lock()
+
+    assert shell._curation_project is None
+    assert shell._session_project is not None
+    assert project.lock_owner() is not None
+    assert release_calls == 1
+    assert shell._lock_release_timer.isActive()
+
+    shell._retry_session_release()
+
+    assert release_calls == 2
+    assert shell._session_project is None
+    assert project.lock_owner() is None
+    assert not shell._lock_release_timer.isActive()
 
 
 @pytest.mark.parametrize(
@@ -352,6 +466,54 @@ def test_curation_locked_project_adds_no_row_and_reports_lock(shell, qtbot, tmp_
     assert "Accepted" not in shell.status_message
 
 
+def test_read_only_banner_persists_when_navigation_replaces_status(shell, tmp_path) -> None:
+    from tether.project import lock
+    from tether.project.lock import LockIdentity
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    held = lock.acquire(
+        project.path, identity=LockIdentity(host="OTHER-HOST", user="other", pid=999)
+    )
+    try:
+        assert shell.load_project(project.path) is not None
+        banner_text = shell.read_only_banner.text()
+        assert not shell.read_only_banner.isHidden()
+        assert "Read-only" in banner_text
+        assert "locked" in banner_text
+        assert not shell.unreject_button.isEnabled()
+
+        shell.molecule_list.setCurrentRow(1)
+
+        assert "Molecule" in shell.status_message
+        assert not shell.read_only_banner.isHidden()
+        assert shell.read_only_banner.text() == banner_text
+    finally:
+        assert lock.release(project.path, held)
+
+
+def test_floating_browser_remains_in_persistent_shortcut_scope(shell, tmp_path) -> None:
+    from pyqtgraph.Qt import QtCore, QtGui
+
+    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    shell.browser_dock.setFloating(True)
+    assert shell.molecule_list.window() is shell.browser_dock
+    event = QtGui.QKeyEvent(
+        QtCore.QEvent.Type.KeyPress,
+        QtCore.Qt.Key.Key_Space,
+        QtCore.Qt.KeyboardModifier.NoModifier,
+    )
+
+    consumed = shell.event_filter.filter_event(
+        shell.molecule_list,
+        event,
+        focus_widget=shell.molecule_list,
+    )
+
+    assert consumed
+    assert project.curation_label(keys[0]) == 1
+
+
 def test_curation_waits_for_background_idealization(shell, qtbot, tmp_path) -> None:
     import threading
 
@@ -451,6 +613,21 @@ def test_curation_write_error_adds_no_row_and_never_reports_success(
     assert read_labels(project.path).shape == (0,)
     assert "Accept failed: simulated disk full" in shell.status_message
     assert "Accepted" not in shell.status_message
+
+
+def test_successful_curation_refreshes_an_open_population_histogram(shell, qtbot, tmp_path) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    dock = shell.show_histogram()
+    assert dock is not None
+    assert dock.histogram.n_molecules == 3
+
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
+
+    assert dock.histogram.n_molecules == 2
+    assert "Rejected" in shell.status_message
 
 
 def test_load_project_analysis_only_gates_overlap_and_banners(shell, tmp_path) -> None:

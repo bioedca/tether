@@ -529,6 +529,7 @@ class CurationEventFilter:
         *,
         focus_dock: QtWidgets.QWidget | None = None,
         scope_window: QtWidgets.QWidget | None = None,
+        scope_widgets: tuple[QtWidgets.QWidget, ...] = (),
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtWidgets
 
@@ -536,6 +537,9 @@ class CurationEventFilter:
         self._keymap = keymap if keymap is not None else Keymap.default()
         self._focus_dock = focus_dock
         self._scope_window = scope_window
+        # Explicit shell-owned top-level surfaces that may detach from the main
+        # window (notably a floating Browser QDockWidget). Dialogs are not added.
+        self._scope_widgets = tuple(scope_widgets)
         self._app: QtCore.QCoreApplication | None = None
         self._qtwidgets = QtWidgets  # cached for the per-event focus lookup
         # Key codes whose KeyPress this filter consumed, so the paired KeyRelease
@@ -636,12 +640,17 @@ class CurationEventFilter:
         focus = self._current_focus() if focus_widget is _UNSET else focus_widget
         # The actual event receiver defines scope. QDialog/QMenu.window() is the
         # dialog/menu itself even when parented by the main window, so modeless
-        # help and popup surfaces remain natively interactive.
-        if self._scope_window is not None and (
-            not isinstance(watched, self._qtwidgets.QWidget)
-            or watched.window() != self._scope_window
-        ):
-            return False
+        # help and popup surfaces remain natively interactive. A shell-owned dock
+        # may itself become the top-level window when floated; only explicitly
+        # registered dock surfaces extend the main-window scope.
+        if self._scope_window is not None:
+            if not isinstance(watched, self._qtwidgets.QWidget):
+                return False
+            watched_window = watched.window()
+            if watched_window != self._scope_window and not any(
+                watched_window is widget for widget in self._scope_widgets
+            ):
+                return False
         # A focused text editor keeps native text semantics (PRD §7.3 exemption).
         # Check both the event's target and the focused widget: on key-event
         # propagation the target climbs to non-text parents while focus stays on

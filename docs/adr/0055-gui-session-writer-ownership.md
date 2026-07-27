@@ -22,6 +22,10 @@ read-only access and responsive background work?
 ## Decision drivers
 
 - Every writable GUI project must participate in the canonical single-writer protocol.
+- Separate GUI shells in one process must not share writability through the same
+  host/user/PID identity.
+- The canonical HDF5 project must itself be update-openable before mutations are enabled;
+  creating the sidecar alone is insufficient.
 - Curation writes must not overlap an in-flight background idealization writer.
 - A live GUI session must refresh ownership before the 30-minute stale timeout.
 - A foreign or unavailable lock must preserve read-only browsing instead of making the
@@ -48,9 +52,13 @@ When a project loads, the shell completes its fallible reads and then atomically
 `Project.acquire_lock()`. On success, the shell retains that lock across accept, reject,
 un-reject, idealization, and other enabled write seams. Curation and project replacement
 are unavailable while background idealization is active, so those HDF5 writers cannot
-overlap. A repeating GUI timer and each curation/idealization action refresh ownership
-well before the 30-minute stale boundary. Refresh replaces the held nonce atomically;
-teardown stops the timer and releases only the newest nonce.
+overlap. Before enabling those seams, the shell also proves the `.tether` HDF5 can open
+in `r+` mode. A process-local path registry prevents a second shell with the same
+host/user/PID identity from treating the canonical sidecar refresh as independent
+ownership. A repeating GUI timer and each curation/idealization action refresh ownership
+well before the 30-minute stale boundary. Refresh replaces the held nonce atomically.
+If refresh or release encounters an I/O failure, write seams fail closed while a separate
+lifecycle handle retains the acquired nonce for retry and final teardown.
 
 Because a sidecar fit can run for many minutes, idealization checks ownership both before
 work starts and again immediately before opening HDF5 for persistence. A lock stolen
@@ -65,15 +73,21 @@ through the same idempotent teardown, so an embedding host cannot retain an invi
 shell's lock or application-wide event filter.
 
 If lock acquisition fails because another owner holds it or the sidecar cannot be created,
-the shell opens the project read-only. Read seams remain available, all write seams stay
-disabled, and the status bar explains why. The Browser dock exposes **Un-reject selected**
-as the visible reversal of a sticky reject and records the reversal through the same
-append-only labels API.
+the project HDF5 is not update-openable, or another shell in the process owns the path,
+the shell opens the project read-only. Read seams remain available, including outbound
+Hand-to-tMAVEN export to a separate SMD; return-leg import and every source-project write
+seam stay disabled. The Browser dock carries a persistent read-only banner so navigation
+cannot erase the ownership warning. It also exposes **Un-reject selected** as the visible
+reversal of a sticky reject and records the reversal through the same append-only labels
+API. A successful curation write recomputes any already-open population histogram so the
+visible pool never retains a newly rejected molecule.
 
 The application-wide curation event filter dispatches only when the event and focus belong
 to the registered main curation window. It passes all key presses through unchanged for
 modal or modeless dialogs and active popup menus. This prevents Space, Backspace, or Delete
 in a file dialog, cheat sheet, or menu from curating the trace behind it.
+An explicitly registered shell-owned Browser dock remains in scope when floated, while
+unregistered top-level dialogs and popup menus remain outside curation scope.
 
 ### Consequences
 
@@ -81,12 +95,16 @@ in a file dialog, cheat sheet, or menu from curating the trace behind it.
 - **Good.** Active sessions stay fresh and long-running fits fail closed if ownership changes.
 - **Good.** Curation and background idealization cannot write the HDF5 project concurrently.
 - **Good.** Contended projects remain browseable with an actionable read-only banner.
+- **Good.** Safe outbound export remains available from read-only projects, while return-leg
+  import remains disabled.
+- **Good.** Open population histograms track successful accept/reject/un-reject writes.
 - **Good.** Sticky rejection has a discoverable, provenance-preserving reversal path.
 - **Trade-off.** A writable project remains exclusively locked for the GUI session, and
   project switching waits for any active idealizer.
-- **Follow-up.** GUI regression tests pin lock acquisition/refresh/release, direct-window
-  teardown, read-only fallback, writer serialization, out-of-scope key bypass, and
-  un-reject behavior.
+- **Follow-up.** GUI regression tests pin lock acquisition/refresh/release and retry,
+  same-process shell serialization, direct-window teardown, HDF5 update probing,
+  read-only fallback/export/banner state, histogram refresh, floating-dock scope,
+  out-of-scope key bypass, and un-reject behavior.
 
 ## More information
 
@@ -94,3 +112,7 @@ in a file dialog, cheat sheet, or menu from curating the trace behind it.
 - `src/tether/project/core.py` owns canonical lock and curation writers.
 - `src/tether/gui/shell.py` owns the GUI session lifecycle and write serialization.
 - `src/tether/gui/curation.py` owns global shortcut routing and modal bypass.
+- The installed h5py 3.16.0
+  [File-mode contract](https://docs.h5py.org/en/stable/high/file.html#opening-creating-files)
+  defines `r+` as read/write access to an existing file, so the probe cannot create or
+  truncate a project.
