@@ -666,10 +666,21 @@ class TetherShell:
         else:
             self._read_only_banner.setText(f"Read-only project: {reason}")
             self._read_only_banner.show()
-        enabled = reason is None
+        self._sync_project_write_controls()
+
+    def _sync_project_write_controls(self) -> None:
+        """Enable source-project writers only for an idle writable GUI session."""
+        enabled = self._curation_read_only_reason is None and self._idealize_future is None
         self._unreject_button.setEnabled(enabled)
         self._act_import.setEnabled(enabled)
         self._act_validate_conditions.setEnabled(enabled)
+
+    def _idealization_blocks_write(self, feature: str) -> bool:
+        """Report and reject a source-project mutation while idealization owns HDF5."""
+        if self._idealize_future is None:
+            return False
+        self._status(f"{feature} unavailable: Idealize in progress; wait for it to finish")
+        return True
 
     def load_project(
         self, path: str | PathLike[str], *, intensity_quantity: str = "corrected"
@@ -953,6 +964,8 @@ class TetherShell:
         """
         from tether.gui.reconcile import ReconcileDialog
 
+        if self._idealization_blocks_write("Import"):
+            return None
         if self._curation_read_only_reason is not None:
             self._status(
                 f"Import unavailable: project is read-only: {self._curation_read_only_reason}"
@@ -997,6 +1010,8 @@ class TetherShell:
         """Menu entry: pick the returning SMD (+ optional model), then reconcile."""
         from pyqtgraph.Qt import QtWidgets
 
+        if self._idealization_blocks_write("Import"):
+            return
         if self._curation_read_only_reason is not None:
             self._status(
                 f"Import unavailable: project is read-only: {self._curation_read_only_reason}"
@@ -1027,6 +1042,8 @@ class TetherShell:
         """Menu entry: open the condition validation / confirm-correct / merge dialog (§7.6)."""
         from tether.gui.conditions import ConditionValidationDialog
 
+        if self._idealization_blocks_write("Conditions validation"):
+            return
         if self._conditions is None:
             self._status("Conditions: load a project first")
             return
@@ -1224,6 +1241,8 @@ class TetherShell:
             CurationAction.UNREJECT: ("Un-reject", "Un-rejected"),
         }
         verb, completed = labels[action]
+        if self._idealization_blocks_write(verb):
+            return
         if self._curation_project is not None:
             self._refresh_project_lock()
         project = self._curation_project
@@ -1232,10 +1251,6 @@ class TetherShell:
             prefix = "project is read-only: " if self._curation_read_only_reason else ""
             self._status(f"{verb} unavailable: {prefix}{reason}")
             return
-        if self._idealize_future is not None:
-            self._status(f"{verb} unavailable: Idealize in progress; wait for it to finish")
-            return
-
         row = self._molecule_list.currentRow()
         trace = self._traces[row] if 0 <= row < len(self._traces) else None
         if trace is None or trace.molecule_key is None:
@@ -1316,6 +1331,7 @@ class TetherShell:
         self._status(f"Idealizing {key} (one-click vbFRET)…")
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
         self._idealize_future = self._idealize_executor.submit(self._idealizer, key)
+        self._sync_project_write_controls()
         self._idealize_timer = QtCore.QTimer()
         self._idealize_timer.setInterval(_IDEALIZE_POLL_MS)
         self._idealize_timer.timeout.connect(self._poll_idealize)
@@ -1359,6 +1375,7 @@ class TetherShell:
             self._idealize_timer = None
         self._idealize_future = None
         self._idealize_key = None
+        self._sync_project_write_controls()
         QtWidgets.QApplication.restoreOverrideCursor()
         if self._curation_project is None:
             self._retry_session_release()

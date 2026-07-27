@@ -545,6 +545,79 @@ def test_curation_waits_for_background_idealization(shell, qtbot, tmp_path) -> N
         qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
 
 
+def test_every_source_writer_waits_for_background_idealization(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    import threading
+
+    from pyqtgraph.Qt import QtCore
+
+    from tether.project.labels import read_labels
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+
+    class SpyHandoff:
+        preview_calls = 0
+
+        def preview(self, *_args, **_kwargs):
+            self.preview_calls += 1
+            raise AssertionError("return-leg preview must not run during idealization")
+
+    conditions_dialog_calls = []
+
+    class SpyConditionsDialog:
+        def __init__(self, target, *, parent):
+            conditions_dialog_calls.append((target, parent))
+
+        def exec(self):
+            return None
+
+    handoff = SpyHandoff()
+    shell._handoff = handoff
+    monkeypatch.setattr(
+        "tether.gui.conditions.ConditionValidationDialog",
+        SpyConditionsDialog,
+    )
+
+    started = threading.Event()
+    gate = threading.Event()
+
+    def blocking_idealizer(_molecule_key):
+        started.set()
+        gate.wait(timeout=5.0)
+        return np.full(12, 0.5)
+
+    shell._idealizer = blocking_idealizer
+    try:
+        qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+        qtbot.waitUntil(started.is_set, timeout=2000)
+
+        assert shell.import_return_leg(tmp_path / "return.hdf5") is None
+        import_status = shell.status_message
+        shell._validate_conditions_dialog()
+        conditions_status = shell.status_message
+        qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Space)
+        curation_status = shell.status_message
+
+        assert handoff.preview_calls == 0
+        assert conditions_dialog_calls == []
+        assert read_labels(project.path).shape == (0,)
+        assert "Idealize in progress" in import_status
+        assert "Idealize in progress" in conditions_status
+        assert "Idealize in progress" in curation_status
+        assert not shell.unreject_button.isEnabled()
+        assert not shell._act_import.isEnabled()
+        assert not shell._act_validate_conditions.isEnabled()
+    finally:
+        gate.set()
+        qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
+
+    assert shell.unreject_button.isEnabled()
+    assert shell._act_import.isEnabled()
+    assert shell._act_validate_conditions.isEnabled()
+
+
 def test_close_retains_session_lock_until_background_idealization_finishes(
     shell, qtbot, tmp_path
 ) -> None:

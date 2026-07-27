@@ -26,7 +26,8 @@ read-only access and responsive background work?
   host/user/PID identity.
 - The canonical HDF5 project must itself be update-openable before mutations are enabled;
   creating the sidecar alone is insufficient.
-- Curation writes must not overlap an in-flight background idealization writer.
+- No source-project writer—curation, return-leg import, or condition validation—may
+  overlap an in-flight background idealization writer.
 - A live GUI session must refresh ownership before the 30-minute stale timeout.
 - A foreign or unavailable lock must preserve read-only browsing instead of making the
   project inaccessible.
@@ -50,15 +51,18 @@ read-only access and responsive background work?
 
 When a project loads, the shell completes its fallible reads and then atomically attempts
 `Project.acquire_lock()`. On success, the shell retains that lock across accept, reject,
-un-reject, idealization, and other enabled write seams. Curation and project replacement
-are unavailable while background idealization is active, so those HDF5 writers cannot
-overlap. Before enabling those seams, the shell also proves the `.tether` HDF5 can open
-in `r+` mode. A process-local path registry prevents a second shell with the same
-host/user/PID identity from treating the canonical sidecar refresh as independent
-ownership. A repeating GUI timer and each curation/idealization action refresh ownership
-well before the 30-minute stale boundary. Refresh replaces the held nonce atomically.
-If refresh or release encounters an I/O failure, write seams fail closed while a separate
-lifecycle handle retains the acquired nonce for retry and final teardown.
+un-reject, idealization, and other enabled write seams. Every source-project write entry
+point is unavailable while background idealization is active: accept, reject, and
+un-reject remain guarded, while the visible un-reject, return-leg import, and condition
+validation controls are disabled until the future settles. Project replacement also
+waits, so none of those HDF5 writers can overlap. Before enabling those seams, the shell
+proves the `.tether` HDF5 can open in `r+` mode. A process-local path registry prevents a
+second shell with the same host/user/PID identity from treating the canonical sidecar
+refresh as independent ownership. A repeating GUI timer and each curation/idealization
+action refresh ownership well before the 30-minute stale boundary. Refresh replaces the
+held nonce atomically. If refresh or release encounters an I/O failure, write seams fail
+closed while a separate lifecycle handle retains the acquired nonce for retry and final
+teardown.
 
 Because a sidecar fit can run for many minutes, idealization checks ownership both before
 work starts and again immediately before opening HDF5 for persistence. A lock stolen
@@ -93,7 +97,8 @@ unregistered top-level dialogs and popup menus remain outside curation scope.
 
 - **Good.** Every writable GUI session has explicit, stable single-writer ownership.
 - **Good.** Active sessions stay fresh and long-running fits fail closed if ownership changes.
-- **Good.** Curation and background idealization cannot write the HDF5 project concurrently.
+- **Good.** Curation, return-leg import, condition validation, and background idealization
+  cannot write the HDF5 project concurrently.
 - **Good.** Contended projects remain browseable with an actionable read-only banner.
 - **Good.** Safe outbound export remains available from read-only projects, while return-leg
   import remains disabled.
@@ -104,7 +109,8 @@ unregistered top-level dialogs and popup menus remain outside curation scope.
 - **Follow-up.** GUI regression tests pin lock acquisition/refresh/release and retry,
   same-process shell serialization, direct-window teardown, HDF5 update probing,
   read-only fallback/export/banner state, histogram refresh, floating-dock scope,
-  out-of-scope key bypass, and un-reject behavior.
+  out-of-scope key bypass, un-reject behavior, and all source-write guards during
+  background idealization.
 
 ## More information
 
