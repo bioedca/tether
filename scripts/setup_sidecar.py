@@ -214,15 +214,20 @@ def load_locked_setuptools_version(lock_file: Path) -> str:
     return versions.pop()
 
 
-def inspect_sidecar_build_state(sidecar_python: str) -> dict:
+def inspect_sidecar_build_state(sidecar_python: str, *, timeout: float | None = 120.0) -> dict:
     """Read target setuptools and installed tMAVEN PEP 610 provenance."""
     try:
         proc = subprocess.run(  # noqa: S603 - sidecar_python is user-selected/resolved
             [sidecar_python, "-c", _BUILD_STATE_PROBE],
             capture_output=True,
             text=True,
+            timeout=timeout,
             check=False,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise SetupError(
+            f"target sidecar build-state inspection timed out after {timeout}s"
+        ) from exc
     except OSError as exc:
         raise SetupError(f"could not inspect target sidecar build state: {exc}") from exc
     if proc.returncode != 0:

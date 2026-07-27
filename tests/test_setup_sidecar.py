@@ -17,11 +17,11 @@ import sys
 from pathlib import Path
 
 import pytest
-import setuptools
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPT = _REPO_ROOT / "scripts" / "setup_sidecar.py"
 _SIDECAR_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "sidecar.yml"
+_SIDECAR_MEASURE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "sidecar-measure.yml"
 _HANDOFF_DOC = _REPO_ROOT / "docs" / "idealize" / "standalone-tmaven-handoff.md"
 
 
@@ -35,12 +35,12 @@ def _load_script():
 setup = _load_script()
 
 
-def _workflow_tmaven_spec() -> str:
-    for raw in _SIDECAR_WORKFLOW.read_text(encoding="utf-8").splitlines():
+def _workflow_tmaven_spec(workflow: Path) -> str:
+    for raw in workflow.read_text(encoding="utf-8").splitlines():
         stripped = raw.strip()
         if stripped.startswith("TMAVEN_SPEC:"):
             return stripped.split(":", 1)[1].strip().strip('"')
-    raise AssertionError("sidecar.yml has no TMAVEN_SPEC env")
+    raise AssertionError(f"{workflow.name} has no TMAVEN_SPEC env")
 
 
 # --- command construction ----------------------------------------------------
@@ -123,10 +123,11 @@ def test_setuptools_install_uses_the_single_hash_locked_binary_source() -> None:
 # --- lockstep contracts ------------------------------------------------------
 
 
-def test_default_tmaven_spec_matches_sidecar_yml() -> None:
-    # The script reads $TMAVEN_SPEC (set in sidecar.yml) but must default to the SAME pin,
-    # so a fresh developer setup installs the tMAVEN the live parity job validates.
-    assert _workflow_tmaven_spec() == setup.DEFAULT_TMAVEN_SPEC
+def test_default_tmaven_spec_matches_sidecar_workflows() -> None:
+    # Both workflows advertise $TMAVEN_SPEC, so they must use the exact pin that the
+    # guided setup accepts and defaults to.
+    for workflow in (_SIDECAR_WORKFLOW, _SIDECAR_MEASURE_WORKFLOW):
+        assert _workflow_tmaven_spec(workflow) == setup.DEFAULT_TMAVEN_SPEC
     assert setup.DEFAULT_TMAVEN_COMMIT == "10f4230b6d13c6d2ad67b05d801696b4a40eff4a"
     assert setup.DEFAULT_TMAVEN_COMMIT.startswith(setup.DEFAULT_TMAVEN_SPEC.rsplit("@", 1)[1])
 
@@ -185,11 +186,31 @@ def test_locked_build_setuptools_version_comes_from_the_unified_lock() -> None:
 
 
 def test_build_state_probe_reads_the_imported_backend_and_wheel_generator() -> None:
+    import setuptools
+
     state = setup.inspect_sidecar_build_state(sys.executable)
 
     assert state["setuptools_version"] == setuptools.__version__
     assert "tmaven_direct_url" in state
     assert "tmaven_wheel_generator" in state
+
+
+def test_build_state_probe_timeout_is_actionable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _timeout(cmd: list[str], **kwargs) -> None:
+        assert kwargs["timeout"] == 120.0
+        raise setup.subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+    monkeypatch.setattr(setup.subprocess, "run", _timeout)
+
+    with pytest.raises(
+        setup.SetupError,
+        match=r"target sidecar build-state inspection timed out after 120\.0s",
+    ) as exc_info:
+        setup.inspect_sidecar_build_state("python")
+
+    assert isinstance(exc_info.value.__cause__, setup.subprocess.TimeoutExpired)
 
 
 def test_sidecar_yml_installs_via_setup_script() -> None:
