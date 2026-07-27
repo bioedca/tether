@@ -331,6 +331,7 @@ class TetherShell:
         # after a refresh I/O failure even though write seams fail closed, so retry
         # and close can still release exactly the nonce this shell acquired.
         self._session_project: Project | None = None
+        self._session_release_lock = Lock()
         # The sidecar lock identifies a process, so two shells in this process would
         # otherwise refresh the same identity and both become writable. This opaque
         # token owns at most the currently loaded writable path in the local registry.
@@ -373,6 +374,10 @@ class TetherShell:
         # the overlay draw + status update always happen on the main thread.
         self._idealize_executor = ThreadPoolExecutor(max_workers=1)
         self._idealize_future: Any | None = None
+        # A fit abandoned by shell close remains a writer until its Future settles.
+        # Keep that Future separate from the visible idealization state so the
+        # nonce-safe release timer waits for the writer and retries teardown errors.
+        self._session_release_future: Any | None = None
         self._idealize_timer: Any | None = None
         self._idealize_key: str | None = None
 
@@ -874,21 +879,30 @@ class TetherShell:
         if self._curation_project is not None or self._idealize_future is not None:
             self._lock_release_timer.stop()
             return
-        project = self._session_project
-        if project is None:
-            self._lock_release_timer.stop()
-            _release_gui_project(self._claimed_project_key, self._project_owner_token)
-            self._claimed_project_key = None
-            return
-        try:
-            project.release_lock()
-        except OSError:
+        release_future = self._session_release_future
+        if release_future is not None:
+            if not release_future.done():
+                self._lock_release_timer.start()
+                return
+            self._session_release_future = None
+        if not self._release_session_once():
             self._lock_release_timer.start()
             return
-        self._session_project = None
         self._lock_release_timer.stop()
-        _release_gui_project(self._claimed_project_key, self._project_owner_token)
-        self._claimed_project_key = None
+
+    def _release_session_once(self) -> bool:
+        """Attempt one thread-safe nonce release, retaining lifecycle state on failure."""
+        with self._session_release_lock:
+            project = self._session_project
+            if project is not None:
+                try:
+                    project.release_lock()
+                except OSError:
+                    return False
+                self._session_project = None
+            _release_gui_project(self._claimed_project_key, self._project_owner_token)
+            self._claimed_project_key = None
+            return True
 
     def _reset_store_docks(self) -> None:
         """Discard the lazily-built histogram / overlap docks so a re-open rebuilds them."""
@@ -1460,7 +1474,6 @@ class TetherShell:
         future = self._idealize_future
         writable_project = self._curation_project
         session_project = self._session_project
-        claimed_key = self._claimed_project_key
         if writable_project is not None and future is not None and not future.done():
             # Give an abandoned in-flight writer a fresh full staleness window.
             # The write path re-checks ownership before committing, so a later
@@ -1480,13 +1493,16 @@ class TetherShell:
             self._idealize_future = None
             QtWidgets.QApplication.restoreOverrideCursor()
         if session_project is not None and future is not None and not future.done():
-            self._session_project = None
-            self._claimed_project_key = None
+            # Keep both lifecycle ownership records until the abandoned writer
+            # settles. The repeating timer then attempts release and keeps retrying
+            # any transient OSError. The completion callback also makes one safe
+            # attempt for QApplication shutdown, but never drops state on failure.
+            self._session_release_future = future
+            self._lock_release_timer.start()
 
             def release_after_fit(_done: Any) -> None:
-                with suppress(OSError):
-                    session_project.release_lock()
-                _release_gui_project(claimed_key, self._project_owner_token)
+                self._session_release_future = None
+                self._release_session_once()
 
             future.add_done_callback(release_after_fit)
         else:

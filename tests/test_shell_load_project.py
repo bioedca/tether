@@ -683,6 +683,63 @@ def test_close_retains_session_lock_until_background_idealization_finishes(
     qtbot.waitUntil(lambda: not project.lock_path.exists(), timeout=5000)
 
 
+def test_close_retries_release_after_background_idealization(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    import threading
+
+    from pyqtgraph.Qt import QtCore
+
+    from tether.project.core import Project
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    started = threading.Event()
+    gate = threading.Event()
+
+    def blocking_idealizer(_molecule_key):
+        started.set()
+        gate.wait(timeout=5.0)
+        return np.full(12, 0.5)
+
+    shell._idealizer = blocking_idealizer
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+    qtbot.waitUntil(started.is_set, timeout=2000)
+    running = shell._idealize_future
+    original_release = Project.release_lock
+    release_calls = 0
+
+    def flaky_release(project_ref):
+        nonlocal release_calls
+        release_calls += 1
+        if release_calls == 1:
+            raise OSError("temporary unlink failure")
+        return original_release(project_ref)
+
+    monkeypatch.setattr(Project, "release_lock", flaky_release)
+
+    shell.close()
+    # Drive the lifecycle helper explicitly so the regression does not depend on
+    # wall-clock QTimer scheduling.
+    shell._lock_release_timer.stop()
+    gate.set()
+    qtbot.waitUntil(running.done, timeout=5000)
+    qtbot.waitUntil(lambda: release_calls == 1, timeout=2000)
+
+    assert release_calls == 1
+    assert shell._session_project is not None
+    assert shell._claimed_project_key is not None
+    assert project.lock_owner() is not None
+
+    shell._retry_session_release()
+
+    assert release_calls == 2
+    assert shell._session_project is None
+    assert shell._claimed_project_key is None
+    assert project.lock_owner() is None
+    assert not shell._lock_release_timer.isActive()
+
+
 def test_return_leg_revalidates_writer_ownership_after_modal_dialog(
     shell, tmp_path, monkeypatch
 ) -> None:

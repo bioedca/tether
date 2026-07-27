@@ -73,7 +73,9 @@ opened successfully. Closing the shell releases the current lock immediately whe
 a transient release failure retains the lifecycle handle and process-local claim while a
 timer retries the exact held nonce instead of waiting for staleness.
 If idealization is still running, the visual result is abandoned but the lock remains
-held until the worker future finishes; its completion callback then releases ownership.
+held until the worker future finishes. Its completion callback attempts release without
+dropping lifecycle state on failure, while a timer observes completion and retries
+transient release failures without dropping the held nonce or process-local claim.
 Both `QApplication.aboutToQuit` and the exposed main window's own Close event route
 through the same idempotent teardown, so an embedding host cannot retain an invisible
 shell's lock or application-wide event filter.
