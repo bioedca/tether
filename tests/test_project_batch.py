@@ -460,9 +460,10 @@ def test_policy_warn_may_resume_a_policy_fail_rejection(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("saved_residual", "saved_gate"),
     [
-        (True, 0.5),
-        (0.75, False),
-        ("0.75", 0.5),
+        pytest.param(True, 0.5, id="boolean-residual"),
+        pytest.param(0.75, False, id="boolean-gate"),
+        pytest.param("0.75", 0.5, id="numeric-string-residual"),
+        pytest.param(10**400, 0.5, id="overflowing-integer-residual"),
     ],
 )
 def test_malformed_saved_profile_does_not_invent_policy_rejection(
@@ -571,6 +572,42 @@ def test_overwrite_rejected_checkpoint_refuses_a_foreign_lock(tmp_path: Path) ->
     assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
     assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
     assert not r.ok
+
+
+def test_overwrite_rejected_checkpoint_holds_lock_through_runner(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    replacement = _extract_stub()
+    observed_lock = False
+
+    def guarded_extract(*args, **kwargs):
+        nonlocal observed_lock
+        owner = lock.read_lock(jobs[0].output_path)
+        assert owner is not None
+        assert owner.identity == lock.local_identity()
+        with pytest.raises(lock.LockedError):
+            lock.assert_writable(
+                jobs[0].output_path,
+                identity=lock.LockIdentity(host="OTHER", user="contender", pid=123),
+            )
+        observed_lock = True
+        return replacement(*args, **kwargs)
+
+    second = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=guarded_extract,
+    )
+
+    assert observed_lock
+    assert second.results[0].ok
+    assert lock.read_lock(jobs[0].output_path) is None
 
 
 def test_overwrite_still_skips_an_in_gate_completed_checkpoint(tmp_path: Path) -> None:

@@ -13,11 +13,12 @@ Design (ADR-0030):
 * **One ``.tether`` per movie** is the unit of isolation — it mirrors
   :func:`tether.project.extract.extract_movie` (which writes a fresh project per
   movie, atomically) and means a corrupt movie can never damage another's store.
-* **Checkpoint = provenance presence.** A stage is "already done" when the group it
-  writes is present — ``/settings/extraction`` (extract), ``/settings/correction``
-  (correct), a non-empty ``/idealization`` (idealize). Nothing new is written to the
-  frozen §5 skeleton, so ``schema-guard`` stays green; a resume simply skips the
-  stages whose output already exists.
+* **Checkpoint = provenance presence, with the ADR-0054 extraction exception.**
+  Presence normally means "already done" — ``/settings/extraction`` (extract),
+  ``/settings/correction`` (correct), a non-empty ``/idealization`` (idealize).
+  Under ``policy="fail"``, however, a saved over-gate extraction remains rejected on
+  resume; ``overwrite=True`` re-extracts it while holding the destination lock.
+  Nothing new is written to the frozen §5 skeleton, so ``schema-guard`` stays green.
 * **The correct stage** runs the Appendix-B order photobleach → leakage α →
   γ → corrected-E. γ is skipped when leakage *withholds* the dataset α (an
   intentional "withhold rather than fabricate" outcome, not a failure —
@@ -380,7 +381,7 @@ def _stored_extraction_is_over_gate(path: Path) -> bool:
         return bool(
             math.isfinite(residual) and math.isfinite(gate) and gate > 0 and residual > gate
         )
-    except (KeyError, TypeError, ValueError, OSError):
+    except (KeyError, TypeError, ValueError, OverflowError, OSError):
         return False
 
 
@@ -821,18 +822,20 @@ def _do_extract(
         if not rejected_checkpoint:
             return rec.record(STAGE_EXTRACT, STATUS_SKIPPED, detail="already extracted").ok
     try:
+        destination_lock = contextlib.nullcontext()
         if rejected_checkpoint:
             from tether.project import lock  # noqa: PLC0415
 
-            lock.assert_writable(job.output_path)
-        summary = runner(
-            job.movie_path,
-            job.output_path,
-            options=options,
-            tmap=job.tmap,
-            tdat=job.tdat,
-            overwrite=overwrite,
-        )
+            destination_lock = lock.held_lock(job.output_path)
+        with destination_lock:
+            summary = runner(
+                job.movie_path,
+                job.output_path,
+                options=options,
+                tmap=job.tmap,
+                tdat=job.tdat,
+                overwrite=overwrite,
+            )
     except Exception as exc:  # ExtractionError and any lower-level failure
         return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok
     low_conf = bool(getattr(summary, "low_confidence_registration", False))

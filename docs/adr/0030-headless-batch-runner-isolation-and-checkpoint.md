@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0030 — Headless batch runner: per-movie isolation + provenance-derived per-stage checkpoint
 
-- **Status:** accepted; extraction checkpoint acceptance amended by [ADR-0054](0054-policy-fail-rejected-extraction-checkpoint.md)
+- **Status:** accepted
 - **Date:** 2026-07-03
 - **Deciders:** bioedca (maintainer)
 - **PRD anchor:** §6 ("Batch"), §7.11 (FR-BATCH), §7.2, §11.2 ("Over-gate batch policy"), §9 M3
