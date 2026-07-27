@@ -142,12 +142,12 @@ jobs:
           environment-file: sidecar/conda-lock.yml
           environment-name: tether-sidecar
           install-tether: "true"
-      - name: Install pinned tMAVEN + pytest via the guided sidecar-setup script
+      - name: Install pinned tMAVEN + hash-locked test tools via the guided setup script
         if: steps.relevance.outputs.run == 'true'
         # The guided sidecar-setup script (`scripts/setup_sidecar.py`, issue #13) owns the
-        # two steps that live OUTSIDE `sidecar/conda-lock.yml`: the pip-layered tMAVEN (the
-        # GPL reference app driven over IPC, layered onto the lock, not in it) and the
-        # exact hash-locked setuptools 80.9.0 wheel that restores the legacy
+        # layers that live OUTSIDE `sidecar/conda-lock.yml`: tMAVEN itself (installed with
+        # dependency resolution disabled), the optional separately hash-locked pytest
+        # tools, and the exact hash-locked setuptools 80.9.0 wheel that restores the legacy
         # `pkg_resources` API tMAVEN imports at runtime (setuptools removed it in 82.0.0;
         # the lock resolves 82.0.1). Running it
         # HERE means the SAME script a user (and the 2-OS hand-off check) runs is exercised

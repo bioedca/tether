@@ -21,18 +21,22 @@ that a Tether-exported SMD opens in standalone tMAVEN with its coordinate metada
 ## Guided sidecar setup
 
 `scripts/setup_sidecar.py` turns a checkout into a working sidecar interpreter in one
-command. It encodes the two things that live **outside** the committed
-`sidecar/conda-lock.yml` and are easy to get wrong by hand:
+command. It encodes the two runtime layers and one optional test-tool layer that live
+**outside** the committed `sidecar/conda-lock.yml` and are easy to get wrong by hand:
 
 1. **tMAVEN itself** — the GPL reference app, driven over IPC and installed from a pinned
-   git commit (it is not a conda-lock dependency); and
-2. **setuptools 80.9.0** — tMAVEN imports the legacy `pkg_resources` API at runtime,
+   git commit without dependency resolution (it is not a conda-lock dependency);
+2. **pytest test tools** — only with `--with-pytest`, pytest and its dependencies that
+   are absent from the sidecar lock are pinned and wheel-hashed separately in
+   `sidecar/pytest-requirements.txt`; and
+3. **setuptools 80.9.0** — tMAVEN imports the legacy `pkg_resources` API at runtime,
    which setuptools removed in 82.0.0. The exact wheel and SHA-256 are committed in
    `packaging/setuptools-compatibility.txt`; pip hash-checking mode installs it only
    after the git-pinned tMAVEN has been built. This temporary exception is removed when
    the pinned tMAVEN revision no longer imports `pkg_resources` (ADR-0054).
 
-The script creates the env from the lock, installs tMAVEN, applies the separate
+The script creates the env from the lock, installs only tMAVEN with dependency resolution
+disabled, optionally installs the separate hash-locked test tools, applies the separate
 hash-locked runtime wheel, then probes liveness (import and instantiate `maven_class`, no
 fit). It prints the line that points Tether at the interpreter.
 
@@ -63,8 +67,8 @@ Useful options:
 | `--env-name NAME` | Name of the created env (default `tether-sidecar`). |
 | `--lock-file PATH` | conda-lock file to build the env from (default `sidecar/conda-lock.yml`). |
 | `--tmaven-spec SPEC` | pip spec for tMAVEN (default `$TMAVEN_SPEC` or the pinned commit). |
-| `--with-pytest` | Also install `pytest` (needed to run the live sidecar test suite). |
-| `--skip-install` | Assume tMAVEN is already installed; only create the env / probe. |
+| `--with-pytest` | Also install the separately hash-locked pytest test tools needed by the live sidecar suite. |
+| `--skip-install` | Skip the tMAVEN, optional pytest test-tool, and setuptools compatibility-wheel installs; only create the env / probe. |
 | `--no-probe` | Skip the liveness probe. |
 | `--dry-run` | Print every command without running it. |
 

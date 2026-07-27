@@ -45,10 +45,14 @@ The older wheel is a **runtime compatibility layer, not a build backend**:
 
 1. The packaging and release jobs build the pinned tMAVEN wheel with their current build
    toolchain; setuptools 80.9.0 is only downloaded and staged afterward.
-2. `scripts/setup_sidecar.py` installs the git-pinned tMAVEN source first, then installs
-   the compatibility wheel separately with binary-only hash checking and
-   `--force-reinstall`, so a rerun cannot trust an already-installed same-version
-   distribution without verifying the locked artifact.
+2. `scripts/setup_sidecar.py` installs only the git-pinned tMAVEN source first with
+   `--no-build-isolation --no-deps`, so pip cannot resolve or mutate the locked sidecar
+   dependency set. Optional live-suite tooling is a separate layer: pytest 9.1.1 and
+   its four dependencies absent from the lock are pinned and wheel-hashed in
+   `sidecar/pytest-requirements.txt`, then installed with `--no-deps`. The compatibility
+   wheel is installed last with binary-only hash checking and `--force-reinstall`, so a
+   rerun cannot trust an already-installed same-version distribution without verifying
+   the locked artifact.
 3. Constructor installs the already-built compatibility and tMAVEN wheels offline into
    the isolated sidecar. The base Tether environment never receives the older package.
 
@@ -85,6 +89,9 @@ security/release judgment.
   universal wheel.
 - The source, live-sidecar, advisory packaging, and signed-release paths share one
   requirement instead of copying a range.
+- The optional live-sidecar test tooling cannot make pip resolve tMAVEN dependencies or
+  overwrite the scientific stack. The sidecar lock continues to supply `packaging==26.2`;
+  only the absent pytest tools are layered from their dedicated wheel-hash file.
 - The sidecar conda metadata still records 82.0.1 while pip overlays 80.9.0. This
   deliberate exception remains documented and probe-tested.
 - Updating the compatibility artifact requires one reviewed requirements-file change,
@@ -104,6 +111,16 @@ security/release judgment.
 - [pip download](https://pip.pypa.io/en/stable/cli/pip_download/), consulted through
   Context7 for pip 26.1.2: `-r`, `--require-hashes`, `--only-binary`, `--no-deps`, and
   `--dest` are supported together.
+- [pip install](https://pip.pypa.io/en/stable/cli/pip_install/), consulted through
+  Context7 for pip 26.1.2: `--no-deps` disables dependency installation and
+  `--no-build-isolation` requires the build dependencies to already be present.
+- PyPI JSON for [pytest 9.1.1](https://pypi.org/pypi/pytest/9.1.1/json),
+  [iniconfig 2.3.0](https://pypi.org/pypi/iniconfig/2.3.0/json),
+  [pluggy 1.6.0](https://pypi.org/pypi/pluggy/1.6.0/json),
+  [Pygments 2.20.0](https://pypi.org/pypi/Pygments/2.20.0/json), and
+  [colorama 0.4.6](https://pypi.org/pypi/colorama/0.4.6/json), retrieved 2026-07-27:
+  pytest's direct requirements plus the exact universal wheel SHA-256 values and
+  non-yanked state committed in `sidecar/pytest-requirements.txt`.
 - [Pinned tMAVEN `setup.py`](https://github.com/GonzalezBiophysicsLab/tmaven/blob/10f4230/setup.py)
   and [`maven.py`](https://github.com/GonzalezBiophysicsLab/tmaven/blob/10f4230/tmaven/maven.py),
   retrieved 2026-07-26: the build imports setuptools; `pkg_resources` is imported when

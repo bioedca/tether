@@ -8,13 +8,17 @@ headlessly (:mod:`tether.idealize.driver`); it is deliberately isolated from Tet
 base stack (PySide6 / current numpy — ADR-0004/0006) and so is *not* part of the base
 ``conda-lock.yml``.
 
-Two things live outside the committed ``sidecar/conda-lock.yml`` and are therefore
-easy to get wrong by hand — this script encodes them so a user (or CI, or the M9
-cross-OS hand-off check) does the same steps every time:
+Two runtime layers and one optional test-tool layer live outside the committed
+``sidecar/conda-lock.yml`` and are therefore easy to get wrong by hand — this script
+encodes them so a user (or CI, or the M9 cross-OS hand-off check) does the same steps
+every time:
 
 1. **tMAVEN itself** — the GPL reference app driven over IPC, pinned by commit and
-   installed from git (never a conda-lock dep).
-2. **setuptools 80.9.0** — tMAVEN imports the legacy ``pkg_resources`` API at runtime
+   installed from git without dependency resolution (never a conda-lock dep).
+2. **pytest test tools** — only with ``--with-pytest``, the exact pytest wheel and the
+   dependencies absent from the sidecar lock are installed separately from
+   ``sidecar/pytest-requirements.txt`` in binary-only hash-checking mode.
+3. **setuptools 80.9.0** — tMAVEN imports the legacy ``pkg_resources`` API at runtime
    without declaring it; setuptools deprecated ``pkg_resources`` by 80.9.0 and removed
    it in 82.0.0.  The exact universal wheel and SHA-256 live in
    ``packaging/setuptools-compatibility.txt`` and are force-reinstalled in pip's
@@ -27,9 +31,10 @@ Flow (each phase is skippable):
   conda front-end (``conda-lock install``, else ``micromamba``/``mamba create -f``).
   Skipped when ``--python`` targets an already-built interpreter (e.g. in CI, where the
   micromamba action restored the env already).
-* **install** the pinned tMAVEN (+ ``pytest`` with ``--with-pytest``), then the exact
-  hash-locked setuptools compatibility wheel into the sidecar interpreter — the same
-  split recipe ``sidecar.yml`` runs.
+* **install** the pinned tMAVEN without dependencies, optionally install the separately
+  hash-locked pytest test tools, then install the exact hash-locked setuptools
+  compatibility wheel into the sidecar interpreter — the same split recipe
+  ``sidecar.yml`` runs.
 * **probe** the result by launching :mod:`tether.idealize._sidecar_runner` ``--probe``
   (import + instantiate ``maven_class``, no fit), the same liveness check the batch
   supervisor uses (:func:`tether.idealize.supervisor.probe_sidecar`).
@@ -61,6 +66,8 @@ CONDA_FRONTENDS = ("micromamba", "mamba", "conda")
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 #: The committed sidecar lock (isolated numpy<2 / PyQt5 stack).
 DEFAULT_LOCK = _REPO_ROOT / "sidecar" / "conda-lock.yml"
+#: Exact binary/hash source for optional live-suite tools absent from the sidecar lock.
+TEST_TOOLS_REQUIREMENTS = _REPO_ROOT / "sidecar" / "pytest-requirements.txt"
 #: Sole version/hash source for the temporary runtime ``pkg_resources`` compatibility wheel.
 SETUPTOOLS_REQUIREMENTS = _REPO_ROOT / "packaging" / "setuptools-compatibility.txt"
 #: The headless runner whose ``--probe`` fast-path we launch to verify liveness.
@@ -117,13 +124,37 @@ def build_env_create_cmd(frontend: str, env_name: str, lock: Path) -> list[str]:
     )
 
 
-def build_tmaven_pip_cmd(sidecar_python: str, *, tmaven_spec: str, with_pytest: bool) -> list[str]:
-    """Build/install git-pinned tMAVEN before adopting the older runtime wheel."""
-    cmd = [sidecar_python, "-m", "pip", "install", "--no-build-isolation"]
-    if with_pytest:
-        cmd.append("pytest")
-    cmd.append(tmaven_spec)
-    return cmd
+def build_tmaven_pip_cmd(sidecar_python: str, *, tmaven_spec: str) -> list[str]:
+    """Build/install only git-pinned tMAVEN without resolving the locked dependency set."""
+    return [
+        sidecar_python,
+        "-m",
+        "pip",
+        "install",
+        "--no-build-isolation",
+        "--no-deps",
+        tmaven_spec,
+    ]
+
+
+def build_test_tools_pip_cmd(
+    sidecar_python: str,
+    *,
+    requirements: Path = TEST_TOOLS_REQUIREMENTS,
+) -> list[str]:
+    """Force-install only the hash-locked binary test tools from *requirements*."""
+    return [
+        sidecar_python,
+        "-m",
+        "pip",
+        "install",
+        "--force-reinstall",
+        "--only-binary=:all:",
+        "--no-deps",
+        "--require-hashes",
+        "-r",
+        str(requirements),
+    ]
 
 
 def build_setuptools_pip_cmd(
@@ -268,12 +299,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="pip spec for tMAVEN (default: $TMAVEN_SPEC or the pinned commit)",
     )
     parser.add_argument(
-        "--with-pytest", action="store_true", help="also install pytest (for the live suite)"
+        "--with-pytest",
+        action="store_true",
+        help="also install the hash-locked pytest test tools (for the live suite)",
     )
     parser.add_argument(
         "--skip-install",
         action="store_true",
-        help="do not pip-install tMAVEN (assume it is already present)",
+        help="skip the tMAVEN, optional pytest test-tool, and compatibility-wheel installs",
     )
     parser.add_argument("--no-probe", action="store_true", help="skip the liveness probe")
     parser.add_argument(
@@ -306,17 +339,25 @@ def main(argv: list[str] | None = None) -> int:
                 else resolve_env_python(frontend, args.env_name)
             )
 
-        # 2–3) Install tMAVEN first, then the runtime-only hashed compatibility wheel.
+        # 2–3) Install tMAVEN without dependencies, optional test tools separately,
+        # then the runtime-only hashed compatibility wheel.
         if args.skip_install:
-            print("[2/4] Skipping tMAVEN + compatibility-wheel install (--skip-install)")
+            print(
+                "[2/4] Skipping tMAVEN + optional pytest test tools + "
+                "compatibility-wheel installs (--skip-install)"
+            )
         else:
             print("[2/4] Installing pinned tMAVEN into the sidecar env")
             _run(
-                build_tmaven_pip_cmd(
-                    sidecar_python, tmaven_spec=args.tmaven_spec, with_pytest=args.with_pytest
-                ),
+                build_tmaven_pip_cmd(sidecar_python, tmaven_spec=args.tmaven_spec),
                 dry_run=args.dry_run,
             )
+            if args.with_pytest:
+                print("      Installing hash-locked pytest test tools")
+                _run(
+                    build_test_tools_pip_cmd(sidecar_python),
+                    dry_run=args.dry_run,
+                )
             print("[3/4] Installing the hash-locked setuptools compatibility wheel")
             _run(
                 build_setuptools_pip_cmd(sidecar_python),

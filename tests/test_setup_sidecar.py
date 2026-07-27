@@ -43,30 +43,58 @@ def _workflow_tmaven_spec() -> str:
 # --- command construction ----------------------------------------------------
 
 
-def test_tmaven_install_command_is_separate_from_the_compatibility_wheel() -> None:
-    """The git source is installed before, and separately from, hash-checking mode.
+def test_tmaven_install_is_tmaven_only_and_cannot_resolve_dependencies() -> None:
+    """The git source is installed without resolving or mutating the locked stack.
 
     pip's ``--require-hashes`` correctly rejects an unhashed VCS requirement, so tMAVEN
-    cannot share the compatibility-wheel command.  Keeping this command first also means
+    cannot share either hashed requirements command. ``--no-deps`` keeps its undeclared
+    dependency graph from changing the sidecar lock, and keeping this command first means
     the older setuptools wheel is not the build backend for tMAVEN.
     """
-    assert setup.build_tmaven_pip_cmd("py", tmaven_spec="spec", with_pytest=True) == [
+    assert setup.build_tmaven_pip_cmd("py", tmaven_spec="spec") == [
         "py",
         "-m",
         "pip",
         "install",
         "--no-build-isolation",
-        "pytest",
+        "--no-deps",
         "spec",
     ]
 
 
-def test_tmaven_install_without_pytest_drops_only_pytest() -> None:
-    with_pytest = setup.build_tmaven_pip_cmd("py", tmaven_spec="spec", with_pytest=True)
-    without = setup.build_tmaven_pip_cmd("py", tmaven_spec="spec", with_pytest=False)
-    assert "pytest" in with_pytest and "pytest" not in without
-    assert without == [t for t in with_pytest if t != "pytest"]
-    assert without[-1] == "spec"
+def test_pytest_install_uses_a_separate_hash_locked_binary_source() -> None:
+    cmd = setup.build_test_tools_pip_cmd("py")
+    assert cmd == [
+        "py",
+        "-m",
+        "pip",
+        "install",
+        "--force-reinstall",
+        "--only-binary=:all:",
+        "--no-deps",
+        "--require-hashes",
+        "-r",
+        str(setup.TEST_TOOLS_REQUIREMENTS),
+    ]
+    assert setup.TEST_TOOLS_REQUIREMENTS == _REPO_ROOT / "sidecar" / "pytest-requirements.txt"
+    assert setup.TEST_TOOLS_REQUIREMENTS.exists()
+
+    requirements = setup.TEST_TOOLS_REQUIREMENTS.read_text(encoding="utf-8")
+    for pin in (
+        "pytest==9.1.1",
+        "iniconfig==2.3.0",
+        "pluggy==1.6.0",
+        "pygments==2.20.0",
+        'colorama==0.4.6; sys_platform == "win32"',
+    ):
+        assert pin in requirements
+    active_lines = [
+        line.strip()
+        for line in requirements.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert not any(line.startswith("packaging==") for line in active_lines)
+    assert requirements.count("--hash=sha256:") == 5
 
 
 def test_setuptools_install_uses_the_single_hash_locked_binary_source() -> None:
@@ -225,7 +253,67 @@ def test_main_dry_run_python_mode_runs_nothing(
     assert rc == 0
     output = capsys.readouterr().out
     tmaven_at = output.index(setup.DEFAULT_TMAVEN_SPEC)
+    test_tools_at = output.index(str(setup.TEST_TOOLS_REQUIREMENTS))
     compatibility_at = output.index(str(setup.SETUPTOOLS_REQUIREMENTS))
-    assert tmaven_at < compatibility_at, (
+    assert tmaven_at < test_tools_at < compatibility_at, (
         "the older compatibility wheel must be installed only after tMAVEN is built"
+    )
+    assert f"--no-build-isolation --no-deps {setup.DEFAULT_TMAVEN_SPEC}" in output
+    assert (
+        f"--only-binary=:all: --no-deps --require-hashes "
+        f"-r {setup.TEST_TOOLS_REQUIREMENTS}" in output
+    )
+
+
+def test_main_runs_three_install_commands_in_dependency_safe_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_python = tmp_path / "python"
+    sidecar_python.touch()
+    commands: list[list[str]] = []
+
+    def _record(cmd: list[str], *, dry_run: bool) -> None:
+        assert not dry_run
+        commands.append(cmd)
+
+    monkeypatch.setattr(setup, "_run", _record)
+    rc = setup.main(
+        ["--python", str(sidecar_python), "--with-pytest", "--no-probe", "--tmaven-spec", "spec"]
+    )
+
+    assert rc == 0
+    assert commands == [
+        setup.build_tmaven_pip_cmd(str(sidecar_python), tmaven_spec="spec"),
+        setup.build_test_tools_pip_cmd(str(sidecar_python)),
+        setup.build_setuptools_pip_cmd(str(sidecar_python)),
+    ]
+
+
+def test_skip_install_skips_every_pip_layer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sidecar_python = tmp_path / "python"
+    sidecar_python.touch()
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("--skip-install must not run any install command")
+
+    monkeypatch.setattr(setup, "_run", _boom)
+    rc = setup.main(
+        ["--python", str(sidecar_python), "--with-pytest", "--skip-install", "--no-probe"]
+    )
+
+    assert rc == 0
+    assert (
+        "Skipping tMAVEN + optional pytest test tools + compatibility-wheel installs"
+        in capsys.readouterr().out
+    )
+
+
+def test_skip_install_help_names_every_skipped_pip_layer() -> None:
+    help_text = " ".join(setup.build_parser().format_help().split())
+    assert (
+        "skip the tMAVEN, optional pytest test-tool, and compatibility-wheel installs" in help_text
     )
