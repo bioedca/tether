@@ -82,7 +82,15 @@ never merge, release, or declare a PR ready while required checks are red or pen
   python scripts/setup_sidecar.py     # writes the $TETHER_SIDECAR_PYTHON you need
   ```
 
-  Only the `sidecar`-marked tests need it; everything else runs without it.
+  To run the `sidecar`-marked tests, add their separately hash-locked pytest
+  tooling to that environment:
+
+  ```bash
+  python scripts/setup_sidecar.py --with-pytest   # required for pytest -m sidecar
+  ```
+
+  Only the `sidecar`-marked tests need this environment; everything else runs
+  without it.
 - Install and run **pre-commit** before every commit:
 
   ```bash

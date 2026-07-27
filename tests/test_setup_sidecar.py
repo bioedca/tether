@@ -13,9 +13,11 @@ guided setup would silently install a *different* sidecar than CI validates.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
+import setuptools
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPT = _REPO_ROOT / "scripts" / "setup_sidecar.py"
@@ -183,10 +185,11 @@ def test_locked_build_setuptools_version_comes_from_the_unified_lock() -> None:
 
 
 def test_build_state_probe_reads_the_imported_backend_and_wheel_generator() -> None:
-    assert "import setuptools" in setup._BUILD_STATE_PROBE
-    assert "setuptools.__version__" in setup._BUILD_STATE_PROBE
-    assert 'distribution.read_text("WHEEL")' in setup._BUILD_STATE_PROBE
-    assert 'line.startswith("Generator: ")' in setup._BUILD_STATE_PROBE
+    state = setup.inspect_sidecar_build_state(sys.executable)
+
+    assert state["setuptools_version"] == setuptools.__version__
+    assert "tmaven_direct_url" in state
+    assert "tmaven_wheel_generator" in state
 
 
 def test_sidecar_yml_installs_via_setup_script() -> None:
