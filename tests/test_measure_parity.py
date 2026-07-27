@@ -104,6 +104,31 @@ def test_probe_sidecar_build_records_version_commit_and_provenance(
     _assert_path_absent(result)
 
 
+def test_probe_sidecar_build_preserves_version_when_commit_is_unrecorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        measure.subprocess,
+        "run",
+        lambda *_args, **_kwargs: _completed_probe(
+            json.dumps(
+                {
+                    "sidecar_python_version": "3.12.13",
+                    "tmaven_commit": "unrecorded",
+                    "tmaven_commit_probe_error": _UNTRUSTED_DIAGNOSTICS,
+                }
+            )
+        ),
+    )
+
+    result = measure.probe_sidecar_build(_SIDECAR_PYTHON)
+
+    assert result["sidecar_python_version"] == "3.12.13"
+    assert result["tmaven_commit"] == "unrecorded"
+    assert result["build_provenance"].strip()
+    _assert_path_absent(result)
+
+
 def test_probe_sidecar_build_unset_interpreter_is_unrecorded() -> None:
     _assert_unrecorded(measure.probe_sidecar_build(None))
 
@@ -274,6 +299,35 @@ def test_main_serializes_build_provenance_without_interpreter_path(
     artifact = json.loads(serialized)
     assert artifact["method"]["sidecar_python_version"] == "3.12.13"
     assert artifact["method"]["tmaven_commit"] == _TMAVEN_COMMIT
+    assert artifact["method"]["build_provenance"].strip()
+    _assert_path_absent(serialized)
+
+
+def test_main_preserves_python_version_when_commit_is_unrecorded(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    out_path = _configure_main(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        measure.subprocess,
+        "run",
+        lambda *_args, **_kwargs: _completed_probe(
+            json.dumps(
+                {
+                    "sidecar_python_version": "3.12.13",
+                    "tmaven_commit": "unrecorded",
+                    "tmaven_commit_probe_error": _UNTRUSTED_DIAGNOSTICS,
+                }
+            )
+        ),
+    )
+
+    assert measure.main() == 0
+
+    serialized = out_path.read_text(encoding="utf-8")
+    artifact = json.loads(serialized)
+    assert artifact["method"]["sidecar_python_version"] == "3.12.13"
+    assert artifact["method"]["tmaven_commit"] == "unrecorded"
     assert artifact["method"]["build_provenance"].strip()
     _assert_path_absent(serialized)
 

@@ -132,11 +132,17 @@ def _validated_build(probed: object) -> dict[str, str]:
     tmaven_commit = probed.get("tmaven_commit")
     if not isinstance(python_version, str) or not _PYTHON_VERSION_RE.fullmatch(python_version):
         raise ValueError("build probe did not return a valid CPython version")
-    if not isinstance(tmaven_commit, str) or not _TMAVEN_COMMIT_RE.fullmatch(tmaven_commit):
+    if not isinstance(tmaven_commit, str):
+        raise ValueError("build probe did not return a 40-hex tMAVEN commit")
+    if tmaven_commit == "unrecorded":
+        normalized_commit = tmaven_commit
+    elif _TMAVEN_COMMIT_RE.fullmatch(tmaven_commit):
+        normalized_commit = tmaven_commit.lower()
+    else:
         raise ValueError("build probe did not return a 40-hex tMAVEN commit")
     return {
         "sidecar_python_version": python_version,
-        "tmaven_commit": tmaven_commit.lower(),
+        "tmaven_commit": normalized_commit,
         "build_provenance": _BUILD_PROVENANCE,
     }
 
@@ -148,8 +154,10 @@ def probe_sidecar_build(sidecar_python: str | None) -> dict[str, str]:
     ``build_provenance``. The first two identify the sidecar CPython and installed
     tMAVEN upstream commit; the last records how both facts were measured. Deliberately
     absent is the interpreter path: the frozen artifact is committed and published,
-    and a path identifies a machine rather than a build. Any failure degrades both
-    facts to ``"unrecorded"`` plus a *sanitized* probe-error field (see
+    and a path identifies a machine rather than a build. A non-VCS tMAVEN install
+    preserves the validated Python version while recording only its commit as
+    ``"unrecorded"``. Any other failure degrades both facts to ``"unrecorded"`` plus
+    a *sanitized* probe-error field (see
     :func:`_sanitized_probe_error`) so a long measurement run is never lost to a
     provenance probe — and never leaks the path through an exception message either.
     """
