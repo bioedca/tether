@@ -5,12 +5,16 @@ built and published by [`.github/workflows/release.yml`](https://github.com/bioe
 (see [ADR-0050](adr/0050-release-pipeline-and-code-signing.md)). The pipeline runs on a
 signed `v*` tag: it **verifies** the tag, **builds** the installers (the
 [constructor recipe](packaging.md)), **code-signs** them, and **publishes** a GitHub
-Release with checksums, a CycloneDX SBOM, the frozen Tether GUI/runtime (`conda-lock.yml`), sidecar
-(`sidecar-conda-lock.yml`), and deep (`deep-conda-lock.yml`) source-lock assets, a
-Conventional-Commits changelog, and a build-provenance attestation. Constructor consumes the first
-two as its `tether` and `sidecar` extra environments; its own `base` is a live-solved Python + conda
-bootstrap excluded from that reproducibility bill of materials. The deep lock is standalone; the
-deep environment is not bundled into the desktop installers.
+Release with checksums, a CycloneDX SBOM, and four authoritative source-lock assets: the frozen
+Tether GUI/runtime (`conda-lock.yml`), sidecar (`sidecar-conda-lock.yml`), deep
+(`deep-conda-lock.yml`), and hash-locked runtime compatibility overlay
+(`setuptools-compatibility.txt`, staged from `packaging/setuptools-compatibility.txt`). It also
+publishes a Conventional-Commits changelog and build-provenance attestation. Constructor consumes
+the Tether and sidecar conda locks as its `tether` and `sidecar` extra environments; its own `base`
+is a live-solved Python + conda bootstrap excluded from that reproducibility bill of materials.
+The deep lock is standalone and is not bundled into the desktop installers. The compatibility
+asset is the sole version/hash source for the separately layered setuptools wheel and is covered
+by the combined `SHA256SUMS.txt`.
 
 Code-signing is **gated on repository variables**, so the pipeline is green before any
 signing credential exists. Until you complete the setup below, the installers ship
@@ -64,8 +68,8 @@ archives are not project-uploaded assets and are not part of the inventory below
 It does not cover the two GitHub-generated source archives.
 
 This historical RC predates the current pipeline's addition of
-`deep-conda-lock.yml` to release staging, so that file is not part of the 13-asset
-record above. Neither the root `LICENSE` nor the root `NOTICE` is a standalone RC1
+`deep-conda-lock.yml` and `setuptools-compatibility.txt` to release staging, so neither
+file is part of the 13-asset record above. Neither the root `LICENSE` nor the root `NOTICE` is a standalone RC1
 Release upload. Constructor presents and bundles Tether's root GPL license via its
 `license_file`, while the bundled sidecar carries its own GPL text. RC1 did not stage
 or package Tether's root `NOTICE`; it remains available in the source repository and

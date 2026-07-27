@@ -24,9 +24,11 @@ LOCK = REPO_ROOT / "packaging" / "setuptools-compatibility.txt"
 VERIFIER = REPO_ROOT / "scripts" / "verify_setuptools_wheel.py"
 PACKAGING_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "packaging.yml"
 RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
+DEPS_AUDIT_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deps-audit.yml"
 SIDECAR_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "sidecar.yml"
 MEASURE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "sidecar-measure.yml"
 PACKAGING_DOCS = REPO_ROOT / "packaging" / "README.md"
+RELEASE_DOCS = REPO_ROOT / "docs" / "release.md"
 TROUBLESHOOTING_DOCS = REPO_ROOT / "docs" / "troubleshooting.md"
 ADR = REPO_ROOT / "docs" / "adr" / "0054-hash-locked-setuptools-runtime-compatibility-wheel.md"
 LOCK_RELPATH = "packaging/setuptools-compatibility.txt"
@@ -156,6 +158,26 @@ def test_measure_workflow_gives_the_setup_probe_a_writable_numba_cache() -> None
     assert setup_step["env"]["NUMBA_CACHE_DIR"] == "${{ runner.temp }}/numba-cache"
 
 
+def test_scheduled_dependency_audit_covers_compatibility_lock_independently() -> None:
+    """A vulnerable base environment cannot prevent the compatibility-lock audit."""
+    data = yaml.safe_load(DEPS_AUDIT_WORKFLOW.read_text(encoding="utf-8"))
+    steps = data["jobs"]["pip-audit"]["steps"]
+    audit_steps = [
+        step for step in steps if "pip-audit --progress-spinner off" in step.get("run", "")
+    ]
+
+    assert len(audit_steps) == 2, (
+        "deps-audit.yml must run the installed base audit and the compatibility-lock audit "
+        "as separate advisory steps"
+    )
+    base_audit, compatibility_audit = audit_steps
+    assert base_audit["continue-on-error"] is True
+    assert compatibility_audit["continue-on-error"] is True
+    assert f"-r {LOCK_RELPATH}" not in base_audit["run"]
+    assert f"-r {LOCK_RELPATH}" in compatibility_audit["run"]
+    assert steps.index(base_audit) < steps.index(compatibility_audit)
+
+
 def test_verifier_accepts_only_the_derived_filename_and_digest(tmp_path: Path) -> None:
     verifier = _load_verifier()
     wheel_bytes = b"verified compatibility wheel fixture"
@@ -192,3 +214,18 @@ def test_documented_exception_has_security_scope_and_removal_trigger() -> None:
     assert "83.0.0" in decision
     assert "never builds a source distribution" in decision
     assert "no longer imports" in decision and "`pkg_resources`" in decision
+
+
+def test_release_docs_publish_lock_without_rewriting_verified_rc1_inventory() -> None:
+    """Current releases publish the compatibility lock; the verified RC1 table stays historical."""
+    release = RELEASE_DOCS.read_text(encoding="utf-8")
+    heading = "### What a published Release contains: verified `v1.0.0-rc1`"
+    current, historical = release.split(heading, 1)
+
+    assert "`setuptools-compatibility.txt`" in current
+    assert "exactly the following 13 project-uploaded assets" in historical
+    table = historical.split("`SHA256SUMS.txt` lists", 1)[0]
+    assert len(re.findall(r"^\| `[^`]+` \|", table, re.M)) == 13
+    assert "| `setuptools-compatibility.txt` |" not in table
+    assert "`setuptools-compatibility.txt`" in historical
+    assert re.search(r"neither\s+file is part of the 13-asset", historical)

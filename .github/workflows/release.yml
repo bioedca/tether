@@ -404,14 +404,16 @@ jobs:
           find dist -maxdepth 2 -type f \
             \( -name '*.exe' -o -name '*.pkg' -o -name '*.sh' -o -name 'SHA256SUMS-*.txt' \) \
             -exec cp {} out/ \;
-          # The authoritative bill-of-materials: the frozen SOURCE locks. Note the per-platform
+          # The authoritative bill-of-materials: the four frozen SOURCE locks. Note the per-platform
           # RENDERED locks the build uploads (packaging/locks/{base,sidecar}-<platform>.lock)
-          # land under dist/locks/ and are deliberately NOT staged — docs/release.md ships "the
-          # frozen conda locks", which these three satisfy. If that ever changes, add '*.lock' to
-          # the find name-filter above AND assert the rendered set explicitly below.
+          # land under dist/locks/ and are deliberately NOT staged. The three conda source locks
+          # describe the isolated environments; the compatibility requirement is the sole
+          # version/hash source for the runtime-only overlay. If that ever changes, add '*.lock'
+          # to the find name-filter above AND assert the rendered set explicitly below.
           cp conda-lock.yml "out/conda-lock.yml"
           cp sidecar/conda-lock.yml "out/sidecar-conda-lock.yml"
           cp deep/conda-lock.yml "out/deep-conda-lock.yml"
+          cp packaging/setuptools-compatibility.txt "out/setuptools-compatibility.txt"
           ls -l out
 
           # --- Completeness gate (unconditional — it MUST also run in a dry run) --------
@@ -469,6 +471,7 @@ jobs:
           [ -s out/conda-lock.yml ] || problems+=("out/conda-lock.yml staged empty")
           [ -s out/sidecar-conda-lock.yml ] || problems+=("out/sidecar-conda-lock.yml staged empty")
           [ -s out/deep-conda-lock.yml ] || problems+=("out/deep-conda-lock.yml staged empty")
+          [ -s out/setuptools-compatibility.txt ] || problems+=("out/setuptools-compatibility.txt staged empty")
 
           if [ "${#problems[@]}" -eq 0 ]; then
             echo "Staged a complete release — every expected leg present (${EXPECTED_LEGS})."

@@ -510,13 +510,14 @@ def _expected_legs() -> dict[str, str]:
     return dict(entry.split(":", 1) for entry in entries)
 
 
-def test_release_stages_every_frozen_environment_lock() -> None:
-    """The release bill of materials includes each isolated environment lock."""
+def test_release_stages_every_authoritative_source_lock() -> None:
+    """The release bill of materials includes every authoritative source lock."""
     block = _release_staging_step()
     locks = {
         "conda-lock.yml": "conda-lock.yml",
         "sidecar/conda-lock.yml": "sidecar-conda-lock.yml",
         "deep/conda-lock.yml": "deep-conda-lock.yml",
+        "packaging/setuptools-compatibility.txt": "setuptools-compatibility.txt",
     }
     for source, asset in locks.items():
         assert f'cp {source} "out/{asset}"' in block

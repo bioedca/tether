@@ -97,13 +97,15 @@ under the lock's ordinary setuptools before the downgrade, constructor receives 
 wheels, and a source-setup rerun either verifies both that exact Git commit and its
 locked-setuptools `WHEEL` generator or refuses the build. If a future path uses this
 interpreter to build an sdist, the exception no longer matches this decision and must
-fail review. Dependency-audit output remains visible in CI and the PR requires qualified
-security/release judgment.
+fail review. The scheduled dependency audit runs the installed base environment and this
+compatibility requirement as separate advisory steps, so a nonzero base finding cannot
+suppress the overlay report. The PR requires qualified security/release judgment.
 
 ## Consequences
 
 - A tagged commit determines the exact compatibility artifact without relying on a later
-  resolver decision.
+  resolver decision. The signed-release pipeline also publishes the requirement as its
+  fourth authoritative source-lock asset and covers it with the combined checksum manifest.
 - Every OS job stages identical bytes and constructor receives exactly one verified
   universal wheel.
 - The source, live-sidecar, advisory packaging, and signed-release paths share one
