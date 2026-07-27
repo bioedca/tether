@@ -18,6 +18,7 @@ and a coordinate-less analysis-only ``.tether`` from
 from __future__ import annotations
 
 import importlib.util
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -181,6 +182,119 @@ def test_load_project_opens_round_trip_store_live(shell, tmp_path) -> None:
     assert shell.show_histogram() is not None
     # overlap seam wired (coords + patches present) → selecting row 0 built the dock
     assert shell.overlap_dock is not None
+
+
+@pytest.mark.parametrize(
+    ("key_name", "method_name", "expected_label", "success_text"),
+    [
+        ("Key_Space", "accept", 1, "Accepted"),
+        ("Key_Backspace", "reject", -1, "Rejected"),
+    ],
+)
+def test_real_curation_keys_persist_selected_label_and_survive_reopen(
+    qapp, qtbot, tmp_path, monkeypatch, key_name, method_name, expected_label, success_text
+) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui.shell import TetherShell
+    from tether.project.core import Project
+    from tether.project.labels import read_labels
+
+    def text(value) -> str:
+        return value.decode() if isinstance(value, bytes) else str(value)
+
+    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    shell = TetherShell()
+    qtbot.addWidget(shell.window)
+    try:
+        assert shell.load_project(project.path) is not None
+        shell.molecule_list.setCurrentRow(1)
+        writer = getattr(Project, method_name)
+
+        def checked_writer(project_ref, molecule_key):
+            assert success_text not in shell.status_message
+            return writer(project_ref, molecule_key)
+
+        monkeypatch.setattr(Project, method_name, checked_writer)
+
+        qtbot.keyClick(shell.molecule_list, getattr(QtCore.Qt.Key, key_name))
+
+        assert success_text in shell.status_message
+    finally:
+        shell.close()
+
+    reopened = Project.open(project.path)
+    rows = read_labels(reopened.path)
+    assert rows.shape == (1,)
+    row = rows[0]
+    assert text(row["molecule_key"]) == keys[1]
+    assert int(row["label_value"]) == expected_label
+    assert text(row["source"]) == "human"
+    assert text(row["source_file"]) == project.path.name
+    assert text(row["labeler"])
+    assert datetime.fromisoformat(text(row["timestamp"])).tzinfo is not None
+    assert reopened.curation_label(keys[1]) == expected_label
+
+
+def test_curation_without_selection_adds_no_row_and_reports_action(shell, qtbot, tmp_path) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    from tether.project.labels import read_labels
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    shell.molecule_list.setCurrentRow(-1)
+
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Space)
+
+    assert read_labels(project.path).shape == (0,)
+    assert "select a project molecule" in shell.status_message
+    assert "Accepted" not in shell.status_message
+
+
+def test_curation_locked_project_adds_no_row_and_reports_lock(shell, qtbot, tmp_path) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    from tether.project import lock
+    from tether.project.labels import read_labels
+    from tether.project.lock import LockIdentity
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    held = lock.acquire(
+        project.path, identity=LockIdentity(host="OTHER-HOST", user="other", pid=999)
+    )
+    try:
+        qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Space)
+    finally:
+        assert lock.release(project.path, held) is True
+
+    assert read_labels(project.path).shape == (0,)
+    assert "Accept failed" in shell.status_message
+    assert "locked" in shell.status_message
+    assert "Accepted" not in shell.status_message
+
+
+def test_curation_write_error_adds_no_row_and_never_reports_success(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    from tether.project.core import Project
+    from tether.project.labels import read_labels
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+
+    def fail_write(_project, _molecule_key):
+        raise OSError("simulated disk full")
+
+    monkeypatch.setattr(Project, "accept", fail_write)
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Space)
+
+    assert read_labels(project.path).shape == (0,)
+    assert "Accept failed: simulated disk full" in shell.status_message
+    assert "Accepted" not in shell.status_message
 
 
 def test_load_project_analysis_only_gates_overlap_and_banners(shell, tmp_path) -> None:

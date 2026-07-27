@@ -243,9 +243,10 @@ class TetherShell:
     Constructs headlessly (needs a ``QApplication``; ``pyqtgraph.mkQApp`` /
     ``qtbot`` provide one). Installs the curation event filter on the application
     so the four bare keys reach the controller from any of the child surfaces,
-    routes each dispatched command to a status-bar message (so the live smoke
-    shows keys firing), and exposes the dialogs. The ``I`` key runs one-click
-    idealize on the selected molecule through the injected ``idealizer`` seam
+    persists accept/reject for the selected molecule when a writable project is
+    loaded, reports deferred commands explicitly unavailable, and exposes the
+    dialogs. The ``I`` key runs one-click idealize on the selected molecule through
+    the injected ``idealizer`` seam
     (:func:`make_store_idealizer` wires the real store-backed vbFRET pipeline) and
     draws the returned Viterbi path on the dock. When an ``overlap`` seam is wired
     (:func:`make_store_overlap`), a right-hand static overlap dock shows the selected
@@ -272,6 +273,10 @@ class TetherShell:
         )
         self._traces: list[TraceView] = []
         self._current_index = -1
+        # The writable project behind Space/Backspace/Delete. It is set only by a
+        # successful load_project call: synthetic/demo traces and a bare shell must
+        # never acquire an accidental persistence target.
+        self._curation_project: Project | None = None
         # The one-click-idealize seam: a molecule_key -> idealized-path callable.
         # None (the synthetic/no-project default) makes ``I`` report that a project
         # must be loaded; make_store_idealizer(project) wires the real pipeline.
@@ -573,6 +578,7 @@ class TetherShell:
             self._status(f"Open project failed: {exc}")
             return None
 
+        self._curation_project = project
         self._idealizer = idealizer
         self._histogram_seam = histogram
         self._handoff = handoff
@@ -873,24 +879,62 @@ class TetherShell:
         self._window.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, dock_widget)
         self._histogram_dock_widget = dock_widget
 
-    # --- handlers (route each command to a visible status message) -----------
+    # --- handlers ------------------------------------------------------------
 
     def _build_handlers(self) -> CurationHandlers:
         return CurationHandlers(
-            accept=lambda: self._status("Accepted (uncategorized)"),
-            reject=lambda: self._status("Rejected"),
+            accept=lambda: self._curate_current(CurationAction.ACCEPT),
+            reject=lambda: self._curate_current(CurationAction.REJECT),
             jump=lambda: self._status("Jump to movie spot"),
             idealize=self._idealize_current,
             next=lambda: self._step(+1),
             prev=lambda: self._step(-1),
             assign_category=self._assign_category,
-            clear_category=lambda: self._status("Category cleared (uncategorized)"),
-            window_start=lambda d: self._status(f"Analysis-window start {d:+d}"),
-            window_end=lambda d: self._status(f"Analysis-window end {d:+d}"),
-            reset_window=lambda: self._status("Analysis window reset"),
-            photobleach=lambda: self._status("Photobleach detect"),
+            clear_category=lambda: self._unavailable(
+                "Category clearing", "category persistence is not implemented"
+            ),
+            window_start=lambda _d: self._unavailable(
+                "Analysis-window editing", "GUI persistence is not implemented"
+            ),
+            window_end=lambda _d: self._unavailable(
+                "Analysis-window editing", "GUI persistence is not implemented"
+            ),
+            reset_window=lambda: self._unavailable(
+                "Analysis-window reset", "GUI persistence is not implemented"
+            ),
+            photobleach=lambda: self._unavailable(
+                "Photobleach detection", "GUI persistence is not implemented"
+            ),
             grid=lambda: self._status("Grid toggled"),
         )
+
+    def _curate_current(self, action: CurationAction) -> None:
+        """Persist accept/reject for the selected store molecule, then report success."""
+        if action not in {CurationAction.ACCEPT, CurationAction.REJECT}:
+            raise ValueError(f"unsupported curation action {action}")
+
+        verb = "Accept" if action is CurationAction.ACCEPT else "Reject"
+        completed = "Accepted" if action is CurationAction.ACCEPT else "Rejected"
+        project = self._curation_project
+        if project is None:
+            self._status(f"{verb} unavailable: load a writable project first")
+            return
+
+        row = self._molecule_list.currentRow()
+        trace = self._traces[row] if 0 <= row < len(self._traces) else None
+        if trace is None or trace.molecule_key is None:
+            self._status(f"{verb} failed: select a project molecule first")
+            return
+
+        try:
+            writer = project.accept if action is CurationAction.ACCEPT else project.reject
+            writer(trace.molecule_key)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
+            self._status(f"{verb} failed: {exc}")
+            return
+
+        target = trace.name or trace.molecule_key
+        self._status(f"{completed} {target}")
 
     def _assign_category(self, integer_class: int) -> None:
         name = (
@@ -898,7 +942,14 @@ class TetherShell:
             if 1 <= integer_class <= len(self._categories)
             else "?"
         )
-        self._status(f"Category {integer_class} ({name})")
+        self._unavailable(
+            f"Category {integer_class} ({name}) assignment",
+            "category persistence is not implemented",
+        )
+
+    def _unavailable(self, feature: str, reason: str) -> None:
+        """Report a deferred GUI command without claiming it changed project data."""
+        self._status(f"{feature} unavailable: {reason}")
 
     @property
     def is_idealizing(self) -> bool:

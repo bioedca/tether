@@ -61,16 +61,41 @@ def test_shell_hosts_surfaces_and_installs_filter(shell) -> None:
     assert shell.event_filter.qobject is not None
 
 
-def test_bare_key_from_list_dispatches_and_updates_status(shell) -> None:
+def test_bare_accept_key_without_project_reports_nonwriting(shell) -> None:
     from pyqtgraph.Qt import QtCore
 
     from tether.gui.curation import Command, CurationAction
 
     k = QtCore.Qt.Key
+    shell.set_molecules(_traces(1))
     consumed = shell.event_filter.filter_event(shell.molecule_list, _key_event(k.Key_Space))
     assert consumed is True
     assert shell.controller.last == Command(CurationAction.ACCEPT)
-    assert "Accepted" in shell.status_message
+    assert "load a writable project" in shell.status_message
+    assert "Accepted" not in shell.status_message
+
+
+@pytest.mark.parametrize(
+    "key_name",
+    [
+        "Key_1",
+        "Key_0",
+        "Key_Minus",
+        "Key_Equal",
+        "Key_BracketLeft",
+        "Key_BracketRight",
+        "Key_R",
+        "Key_P",
+    ],
+)
+def test_deferred_store_commands_report_unavailable(shell, qtbot, key_name) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    shell.set_molecules(_traces(1))
+
+    qtbot.keyClick(shell.molecule_list, getattr(QtCore.Qt.Key, key_name))
+
+    assert "unavailable" in shell.status_message.lower()
 
 
 def test_category_field_keeps_text_semantics(shell) -> None:

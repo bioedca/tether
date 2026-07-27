@@ -25,8 +25,8 @@ without Qt (mirroring :mod:`tether.gui.trace_dock`):
   ``Enter``/``I`` and the reserved ``C``/``V`` no-ops. Rebindable and
   JSON-persistable; renders a cheat-sheet.
 * :class:`CurationController` — routes a :class:`Command` to injected handler
-  callbacks (later sessions wire real ``/labels`` writes, idealize, camera jumps;
-  M2 S2 records the dispatch for tests) and keeps the integer↔category contract
+  callbacks (the shell wires loaded-project accept/reject to real ``/labels``
+  writes) and keeps the integer↔category contract
   (tMAVEN class ``0`` ↔ Tether *uncategorized*, ``≥ 1`` ↔ named categories).
 * :class:`CurationEventFilter` — the ``QObject`` installed on the ``QApplication``
   that implements the focus contract. Qt is imported lazily in ``__init__`` so
@@ -162,10 +162,11 @@ _ACTION_TEXT: dict[CurationAction, str] = {
 class CurationHandlers:
     """Injected callbacks the controller invokes for each dispatched command.
 
-    Every hook is optional; an unset hook makes its action a silent no-op at M2
-    S2 (the curation/labels writer, one-click idealize, and the camera jump wire
-    their real backends at M2 S5/S6/S4). ``assign_category`` receives the integer
-    class; ``window_start``/``window_end`` receive the ``±1`` nudge delta.
+    Every hook remains optional so the Qt-free controller is independently
+    injectable; an unset hook is a silent no-op. :class:`~tether.gui.shell.TetherShell`
+    wires loaded-project accept/reject to the real labels writer and reports
+    unavailable store commands explicitly. ``assign_category`` receives the
+    integer class; ``window_start``/``window_end`` receive the ``±1`` nudge delta.
     """
 
     accept: Callable[[], Any] | None = None
