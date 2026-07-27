@@ -502,11 +502,13 @@ class CurationEventFilter:
 
     Composes a lazily-created ``QObject`` (so importing this module needs no Qt,
     matching :mod:`tether.gui.trace_dock`). On a ``KeyPress`` for a chord in the
-    keymap, and only when the **focused** widget is not a text editor, it
-    dispatches the :class:`Command` to the controller and **consumes** the event
-    (returning ``True``) so the native list/canvas binding never fires; the
-    matching ``KeyRelease`` is consumed too. After a ``JUMP`` (camera round-trip)
-    focus is returned to the registered dock widget, mirroring tMAVEN.
+    keymap, and only when the event remains inside the registered curation window
+    and the **focused** widget is not a text editor, it dispatches the
+    :class:`Command` to the controller and **consumes** the event (returning
+    ``True``) so the native list/canvas binding never fires; the matching
+    ``KeyRelease`` is consumed too. Dialogs and popup menus remain outside that
+    scope. After a ``JUMP`` (camera round-trip) focus is returned to the
+    registered dock widget, mirroring tMAVEN.
 
     The exemption is keyed on the **focused** widget, not merely the event's
     target: a focused ``QLineEdit`` that *ignores* a key (e.g. ``Enter``, which it
@@ -526,12 +528,14 @@ class CurationEventFilter:
         keymap: Keymap | None = None,
         *,
         focus_dock: QtWidgets.QWidget | None = None,
+        scope_window: QtWidgets.QWidget | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtWidgets
 
         self._controller = controller
         self._keymap = keymap if keymap is not None else Keymap.default()
         self._focus_dock = focus_dock
+        self._scope_window = scope_window
         self._app: QtCore.QCoreApplication | None = None
         self._qtwidgets = QtWidgets  # cached for the per-event focus lookup
         # Key codes whose KeyPress this filter consumed, so the paired KeyRelease
@@ -623,18 +627,26 @@ class CurationEventFilter:
             return False
         if event_type != self._key_press:
             return False
-        # A modal dialog owns every native key while it is active. The filter is
-        # application-wide, so without this guard a bare Space/Backspace/Delete
-        # aimed at a QFileDialog/QMessageBox could curate the trace hidden behind
-        # it and consume the dialog's own activation/navigation key.
-        if self._qtwidgets.QApplication.activeModalWidget() is not None:
+        # Dialogs and popup menus own every native key while active. The filter is
+        # application-wide, so without these guards a bare Space/Backspace/Delete
+        # could curate the trace hidden behind them.
+        app = self._qtwidgets.QApplication
+        if app.activeModalWidget() is not None or app.activePopupWidget() is not None:
+            return False
+        focus = self._current_focus() if focus_widget is _UNSET else focus_widget
+        # The actual event receiver defines scope. QDialog/QMenu.window() is the
+        # dialog/menu itself even when parented by the main window, so modeless
+        # help and popup surfaces remain natively interactive.
+        if self._scope_window is not None and (
+            not isinstance(watched, self._qtwidgets.QWidget)
+            or watched.window() != self._scope_window
+        ):
             return False
         # A focused text editor keeps native text semantics (PRD §7.3 exemption).
         # Check both the event's target and the focused widget: on key-event
         # propagation the target climbs to non-text parents while focus stays on
         # the text field, so the focus check is what keeps the category field
         # exempt for keys it ignores (e.g. Enter).
-        focus = self._current_focus() if focus_widget is _UNSET else focus_widget
         if is_text_entry(watched) or is_text_entry(focus):
             return False
         modifiers = _as_int(event.modifiers()) & self._significant_mask

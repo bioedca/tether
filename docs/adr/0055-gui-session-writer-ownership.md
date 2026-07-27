@@ -23,10 +23,12 @@ read-only access and responsive background work?
 
 - Every writable GUI project must participate in the canonical single-writer protocol.
 - Curation writes must not overlap an in-flight background idealization writer.
+- A live GUI session must refresh ownership before the 30-minute stale timeout.
 - A foreign or unavailable lock must preserve read-only browsing instead of making the
   project inaccessible.
 - A background writer must not outlive the lock that protects it.
-- Modal dialogs must own their native keys without application-wide curation side effects.
+- Dialogs and popup menus must own their native keys without application-wide curation
+  side effects.
 - Reject reversal must remain a visible, one-click, append-only action.
 
 ## Considered options
@@ -46,12 +48,21 @@ When a project loads, the shell completes its fallible reads and then atomically
 `Project.acquire_lock()`. On success, the shell retains that lock across accept, reject,
 un-reject, idealization, and other enabled write seams. Curation and project replacement
 are unavailable while background idealization is active, so those HDF5 writers cannot
-overlap.
+overlap. A repeating GUI timer and each curation/idealization action refresh ownership
+well before the 30-minute stale boundary. Refresh replaces the held nonce atomically;
+teardown stops the timer and releases only the newest nonce.
+
+Because a sidecar fit can run for many minutes, idealization checks ownership both before
+work starts and again immediately before opening HDF5 for persistence. A lock stolen
+during the fit therefore prevents the store write.
 
 Replacing the loaded project releases the prior session lock after the new project has
 opened successfully. Closing the shell releases the current lock immediately when idle.
 If idealization is still running, the visual result is abandoned but the lock remains
 held until the worker future finishes; its completion callback then releases ownership.
+Both `QApplication.aboutToQuit` and the exposed main window's own Close event route
+through the same idempotent teardown, so an embedding host cannot retain an invisible
+shell's lock or application-wide event filter.
 
 If lock acquisition fails because another owner holds it or the sidecar cannot be created,
 the shell opens the project read-only. Read seams remain available, all write seams stay
@@ -59,20 +70,23 @@ disabled, and the status bar explains why. The Browser dock exposes **Un-reject 
 as the visible reversal of a sticky reject and records the reversal through the same
 append-only labels API.
 
-The application-wide curation event filter passes all key presses through unchanged while
-a modal widget is active. This prevents Space, Backspace, or Delete in a file dialog or
-message box from curating the trace behind it.
+The application-wide curation event filter dispatches only when the event and focus belong
+to the registered main curation window. It passes all key presses through unchanged for
+modal or modeless dialogs and active popup menus. This prevents Space, Backspace, or Delete
+in a file dialog, cheat sheet, or menu from curating the trace behind it.
 
 ### Consequences
 
 - **Good.** Every writable GUI session has explicit, stable single-writer ownership.
+- **Good.** Active sessions stay fresh and long-running fits fail closed if ownership changes.
 - **Good.** Curation and background idealization cannot write the HDF5 project concurrently.
 - **Good.** Contended projects remain browseable with an actionable read-only banner.
 - **Good.** Sticky rejection has a discoverable, provenance-preserving reversal path.
 - **Trade-off.** A writable project remains exclusively locked for the GUI session, and
   project switching waits for any active idealizer.
-- **Follow-up.** GUI regression tests pin lock acquisition/release, read-only fallback,
-  writer serialization, modal-key bypass, and un-reject behavior.
+- **Follow-up.** GUI regression tests pin lock acquisition/refresh/release, direct-window
+  teardown, read-only fallback, writer serialization, out-of-scope key bypass, and
+  un-reject behavior.
 
 ## More information
 

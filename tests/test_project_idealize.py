@@ -629,6 +629,36 @@ def test_project_reidealize_rejects_locked_project(tmp_path) -> None:
         proj.reidealize("vbconhmm", _runner=_make_runner({2: -3.0}, []))
 
 
+def test_idealization_rechecks_lock_after_runner_before_store_write(tmp_path) -> None:
+    from tether.project import lock
+    from tether.project.lock import LockedError, LockIdentity
+
+    n, t = 2, 20
+    proj, _keys = _build_store(
+        tmp_path / "e.tether",
+        _step_trace(n, t),
+        _step_trace(n, t) * 0.5,
+    )
+    proj.acquire_lock()
+    foreign = LockIdentity(host="OTHER-HOST", user="other", pid=999)
+    foreign_lock = None
+    base_runner = _make_runner({2: -3.0}, [])
+
+    def stealing_runner(*args, **kwargs):
+        nonlocal foreign_lock
+        result = base_runner(*args, **kwargs)
+        foreign_lock = lock.acquire(proj.path, identity=foreign, steal=True)
+        return result
+
+    try:
+        with pytest.raises(LockedError):
+            idealize_molecules(proj, nstates=2, _runner=stealing_runner)
+        assert list_idealizations(proj) == []
+    finally:
+        if foreign_lock is not None:
+            assert lock.release(proj.path, foreign_lock)
+
+
 # --- schema freeze -----------------------------------------------------------
 
 

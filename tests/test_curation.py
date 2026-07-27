@@ -317,6 +317,47 @@ def test_active_modal_dialog_suspends_curation_shortcuts(curation) -> None:
 
 @pytest.mark.gui
 @_needs_qt
+def test_non_main_windows_and_popups_suspend_curation_shortcuts(qapp, qtbot) -> None:
+    from pyqtgraph.Qt import QtCore, QtWidgets
+
+    from tether.gui.curation import CurationController, CurationEventFilter
+
+    controller = CurationController()
+    main = QtWidgets.QMainWindow()
+    main_child = QtWidgets.QWidget(main)
+    dialog = QtWidgets.QDialog(main)
+    popup = QtWidgets.QMenu(main)
+    for widget in (main, main_child, dialog, popup):
+        qtbot.addWidget(widget)
+    filt = CurationEventFilter(
+        controller,
+        Keymap.default(),
+        scope_window=main,
+    )
+    k = QtCore.Qt.Key
+
+    assert filt.filter_event(
+        main_child,
+        _key_event(k.Key_Space),
+        focus_widget=main_child,
+    )
+    assert controller.last == Command(A.ACCEPT)
+    before = list(controller.history)
+
+    for outside_surface in (dialog, popup):
+        assert (
+            filt.filter_event(
+                outside_surface,
+                _key_event(k.Key_Backspace),
+                focus_widget=outside_surface,
+            )
+            is False
+        )
+        assert controller.history == before
+
+
+@pytest.mark.gui
+@_needs_qt
 def test_property_marked_widget_is_exempt(curation) -> None:
     from pyqtgraph.Qt import QtCore, QtWidgets
 

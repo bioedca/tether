@@ -185,6 +185,50 @@ def test_load_project_opens_round_trip_store_live(shell, tmp_path) -> None:
     assert shell.overlap_dock is not None
 
 
+def test_gui_session_lock_refreshes_before_stale_timeout(shell, tmp_path) -> None:
+    from tether.project.lock import DEFAULT_STALENESS_TIMEOUT_S
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    before = project.lock_owner()
+    assert before is not None
+    assert shell._lock_refresh_timer.isActive()
+    assert shell._lock_refresh_timer.interval() < DEFAULT_STALENESS_TIMEOUT_S * 1000
+
+    shell._refresh_project_lock()
+
+    after = project.lock_owner()
+    assert after is not None
+    assert after.identity == before.identity
+    assert after.nonce != before.nonce
+    shell.close()
+    assert not shell._lock_refresh_timer.isActive()
+    assert project.lock_owner() is None
+
+
+def test_lost_session_lock_disables_gui_writes_and_refresh(shell, tmp_path) -> None:
+    from tether.project import lock
+    from tether.project.lock import LockIdentity
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    foreign = lock.acquire(
+        project.path,
+        identity=LockIdentity(host="OTHER-HOST", user="other", pid=999),
+        steal=True,
+    )
+    try:
+        shell._refresh_project_lock()
+
+        assert shell._curation_project is None
+        assert shell._idealizer is None
+        assert not shell._lock_refresh_timer.isActive()
+        assert "became read-only" in shell.status_message
+        assert "locked" in shell.status_message
+    finally:
+        assert lock.release(project.path, foreign)
+
+
 @pytest.mark.parametrize(
     ("key_name", "method_name", "expected_label", "success_text"),
     [
@@ -368,6 +412,23 @@ def test_close_retains_session_lock_until_background_idealization_finishes(
     # here can race the done callback's unlink on Windows and itself hold the
     # file open long enough to cause a sharing violation.
     qtbot.waitUntil(lambda: not project.lock_path.exists(), timeout=5000)
+
+
+def test_main_window_close_releases_session_state_while_application_lives(
+    shell, qapp, qtbot, tmp_path
+) -> None:
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    old_quit_policy = qapp.quitOnLastWindowClosed()
+    qapp.setQuitOnLastWindowClosed(False)
+    try:
+        shell.window.show()
+        shell.window.close()
+        qtbot.waitUntil(lambda: not project.lock_path.exists(), timeout=2000)
+        assert shell._event_filter._app is None
+        assert not shell._lock_refresh_timer.isActive()
+    finally:
+        qapp.setQuitOnLastWindowClosed(old_quit_policy)
 
 
 def test_curation_write_error_adds_no_row_and_never_reports_success(

@@ -437,11 +437,17 @@ def idealize_molecules(
         A requested ``molecule_key`` absent from ``/molecules``.
     FileExistsError
         ``/idealization/{model_name}`` exists and ``overwrite`` is False.
+    tether.project.lock.LockedError
+        A foreign writer owns the project before fitting or takes ownership
+        before the fitted model is persisted.
     """
     from tether.project.core import Project as _Project
 
     proj = project if isinstance(project, _Project) else _Project.open(project)
     path = proj.path
+    # This public function is also called directly (not only through
+    # Project.idealize), so establish the canonical writer check here too.
+    proj._assert_writable()
     donor_key, acceptor_key = _resolve_quantity(intensity_quantity)
     model_name = model_name or model_type
 
@@ -532,6 +538,9 @@ def idealize_molecules(
             elbo_by_nstates = None
             selected_by = "fixed"
 
+        # The sidecar fit may run for many minutes. Ownership can change while it
+        # is outside the process, so re-check immediately before opening HDF5 r+.
+        proj._assert_writable()
         return _write_model(
             path,
             result=result,

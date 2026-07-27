@@ -322,6 +322,15 @@ class TetherShell:
 
         self._window = QtWidgets.QMainWindow()
         self._window.setWindowTitle(_APP_NAME)
+        # Refresh a writable GUI session well before the canonical 30-minute
+        # staleness boundary. Re-acquiring as the same identity atomically
+        # replaces the nonce; Project.release_lock() always releases only the
+        # newest nonce held by this handle.
+        from tether.project.lock import DEFAULT_STALENESS_TIMEOUT_S
+
+        self._lock_refresh_timer = QtCore.QTimer()
+        self._lock_refresh_timer.setInterval(max(1000, int(DEFAULT_STALENESS_TIMEOUT_S * 1000 / 3)))
+        self._lock_refresh_timer.timeout.connect(self._refresh_project_lock)
 
         # Central surface: the pyqtgraph trace dock.
         self._trace_dock = TraceDock()
@@ -360,15 +369,32 @@ class TetherShell:
         )
         self._keymap = Keymap.default()
         self._event_filter = CurationEventFilter(
-            self._controller, self._keymap, focus_dock=self._trace_dock.widget
+            self._controller,
+            self._keymap,
+            focus_dock=self._trace_dock.widget,
+            scope_window=self._window,
         )
         self._event_filter.install()
-        # Closing the last main window quits QApplication. Route that lifecycle
-        # through close() too, so an interactive window close releases the session
-        # lock just like a context-manager/test close.
+        self._closed = False
+
+        # A host may reuse QApplication or disable quit-on-last-window. Observe the
+        # exposed QMainWindow's Close event directly so its session lock and the
+        # application-wide shortcut filter never outlive the visible shell.
+        outer = self
+
+        class _WindowCloseFilter(QtCore.QObject):
+            def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802
+                if event.type() == QtCore.QEvent.Type.Close:
+                    outer._close(close_window=False)
+                return False
+
+        self._window_close_filter = _WindowCloseFilter(self._window)
+        self._window.installEventFilter(self._window_close_filter)
+
+        # QApplication teardown is the second lifecycle route (for hosts that
+        # quit without first sending the main window a Close event).
         self._app = QtWidgets.QApplication.instance()
         self._app.aboutToQuit.connect(self.close)
-        self._closed = False
 
         # File menu: open a produced/extracted .tether live in this shell for
         # curation + one-click idealize — the store<->shell hookup (§7.8, FR-LEGACY;
@@ -640,6 +666,10 @@ class TetherShell:
         self._handoff = handoff
         self._overlap_seam = overlap
         self._conditions = project if writable else None
+        if writable:
+            self._lock_refresh_timer.start()
+        else:
+            self._lock_refresh_timer.stop()
         # Drop any docks built against a prior project so they rebuild fresh against the
         # new store (no stale histogram / overlap leaking across a re-open).
         self._reset_store_docks()
@@ -664,6 +694,25 @@ class TetherShell:
             detail = f"{detail}; {read_only_reason}"
         self._status(f"Opened {name}{mode_suffix} — {detail}")
         return project
+
+    def _refresh_project_lock(self) -> None:
+        """Refresh the writable session lock or fail closed to read-only browsing."""
+        from tether.project.lock import LockedError
+
+        project = self._curation_project
+        if self._closed or project is None:
+            self._lock_refresh_timer.stop()
+            return
+        try:
+            project.acquire_lock()
+        except (LockedError, OSError) as exc:
+            self._lock_refresh_timer.stop()
+            self._curation_project = None
+            self._curation_read_only_reason = f"session lock lost: {exc}"
+            self._idealizer = None
+            self._handoff = None
+            self._conditions = None
+            self._status(f"Project became read-only: {self._curation_read_only_reason}")
 
     def _reset_store_docks(self) -> None:
         """Discard the lazily-built histogram / overlap docks so a re-open rebuilds them."""
@@ -991,6 +1040,8 @@ class TetherShell:
             CurationAction.UNREJECT: ("Un-reject", "Un-rejected"),
         }
         verb, completed = labels[action]
+        if self._curation_project is not None:
+            self._refresh_project_lock()
         project = self._curation_project
         if project is None:
             reason = self._curation_read_only_reason or "load a writable project first"
@@ -1070,6 +1121,10 @@ class TetherShell:
         if trace.molecule_key is None or self._idealizer is None:
             self._status("Idealize: load a project with extracted molecules first")
             return
+        if self._curation_project is not None:
+            self._refresh_project_lock()
+            if self._curation_project is None:
+                return
         key = trace.molecule_key
         self._idealize_key = key
         self._status(f"Idealizing {key} (one-click vbFRET)…")
@@ -1136,7 +1191,11 @@ class TetherShell:
         self._window.show()
 
     def close(self) -> None:
-        """Remove the filter, settle writer ownership, and close the window.
+        """Remove the filter, settle writer ownership, and close the window."""
+        self._close(close_window=True)
+
+    def _close(self, *, close_window: bool) -> None:
+        """Shared teardown for API/app shutdown and an in-progress window Close event.
 
         A running idealizer cannot be force-cancelled safely while its sidecar may
         still commit HDF5 data. Its result is abandoned visually, but the session
@@ -1148,13 +1207,24 @@ class TetherShell:
         if self._closed:
             return
         self._closed = True
+        self._window.removeEventFilter(self._window_close_filter)
+        self._window_close_filter = None
         if self._app is not None:
             with suppress(RuntimeError, TypeError):
                 self._app.aboutToQuit.disconnect(self.close)
             self._app = None
         self._event_filter.remove()
+        self._lock_refresh_timer.stop()
         future = self._idealize_future
         project = self._curation_project
+        if project is not None and future is not None and not future.done():
+            # Give an abandoned in-flight writer a fresh full staleness window.
+            # The write path re-checks ownership before committing, so a later
+            # explicit steal still fails closed rather than racing HDF5.
+            from tether.project.lock import LockedError
+
+            with suppress(LockedError, OSError):
+                project.acquire_lock()
         self._curation_project = None
         self._curation_read_only_reason = None
         if self._idealize_timer is not None:
@@ -1176,7 +1246,8 @@ class TetherShell:
         if self._overlap_dock is not None:
             self._overlap_dock.close()
         self._trace_dock.close()
-        self._window.close()
+        if close_window:
+            self._window.close()
 
     def __enter__(self) -> TetherShell:
         return self
