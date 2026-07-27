@@ -132,16 +132,26 @@ _TETHER_FILTER = "Tether project (*.tether);;All files (*)"
 # Initial acquisition treats the same host/user/PID as one identity. Separate shells
 # in one QApplication therefore need an additional process-local ownership boundary
 # or they can both become writable before retained-session refresh takes over.
-_GUI_PROJECT_OWNERS: dict[str, object] = {}
+_ProjectOwnerKey = tuple[str, int, int] | tuple[str, str]
+_GUI_PROJECT_OWNERS: dict[_ProjectOwnerKey, object] = {}
 _GUI_PROJECT_OWNERS_LOCK = Lock()
 
 
-def _project_owner_key(path: str | Path) -> str:
-    """Return one process-local identity for equivalent project paths."""
-    return os.path.normcase(os.path.realpath(os.fspath(path)))
+def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
+    """Return one process-local identity for paths to the same existing file."""
+    resolved = os.path.normcase(os.path.realpath(os.fspath(path)))
+    try:
+        stat = os.stat(resolved)
+    except OSError:
+        # Construction/failure paths may not exist yet. Keep the former normalized
+        # path behavior as a safe, deterministic fallback without inventing an inode.
+        return ("path", resolved)
+    if stat.st_ino:
+        return ("file", int(stat.st_dev), int(stat.st_ino))
+    return ("path", resolved)
 
 
-def _claim_gui_project(path: str | Path, token: object) -> str | None:
+def _claim_gui_project(path: str | Path, token: object) -> _ProjectOwnerKey | None:
     """Claim ``path`` for one shell token, returning its key or ``None`` if busy."""
     key = _project_owner_key(path)
     with _GUI_PROJECT_OWNERS_LOCK:
@@ -152,7 +162,7 @@ def _claim_gui_project(path: str | Path, token: object) -> str | None:
     return key
 
 
-def _release_gui_project(key: str | None, token: object) -> None:
+def _release_gui_project(key: _ProjectOwnerKey | None, token: object) -> None:
     """Release a process-local claim only when ``token`` still owns it."""
     if key is None:
         return
@@ -335,13 +345,14 @@ class TetherShell:
         # releasing the prior session. Retain that second nonce and process-local
         # claim independently until rollback release succeeds.
         self._rollback_session_project: Project | None = None
-        self._rollback_claimed_project_key: str | None = None
+        self._rollback_claimed_project_key: _ProjectOwnerKey | None = None
         self._session_release_lock = Lock()
         # The sidecar lock identifies a process, so two shells in this process would
         # otherwise refresh the same identity and both become writable. This opaque
-        # token owns at most the currently loaded writable path in the local registry.
+        # token owns at most one existing project file identity (including hard-link
+        # aliases) in the local registry.
         self._project_owner_token = object()
-        self._claimed_project_key: str | None = None
+        self._claimed_project_key: _ProjectOwnerKey | None = None
         # Why the loaded project is browse-only. Kept separately from
         # _curation_project so a blocked writer gets an actionable status instead
         # of the bare-shell "load a writable project" message.
@@ -792,15 +803,16 @@ class TetherShell:
                     _probe_project_writable(proj_path)
                 except OSError as exc:
                     try:
-                        project.release_lock()
+                        released = project.release_lock()
                     except OSError:
                         # Retain both handle and process-local claim; the release
                         # timer retries this exact nonce after state goes read-only.
                         pass
                     else:
-                        session_project = None
-                        _release_gui_project(claimed_key, self._project_owner_token)
-                        claimed_key = None
+                        if released:
+                            session_project = None
+                            _release_gui_project(claimed_key, self._project_owner_token)
+                            claimed_key = None
                     writable = False
                     read_only_reason = f"project file is not writable: {exc}"
                     idealizer = None
@@ -813,18 +825,20 @@ class TetherShell:
         prior_claimed_key = self._claimed_project_key
         if prior_session_project is not None:
             try:
-                prior_session_project.release_lock()
+                if not prior_session_project.release_lock():
+                    raise OSError("prior session lock release was indeterminate")
             except OSError as exc:
                 if session_project is not None:
                     try:
-                        session_project.release_lock()
+                        new_released = session_project.release_lock()
                     except OSError:
+                        new_released = False
+                    if not new_released:
                         self._rollback_session_project = session_project
                         self._rollback_claimed_project_key = claimed_key
                         self._lock_release_timer.start()
-                    else:
-                        if claimed_key != prior_claimed_key:
-                            _release_gui_project(claimed_key, self._project_owner_token)
+                    elif claimed_key != prior_claimed_key:
+                        _release_gui_project(claimed_key, self._project_owner_token)
                 elif claimed_key != prior_claimed_key:
                     _release_gui_project(claimed_key, self._project_owner_token)
                 self._status(f"Open project unavailable: prior session release failed: {exc}")
@@ -918,8 +932,10 @@ class TetherShell:
             project = self._rollback_session_project
             if project is not None:
                 try:
-                    project.release_lock()
+                    released = project.release_lock()
                 except OSError:
+                    return False
+                if not released:
                     return False
                 self._rollback_session_project = None
             _release_gui_project(
@@ -935,8 +951,10 @@ class TetherShell:
             project = self._session_project
             if project is not None:
                 try:
-                    project.release_lock()
+                    released = project.release_lock()
                 except OSError:
+                    return False
+                if not released:
                     return False
                 self._session_project = None
             _release_gui_project(self._claimed_project_key, self._project_owner_token)

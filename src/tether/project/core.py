@@ -289,7 +289,8 @@ class Project:
         Nonce-checked (:func:`lock.release`): never deletes a lock that was stolen
         away in the meantime. Resolving the identity first drops an inherited
         ``_held_lock`` in a forked child (see :meth:`_acting_identity`), so a child
-        never releases the parent's lock.
+        never releases the parent's lock. An indeterminate ``False`` retains the
+        held nonce so lifecycle owners can retry rather than dropping their claim.
         """
         from tether.project import lock
 
@@ -297,7 +298,8 @@ class Project:
         if self._held_lock is None:
             return False
         released = lock.release(self.path, self._held_lock)
-        self._held_lock = None
+        if released:
+            self._held_lock = None
         return released
 
     def write_lock(

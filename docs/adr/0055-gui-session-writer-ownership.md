@@ -56,14 +56,32 @@ point is unavailable while background idealization is active: accept, reject, an
 un-reject remain guarded, while the visible un-reject, return-leg import, and condition
 validation controls are disabled until the future settles. Project replacement also
 waits, so none of those HDF5 writers can overlap. Before enabling those seams, the shell
-proves the `.tether` HDF5 can open in `r+` mode. A process-local path registry prevents a
+proves the `.tether` HDF5 can open in `r+` mode. A process-local file-identity registry prevents a
 second shell with the same host/user/PID identity from treating the canonical sidecar
-refresh as independent ownership. A repeating GUI timer and each curation/idealization
+refresh as independent ownership; existing files are keyed by filesystem device/inode,
+so a hard-link alias does not create a second GUI claim. A repeating GUI timer and each curation/idealization
 action refresh ownership well before the 30-minute stale boundary. Refresh advances the
 held timestamp while preserving and requiring the exact acquisition nonce; it never
 recreates a vanished or replaced sidecar. If refresh or release encounters an I/O
 failure, write seams fail closed while a separate lifecycle handle retains the acquired
 nonce for retry and final teardown.
+
+For cooperating processes using the same lock-sidecar path, every acquire, explicit
+steal, retained refresh, and release holds an OS advisory lock on a stable
+`<project>.lock.guard` inode. Acquisition uses bounded non-blocking retry and fails
+closed; Tether creates the guard with ordinary sidecar permissions (`0644` on POSIX),
+locks its first byte on Windows, and intentionally never unlinks or path-replaces it.
+Refresh validates the held nonce inside that lifecycle critical section, publishes the
+timestamp with the existing same-directory atomic replace, and verifies the nonce
+again, so lock-free readers still observe complete old-or-new JSON. Fork hooks serialize
+descriptor registration with `fork()`, close inherited guard descriptors in the child,
+and replace the child's inherited registry mutex.
+
+The process-local GUI device/inode key closes hard-link aliases within one process.
+Different hard-link spellings used by separate processes still name distinct `.lock`
+and `.lock.guard` sidecars; that pre-existing cross-process alias limitation is not
+expanded into a stronger guarantee by this decision. The broader policy and design gate
+are tracked separately in [issue #249](https://github.com/bioedca/tether/issues/249).
 
 Because a sidecar fit can run for many minutes, GUI idealization requires the retained
 session's exact held nonce before work starts and binds that starting epoch into the
@@ -73,8 +91,8 @@ reacquired and therefore still prevents the store write.
 
 Replacing the loaded project releases the prior session lock after the new project has
 opened successfully. Closing the shell releases the current lock immediately when idle;
-a transient release failure retains the lifecycle handle and process-local claim while a
-timer retries the exact held nonce instead of waiting for staleness.
+a transient or indeterminate-false release retains the lifecycle handle and process-local
+claim while a timer retries the exact held nonce instead of waiting for staleness.
 If idealization is still running, the visual result is abandoned but the lock remains
 held until the worker future finishes. Its completion callback attempts release without
 dropping lifecycle state on failure, while a timer observes completion and retries
@@ -131,10 +149,11 @@ explicit include-rejected path.
 - **Good.** Sticky rejection has a discoverable, provenance-preserving reversal path.
 - **Trade-off.** A writable project remains exclusively locked for the GUI session, and
   project switching waits for any active idealizer.
-- **Follow-up.** GUI regression tests pin lock acquisition/refresh/release and retry,
-  same-process shell serialization, direct-window teardown, HDF5 update probing,
-  read-only fallback/export/banner state, histogram refresh, floating-dock scope,
-  out-of-scope key bypass, un-reject behavior, and all source-write guards during
+- **Follow-up.** Regression tests pin same-path cross-process lifecycle serialization,
+  fork cleanup, persistent guard identity, lock acquisition/refresh/release and retry,
+  same-process hard-link-aware shell serialization, direct-window teardown, HDF5 update
+  probing, read-only fallback/export/banner state, histogram refresh, floating-dock
+  scope, out-of-scope key bypass, un-reject behavior, and all source-write guards during
   background idealization.
 
 ## More information

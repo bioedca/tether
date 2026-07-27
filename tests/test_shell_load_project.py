@@ -18,6 +18,7 @@ and a coordinate-less analysis-only ``.tether`` from
 from __future__ import annotations
 
 import importlib.util
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -246,6 +247,34 @@ def test_second_shell_in_process_cannot_share_writable_project(qapp, qtbot, tmp_
 
         first.close()
         assert second.load_project(project.path) is not None
+        assert second._curation_project is not None
+    finally:
+        first.close()
+        second.close()
+
+
+def test_hard_link_alias_cannot_create_a_second_writable_gui_claim(qapp, qtbot, tmp_path) -> None:
+    from tether.gui.shell import TetherShell
+    from tether.project import lock
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    alias = tmp_path / "hard-link-alias.tether"
+    os.link(project.path, alias)
+    first = TetherShell()
+    second = TetherShell()
+    qtbot.addWidget(first.window)
+    qtbot.addWidget(second.window)
+    try:
+        assert first.load_project(project.path) is not None
+        assert second.load_project(alias) is not None
+
+        assert second._curation_project is None
+        assert "another Tether window" in second.status_message
+        assert not lock.lock_path(alias).exists()
+        assert not lock._guard_path(lock.lock_path(alias)).exists()
+
+        first.close()
+        assert second.load_project(alias) is not None
         assert second._curation_project is not None
     finally:
         first.close()
@@ -621,6 +650,41 @@ def test_close_retries_transient_nonce_safe_session_release(shell, tmp_path, mon
 
     assert release_calls == 1
     assert shell._session_project is not None
+    assert shell._claimed_project_key is not None
+    assert project.lock_owner() is not None
+    assert shell._lock_release_timer.isActive()
+
+    shell._retry_session_release()
+
+    assert release_calls == 2
+    assert shell._session_project is None
+    assert shell._claimed_project_key is None
+    assert project.lock_owner() is None
+    assert not shell._lock_release_timer.isActive()
+
+
+def test_close_retries_indeterminate_false_session_release(shell, tmp_path, monkeypatch) -> None:
+    from tether.project import lock
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    original_release = lock.release
+    release_calls = 0
+
+    def false_then_release(project_path, info):
+        nonlocal release_calls
+        release_calls += 1
+        if release_calls == 1:
+            return False
+        return original_release(project_path, info)
+
+    monkeypatch.setattr(lock, "release", false_then_release)
+
+    shell.close()
+
+    assert release_calls == 1
+    assert shell._session_project is not None
+    assert shell._session_project._held_lock is not None
     assert shell._claimed_project_key is not None
     assert project.lock_owner() is not None
     assert shell._lock_release_timer.isActive()
