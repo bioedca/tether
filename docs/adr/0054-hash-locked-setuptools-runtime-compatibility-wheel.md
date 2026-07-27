@@ -50,11 +50,12 @@ The older wheel is a **runtime compatibility layer, not a build backend**:
    `--no-build-isolation --no-deps`, so pip cannot resolve or mutate the locked sidecar
    dependency set. Because disabling build isolation makes the caller responsible for
    the build dependencies, the script permits that build only when the target
-   interpreter's actual setuptools version, exact conda package SHA-256, and installed
-   file digests match the artifact in the supplied sidecar lock, and the imported
-   `setuptools.__file__` resolves to one of those verified files. Version equality alone
-   cannot let a `PYTHONPATH` or `.pth` overlay satisfy the conda build-state gate. Before
-   creating or inspecting an environment, the script also accepts only the
+   interpreter's actual setuptools version, conda package SHA-256, and installed file
+   digests match one platform artifact in the supplied unified sidecar lock, and the
+   imported `setuptools.__file__` resolves to one of those verified files. Version
+   equality alone cannot let a `PYTHONPATH` or `.pth` overlay satisfy the conda
+   build-state gate, while valid platform-specific artifact hashes remain accepted.
+   Before creating or inspecting an environment, the script also accepts only the
    repository's default pinned short tMAVEN spec or a custom `git+` spec ending in a
    full 40- or 64-hex commit; tags, branches, and abbreviated custom commits fail
    closed instead of being installed and rejected afterward. The VCS command uses
@@ -65,12 +66,12 @@ The older wheel is a **runtime compatibility layer, not a build backend**:
    and refuses the runtime overlay unless both match. After the runtime-only overlay, a
    rerun may instead reuse tMAVEN only when PEP 610 `direct_url.json` proves the
    requested repository and exact resolved commit and the installed distribution's
-   `WHEEL` metadata records the locked `Generator: setuptools (...)`, and every installed
-   tMAVEN Python file still matches its retained wheel `RECORD` SHA-256. Python 3.12's
-   [`importlib.metadata` file API](https://docs.python.org/3.12/library/importlib.metadata.html#distribution-files)
-   exposes each installed `PackagePath`, its retained hash, and its concrete location;
-   the probe recomputes those hashes before reuse. Commit and generator metadata alone
-   cannot prove which bytes remain installed. Every other state fails closed
+   `WHEEL` metadata records the locked `Generator: setuptools (...)`, every Python row in
+   the raw wheel `RECORD` resolves inside the sidecar prefix and still matches its
+   SHA-256, and the imported `tmaven.__file__` is one of those verified files. The probe
+   parses raw `RECORD` CSV because Python 3.12 `importlib.metadata.Distribution.files`
+   can omit a listed file that is missing on disk. Commit and generator metadata alone
+   cannot prove which bytes are present or imported. Every other state fails closed
    and requires a genuinely fresh interpreter/new environment name or an explicit
    deterministic restore; reinstalling into the same named conda env is insufficient
    because pip overlays can leave stale files behind conda metadata. Optional live-suite
