@@ -27,13 +27,15 @@ every time:
 
 Before a no-isolation tMAVEN build, the script verifies that the target interpreter's
 actual setuptools distribution has the version, conda package SHA-256, and installed
-file digests from the supplied lock. A matching version alone cannot authorize a build.
+file digests from the supplied lock, and that the imported module is one of those files.
+A matching version or shadow import alone cannot authorize a build.
 A rerun whose target already contains the runtime-only 80.9.0 overlay may reuse tMAVEN
 only when both its PEP 610 Git commit and its ``WHEEL`` generator prove that exact commit
-was built by the locked ordinary setuptools. Commit identity alone is insufficient.
-Every other existing-interpreter state fails closed with fresh-environment guidance. A
-permitted build disables pip's wheel cache, force-reinstalls the pinned source, and
-rechecks both provenance records before the runtime compatibility layer is installed.
+was built by the locked ordinary setuptools and every installed Python file still
+matches its wheel ``RECORD`` hash. Commit identity and build metadata alone are
+insufficient. Every other existing-interpreter state fails closed with fresh-environment
+guidance. A permitted build disables pip's wheel cache, force-reinstalls the pinned
+source, and rechecks all provenance before the runtime compatibility layer is installed.
 
 Flow (each phase is skippable):
 
@@ -95,6 +97,7 @@ _BUILD_STATE_PREFIX = "TETHER_SIDECAR_BUILD_STATE "
 #: ``--no-build-isolation``, so both the active setuptools version and any PEP 610
 #: tMAVEN VCS provenance are load-bearing inputs.
 _BUILD_STATE_PROBE = f"""
+import base64
 import importlib.metadata as md
 import hashlib
 import json
@@ -105,14 +108,18 @@ state = {{
     "setuptools_version": None,
     "setuptools_conda_record_sha256": None,
     "setuptools_conda_files_verified": False,
+    "setuptools_import_origin_verified": False,
     "tmaven_direct_url": None,
     "tmaven_wheel_generator": None,
+    "tmaven_python_files_verified": False,
 }}
+setuptools_origin = None
 try:
     import setuptools
 
     state["setuptools_version"] = setuptools.__version__
-except (ImportError, AttributeError):
+    setuptools_origin = pathlib.Path(setuptools.__file__).resolve(strict=True)
+except (ImportError, AttributeError, OSError, TypeError):
     pass
 prefix = pathlib.Path(sys.prefix).resolve()
 matching_records = []
@@ -131,6 +138,7 @@ if len(matching_records) == 1:
     state["setuptools_conda_record_sha256"] = record.get("sha256")
     paths = record.get("paths_data", {{}}).get("paths", [])
     verified = isinstance(paths, list) and bool(paths)
+    verified_files = set()
     hashed_files = 0
     for entry in paths if isinstance(paths, list) else []:
         expected = entry.get("sha256_in_prefix") or entry.get("sha256")
@@ -148,15 +156,22 @@ if len(matching_records) == 1:
             continue
         candidate = prefix.joinpath(*relative.parts)
         try:
-            candidate.resolve(strict=True).relative_to(prefix)
-            digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+            resolved_candidate = candidate.resolve(strict=True)
+            resolved_candidate.relative_to(prefix)
+            digest = hashlib.sha256(resolved_candidate.read_bytes()).hexdigest()
         except (OSError, ValueError):
             verified = False
             continue
         hashed_files += 1
         if digest != expected:
             verified = False
+        else:
+            verified_files.add(resolved_candidate)
     state["setuptools_conda_files_verified"] = verified and hashed_files > 0
+    state["setuptools_import_origin_verified"] = (
+        state["setuptools_conda_files_verified"]
+        and setuptools_origin in verified_files
+    )
 try:
     distribution = md.distribution("tmaven")
     raw = distribution.read_text("direct_url.json")
@@ -170,6 +185,33 @@ try:
         ),
         None,
     )
+    python_files = [
+        entry
+        for entry in (distribution.files or ())
+        if pathlib.PurePosixPath(str(entry)).suffix == ".py"
+    ]
+    python_files_verified = bool(python_files)
+    for entry in python_files:
+        retained_hash = entry.hash
+        if retained_hash is None or retained_hash.mode != "sha256":
+            python_files_verified = False
+            continue
+        relative = pathlib.PurePosixPath(str(entry))
+        if relative.is_absolute() or ".." in relative.parts:
+            python_files_verified = False
+            continue
+        try:
+            installed_file = pathlib.Path(distribution.locate_file(entry)).resolve(strict=True)
+            installed_file.relative_to(prefix)
+            digest = base64.urlsafe_b64encode(
+                hashlib.sha256(installed_file.read_bytes()).digest()
+            ).rstrip(b"=").decode("ascii")
+        except (OSError, ValueError):
+            python_files_verified = False
+            continue
+        if digest != retained_hash.value:
+            python_files_verified = False
+    state["tmaven_python_files_verified"] = python_files_verified
 except (md.PackageNotFoundError, json.JSONDecodeError):
     pass
 print({_BUILD_STATE_PREFIX!r} + json.dumps(state, sort_keys=True))
@@ -377,6 +419,7 @@ def _exact_installed_tmaven_commit(
         or installed_url != expected_url
         or requested != revision
         or state.get("tmaven_wheel_generator") != expected_generator
+        or state.get("tmaven_python_files_verified") is not True
         or not isinstance(commit, str)
         or re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", commit) is None
         or commit.lower() != expected_commit
@@ -399,6 +442,7 @@ def _tmaven_install_action(
         installed_setuptools == locked_setuptools_version
         and state.get("setuptools_conda_record_sha256") == locked_setuptools_artifact_sha256
         and state.get("setuptools_conda_files_verified") is True
+        and state.get("setuptools_import_origin_verified") is True
     ):
         return "install", None
     commit = _exact_installed_tmaven_commit(
@@ -412,18 +456,20 @@ def _tmaven_install_action(
     raise SetupError(
         "refusing to build tMAVEN with setuptools "
         f"{installed}: the locked build version is {locked_setuptools_version}, but "
-        "the target does not prove the exact locked conda artifact files "
+        "the target does not prove both the exact locked conda artifact files and the "
+        "imported setuptools origin "
         f"(expected package SHA-256 {locked_setuptools_artifact_sha256}; found "
         f"{state.get('setuptools_conda_record_sha256') or 'no matching conda record'}). "
         "--no-build-isolation makes the target interpreter supply the build toolchain. "
-        "The installed tMAVEN provenance also does not prove both the requested pinned Git "
-        "commit and the expected "
+        "The installed tMAVEN provenance also does not prove the requested pinned Git "
+        "commit, the expected "
         f"setuptools ({locked_setuptools_version}) WHEEL generator"
         + (
             f" (found {state.get('tmaven_wheel_generator')})"
             if state.get("tmaven_wheel_generator")
             else ""
         )
+        + ", and the installed tMAVEN Python files against their wheel RECORD"
         + ". Create a genuinely fresh sidecar environment under a new --env-name, "
         "deterministically restore the target interpreter's setuptools files from the lock, "
         "or target an environment containing the exact requested tMAVEN commit built by the "
@@ -574,8 +620,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=(
             "use this existing interpreter as the sidecar (skips env creation); "
-            "tMAVEN builds only with the lock's setuptools, otherwise exact installed "
-            "Git provenance is required"
+            "tMAVEN builds only with the lock's exact setuptools artifact and verified "
+            "import origin; reuse also requires exact installed Git, build, and Python-file "
+            "integrity provenance"
         ),
     )
     parser.add_argument(
@@ -700,18 +747,21 @@ def main(argv: list[str] | None = None) -> int:
                             vcs_info.get("commit_id") if isinstance(vcs_info, dict) else None
                         )
                         found_generator = rebuilt_state.get("tmaven_wheel_generator")
+                        found_python_integrity = rebuilt_state.get("tmaven_python_files_verified")
                         raise SetupError(
                             "rebuilt tMAVEN failed provenance verification: expected "
                             f"commit {expected_tmaven_commit} and "
                             "WHEEL Generator: "
-                            f"setuptools ({locked_setuptools_version}); "
+                            f"setuptools ({locked_setuptools_version}) with verified "
+                            "Python files; "
                             f"found commit {found_commit or 'missing'} and "
-                            f"{found_generator or 'missing generator'}. Refusing to install "
+                            f"{found_generator or 'missing generator'} with Python-file "
+                            f"integrity {found_python_integrity}. Refusing to install "
                             "the runtime compatibility wheel."
                         )
                     print(
                         "      Verified rebuilt tMAVEN commit "
-                        f"{rebuilt_commit} and locked WHEEL generator"
+                        f"{rebuilt_commit}, locked WHEEL generator, and Python-file hashes"
                     )
             else:
                 print(f"      Reusing exact installed tMAVEN commit {installed_commit}")

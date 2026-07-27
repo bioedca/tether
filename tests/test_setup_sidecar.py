@@ -12,6 +12,8 @@ guided setup would silently install a *different* sidecar than CI validates.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import importlib.util
 import json
 import sys
@@ -42,8 +44,10 @@ def _locked_builder_state(**updates: object) -> dict:
         "setuptools_version": "82.0.1",
         "setuptools_conda_record_sha256": _LOCKED_SETUPTOOLS_SHA256,
         "setuptools_conda_files_verified": True,
+        "setuptools_import_origin_verified": True,
         "tmaven_direct_url": None,
         "tmaven_wheel_generator": None,
+        "tmaven_python_files_verified": False,
     }
     state.update(updates)
     return state
@@ -215,8 +219,99 @@ def test_build_state_probe_reads_the_imported_backend_and_wheel_generator() -> N
     assert state["setuptools_version"] == setuptools.__version__
     assert state["setuptools_conda_record_sha256"] == record_sha256
     assert state["setuptools_conda_files_verified"] is True
+    assert state["setuptools_import_origin_verified"] is True
     assert "tmaven_direct_url" in state
     assert "tmaven_wheel_generator" in state
+    assert "tmaven_python_files_verified" in state
+
+
+def test_build_state_probe_rejects_shadowed_same_version_setuptools(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import setuptools
+
+    shadow = tmp_path / "setuptools"
+    shadow.mkdir()
+    (shadow / "__init__.py").write_text(
+        f"__version__ = {setuptools.__version__!r}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    record = next(
+        (Path(sys.prefix) / "conda-meta").glob(f"setuptools-{setuptools.__version__}-*.json")
+    )
+    record_sha256 = json.loads(record.read_text(encoding="utf-8"))["sha256"]
+
+    state = setup.inspect_sidecar_build_state(sys.executable)
+
+    assert state["setuptools_version"] == setuptools.__version__
+    assert state["setuptools_conda_files_verified"] is True
+    assert state["setuptools_import_origin_verified"] is False
+    with pytest.raises(setup.SetupError, match="imported setuptools origin"):
+        setup._tmaven_install_action(
+            state,
+            locked_setuptools_version=setuptools.__version__,
+            locked_setuptools_artifact_sha256=record_sha256,
+            tmaven_spec=setup.DEFAULT_TMAVEN_SPEC,
+        )
+
+
+def test_build_state_probe_verifies_tmaven_python_files_from_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package = tmp_path / "tmaven"
+    package.mkdir()
+    module = package / "__init__.py"
+    original = b"TMAVEN_SENTINEL = 'locked'\n"
+    module.write_bytes(original)
+
+    dist_info = tmp_path / "tmaven-1.0.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: tmaven\nVersion: 1.0\n",
+        encoding="utf-8",
+    )
+    (dist_info / "WHEEL").write_text(
+        "Wheel-Version: 1.0\nGenerator: setuptools (82.0.1)\n",
+        encoding="utf-8",
+    )
+    (dist_info / "direct_url.json").write_text(
+        json.dumps(
+            {
+                "url": "https://github.com/GonzalezBiophysicsLab/tmaven.git",
+                "vcs_info": {
+                    "vcs": "git",
+                    "requested_revision": "10f4230",
+                    "commit_id": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    digest = base64.urlsafe_b64encode(hashlib.sha256(original).digest()).rstrip(b"=")
+    (dist_info / "RECORD").write_text(
+        f"tmaven/__init__.py,sha256={digest.decode()},{len(original)}\n"
+        "tmaven-1.0.dist-info/METADATA,,\n"
+        "tmaven-1.0.dist-info/WHEEL,,\n"
+        "tmaven-1.0.dist-info/direct_url.json,,\n"
+        "tmaven-1.0.dist-info/RECORD,,\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    monkeypatch.setattr(
+        setup,
+        "_BUILD_STATE_PROBE",
+        f"import sys\nsys.prefix = {str(tmp_path)!r}\n" + setup._BUILD_STATE_PROBE,
+    )
+
+    assert setup.inspect_sidecar_build_state(sys.executable)["tmaven_python_files_verified"] is True
+
+    module.write_text("TMAVEN_SENTINEL = 'tampered'\n", encoding="utf-8")
+    assert (
+        setup.inspect_sidecar_build_state(sys.executable)["tmaven_python_files_verified"] is False
+    )
 
 
 def test_version_only_setuptools_match_cannot_authorize_tmaven_build() -> None:
@@ -438,6 +533,7 @@ def test_main_runs_three_install_commands_in_dependency_safe_order(
                     },
                 },
                 "tmaven_wheel_generator": "setuptools (82.0.1)",
+                "tmaven_python_files_verified": True,
             },
         ]
     )
@@ -484,6 +580,7 @@ def test_recovered_locked_builder_force_rebuilds_an_existing_unsafe_tmaven(
                     },
                 },
                 "tmaven_wheel_generator": "setuptools (82.0.1)",
+                "tmaven_python_files_verified": True,
             },
         ]
     )
@@ -566,6 +663,7 @@ def test_rerun_reuses_only_the_exact_installed_tmaven_before_runtime_reinstall(
                 },
             },
             "tmaven_wheel_generator": "setuptools (82.0.1)",
+            "tmaven_python_files_verified": True,
         },
     )
     monkeypatch.setattr(
@@ -582,6 +680,42 @@ def test_rerun_reuses_only_the_exact_installed_tmaven_before_runtime_reinstall(
     output = capsys.readouterr().out
     assert "Reusing exact installed tMAVEN commit" in output
     assert "10f4230b6d13c6d2ad67b05d801696b4a40eff4a" in output
+
+
+def test_rerun_rejects_exact_metadata_when_tmaven_python_files_are_tampered(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sidecar_python = tmp_path / "python"
+    sidecar_python.touch()
+    monkeypatch.setattr(
+        setup,
+        "inspect_sidecar_build_state",
+        lambda _python: {
+            "setuptools_version": "80.9.0",
+            "tmaven_direct_url": {
+                "url": "https://github.com/GonzalezBiophysicsLab/tmaven.git",
+                "vcs_info": {
+                    "vcs": "git",
+                    "requested_revision": "10f4230",
+                    "commit_id": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
+                },
+            },
+            "tmaven_wheel_generator": "setuptools (82.0.1)",
+            "tmaven_python_files_verified": False,
+        },
+    )
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("tampered tMAVEN must not be reused or rebuilt")
+
+    monkeypatch.setattr(setup, "_run", _boom)
+
+    assert setup.main(["--python", str(sidecar_python), "--no-probe"]) == 1
+    error = capsys.readouterr().err
+    assert "installed tMAVEN Python files" in error
+    assert "genuinely fresh sidecar environment under a new --env-name" in error
 
 
 def test_rerun_with_runtime_setuptools_and_unverified_tmaven_fails_before_build(
@@ -606,6 +740,7 @@ def test_rerun_with_runtime_setuptools_and_unverified_tmaven_fails_before_build(
                 },
             },
             "tmaven_wheel_generator": "setuptools (80.9.0)",
+            "tmaven_python_files_verified": True,
         },
     )
 
@@ -732,8 +867,10 @@ def test_existing_interpreter_docs_require_source_and_builder_provenance() -> No
         line for line in handoff.splitlines() if line.startswith("| `--python PATH` |")
     )
     assert "exact Git-commit" in python_row
-    assert "locked `WHEEL`-generator provenance" in python_row
-    assert "Commit identity alone does not prove which backend built" in normalized
+    assert "verified import origin" in python_row
+    assert "matching Python-file `RECORD` hashes" in python_row
+    assert "Commit and generator metadata do not prove" in normalized
+    assert "`PYTHONPATH` or `.pth` shadow" in normalized
     assert "genuinely fresh environment under a new `--env-name`" in normalized
     assert "instead of reinstalling into the same named env" in normalized
     tmaven_row = next(
@@ -744,8 +881,8 @@ def test_existing_interpreter_docs_require_source_and_builder_provenance() -> No
     assert "Tags, branches, and abbreviated custom commits are rejected" in tmaven_row
 
     help_text = " ".join(setup.build_parser().format_help().split())
-    assert "tMAVEN builds only with the lock's setuptools" in help_text
-    assert "exact installed Git provenance is required" in help_text
+    assert "lock's exact setuptools artifact and verified import origin" in help_text
+    assert "exact installed Git, build, and Python-file integrity provenance" in help_text
     assert "default pinned short spec" in help_text
     assert "full 40/64-hex commit" in help_text
     assert "tags and branches are rejected" in help_text
