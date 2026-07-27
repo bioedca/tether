@@ -27,6 +27,7 @@ RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 SIDECAR_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "sidecar.yml"
 MEASURE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "sidecar-measure.yml"
 PACKAGING_DOCS = REPO_ROOT / "packaging" / "README.md"
+TROUBLESHOOTING_DOCS = REPO_ROOT / "docs" / "troubleshooting.md"
 ADR = REPO_ROOT / "docs" / "adr" / "0054-hash-locked-setuptools-runtime-compatibility-wheel.md"
 LOCK_RELPATH = "packaging/setuptools-compatibility.txt"
 
@@ -119,6 +120,22 @@ def test_packaging_docs_provision_ordinary_setuptools_for_no_isolation_build() -
     packaging = PACKAGING_DOCS.read_text(encoding="utf-8")
     assert "conda-standalone python-build pip setuptools wheel" in packaging
     assert "--no-build-isolation" in packaging
+
+
+def test_troubleshooting_separates_source_and_installer_recovery_interpreters() -> None:
+    troubleshooting = TROUBLESHOOTING_DOCS.read_text(encoding="utf-8")
+    installer = troubleshooting.split("*Sidecar that came with the installer.*", 1)[1].split(
+        "*Environment you built by hand.*", 1
+    )[0]
+    source = troubleshooting.split("*Environment you built by hand.*", 1)[1].split(
+        "### Idealization times out", 1
+    )[0]
+
+    assert "<install-prefix>/envs/sidecar/bin/python" in installer
+    assert r"<install-prefix>\envs\sidecar\python.exe" in installer
+    assert '"$TETHER_SIDECAR_PYTHON" -m pip install' in source
+    assert "& $env:TETHER_SIDECAR_PYTHON -m pip install" in source
+    assert "<install-prefix>" not in source
 
 
 @pytest.mark.parametrize("workflow", [SIDECAR_WORKFLOW, MEASURE_WORKFLOW])

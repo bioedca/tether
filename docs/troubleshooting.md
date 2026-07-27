@@ -578,10 +578,8 @@ constructor `post_install` script then lays the verified
 `setuptools-80.9.0-py3-none-any.whl` over it — a third offline wheel alongside
 `tether-*.whl` and `tmaven-*.whl` — before installing the already-built tMAVEN wheel.
 So on an installed app this failure should not happen; if it does, the sidecar env has been
-changed after installation (see below), and it is worth reporting.
-
-*Environment you built by hand.* From a Tether checkout, apply the same committed lock
-with the sidecar's own interpreter (needs network):
+changed after installation, and it is worth reporting. From a Tether checkout, recover that
+installer-managed environment with its prefix-relative interpreter (needs network):
 
 ```text
 # Linux / macOS
@@ -595,8 +593,24 @@ with the sidecar's own interpreter (needs network):
   -r packaging\setuptools-compatibility.txt
 ```
 
-Then re-run the liveness probe or the idealization. The same command is the recovery step if
-you have upgraded setuptools inside `envs/sidecar` yourself. `--force-reinstall` is
+*Environment you built by hand.* Run the line that `scripts/setup_sidecar.py` printed to set
+`TETHER_SIDECAR_PYTHON`. Then, from the same Tether checkout, apply the committed lock with
+that interpreter (needs network):
+
+```text
+# Linux / macOS
+"$TETHER_SIDECAR_PYTHON" -m pip install --force-reinstall \
+  --only-binary=:all: --no-deps --require-hashes \
+  -r packaging/setuptools-compatibility.txt
+
+# Windows PowerShell
+& $env:TETHER_SIDECAR_PYTHON -m pip install --force-reinstall `
+  --only-binary=:all: --no-deps --require-hashes `
+  -r packaging\setuptools-compatibility.txt
+```
+
+Then re-run the liveness probe or the idealization. In either case, the shown command is the
+recovery step if you have upgraded setuptools inside `envs/sidecar` yourself. `--force-reinstall` is
 deliberate: a rerun must download or reuse and hash-check the locked wheel instead of
 trusting an already-installed same-version distribution. This affects the **sidecar**
 environment only — Tether's base environment does not import `pkg_resources`. The
