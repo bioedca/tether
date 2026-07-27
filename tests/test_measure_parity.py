@@ -24,6 +24,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPT = _REPO_ROOT / "scripts" / "measure_parity.py"
 _SIDECAR_PYTHON = r"C:\private workstation\sidecar\python.exe"
 _ESCAPED_SIDECAR_PYTHON = _SIDECAR_PYTHON.replace("\\", "\\\\")
+_UNRELATED_PRIVATE_PATH = r"C:\Users\alice\.ssh\private_key"
+_CREDENTIAL_SHAPED_URL = "https://build-user:" + "synthetic-password@" + "example.invalid/probe"
+_CREDENTIAL_SHAPED_VALUE = "TETHER_TEST_" + "TOKEN=synthetic-only"
+_UNTRUSTED_DIAGNOSTICS = (
+    f"path={_UNRELATED_PRIVATE_PATH}; url={_CREDENTIAL_SHAPED_URL}; "
+    f"credential={_CREDENTIAL_SHAPED_VALUE}"
+)
 _TMAVEN_COMMIT = "10f4230b6d13c6d2ad67b05d801696b4a40eff4a"
 
 
@@ -50,6 +57,10 @@ def _assert_path_absent(value: object) -> None:
     serialized = value if isinstance(value, str) else json.dumps(value)
     assert _SIDECAR_PYTHON not in serialized
     assert _ESCAPED_SIDECAR_PYTHON not in serialized
+    assert _UNRELATED_PRIVATE_PATH not in serialized
+    assert _UNRELATED_PRIVATE_PATH.replace("\\", "\\\\") not in serialized
+    assert _CREDENTIAL_SHAPED_URL not in serialized
+    assert _CREDENTIAL_SHAPED_VALUE not in serialized
 
 
 def _assert_unrecorded(result: dict[str, str]) -> None:
@@ -98,34 +109,49 @@ def test_probe_sidecar_build_unset_interpreter_is_unrecorded() -> None:
 
 
 @pytest.mark.parametrize(
-    ("exception", "safe_detail"),
+    ("exception", "expected_error"),
     [
         (
             subprocess.CalledProcessError(
                 7,
                 [_SIDECAR_PYTHON, "-c", measure._BUILD_PROBE],
-                stderr=f"raw={_SIDECAR_PYTHON}; escaped={_ESCAPED_SIDECAR_PYTHON}",
+                stderr=(
+                    f"raw={_SIDECAR_PYTHON}; escaped={_ESCAPED_SIDECAR_PYTHON}; "
+                    f"{_UNTRUSTED_DIAGNOSTICS}"
+                ),
             ),
-            "exit 7",
+            "CalledProcessError: exit 7",
         ),
         (
             subprocess.TimeoutExpired(
                 [_SIDECAR_PYTHON, "-c", measure._BUILD_PROBE],
                 120.0,
-                stderr=f"raw={_SIDECAR_PYTHON}; escaped={_ESCAPED_SIDECAR_PYTHON}",
+                stderr=(
+                    f"raw={_SIDECAR_PYTHON}; escaped={_ESCAPED_SIDECAR_PYTHON}; "
+                    f"{_UNTRUSTED_DIAGNOSTICS}"
+                ),
             ),
-            "timed out after 120.0s",
+            "TimeoutExpired: timed out after 120.0s",
         ),
     ],
 )
 def test_sanitized_probe_error_omits_raw_and_escaped_interpreter_path(
     exception: BaseException,
-    safe_detail: str,
+    expected_error: str,
 ) -> None:
     error = measure._sanitized_probe_error(exception, _SIDECAR_PYTHON)
 
-    assert safe_detail in error
-    assert measure._REDACTED in error
+    assert error == expected_error
+    _assert_path_absent(error)
+
+
+def test_sanitized_probe_error_omits_untrusted_generic_exception_detail() -> None:
+    error = measure._sanitized_probe_error(
+        ValueError(f"invalid probe output: {_UNTRUSTED_DIAGNOSTICS}"),
+        _SIDECAR_PYTHON,
+    )
+
+    assert error == "ValueError: invalid build probe output"
     _assert_path_absent(error)
 
 
@@ -135,12 +161,12 @@ def test_sanitized_probe_error_omits_raw_and_escaped_interpreter_path(
         subprocess.CalledProcessError(
             7,
             [_SIDECAR_PYTHON, "-c", measure._BUILD_PROBE],
-            stderr=f"failed under {_ESCAPED_SIDECAR_PYTHON}",
+            stderr=f"failed under {_ESCAPED_SIDECAR_PYTHON}; {_UNTRUSTED_DIAGNOSTICS}",
         ),
         subprocess.TimeoutExpired(
             [_SIDECAR_PYTHON, "-c", measure._BUILD_PROBE],
             120.0,
-            stderr=f"timed out under {_SIDECAR_PYTHON}",
+            stderr=f"timed out under {_SIDECAR_PYTHON}; {_UNTRUSTED_DIAGNOSTICS}",
         ),
     ],
 )
@@ -189,10 +215,10 @@ def test_probe_sidecar_build_invalid_or_empty_output_is_unrecorded(
     _assert_unrecorded(measure.probe_sidecar_build(_SIDECAR_PYTHON))
 
 
-def test_main_serializes_build_provenance_without_interpreter_path(
+def _configure_main(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> Path:
     spread = {
         "state_count_fraction": SpreadSummary("state_count_fraction", "floor", [1.0]),
         "state_mean_abs_delta": SpreadSummary("state_mean_abs_delta", "ceiling", [0.0]),
@@ -204,18 +230,6 @@ def test_main_serializes_build_provenance_without_interpreter_path(
         return spread, [object()]
 
     monkeypatch.setattr(measure, "measure_spread", fake_measure_spread)
-    monkeypatch.setattr(
-        measure.subprocess,
-        "run",
-        lambda *_args, **_kwargs: _completed_probe(
-            json.dumps(
-                {
-                    "sidecar_python_version": "3.12.13",
-                    "tmaven_commit": _TMAVEN_COMMIT,
-                }
-            )
-        ),
-    )
     monkeypatch.setenv("TETHER_SIDECAR_PYTHON", _SIDECAR_PYTHON)
     out_path = tmp_path / "parity.json"
     monkeypatch.setattr(
@@ -233,6 +247,26 @@ def test_main_serializes_build_provenance_without_interpreter_path(
             str(tmp_path / "scratch"),
         ],
     )
+    return out_path
+
+
+def test_main_serializes_build_provenance_without_interpreter_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    out_path = _configure_main(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        measure.subprocess,
+        "run",
+        lambda *_args, **_kwargs: _completed_probe(
+            json.dumps(
+                {
+                    "sidecar_python_version": "3.12.13",
+                    "tmaven_commit": _TMAVEN_COMMIT,
+                }
+            )
+        ),
+    )
 
     assert measure.main() == 0
 
@@ -241,4 +275,27 @@ def test_main_serializes_build_provenance_without_interpreter_path(
     assert artifact["method"]["sidecar_python_version"] == "3.12.13"
     assert artifact["method"]["tmaven_commit"] == _TMAVEN_COMMIT
     assert artifact["method"]["build_provenance"].strip()
+    _assert_path_absent(serialized)
+
+
+def test_main_serializes_failed_probe_without_untrusted_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    out_path = _configure_main(monkeypatch, tmp_path)
+
+    def fail_probe(*_args, **_kwargs):
+        raise subprocess.CalledProcessError(
+            7,
+            [_SIDECAR_PYTHON, "-c", measure._BUILD_PROBE],
+            stderr=_UNTRUSTED_DIAGNOSTICS,
+        )
+
+    monkeypatch.setattr(measure.subprocess, "run", fail_probe)
+
+    assert measure.main() == 0
+
+    serialized = out_path.read_text(encoding="utf-8")
+    artifact = json.loads(serialized)
+    _assert_unrecorded(artifact["method"])
     _assert_path_absent(serialized)

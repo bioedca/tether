@@ -27,8 +27,9 @@ CPython version and the tMAVEN upstream commit (:func:`probe_sidecar_build`) —
 never ``$TETHER_SIDECAR_PYTHON`` itself: an absolute path names a machine, not a
 build, and would put a local filesystem layout into a committed public artifact.
 That holds on the failure path too: a probe error is rebuilt from safe attributes
-and redacted (:func:`_sanitized_probe_error`), because ``CalledProcessError`` and
-``TimeoutExpired`` render the whole argv — path included — in their ``str()``.
+(:func:`_sanitized_probe_error`) and never includes child-process diagnostics,
+because ``CalledProcessError`` and ``TimeoutExpired`` can carry the whole argv,
+stderr, URLs, credentials, and unrelated machine-identifying paths.
 
 The frozen numbers are a one-time M0.5 ratification: regenerate only with an ADR
 + a deliberate re-freeze (PRD §11.2 "frozen from the measured cross-seed spread
@@ -93,37 +94,24 @@ _PYTHON_VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*")
 _TMAVEN_COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}")
 
 
-def _redact(text: str, secret: str) -> str:
-    """Replace ``secret`` — raw and backslash-escaped — with a placeholder."""
-    out = text
-    for form in {secret, secret.replace("\\", "\\\\")}:
-        if form:
-            out = out.replace(form, _REDACTED)
-    return out
+def _sanitized_probe_error(exc: BaseException, _sidecar_python: str) -> str:
+    """Describe ``exc`` using only allowlisted, non-payload diagnostics.
 
-
-def _sanitized_probe_error(exc: BaseException, sidecar_python: str) -> str:
-    """Describe ``exc`` **without** leaking the interpreter path into the artifact.
-
-    ``CalledProcessError.__str__`` and ``TimeoutExpired.__str__`` both render the whole
-    argv, whose first element is the absolute sidecar interpreter path — precisely the
-    machine-identifying string this module exists to keep out of a committed public
-    file. So their messages are rebuilt from safe attributes instead of ``str(exc)``,
-    and every message is redacted before it is returned.
+    Child-process stderr and generic exception messages are untrusted: either may
+    contain paths, URLs, credentials, or other machine-specific data unrelated to
+    the configured interpreter. Persist only the exception category plus a numeric
+    exit code or configured timeout where applicable. Parsing and validation
+    failures use fixed descriptions, and every other failure records only its type.
     """
     if isinstance(exc, subprocess.CalledProcessError):
-        detail = f"exit {exc.returncode}"
-    elif isinstance(exc, subprocess.TimeoutExpired):
-        detail = f"timed out after {exc.timeout}s"
-    else:
-        detail = str(exc)
-    stderr = getattr(exc, "stderr", None) or ""
-    if isinstance(stderr, bytes):
-        stderr = stderr.decode("utf-8", "replace")
-    tail = stderr.strip().splitlines()[-1] if stderr.strip() else ""
-    if tail:
-        detail = f"{detail}; {tail}"
-    return _redact(f"{type(exc).__name__}: {detail}", sidecar_python)
+        return f"CalledProcessError: exit {exc.returncode}"
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return f"TimeoutExpired: timed out after {exc.timeout}s"
+    if isinstance(exc, json.JSONDecodeError):
+        return "JSONDecodeError: invalid JSON build probe output"
+    if isinstance(exc, ValueError):
+        return "ValueError: invalid build probe output"
+    return f"{type(exc).__name__}: build probe failed"
 
 
 def _unrecorded_build(error: str) -> dict[str, str]:
