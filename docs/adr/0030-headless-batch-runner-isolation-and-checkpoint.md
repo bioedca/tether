@@ -37,10 +37,17 @@ atomically (temp-file + `os.replace`; never a partial file on failure; write-onc
 `movie_id`). One store per movie means a corrupt or crashing movie can never damage
 another movie's store — the strongest reading of "isolate each movie". It is also the
 natural checkpoint granularity (see below) and keeps the runner a thin path-level
-orchestrator over the existing headless functions (no `Project` object, no lock — the
-`compute_*` and `idealize_molecules` functions open the file directly and do not assert
-the single-writer lock, which only the `Project` methods do; each per-movie store is
-exclusively owned by the batch process, so there is no contention to guard).
+orchestrator over the existing headless functions (no `Project` object and no
+long-lived lock for ordinary stage work — the `compute_*` and `idealize_molecules`
+functions open the file directly; each new per-movie store is exclusively owned by the
+batch process).
+
+ADR-0056 adds one narrow lock boundary for an existing store: before destructively
+re-extracting a completed checkpoint that `policy=fail` rejects, the runner acquires
+and holds the destination's single-writer lock, then revalidates the schema and saved
+checkpoint verdict under that lock. This prevents a batch resume from replacing a
+project another process opened or replaced after the initial checkpoint probe. Other
+stage and fresh-output locking behavior is unchanged.
 
 Per-condition aggregation of α/γ *across* movies (a dataset-level median) is **not**
 introduced here; each movie's corrections run over its own store with the existing

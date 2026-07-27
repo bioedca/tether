@@ -16,6 +16,7 @@ withheld-α → apparent-E path). Headless; runs in the base CI matrix.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -607,6 +608,79 @@ def test_overwrite_rejected_checkpoint_holds_lock_through_runner(tmp_path: Path)
 
     assert observed_lock
     assert second.results[0].ok
+    assert lock.read_lock(jobs[0].output_path) is None
+
+
+def test_overwrite_rechecks_replaced_checkpoint_under_lock(tmp_path: Path, monkeypatch) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    real_held_lock = lock.held_lock
+
+    @contextmanager
+    def replace_with_accepted_checkpoint(project_path, *args, **kwargs):
+        with real_held_lock(project_path, *args, **kwargs) as owner:
+            with h5py.File(project_path, "r+") as store:
+                store["settings/extraction"].attrs["profile_json"] = json.dumps(
+                    {
+                        "registration_rms_px": 0.25,
+                        "rms_gate": 0.5,
+                    }
+                )
+            yield owner
+
+    monkeypatch.setattr(lock, "held_lock", replace_with_accepted_checkpoint)
+    second = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=_raising_extract,
+    )
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_CORRECT].status == STATUS_DONE
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_DONE
+    assert r.ok
+    assert lock.read_lock(jobs[0].output_path) is None
+
+
+def test_overwrite_rechecks_future_schema_under_lock(tmp_path: Path, monkeypatch) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    real_held_lock = lock.held_lock
+
+    @contextmanager
+    def replace_with_future_project(project_path, *args, **kwargs):
+        with real_held_lock(project_path, *args, **kwargs) as owner:
+            _stamp_future_schema(Path(project_path))
+            yield owner
+
+    monkeypatch.setattr(lock, "held_lock", replace_with_future_project)
+    second = run_batch(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_raising_idealize,
+    )
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "newer than this app's" in r.stages[STAGE_EXTRACT].error
+    assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    assert not r.ok
     assert lock.read_lock(jobs[0].output_path) is None
 
 

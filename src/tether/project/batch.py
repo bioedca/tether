@@ -828,6 +828,19 @@ def _do_extract(
 
             destination_lock = lock.held_lock(job.output_path)
         with destination_lock:
+            if rejected_checkpoint:
+                # The initial verdict preceded lock acquisition. Re-read the canonical
+                # destination under the held lock so a concurrently replaced accepted
+                # or newer-schema project is never overwritten using that stale verdict.
+                _assert_output_not_newer(job.output_path)
+                if _is_extracted(job.output_path) and not _stored_extraction_is_over_gate(
+                    job.output_path
+                ):
+                    return rec.record(
+                        STAGE_EXTRACT,
+                        STATUS_SKIPPED,
+                        detail="already extracted",
+                    ).ok
             summary = runner(
                 job.movie_path,
                 job.output_path,
