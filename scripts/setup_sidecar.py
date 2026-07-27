@@ -14,11 +14,11 @@ cross-OS hand-off check) does the same steps every time:
 
 1. **tMAVEN itself** — the GPL reference app driven over IPC, pinned by commit and
    installed from git (never a conda-lock dep).
-2. **``setuptools<81``** — tMAVEN imports the legacy ``pkg_resources`` API at runtime
-   without declaring it; setuptools deprecated ``pkg_resources`` by 80.9.0 (still shipped
-   through 81.0.0) and removed it in 82.0.0, so it must be pinned back into the sidecar
-   env alongside tMAVEN (``<81`` is the bound that setuptools' own deprecation warning
-   names).
+2. **setuptools 80.9.0** — tMAVEN imports the legacy ``pkg_resources`` API at runtime
+   without declaring it; setuptools deprecated ``pkg_resources`` by 80.9.0 and removed
+   it in 82.0.0.  The exact universal wheel and SHA-256 live in
+   ``packaging/setuptools-compatibility.txt`` and are installed in pip's hash-checking
+   mode after tMAVEN has been built, keeping the older package runtime-only.
 
 Flow (each phase is skippable):
 
@@ -26,8 +26,9 @@ Flow (each phase is skippable):
   conda front-end (``conda-lock install``, else ``micromamba``/``mamba create -f``).
   Skipped when ``--python`` targets an already-built interpreter (e.g. in CI, where the
   micromamba action restored the env already).
-* **install** the pinned tMAVEN + ``setuptools<81`` (+ ``pytest`` with ``--with-pytest``)
-  into the sidecar interpreter — byte-for-byte the command ``sidecar.yml`` runs.
+* **install** the pinned tMAVEN (+ ``pytest`` with ``--with-pytest``), then the exact
+  hash-locked setuptools compatibility wheel into the sidecar interpreter — the same
+  split recipe ``sidecar.yml`` runs.
 * **probe** the result by launching :mod:`tether.idealize._sidecar_runner` ``--probe``
   (import + instantiate ``maven_class``, no fit), the same liveness check the batch
   supervisor uses (:func:`tether.idealize.supervisor.probe_sidecar`).
@@ -51,11 +52,6 @@ from pathlib import Path
 #: ``TMAVEN_SPEC`` env — ``test_setup_sidecar.py`` binds the two). tMAVEN is the GPL
 #: reference app driven over IPC, not a conda-lock dep, so it is git-installed here.
 DEFAULT_TMAVEN_SPEC = "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230"
-#: setuptools pin restoring the ``pkg_resources`` API tMAVEN imports at runtime
-#: (deprecated by setuptools 80.9.0, still shipped through 81.0.0, removed in 82.0.0;
-#: ``<81`` is the bound that setuptools' own deprecation warning names), matching
-#: ``sidecar.yml``'s ``"setuptools<81"``.
-SETUPTOOLS_PIN = "setuptools<81"
 #: Default name of the created sidecar env.
 DEFAULT_ENV_NAME = "tether-sidecar"
 #: Conda front-ends tried, in order, when ``--conda-exe`` is not given.
@@ -64,6 +60,8 @@ CONDA_FRONTENDS = ("micromamba", "mamba", "conda")
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 #: The committed sidecar lock (isolated numpy<2 / PyQt5 stack).
 DEFAULT_LOCK = _REPO_ROOT / "sidecar" / "conda-lock.yml"
+#: Sole version/hash source for the temporary runtime ``pkg_resources`` compatibility wheel.
+SETUPTOOLS_REQUIREMENTS = _REPO_ROOT / "packaging" / "setuptools-compatibility.txt"
 #: The headless runner whose ``--probe`` fast-path we launch to verify liveness.
 _SIDECAR_RUNNER = _REPO_ROOT / "src" / "tether" / "idealize" / "_sidecar_runner.py"
 #: Must match ``tether.idealize._sidecar_runner.STATUS_PREFIX`` (bound by a contract test).
@@ -118,19 +116,32 @@ def build_env_create_cmd(frontend: str, env_name: str, lock: Path) -> list[str]:
     )
 
 
-def build_pip_cmd(sidecar_python: str, *, tmaven_spec: str, with_pytest: bool) -> list[str]:
-    """The offline-safe ``pip install`` of the non-lock deps into the sidecar interpreter.
-
-    Mirrors ``sidecar.yml`` exactly: ``pip install --no-build-isolation [pytest]
-    setuptools<81 <tmaven_spec>``. ``--no-build-isolation`` keeps pip from spinning up a
-    fresh PEP-517 build env (which would re-pull an unpinned setuptools).
-    """
+def build_tmaven_pip_cmd(sidecar_python: str, *, tmaven_spec: str, with_pytest: bool) -> list[str]:
+    """Build/install git-pinned tMAVEN before adopting the older runtime wheel."""
     cmd = [sidecar_python, "-m", "pip", "install", "--no-build-isolation"]
     if with_pytest:
         cmd.append("pytest")
-    cmd.append(SETUPTOOLS_PIN)
     cmd.append(tmaven_spec)
     return cmd
+
+
+def build_setuptools_pip_cmd(
+    sidecar_python: str,
+    *,
+    requirements: Path = SETUPTOOLS_REQUIREMENTS,
+) -> list[str]:
+    """Install only the hash-locked binary compatibility wheel from *requirements*."""
+    return [
+        sidecar_python,
+        "-m",
+        "pip",
+        "install",
+        "--only-binary=:all:",
+        "--no-deps",
+        "--require-hashes",
+        "-r",
+        str(requirements),
+    ]
 
 
 def resolve_env_python(frontend: str, env_name: str) -> str:
@@ -278,12 +289,12 @@ def main(argv: list[str] | None = None) -> int:
             sidecar_python = args.python
             if not args.dry_run and not Path(sidecar_python).exists():
                 raise SetupError(f"--python interpreter does not exist: {sidecar_python}")
-            print(f"[1/3] Using existing sidecar interpreter: {sidecar_python}")
+            print(f"[1/4] Using existing sidecar interpreter: {sidecar_python}")
         else:
             if not args.lock_file.exists() and not args.dry_run:
                 raise SetupError(f"conda-lock file not found: {args.lock_file}")
             frontend = detect_conda_frontend(args.conda_exe)
-            print(f"[1/3] Creating env {args.env_name!r} from {args.lock_file} (via {frontend})")
+            print(f"[1/4] Creating env {args.env_name!r} from {args.lock_file} (via {frontend})")
             _run(
                 build_env_create_cmd(frontend, args.env_name, args.lock_file), dry_run=args.dry_run
             )
@@ -293,23 +304,28 @@ def main(argv: list[str] | None = None) -> int:
                 else resolve_env_python(frontend, args.env_name)
             )
 
-        # 2) Install the non-lock deps (tMAVEN + setuptools<81 [+ pytest]).
+        # 2–3) Install tMAVEN first, then the runtime-only hashed compatibility wheel.
         if args.skip_install:
-            print("[2/3] Skipping tMAVEN install (--skip-install)")
+            print("[2/4] Skipping tMAVEN + compatibility-wheel install (--skip-install)")
         else:
-            print(f"[2/3] Installing tMAVEN + {SETUPTOOLS_PIN} into the sidecar env")
+            print("[2/4] Installing pinned tMAVEN into the sidecar env")
             _run(
-                build_pip_cmd(
+                build_tmaven_pip_cmd(
                     sidecar_python, tmaven_spec=args.tmaven_spec, with_pytest=args.with_pytest
                 ),
                 dry_run=args.dry_run,
             )
+            print("[3/4] Installing the hash-locked setuptools compatibility wheel")
+            _run(
+                build_setuptools_pip_cmd(sidecar_python),
+                dry_run=args.dry_run,
+            )
 
-        # 3) Verify the env can build the tMAVEN driver (liveness).
+        # 4) Verify the env can build the tMAVEN driver (liveness).
         if args.no_probe or args.dry_run:
-            print("[3/3] Skipping liveness probe" + (" (--dry-run)" if args.dry_run else ""))
+            print("[4/4] Skipping liveness probe" + (" (--dry-run)" if args.dry_run else ""))
         else:
-            print("[3/3] Probing sidecar liveness (import + instantiate maven_class)")
+            print("[4/4] Probing sidecar liveness (import + instantiate maven_class)")
             status = run_probe(sidecar_python)
             print(f"      OK - {status.get('detail', 'sidecar ready')}")
     except SetupError as exc:

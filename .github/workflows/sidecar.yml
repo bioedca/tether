@@ -123,7 +123,7 @@ jobs:
             # Gate on the SAME file set the pytest step collects (tests/test_*sidecar*.py,
             # e.g. both test_parity_sidecar.py and test_sidecar_driver.py), so a change to
             # ANY sidecar module runs the live suite — not just the parity module.
-            pattern='^(src/tether/idealize/|sidecar/|scripts/setup_sidecar\.py|schema/parity_tolerance\.json|tests/test_.*sidecar.*\.py|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
+            pattern='^(src/tether/idealize/|sidecar/|packaging/setuptools-compatibility\.txt|scripts/setup_sidecar\.py|schema/parity_tolerance\.json|tests/test_.*sidecar.*\.py|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
             if echo "$changed" | grep -qE "$pattern"; then
               run=true
               echo "Idealization-relevant paths changed -> running the live parity suite."
@@ -147,8 +147,9 @@ jobs:
         # The guided sidecar-setup script (`scripts/setup_sidecar.py`, issue #13) owns the
         # two steps that live OUTSIDE `sidecar/conda-lock.yml`: the pip-layered tMAVEN (the
         # GPL reference app driven over IPC, layered onto the lock, not in it) and the
-        # `setuptools<81` pin that restores the legacy `pkg_resources` API tMAVEN imports at
-        # runtime (setuptools removed it in 82.0.0; the lock resolves 82.0.1). Running it
+        # exact hash-locked setuptools 80.9.0 wheel that restores the legacy
+        # `pkg_resources` API tMAVEN imports at runtime (setuptools removed it in 82.0.0;
+        # the lock resolves 82.0.1). Running it
         # HERE means the SAME script a user (and the 2-OS hand-off check) runs is exercised
         # on this Linux runner, so "the setup script runs clean" is continuously tested — the
         # CI leg of issue #13's two-OS requirement. The micromamba step above already

@@ -43,31 +43,47 @@ def _workflow_tmaven_spec() -> str:
 # --- command construction ----------------------------------------------------
 
 
-def test_build_pip_cmd_is_the_exact_recipe() -> None:
-    """The install command is exactly ``pip install --no-build-isolation [pytest] <pins>``.
+def test_tmaven_install_command_is_separate_from_the_compatibility_wheel() -> None:
+    """The git source is installed before, and separately from, hash-checking mode.
 
-    Pins the shape of the one command that installs the non-lock deps into the sidecar,
-    the recipe the live parity job used to inline before delegating to this script.
+    pip's ``--require-hashes`` correctly rejects an unhashed VCS requirement, so tMAVEN
+    cannot share the compatibility-wheel command.  Keeping this command first also means
+    the older setuptools wheel is not the build backend for tMAVEN.
     """
-    assert setup.build_pip_cmd("py", tmaven_spec="spec", with_pytest=True) == [
+    assert setup.build_tmaven_pip_cmd("py", tmaven_spec="spec", with_pytest=True) == [
         "py",
         "-m",
         "pip",
         "install",
         "--no-build-isolation",
         "pytest",
-        setup.SETUPTOOLS_PIN,
         "spec",
     ]
 
 
-def test_build_pip_cmd_without_pytest_drops_only_pytest() -> None:
-    with_pytest = setup.build_pip_cmd("py", tmaven_spec="spec", with_pytest=True)
-    without = setup.build_pip_cmd("py", tmaven_spec="spec", with_pytest=False)
+def test_tmaven_install_without_pytest_drops_only_pytest() -> None:
+    with_pytest = setup.build_tmaven_pip_cmd("py", tmaven_spec="spec", with_pytest=True)
+    without = setup.build_tmaven_pip_cmd("py", tmaven_spec="spec", with_pytest=False)
     assert "pytest" in with_pytest and "pytest" not in without
     assert without == [t for t in with_pytest if t != "pytest"]
-    # setuptools pin + tmaven spec are always last, in that order.
-    assert without[-2:] == [setup.SETUPTOOLS_PIN, "spec"]
+    assert without[-1] == "spec"
+
+
+def test_setuptools_install_uses_the_single_hash_locked_binary_source() -> None:
+    cmd = setup.build_setuptools_pip_cmd("py")
+    assert cmd == [
+        "py",
+        "-m",
+        "pip",
+        "install",
+        "--only-binary=:all:",
+        "--no-deps",
+        "--require-hashes",
+        "-r",
+        str(setup.SETUPTOOLS_REQUIREMENTS),
+    ]
+    assert setup.SETUPTOOLS_REQUIREMENTS.name == "setuptools-compatibility.txt"
+    assert setup.SETUPTOOLS_REQUIREMENTS.exists()
 
 
 # --- lockstep contracts ------------------------------------------------------
@@ -197,10 +213,18 @@ def test_export_line_is_platform_specific(monkeypatch: pytest.MonkeyPatch) -> No
 # --- main() dry-run does not execute anything --------------------------------
 
 
-def test_main_dry_run_python_mode_runs_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_dry_run_python_mode_runs_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     def _boom(*a, **k):
         raise AssertionError("subprocess must not run under --dry-run")
 
     monkeypatch.setattr(setup.subprocess, "run", _boom)
     rc = setup.main(["--dry-run", "--python", "/does/not/matter", "--with-pytest"])
     assert rc == 0
+    output = capsys.readouterr().out
+    tmaven_at = output.index(setup.DEFAULT_TMAVEN_SPEC)
+    compatibility_at = output.index(str(setup.SETUPTOOLS_REQUIREMENTS))
+    assert tmaven_at < compatibility_at, (
+        "the older compatibility wheel must be installed only after tMAVEN is built"
+    )

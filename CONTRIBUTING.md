@@ -74,9 +74,9 @@ never merge, release, or declare a PR ready while required checks are red or pen
 
 - The tMAVEN idealization sidecar is a **separate** PyQt5 / `numpy<2` environment
   built from `sidecar/conda-lock.yml`. Two things it needs live outside that lock
-  (tMAVEN itself, pinned by commit, and `setuptools<81` for the `pkg_resources` API
-  tMAVEN imports without declaring), so use the guided script rather than doing it by
-  hand:
+  (tMAVEN itself, pinned by commit, and the hash-locked setuptools 80.9.0 runtime
+  compatibility wheel for the `pkg_resources` API tMAVEN imports without declaring),
+  so use the guided script rather than doing it by hand:
 
   ```bash
   python scripts/setup_sidecar.py     # writes the $TETHER_SIDECAR_PYTHON you need

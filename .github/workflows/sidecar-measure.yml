@@ -80,10 +80,13 @@ jobs:
           environment-file: sidecar/conda-lock.yml
           environment-name: tether-sidecar
           install-tether: "true"
-      - name: Install pinned tMAVEN + pytest into the sidecar env
-        # setuptools<81 still ships pkg_resources, which tMAVEN imports at runtime
-        # without declaring (mirrors sidecar.yml).
-        run: python -m pip install --no-build-isolation "setuptools<81" "${TMAVEN_SPEC}"
+      - name: Install pinned tMAVEN + hash-locked compatibility wheel
+        # Delegate both out-of-lock runtime layers to the same guided path as sidecar.yml.
+        # It installs git-pinned tMAVEN first, then applies the hash-locked setuptools
+        # wheel strictly for maven_class's runtime pkg_resources import.
+        run: |
+          python scripts/setup_sidecar.py \
+            --python "$(python -c 'import sys; print(sys.executable)')"
       - name: Measure the cross-seed parity spread and freeze the tolerance
         env:
           NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache

@@ -29,14 +29,12 @@ for %%W in ("%WHEELHOUSE%\tether-*.whl") do (
   if errorlevel 1 exit /b 1
 )
 
-rem setuptools<81 -> the sidecar env, BEFORE tMAVEN. tMAVEN's maven_class.__init__
-rem does `import pkg_resources`, which setuptools DEPRECATED by 80.9.0 (still shipped
-rem through 81.0.0) and REMOVED in 82.0.0, and the sidecar lock resolves setuptools
-rem 82.0.1 — so without this the env builds cleanly and then dies at the first
-rem idealization (issue #212). `<81` rather than `<82` is the bound that setuptools'
-rem own deprecation warning names ("pin to Setuptools<81").
-rem scripts/setup_sidecar.py applies the same pin (SETUPTOOLS_PIN) on the source path;
-rem this is the installer's equivalent.
+rem Exact hash-verified setuptools 80.9.0 compatibility wheel -> the sidecar env,
+rem BEFORE the already-built tMAVEN wheel. tMAVEN's maven_class.__init__ imports
+rem pkg_resources, which setuptools removed in 82.0.0, and the sidecar lock resolves
+rem 82.0.1 — so without this the first idealization fails (issues #212 and #218).
+rem packaging\setuptools-compatibility.txt is the sole version/hash source;
+rem scripts\setup_sidecar.py applies the same runtime-only layer after building tMAVEN.
 rem
 rem pip is given the wheel by PATH, not by requirement spec, so it downgrades the conda
 rem setuptools rather than reporting "already satisfied".

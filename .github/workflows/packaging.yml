@@ -82,18 +82,19 @@ jobs:
           #
           # SCOPE, honestly: this env is SOLVED from create-args below, not restored from
           # a pin-and-held lock, so this pins the solver binary only. `constructor`,
-          # `conda-standalone`, `python-build`, `pip` and `wheel` still float (only
-          # conda-lock and setuptools are bounded) — pinning those is the change that
-          # would actually make this build reproducible. Tracked separately.
+          # `conda-standalone`, `python-build`, `pip`, setuptools and `wheel` still
+          # float — pinning those is the change that would actually make this BUILD
+          # environment reproducible. The older setuptools wheel staged below is a
+          # runtime-only tMAVEN compatibility payload, never this environment's build tool.
+          # Tracked separately.
           micromamba-version: "2.8.1-0"
           environment-name: pkgbuild
           # A build-only env, NOT one of the pin-and-held stacks: it just needs
           # constructor (>=3.16 for --render), conda-lock to render the committed
-          # locks, and the wheel-build tools. `setuptools<81` still ships
-          # `pkg_resources`, which tMAVEN imports (sidecar.yml precedent).
-          # NOTE: setup-micromamba splits create-args on whitespace and passes
-          # each token to micromamba verbatim — do NOT quote a match spec here or
-          # the quotes reach libmamba ("Error parsing version" on setuptools<81"").
+          # locks, and the wheel-build tools. The compatibility setuptools is NOT
+          # installed here: tMAVEN's setup.py imports setuptools, while pkg_resources
+          # is imported only when maven_class starts at runtime. Keeping the old wheel
+          # out of the build env also confines its recorded security exposure.
           # `pip` is explicit: `python -m build` (tether wheel) and `python -m pip
           # wheel` (tMAVEN) both require it and the base python pulls it in only by
           # chance, not as a stated dep.
@@ -104,7 +105,6 @@ jobs:
             conda-standalone
             python-build
             pip
-            setuptools<81
             wheel
           init-shell: bash
           cache-environment: true
@@ -113,31 +113,37 @@ jobs:
         run: python -m build --wheel --outdir packaging/staging .
 
       - name: Build the pinned trimmed tMAVEN wheel (offline sidecar payload)
-        # --no-build-isolation so tMAVEN builds against the env's setuptools<81
-        # (pkg_resources); --no-deps because the sidecar conda env provides them.
+        # tMAVEN's setup.py needs ordinary setuptools but not pkg_resources; the latter
+        # is imported only when maven_class starts at runtime. Build before adopting the
+        # older runtime-only compatibility wheel. --no-deps because the sidecar provides deps.
         run: python -m pip wheel --no-deps --no-build-isolation -w packaging/staging "${TMAVEN_SPEC}"
 
-      - name: Stage the setuptools<81 wheel (restores pkg_resources in the sidecar)
+      - name: Stage and verify the hash-locked setuptools compatibility wheel
         # tMAVEN's `maven_class.__init__` does `import pkg_resources`, which setuptools
         # DEPRECATED by 80.9.0 (still SHIPPED through 81.0.0, `UserWarning` on import) and
         # REMOVED in 82.0.0 — and sidecar/conda-lock.yml resolves setuptools 82.0.1 on
         # every platform, i.e. past the removal. The source path handles this with
-        # scripts/setup_sidecar.py's SETUPTOOLS_PIN, applied by pip after the env is
+        # packaging/setuptools-compatibility.txt, applied by pip after the env is
         # created; the installer had no equivalent, so an installed app built the sidecar
-        # env fine and then failed at the FIRST idealization (issue #212). Bundle the pin
-        # as a third offline wheel.
-        # The bound is `<81`, not `<82`, because that is the bound setuptools' own
-        # deprecation warning names ("pin to Setuptools<81") — one release of headroom.
+        # env fine and then failed at the FIRST idealization (issue #212). Bundle the exact,
+        # hash-locked 80.9.0 universal wheel as a third offline payload (issue #218).
         #
         # setuptools publishes a pure-Python `py3-none-any` wheel, so ONE file serves all
-        # four platforms — no per-platform matrix entry needed. --only-binary=:all: keeps
-        # this a download, never a build.
+        # four platforms — no per-platform matrix entry needed. --only-binary=:all:
+        # keeps this a download, never a build; --require-hashes fails closed unless PyPI
+        # returns the exact committed digest. The verifier independently derives the
+        # filename from the lock, rejects extra candidates, and re-hashes the staged bytes.
         # Block scalar, not an inline value: the trailing colon of `--only-binary=:all:`
         # plus the following space form a YAML `key: value` separator mid-line, and the
         # parser rejects the step outright (`ScannerError`).
         run: |
-          python -m pip download --only-binary=:all: --no-deps \
-            -d packaging/staging "setuptools<81"
+          python -m pip download --require-hashes --only-binary=:all: --no-deps \
+            -d packaging/staging -r packaging/setuptools-compatibility.txt
+          setuptools_whl="$(python scripts/verify_setuptools_wheel.py packaging/staging)"
+          {
+            echo "SETUPTOOLS_WHEEL=staging/$(basename "$setuptools_whl")"
+            echo "SETUPTOOLS_WHEEL_NAME=$(basename "$setuptools_whl")"
+          } >> "$GITHUB_ENV"
 
       - name: Render per-platform EXPLICIT locks (pin-and-hold; no re-solve)
         # conda-lock render emits `conda-<platform>.lock` (@EXPLICIT) from the
@@ -158,15 +164,12 @@ jobs:
           cp LICENSE packaging/staging/LICENSE.txt
           tether_whl="$(ls packaging/staging/tether-*.whl | head -1)"
           tmaven_whl="$(ls packaging/staging/tmaven-*.whl | head -1)"
-          setuptools_whl="$(ls packaging/staging/setuptools-*.whl | head -1)"
           {
             echo "TETHER_VERSION=$(python -c 'import tether._version as v; print(v.__version__)' 2>/dev/null || git describe --tags --always | sed 's/^v//')"
             echo "TETHER_WHEEL=staging/$(basename "$tether_whl")"
             echo "TETHER_WHEEL_NAME=$(basename "$tether_whl")"
             echo "TMAVEN_WHEEL=staging/$(basename "$tmaven_whl")"
             echo "TMAVEN_WHEEL_NAME=$(basename "$tmaven_whl")"
-            echo "SETUPTOOLS_WHEEL=staging/$(basename "$setuptools_whl")"
-            echo "SETUPTOOLS_WHEEL_NAME=$(basename "$setuptools_whl")"
           } >> "$GITHUB_ENV"
 
       - name: Validate the recipe (offline render + schema)
@@ -208,7 +211,8 @@ jobs:
           # instead of surfacing as an opaque probe failure. `import pkg_resources` is
           # the load-bearing half; the version bound pins the INTENT (the bundled wheel
           # was actually applied over the lock's setuptools) and is deliberately `< 81`,
-          # matching the bundled `setuptools<81`, not the 82.0.0 breakage point.
+          # matching the bundled setuptools 80.9.0 runtime wheel, not merely the
+          # 82.0.0 breakage point.
           "$prefix/envs/sidecar/bin/python" -c "import setuptools, pkg_resources; assert tuple(int(p) for p in setuptools.__version__.split('.')[:1]) < (81,), setuptools.__version__; print('sidecar setuptools OK', setuptools.__version__)"
           # Then drive the real headless entry point the batch runner's startup probe
           # uses: it constructs maven_class and exits non-zero with a JSON status on

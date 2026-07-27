@@ -563,36 +563,41 @@ and **removed it in 82.0.0**, so a sidecar environment on 82 or newer cannot con
 `maven_class` at all. `sidecar/conda-lock.yml` resolves setuptools `82.0.1`, i.e. past the
 removal.
 
-**Remedy.** Get `setuptools<81` into the sidecar environment. Which side you are on decides
-whether that has already happened.
+**Remedy.** Apply Tether's exact hash-locked setuptools 80.9.0 runtime compatibility
+wheel. Which side you are on decides whether that has already happened.
 
-*Sidecar built from a source checkout.* `scripts/setup_sidecar.py` applies the pin for you
-(`SETUPTOOLS_PIN = "setuptools<81"`), and that script is the **only** place the pin lives:
-`sidecar/conda-lock.yml` deliberately resolves setuptools `82.0.1`, and the script's own pip
-step downgrades it after the env is created. Do not go looking for the pin in the lock file or
-the workflow — `.github/workflows/sidecar.yml` just calls the script.
+*Sidecar built from a source checkout.* `scripts/setup_sidecar.py` installs tMAVEN first,
+then applies `packaging/setuptools-compatibility.txt` with binary-only pip hash checking.
+That requirements file is the **only** version/hash source. `sidecar/conda-lock.yml`
+deliberately resolves setuptools `82.0.1`, and `.github/workflows/sidecar.yml` calls the same
+script so the live suite continuously exercises this split path.
 
 *Sidecar that came with the installer.* The pin is applied for you. `envs/sidecar` is
 materialised from the rendered `sidecar/conda-lock.yml` (setuptools `82.0.1`), and the
-constructor `post_install` script then lays a bundled `setuptools<81` wheel over it — a
-third offline wheel alongside `tether-*.whl` and `tmaven-*.whl` — before installing tMAVEN.
+constructor `post_install` script then lays the verified
+`setuptools-80.9.0-py3-none-any.whl` over it — a third offline wheel alongside
+`tether-*.whl` and `tmaven-*.whl` — before installing the already-built tMAVEN wheel.
 So on an installed app this failure should not happen; if it does, the sidecar env has been
 changed after installation (see below), and it is worth reporting.
 
-*Environment you built by hand.* Nothing applies the pin here, so downgrade it
-yourself with the sidecar's own interpreter (needs network):
+*Environment you built by hand.* From a Tether checkout, apply the same committed lock
+with the sidecar's own interpreter (needs network):
 
 ```text
 # Linux / macOS
-<install-prefix>/envs/sidecar/bin/python -m pip install "setuptools<81"
+<install-prefix>/envs/sidecar/bin/python -m pip install --only-binary=:all: --no-deps \
+  --require-hashes -r packaging/setuptools-compatibility.txt
 
 # Windows
-<install-prefix>\envs\sidecar\python.exe -m pip install "setuptools<81"
+<install-prefix>\envs\sidecar\python.exe -m pip install --only-binary=:all: --no-deps ^
+  --require-hashes -r packaging\setuptools-compatibility.txt
 ```
 
 Then re-run the liveness probe or the idealization. The same command is the recovery step if
 you have upgraded setuptools inside `envs/sidecar` yourself. This affects the **sidecar**
-environment only — Tether's base environment does not import `pkg_resources`.
+environment only — Tether's base environment does not import `pkg_resources`. The
+exception is temporary and must be removed when the pinned tMAVEN revision stops importing
+`pkg_resources`; ADR-0054 records its dependency-security scope.
 
 ### Idealization times out, or is restarted repeatedly
 

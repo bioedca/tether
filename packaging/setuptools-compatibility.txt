@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Temporary runtime compatibility wheel for tMAVEN's pkg_resources import.
+# Remove this requirement when the pinned tMAVEN revision no longer imports pkg_resources.
+setuptools==80.9.0 \
+    --hash=sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922
