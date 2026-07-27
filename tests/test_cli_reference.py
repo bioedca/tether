@@ -321,6 +321,13 @@ def test_the_deferred_idealization_caveat_survives() -> None:
     )
 
 
+def test_batch_overwrite_help_describes_policy_fail_checkpoint() -> None:
+    """The live CLI help names the policy-fail recovery path and its boundary."""
+    help_text = " ".join(_subparsers(build_parser())["batch"].format_help().split())
+    assert "completed extraction rejected by the current fail policy" in help_text
+    assert "accepted completed checkpoints still skip" in help_text
+
+
 def test_policy_fail_rejection_survives_cli_resume(tmp_path, monkeypatch, capsys) -> None:
     """The real CLI + checkpoint path keeps an over-gate movie failed on every run."""
     import json  # noqa: PLC0415 - test-local base dependency

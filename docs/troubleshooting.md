@@ -197,28 +197,32 @@ re-export (`tether.analysis.histogram`, `.cloud`, `tether.gui.trace_dock`,
 
 The results are the old ones, reported as `ok`, exit `0`.
 
-**Cause.** `--overwrite` means "re-extract a movie whose output exists but is **not** a
-completed extraction" — exactly as its own `--help` text says. `_do_extract` in
-`tether.project.batch` checks the checkpoint (`/settings/extraction` present) and returns
-`skipped` *before* `overwrite` is ever forwarded to `extract_movie`; `_do_correct` does the
-same on `/settings/correction`. A completed stage is always skipped.
+**Cause.** For a normal completed extraction, `_do_extract` in
+`tether.project.batch` finds the `/settings/extraction` checkpoint and returns `skipped`;
+`--overwrite` is not a general "recompute completed work" switch. `_do_correct` likewise
+skips a completed `/settings/correction`.
 
-This also defeats `--policy fail` on a second run: the failed movie's `.tether` was already
-written on the first pass, so the re-run skips extraction and never re-evaluates the gate.
+There is one deliberate extraction exception. Under `--policy fail`, the runner reads the
+saved `registration_rms_px` and effective `rms_gate` from the extraction profile. A saved
+over-gate result remains `failed` on every resume. Passing `--overwrite --policy fail`
+re-extracts that rejected checkpoint and applies the gate to the new result. An in-gate
+completed extraction still skips, even with `--overwrite`.
 
 > **Signature.** `extract=skipped` / `correct=skipped` in the report, and
 > `/settings/extraction.attrs["profile_json"]` still holding the old parameters.
 
-**Remedy.** Delete the affected `.tether` files (or the whole out-dir) and re-run. For a
-single movie, `tether extract --overwrite` *does* re-extract — the checkpoint is a batch-runner
-concept only.
+**Remedy.** For a policy-rejected project, keep the inspectable `.tether` and re-run with
+`--overwrite --policy fail`; downstream stages proceed only if the new extraction passes
+the gate. For a normal completed checkpoint whose parameters must change, preserve or move
+the old project as needed, then use `tether extract --overwrite` for that movie — the
+batch runner intentionally does not recompute an accepted completed extraction.
 
 Deleting is not enough if the parameter you fixed is an **extract** tunable
 (`--donor-side`, `--detection-mode`, `--detection-threshold`, `--min-separation`, `--window`,
 `--pair-tol`, `--rms-gate`). `tether batch` exposes none of them and never builds an
 `ExtractOptions`, so a clean re-run silently re-applies the same defaults
 (see [every efficiency is mirrored](#every-efficiency-is-mirrored-donor-side-was-backwards)).
-Re-run those movies through `tether extract --overwrite` one at a time, or drive
+Run those movies through `tether extract --overwrite` one at a time, or drive
 `run_batch(..., extract_options=ExtractOptions(...))` from the library, which *does* forward
 them.
 

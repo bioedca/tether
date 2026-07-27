@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0030 — Headless batch runner: per-movie isolation + provenance-derived per-stage checkpoint
 
-- **Status:** accepted
+- **Status:** accepted; extraction checkpoint acceptance amended by [ADR-0054](0054-policy-fail-rejected-extraction-checkpoint.md)
 - **Date:** 2026-07-03
 - **Deciders:** bioedca (maintainer)
 - **PRD anchor:** §6 ("Batch"), §7.11 (FR-BATCH), §7.2, §11.2 ("Over-gate batch policy"), §9 M3
@@ -54,6 +54,11 @@ A stage is "already done" iff the provenance group it writes is present in the
 - **extract** → `/settings/extraction` (write-once, `write_extraction`);
 - **correct** → `/settings/correction` (`compute_corrected_fret`);
 - **idealize** → a non-empty `/idealization` (any fitted `/idealization/{model}`).
+
+ADR-0054 supersedes the unconditional acceptance of the **extract** checkpoint under
+`policy=fail`: presence still proves extraction completed, but the saved residual and
+gate decide whether that completed result satisfies the current fail policy. Correction
+and idealization retain the presence-only rule.
 
 The store *is* the checkpoint, so a resume re-opens each output and skips the stages
 whose output already exists — re-running `run_batch` over the same jobs re-runs only
