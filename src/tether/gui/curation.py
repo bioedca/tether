@@ -25,8 +25,8 @@ without Qt (mirroring :mod:`tether.gui.trace_dock`):
   ``Enter``/``I`` and the reserved ``C``/``V`` no-ops. Rebindable and
   JSON-persistable; renders a cheat-sheet.
 * :class:`CurationController` — routes a :class:`Command` to injected handler
-  callbacks (the shell wires loaded-project accept/reject to real ``/labels``
-  writes) and keeps the integer↔category contract
+  callbacks (the shell wires loaded-project accept/reject/un-reject to real
+  ``/labels`` writes) and keeps the integer↔category contract
   (tMAVEN class ``0`` ↔ Tether *uncategorized*, ``≥ 1`` ↔ named categories).
 * :class:`CurationEventFilter` — the ``QObject`` installed on the ``QApplication``
   that implements the focus contract. Qt is imported lazily in ``__init__`` so
@@ -81,6 +81,7 @@ class CurationAction(StrEnum):
 
     ACCEPT = "accept"  # Tether-only: Space
     REJECT = "reject"  # Tether-only: Backspace / Delete
+    UNREJECT = "unreject"  # Tether-only: visible one-click reversal control
     JUMP = "jump"  # Tether-only: Enter — round-trip to the movie spot
     IDEALIZE = "idealize"  # Tether-only: I — one-click vbFRET (wired at M2 S6)
     NEXT = "next"  # inherited: Right / Down
@@ -139,6 +140,7 @@ def action_description(command: Command) -> str:
 _ACTION_TEXT: dict[CurationAction, str] = {
     CurationAction.ACCEPT: "Accept trace",
     CurationAction.REJECT: "Reject trace",
+    CurationAction.UNREJECT: "Un-reject trace",
     CurationAction.JUMP: "Jump to movie spot",
     CurationAction.IDEALIZE: "One-click idealize",
     CurationAction.NEXT: "Next trace",
@@ -164,9 +166,10 @@ class CurationHandlers:
 
     Every hook remains optional so the Qt-free controller is independently
     injectable; an unset hook is a silent no-op. :class:`~tether.gui.shell.TetherShell`
-    wires loaded-project accept/reject to the real labels writer and reports
-    unavailable store commands explicitly. ``assign_category`` receives the
-    integer class; ``window_start``/``window_end`` receive the ``±1`` nudge delta.
+    wires loaded-project accept/reject/un-reject to the real labels writer and
+    reports unavailable store commands explicitly. ``assign_category`` receives
+    the integer class; ``window_start``/``window_end`` receive the ``±1`` nudge
+    delta.
     """
 
     accept: Callable[[], Any] | None = None
@@ -182,6 +185,8 @@ class CurationHandlers:
     reset_window: Callable[[], Any] | None = None
     photobleach: Callable[[], Any] | None = None
     grid: Callable[[], Any] | None = None
+    # Appended to preserve positional construction of the pre-existing handler API.
+    unreject: Callable[[], Any] | None = None
 
 
 class CurationController:
@@ -220,6 +225,8 @@ class CurationController:
             _call(h.accept)
         elif a is CurationAction.REJECT:
             _call(h.reject)
+        elif a is CurationAction.UNREJECT:
+            _call(h.unreject)
         elif a is CurationAction.JUMP:
             _call(h.jump)
         elif a is CurationAction.IDEALIZE:
@@ -435,6 +442,7 @@ _ACTION_ORDER: dict[CurationAction, int] = {
         (
             CurationAction.ACCEPT,
             CurationAction.REJECT,
+            CurationAction.UNREJECT,
             CurationAction.JUMP,
             CurationAction.IDEALIZE,
             CurationAction.PREV,
@@ -614,6 +622,12 @@ class CurationEventFilter:
                 return True
             return False
         if event_type != self._key_press:
+            return False
+        # A modal dialog owns every native key while it is active. The filter is
+        # application-wide, so without this guard a bare Space/Backspace/Delete
+        # aimed at a QFileDialog/QMessageBox could curate the trace hidden behind
+        # it and consume the dialog's own activation/navigation key.
+        if self._qtwidgets.QApplication.activeModalWidget() is not None:
             return False
         # A focused text editor keeps native text semantics (PRD §7.3 exemption).
         # Check both the event's target and the focused widget: on key-event

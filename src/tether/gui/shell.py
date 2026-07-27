@@ -27,6 +27,7 @@ subclass one) so importing this module costs no Qt, matching the rest of
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -243,9 +244,11 @@ class TetherShell:
     Constructs headlessly (needs a ``QApplication``; ``pyqtgraph.mkQApp`` /
     ``qtbot`` provide one). Installs the curation event filter on the application
     so the four bare keys reach the controller from any of the child surfaces,
-    persists accept/reject for the selected molecule when a writable project is
-    loaded, reports deferred commands explicitly unavailable, and exposes the
-    dialogs. The ``I`` key runs one-click idealize on the selected molecule through
+    holds the loaded project's single-writer lock for the GUI session, persists
+    accept/reject/un-reject for the selected molecule when that lock is available,
+    falls back to read-only browsing otherwise, reports deferred commands explicitly
+    unavailable, and exposes the dialogs. The ``I`` key runs one-click idealize on
+    the selected molecule through
     the injected ``idealizer`` seam
     (:func:`make_store_idealizer` wires the real store-backed vbFRET pipeline) and
     draws the returned Viterbi path on the dock. When an ``overlap`` seam is wired
@@ -277,6 +280,10 @@ class TetherShell:
         # successful load_project call: synthetic/demo traces and a bare shell must
         # never acquire an accidental persistence target.
         self._curation_project: Project | None = None
+        # Why the loaded project is browse-only. Kept separately from
+        # _curation_project so a blocked writer gets an actionable status instead
+        # of the bare-shell "load a writable project" message.
+        self._curation_read_only_reason: str | None = None
         # The one-click-idealize seam: a molecule_key -> idealized-path callable.
         # None (the synthetic/no-project default) makes ``I`` report that a project
         # must be loaded; make_store_idealizer(project) wires the real pipeline.
@@ -331,23 +338,37 @@ class TetherShell:
         self._category_field = QtWidgets.QLineEdit()
         self._category_field.setPlaceholderText("category name (text-entry — keymap exempt)")
         self._category_field.setProperty("tetherTextEntry", True)
+        self._unreject_button = QtWidgets.QPushButton("Un-reject selected")
+        self._unreject_button.setToolTip(
+            "Reverse a rejected trace to uncurated and append the reversal to /labels"
+        )
         vbox.addWidget(QtWidgets.QLabel("Movie"))
         vbox.addWidget(self._movie_switcher)
         vbox.addWidget(QtWidgets.QLabel("Molecules"))
         vbox.addWidget(self._molecule_list, stretch=1)
         vbox.addWidget(QtWidgets.QLabel("Category name"))
         vbox.addWidget(self._category_field)
+        vbox.addWidget(self._unreject_button)
         browser = QtWidgets.QDockWidget("Browser", self._window)
         browser.setWidget(panel)
         self._window.addDockWidget(QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, browser)
 
         # Curation controller + keymap + the application-level event filter.
         self._controller = CurationController(self._build_handlers())
+        self._unreject_button.clicked.connect(
+            lambda: self._controller.dispatch(Command(CurationAction.UNREJECT))
+        )
         self._keymap = Keymap.default()
         self._event_filter = CurationEventFilter(
             self._controller, self._keymap, focus_dock=self._trace_dock.widget
         )
         self._event_filter.install()
+        # Closing the last main window quits QApplication. Route that lifecycle
+        # through close() too, so an interactive window close releases the session
+        # lock just like a context-manager/test close.
+        self._app = QtWidgets.QApplication.instance()
+        self._app.aboutToQuit.connect(self.close)
+        self._closed = False
 
         # File menu: open a produced/extracted .tether live in this shell for
         # curation + one-click idealize — the store<->shell hookup (§7.8, FR-LEGACY;
@@ -420,6 +441,11 @@ class TetherShell:
     def category_field(self) -> QtWidgets.QLineEdit:
         """The browser-panel category-name ``QLineEdit`` — the text-entry exempt from the keymap."""
         return self._category_field
+
+    @property
+    def unreject_button(self) -> QtWidgets.QPushButton:
+        """The visible one-click control that reverses the selected sticky reject."""
+        return self._unreject_button
 
     @property
     def controller(self) -> CurationController:
@@ -542,6 +568,13 @@ class TetherShell:
         (:meth:`import_deeplasi_bundle`) or any extracted ``.tether`` opens live without
         relaunching.
 
+        The GUI acquires and retains the project's single-writer sidecar lock before
+        enabling any write seam. A foreign/corrupt/uncreatable lock does not prevent
+        browsing: the project opens read-only, write seams stay disabled, and the
+        status banner records why. Replacing a project releases the prior session
+        lock; :meth:`close` releases the current one (after any in-flight idealizer
+        write settles).
+
         Every :class:`~tether.gui.trace_dock.TraceView` carries its ``molecule_key`` so
         the idealize / overlap seams resolve the store row. An **analysis-only** import
         (coordinate-less, ``read_analysis_only_marker`` non-``None``) leaves the overlap
@@ -560,6 +593,11 @@ class TetherShell:
         """
         from tether.project.analysis_import import read_analysis_only_marker
         from tether.project.core import Project
+        from tether.project.lock import LockedError
+
+        if self._idealize_future is not None:
+            self._status("Open project unavailable: wait for idealization to finish")
+            return None
 
         # Do every fallible read BEFORE touching shell state, so a bad open is atomic
         # (the prior project stays wired) — mirroring the catch-and-report contract of
@@ -570,32 +608,61 @@ class TetherShell:
             marker = read_analysis_only_marker(proj_path)
             analysis_only = marker is not None
             traces = traces_from_store(project, intensity_quantity=intensity_quantity)
-            idealizer = make_store_idealizer(project)
             histogram = make_store_histogram(project)
-            handoff = make_store_handoff(project)
             overlap = None if analysis_only else make_store_overlap(project)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
             self._status(f"Open project failed: {exc}")
             return None
 
-        self._curation_project = project
+        try:
+            project.acquire_lock()
+        except (LockedError, OSError) as exc:
+            writable = False
+            read_only_reason = f"write lock unavailable: {exc}"
+            idealizer = None
+            handoff = None
+        else:
+            writable = True
+            read_only_reason = None
+            try:
+                idealizer = make_store_idealizer(project)
+                handoff = make_store_handoff(project)
+            except Exception as exc:  # noqa: BLE001 - preserve the prior atomic load
+                project.release_lock()
+                self._status(f"Open project failed: {exc}")
+                return None
+
+        prior_project = self._curation_project
+        self._curation_project = project if writable else None
+        self._curation_read_only_reason = read_only_reason
         self._idealizer = idealizer
         self._histogram_seam = histogram
         self._handoff = handoff
         self._overlap_seam = overlap
-        self._conditions = project
+        self._conditions = project if writable else None
         # Drop any docks built against a prior project so they rebuild fresh against the
         # new store (no stale histogram / overlap leaking across a re-open).
         self._reset_store_docks()
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
         self.set_molecules(traces)
+        if prior_project is not None:
+            prior_project.release_lock()
 
         name = Path(proj_path).name
-        if analysis_only:
-            self._status(f"Opened {name} (analysis-only) — {marker.banner}")
-        else:
-            self._status(f"Opened {name} — {len(traces)} molecule(s)")
+        modes = [
+            mode
+            for enabled, mode in (
+                (analysis_only, "analysis-only"),
+                (not writable, "read-only"),
+            )
+            if enabled
+        ]
+        mode_suffix = f" ({', '.join(modes)})" if modes else ""
+        detail = marker.banner if analysis_only else f"{len(traces)} molecule(s)"
+        if read_only_reason is not None:
+            detail = f"{detail}; {read_only_reason}"
+        self._status(f"Opened {name}{mode_suffix} — {detail}")
         return project
 
     def _reset_store_docks(self) -> None:
@@ -885,6 +952,7 @@ class TetherShell:
         return CurationHandlers(
             accept=lambda: self._curate_current(CurationAction.ACCEPT),
             reject=lambda: self._curate_current(CurationAction.REJECT),
+            unreject=lambda: self._curate_current(CurationAction.UNREJECT),
             jump=lambda: self._status("Jump to movie spot"),
             idealize=self._idealize_current,
             next=lambda: self._step(+1),
@@ -909,15 +977,28 @@ class TetherShell:
         )
 
     def _curate_current(self, action: CurationAction) -> None:
-        """Persist accept/reject for the selected store molecule, then report success."""
-        if action not in {CurationAction.ACCEPT, CurationAction.REJECT}:
+        """Persist accept/reject/un-reject for the selected molecule, then report success."""
+        if action not in {
+            CurationAction.ACCEPT,
+            CurationAction.REJECT,
+            CurationAction.UNREJECT,
+        }:
             raise ValueError(f"unsupported curation action {action}")
 
-        verb = "Accept" if action is CurationAction.ACCEPT else "Reject"
-        completed = "Accepted" if action is CurationAction.ACCEPT else "Rejected"
+        labels = {
+            CurationAction.ACCEPT: ("Accept", "Accepted"),
+            CurationAction.REJECT: ("Reject", "Rejected"),
+            CurationAction.UNREJECT: ("Un-reject", "Un-rejected"),
+        }
+        verb, completed = labels[action]
         project = self._curation_project
         if project is None:
-            self._status(f"{verb} unavailable: load a writable project first")
+            reason = self._curation_read_only_reason or "load a writable project first"
+            prefix = "project is read-only: " if self._curation_read_only_reason else ""
+            self._status(f"{verb} unavailable: {prefix}{reason}")
+            return
+        if self._idealize_future is not None:
+            self._status(f"{verb} unavailable: Idealize in progress; wait for it to finish")
             return
 
         row = self._molecule_list.currentRow()
@@ -927,10 +1008,17 @@ class TetherShell:
             return
 
         try:
-            writer = project.accept if action is CurationAction.ACCEPT else project.reject
-            writer(trace.molecule_key)
+            writers = {
+                CurationAction.ACCEPT: project.accept,
+                CurationAction.REJECT: project.reject,
+                CurationAction.UNREJECT: project.unreject,
+            }
+            result = writers[action](trace.molecule_key)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
             self._status(f"{verb} failed: {exc}")
+            return
+        if action is CurationAction.UNREJECT and result is None:
+            self._status("Un-reject unavailable: selected molecule is not rejected")
             return
 
         target = trace.name or trace.molecule_key
@@ -1048,18 +1136,40 @@ class TetherShell:
         self._window.show()
 
     def close(self) -> None:
-        """Remove the app-level filter, abandon any running fit, and close the window."""
+        """Remove the filter, settle writer ownership, and close the window.
+
+        A running idealizer cannot be force-cancelled safely while its sidecar may
+        still commit HDF5 data. Its result is abandoned visually, but the session
+        lock is retained until that future completes and releases it from its done
+        callback. With no active writer, the lock is released immediately.
+        """
         from pyqtgraph.Qt import QtWidgets
 
+        if self._closed:
+            return
+        self._closed = True
+        if self._app is not None:
+            with suppress(RuntimeError, TypeError):
+                self._app.aboutToQuit.disconnect(self.close)
+            self._app = None
         self._event_filter.remove()
+        future = self._idealize_future
+        project = self._curation_project
+        self._curation_project = None
+        self._curation_read_only_reason = None
         if self._idealize_timer is not None:
             self._idealize_timer.stop()
             self._idealize_timer = None
-        if self._idealize_future is not None:
+        if future is not None:
             # A running fit is abandoned (its result is discarded), and the wait
             # cursor it set is restored so it never leaks past close.
             self._idealize_future = None
             QtWidgets.QApplication.restoreOverrideCursor()
+        if project is not None:
+            if future is not None and not future.done():
+                future.add_done_callback(lambda _done, held=project: held.release_lock())
+            else:
+                project.release_lock()
         self._idealize_executor.shutdown(wait=False)
         if self._histogram_dock is not None:
             self._histogram_dock.close()

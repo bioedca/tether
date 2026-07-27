@@ -176,6 +176,7 @@ def test_load_project_opens_round_trip_store_live(shell, tmp_path) -> None:
     opened = shell.load_project(project.path)
 
     assert opened is not None
+    assert opened.lock_owner() is not None
     assert shell.molecule_list.count() == 3
     assert "3 molecule(s)" in shell.status_message
     # histogram seam wired → &Analysis draws over the real store
@@ -224,6 +225,7 @@ def test_real_curation_keys_persist_selected_label_and_survive_reopen(
         shell.close()
 
     reopened = Project.open(project.path)
+    assert reopened.lock_owner() is None
     rows = read_labels(reopened.path)
     assert rows.shape == (1,)
     row = rows[0]
@@ -234,6 +236,35 @@ def test_real_curation_keys_persist_selected_label_and_survive_reopen(
     assert text(row["labeler"])
     assert datetime.fromisoformat(text(row["timestamp"])).tzinfo is not None
     assert reopened.curation_label(keys[1]) == expected_label
+
+
+def test_unreject_button_persists_reversal_and_noops_when_not_rejected(
+    shell, qtbot, tmp_path
+) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui.curation import Command, CurationAction
+    from tether.project.labels import read_labels
+
+    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    shell.molecule_list.setCurrentRow(1)
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
+    assert project.curation_label(keys[1]) == -1
+
+    qtbot.mouseClick(shell.unreject_button, QtCore.Qt.MouseButton.LeftButton)
+
+    rows = read_labels(project.path)
+    assert rows.shape == (2,)
+    assert [int(value) for value in rows["label_value"]] == [-1, 0]
+    assert project.curation_label(keys[1]) == 0
+    assert shell.controller.last == Command(CurationAction.UNREJECT)
+    assert "Un-rejected" in shell.status_message
+
+    qtbot.mouseClick(shell.unreject_button, QtCore.Qt.MouseButton.LeftButton)
+    assert read_labels(project.path).shape == (2,)
+    assert "not rejected" in shell.status_message
+    assert "Un-rejected" not in shell.status_message
 
 
 def test_curation_without_selection_adds_no_row_and_reports_action(shell, qtbot, tmp_path) -> None:
@@ -260,19 +291,83 @@ def test_curation_locked_project_adds_no_row_and_reports_lock(shell, qtbot, tmp_
     from tether.project.lock import LockIdentity
 
     project, *_ = _round_trip_store(tmp_path, n=3, t=12)
-    assert shell.load_project(project.path) is not None
     held = lock.acquire(
         project.path, identity=LockIdentity(host="OTHER-HOST", user="other", pid=999)
     )
     try:
+        assert shell.load_project(project.path) is not None
+        assert "read-only" in shell.status_message
+        assert "locked" in shell.status_message
         qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Space)
     finally:
         assert lock.release(project.path, held) is True
 
     assert read_labels(project.path).shape == (0,)
-    assert "Accept failed" in shell.status_message
-    assert "locked" in shell.status_message
+    assert "Accept unavailable" in shell.status_message
+    assert "read-only" in shell.status_message
     assert "Accepted" not in shell.status_message
+
+
+def test_curation_waits_for_background_idealization(shell, qtbot, tmp_path) -> None:
+    import threading
+
+    from pyqtgraph.Qt import QtCore
+
+    from tether.project.labels import read_labels
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    started = threading.Event()
+    gate = threading.Event()
+
+    def blocking_idealizer(_molecule_key):
+        started.set()
+        gate.wait(timeout=5.0)
+        return np.full(12, 0.5)
+
+    shell._idealizer = blocking_idealizer
+    try:
+        qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+        qtbot.waitUntil(started.is_set, timeout=2000)
+        qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Space)
+
+        assert read_labels(project.path).shape == (0,)
+        assert "Idealize in progress" in shell.status_message
+        assert "Accepted" not in shell.status_message
+    finally:
+        gate.set()
+        qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
+
+
+def test_close_retains_session_lock_until_background_idealization_finishes(
+    shell, qtbot, tmp_path
+) -> None:
+    import threading
+
+    from pyqtgraph.Qt import QtCore
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    started = threading.Event()
+    gate = threading.Event()
+
+    def blocking_idealizer(_molecule_key):
+        started.set()
+        gate.wait(timeout=5.0)
+        return np.full(12, 0.5)
+
+    shell._idealizer = blocking_idealizer
+    qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_I)
+    qtbot.waitUntil(started.is_set, timeout=2000)
+
+    shell.close()
+    assert project.lock_owner() is not None
+
+    gate.set()
+    # Observe the sidecar without opening it: repeatedly calling lock_owner()
+    # here can race the done callback's unlink on Windows and itself hold the
+    # file open long enough to cause a sharing violation.
+    qtbot.waitUntil(lambda: not project.lock_path.exists(), timeout=5000)
 
 
 def test_curation_write_error_adds_no_row_and_never_reports_success(
@@ -317,6 +412,7 @@ def test_load_project_analysis_only_gates_overlap_and_banners(shell, tmp_path) -
 def test_load_project_replaces_prior_project(shell, tmp_path) -> None:
     p1, *_ = _round_trip_store(tmp_path, n=3, t=12, name="rt1.tether", seed=1)
     shell.load_project(p1.path)
+    assert p1.lock_owner() is not None
     assert shell.molecule_list.count() == 3
     assert shell.overlap_dock is not None
     first_dock = shell.overlap_dock
@@ -325,6 +421,8 @@ def test_load_project_replaces_prior_project(shell, tmp_path) -> None:
     p2, *_ = _round_trip_store(tmp_path, n=2, t=8, name="rt2.tether", seed=2)
     shell.load_project(p2.path)
 
+    assert p1.lock_owner() is None
+    assert p2.lock_owner() is not None
     assert shell.molecule_list.count() == 2
     assert shell.overlap_dock is not None
     assert shell.overlap_dock is not first_dock  # rebuilt, not the stale prior dock
