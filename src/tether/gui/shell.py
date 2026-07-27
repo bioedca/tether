@@ -331,6 +331,11 @@ class TetherShell:
         # after a refresh I/O failure even though write seams fail closed, so retry
         # and close can still release exactly the nonce this shell acquired.
         self._session_project: Project | None = None
+        # A newly acquired project can also need teardown if switching fails while
+        # releasing the prior session. Retain that second nonce and process-local
+        # claim independently until rollback release succeeds.
+        self._rollback_session_project: Project | None = None
+        self._rollback_claimed_project_key: str | None = None
         self._session_release_lock = Lock()
         # The sidecar lock identifies a process, so two shells in this process would
         # otherwise refresh the same identity and both become writable. This opaque
@@ -741,6 +746,9 @@ class TetherShell:
         if self._session_project is not None and self._curation_project is None:
             self._status("Open project unavailable: waiting to release the prior session lock")
             return None
+        if self._rollback_session_project is not None:
+            self._status("Open project unavailable: waiting to release a rolled-back session lock")
+            return None
 
         # Do every fallible read BEFORE touching shell state, so a bad open is atomic
         # (the prior project stays wired) — mirroring the catch-and-report contract of
@@ -806,9 +814,16 @@ class TetherShell:
                 prior_session_project.release_lock()
             except OSError as exc:
                 if session_project is not None:
-                    with suppress(OSError):
+                    try:
                         session_project.release_lock()
-                if claimed_key != prior_claimed_key:
+                    except OSError:
+                        self._rollback_session_project = session_project
+                        self._rollback_claimed_project_key = claimed_key
+                        self._lock_release_timer.start()
+                    else:
+                        if claimed_key != prior_claimed_key:
+                            _release_gui_project(claimed_key, self._project_owner_token)
+                elif claimed_key != prior_claimed_key:
                     _release_gui_project(claimed_key, self._project_owner_token)
                 self._status(f"Open project unavailable: prior session release failed: {exc}")
                 return None
@@ -876,8 +891,12 @@ class TetherShell:
 
     def _retry_session_release(self) -> None:
         """Release a disabled session's held nonce, retrying transient I/O failures."""
+        rollback_released = self._release_rollback_session_once()
         if self._curation_project is not None or self._idealize_future is not None:
-            self._lock_release_timer.stop()
+            if rollback_released:
+                self._lock_release_timer.stop()
+            else:
+                self._lock_release_timer.start()
             return
         release_future = self._session_release_future
         if release_future is not None:
@@ -885,10 +904,27 @@ class TetherShell:
                 self._lock_release_timer.start()
                 return
             self._session_release_future = None
-        if not self._release_session_once():
+        if not self._release_session_once() or not rollback_released:
             self._lock_release_timer.start()
             return
         self._lock_release_timer.stop()
+
+    def _release_rollback_session_once(self) -> bool:
+        """Release a failed project-switch rollback without dropping its lifecycle."""
+        with self._session_release_lock:
+            project = self._rollback_session_project
+            if project is not None:
+                try:
+                    project.release_lock()
+                except OSError:
+                    return False
+                self._rollback_session_project = None
+            _release_gui_project(
+                self._rollback_claimed_project_key,
+                self._project_owner_token,
+            )
+            self._rollback_claimed_project_key = None
+            return True
 
     def _release_session_once(self) -> bool:
         """Attempt one thread-safe nonce release, retaining lifecycle state on failure."""
@@ -1376,6 +1412,19 @@ class TetherShell:
             if self._curation_project is None:
                 return
         key = trace.molecule_key
+        if self._curation_project is not None:
+            from tether.project.labels import CurationLabel
+
+            try:
+                rejected = self._curation_project.curation_label(key) == CurationLabel.REJECT
+            except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the read failure
+                self._status(f"Idealize failed for {key}: {exc}")
+                return
+            if rejected:
+                self._status(
+                    "Idealize unavailable: selected molecule is rejected; un-reject it first"
+                )
+                return
         self._idealize_key = key
         self._status(f"Idealizing {key} (one-click vbFRET)…")
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
@@ -1548,11 +1597,19 @@ def make_store_idealizer(
     overwriting that model's prior contents; batch / accumulating idealization and
     model management are a later session (the deferred store↔shell hookup).
     """
+    from tether.project.core import Project as _Project
     from tether.project.idealize import idealize_molecules
+
+    retained_session = {"require_held_lock": True} if isinstance(project, _Project) else {}
 
     def _idealize(molecule_key: str) -> np.ndarray | None:
         stored = idealize_molecules(
-            project, [molecule_key], model_name=model_name, overwrite=overwrite, **kwargs
+            project,
+            [molecule_key],
+            model_name=model_name,
+            overwrite=overwrite,
+            **retained_session,
+            **kwargs,
         )
         if stored.idealized is None:
             return None

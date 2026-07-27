@@ -178,6 +178,25 @@ class Project:
 
         lock.assert_writable(self.path, identity=self._acting_identity())
 
+    def _assert_held_lock(self) -> None:
+        """Require the sidecar to carry this handle's exact held nonce.
+
+        GUI sessions retain a lock across long background writes. An identity-only
+        writer check is insufficient for their point-of-persistence guard because a
+        stolen lock may be released before the worker returns. This stricter boundary
+        refuses an absent, corrupt, or replacement sidecar.
+        """
+        from tether.project import lock
+
+        self._acting_identity()  # fork-safety: clear a child's inherited held lock
+        held = self._held_lock
+        try:
+            current = lock.read_lock(self.path)
+        except lock.CorruptLockError as exc:
+            raise lock.LockedError(None, corrupt=True, path=self.lock_path) from exc
+        if held is None or current is None or current.nonce != held.nonce:
+            raise lock.LockedError(current, path=self.lock_path)
+
     @property
     def lock_path(self) -> Path:
         """The sidecar ``<file>.lock`` path for this project (§5.1/§5.4)."""
@@ -480,14 +499,16 @@ class Project:
         scratch_dir: str | Path | None = None,
         timeout: float | None = 1800.0,
         overwrite: bool = False,
+        include_rejected: bool = False,
         _runner: Callable[..., IdealizationResult] | None = None,
     ) -> StoredIdealization:
         """Idealize selected molecules into ``/idealization`` (:func:`idealize.idealize_molecules`).
 
         The headless core behind the dock's ``I`` key: reads the selected molecules'
         traces, fits vbFRET / consensus VB-HMM via the sidecar, and writes the model
-        back as additive data with a per-molecule input-provenance hash. The defaults
-        mirror :func:`tether.project.idealize.idealize_molecules` (its
+        back as additive data with a per-molecule input-provenance hash. Rejected
+        molecules are excluded unless ``include_rejected=True``. The defaults mirror
+        :func:`tether.project.idealize.idealize_molecules` (its
         ``MODEL_TYPE_DEFAULT`` / ``NSTATES_GRID_DEFAULT``); ``_runner`` is a private
         test seam for injecting a fake sidecar.
         """
@@ -510,6 +531,7 @@ class Project:
             scratch_dir=scratch_dir,
             timeout=timeout,
             overwrite=overwrite,
+            include_rejected=include_rejected,
             **extra,
         )
 

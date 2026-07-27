@@ -179,13 +179,13 @@ def test_is_text_entry_false_for_none_and_plain_object() -> None:
 # --- GUI focus-contract smokes (@pytest.mark.gui) ----------------------------
 
 
-def _key_event(key, modifiers=None, *, press=True, text=""):
+def _key_event(key, modifiers=None, *, press=True, text="", auto_repeat=False):
     from pyqtgraph.Qt import QtCore, QtGui
 
     qt = QtCore.Qt
     mods = modifiers if modifiers is not None else qt.KeyboardModifier.NoModifier
     etype = QtCore.QEvent.Type.KeyPress if press else QtCore.QEvent.Type.KeyRelease
-    return QtGui.QKeyEvent(etype, int(key), mods, text)
+    return QtGui.QKeyEvent(etype, int(key), mods, text, auto_repeat, 1)
 
 
 @pytest.fixture
@@ -267,6 +267,33 @@ def test_four_bare_keys_fire_from_each_child_focus(curation) -> None:
             assert consumed is True  # native binding suppressed on this surface
             assert len(curation.controller.history) == before + 1
             assert curation.controller.last == command
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_auto_repeat_skips_persistent_curation_but_keeps_navigation(curation) -> None:
+    from pyqtgraph.Qt import QtCore, QtWidgets
+
+    k = QtCore.Qt.Key
+    surface = QtWidgets.QListWidget()
+    curation.qtbot.addWidget(surface)
+
+    for key in (k.Key_Space, k.Key_Backspace, k.Key_Delete):
+        before = list(curation.controller.history)
+        event = _key_event(key, auto_repeat=True)
+        assert event.isAutoRepeat()
+        assert curation.filter.filter_event(surface, event, focus_widget=surface) is True
+        assert curation.controller.history == before
+
+    for key, command in (
+        (k.Key_Left, Command(A.PREV)),
+        (k.Key_Right, Command(A.NEXT)),
+    ):
+        before = len(curation.controller.history)
+        event = _key_event(key, auto_repeat=True)
+        assert curation.filter.filter_event(surface, event, focus_widget=surface) is True
+        assert len(curation.controller.history) == before + 1
+        assert curation.controller.last == command
 
 
 @pytest.mark.gui

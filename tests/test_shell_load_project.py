@@ -377,6 +377,47 @@ def test_close_retries_transient_nonce_safe_session_release(shell, tmp_path, mon
     assert not shell._lock_release_timer.isActive()
 
 
+def test_project_switch_retains_new_lock_when_both_releases_fail(
+    shell, tmp_path, monkeypatch
+) -> None:
+    from tether.project.core import Project
+
+    first, *_ = _round_trip_store(tmp_path, n=3, t=12, name="first.tether")
+    second, *_ = _round_trip_store(tmp_path, n=3, t=12, name="second.tether")
+    assert shell.load_project(first.path) is not None
+    original_release = Project.release_lock
+    failed_paths: set[Path] = set()
+
+    def fail_once_per_project(project_ref):
+        path = project_ref.path
+        if path not in failed_paths:
+            failed_paths.add(path)
+            raise OSError(f"temporary unlink failure for {path.name}")
+        return original_release(project_ref)
+
+    monkeypatch.setattr(Project, "release_lock", fail_once_per_project)
+
+    assert shell.load_project(second.path) is None
+
+    assert shell._curation_project is not None
+    assert shell._curation_project.path == first.path
+    assert shell._session_project is not None
+    assert shell._session_project.path == first.path
+    assert shell._rollback_session_project is not None
+    assert shell._rollback_session_project.path == second.path
+    assert shell._rollback_claimed_project_key is not None
+    assert second.lock_owner() is not None
+    assert shell._lock_release_timer.isActive()
+
+    shell._retry_session_release()
+
+    assert shell._rollback_session_project is None
+    assert shell._rollback_claimed_project_key is None
+    assert second.lock_owner() is None
+    assert first.lock_owner() is not None
+    assert not shell._lock_release_timer.isActive()
+
+
 @pytest.mark.parametrize(
     ("key_name", "method_name", "expected_label", "success_text"),
     [
@@ -457,6 +498,25 @@ def test_unreject_button_persists_reversal_and_noops_when_not_rejected(
     assert read_labels(project.path).shape == (2,)
     assert "not rejected" in shell.status_message
     assert "Un-rejected" not in shell.status_message
+
+
+def test_one_click_idealize_skips_rejected_selection(shell, qtbot, tmp_path) -> None:
+    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    shell.molecule_list.setCurrentRow(1)
+    shell._curation_project.reject(keys[1])
+    calls: list[str] = []
+
+    def idealize(molecule_key):
+        calls.append(molecule_key)
+        return np.full(12, 0.5)
+
+    shell._idealizer = idealize
+    shell._idealize_current()
+    qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
+
+    assert calls == []
+    assert "rejected" in shell.status_message
 
 
 def test_curation_without_selection_adds_no_row_and_reports_action(shell, qtbot, tmp_path) -> None:

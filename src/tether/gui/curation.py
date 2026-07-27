@@ -662,12 +662,21 @@ class CurationEventFilter:
         command = self._keymap.command_for(_as_int(event.key()), modifiers)
         if command is None:
             return False  # unmapped: let the native widget handle it
-        # Dispatch on press (auto-repeat included, mirroring tMAVEN) and record the
-        # key so its release is consumed too — the native binding sees neither.
+        key = _as_int(event.key())
+        # One physical hold must not append repeated accept/reject provenance rows.
+        # Navigation still repeats so a curator can keep moving through the list.
+        if event.isAutoRepeat() and command.action in {
+            CurationAction.ACCEPT,
+            CurationAction.REJECT,
+        }:
+            self._consumed_press_keys.add(key)
+            return True
+        # Dispatch on press and record the key so its release is consumed too —
+        # the native binding sees neither.
         self._controller.dispatch(command)
         if command.action is CurationAction.JUMP and self._focus_dock is not None:
             self._focus_dock.setFocus()
-        self._consumed_press_keys.add(_as_int(event.key()))
+        self._consumed_press_keys.add(key)
         return True
 
     def _current_focus(self) -> Any:

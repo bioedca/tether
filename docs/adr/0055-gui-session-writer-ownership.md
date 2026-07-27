@@ -64,9 +64,10 @@ held nonce atomically. If refresh or release encounters an I/O failure, write se
 closed while a separate lifecycle handle retains the acquired nonce for retry and final
 teardown.
 
-Because a sidecar fit can run for many minutes, idealization checks ownership both before
-work starts and again immediately before opening HDF5 for persistence. A lock stolen
-during the fit therefore prevents the store write.
+Because a sidecar fit can run for many minutes, GUI idealization requires the retained
+session's exact held nonce both before work starts and again immediately before opening
+HDF5 for persistence. A lock stolen and then released during the fit therefore still
+prevents the store write.
 
 Replacing the loaded project releases the prior session lock after the new project has
 opened successfully. Closing the shell releases the current lock immediately when idle;
@@ -100,6 +101,11 @@ modal or modeless dialogs and active popup menus. This prevents Space, Backspace
 in a file dialog, cheat sheet, or menu from curating the trace behind it.
 An explicitly registered shell-owned Browser dock remains in scope when floated, while
 unregistered top-level dialogs and popup menus remain outside curation scope.
+Auto-repeat remains enabled for navigation, but repeated accept/reject key presses are
+consumed without dispatch so one physical key hold appends at most one provenance row.
+Default one-click idealization also refuses a currently rejected selection; the curator
+must visibly un-reject it before fitting, while the headless idealization API retains an
+explicit include-rejected path.
 
 ### Consequences
 
