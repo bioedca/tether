@@ -17,8 +17,9 @@ cross-OS hand-off check) does the same steps every time:
 2. **setuptools 80.9.0** — tMAVEN imports the legacy ``pkg_resources`` API at runtime
    without declaring it; setuptools deprecated ``pkg_resources`` by 80.9.0 and removed
    it in 82.0.0.  The exact universal wheel and SHA-256 live in
-   ``packaging/setuptools-compatibility.txt`` and are installed in pip's hash-checking
-   mode after tMAVEN has been built, keeping the older package runtime-only.
+   ``packaging/setuptools-compatibility.txt`` and are force-reinstalled in pip's
+   hash-checking mode after tMAVEN has been built.  Force reinstallation makes reruns
+   verify the locked wheel instead of trusting an already-installed same-version package.
 
 Flow (each phase is skippable):
 
@@ -130,12 +131,13 @@ def build_setuptools_pip_cmd(
     *,
     requirements: Path = SETUPTOOLS_REQUIREMENTS,
 ) -> list[str]:
-    """Install only the hash-locked binary compatibility wheel from *requirements*."""
+    """Force-install only the hash-locked binary compatibility wheel from *requirements*."""
     return [
         sidecar_python,
         "-m",
         "pip",
         "install",
+        "--force-reinstall",
         "--only-binary=:all:",
         "--no-deps",
         "--require-hashes",

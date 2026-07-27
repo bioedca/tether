@@ -46,7 +46,9 @@ The older wheel is a **runtime compatibility layer, not a build backend**:
 1. The packaging and release jobs build the pinned tMAVEN wheel with their current build
    toolchain; setuptools 80.9.0 is only downloaded and staged afterward.
 2. `scripts/setup_sidecar.py` installs the git-pinned tMAVEN source first, then installs
-   the compatibility wheel separately with binary-only hash checking.
+   the compatibility wheel separately with binary-only hash checking and
+   `--force-reinstall`, so a rerun cannot trust an already-installed same-version
+   distribution without verifying the locked artifact.
 3. Constructor installs the already-built compatibility and tMAVEN wheels offline into
    the isolated sidecar. The base Tether environment never receives the older package.
 

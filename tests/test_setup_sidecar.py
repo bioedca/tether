@@ -76,6 +76,7 @@ def test_setuptools_install_uses_the_single_hash_locked_binary_source() -> None:
         "-m",
         "pip",
         "install",
+        "--force-reinstall",
         "--only-binary=:all:",
         "--no-deps",
         "--require-hashes",

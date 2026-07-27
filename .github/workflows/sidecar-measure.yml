@@ -84,6 +84,10 @@ jobs:
         # Delegate both out-of-lock runtime layers to the same guided path as sidecar.yml.
         # It installs git-pinned tMAVEN first, then applies the hash-locked setuptools
         # wheel strictly for maven_class's runtime pkg_resources import.
+        env:
+          # setup_sidecar.py performs the same cold tMAVEN liveness probe as sidecar.yml.
+          # Give Numba a runner-writable cache before that probe, not only during measurement.
+          NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache
         run: |
           python scripts/setup_sidecar.py \
             --python "$(python -c 'import sys; print(sys.executable)')"

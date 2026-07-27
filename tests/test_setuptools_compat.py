@@ -94,6 +94,13 @@ def test_live_sidecar_consumers_delegate_to_setup_script(workflow: Path) -> None
     )
 
 
+def test_measure_workflow_gives_the_setup_probe_a_writable_numba_cache() -> None:
+    data = yaml.safe_load(MEASURE_WORKFLOW.read_text(encoding="utf-8"))
+    steps = data["jobs"]["measure"]["steps"]
+    setup_step = next(step for step in steps if "scripts/setup_sidecar.py" in step.get("run", ""))
+    assert setup_step["env"]["NUMBA_CACHE_DIR"] == "${{ runner.temp }}/numba-cache"
+
+
 def test_verifier_accepts_only_the_derived_filename_and_digest(tmp_path: Path) -> None:
     verifier = _load_verifier()
     wheel_bytes = b"verified compatibility wheel fixture"

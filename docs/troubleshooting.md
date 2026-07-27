@@ -585,19 +585,23 @@ with the sidecar's own interpreter (needs network):
 
 ```text
 # Linux / macOS
-<install-prefix>/envs/sidecar/bin/python -m pip install --only-binary=:all: --no-deps \
-  --require-hashes -r packaging/setuptools-compatibility.txt
+<install-prefix>/envs/sidecar/bin/python -m pip install --force-reinstall \
+  --only-binary=:all: --no-deps --require-hashes \
+  -r packaging/setuptools-compatibility.txt
 
 # Windows
-<install-prefix>\envs\sidecar\python.exe -m pip install --only-binary=:all: --no-deps ^
-  --require-hashes -r packaging\setuptools-compatibility.txt
+<install-prefix>\envs\sidecar\python.exe -m pip install --force-reinstall ^
+  --only-binary=:all: --no-deps --require-hashes ^
+  -r packaging\setuptools-compatibility.txt
 ```
 
 Then re-run the liveness probe or the idealization. The same command is the recovery step if
-you have upgraded setuptools inside `envs/sidecar` yourself. This affects the **sidecar**
+you have upgraded setuptools inside `envs/sidecar` yourself. `--force-reinstall` is
+deliberate: a rerun must download or reuse and hash-check the locked wheel instead of
+trusting an already-installed same-version distribution. This affects the **sidecar**
 environment only — Tether's base environment does not import `pkg_resources`. The
-exception is temporary and must be removed when the pinned tMAVEN revision stops importing
-`pkg_resources`; ADR-0054 records its dependency-security scope.
+exception is temporary and must be removed when the pinned tMAVEN revision stops
+importing `pkg_resources`; ADR-0054 records its dependency-security scope.
 
 ### Idealization times out, or is restarted repeatedly
 
