@@ -205,7 +205,7 @@ $ tether batch a/movie_010.tif b/movie_010.tif -d out
 tether batch: movies 'a/movie_010.tif' and 'b/movie_010.tif' both map to 'out/movie_010.tether'; rename one or use a separate --out-dir
 ```
 
-### How `--policy fail` behaves on resume
+### How policy `fail` behaves on resume
 
 `fail` is a verdict recorded about a movie, not a veto on its output. Extraction writes
 the `.tether` first and the gate is applied afterwards, to the summary that write

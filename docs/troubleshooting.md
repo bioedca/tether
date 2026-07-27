@@ -16,7 +16,7 @@ diagnosis out.
 
 ## Data and analysis failures
 
-### Every efficiency is mirrored — `--donor-side` was backwards
+### Every efficiency is mirrored — donor-side was backwards
 
 **Symptom.** The run succeeded. Molecule counts look right. But the population histogram sits
 where you expected its mirror image — a low-FRET construct reads high, a high-FRET construct
