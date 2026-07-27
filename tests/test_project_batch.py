@@ -63,10 +63,21 @@ def _add_group(path: Path, group_path: str) -> None:
 
 
 def _extract_stub(*, fail: frozenset[str] = frozenset(), low_conf: frozenset[str] = frozenset()):
-    def run(movie_path, output_path, *, options=None, tmap=None, tdat=None, overwrite=False):
+    def run(
+        movie_path,
+        output_path,
+        *,
+        options=None,
+        tmap=None,
+        tdat=None,
+        overwrite=False,
+        publish_guard=None,
+    ):
         stem = Path(output_path).stem
         if stem in fail:
             raise RuntimeError(f"extract boom: {stem}")
+        if publish_guard is not None:
+            publish_guard()
         create_project(output_path, overwrite=True)
         path = Path(output_path)
         _add_group(path, "settings/extraction")
@@ -609,6 +620,61 @@ def test_overwrite_rejected_checkpoint_holds_lock_through_runner(tmp_path: Path)
     assert observed_lock
     assert second.results[0].ok
     assert lock.read_lock(jobs[0].output_path) is None
+
+
+def test_overwrite_rejected_checkpoint_aborts_if_lock_is_stolen_before_publish(
+    tmp_path: Path,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    contender = lock.LockIdentity(host="OTHER", user="contender", pid=123)
+    stolen = None
+
+    def stolen_before_publish(
+        movie_path,
+        output_path,
+        *,
+        options=None,
+        tmap=None,
+        tdat=None,
+        overwrite=False,
+        publish_guard=None,
+    ):
+        nonlocal stolen
+        assert publish_guard is not None
+        stolen, prior = lock.steal_lock(output_path, identity=contender)
+        assert prior is not None
+        assert prior.identity == lock.local_identity()
+        publish_guard()
+        raise AssertionError("publish guard returned after lock ownership changed")
+
+    try:
+        second = run_batch(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            _extract=stolen_before_publish,
+            _correct=_raising_correct,
+            _idealize=_raising_idealize,
+        )
+    finally:
+        if stolen is not None:
+            assert lock.release(jobs[0].output_path, stolen)
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "lock ownership changed before publish" in r.stages[STAGE_EXTRACT].error
+    assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    with h5py.File(jobs[0].output_path, "r") as store:
+        profile = json.loads(store["settings/extraction"].attrs["profile_json"])
+    assert profile["registration_rms_px"] == 0.75
+    assert not r.ok
 
 
 def test_overwrite_rechecks_replaced_checkpoint_under_lock(tmp_path: Path, monkeypatch) -> None:

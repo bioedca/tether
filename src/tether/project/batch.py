@@ -827,7 +827,8 @@ def _do_extract(
             from tether.project import lock  # noqa: PLC0415
 
             destination_lock = lock.held_lock(job.output_path)
-        with destination_lock:
+        with destination_lock as destination_owner:
+            runner_kwargs: dict[str, Any] = {}
             if rejected_checkpoint:
                 # The initial verdict preceded lock acquisition. Re-read the canonical
                 # destination under the held lock so a concurrently replaced accepted
@@ -841,6 +842,17 @@ def _do_extract(
                         STATUS_SKIPPED,
                         detail="already extracted",
                     ).ok
+                assert destination_owner is not None
+
+                def publish_guard() -> None:
+                    current_owner = lock.read_lock(job.output_path)
+                    if current_owner is None or current_owner.nonce != destination_owner.nonce:
+                        raise lock.LockError(
+                            f"{lock.lock_path(job.output_path)} lock ownership changed "
+                            "before publish"
+                        )
+
+                runner_kwargs["publish_guard"] = publish_guard
             summary = runner(
                 job.movie_path,
                 job.output_path,
@@ -848,6 +860,7 @@ def _do_extract(
                 tmap=job.tmap,
                 tdat=job.tdat,
                 overwrite=overwrite,
+                **runner_kwargs,
             )
     except Exception as exc:  # ExtractionError and any lower-level failure
         return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok

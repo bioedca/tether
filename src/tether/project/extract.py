@@ -54,6 +54,7 @@ import hashlib
 import math
 import os
 import warnings
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -361,6 +362,7 @@ def extract_movie(
     tmap: str | os.PathLike[str] | None = None,
     tdat: str | os.PathLike[str] | None = None,
     overwrite: bool = False,
+    publish_guard: Callable[[], None] | None = None,
 ) -> ExtractionSummary:
     """Extract traces from a dual-channel ``movie_path`` into a new ``.tether``.
 
@@ -390,6 +392,11 @@ def extract_movie(
         compose: import both registration and detection settings from Deep-LASI).
     overwrite:
         Replace an existing ``output_path``.
+    publish_guard:
+        Optional ownership check called after the replacement project is complete
+        and immediately before its atomic publish. An exception aborts the publish
+        and leaves an existing destination unchanged. The batch resume path uses
+        this to prove it still owns the destination lock.
 
     Returns
     -------
@@ -588,6 +595,8 @@ def extract_movie(
             registration_map=reg_map,
             settings=settings,
         )
+        if publish_guard is not None:
+            publish_guard()
         os.replace(tmp_path, output_path)
     except ExtractionError:
         tmp_path.unlink(missing_ok=True)

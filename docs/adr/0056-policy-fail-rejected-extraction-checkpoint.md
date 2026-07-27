@@ -27,6 +27,7 @@ single source of truth without losing the fail-policy verdict on resume?
 - `policy=fail` must fail the same saved over-gate extraction on every resume.
 - The completed project must remain available for inspection.
 - An explicit recovery path must re-extract and apply the gate to the new result.
+- A stale lock stolen during a long re-extraction must prevent the old owner publishing.
 - Accepted completed checkpoints must keep the normal skip behavior.
 - No second checkpoint file or HDF5 schema addition may be introduced.
 
@@ -57,6 +58,13 @@ completed checkpoint as policy-rejected:
 - under `policy=warn`, or when the saved result is not over its gate, the completed
   checkpoint remains skipped even if `overwrite` is set.
 
+The overwrite path holds the destination lock while it revalidates and re-extracts.
+`extract_movie` builds the replacement at a sibling temp path and, immediately before
+`os.replace`, calls a publish guard that compares the on-disk lock nonce with this
+run's acquisition nonce. If an operator stole the now-stale lock during a long
+extraction, the old run discards its temp project and reports failure instead of
+overwriting the successor owner's canonical file.
+
 Missing or malformed legacy profile values do not invent a rejection; those completed
 checkpoints retain ADR-0030's presence-only skip behavior. The store remains the only
 checkpoint and the HDF5 schema is unchanged.
@@ -70,6 +78,8 @@ presence checks, sequencing, and sidecar boundary remain accepted.
 - **Good.** A saved over-gate extraction cannot silently pass on the second run.
 - **Good.** The rejected project remains inspectable and `--overwrite --policy fail`
   provides a bounded recovery path.
+- **Good.** A long-running overwrite cannot publish after its destination lock is
+  stolen.
 - **Good.** Accepted completed checkpoints still resume without redundant work.
 - **Trade-off.** Fail-policy resume depends on the saved extraction profile. Legacy or
   malformed profiles keep the safe compatibility behavior of skipping rather than
