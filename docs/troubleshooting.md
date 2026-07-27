@@ -206,7 +206,13 @@ There is one deliberate extraction exception. Under `--policy fail`, the runner 
 saved `registration_rms_px` and effective `rms_gate` from the extraction profile. A saved
 over-gate result remains `failed` on every resume. Passing `--overwrite --policy fail`
 re-extracts that rejected checkpoint and applies the gate to the new result. An in-gate
-completed extraction still skips, even with `--overwrite`.
+completed extraction still skips, even with `--overwrite`. Batch claims every
+`--overwrite --policy fail` destination lock before testing whether its project file
+exists or reading a checkpoint; a lock held by any writer, including another thread in
+the same process, reports the movie as locked and is neither refreshed nor released by
+batch. A process-local per-destination reservation also rejects same-identity access
+from another local thread. Both claims remain held while batch creates, skips, or
+re-extracts the destination.
 
 > **Signature.** `extract=skipped` / `correct=skipped` in the report, and
 > `/settings/extraction.attrs["profile_json"]` still holding the old parameters.

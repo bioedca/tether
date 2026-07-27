@@ -58,11 +58,20 @@ completed checkpoint as policy-rejected:
 - under `policy=warn`, or when the saved result is not over its gate, the completed
   checkpoint remains skipped even if `overwrite` is set.
 
-The overwrite path acquires the destination lock before revalidation and keeps it
-through re-extraction, downstream correction and idealization, and the final
-`/settings/batch` stamp. `extract_movie` builds the replacement at a sibling temp path
-and, immediately before `os.replace`, calls a publish guard that compares the on-disk
-lock nonce with this run's acquisition nonce. The batch runner performs the same
+The overwrite path atomically claims an unowned destination lock before testing whether
+the HDF5 file exists or running fallible checkpoint probes. This refuses a writer that
+owns the sidecar before creating the project and closes a file-appearance race. The
+sidecar claim is paired with a process-local token keyed by the destination's normalized
+absolute lexical sidecar path; replacing a symlink leaf therefore cannot change the
+reservation key. The token belongs to the claiming PID and thread. Ordinary recursive
+acquisition, a leaked token on another thread, and competing same-process Project
+writers fail fast; unrelated destinations do not share a reservation. The runner then
+revalidates both ownership tokens around classification and the stage's repeated
+checkpoint reads. It skips an accepted completed checkpoint under ownership; otherwise
+it keeps the same lock through extraction, downstream correction and idealization, and
+the final `/settings/batch` stamp. `extract_movie` builds the replacement at a sibling
+temp path and, immediately before `os.replace`, calls a publish guard that compares the
+on-disk lock nonce with this run's acquisition nonce. The batch runner performs the same
 nonce check before and after every later canonical writer. The correction orchestrator
 carries the guard into each photobleach, leakage, gamma, and corrected-FRET writer,
 where it runs again after computation immediately before each HDF5 mutation. Because
@@ -71,11 +80,17 @@ large datasets, its guarded writer builds the complete model inside a same-direc
 sibling project copy. It revalidates ownership after staging and mutates the canonical
 project only through the final guarded `os.replace`. The final `/settings/batch`
 provenance writer also revalidates before opening the canonical project and immediately
-before replacing its group. A pre-existing same-process lock is borrowed without
-replacing its nonce or releasing the caller's session; a release error for a
-batch-acquired lock is reported against that movie without aborting the queue. If an
-operator steals the now-stale lock during a long stage, the old run stops that job,
-suppresses subsequent writes, and never releases the successor's lock.
+before replacing its group. Any pre-existing lock fails closed, including one with this
+process's identity, unless a future API explicitly transfers that writer's critical
+section. Batch neither refreshes nor releases the caller's lock. A release error for a
+batch-acquired lock is reported against that movie without aborting the queue. A
+nonce-checked `False` release result emits the same warning and preserves the successor.
+A nested `finally` clears the process reservation even when sidecar release returns
+`False` or raises. If an operator steals the now-stale lock during a long stage, the old
+run stops that job, suppresses subsequent writes, and never releases the successor's
+lock. The strict claim uses exclusive create on every bounded retry, even if a losing
+writer disappears, and it never replaces an intervening successor or honors a steal
+request.
 
 Missing or malformed legacy profile values do not invent a rejection; those completed
 checkpoints retain ADR-0030's presence-only skip behavior. The store remains the only
@@ -92,6 +107,11 @@ presence checks, sequencing, and sidecar boundary remain accepted.
   provides a bounded recovery path.
 - **Good.** A long-running overwrite cannot publish after its destination lock is
   stolen.
+- **Good.** Checkpoint classification cannot collapse a writer-owned HDF5 open failure
+  into an unlocked destructive overwrite, and same-process identity cannot bypass
+  critical-section ownership.
+- **Good.** A batch reservation isolates only its canonical destination, rejects
+  untransferred recursive/thread access, and cannot survive fork or final cleanup.
 - **Good.** Accepted completed checkpoints still resume without redundant work.
 - **Trade-off.** Fail-policy resume depends on the saved extraction profile. Legacy or
   malformed profiles keep the safe compatibility behavior of skipping rather than

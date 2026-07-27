@@ -223,7 +223,13 @@ Switching that rerun to `--policy warn` accepts the flagged extraction checkpoin
 extraction is `skipped` and the incomplete downstream stages may continue.
 `--overwrite --policy fail` instead re-extracts only a rejected checkpoint and applies
 the gate to the new result. An already completed, in-gate extraction remains
-checkpointed and is still skipped.
+checkpointed and is still skipped. Batch claims every `--overwrite --policy fail`
+destination lock before testing whether its project file exists or reading a checkpoint;
+any existing writer lock, including one held by another thread in this process, fails
+that movie as locked without refreshing or releasing the caller's lock. A process-local
+per-destination reservation also prevents another local thread from refreshing that
+same-identity sidecar or writing through it. Both claims remain held while batch creates,
+skips, or re-extracts the destination.
 
 ### Example — a folder of movies, extraction and correction only
 

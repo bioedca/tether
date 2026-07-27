@@ -637,7 +637,12 @@ def _needs_rejected_checkpoint_lock(
     policy: str,
     overwrite: bool,
 ) -> bool:
-    """Whether this run may replace a saved policy-rejected extraction checkpoint."""
+    """Whether this run may replace a saved policy-rejected extraction checkpoint.
+
+    The caller owns the destination lock while these fallible HDF5 probes run. That
+    ordering prevents an unreadable writer-owned project from collapsing to "not a
+    checkpoint" and reaching the destructive overwrite runner without ownership.
+    """
     return bool(
         overwrite
         and policy == POLICY_FAIL
@@ -651,6 +656,7 @@ def _destination_ownership_guard(
     rec: _Recorder,
     lock_module: Any,
     owner: Any,
+    process_reservation: Any,
 ) -> Callable[[], None]:
     """Return a nonce check bound to one rejected-checkpoint replacement."""
 
@@ -659,6 +665,7 @@ def _destination_ownership_guard(
         # may be explicitly stolen during a long runner; comparing the per-acquisition
         # nonce prevents this job from proceeding as if it still owned the destination.
         rec.canonical_write_safe = False
+        lock_module.assert_process_reservation(job.output_path, process_reservation)
         current_owner = lock_module.read_lock(job.output_path)
         if current_owner is None or current_owner.nonce != owner.nonce:
             raise lock_module.LockError(
@@ -794,6 +801,7 @@ def run_batch(
             rec = _Recorder(job=job, log=log)
             destination_lock_module: Any = None
             destination_owner: Any = None
+            destination_reservation: Any = None
             destination_lock_acquired = False
             ownership_guard: Callable[[], None] | None = None
             # Isolate the ENTIRE per-job body — not just each runner call. A failure of
@@ -801,29 +809,53 @@ def run_batch(
             # `rec.record()` must not abort the queue; it is caught here so the loop
             # continues to the next movie (§7.11 "isolate each movie").
             try:
-                if _needs_rejected_checkpoint_lock(
-                    job,
-                    policy=policy,
-                    overwrite=overwrite,
-                ):
+                if overwrite and policy == POLICY_FAIL:
                     from tether.project import lock as destination_lock_module  # noqa: PLC0415
 
                     try:
-                        existing_owner = destination_lock_module.read_lock(job.output_path)
-                        if (
-                            existing_owner is not None
-                            and existing_owner.identity == destination_lock_module.local_identity()
-                        ):
-                            # Borrow a caller-owned in-process lock without refreshing
-                            # its nonce or releasing its still-active write session.
-                            destination_owner = existing_owner
-                        else:
-                            destination_owner = destination_lock_module.acquire(job.output_path)
-                            destination_lock_acquired = True
+                        # Claim the destination *before* checking whether its HDF5 file
+                        # exists or classifying a checkpoint. A writer may own the
+                        # sidecar before creating the project, and the project can appear
+                        # immediately after an existence check. The strict claim refuses
+                        # even a lock owned by this process: (host, user, pid) identity
+                        # alone cannot prove that another thread/GUI writer transferred
+                        # its critical section.
+                        destination_reservation = (
+                            destination_lock_module.acquire_process_reservation(job.output_path)
+                        )
+                        try:
+                            destination_owner = destination_lock_module.acquire(
+                                job.output_path,
+                                allow_existing_owner=False,
+                                process_reservation=destination_reservation,
+                            )
+                        except Exception:
+                            destination_lock_module.release_process_reservation(
+                                job.output_path,
+                                destination_reservation,
+                            )
+                            destination_reservation = None
+                            raise
+                        destination_lock_acquired = True
+                        ownership_guard = _destination_ownership_guard(
+                            job,
+                            rec,
+                            destination_lock_module,
+                            destination_owner,
+                            destination_reservation,
+                        )
+                        ownership_guard()
+                        _needs_rejected_checkpoint_lock(
+                            job,
+                            policy=policy,
+                            overwrite=overwrite,
+                        )
+                        ownership_guard()
                     except Exception as exc:
-                        # A rejected checkpoint is an existing canonical project. If
-                        # another writer owns it, fail this movie before any stage can
-                        # write and preserve the normal downstream-blocked result.
+                        # If another writer owns this destination (including an
+                        # untransferred lock from this process), fail this movie before
+                        # any existence check, fallible probe, or stage can write and
+                        # preserve the downstream-blocked result.
                         rec.canonical_write_safe = False
                         extract_ok = rec.record(
                             STAGE_EXTRACT,
@@ -847,13 +879,6 @@ def run_batch(
                             deferred=idealize_deferred,
                         )
                         continue
-
-                    ownership_guard = _destination_ownership_guard(
-                        job,
-                        rec,
-                        destination_lock_module,
-                        destination_owner,
-                    )
 
                 extract_ok = _do_extract(
                     job,
@@ -908,19 +933,49 @@ def run_batch(
                     log, movie=job.label, stage="batch", status=STATUS_FAILED, error=str(exc)
                 )
             finally:
-                if destination_lock_acquired:
-                    try:
-                        destination_lock_module.release(job.output_path, destination_owner)
-                    except Exception as exc:
-                        # Cleanup infrastructure must not discard this movie's result
-                        # or terminate the remaining queue. Surface the stranded lock.
-                        _safe_event(
-                            log,
-                            movie=job.label,
-                            stage="lock-release",
-                            status=STATUS_WARNING,
-                            error=str(exc),
-                        )
+                try:
+                    if destination_lock_acquired:
+                        try:
+                            released = destination_lock_module.release(
+                                job.output_path,
+                                destination_owner,
+                            )
+                            if not released:
+                                _safe_event(
+                                    log,
+                                    movie=job.label,
+                                    stage="lock-release",
+                                    status=STATUS_WARNING,
+                                    error=(
+                                        "destination lock ownership changed before cleanup; "
+                                        "successor lock preserved"
+                                    ),
+                                )
+                        except Exception as exc:
+                            # Cleanup infrastructure must not discard this movie's result
+                            # or terminate the remaining queue. Surface the stranded lock.
+                            _safe_event(
+                                log,
+                                movie=job.label,
+                                stage="lock-release",
+                                status=STATUS_WARNING,
+                                error=str(exc),
+                            )
+                finally:
+                    if destination_reservation is not None:
+                        try:
+                            destination_lock_module.release_process_reservation(
+                                job.output_path,
+                                destination_reservation,
+                            )
+                        except Exception as exc:
+                            _safe_event(
+                                log,
+                                movie=job.label,
+                                stage="lock-release",
+                                status=STATUS_WARNING,
+                                error=f"process reservation cleanup failed: {exc}",
+                            )
                 results.append(MovieResult(job=job, stages=dict(rec.stages)))
     finally:
         if own_log:

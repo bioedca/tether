@@ -42,26 +42,39 @@ long-lived lock for ordinary stage work — the `compute_*` and `idealize_molecu
 functions open the file directly; each new per-movie store is exclusively owned by the
 batch process).
 
-ADR-0056 adds one narrow lock boundary for an existing store: before destructively
-re-extracting a completed checkpoint that `policy=fail` rejects, the runner acquires
-and holds the destination's single-writer lock, then revalidates the schema and saved
-checkpoint verdict under that lock. The same lock remains held through extraction,
-downstream correction and idealization, and the final batch-provenance stamp, with the
-acquisition nonce verified at each canonical-write boundary and after each runner
-returns. The correction orchestrator passes that guard into each photobleach, leakage,
-gamma, and corrected-FRET writer, which checks again after its computation immediately
-before each HDF5 mutation. For idealization, which may spend the full sidecar timeout
+ADR-0056 adds one narrow lock boundary: before testing whether an `overwrite` /
+`policy=fail` destination exists or running fallible HDF5 probes, the runner atomically
+claims its unowned sidecar lock and revalidates the acquisition nonce around the schema
+and saved-checkpoint reads. This also refuses a writer that owns the sidecar before
+creating the HDF5 file. The claim is paired with a process-local reservation token keyed
+by the destination's normalized absolute lexical sidecar path, so replacing a symlink
+leaf cannot change the key. Only the token's owning PID and thread may validate it;
+ordinary recursive acquisition and competing same-process threads fail fast, while
+unrelated destinations remain independent. The stage logic repeats its checkpoint
+decision under that ownership: an accepted completed checkpoint is skipped before
+release, while an absent, rejected, or incomplete checkpoint keeps the same lock through
+extraction, downstream correction and idealization, and the final batch-provenance
+stamp, with the acquisition nonce verified at each canonical-write boundary and after
+each runner returns. The correction orchestrator passes that guard into each photobleach,
+leakage, gamma, and corrected-FRET writer, which checks again after its computation
+immediately before each HDF5 mutation. For idealization, which may spend the full sidecar timeout
 fitting and then compress large datasets, the guarded path builds the complete model
 inside a same-directory sibling copy of the project. It revalidates ownership after
 staging and changes the canonical project only through the final guarded
 `os.replace`. The final batch-provenance writer receives the guard too and revalidates
 before opening the canonical project and immediately before replacing
-`/settings/batch`. A pre-existing same-process destination lock is borrowed without
-refreshing its nonce or releasing the caller's session; release failures from locks
-acquired by the batch are reported per movie without terminating the queue. If the
-lock became stale and was stolen during a long stage, the old owner stops the job,
-suppresses later writes, and never releases the successor's lock. Other jobs and
-fresh-output locking behavior are unchanged.
+`/settings/batch`. Any pre-existing destination lock fails closed, including one owned
+by this process, because process identity alone does not transfer another thread's or
+GUI writer's critical section. The batch neither refreshes nor releases that caller's
+lock. Release failures from locks acquired by the batch are reported per movie without
+terminating the queue; this includes a nonce-checked `False` result, which preserves the
+successor lock and emits the same warning as a release exception. A nested `finally`
+always clears the process-local reservation after success, runner failure, or either
+sidecar-release outcome. If the lock became stale and was stolen during a long stage,
+the old owner stops the job, suppresses later writes, and never releases the successor's
+lock. Strict batch acquisition uses only exclusive create and a bounded number of
+vanished-winner retries; it never replaces or steals a successor lock. Jobs and
+fresh-output locking outside `overwrite` / `policy=fail` are unchanged.
 
 Per-condition aggregation of α/γ *across* movies (a dataset-level median) is **not**
 introduced here; each movie's corrections run over its own store with the existing

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -111,6 +112,187 @@ def test_reacquire_by_same_identity_refreshes(tmp_path: Path) -> None:
     second = lock.acquire(path, identity=HOST_A)  # same (host, pid) -> allowed
     assert second.nonce != first.nonce
     assert lock.read_lock(path) == second
+
+
+def test_strict_acquire_refuses_same_identity_without_refresh(tmp_path: Path) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    first = lock.acquire(path, identity=HOST_A)
+    with pytest.raises(LockedError) as exc:
+        lock.acquire(path, identity=HOST_A, allow_existing_owner=False)
+    assert exc.value.owner == first
+    assert lock.read_lock(path) == first
+    assert lock.release(path, first)
+
+
+def test_strict_acquire_retries_exclusive_claim_without_overwriting_successor(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    successor = LockInfo(
+        host=HOST_B.host,
+        user=HOST_B.user,
+        pid=HOST_B.pid,
+        timestamp=datetime.now(UTC).isoformat(),
+        nonce="successor",
+    )
+    exclusive_calls = 0
+    real_exclusive_create = lock._exclusive_create
+    real_read_settled = lock._read_settled
+
+    def lose_then_meet_successor(lp: Path, info: LockInfo) -> bool:
+        nonlocal exclusive_calls
+        exclusive_calls += 1
+        if exclusive_calls == 1:
+            return False
+        _write_lock_file(path, successor)
+        return real_exclusive_create(lp, info)
+
+    def first_winner_disappeared(lp: Path, **kwargs):
+        if exclusive_calls == 1:
+            return None, False
+        return real_read_settled(lp, **kwargs)
+
+    monkeypatch.setattr(lock, "_exclusive_create", lose_then_meet_successor)
+    monkeypatch.setattr(lock, "_read_settled", first_winner_disappeared)
+
+    with pytest.raises(LockedError) as exc:
+        lock.acquire(path, identity=HOST_A, allow_existing_owner=False)
+    assert exclusive_calls == 2
+    assert exc.value.owner == successor
+    assert lock.read_lock(path) == successor
+
+
+def test_strict_acquire_refuses_present_lock_even_with_steal(tmp_path: Path) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    first = lock.acquire(path, identity=HOST_A)
+    with pytest.raises(LockedError) as exc:
+        lock.acquire(
+            path,
+            identity=HOST_B,
+            steal=True,
+            allow_existing_owner=False,
+        )
+    assert exc.value.owner == first
+    assert lock.read_lock(path) == first
+    assert lock.release(path, first)
+
+
+def test_strict_acquire_bounds_vanished_winner_retries(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    exclusive_calls = 0
+
+    def always_lose(_lp: Path, _info: LockInfo) -> bool:
+        nonlocal exclusive_calls
+        exclusive_calls += 1
+        return False
+
+    monkeypatch.setattr(lock, "_exclusive_create", always_lose)
+    monkeypatch.setattr(lock, "_read_settled", lambda _lp: (None, False))
+
+    with pytest.raises(LockedError):
+        lock.acquire(path, identity=HOST_A, allow_existing_owner=False)
+    assert exclusive_calls == lock._STRICT_CLAIM_ATTEMPTS
+    assert lock.read_lock(path) is None
+
+
+def test_process_reservation_allows_owner_writes_but_refuses_recursive_claim(
+    tmp_path: Path,
+) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    reservation = lock.acquire_process_reservation(path)
+    owner = lock.acquire(
+        path,
+        identity=HOST_A,
+        allow_existing_owner=False,
+        process_reservation=reservation,
+    )
+    try:
+        lock.assert_process_reservation(path, reservation)
+        lock.assert_writable(path, identity=HOST_A)
+        with pytest.raises(LockedError):
+            lock.acquire(path, identity=HOST_A)
+        with pytest.raises(LockedError):
+            lock.acquire_process_reservation(path)
+    finally:
+        assert lock.release(path, owner)
+        lock.release_process_reservation(path, reservation)
+
+    assert lock.read_lock(path) is None
+
+
+def test_process_reservations_do_not_serialize_distinct_destinations(tmp_path: Path) -> None:
+    first = _seed(tmp_path, [("k0", "c0")], name="first.tether")
+    second = _seed(tmp_path, [("k1", "c1")], name="second.tether")
+    first_reservation = lock.acquire_process_reservation(first)
+    second_acquired = threading.Event()
+    release_second = threading.Event()
+    errors: list[BaseException] = []
+
+    def reserve_second() -> None:
+        try:
+            reservation = lock.acquire_process_reservation(second)
+            second_acquired.set()
+            assert release_second.wait(timeout=5)
+            lock.release_process_reservation(second, reservation)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    contender = threading.Thread(target=reserve_second)
+    contender.start()
+    try:
+        assert second_acquired.wait(timeout=5)
+    finally:
+        release_second.set()
+        contender.join(timeout=5)
+        lock.release_process_reservation(first, first_reservation)
+
+    assert not contender.is_alive()
+    assert not errors
+
+
+def test_process_reservation_registry_resets_after_pid_change(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    lock.acquire_process_reservation(path)
+    monkeypatch.setattr(lock, "_PROCESS_RESERVATIONS_PID", -1)
+
+    replacement = lock.acquire_process_reservation(path)
+    lock.release_process_reservation(path, replacement)
+
+
+def test_process_reservation_key_survives_symlink_leaf_replacement(tmp_path: Path) -> None:
+    target = tmp_path / "target.tether"
+    target.write_text("old target", encoding="utf-8")
+    alias = tmp_path / "alias.tether"
+    try:
+        alias.symlink_to(target.name)
+    except OSError as exc:
+        pytest.skip(f"symlink creation is unavailable on this platform: {exc}")
+
+    reservation = lock.acquire_process_reservation(alias)
+    owner = lock.acquire(
+        alias,
+        identity=HOST_A,
+        allow_existing_owner=False,
+        process_reservation=reservation,
+    )
+    replacement = tmp_path / "replacement.tether"
+    replacement.write_text("new canonical", encoding="utf-8")
+    os.replace(replacement, alias)
+
+    assert alias.read_text(encoding="utf-8") == "new canonical"
+    assert target.read_text(encoding="utf-8") == "old target"
+    lock.assert_process_reservation(alias, reservation)
+    assert lock.read_lock(alias) == owner
+    assert lock.release(alias, owner)
+    lock.release_process_reservation(alias, reservation)
+    assert lock.read_lock(alias) is None
 
 
 # --- single-writer: a foreign lock prevents a second writer ------------------
