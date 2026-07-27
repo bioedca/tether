@@ -83,10 +83,9 @@ def test_checked_in_home_is_a_thin_canonical_index() -> None:
     assert "/dev/" not in HOME.read_text(encoding="utf-8")
 
 
-def test_required_wiki_routes_are_backed_by_mkdocs_pages() -> None:
+def test_issue_owned_wiki_routes_are_backed_by_mkdocs_pages() -> None:
     expected_pages = {
         "Install": "packaging.md",
-        "Tutorial": "tutorial.md",
         "CLI reference": "cli.md",
         "Citing": "citing.md",
         "Architecture decisions": "adr/README.md",
@@ -97,6 +96,31 @@ def test_required_wiki_routes_are_backed_by_mkdocs_pages() -> None:
     for label, relative_path in expected_pages.items():
         assert (ROOT / "docs" / relative_path).is_file(), f"{label} target is missing"
         assert relative_path in rendered_nav, f"{label} target is not in the MkDocs nav"
+
+
+@pytest.mark.parametrize(
+    ("injected", "message"),
+    [
+        ('<a href="https://example.invalid/">extra</a>', "raw HTML"),
+        ("<https://example.invalid/>", "autolinks"),
+        ("https://example.invalid/", "bare URLs"),
+    ],
+)
+def test_home_rejects_unsupported_link_forms(
+    tmp_path: Path,
+    injected: str,
+    message: str,
+) -> None:
+    source = tmp_path / "wiki"
+    source.mkdir()
+    text = HOME.read_text(encoding="utf-8")
+    (source / "Home.md").write_text(
+        text.replace("Tether is", f"{injected} Tether is", 1),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(publish_wiki.WikiPublishError, match=message):
+        publish_wiki.validate_source(source)
 
 
 def test_home_rejects_dev_links_and_substantive_growth(tmp_path: Path) -> None:
@@ -125,6 +149,31 @@ def test_source_rejects_any_second_wiki_page(tmp_path: Path) -> None:
     (source / "Extra.md").write_text("# Extra\n", encoding="utf-8")
 
     with pytest.raises(publish_wiki.WikiPublishError, match="exactly Home.md"):
+        publish_wiki.validate_source(source)
+
+
+def test_source_rejects_a_symlink_root_before_resolving(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "wiki"
+    source.mkdir()
+    (source / "Home.md").write_bytes(HOME.read_bytes())
+    original_is_symlink = Path.is_symlink
+    original_resolve = Path.resolve
+
+    def fake_is_symlink(path: Path) -> bool:
+        return path == source or original_is_symlink(path)
+
+    def fail_if_source_is_resolved(path: Path, *, strict: bool = False) -> Path:
+        if path == source:
+            raise AssertionError("source root was resolved before its symlink check")
+        return original_resolve(path, strict=strict)
+
+    monkeypatch.setattr(Path, "is_symlink", fake_is_symlink)
+    monkeypatch.setattr(Path, "resolve", fail_if_source_is_resolved)
+
+    with pytest.raises(publish_wiki.WikiPublishError, match="real directory"):
         publish_wiki.validate_source(source)
 
 

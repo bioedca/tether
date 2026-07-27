@@ -36,6 +36,9 @@ REQUIRED_LINKS = {
 }
 
 _LINK_RE = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
+_AUTOLINK_RE = re.compile(r"<(?:https?://|mailto:)[^<>\s]+>", re.IGNORECASE)
+_RAW_HTML_RE = re.compile(r"</?[A-Za-z][^>\n]*>")
+_BARE_HTTP_URL_RE = re.compile(r"https?://", re.IGNORECASE)
 _WORD_RE = re.compile(r"\b[\w\u2019'-]+\b", re.UNICODE)
 _SHA_RE = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 _REPOSITORY_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
@@ -95,12 +98,15 @@ def validate_source(source: Path) -> WikiManifest:
     five section links, no extra links or rich content, and a one-screen word ceiling.
     """
 
+    if source.is_symlink():
+        raise WikiPublishError(f"wiki source must be a real directory: {source}")
     try:
-        source = source.resolve(strict=True)
+        resolved_source = source.resolve(strict=True)
     except FileNotFoundError as exc:
         raise WikiPublishError(f"wiki source does not exist: {source}") from exc
-    if not source.is_dir() or source.is_symlink():
-        raise WikiPublishError(f"wiki source must be a real directory: {source}")
+    if not resolved_source.is_dir():
+        raise WikiPublishError(f"wiki source must be a real directory: {resolved_source}")
+    source = resolved_source
 
     entries = sorted(source.rglob("*"))
     if any(entry.is_symlink() for entry in entries):
@@ -126,6 +132,12 @@ def validate_source(source: Path) -> WikiManifest:
         raise WikiPublishError("the index-only warning must stay on one line")
     if "/dev/" in text.casefold():
         raise WikiPublishError("Home.md must not link to a dev documentation tree")
+    if _AUTOLINK_RE.search(visible):
+        raise WikiPublishError("Home.md must not contain Markdown autolinks")
+    if _RAW_HTML_RE.search(visible):
+        raise WikiPublishError("Home.md must not contain raw HTML")
+    if _BARE_HTTP_URL_RE.search(_LINK_RE.sub("", visible)):
+        raise WikiPublishError("Home.md must not contain bare URLs")
     if any(marker in visible for marker in ("```", "![", "\n## ", "\n| ")):
         raise WikiPublishError(
             "Home.md must remain an index without code, images, tables, or sections"

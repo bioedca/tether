@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0054 — Reviewed GitHub wiki index with a fail-closed mirror publisher
+# 0057 — Reviewed GitHub wiki index with a fail-closed mirror publisher
 
 - **Status:** accepted
 - **Date:** 2026-07-27
@@ -87,6 +87,12 @@ documentation describes creating an initial page before cloning a wiki; it does 
 establish a supported Actions-only bootstrap for the 404 state. The worker does not
 initialize or publish the live wiki.
 
+The required Tutorial link is also an external acceptance dependency for this change.
+Issue #176 owns the exact `docs/tutorial.md` deliverable and path, so #189 must not create
+or edit that page. The wiki continues to target `/latest/tutorial/`, but #189 cannot claim
+that link resolves until #176 lands a reviewed route (or #189 is re-groomed to another
+non-overlapping target).
+
 ### Permission-model evidence
 
 GitHub documentation retrieved 2026-07-27 states that:
@@ -123,6 +129,9 @@ does not occur and permissions are not broadened as a workaround.
   non-mutating authenticated receive-path probe. A supported, permission-preserving
   bootstrap must be established before live publication; the workflow will fail closed
   until then.
+- **Blocker.** The accepted Tutorial link targets a route owned by open issue #176. This
+  change deliberately does not absorb that page; the route must land independently or
+  #189 must be re-groomed before every wiki link can be demonstrated as resolving.
 - **Trade-off.** Publishing automation and its permission inference are high-risk review
   material and require the repository's high review path.
 
@@ -133,5 +142,5 @@ does not occur and permissions are not broadened as a workaround.
 - `scripts/publish_wiki.py` owns validation, history preservation, dry run, and transport.
 - `.github/workflows/wiki.yml` owns event, repository, and token scoping.
 - `tests/test_wiki_publish.py` exercises creation of a reachable empty remote, exact
-  mirroring, dry-run non-publication, uncertainty failure, content bounds, and the
-  workflow contract.
+  mirroring, dry-run non-publication, uncertainty failure, content bounds, source-path
+  safety, and the workflow contract.
