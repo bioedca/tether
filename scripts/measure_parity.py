@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -82,6 +83,14 @@ _FIXTURES = {
 
 
 _REDACTED = "$TETHER_SIDECAR_PYTHON"
+_BUILD_PROVENANCE = (
+    "The measurement-time build probe obtains sidecar_python_version by executing "
+    "platform.python_version() and tmaven_commit from the installed tMAVEN distribution's "
+    "PEP 610 direct_url.json vcs_info.commit_id inside the configured sidecar interpreter; "
+    "the interpreter path is intentionally not recorded."
+)
+_PYTHON_VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*")
+_TMAVEN_COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}")
 
 
 def _redact(text: str, secret: str) -> str:
@@ -117,20 +126,47 @@ def _sanitized_probe_error(exc: BaseException, sidecar_python: str) -> str:
     return _redact(f"{type(exc).__name__}: {detail}", sidecar_python)
 
 
+def _unrecorded_build(error: str) -> dict[str, str]:
+    """Return a complete, path-free record for a probe that could not be trusted."""
+    return {
+        "sidecar_python_version": "unrecorded",
+        "tmaven_commit": "unrecorded",
+        "build_provenance": _BUILD_PROVENANCE,
+        "build_probe_error": error,
+    }
+
+
+def _validated_build(probed: object) -> dict[str, str]:
+    """Select and validate the two safe facts emitted by :data:`_BUILD_PROBE`."""
+    if not isinstance(probed, dict):
+        raise ValueError("build probe output is not a JSON object")
+    python_version = probed.get("sidecar_python_version")
+    tmaven_commit = probed.get("tmaven_commit")
+    if not isinstance(python_version, str) or not _PYTHON_VERSION_RE.fullmatch(python_version):
+        raise ValueError("build probe did not return a valid CPython version")
+    if not isinstance(tmaven_commit, str) or not _TMAVEN_COMMIT_RE.fullmatch(tmaven_commit):
+        raise ValueError("build probe did not return a 40-hex tMAVEN commit")
+    return {
+        "sidecar_python_version": python_version,
+        "tmaven_commit": tmaven_commit.lower(),
+        "build_provenance": _BUILD_PROVENANCE,
+    }
+
+
 def probe_sidecar_build(sidecar_python: str | None) -> dict[str, str]:
     """Return the reproducibility facts that identify the measured comparison.
 
-    ``{"sidecar_python_version": ..., "tmaven_commit": ...}`` — the CPython version
-    of the sidecar interpreter and the tMAVEN upstream commit installed into it.
-    Deliberately **not** the interpreter path: the frozen artifact is committed and
-    published, and a path identifies a machine rather than a build. Any failure
-    degrades to ``"unrecorded"`` plus a *sanitized* probe-error field (see
+    The result always includes ``sidecar_python_version``, ``tmaven_commit``, and
+    ``build_provenance``. The first two identify the sidecar CPython and installed
+    tMAVEN upstream commit; the last records how both facts were measured. Deliberately
+    absent is the interpreter path: the frozen artifact is committed and published,
+    and a path identifies a machine rather than a build. Any failure degrades both
+    facts to ``"unrecorded"`` plus a *sanitized* probe-error field (see
     :func:`_sanitized_probe_error`) so a long measurement run is never lost to a
     provenance probe — and never leaks the path through an exception message either.
     """
-    unrecorded = {"sidecar_python_version": "unrecorded", "tmaven_commit": "unrecorded"}
     if not sidecar_python:
-        return {**unrecorded, "build_probe_error": f"{_REDACTED} is unset"}
+        return _unrecorded_build(f"{_REDACTED} is unset")
     try:
         proc = subprocess.run(  # noqa: S603 - sidecar_python is the configured interpreter
             [sidecar_python, "-c", _BUILD_PROBE],
@@ -139,10 +175,13 @@ def probe_sidecar_build(sidecar_python: str | None) -> dict[str, str]:
             timeout=120.0,
             check=True,
         )
-        probed = json.loads(proc.stdout.strip().splitlines()[-1])
+        lines = proc.stdout.strip().splitlines()
+        if not lines:
+            raise ValueError("build probe returned no output")
+        probed = json.loads(lines[-1])
+        return _validated_build(probed)
     except Exception as exc:
-        return {**unrecorded, "build_probe_error": _sanitized_probe_error(exc, sidecar_python)}
-    return {**unrecorded, **probed}
+        return _unrecorded_build(_sanitized_probe_error(exc, sidecar_python))
 
 
 def main() -> int:
