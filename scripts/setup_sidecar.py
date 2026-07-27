@@ -34,11 +34,13 @@ only when both its PEP 610 Git commit and its ``WHEEL`` generator prove that exa
 was built by the locked ordinary setuptools, every Python row in the raw wheel ``RECORD``
 still exists with matching bytes, and the imported tMAVEN initializer, absolute lexical
 package path, and actual ``tmaven.maven`` spec selected by the runner exactly match their
-raw ``RECORD`` paths. The selected module's resolved bytes must also be hash-verified.
-Commit identity and build metadata alone are insufficient. Every other
-existing-interpreter state fails closed with fresh-environment guidance. A permitted
-build disables pip's wheel cache, force-reinstalls the pinned source, and rechecks all
-provenance before the runtime compatibility layer is installed.
+raw ``RECORD`` paths. Before importing tMAVEN, the probe must also safely discard every
+matching in-prefix bytecode cache so timestamp-valid unrecorded ``.pyc`` files cannot
+override the verified sources. The selected module's resolved bytes must be hash-verified.
+Commit identity and build metadata alone are insufficient. Every other existing-interpreter
+state fails closed with fresh-environment guidance. A permitted build disables pip's wheel
+cache, force-reinstalls the pinned source, and rechecks all provenance before the runtime
+compatibility layer is installed.
 
 Flow (each phase is skippable):
 
@@ -121,6 +123,7 @@ state = {{
     "tmaven_import_origin_verified": False,
     "tmaven_package_path_verified": False,
     "tmaven_maven_origin_verified": False,
+    "tmaven_bytecode_cache_safe": False,
 }}
 setuptools_origin = None
 try:
@@ -181,29 +184,88 @@ if len(matching_records) == 1:
         state["setuptools_conda_files_verified"]
         and setuptools_origin in verified_files
     )
+tmaven_bytecode_cache_safe = False
+try:
+    cache_distribution = md.distribution("tmaven")
+    cache_record_text = cache_distribution.read_text("RECORD") or ""
+    try:
+        cache_python_rows = [
+            row
+            for row in csv.reader(io.StringIO(cache_record_text))
+            if row and pathlib.PurePosixPath(row[0]).suffix == ".py"
+        ]
+    except csv.Error:
+        cache_python_rows = []
+    tmaven_bytecode_cache_safe = bool(cache_python_rows) and sys.pycache_prefix is None
+    for row in cache_python_rows:
+        if not row:
+            tmaven_bytecode_cache_safe = False
+            continue
+        relative = pathlib.PurePosixPath(row[0])
+        if relative.is_absolute() or ".." in relative.parts:
+            tmaven_bytecode_cache_safe = False
+            continue
+        try:
+            installed_lexical_file = pathlib.Path(
+                cache_distribution.locate_file(row[0])
+            ).absolute()
+            installed_lexical_file.relative_to(prefix)
+            installed_lexical_file.resolve(strict=True).relative_to(prefix)
+            cache_dir = installed_lexical_file.parent / "__pycache__"
+            if cache_dir.is_symlink():
+                raise ValueError("tMAVEN bytecode cache directory is a symlink")
+            if cache_dir.exists():
+                cache_dir.resolve(strict=True).relative_to(prefix)
+                cached_files = list(
+                    cache_dir.glob(installed_lexical_file.stem + ".*.pyc")
+                )
+                for cached_file in cached_files:
+                    cached_file.absolute().relative_to(prefix)
+                    if cached_file.is_symlink():
+                        raise ValueError("tMAVEN bytecode cache file is a symlink")
+                    cached_file.resolve(strict=True).relative_to(prefix)
+                    cached_file.unlink()
+            legacy_cache = installed_lexical_file.with_suffix(".pyc")
+            if legacy_cache.is_symlink():
+                raise ValueError("legacy tMAVEN bytecode cache is a symlink")
+            if legacy_cache.exists():
+                legacy_cache.absolute().relative_to(prefix)
+                legacy_cache.resolve(strict=True).relative_to(prefix)
+                legacy_cache.unlink()
+            if (
+                list(cache_dir.glob(installed_lexical_file.stem + ".*.pyc"))
+                or legacy_cache.exists()
+            ):
+                tmaven_bytecode_cache_safe = False
+        except (OSError, ValueError):
+            tmaven_bytecode_cache_safe = False
+    state["tmaven_bytecode_cache_safe"] = tmaven_bytecode_cache_safe
+except md.PackageNotFoundError:
+    pass
 tmaven_file = None
 tmaven_spec_origin = None
 tmaven_package_paths = ()
 tmaven_maven_origin = None
 tmaven_maven_resolved_origin = None
 tmaven_maven_spec_shape_verified = False
-try:
-    import tmaven
+if state["tmaven_bytecode_cache_safe"]:
+    try:
+        import tmaven
 
-    tmaven_file = pathlib.Path(tmaven.__file__).absolute()
-    tmaven_spec_origin = pathlib.Path(tmaven.__spec__.origin).absolute()
-    tmaven_package_paths = tuple(pathlib.Path(entry).absolute() for entry in tmaven.__path__)
-    tmaven_maven_spec = importlib.util.find_spec("tmaven.maven")
-    if tmaven_maven_spec is not None and tmaven_maven_spec.origin is not None:
-        tmaven_maven_spec_shape_verified = (
-            tmaven_maven_spec.name == "tmaven.maven"
-            and tmaven_maven_spec.has_location is True
-            and tmaven_maven_spec.submodule_search_locations is None
-        )
-        tmaven_maven_origin = pathlib.Path(tmaven_maven_spec.origin).absolute()
-        tmaven_maven_resolved_origin = tmaven_maven_origin.resolve(strict=True)
-except (ImportError, AttributeError, OSError, TypeError):
-    pass
+        tmaven_file = pathlib.Path(tmaven.__file__).absolute()
+        tmaven_spec_origin = pathlib.Path(tmaven.__spec__.origin).absolute()
+        tmaven_package_paths = tuple(pathlib.Path(entry).absolute() for entry in tmaven.__path__)
+        tmaven_maven_spec = importlib.util.find_spec("tmaven.maven")
+        if tmaven_maven_spec is not None and tmaven_maven_spec.origin is not None:
+            tmaven_maven_spec_shape_verified = (
+                tmaven_maven_spec.name == "tmaven.maven"
+                and tmaven_maven_spec.has_location is True
+                and tmaven_maven_spec.submodule_search_locations is None
+            )
+            tmaven_maven_origin = pathlib.Path(tmaven_maven_spec.origin).absolute()
+            tmaven_maven_resolved_origin = tmaven_maven_origin.resolve(strict=True)
+    except (ImportError, AttributeError, OSError, TypeError):
+        pass
 try:
     distribution = md.distribution("tmaven")
     raw = distribution.read_text("direct_url.json")
@@ -501,6 +563,7 @@ def _exact_installed_tmaven_commit(
         or state.get("tmaven_import_origin_verified") is not True
         or state.get("tmaven_package_path_verified") is not True
         or state.get("tmaven_maven_origin_verified") is not True
+        or state.get("tmaven_bytecode_cache_safe") is not True
         or not isinstance(commit, str)
         or re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", commit) is None
         or commit.lower() != expected_commit
@@ -552,7 +615,8 @@ def _tmaven_install_action(
             else ""
         )
         + ", the installed tMAVEN Python files against their complete wheel RECORD, "
-        "the imported package path, and the selected tmaven.maven origin"
+        "the imported package path, the selected tmaven.maven origin, and a safely "
+        "discarded in-prefix tMAVEN bytecode cache"
         + ". Create a genuinely fresh sidecar environment under a new --env-name, "
         "deterministically restore the target interpreter's setuptools files from the lock, "
         "or target an environment containing the exact requested tMAVEN commit built by the "
@@ -706,7 +770,7 @@ def build_parser() -> argparse.ArgumentParser:
             "tMAVEN builds only with a matching platform artifact from the lock and "
             "verified setuptools import origin; reuse also requires exact installed Git, "
             "build, complete Python RECORD, and verified tMAVEN package-path/module-origin "
-            "provenance"
+            "provenance after safely discarding in-prefix bytecode caches"
         ),
     )
     parser.add_argument(
@@ -835,24 +899,27 @@ def main(argv: list[str] | None = None) -> int:
                         found_import_origin = rebuilt_state.get("tmaven_import_origin_verified")
                         found_package_path = rebuilt_state.get("tmaven_package_path_verified")
                         found_maven_origin = rebuilt_state.get("tmaven_maven_origin_verified")
+                        found_bytecode_cache = rebuilt_state.get("tmaven_bytecode_cache_safe")
                         raise SetupError(
                             "rebuilt tMAVEN failed provenance verification: expected "
                             f"commit {expected_tmaven_commit} and "
                             "WHEEL Generator: "
                             f"setuptools ({locked_setuptools_version}) with a complete "
-                            "verified Python RECORD, package path, and tmaven.maven origin; "
+                            "verified Python RECORD, package path, tmaven.maven origin, "
+                            "and safely discarded bytecode cache; "
                             f"found commit {found_commit or 'missing'} and "
                             f"{found_generator or 'missing generator'} with Python-file "
                             f"integrity {found_python_integrity} and imported-origin "
                             f"integrity {found_import_origin}, package-path integrity "
                             f"{found_package_path}, and tmaven.maven-origin integrity "
-                            f"{found_maven_origin}. Refusing to install "
+                            f"{found_maven_origin}, and bytecode-cache safety "
+                            f"{found_bytecode_cache}. Refusing to install "
                             "the runtime compatibility wheel."
                         )
                     print(
                         "      Verified rebuilt tMAVEN commit "
                         f"{rebuilt_commit}, locked WHEEL generator, complete Python RECORD, "
-                        "package path, and tmaven.maven origin"
+                        "package path, tmaven.maven origin, and discarded bytecode caches"
                     )
             else:
                 print(f"      Reusing exact installed tMAVEN commit {installed_commit}")

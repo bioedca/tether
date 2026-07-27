@@ -17,6 +17,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import py_compile
 import sys
 from pathlib import Path
 
@@ -52,6 +53,7 @@ def _locked_builder_state(**updates: object) -> dict:
         "tmaven_import_origin_verified": False,
         "tmaven_package_path_verified": False,
         "tmaven_maven_origin_verified": False,
+        "tmaven_bytecode_cache_safe": False,
     }
     state.update(updates)
     return state
@@ -309,6 +311,7 @@ def test_build_state_probe_reads_the_imported_backend_and_wheel_generator() -> N
     assert "tmaven_import_origin_verified" in state
     assert "tmaven_package_path_verified" in state
     assert "tmaven_maven_origin_verified" in state
+    assert "tmaven_bytecode_cache_safe" in state
 
 
 def test_build_state_probe_rejects_shadowed_same_version_setuptools(
@@ -501,6 +504,86 @@ def test_build_state_probe_rejects_package_shaped_tmaven_maven_spec(
     assert state["tmaven_import_origin_verified"] is True
     assert state["tmaven_package_path_verified"] is True
     assert state["tmaven_maven_origin_verified"] is False
+    assert (
+        setup._exact_installed_tmaven_commit(
+            state,
+            tmaven_spec=setup.DEFAULT_TMAVEN_SPEC,
+            locked_setuptools_version="82.0.1",
+        )
+        is None
+    )
+
+
+def test_build_state_probe_discards_timestamp_valid_unverified_tmaven_bytecode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed = tmp_path / "installed"
+    _initializer, helper = _write_fake_tmaven_distribution(installed)
+    monkeypatch.setenv("PYTHONPATH", str(installed))
+    monkeypatch.setattr(
+        setup,
+        "_BUILD_STATE_PROBE",
+        f"import sys\nsys.prefix = {str(installed)!r}\n" + setup._BUILD_STATE_PROBE,
+    )
+    original = helper.read_bytes()
+    malicious = b"class maven_class:\n    X=10\n"
+    assert len(malicious) == len(original)
+    fixed_ns = 1_700_000_000_000_000_000
+    helper.write_bytes(malicious)
+    os.utime(helper, ns=(fixed_ns, fixed_ns))
+    cache = Path(importlib.util.cache_from_source(str(helper)))
+    py_compile.compile(str(helper), cfile=str(cache), doraise=True)
+    helper.write_bytes(original)
+    os.utime(helper, ns=(fixed_ns, fixed_ns))
+
+    selected_before = setup.subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from tmaven.maven import maven_class; print(getattr(maven_class, 'X', None))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    state = setup.inspect_sidecar_build_state(sys.executable)
+    selected_after = setup.subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from tmaven.maven import maven_class; print(getattr(maven_class, 'X', None))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert selected_before.stdout.strip() == "10"
+    assert state["tmaven_bytecode_cache_safe"] is True
+    assert state["tmaven_python_files_verified"] is True
+    assert state["tmaven_maven_origin_verified"] is True
+    assert selected_after.stdout.strip() == "None"
+
+
+def test_build_state_probe_rejects_external_bytecode_cache_for_reuse(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed = tmp_path / "installed"
+    _write_fake_tmaven_distribution(installed)
+    monkeypatch.setenv("PYTHONPATH", str(installed))
+    monkeypatch.setenv("PYTHONPYCACHEPREFIX", str(tmp_path / "external-cache"))
+    monkeypatch.setattr(
+        setup,
+        "_BUILD_STATE_PROBE",
+        f"import sys\nsys.prefix = {str(installed)!r}\n" + setup._BUILD_STATE_PROBE,
+    )
+
+    state = setup.inspect_sidecar_build_state(sys.executable)
+
+    assert state["tmaven_bytecode_cache_safe"] is False
+    assert state["tmaven_import_origin_verified"] is False
     assert (
         setup._exact_installed_tmaven_commit(
             state,
@@ -734,6 +817,7 @@ def test_main_runs_three_install_commands_in_dependency_safe_order(
                 "tmaven_import_origin_verified": True,
                 "tmaven_package_path_verified": True,
                 "tmaven_maven_origin_verified": True,
+                "tmaven_bytecode_cache_safe": True,
             },
         ]
     )
@@ -784,6 +868,7 @@ def test_recovered_locked_builder_force_rebuilds_an_existing_unsafe_tmaven(
                 "tmaven_import_origin_verified": True,
                 "tmaven_package_path_verified": True,
                 "tmaven_maven_origin_verified": True,
+                "tmaven_bytecode_cache_safe": True,
             },
         ]
     )
@@ -870,6 +955,7 @@ def test_rerun_reuses_only_the_exact_installed_tmaven_before_runtime_reinstall(
             "tmaven_import_origin_verified": True,
             "tmaven_package_path_verified": True,
             "tmaven_maven_origin_verified": True,
+            "tmaven_bytecode_cache_safe": True,
         },
     )
     monkeypatch.setattr(
@@ -950,6 +1036,7 @@ def test_rerun_with_runtime_setuptools_and_unverified_tmaven_fails_before_build(
             "tmaven_import_origin_verified": True,
             "tmaven_package_path_verified": True,
             "tmaven_maven_origin_verified": True,
+            "tmaven_bytecode_cache_safe": True,
         },
     )
 
@@ -1081,6 +1168,7 @@ def test_existing_interpreter_docs_require_source_and_builder_provenance() -> No
     assert "every raw Python `RECORD` row" in python_row
     assert "verified tMAVEN package path" in python_row
     assert "verified `tmaven.maven` origin" in python_row
+    assert "safely discarded in-prefix bytecode caches" in python_row
     assert "Commit and generator metadata do not prove" in normalized
     assert "Absolute lexical `tmaven.__file__`" in normalized
     assert "lexical `tmaven.__path__`" in normalized
@@ -1089,6 +1177,8 @@ def test_existing_interpreter_docs_require_source_and_builder_provenance() -> No
     assert "raw-`RECORD` `tmaven/maven.py` path" in normalized
     assert "resolved origin among the digest-verified files" in normalized
     assert "symlinked genuine initializer" in normalized
+    assert "timestamp-and-size-valid `.pyc`" in normalized
+    assert "external `PYTHONPYCACHEPREFIX` disables reuse" in normalized
     assert "platform-specific conda package SHA-256" in normalized
     assert "every Python row in the raw wheel `RECORD` exists" in normalized
     assert "genuinely fresh environment under a new `--env-name`" in normalized
@@ -1105,6 +1195,7 @@ def test_existing_interpreter_docs_require_source_and_builder_provenance() -> No
     assert "verified setuptools import origin" in help_text
     assert "complete Python RECORD" in help_text
     assert "verified tMAVEN package-path/module-origin provenance" in help_text
+    assert "safely discarding in-prefix bytecode caches" in help_text
     assert "default pinned short spec" in help_text
     assert "full 40/64-hex commit" in help_text
     assert "tags and branches are rejected" in help_text

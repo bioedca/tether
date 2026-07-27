@@ -62,10 +62,14 @@ The actual `tmaven.maven` spec selected by the production runner must be a locat
 non-package module at the exact raw-`RECORD` `tmaven/maven.py` path, with its resolved
 origin among the digest-verified files. Checking only a resolved `tmaven.__file__` is
 insufficient because a symlinked genuine initializer can retain a shadow package path
-and select an unverified submodule. Commit and generator metadata do not prove the
-installed or imported content remains unchanged. Every other existing-interpreter state
-fails closed; create a genuinely fresh environment under a new `--env-name` or perform
-an explicit deterministic restore instead of reinstalling into the same named env.
+and select an unverified submodule. Before importing tMAVEN, setup safely discards every
+matching in-prefix legacy and `__pycache__` bytecode file; cleanup failure, symlinked
+caches, or an external `PYTHONPYCACHEPREFIX` disables reuse. Thus an unrecorded
+timestamp-and-size-valid `.pyc` cannot override the verified source. Commit and generator
+metadata do not prove the installed or imported content remains unchanged. Every other
+existing-interpreter state fails closed; create a genuinely fresh environment under a
+new `--env-name` or perform an explicit deterministic restore instead of reinstalling
+into the same named env.
 
 From a fresh checkout, with a conda front-end on `PATH`
 ([`micromamba`](https://mamba.readthedocs.io/), `mamba`, or `conda` +
@@ -89,7 +93,7 @@ Useful options:
 
 | Option | Effect |
 |---|---|
-| `--python PATH` | Use an existing interpreter as the sidecar; skip env creation. A tMAVEN build requires a matching platform artifact from the lock and verified setuptools import origin; reuse also requires exact Git-commit, locked `WHEEL` generator, every raw Python `RECORD` row, the verified tMAVEN package path, and the verified `tmaven.maven` origin. |
+| `--python PATH` | Use an existing interpreter as the sidecar; skip env creation. A tMAVEN build requires a matching platform artifact from the lock and verified setuptools import origin; reuse also requires exact Git-commit, locked `WHEEL` generator, every raw Python `RECORD` row, the verified tMAVEN package path, the verified `tmaven.maven` origin, and safely discarded in-prefix bytecode caches. |
 | `--conda-exe EXE` | Force a specific conda front-end (default: first of micromamba/mamba/conda). |
 | `--env-name NAME` | Name of the created env (default `tether-sidecar`). |
 | `--lock-file PATH` | conda-lock file to build the env from (default `sidecar/conda-lock.yml`). |

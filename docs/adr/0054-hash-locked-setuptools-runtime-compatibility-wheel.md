@@ -74,9 +74,13 @@ The older wheel is a **runtime compatibility layer, not a build backend**:
    must be a located non-package module at the exact raw-`RECORD` `tmaven/maven.py`
    path, with its resolved origin among the digest-verified files. Checking only a
    resolved `tmaven.__file__` is insufficient: a symlinked genuine initializer can
-   retain a shadow package path and select an unverified submodule. The probe parses raw
-   `RECORD` CSV because Python 3.12 `importlib.metadata.Distribution.files` can omit a
-   listed file that is missing on disk. Commit and generator metadata alone cannot
+   retain a shadow package path and select an unverified submodule. Before importing
+   tMAVEN, the probe safely discards every matching in-prefix legacy and `__pycache__`
+   bytecode file named by the raw Python source rows. Cleanup failure, a symlinked cache,
+   or an external `PYTHONPYCACHEPREFIX` disables reuse, so timestamp-and-size-valid
+   unrecorded `.pyc` bytes cannot override the verified `.py` sources. The probe parses
+   raw `RECORD` CSV because Python 3.12 `importlib.metadata.Distribution.files` can omit
+   a listed file that is missing on disk. Commit and generator metadata alone cannot
    prove which bytes are present or imported. Every other state fails closed and
    requires a genuinely fresh interpreter/new environment name or an explicit
    deterministic restore; reinstalling into the same named conda env is insufficient
