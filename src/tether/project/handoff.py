@@ -627,6 +627,7 @@ def apply_reconcile(
             model_name=report.model_name,
             intensity_quantity=intensity_quantity,
             overwrite=overwrite,
+            write_guard=writer_guard,
         )
 
     if writer_guard is not None:
@@ -671,6 +672,7 @@ def _import_model(
     model_name: str,
     intensity_quantity: str,
     overwrite: bool,
+    write_guard: Callable[[], object] | None = None,
 ) -> tuple[str, list[str]]:
     """Write a matched tMAVEN model as a new non-destructive ``/idealization`` entry.
 
@@ -793,6 +795,10 @@ def _import_model(
             "reconcile_imported": len(kept),
             "reconcile_unfit_dropped": len(unfit_dropped),
         },
+        # Reading and remapping the returned model above is unbounded work, so the
+        # caller's pre-import check cannot bind this write. Re-check at the write
+        # itself, exactly as `idealize_molecules` does.
+        write_guard=write_guard,
     )
     return model_name, unfit_dropped
 

@@ -825,7 +825,13 @@ class TetherShell:
                     session_project = project
                     try:
                         _probe_project_writable(proj_path)
-                    except OSError as exc:
+                    except Exception as exc:  # noqa: BLE001 - fall back to browse-only
+                        # Deliberately wider than OSError: this runs after the lock is
+                        # held and outside the fallible-reads try above, so anything the
+                        # HDF5 layer raises (RuntimeError, ValueError) would otherwise
+                        # escape load_project -- breaking the "never crash on open"
+                        # contract AND leaking both the sidecar nonce and the
+                        # process-local claim, with no handle recorded to release them.
                         try:
                             released = project.release_lock()
                         except OSError:
