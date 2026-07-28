@@ -444,6 +444,57 @@ def test_apply_window_edit_updates_store_and_restales(tmp_path):
     assert keys[0] not in stale_molecule_keys(proj, "prior")
 
 
+def test_apply_reconcile_refuses_a_steal_during_reconcile(tmp_path, monkeypatch):
+    """A lock stolen while ``_reconcile`` runs must not reach the store (§5.4).
+
+    The entry check cannot bound this write: ``_reconcile`` re-resolves the match and
+    reads the returned model, and a foreign writer can steal ownership during that
+    unbounded work. The steal is also *released* before the return leg persists, so an
+    identity-only check at the point of write would still pass -- only the retained
+    session's nonce reveals that the epoch changed.
+    """
+    from tether.project import handoff as _handoff
+    from tether.project import lock as _lock
+    from tether.project.lock import LockedError, LockIdentity
+
+    donor, acceptor = _step_trace(3, 40), _step_trace(3, 40) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    pre = np.zeros(3, dtype="int64")
+    post = np.full(3, 40, dtype="int64")
+    post[1] = 25
+    ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, pre=pre, post=post)
+
+    proj.acquire_lock()
+    before = read_molecules(proj.path)["analysis_window"].copy()
+    real_reconcile = _handoff._reconcile
+
+    def _steal_midway(*args, **kwargs):
+        state = real_reconcile(*args, **kwargs)
+        foreign = _lock.acquire(
+            proj.path,
+            identity=LockIdentity(host="OTHER-HOST", user="other", pid=999),
+            steal=True,
+        )
+        assert _lock.release(proj.path, foreign)
+        return state
+
+    monkeypatch.setattr(_handoff, "_reconcile", _steal_midway)
+
+    with pytest.raises(LockedError):
+        proj.apply_reconcile(ret, accept_windows=True, require_held_lock=True)
+
+    # The canonical write never happened.
+    np.testing.assert_array_equal(read_molecules(proj.path)["analysis_window"], before)
+
+    # The boundary this fix draws (§5.4): the identity-only guard cannot see a
+    # steal that was released again, so the default batch/CLI path still writes.
+    # Only the retained-session nonce binding above refuses it -- which is exactly
+    # why the GUI return leg opts in to `require_held_lock`.
+    proj.acquire_lock()
+    proj.apply_reconcile(ret, accept_windows=True)
+    np.testing.assert_array_equal(read_molecules(proj.path)["analysis_window"][1], [0, 25])
+
+
 def test_apply_window_default_no_change(tmp_path):
     donor, acceptor = _step_trace(2, 30), _step_trace(2, 30) * 0.5
     proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)

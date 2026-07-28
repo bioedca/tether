@@ -1925,9 +1925,13 @@ class _StoreHandoff:
             "overwrite": self._overwrite,
         }
         if isinstance(self._project, _Project):
-            # Use the Project facade for a live GUI store so its final point-of-write
-            # ownership assertion backs up the post-dialog refresh.
-            return self._project.apply_reconcile(smd_path, **kwargs)
+            # Use the Project facade for a live GUI store so its point-of-write
+            # ownership assertions back up the post-dialog refresh. `require_held_lock`
+            # binds each write to the retained session's exact nonce, so a lock stolen
+            # while `_reconcile()` re-resolves the match — and released again before the
+            # return leg persists — is still refused. Matches the retained-session
+            # contract `make_store_idealizer(..., require_held_lock=True)` uses.
+            return self._project.apply_reconcile(smd_path, require_held_lock=True, **kwargs)
         return apply_reconcile(
             self._project,
             smd_path,

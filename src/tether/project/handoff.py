@@ -59,7 +59,7 @@ from tether.project.idealize import (
 from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
     from os import PathLike
 
     from tether.idealize.matcher import MatchResult
@@ -561,6 +561,7 @@ def apply_reconcile(
     overwrite: bool = False,
     atol: float = DEFAULT_MATCH_ATOL,
     rtol: float = DEFAULT_MATCH_RTOL,
+    writer_guard: Callable[[], object] | None = None,
 ) -> AppliedReconcile:
     """Commit accepted return-leg changes (non-destructive).
 
@@ -579,6 +580,14 @@ def apply_reconcile(
 
     ``accept_windows`` / ``accept_classes`` are ``True`` (accept every applicable
     change) or an iterable of ``molecule_id`` to accept.
+
+    ``writer_guard`` is re-invoked at each point of persistence, immediately before
+    :func:`_import_model` and again before :func:`_commit_store_edits`. A caller's
+    entry check is not sufficient on its own: ``_reconcile`` re-resolves the match and
+    reads the returned model, which is unbounded work, and a foreign writer can steal
+    the lock during it. Re-checking here binds each canonical write to ownership that
+    is still valid *at that write*, mirroring the retained-session guard threaded
+    through :func:`tether.project.idealize.idealize`.
     """
     path = _project_path(project)
     # Materialize an iterable accept-spec once: ``accept_classes`` is consumed by two
@@ -608,6 +617,8 @@ def apply_reconcile(
 
     written = None
     unfit_dropped: list[str] = []
+    if writer_guard is not None:
+        writer_guard()
     if import_idealization and model_path is not None:
         written, unfit_dropped = _import_model(
             path,
@@ -618,6 +629,10 @@ def apply_reconcile(
             overwrite=overwrite,
         )
 
+    if writer_guard is not None:
+        # Re-checked separately from the pre-import guard: `_import_model` reads and
+        # remaps the returned model, so ownership can lapse between the two writes.
+        writer_guard()
     windows_applied, classes_applied, stale_after = _commit_store_edits(
         path,
         report=report,

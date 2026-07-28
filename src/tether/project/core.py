@@ -675,15 +675,33 @@ class Project:
         accept_classes: bool | Iterable[str] = False,
         import_idealization: bool = False,
         overwrite: bool = False,
+        require_held_lock: bool = False,
     ) -> AppliedReconcile:
         """Commit accepted return-leg changes, non-destructively
         (:func:`handoff.apply_reconcile`).
 
         Refuses the canonical write if the file is locked by another writer (§5.4).
+
+        The entry check alone does not bound the write: :func:`handoff.apply_reconcile`
+        re-resolves the match and reads the returned model before it persists anything,
+        and a foreign writer can steal the lock during that work. The guard built here
+        is therefore re-invoked at each point of persistence. ``require_held_lock`` is
+        the retained-session contract used by the GUI — it binds every write to the
+        exact ownership epoch validated here, so a stolen-then-released lock is still
+        refused; the default identity-only guard is the batch/CLI boundary (§5.4).
         """
         from tether.project import handoff
 
-        self._assert_writable()
+        writer_guard: Callable[[], object]
+        if require_held_lock:
+            start_nonce = self._assert_held_lock()
+
+            def writer_guard() -> None:
+                self._assert_held_lock(expected_nonce=start_nonce)
+
+        else:
+            writer_guard = self._assert_writable
+        writer_guard()
         return handoff.apply_reconcile(
             self,
             smd_path,
@@ -694,4 +712,5 @@ class Project:
             accept_classes=accept_classes,
             import_idealization=import_idealization,
             overwrite=overwrite,
+            writer_guard=writer_guard,
         )
