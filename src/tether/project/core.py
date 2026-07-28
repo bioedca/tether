@@ -87,8 +87,9 @@ class Project:
         clobber an existing file unless ``overwrite=True``. ``identity`` sets the
         handle's single-writer identity (§5.4; defaults to the local process). An
         ``overwrite=True`` that would truncate an existing project is refused
-        (``LockedError``) when a **foreign** ``.lock`` is held, so the single-writer
-        invariant is not bypassed by a destructive re-create.
+        (``LockedError``) when a **foreign** ``.lock`` or another local execution
+        context's destination reservation is held, so the single-writer invariant is
+        not bypassed by a destructive re-create.
         """
         if overwrite:
             from tether.project import lock
@@ -167,12 +168,13 @@ class Project:
         return self._identity
 
     def _assert_writable(self) -> None:
-        """Refuse a canonical write if a foreign lock is held (raises ``LockedError``, §5.4).
+        """Refuse a canonical write if another writer context holds the destination.
 
         The single-writer boundary every canonical mutator on this handle passes
-        through: unlocked or self-owned -> silent; a foreign (or corrupt) lock ->
-        :class:`~tether.project.lock.LockedError`. Reads never call this — a
-        non-owner may always browse read-only (§7.10).
+        through: an untransferred local reservation or foreign/corrupt sidecar raises
+        :class:`~tether.project.lock.LockedError`; the owning reservation context and
+        self-owned sidecar pass. Reads never call this — a non-owner may always browse
+        read-only (§7.10).
         """
         from tether.project import lock
 
@@ -228,6 +230,8 @@ class Project:
 
         Drives the GUI read-only banner (M2 S9 PR-B): returns ``None`` when the file
         is unlocked or the lock is ours, and the holding :class:`LockInfo` otherwise.
+        This reports sidecar ownership only; a canonical write can still fail when
+        another local execution context holds a process reservation.
         """
         owner = self.lock_owner()
         if owner is None or owner.identity == self._acting_identity():
@@ -237,10 +241,11 @@ class Project:
     def acquire_lock(self, *, steal: bool = False, timeout_s: float | None = None) -> LockInfo:
         """Acquire the single-writer lock for this handle (:func:`lock.acquire`).
 
-        Raises :class:`~tether.project.lock.LockedError` if a foreign lock blocks
-        acquisition and ``steal`` is ``False`` (a stale lock still requires an
-        explicit steal, §5.4). ``timeout_s`` overrides the staleness window
-        (default :data:`~tether.project.lock.DEFAULT_STALENESS_TIMEOUT_S`).
+        Raises :class:`~tether.project.lock.LockedError` if a foreign lock or another
+        local execution context's reservation blocks acquisition. With no reservation,
+        ``steal=True`` may replace a sidecar; a stale lock still requires that explicit
+        steal (§5.4). ``timeout_s`` overrides the staleness window (default
+        :data:`~tether.project.lock.DEFAULT_STALENESS_TIMEOUT_S`).
         """
         from tether.project import lock
 
@@ -271,11 +276,13 @@ class Project:
         return refreshed
 
     def steal_lock(self) -> tuple[LockInfo, LockInfo | None]:
-        """Force-acquire the lock, returning ``(new_lock, ousted_owner_or_None)``.
+        """Replace the sidecar lock, returning ``(new_lock, ousted_owner_or_None)``.
 
         The ousted owner is what the GUI surfaces to warn the stealer (§5.4); the
         typed-confirmation UX is M2 S9 PR-B. Last-write-wins — the prior owner's
-        unsaved work is not merged back.
+        unsaved work is not merged back. A process-local reservation held by another
+        execution context is never stolen and raises
+        :class:`~tether.project.lock.LockedError`.
         """
         from tether.project import lock
 

@@ -33,6 +33,112 @@ signing credential exists. Until you complete the setup below, the installers sh
    → Run workflow* with `ref: v1.0.0-rc1` and `dry_run: true` — it builds, signs (where
    configured), checksums and SBOMs, but publishes no Release.
 
+### What a published Release contains: verified `v1.0.0-rc1`
+
+The retained [`v1.0.0-rc1` prerelease](https://github.com/bioedca/tether/releases/tag/v1.0.0-rc1)
+is the durable rehearsal record for the first successful end-to-end release run. It was
+published on 2026-07-21 with exactly the following 13 project-uploaded assets; the byte
+counts are the values reported by GitHub for the published files. The expanded Release
+asset list shows 15 downloads because GitHub also adds
+[on-demand source archives](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)
+for the tag as `Source code (zip)` and `Source code (tar.gz)`. Those two generated
+archives are not project-uploaded assets and are not part of the inventory below.
+
+| Asset | Recorded size (bytes) |
+| --- | ---: |
+| `CHANGELOG-v1.0.0-rc1.md` | 1,719 |
+| `conda-lock.yml` | 519,875 |
+| `SHA256SUMS-linux-64.txt` | 99 |
+| `SHA256SUMS-osx-64.txt` | 101 |
+| `SHA256SUMS-osx-arm64.txt` | 100 |
+| `SHA256SUMS-win-64.txt` | 102 |
+| `SHA256SUMS.txt` | 1,112 |
+| `sidecar-conda-lock.yml` | 258,926 |
+| `Tether-1.0.0-rc1-Linux-x86_64.sh` | 802,018,820 |
+| `Tether-1.0.0-rc1-MacOSX-arm64.pkg` | 624,027,165 |
+| `Tether-1.0.0-rc1-MacOSX-x86_64.pkg` | 654,541,025 |
+| `Tether-1.0.0-rc1-Windows-x86_64.exe` | 786,182,158 |
+| `tether-sbom.cyclonedx.json` | 54,219 |
+
+`SHA256SUMS.txt` lists the other 12 project-uploaded assets (it cannot list itself).
+It does not cover the two GitHub-generated source archives.
+
+This historical RC predates the current pipeline's addition of
+`deep-conda-lock.yml` to release staging, so that file is not part of the 13-asset
+record above. Neither the root `LICENSE` nor the root `NOTICE` is a standalone RC1
+Release upload. Constructor presents and bundles Tether's root GPL license via its
+`license_file`, while the bundled sidecar carries its own GPL text. RC1 did not stage
+or package Tether's root `NOTICE`; it remains available in the source repository and
+the GitHub-generated source archives.
+
+#### Verify a downloaded installer
+
+Download an installer and its matching platform manifest into the same directory,
+then verify it before running it.
+
+##### Linux
+
+```bash
+sha256sum -c SHA256SUMS-linux-64.txt
+```
+
+##### macOS (Apple silicon)
+
+```bash
+shasum -a 256 -c SHA256SUMS-osx-arm64.txt
+```
+
+##### macOS (Intel)
+
+```bash
+shasum -a 256 -c SHA256SUMS-osx-64.txt
+```
+
+##### Windows PowerShell
+
+```powershell
+$expected = ((Get-Content .\SHA256SUMS-win-64.txt) -split '\s+')[0]
+$actual = (Get-FileHash -Algorithm SHA256 `
+  .\Tether-1.0.0-rc1-Windows-x86_64.exe).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw "SHA-256 verification failed" }
+```
+
+GitHub's build-provenance attestation supplies a second, independent check for each
+installer. To verify the complete four-installer set after downloading it, run:
+
+```bash
+verify_rc1() {
+  gh attestation verify "$1" \
+    --repo bioedca/tether \
+    --signer-workflow bioedca/tether/.github/workflows/release.yml \
+    --source-ref refs/tags/v1.0.0-rc1 \
+    --source-digest 1ba112683a0f2a5ba842e39893fd757bff2d18b3
+}
+
+verify_rc1 Tether-1.0.0-rc1-Linux-x86_64.sh
+verify_rc1 Tether-1.0.0-rc1-MacOSX-arm64.pkg
+verify_rc1 Tether-1.0.0-rc1-MacOSX-x86_64.pkg
+verify_rc1 Tether-1.0.0-rc1-Windows-x86_64.exe
+```
+
+The published attestation names all four installers as subjects. Each invocation
+independently hashes its local installer and enforces the GitHub repository, signer
+workflow, source tag, and source commit shown above; verifying one local file does not
+checksum the other three.
+
+#### Signing and documentation status
+
+The RC's Windows `.exe` is **unsigned** because SignPath was not configured. Both
+macOS `.pkg` files are **unsigned** because Apple signing was disabled and the
+required payload deep-signing pass is not yet implemented. Linux has no OS-level
+installer signature by design; its SHA-256 manifests and GitHub build-provenance
+attestation are the integrity anchors.
+
+The prerelease is intentionally retained as this documented evidence set. Pre-releases
+also intentionally do **not** publish the documentation site: the RC release job logged
+its pre-release skip notice and created no `docs.yml` run. Release-triggered
+documentation publishing remains unproven until the stable `v1.0.0` tag.
+
 ## Publish the documentation
 
 The documentation site is versioned with [`mike`](https://github.com/jimporter/mike) and

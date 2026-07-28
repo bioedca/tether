@@ -166,10 +166,13 @@ model's, so it is anchored cross-seed only (ADR-0043).
 
 **Which build each tolerance was measured on — and the gap that opens.** Both `method`
 blocks name a build (`sidecar_python_version`, `tmaven_commit`) rather than an interpreter
-path, and both carry a `build_provenance` string. Neither was captured automatically:
-`scripts/measure_parity.py` only grew a build probe on 2026-07-20, after both runs, so both
-pairs of values are post-hoc attributions. They differ in how well-founded the attribution
-is, and — more importantly — in *which* build they name:
+path, and both carry a `build_provenance` string. The values in the committed artifact were
+not captured automatically: `scripts/measure_parity.py` only grew a build probe on
+2026-07-20, after both runs, so both pairs of values are post-hoc attributions. The script
+now emits a non-empty `build_provenance` description with its measurement-time CPython and
+PEP 610 commit probes, so a future measurement preserves how those two fields were obtained.
+The historical attributions differ in how well-founded they are and — more importantly — in
+*which* build they name:
 
 | | `$.method` (M0.5, vbconhmm) | `$.measured_by_method.ebhmm.method` |
 | --- | --- | --- |
@@ -216,16 +219,15 @@ The pin every live assertion uses is `10f4230b6d13c6d2ad67b05d801696b4a40eff4a` 
 > `coverage`, `freeze_policy`, `provisional`, `tolerance`, `pooled_worst`, `spread_by_fixture`. It
 > then dumps that over the target. So point `--out` at a scratch file, treat the result as *only*
 > the re-measured numbers, and carry back by hand everything in the committed artifact that the
-> fresh dict does not reproduce. Against today's artifact that is three things.
+> fresh dict does not reproduce. Against today's artifact that is two things.
 > `$.tolerance_by_method` and `$.measured_by_method` fall outside the ten keys entirely, so the
 > ebFRET freeze (ADR-0043) vanishes and both
 > `test_per_method_tolerances_cover_their_own_measured_evidence` and
-> `test_load_frozen_tolerance_selects_per_method` fail. `$.method.build_provenance` is a
-> hand-written string inside a block the script *does* rewrite, so it is dropped with no test
-> noticing. And all three sub-keys of `$.coverage` are hand-curated in the artifact but rebuilt
-> from the script's own pre-ADR-0043 literals: `measured_methods` becomes `["vbconhmm"]` rather
-> than the committed `"vbconhmm (vb Consensus HMM)"` quoted below, `applied_to` gains
-> `"ebFRET (M6)"`, and `note` reverts to text asserting one shared tolerance for every
+> `test_load_frozen_tolerance_selects_per_method` fail. The other is that all three sub-keys
+> of `$.coverage` are hand-curated in the artifact but rebuilt from the script's own
+> pre-ADR-0043 literals: `measured_methods` becomes `["vbconhmm"]` rather than the committed
+> `"vbconhmm (vb Consensus HMM)"` quoted below, `applied_to` gains `"ebFRET (M6)"`, and `note`
+> reverts to text asserting one shared tolerance for every
 > idealization method — which contradicts ADR-0043 and this page, and which no test reads.
 
 **Enforcing tests.** Live fits are `tests/test_parity_sidecar.py`

@@ -54,6 +54,7 @@ from tether.project.idealize import (  # noqa: E402
     read_idealization,
     reidealize,
     stale_molecule_keys,
+    write_idealization_model,
 )
 
 _PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
@@ -311,6 +312,91 @@ def test_idealize_writes_model_group_and_round_trips(tmp_path) -> None:
     assert back.norm_tmatrix is not None
     np.testing.assert_array_equal(back.state_paths, stored.state_paths)
     assert list_idealizations(proj) == ["vbconhmm"]
+
+
+def test_write_guard_runs_after_fit_before_canonical_persistence(tmp_path) -> None:
+    proj, _ = _build_store(
+        tmp_path / "e.tether",
+        _step_trace(2, 20),
+        _step_trace(2, 20),
+    )
+    fitted = False
+    runner = _make_runner({2: -1.0}, [])
+
+    def observed_runner(*args, **kwargs):
+        nonlocal fitted
+        result = runner(*args, **kwargs)
+        fitted = True
+        return result
+
+    guard_calls = 0
+
+    def reject_persistence() -> None:
+        nonlocal guard_calls
+        assert fitted
+        guard_calls += 1
+        raise RuntimeError("destination ownership changed")
+
+    with pytest.raises(RuntimeError, match="destination ownership changed"):
+        idealize_molecules(
+            proj,
+            nstates=2,
+            write_guard=reject_persistence,
+            _runner=observed_runner,
+        )
+
+    assert guard_calls == 1
+    assert list_idealizations(proj) == []
+
+
+def test_guarded_writer_stages_outside_canonical_project(tmp_path) -> None:
+    proj, _ = _build_store(
+        tmp_path / "guarded.tether",
+        _step_trace(1, 20),
+        _step_trace(1, 20),
+    )
+    guard_calls = 0
+
+    def lose_ownership_during_staging() -> None:
+        nonlocal guard_calls
+        guard_calls += 1
+        if list(tmp_path.glob(".guarded.tether.*.idealization.tmp")):
+            with h5py.File(proj.path, "r+") as store:
+                store["settings"].attrs["successor_sentinel"] = "preserve"
+            raise RuntimeError("destination ownership changed during staging")
+
+    with pytest.raises(RuntimeError, match="ownership changed during staging"):
+        write_idealization_model(
+            proj.path,
+            model_name="vbconhmm",
+            model_type="vb",
+            nstates=2,
+            dtype="FRET",
+            means=np.array([0.25, 0.75]),
+            variances=None,
+            tmatrix=None,
+            norm_tmatrix=None,
+            elbo=None,
+            idealized=np.full((1, 20), 0.25),
+            state_paths=np.zeros((1, 20), dtype="int64"),
+            molecule_keys=["m0"],
+            molecule_ids=["i0"],
+            input_hashes=["h0"],
+            intensity_quantity="corrected",
+            selected_by="fixed",
+            elbo_by_nstates=None,
+            app_version="0",
+            created_utc="2026-01-01T00:00:00+00:00",
+            overwrite=False,
+            write_guard=lose_ownership_during_staging,
+        )
+
+    assert guard_calls >= 2
+    assert list_idealizations(proj) == []
+    with h5py.File(proj.path, "r") as store:
+        assert store["settings"].attrs["successor_sentinel"] == "preserve"
+        assert list(store["idealization"]) == []
+    assert not list(tmp_path.glob(".guarded.tether.*.idealization.tmp"))
 
 
 def test_input_hash_matches_windowed_corrected_trace(tmp_path) -> None:

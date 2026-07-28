@@ -180,9 +180,9 @@ tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]
 | `-d OUT_DIR`, `--out-dir OUT_DIR` | *(required)* | directory for the per-movie `.tether` projects (created if absent) |
 | `--tmap PATH` | none | a shared imported Deep-LASI `.tmap` applied to every movie |
 | `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie |
-| `--policy {warn,fail}` | `warn` | over-gate registration policy: `warn` keeps an over-gate movie with a flag; `fail` records that movie's extract stage as failed — the project file is still written, and the verdict does not survive a re-run ([see below](#a-policy-fail-rejection-does-not-survive-the-re-run)) |
+| `--policy {warn,fail}` | `warn` | over-gate registration policy: `warn` keeps an over-gate movie with a flag; `fail` records that movie's extract stage as failed — the inspectable project file is still written, and the saved residual is re-evaluated on resume ([see below](#how-policy-fail-behaves-on-resume)) |
 | `--no-idealize` | off | skip the idealization stage (extract + correct only) |
-| `--overwrite` | off | re-extract a movie whose output exists but is not a completed extraction |
+| `--overwrite` | off | re-extract an incomplete output, or a completed extraction that the current `fail` policy rejects; accepted completed checkpoints still skip |
 | `--log PATH` | `<out-dir>/batch-log.jsonl` | write a JSONL structured log here |
 | `--max-restarts N` | `3` | auto-restart a movie's idealization up to N times on a transient sidecar failure (crash/timeout). `0` disables restarts |
 | `--sidecar-timeout SECONDS` | `1800` | per-idealization-call sidecar timeout in seconds |
@@ -205,7 +205,7 @@ $ tether batch a/movie_010.tif b/movie_010.tif -d out
 tether batch: movies 'a/movie_010.tif' and 'b/movie_010.tif' both map to 'out/movie_010.tether'; rename one or use a separate --out-dir
 ```
 
-### A `--policy fail` rejection does not survive the re-run
+### How policy `fail` behaves on resume
 
 `fail` is a verdict recorded about a movie, not a veto on its output. Extraction writes
 the `.tether` first and the gate is applied afterwards, to the summary that write
@@ -213,17 +213,23 @@ returns — so an over-gate movie under `--policy fail` leaves a **complete, che
 project in `<out-dir>`, with its extract stage recorded `failed` and correct/idealize
 `blocked`. That run exits `1`, as documented.
 
-> **The rejection does not survive the re-run.** Resuming is the whole point of the
-> checkpoint, and the checkpoint is consulted *before* the policy: on a second run of the
-> same command the extract stage is `skipped` ("already extracted"), which counts as
-> satisfied, so correction and — unless you passed `--no-idealize` — idealization run to
-> completion on the movie the policy rejected. With no failed stage left, that second run
-> exits `0`. `--overwrite` does not change this: it only covers an output that is *not* a
-> completed extraction, and a completed one is always skipped.
->
-> So `--policy fail` is a gate on the *first* run only. If you rely on it, delete (or move
-> aside) each rejected `<out-dir>/<stem>.tether` before re-running, and treat the first
-> run's JSONL log — not the presence of a project on disk — as the record of what passed.
+On a later run with `--policy fail`, Tether re-reads the saved
+`registration_rms_px` and effective `rms_gate` before accepting that extraction
+checkpoint. If the residual is still over the saved gate, extraction remains `failed`,
+the downstream stages remain `blocked`, and the command exits `1` again. The project
+stays available for inspection.
+
+Switching that rerun to `--policy warn` accepts the flagged extraction checkpoint, so
+extraction is `skipped` and the incomplete downstream stages may continue.
+`--overwrite --policy fail` instead re-extracts only a rejected checkpoint and applies
+the gate to the new result. An already completed, in-gate extraction remains
+checkpointed and is still skipped. Batch claims every `--overwrite --policy fail`
+destination lock before testing whether its project file exists or reading a checkpoint;
+any existing writer lock, including one held by another thread in this process, fails
+that movie as locked without refreshing or releasing the caller's lock. A process-local
+per-destination reservation also prevents another local thread from refreshing that
+same-identity sidecar or writing through it. Both claims remain held while batch creates,
+skips, or re-extracts the destination.
 
 ### Example — a folder of movies, extraction and correction only
 

@@ -36,6 +36,7 @@ from tether.imaging.register import PolyTransform2D  # noqa: E402
 from tether.imaging.split import ChannelGeometry  # noqa: E402
 from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import TABLE, create_project  # noqa: E402
+from tether.project import lock  # noqa: E402
 from tether.project.gamma import compute_gamma  # noqa: E402
 
 _PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
@@ -393,3 +394,54 @@ def test_never_bleach_donor_still_qualifies(tmp_path: Path) -> None:
     assert summary.applied is True
     assert summary.n_qualifying == 12
     assert summary.gamma == pytest.approx(1.2, abs=0.1)
+
+
+def test_guarded_gamma_publish_preserves_successor_data_and_stamp(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "guarded-gamma.tether"
+    _gamma_store(path, n_mol=12)
+    owner = lock.acquire(path)
+    successor: lock.LockInfo | None = None
+
+    def lose_ownership_after_complete_stage() -> None:
+        nonlocal successor
+        stages = list(tmp_path.glob(".guarded-gamma.tether.*.gamma.tmp"))
+        stage_complete = False
+        if stages:
+            try:
+                with h5py.File(stages[0], "r") as staged:
+                    gamma = staged["molecules"][TABLE]["gamma"]
+                    stage_complete = "gamma" in staged["settings"] and np.all(np.isfinite(gamma))
+            except OSError:
+                pass
+        if stage_complete and successor is None:
+            successor, prior = lock.steal_lock(
+                path,
+                identity=lock.LockIdentity(host="OTHER", user="successor", pid=703),
+            )
+            assert prior == owner
+            with h5py.File(path, "r+") as canonical:
+                table = canonical["molecules"][TABLE][:]
+                table["gamma"][:] = 2.222
+                canonical["molecules"][TABLE][:] = table
+                stamp = canonical["settings"].create_group("gamma")
+                stamp.attrs["successor_sentinel"] = "preserve"
+        current = lock.read_lock(path)
+        if current is None or current.nonce != owner.nonce:
+            raise lock.LockError("destination ownership changed")
+
+    try:
+        with pytest.raises(lock.LockError, match="ownership changed"):
+            compute_gamma(path, write_guard=lose_ownership_after_complete_stage)
+    finally:
+        if successor is not None:
+            assert lock.release(path, successor)
+        else:
+            assert lock.release(path, owner)
+
+    assert successor is not None
+    with h5py.File(path, "r") as canonical:
+        assert np.allclose(canonical["molecules"][TABLE]["gamma"], 2.222)
+        assert canonical["settings/gamma"].attrs["successor_sentinel"] == "preserve"
+    assert not list(tmp_path.glob(".guarded-gamma.tether.*.gamma.tmp"))

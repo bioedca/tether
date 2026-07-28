@@ -37,10 +37,45 @@ atomically (temp-file + `os.replace`; never a partial file on failure; write-onc
 `movie_id`). One store per movie means a corrupt or crashing movie can never damage
 another movie's store — the strongest reading of "isolate each movie". It is also the
 natural checkpoint granularity (see below) and keeps the runner a thin path-level
-orchestrator over the existing headless functions (no `Project` object, no lock — the
-`compute_*` and `idealize_molecules` functions open the file directly and do not assert
-the single-writer lock, which only the `Project` methods do; each per-movie store is
-exclusively owned by the batch process, so there is no contention to guard).
+orchestrator over the existing headless functions (no `Project` object and no
+long-lived lock for ordinary stage work — the `compute_*` and `idealize_molecules`
+functions open the file directly; each new per-movie store is exclusively owned by the
+batch process).
+
+ADR-0056 adds one narrow lock boundary: before testing whether an `overwrite` /
+`policy=fail` destination exists or running fallible HDF5 probes, the runner atomically
+claims its unowned sidecar lock and revalidates the acquisition nonce around the schema
+and saved-checkpoint reads. This also refuses a writer that owns the sidecar before
+creating the HDF5 file. The claim is paired with a process-local reservation token keyed
+by the destination's normalized absolute lexical sidecar path, so replacing a symlink
+leaf cannot change the key. Only the token's owning PID and thread may validate it;
+ordinary recursive acquisition and competing same-process threads fail fast, while
+unrelated destinations remain independent. The stage logic repeats its checkpoint
+decision under that ownership: an accepted completed checkpoint is skipped before
+release, while an absent, rejected, or incomplete checkpoint keeps the same lock through
+extraction, downstream correction and idealization, and the final batch-provenance
+stamp, with the acquisition nonce verified at each canonical-write boundary and after
+each runner returns. The correction orchestrator passes that guard into each writer.
+Photobleach revalidates at its mutation boundaries; guarded leakage, gamma, and
+corrected-FRET each build their complete dependent `/molecules` update plus
+`/settings/*` provenance stamp inside a same-directory sibling project. Only a final
+nonce check followed by atomic `os.replace` can publish that paired state, so ownership
+loss cannot leave data without its stamp. Unguarded callers retain the established
+in-place behavior. Idealization uses the same whole-project publication boundary after
+fitting and compression. The final batch-provenance writer receives the guard too and revalidates
+before opening the canonical project and immediately before replacing
+`/settings/batch`. Any pre-existing destination lock fails closed, including one owned
+by this process, because process identity alone does not transfer another thread's or
+GUI writer's critical section. The batch neither refreshes nor releases that caller's
+lock. Release failures from locks acquired by the batch are reported per movie without
+terminating the queue; this includes a nonce-checked `False` result, which preserves the
+successor lock and emits the same warning as a release exception. A nested `finally`
+always clears the process-local reservation after success, runner failure, or either
+sidecar-release outcome. If the lock became stale and was stolen during a long stage,
+the old owner stops the job, suppresses later writes, and never releases the successor's
+lock. Strict batch acquisition uses only exclusive create and a bounded number of
+vanished-winner retries; it never replaces or steals a successor lock. Jobs and
+fresh-output locking outside `overwrite` / `policy=fail` are unchanged.
 
 Per-condition aggregation of α/γ *across* movies (a dataset-level median) is **not**
 introduced here; each movie's corrections run over its own store with the existing
@@ -54,6 +89,11 @@ A stage is "already done" iff the provenance group it writes is present in the
 - **extract** → `/settings/extraction` (write-once, `write_extraction`);
 - **correct** → `/settings/correction` (`compute_corrected_fret`);
 - **idealize** → a non-empty `/idealization` (any fitted `/idealization/{model}`).
+
+ADR-0056 supersedes the unconditional acceptance of the **extract** checkpoint under
+`policy=fail`: presence still proves extraction completed, but the saved residual and
+gate decide whether that completed result satisfies the current fail policy. Correction
+and idealization retain the presence-only rule.
 
 The store *is* the checkpoint, so a resume re-opens each output and skips the stages
 whose output already exists — re-running `run_batch` over the same jobs re-runs only

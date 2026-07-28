@@ -36,6 +36,7 @@ from tether.imaging.register import PolyTransform2D  # noqa: E402
 from tether.imaging.split import ChannelGeometry  # noqa: E402
 from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import TABLE, create_project  # noqa: E402
+from tether.project import lock  # noqa: E402
 from tether.project.leakage import compute_leakage_alpha  # noqa: E402
 
 _PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
@@ -324,3 +325,54 @@ def test_missing_trace_layer_raises_keyerror(tmp_path: Path) -> None:
         del f["traces"]["donor_corrected"]
     with pytest.raises(KeyError, match="run extraction first"):
         compute_leakage_alpha(path)
+
+
+def test_guarded_leakage_publish_preserves_successor_data_and_stamp(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "guarded-leakage.tether"
+    _cohort_store(path, n_mol=12, alpha=0.1)
+    owner = lock.acquire(path)
+    successor: lock.LockInfo | None = None
+
+    def lose_ownership_after_complete_stage() -> None:
+        nonlocal successor
+        stages = list(tmp_path.glob(".guarded-leakage.tether.*.leakage.tmp"))
+        stage_complete = False
+        if stages:
+            try:
+                with h5py.File(stages[0], "r") as staged:
+                    alpha = staged["molecules"][TABLE]["alpha"]
+                    stage_complete = "leakage" in staged["settings"] and np.all(np.isfinite(alpha))
+            except OSError:
+                pass
+        if stage_complete and successor is None:
+            successor, prior = lock.steal_lock(
+                path,
+                identity=lock.LockIdentity(host="OTHER", user="successor", pid=702),
+            )
+            assert prior == owner
+            with h5py.File(path, "r+") as canonical:
+                table = canonical["molecules"][TABLE][:]
+                table["alpha"][:] = 0.222
+                canonical["molecules"][TABLE][:] = table
+                stamp = canonical["settings"].create_group("leakage")
+                stamp.attrs["successor_sentinel"] = "preserve"
+        current = lock.read_lock(path)
+        if current is None or current.nonce != owner.nonce:
+            raise lock.LockError("destination ownership changed")
+
+    try:
+        with pytest.raises(lock.LockError, match="ownership changed"):
+            compute_leakage_alpha(path, write_guard=lose_ownership_after_complete_stage)
+    finally:
+        if successor is not None:
+            assert lock.release(path, successor)
+        else:
+            assert lock.release(path, owner)
+
+    assert successor is not None
+    with h5py.File(path, "r") as canonical:
+        assert np.allclose(canonical["molecules"][TABLE]["alpha"], 0.222)
+        assert canonical["settings/leakage"].attrs["successor_sentinel"] == "preserve"
+    assert not list(tmp_path.glob(".guarded-leakage.tether.*.leakage.tmp"))

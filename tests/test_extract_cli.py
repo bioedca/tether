@@ -136,6 +136,32 @@ def test_extract_movie_creates_valid_project(tmp_path) -> None:
         assert profile["app_version"]  # version stamped (NFR-REPRO)
 
 
+def test_extract_publish_guard_failure_preserves_existing_output(tmp_path) -> None:
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "guarded.tether"
+    original = b"existing checkpoint"
+    out.write_bytes(original)
+    guard_called = False
+
+    def reject_publish() -> None:
+        nonlocal guard_called
+        guard_called = True
+        raise RuntimeError("destination lock ownership changed before publish")
+
+    with pytest.raises(ExtractionError, match="lock ownership changed before publish"):
+        extract_movie(
+            movie,
+            out,
+            options=ExtractOptions(window=_WINDOW),
+            overwrite=True,
+            publish_guard=reject_publish,
+        )
+
+    assert guard_called
+    assert out.read_bytes() == original
+    assert list(tmp_path.glob("guarded.tether.*.tmp")) == []
+
+
 def test_cli_main_extract_succeeds(tmp_path, capsys) -> None:
     movie = _make_movie(tmp_path)
     out = tmp_path / "out.tether"

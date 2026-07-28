@@ -238,7 +238,7 @@ horizontal half is the donor; the [registration](#registration-tmap) map relates
 
 > Getting `--donor-side` wrong is silent and produces a complete, plausible, inverted
 > dataset — see
-> [every efficiency is mirrored](troubleshooting.md#every-efficiency-is-mirrored-donor-side-was-backwards).
+> [every efficiency is mirrored](troubleshooting.md#every-efficiency-is-mirrored-when-donor-side-is-backwards).
 
 ### aperture
 

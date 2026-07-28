@@ -260,7 +260,10 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction) -> None:
     batch.add_argument(
         "--overwrite",
         action="store_true",
-        help="re-extract a movie whose output exists but is not a completed extraction",
+        help=(
+            "re-extract an incomplete output or a completed extraction rejected by "
+            "the current fail policy; accepted completed checkpoints still skip"
+        ),
     )
     batch.add_argument(
         "--log",
