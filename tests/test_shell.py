@@ -707,6 +707,37 @@ def test_make_store_handoff_delegates_to_project_handoff(monkeypatch) -> None:
     assert applied_call["overwrite"] is False  # non-destructive by default
 
 
+def test_store_handoff_apply_opts_into_the_retained_session_guard(tmp_path, monkeypatch) -> None:
+    """A live store goes through the Project facade with ``require_held_lock=True``.
+
+    The test above drives the seam with a *string* project, which takes the
+    module-level branch; this one covers the ``isinstance(..., Project)`` branch the
+    running GUI actually uses. Without the opt-in the return leg would fall back to
+    the identity-only writer check, which cannot see a lock stolen and released
+    while ``_reconcile`` runs.
+    """
+    from tether.gui.reconcile import ReconcileDecision
+    from tether.gui.shell import make_store_handoff
+    from tether.io.schema import create_project
+    from tether.project.core import Project
+
+    project = Project(create_project(tmp_path / "p.tether"))
+    seen: dict = {}
+
+    def recording_apply_reconcile(self, smd_path, **kwargs):
+        seen["self"] = self
+        seen["kwargs"] = kwargs
+        return "applied"
+
+    monkeypatch.setattr(Project, "apply_reconcile", recording_apply_reconcile)
+
+    seam = make_store_handoff(project)
+    assert seam.apply("ret.hdf5", ReconcileDecision(accept_windows=("id-a",))) == "applied"
+
+    assert seen["self"] is project
+    assert seen["kwargs"]["require_held_lock"] is True
+
+
 def test_import_return_leg_apply_failure_is_reported(make_shell, monkeypatch) -> None:
     from tether.gui import reconcile as reconcile_mod
     from tether.gui.reconcile import ReconcileDecision
