@@ -453,6 +453,8 @@ def test_apply_reconcile_refuses_a_steal_during_reconcile(tmp_path, monkeypatch)
     identity-only check at the point of write would still pass -- only the retained
     session's nonce reveals that the epoch changed.
     """
+    from contextlib import suppress
+
     from tether.project import handoff as _handoff
     from tether.project import lock as _lock
     from tether.project.lock import LockedError, LockIdentity
@@ -464,24 +466,33 @@ def test_apply_reconcile_refuses_a_steal_during_reconcile(tmp_path, monkeypatch)
     post[1] = 25
     ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, pre=pre, post=post)
 
+    # Every acquire is released in the matching `finally`: an abandoned lock leaks its
+    # guard descriptor into the process-global `lock._ACTIVE_GUARD_FDS`, which outlives
+    # this test's tmp_path and is walked by the after-fork child handler.
     proj.acquire_lock()
-    before = read_molecules(proj.path)["analysis_window"].copy()
-    real_reconcile = _handoff._reconcile
+    try:
+        before = read_molecules(proj.path)["analysis_window"].copy()
+        real_reconcile = _handoff._reconcile
 
-    def _steal_midway(*args, **kwargs):
-        state = real_reconcile(*args, **kwargs)
-        foreign = _lock.acquire(
-            proj.path,
-            identity=LockIdentity(host="OTHER-HOST", user="other", pid=999),
-            steal=True,
-        )
-        assert _lock.release(proj.path, foreign)
-        return state
+        def _steal_midway(*args, **kwargs):
+            state = real_reconcile(*args, **kwargs)
+            foreign = _lock.acquire(
+                proj.path,
+                identity=LockIdentity(host="OTHER-HOST", user="other", pid=999),
+                steal=True,
+            )
+            assert _lock.release(proj.path, foreign)
+            return state
 
-    monkeypatch.setattr(_handoff, "_reconcile", _steal_midway)
+        monkeypatch.setattr(_handoff, "_reconcile", _steal_midway)
 
-    with pytest.raises(LockedError):
-        proj.apply_reconcile(ret, accept_windows=True, require_held_lock=True)
+        with pytest.raises(LockedError):
+            proj.apply_reconcile(ret, accept_windows=True, require_held_lock=True)
+    finally:
+        # The steal replaced this session's epoch, so the retained handle no longer
+        # owns the sidecar; release what is actually there rather than asserting.
+        with suppress(Exception):
+            proj.release_lock()
 
     # The canonical write never happened.
     np.testing.assert_array_equal(read_molecules(proj.path)["analysis_window"], before)
@@ -491,7 +502,10 @@ def test_apply_reconcile_refuses_a_steal_during_reconcile(tmp_path, monkeypatch)
     # Only the retained-session nonce binding above refuses it -- which is exactly
     # why the GUI return leg opts in to `require_held_lock`.
     proj.acquire_lock()
-    proj.apply_reconcile(ret, accept_windows=True)
+    try:
+        proj.apply_reconcile(ret, accept_windows=True)
+    finally:
+        proj.release_lock()
     np.testing.assert_array_equal(read_molecules(proj.path)["analysis_window"][1], [0, 25])
 
 
