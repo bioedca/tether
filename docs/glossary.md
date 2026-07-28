@@ -199,6 +199,8 @@ on [molecule_key](#molecule-vs-trace), is reversible in one call
 (`include_rejected=False` by default). `tether.project.labels.accept` / `reject` / `unreject`
 each append one provenance-stamped row to `/labels/table` — `unreject` only when the molecule
 really is rejected, since on any other state it is a documented no-op that writes nothing.
+The GUI exposes that reversal as **Un-reject selected** in the Browser dock; it is intentionally
+a visible control rather than a hidden global shortcut.
 Nothing appends a row for a category assignment; `category` lives only on `/molecules`. No row
 is ever deleted (a reversal is logged as its own row), but those three wrappers are not the
 log's only appenders: `tether.project.reconstruct` records provisional Deep-LASI accept priors

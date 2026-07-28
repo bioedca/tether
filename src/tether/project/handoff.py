@@ -38,6 +38,7 @@ Return leg — :func:`read_return_leg` (preview) + :func:`apply_reconcile` (comm
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -58,7 +59,7 @@ from tether.project.idealize import (
 from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
     from os import PathLike
 
     from tether.idealize.matcher import MatchResult
@@ -255,6 +256,19 @@ def _project_path(project: Project | str | PathLike[str]) -> Path:
     return project.path if isinstance(project, _Project) else Path(project)
 
 
+def _same_file(left: Path, right: Path) -> bool:
+    """Return whether two paths identify one file, including links and path aliases."""
+    try:
+        return left.samefile(right)
+    except OSError:
+        # ``right`` commonly does not exist yet. Resolve parent symlinks and apply
+        # platform case-folding so a differently-spelled path to ``left`` still
+        # fails closed before write_smd can modify the canonical project.
+        return os.path.normcase(str(left.resolve(strict=False))) == os.path.normcase(
+            str(right.resolve(strict=False))
+        )
+
+
 def _store_window(molecules: np.ndarray, row: int) -> tuple[int, int]:
     """The molecule's current analysis window, falling back to its native extent."""
     aw = molecules["analysis_window"][row]
@@ -362,6 +376,9 @@ def hand_off_to_tmaven(
         The written path + the exported molecules' identities in SMD-row order.
     """
     path = _project_path(project)
+    out = Path(out_path)
+    if _same_file(path, out):
+        raise ValueError("hand-off destination must not be the source .tether project")
     molecules = read_molecules(path)
     if molecules.shape[0] == 0:
         raise ValueError(f"{path.name} has no extracted molecules to hand off")
@@ -382,7 +399,6 @@ def hand_off_to_tmaven(
     donor_xy = np.stack([molecules["donor_xy"][i] for i in rows]).astype("float64")
     acceptor_xy = np.stack([molecules["acceptor_xy"][i] for i in rows]).astype("float64")
 
-    out = Path(out_path)
     write_smd(
         out,
         raw,
@@ -545,6 +561,7 @@ def apply_reconcile(
     overwrite: bool = False,
     atol: float = DEFAULT_MATCH_ATOL,
     rtol: float = DEFAULT_MATCH_RTOL,
+    writer_guard: Callable[[], object] | None = None,
 ) -> AppliedReconcile:
     """Commit accepted return-leg changes (non-destructive).
 
@@ -563,6 +580,14 @@ def apply_reconcile(
 
     ``accept_windows`` / ``accept_classes`` are ``True`` (accept every applicable
     change) or an iterable of ``molecule_id`` to accept.
+
+    ``writer_guard`` is re-invoked at each point of persistence, immediately before
+    :func:`_import_model` and again before :func:`_commit_store_edits`. A caller's
+    entry check is not sufficient on its own: ``_reconcile`` re-resolves the match and
+    reads the returned model, which is unbounded work, and a foreign writer can steal
+    the lock during it. Re-checking here binds each canonical write to ownership that
+    is still valid *at that write*, mirroring the retained-session guard threaded
+    through :func:`tether.project.idealize.idealize`.
     """
     path = _project_path(project)
     # Materialize an iterable accept-spec once: ``accept_classes`` is consumed by two
@@ -592,6 +617,8 @@ def apply_reconcile(
 
     written = None
     unfit_dropped: list[str] = []
+    if writer_guard is not None:
+        writer_guard()
     if import_idealization and model_path is not None:
         written, unfit_dropped = _import_model(
             path,
@@ -600,8 +627,13 @@ def apply_reconcile(
             model_name=report.model_name,
             intensity_quantity=intensity_quantity,
             overwrite=overwrite,
+            write_guard=writer_guard,
         )
 
+    if writer_guard is not None:
+        # Re-checked separately from the pre-import guard: `_import_model` reads and
+        # remaps the returned model, so ownership can lapse between the two writes.
+        writer_guard()
     windows_applied, classes_applied, stale_after = _commit_store_edits(
         path,
         report=report,
@@ -640,6 +672,7 @@ def _import_model(
     model_name: str,
     intensity_quantity: str,
     overwrite: bool,
+    write_guard: Callable[[], object] | None = None,
 ) -> tuple[str, list[str]]:
     """Write a matched tMAVEN model as a new non-destructive ``/idealization`` entry.
 
@@ -762,6 +795,10 @@ def _import_model(
             "reconcile_imported": len(kept),
             "reconcile_unfit_dropped": len(unfit_dropped),
         },
+        # Reading and remapping the returned model above is unbounded work, so the
+        # caller's pre-import check cannot bind this write. Re-check at the write
+        # itself, exactly as `idealize_molecules` does.
+        write_guard=write_guard,
     )
     return model_name, unfit_dropped
 

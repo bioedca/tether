@@ -81,9 +81,9 @@ class TraceView:
         Optional display label for the dock title / legend.
     molecule_key
         Optional ``/molecules`` identity (§5.1) of the molecule this trace came
-        from. Carried so the shell's one-click idealize (``I``) can resolve the
-        selected trace back to its store row; ``None`` for a synthetic trace with
-        no backing store.
+        from. Carried so the shell's accept/reject and one-click idealize (``I``)
+        handlers can resolve the selected trace back to its store row; ``None``
+        for a synthetic trace with no backing store.
     """
 
     donor: np.ndarray

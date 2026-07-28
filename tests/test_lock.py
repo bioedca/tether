@@ -14,7 +14,11 @@ from __future__ import annotations
 
 import json
 import os
+import stat
+import subprocess
+import sys
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -112,6 +116,413 @@ def test_reacquire_by_same_identity_refreshes(tmp_path: Path) -> None:
     second = lock.acquire(path, identity=HOST_A)  # same (host, pid) -> allowed
     assert second.nonce != first.nonce
     assert lock.read_lock(path) == second
+
+
+def test_retained_refresh_preserves_nonce_and_requires_existing_epoch(tmp_path: Path) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    acquired = datetime(2020, 1, 1, 12, 0, tzinfo=UTC)
+    refreshed_at = datetime(2020, 1, 1, 12, 10, tzinfo=UTC)
+    first = lock.acquire(path, identity=HOST_A, now=acquired)
+
+    refreshed = lock.refresh(path, first, now=refreshed_at)
+
+    assert refreshed.nonce == first.nonce
+    assert refreshed.timestamp == refreshed_at.isoformat()
+    assert lock.read_lock(path) == refreshed
+    assert lock.release(path, refreshed)
+    with pytest.raises(LockedError):
+        lock.refresh(path, refreshed)
+
+
+def test_refresh_cannot_overwrite_successor_steal_between_validation_and_publish(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    first = lock.acquire(path, identity=HOST_A)
+    original_publish_refresh = lock._publish_refresh
+    refresh_at_publish = threading.Event()
+    allow_refresh_publish = threading.Event()
+    steal_started = threading.Event()
+    steal_finished = threading.Event()
+    refresh_results: list[LockInfo] = []
+    successor_results: list[LockInfo] = []
+    refresh_errors: list[BaseException] = []
+    steal_errors: list[BaseException] = []
+
+    def controlled_publish_refresh(lock_file: Path, info: LockInfo) -> None:
+        refresh_at_publish.set()
+        assert allow_refresh_publish.wait(timeout=5.0)
+        original_publish_refresh(lock_file, info)
+
+    monkeypatch.setattr(lock, "_publish_refresh", controlled_publish_refresh)
+
+    def retained_refresh() -> None:
+        try:
+            refresh_results.append(lock.refresh(path, first))
+        except BaseException as exc:  # noqa: BLE001 - propagate worker failures below
+            refresh_errors.append(exc)
+
+    def foreign_steal() -> None:
+        try:
+            steal_started.set()
+            successor_results.append(lock.acquire(path, identity=HOST_B, steal=True))
+        except BaseException as exc:  # noqa: BLE001 - propagate worker failures below
+            steal_errors.append(exc)
+        finally:
+            steal_finished.set()
+
+    refresh_thread = threading.Thread(target=retained_refresh, name="retained-refresh")
+    steal_thread = threading.Thread(target=foreign_steal, name="foreign-steal")
+    refresh_thread.start()
+    assert refresh_at_publish.wait(timeout=2.0)
+    steal_thread.start()
+    assert steal_started.wait(timeout=2.0)
+    # The peer entered the public cross-process lifecycle but cannot publish
+    # between refresh's nonce check and atomic replace.
+    assert not steal_finished.wait(timeout=0.2)
+    allow_refresh_publish.set()
+    refresh_thread.join(timeout=5.0)
+    steal_thread.join(timeout=5.0)
+
+    assert not refresh_thread.is_alive()
+    assert not steal_thread.is_alive()
+    assert refresh_errors == []
+    assert steal_errors == []
+    assert len(refresh_results) == 1
+    assert len(successor_results) == 1
+    successor = successor_results[0]
+    assert successor.nonce != first.nonce
+    assert lock.read_lock(path) == successor
+
+
+def test_refresh_guard_serializes_a_foreign_subprocess_steal(tmp_path: Path, monkeypatch) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    first = lock.acquire(path, identity=HOST_A)
+    original_publish_refresh = lock._publish_refresh
+    refresh_at_publish = threading.Event()
+    allow_refresh_publish = threading.Event()
+    refresh_results: list[LockInfo] = []
+    refresh_errors: list[BaseException] = []
+
+    def controlled_publish_refresh(lock_file: Path, refreshed: LockInfo) -> None:
+        refresh_at_publish.set()
+        assert allow_refresh_publish.wait(timeout=5.0)
+        original_publish_refresh(lock_file, refreshed)
+
+    monkeypatch.setattr(lock, "_publish_refresh", controlled_publish_refresh)
+
+    def retained_refresh() -> None:
+        try:
+            refresh_results.append(lock.refresh(path, first))
+        except BaseException as exc:  # noqa: BLE001 - propagate worker failures below
+            refresh_errors.append(exc)
+
+    refresh_thread = threading.Thread(target=retained_refresh)
+    refresh_thread.start()
+    assert refresh_at_publish.wait(timeout=2.0)
+
+    child_script = """
+import json
+import sys
+from tether.project import lock
+from tether.project.lock import LockIdentity
+
+print("ready", flush=True)
+successor = lock.acquire(
+    sys.argv[1],
+    identity=LockIdentity(host="CHILD-HOST", user="child", pid=4242),
+    steal=True,
+)
+print(json.dumps(successor.to_dict()), flush=True)
+"""
+    child = subprocess.Popen(
+        [sys.executable, "-c", child_script, os.fspath(path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=os.environ.copy(),
+    )
+    assert child.stdout is not None
+    assert child.stdout.readline().strip() == "ready"
+    with pytest.raises(subprocess.TimeoutExpired):
+        child.wait(timeout=0.2)
+
+    allow_refresh_publish.set()
+    refresh_thread.join(timeout=5.0)
+    stdout, stderr = child.communicate(timeout=5.0)
+
+    assert not refresh_thread.is_alive()
+    assert refresh_errors == []
+    assert len(refresh_results) == 1
+    assert child.returncode == 0, stderr
+    successor = LockInfo.from_dict(json.loads(stdout.strip()))
+    assert successor.nonce != first.nonce
+    assert lock.read_lock(path) == successor
+
+
+def test_lifecycle_guard_inode_persists_across_operations(tmp_path: Path) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    first = lock.acquire(path, identity=HOST_A)
+    guard = lock._guard_path(lock.lock_path(path))
+    first_inode = guard.stat().st_ino
+
+    assert lock.release(path, first)
+    second = lock.acquire(path, identity=HOST_B)
+
+    assert guard.stat().st_ino == first_inode
+    assert lock.release(path, second)
+    assert guard.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode/umask semantics")
+def test_lifecycle_guard_creation_allows_group_shared_writers(tmp_path: Path) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    guard = lock._guard_path(lock.lock_path(path))
+    directory_mode = stat.S_IMODE(tmp_path.stat().st_mode)
+    previous_umask = os.umask(0o002)
+    try:
+        with lock._lifecycle_guard(lock.lock_path(path)):
+            pass
+    finally:
+        os.umask(previous_umask)
+
+    assert stat.S_IMODE(guard.stat().st_mode) == 0o664
+    assert stat.S_IMODE(tmp_path.stat().st_mode) == directory_mode
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows byte-range lock semantics")
+def test_windows_guard_byte_initialization_retries_stale_zero_observation(
+    tmp_path: Path,
+) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    lock_file = lock.lock_path(path)
+    barrier = tmp_path / "guard-init-barrier"
+    barrier.mkdir()
+
+    contender_script = r"""
+import os
+import sys
+import time
+from pathlib import Path
+from types import SimpleNamespace
+from tether.project import lock
+
+lock_file = Path(sys.argv[1])
+barrier = Path(sys.argv[2])
+original_fstat = lock.os.fstat
+original_write = lock.os.write
+first_fstat = True
+
+def wait_for(path):
+    deadline = time.monotonic() + 5.0
+    while not path.exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError(path)
+        time.sleep(0.01)
+
+def coordinated_fstat(fd):
+    global first_fstat
+    current = original_fstat(fd)
+    if first_fstat:
+        first_fstat = False
+        (barrier / "contender-saw-zero").touch()
+        wait_for(barrier / "holder-locked")
+        return SimpleNamespace(st_size=0)
+    return current
+
+def signalled_write(fd, data):
+    (barrier / "contender-write-attempted").touch()
+    return original_write(fd, data)
+
+lock.os.fstat = coordinated_fstat
+lock.os.write = signalled_write
+with lock._lifecycle_guard(lock_file):
+    pass
+"""
+    holder_script = r"""
+import sys
+import time
+from pathlib import Path
+from tether.project import lock
+
+lock_file = Path(sys.argv[1])
+barrier = Path(sys.argv[2])
+
+def wait_for(path):
+    deadline = time.monotonic() + 5.0
+    while not path.exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError(path)
+        time.sleep(0.01)
+
+wait_for(barrier / "contender-saw-zero")
+with lock._lifecycle_guard(lock_file):
+    (barrier / "holder-locked").touch()
+    wait_for(barrier / "contender-write-attempted")
+"""
+    contender = subprocess.Popen(
+        [sys.executable, "-c", contender_script, os.fspath(lock_file), os.fspath(barrier)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=os.environ.copy(),
+    )
+    deadline = time.monotonic() + 5.0
+    while not (barrier / "contender-saw-zero").exists():
+        if time.monotonic() >= deadline:
+            contender.kill()
+            raise AssertionError("contender did not reach zero-size observation")
+        time.sleep(0.01)
+    holder = subprocess.Popen(
+        [sys.executable, "-c", holder_script, os.fspath(lock_file), os.fspath(barrier)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=os.environ.copy(),
+    )
+    contender_stdout, contender_stderr = contender.communicate(timeout=10.0)
+    holder_stdout, holder_stderr = holder.communicate(timeout=10.0)
+
+    assert holder.returncode == 0, holder_stdout + holder_stderr
+    assert contender.returncode == 0, contender_stdout + contender_stderr
+    assert lock._guard_path(lock_file).stat().st_size == 1
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows sharing-violation semantics")
+def test_windows_refresh_retries_atomic_replace_while_observer_is_open(
+    tmp_path: Path,
+) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    held = lock.acquire(path, identity=HOST_A)
+    observer = lock.lock_path(path).open("rb")
+    refreshed: list[LockInfo] = []
+    errors: list[BaseException] = []
+
+    def retained_refresh() -> None:
+        try:
+            refreshed.append(lock.refresh(path, held))
+        except BaseException as exc:  # noqa: BLE001 - propagate worker failures below
+            errors.append(exc)
+
+    worker = threading.Thread(target=retained_refresh)
+    worker.start()
+    time.sleep(0.1)
+    assert worker.is_alive()
+    observer.close()
+    worker.join(timeout=5.0)
+
+    assert not worker.is_alive()
+    assert errors == []
+    assert len(refreshed) == 1
+    assert lock.read_lock(path) == refreshed[0]
+    assert list(tmp_path.glob(f"{lock.lock_path(path).name}.tmp-*")) == []
+
+
+def test_atomic_write_removes_temp_after_replace_failure(tmp_path: Path, monkeypatch) -> None:
+    lock_file = tmp_path / "exp.tether.lock"
+    info = LockInfo(
+        host="HOST-A",
+        user="alice",
+        pid=111,
+        timestamp=datetime.now(UTC).isoformat(),
+        nonce="cleanup",
+    )
+
+    def fail_replace(_source, _destination):
+        raise PermissionError("destination is busy")
+
+    monkeypatch.setattr(lock.os, "replace", fail_replace)
+    monkeypatch.setattr(lock, "_ATOMIC_REPLACE_TIMEOUT_S", 0.0, raising=False)
+
+    with pytest.raises(PermissionError):
+        lock._atomic_write(lock_file, info)
+
+    assert not lock_file.exists()
+    assert list(tmp_path.glob(f"{lock_file.name}.tmp-*")) == []
+
+
+def test_atomic_write_removes_partial_temp_after_write_failure(tmp_path: Path, monkeypatch) -> None:
+    lock_file = tmp_path / "exp.tether.lock"
+    info = LockInfo(
+        host="HOST-A",
+        user="alice",
+        pid=111,
+        timestamp=datetime.now(UTC).isoformat(),
+        nonce="partial-write",
+    )
+    original_write_text = Path.write_text
+
+    def partial_then_fail(path, data, *, encoding=None, errors=None, newline=None):
+        if path.name == f"{lock_file.name}.tmp-{info.nonce}":
+            with path.open("w", encoding=encoding, errors=errors, newline=newline) as stream:
+                stream.write(data[:5])
+            raise OSError("simulated partial temp write")
+        return original_write_text(
+            path,
+            data,
+            encoding=encoding,
+            errors=errors,
+            newline=newline,
+        )
+
+    monkeypatch.setattr(Path, "write_text", partial_then_fail)
+
+    with pytest.raises(OSError, match="partial temp write"):
+        lock._atomic_write(lock_file, info)
+
+    assert not lock_file.exists()
+    assert list(tmp_path.glob(f"{lock_file.name}.tmp-*")) == []
+
+
+def test_fork_child_reset_closes_inherited_guard_descriptors(tmp_path: Path) -> None:
+    descriptor = os.open(tmp_path / "inherited.guard", os.O_CREAT | os.O_RDWR, 0o644)
+    assert set() == lock._ACTIVE_GUARD_FDS
+    lock._guard_registry_before_fork()
+    lock._ACTIVE_GUARD_FDS.add(descriptor)
+
+    lock._guard_registry_after_fork_child()
+
+    assert set() == lock._ACTIVE_GUARD_FDS
+    with pytest.raises(OSError):
+        os.fstat(descriptor)
+    assert lock._GUARD_REGISTRY_LOCK.acquire(timeout=0.2)
+    lock._GUARD_REGISTRY_LOCK.release()
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires POSIX fork")
+def test_fork_child_does_not_prolong_parent_lifecycle_guard(tmp_path: Path) -> None:
+    path = _seed(tmp_path, [("k0", "c0")])
+    guard_held = threading.Event()
+    release_guard = threading.Event()
+    errors: list[BaseException] = []
+
+    def hold_parent_guard() -> None:
+        try:
+            with lock._lifecycle_guard(lock.lock_path(path)):
+                guard_held.set()
+                assert release_guard.wait(timeout=5.0)
+        except BaseException as exc:  # noqa: BLE001 - propagate worker failures below
+            errors.append(exc)
+
+    holder = threading.Thread(target=hold_parent_guard)
+    holder.start()
+    assert guard_held.wait(timeout=2.0)
+    pid = os.fork()
+    if pid == 0:  # pragma: no cover - assertion is the child exit status
+        try:
+            acquired = lock.acquire(path, identity=HOST_B, steal=True)
+            assert lock.release(path, acquired)
+        except BaseException:
+            os._exit(1)
+        os._exit(0)
+
+    release_guard.set()
+    holder.join(timeout=5.0)
+    _, status = os.waitpid(pid, 0)
+
+    assert not holder.is_alive()
+    assert errors == []
+    assert os.waitstatus_to_exitcode(status) == 0
 
 
 def test_strict_acquire_refuses_same_identity_without_refresh(tmp_path: Path) -> None:
@@ -536,6 +947,7 @@ def test_project_release_lock_is_nonce_checked(tmp_path: Path) -> None:
     thief.steal_lock()
     # The ousted owner's release must not delete the thief's lock.
     assert owner.release_lock() is False
+    assert owner._held_lock is None
     assert thief.lock_owner().identity == HOST_B
 
 
@@ -568,6 +980,27 @@ def test_auto_identity_reresolves_after_pid_change(tmp_path: Path, monkeypatch) 
     # An *injected* identity is fixed — never re-resolved on a PID change.
     injected = Project(path, identity=HOST_A)
     assert injected._acting_identity() == HOST_A
+
+
+def test_pid_drift_never_waits_on_an_inherited_project_mutex(tmp_path: Path, monkeypatch) -> None:
+    class InheritedLockedMutex:
+        def __enter__(self):
+            raise AssertionError("fork child attempted to acquire an inherited mutex")
+
+        def __exit__(self, *_args):
+            return False
+
+    path = _seed(tmp_path, [("m1", "cond")])
+    project = Project(path)
+    held = project.acquire_lock()
+    project._lock_state_lock = InheritedLockedMutex()
+    monkeypatch.setattr(os, "getpid", lambda: held.pid + 1)
+    try:
+        child_identity = project._acting_identity()
+        assert child_identity.pid == held.pid + 1
+        assert project._held_lock is None
+    finally:
+        assert lock.release(path, held)
 
 
 def test_create_overwrite_refused_when_foreign_locked(tmp_path: Path) -> None:

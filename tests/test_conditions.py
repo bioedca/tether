@@ -274,6 +274,41 @@ def test_locked_project_write_reports_error_not_escape(qtbot, tmp_path: Path, mo
         holder.release_lock()
 
 
+def test_retained_dialog_guard_blocks_steal_release_before_each_write(
+    qtbot, tmp_path: Path
+) -> None:
+    from tether.gui.conditions import ConditionValidationDialog
+    from tether.project import lock
+
+    project = _faithful(tmp_path, [("k0", _FILE_A10)])
+    condition_id = parse_filename(_FILE_A10).condition_id
+    project.acquire_lock()
+    dlg = ConditionValidationDialog(
+        project,
+        writer_guard=project._assert_held_lock,
+    )
+    qtbot.addWidget(dlg.dialog)
+    foreign = lock.acquire(
+        project.path,
+        identity=LockIdentity(host="OTHER-HOST", user="other", pid=999),
+        steal=True,
+    )
+    assert lock.release(project.path, foreign)
+    original_members = project.molecules_by_condition()
+
+    with pytest.raises(LockedError):
+        dlg.materialize()
+    with pytest.raises(LockedError):
+        dlg.apply_correction(
+            condition_id,
+            ConditionKey(construct_variant="corrected"),
+        )
+
+    assert project.read_condition_keys() == {}
+    assert project.molecules_by_condition() == original_members
+    assert project.read_condition_audit().shape[0] == 0
+
+
 # --- shell wiring ------------------------------------------------------------
 
 

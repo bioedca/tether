@@ -49,6 +49,7 @@ project so the user can reconcile them.
 
 from __future__ import annotations
 
+import errno
 import getpass
 import glob as _glob
 import json
@@ -56,10 +57,11 @@ import os
 import socket
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -87,6 +89,7 @@ __all__ = [
     "local_identity",
     "lock_path",
     "read_lock",
+    "refresh",
     "release",
     "release_process_reservation",
     "steal_lock",
@@ -100,6 +103,19 @@ DEFAULT_STALENESS_TIMEOUT_S: float = 30.0 * 60.0
 #: (``exp.tether`` -> ``exp.tether.lock``), so it never collides with a sibling
 #: project sharing the stem but a different extension.
 LOCK_SUFFIX = ".lock"
+
+#: Stable same-path sidecar used only as an OS advisory serialization inode.
+#: Lifecycle operations request ``0666`` (subject to the site's umask) so a
+#: group-shared project can keep one cross-user ``O_RDWR`` guard, and never unlink
+#: or replace it.
+_GUARD_SUFFIX = ".guard"
+_GUARD_ACQUIRE_TIMEOUT_S = 5.0
+_GUARD_RETRY_INTERVAL_S = 0.01
+_ATOMIC_REPLACE_TIMEOUT_S = 5.0
+_ATOMIC_REPLACE_RETRY_INTERVAL_S = 0.01
+_WINDOWS_SHARING_WINERRORS = {5, 32, 33}
+_ACTIVE_GUARD_FDS: set[int] = set()
+_GUARD_REGISTRY_LOCK = Lock()
 
 # A strict claim that repeatedly loses O_EXCL to a writer whose sidecar vanishes
 # must fail closed rather than busy-spin the whole batch queue forever.
@@ -362,8 +378,168 @@ def _new_info(identity: LockIdentity, *, now: datetime | None = None) -> LockInf
 def _atomic_write(lp: Path, info: LockInfo) -> None:
     """Write the lock JSON via a temp file + atomic ``os.replace`` (crash/torn-write safe)."""
     tmp = lp.with_name(f"{lp.name}.tmp-{info.nonce}")
-    tmp.write_text(json.dumps(info.to_dict(), indent=2), encoding="utf-8")
-    os.replace(tmp, lp)  # atomic on both POSIX and Windows for same-directory paths
+    deadline = time.monotonic() + _ATOMIC_REPLACE_TIMEOUT_S
+    try:
+        tmp.write_text(json.dumps(info.to_dict(), indent=2), encoding="utf-8")
+        while True:
+            try:
+                os.replace(tmp, lp)
+                return
+            except OSError as exc:
+                windows_sharing_violation = os.name == "nt" and (
+                    isinstance(exc, PermissionError)
+                    or getattr(exc, "winerror", None) in _WINDOWS_SHARING_WINERRORS
+                )
+                if not windows_sharing_violation or time.monotonic() >= deadline:
+                    raise
+                time.sleep(_ATOMIC_REPLACE_RETRY_INTERVAL_S)
+    finally:
+        with suppress(FileNotFoundError):
+            tmp.unlink()
+
+
+def _guard_path(lp: Path) -> Path:
+    """Return the stable advisory file for this exact lock-sidecar spelling."""
+    return lp.with_name(lp.name + _GUARD_SUFFIX)
+
+
+def _guard_registry_before_fork() -> None:
+    """Prevent fork from landing between guard descriptor open/register or close."""
+    _GUARD_REGISTRY_LOCK.acquire()
+
+
+def _guard_registry_after_fork_parent() -> None:
+    """Release the descriptor registry in the parent after ``fork()``."""
+    _GUARD_REGISTRY_LOCK.release()
+
+
+def _guard_registry_after_fork_child() -> None:
+    """Close every inherited guard descriptor and reset the child registry mutex."""
+    global _GUARD_REGISTRY_LOCK
+
+    for fd in tuple(_ACTIVE_GUARD_FDS):
+        with suppress(OSError):
+            os.close(fd)
+    _ACTIVE_GUARD_FDS.clear()
+    # The pre-fork mutex is inherited locked by a thread that no longer exists in
+    # the child. Replace it rather than attempting to release that inherited state.
+    _GUARD_REGISTRY_LOCK = Lock()
+
+
+def _ensure_windows_guard_byte(fd: int, gp: Path, *, deadline: float) -> None:
+    """Create the byte-range-lock target despite a concurrent first opener.
+
+    A peer may observe the zero-length guard just before another process writes
+    and locks byte zero. Its own stale first-use write then receives a Windows
+    sharing violation. Retry the size check/write within the same bounded guard
+    deadline; once the winner's byte is visible, ordinary lock acquisition below
+    serializes the contenders.
+    """
+    while True:
+        try:
+            if os.fstat(fd).st_size >= 1:
+                return
+            os.lseek(fd, 0, os.SEEK_SET)
+            if os.write(fd, b"\0") != 1:  # pragma: no cover - defensive short write
+                raise OSError("short write while initializing lock lifecycle guard")
+            os.fsync(fd)
+            return
+        except OSError as exc:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"timed out initializing lock lifecycle guard: {gp}") from exc
+            time.sleep(_GUARD_RETRY_INTERVAL_S)
+
+
+_register_at_fork = getattr(os, "register_at_fork", None)
+if _register_at_fork is not None:  # pragma: no branch - platform capability
+    _register_at_fork(
+        before=_guard_registry_before_fork,
+        after_in_parent=_guard_registry_after_fork_parent,
+        after_in_child=_guard_registry_after_fork_child,
+    )
+
+
+@contextmanager
+def _lifecycle_guard(lp: Path) -> Iterator[None]:
+    """Serialize same-path sidecar mutations across processes with a stable OS lock.
+
+    The descriptor exists only for this operation; no process-local mutex is
+    retained. Acquisition is non-blocking with a bounded retry so an inherited or
+    misbehaving holder fails closed instead of deadlocking. The guard inode is
+    persistent: Tether never unlinks or path-replaces it. A distinct hard-link
+    spelling has a distinct sidecar and guard; callers requiring cross-process
+    coordination must use the same canonical lock-sidecar path.
+    """
+    gp = _guard_path(lp)
+    with _GUARD_REGISTRY_LOCK:
+        fd = os.open(gp, os.O_CREAT | os.O_RDWR, 0o666)
+        try:
+            os.set_inheritable(fd, False)
+            _ACTIVE_GUARD_FDS.add(fd)
+        except BaseException:
+            os.close(fd)
+            raise
+    acquired = False
+    deadline = time.monotonic() + _GUARD_ACQUIRE_TIMEOUT_S
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            # msvcrt.locking requires a real byte range. Multiple first openers
+            # can retain a stale zero-size observation after a peer writes and locks
+            # byte zero, so initialization shares this operation's bounded retry.
+            _ensure_windows_guard_byte(fd, gp, deadline=deadline)
+            while True:
+                os.lseek(fd, 0, os.SEEK_SET)
+                try:
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                    acquired = True
+                    break
+                except OSError as exc:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"timed out acquiring lock lifecycle guard: {gp}"
+                        ) from exc
+                    time.sleep(_GUARD_RETRY_INTERVAL_S)
+        else:
+            import fcntl
+
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except OSError as exc:
+                    if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                        raise
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"timed out acquiring lock lifecycle guard: {gp}"
+                        ) from exc
+                    time.sleep(_GUARD_RETRY_INTERVAL_S)
+        yield
+    finally:
+        with _GUARD_REGISTRY_LOCK:
+            try:
+                if acquired and fd in _ACTIVE_GUARD_FDS:
+                    if os.name == "nt":
+                        import msvcrt
+
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                if fd in _ACTIVE_GUARD_FDS:
+                    _ACTIVE_GUARD_FDS.remove(fd)
+                    os.close(fd)
+
+
+def _publish_refresh(lp: Path, info: LockInfo) -> None:
+    """Atomically publish a refresh while the caller holds ``_lifecycle_guard``."""
+    _atomic_write(lp, info)
 
 
 def _exclusive_create(lp: Path, info: LockInfo) -> bool:
@@ -639,8 +815,42 @@ def _acquire_sidecar(
     allow_existing_owner: bool,
     now: datetime | None,
 ) -> LockInfo:
+    """Claim the sidecar under the OS lifecycle guard.
+
+    Two independent exclusions compose here, outermost first: :func:`acquire` holds
+    the process-local reservation gate, this frame holds the cross-process
+    ``_lifecycle_guard`` inode, and :func:`_acquire_without_guard` performs the
+    sidecar I/O. Neither guard subsumes the other — the reservation orders writers
+    inside one interpreter, the guard orders them across processes.
+    """
     identity = identity if identity is not None else local_identity()
     lp = lock_path(project_path)
+    with _lifecycle_guard(lp):
+        return _acquire_without_guard(
+            lp,
+            identity=identity,
+            timeout_s=timeout_s,
+            steal=steal,
+            allow_existing_owner=allow_existing_owner,
+            now=now,
+        )
+
+
+def _acquire_without_guard(
+    lp: Path,
+    *,
+    identity: LockIdentity,
+    timeout_s: float,
+    steal: bool,
+    allow_existing_owner: bool,
+    now: datetime | None,
+) -> LockInfo:
+    """Implement :func:`acquire` while its caller holds ``_lifecycle_guard``.
+
+    ``allow_existing_owner=False`` is the strict batch claim: it refuses any
+    already-present lock, including this process's own, and takes precedence over
+    ``steal``.
+    """
     info = _new_info(identity, now=now)
     if steal and allow_existing_owner:
         _atomic_write(lp, info)
@@ -694,6 +904,46 @@ def _acquire_sidecar(
     # Unlocked again (raced away) or already ours: (re)write and refresh.
     _atomic_write(lp, info)
     return info
+
+
+def refresh(
+    project_path: str | Path,
+    held: LockInfo,
+    *,
+    now: datetime | None = None,
+) -> LockInfo:
+    """Refresh one retained session without changing or recreating its nonce.
+
+    Unlike :func:`acquire`, this operation never claims an unlocked path and never
+    treats a matching process identity as sufficient. The current sidecar must carry
+    ``held.nonce``; a vanished, corrupt, or replacement record raises
+    :class:`LockedError`. A successful refresh advances only the timestamp, preserving
+    the ownership epoch that long-running writers validate before persistence.
+    """
+    lp = lock_path(project_path)
+    with _lifecycle_guard(lp):
+        current, corrupt = _read_tolerant(lp)
+        if corrupt:
+            raise LockedError(None, corrupt=True, path=lp)
+        if current is None or current.nonce != held.nonce:
+            raise LockedError(current, path=lp)
+        refreshed = LockInfo(
+            host=held.host,
+            user=held.user,
+            pid=held.pid,
+            timestamp=(now if now is not None else _utc_now()).isoformat(),
+            nonce=held.nonce,
+        )
+        # Keep lock-free readers on the established all-old-or-all-new invariant:
+        # publish by same-directory atomic replace, but only while every
+        # cooperating lifecycle mutation is excluded by the stable OS guard.
+        _publish_refresh(lp, refreshed)
+        current, corrupt = _read_tolerant(lp)
+        if corrupt:
+            raise LockedError(None, corrupt=True, path=lp)
+        if current is None or current.nonce != held.nonce:
+            raise LockedError(current, path=lp)
+        return current
 
 
 def acquire(
@@ -752,9 +1002,20 @@ def steal_lock(
     it raises :class:`LockedError` before the sidecar is inspected or replaced.
     """
     identity = identity if identity is not None else local_identity()
-    prior, _corrupt = _read_tolerant(lock_path(project_path))
-    info = acquire(project_path, identity=identity, steal=True, now=now)
-    return info, prior
+    lp = lock_path(project_path)
+    with _lifecycle_guard(lp):
+        prior, _corrupt = _read_tolerant(lp)
+        info = _acquire_without_guard(
+            lp,
+            identity=identity,
+            timeout_s=DEFAULT_STALENESS_TIMEOUT_S,
+            steal=True,
+            # An explicit steal is precisely the "replace whatever is there" path,
+            # so it must not take the strict no-replacement branch.
+            allow_existing_owner=True,
+            now=now,
+        )
+        return info, prior
 
 
 def release(project_path: str | Path, info: LockInfo) -> bool:
@@ -765,22 +1026,20 @@ def release(project_path: str | Path, info: LockInfo) -> bool:
     double release is harmless. Release remains available during a process reservation:
     it is cleanup, not a canonical write, and can remove only its supplied exact nonce.
 
-    A narrow read-then-``unlink`` window remains (a steal landing between the nonce
-    check and the ``unlink`` would delete the successor's lock). Closing it fully
-    needs OS advisory locking, which is deliberately out of scope: PRD §5.4 adopts a
-    one-owner-at-a-time, wall-clock-staleness model precisely because atomic locking
-    is impossible on an eventually-consistent share, so a sub-millisecond same-host
-    race is not the threat this guard defends against.
+    Acquire, explicit steal, retained refresh, and release all hold the same stable
+    per-project OS advisory guard. The nonce check and unlink are therefore one
+    serialized lifecycle operation and cannot delete a cooperating successor.
     """
     lp = lock_path(project_path)
-    current, corrupt = _read_tolerant(lp)
-    if corrupt or current is None or current.nonce != info.nonce:
-        return False
-    try:
-        lp.unlink()
-    except FileNotFoundError:  # pragma: no cover - raced away between read and unlink
-        return False
-    return True
+    with _lifecycle_guard(lp):
+        current, corrupt = _read_tolerant(lp)
+        if corrupt or current is None or current.nonce != info.nonce:
+            return False
+        try:
+            lp.unlink()
+        except FileNotFoundError:  # pragma: no cover - defensive; guard serializes peers
+            return False
+        return True
 
 
 @contextmanager

@@ -688,6 +688,27 @@ def test_reidealize_refreshes_stale_model(tmp_path) -> None:
     assert live_molecule_keys(proj, "vbconhmm") == keys
 
 
+def test_reidealize_preserves_stored_cohort_after_member_is_rejected(tmp_path) -> None:
+    n, t = 3, 24
+    proj, keys = _build_store(
+        tmp_path / "e.tether",
+        _step_trace(n, t),
+        _step_trace(n, t) * 0.5,
+    )
+    idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    proj.reject(keys[1])
+    calls = []
+
+    refreshed = reidealize(
+        proj,
+        "vbconhmm",
+        _runner=_make_runner({2: -1.0}, calls),
+    )
+
+    assert refreshed.molecule_keys == keys
+    assert calls[0]["smd"].molecule_keys == keys
+
+
 def test_project_live_and_reidealize_delegators(tmp_path) -> None:
     n, t = 2, 20
     proj, keys = _build_store(tmp_path / "e.tether", _step_trace(n, t), _step_trace(n, t) * 0.5)
@@ -713,6 +734,116 @@ def test_project_reidealize_rejects_locked_project(tmp_path) -> None:
     lock.acquire(proj.path, identity=LockIdentity(host="OTHER-HOST", user="other", pid=999))
     with pytest.raises(LockedError):
         proj.reidealize("vbconhmm", _runner=_make_runner({2: -3.0}, []))
+
+
+def test_idealization_rechecks_lock_after_runner_before_store_write(tmp_path) -> None:
+    from tether.project import lock
+    from tether.project.lock import LockedError, LockIdentity
+
+    n, t = 2, 20
+    proj, _keys = _build_store(
+        tmp_path / "e.tether",
+        _step_trace(n, t),
+        _step_trace(n, t) * 0.5,
+    )
+    proj.acquire_lock()
+    foreign = LockIdentity(host="OTHER-HOST", user="other", pid=999)
+    foreign_lock = None
+    base_runner = _make_runner({2: -3.0}, [])
+
+    def stealing_runner(*args, **kwargs):
+        nonlocal foreign_lock
+        result = base_runner(*args, **kwargs)
+        foreign_lock = lock.acquire(proj.path, identity=foreign, steal=True)
+        return result
+
+    try:
+        with pytest.raises(LockedError):
+            idealize_molecules(proj, nstates=2, _runner=stealing_runner)
+        assert list_idealizations(proj) == []
+    finally:
+        if foreign_lock is not None:
+            assert lock.release(proj.path, foreign_lock)
+
+
+def test_gui_idealization_requires_held_nonce_before_store_write(tmp_path) -> None:
+    from tether.gui.shell import make_store_idealizer
+    from tether.project import lock
+    from tether.project.lock import LockedError, LockIdentity
+
+    n, t = 2, 20
+    proj, keys = _build_store(
+        tmp_path / "e.tether",
+        _step_trace(n, t),
+        _step_trace(n, t) * 0.5,
+    )
+    proj.acquire_lock()
+    foreign = LockIdentity(host="OTHER-HOST", user="other", pid=999)
+    base_runner = _make_runner({2: -3.0}, [])
+
+    def steal_and_release_runner(*args, **kwargs):
+        result = base_runner(*args, **kwargs)
+        stolen = lock.acquire(proj.path, identity=foreign, steal=True)
+        assert lock.release(proj.path, stolen)
+        return result
+
+    idealizer = make_store_idealizer(
+        proj,
+        nstates=2,
+        require_held_lock=True,
+        _runner=steal_and_release_runner,
+    )
+    with pytest.raises(LockedError):
+        idealizer(keys[0])
+    assert list_idealizations(proj) == []
+
+
+def test_store_idealizer_project_handle_does_not_imply_retained_session(tmp_path) -> None:
+    from tether.gui.shell import make_store_idealizer
+
+    n, t = 2, 20
+    proj, keys = _build_store(
+        tmp_path / "e.tether",
+        _step_trace(n, t),
+        _step_trace(n, t) * 0.5,
+    )
+
+    idealized = make_store_idealizer(
+        Project.open(proj.path),
+        nstates=2,
+        _runner=_make_runner({2: -3.0}, []),
+    )(keys[0])
+
+    assert idealized is not None
+    assert idealized.shape == (t,)
+    assert list_idealizations(proj) == ["vbfret"]
+
+
+def test_idealize_excludes_rejected_rows_unless_explicitly_included(tmp_path) -> None:
+    n, t = 2, 20
+    proj, keys = _build_store(
+        tmp_path / "e.tether",
+        _step_trace(n, t),
+        _step_trace(n, t) * 0.5,
+    )
+    proj.reject(keys[0])
+    calls: list[dict] = []
+    runner = _make_runner({2: -3.0}, calls)
+
+    with pytest.raises(ValueError, match="no molecules selected"):
+        idealize_molecules(proj, [keys[0]], nstates=2, _runner=runner)
+    assert calls == []
+
+    stored = idealize_molecules(
+        proj,
+        [keys[0]],
+        nstates=2,
+        include_rejected=True,
+        _runner=runner,
+    )
+    assert stored.molecule_keys == [keys[0]]
+    assert len(calls) == 1
+    assert calls[0]["nstates"] == 2
 
 
 # --- schema freeze -----------------------------------------------------------

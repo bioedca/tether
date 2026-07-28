@@ -300,27 +300,41 @@ def _to_str(value: object) -> str:
     return value.decode() if isinstance(value, bytes) else str(value)
 
 
-def _select_rows(molecules: np.ndarray, molecule_keys: list[str] | None) -> list[int]:
+def _select_rows(
+    molecules: np.ndarray,
+    molecule_keys: list[str] | None,
+    *,
+    include_rejected: bool,
+) -> list[int]:
     """Row indices (store order) of the molecules to idealize.
 
     ``None`` selects every extracted molecule. A requested key absent from
     ``/molecules`` is an error (never a silent drop). A key that maps to multiple
     rows (the §7.10 duplicate-``molecule_key`` case) selects all of them, preserving
-    store order.
+    store order. Rejected rows are excluded unless explicitly included (PRD §7.5).
     """
     keys = [_to_str(k) for k in molecules["molecule_key"]]
     if molecule_keys is None:
-        return list(range(len(keys)))
-    wanted = list(dict.fromkeys(molecule_keys))  # de-dup, keep caller order
-    by_key: dict[str, list[int]] = {}
-    for i, k in enumerate(keys):
-        by_key.setdefault(k, []).append(i)
-    missing = [k for k in wanted if k not in by_key]
-    if missing:
-        raise KeyError(f"no molecule with molecule_key(s) {missing} in the store")
-    rows: list[int] = []
-    for k in wanted:
-        rows.extend(by_key[k])
+        rows = list(range(len(keys)))
+    else:
+        wanted = list(dict.fromkeys(molecule_keys))  # de-dup, keep caller order
+        by_key: dict[str, list[int]] = {}
+        for i, k in enumerate(keys):
+            by_key.setdefault(k, []).append(i)
+        missing = [k for k in wanted if k not in by_key]
+        if missing:
+            raise KeyError(f"no molecule with molecule_key(s) {missing} in the store")
+        rows = []
+        for k in wanted:
+            rows.extend(by_key[k])
+    if not include_rejected:
+        from tether.project.labels import CurationLabel
+
+        rows = [
+            row
+            for row in rows
+            if int(molecules["curation_label"][row]) != int(CurationLabel.REJECT)
+        ]
     return rows
 
 
@@ -390,6 +404,8 @@ def idealize_molecules(
     scratch_dir: str | PathLike[str] | None = None,
     timeout: float | None = 1800.0,
     overwrite: bool = False,
+    include_rejected: bool = False,
+    require_held_lock: bool = False,
     write_guard: Callable[[], None] | None = None,
     _runner: Callable[..., IdealizationResult] = run_vbfret,
 ) -> StoredIdealization:
@@ -400,8 +416,9 @@ def idealize_molecules(
     project:
         A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
     molecule_keys:
-        The molecules to idealize (``None`` = every extracted molecule). Order is
-        store order; a duplicate ``molecule_key`` (§7.10) idealizes each matching row.
+        The molecules to idealize (``None`` = every eligible extracted molecule).
+        Rejected rows are omitted unless ``include_rejected=True``. Order is store
+        order; a duplicate ``molecule_key`` (§7.10) idealizes each matching row.
     model_type:
         A sidecar model key (default ``"vbconhmm"``; see
         :func:`tether.idealize.run_vbfret`).
@@ -424,10 +441,21 @@ def idealize_molecules(
         temporary directory removed on exit.
     overwrite:
         Replace an existing ``/idealization/{model_name}``.
+    include_rejected:
+        Include molecules carrying the sticky reject label. ``False`` by default,
+        matching the product contract; callers must opt in explicitly.
+    require_held_lock:
+        Require the supplied :class:`Project` handle's exact held sidecar nonce
+        before fitting and again immediately before persistence. The GUI session
+        enables this stricter retained-ownership contract; headless callers keep
+        the normal unlocked-or-self-owned writer check by default.
     write_guard:
         Optional ownership check invoked at the canonical persistence boundary,
         after sidecar fitting and immediately before the HDF5 model write/swap.
         Owning orchestrators use it to fail closed if a long fit outlives its lock.
+        Supplied by the caller; ``require_held_lock`` instead derives that check
+        from this handle's own retained nonce. When both are given they compose --
+        the derived nonce check runs first, then this callback.
 
     Returns
     -------
@@ -443,11 +471,25 @@ def idealize_molecules(
         A requested ``molecule_key`` absent from ``/molecules``.
     FileExistsError
         ``/idealization/{model_name}`` exists and ``overwrite`` is False.
+    tether.project.lock.LockedError
+        A foreign writer owns the project before fitting or takes ownership
+        before the fitted model is persisted.
     """
     from tether.project.core import Project as _Project
 
     proj = project if isinstance(project, _Project) else _Project.open(project)
     path = proj.path
+    # This public function is also called directly (not only through
+    # Project.idealize), so establish the canonical writer check here too.
+    if require_held_lock:
+        start_nonce = proj._assert_held_lock()
+
+        def writer_guard() -> None:
+            proj._assert_held_lock(expected_nonce=start_nonce)
+
+    else:
+        writer_guard = proj._assert_writable
+        writer_guard()
     donor_key, acceptor_key = _resolve_quantity(intensity_quantity)
     model_name = model_name or model_type
 
@@ -462,7 +504,7 @@ def idealize_molecules(
                 f"(intensity_quantity={intensity_quantity!r})"
             )
 
-    rows = _select_rows(molecules, molecule_keys)
+    rows = _select_rows(molecules, molecule_keys, include_rejected=include_rejected)
     if not rows:
         raise ValueError("no molecules selected to idealize")
     _refuse_existing(path, model_name, overwrite)
@@ -538,6 +580,9 @@ def idealize_molecules(
             elbo_by_nstates = None
             selected_by = "fixed"
 
+        # The sidecar fit may run for many minutes. Ownership can change while it
+        # is outside the process, so re-check immediately before opening HDF5 r+.
+        writer_guard()
         return _write_model(
             path,
             result=result,
@@ -1074,7 +1119,9 @@ def reidealize(
     ``intensity_quantity``, and the state count — the same fixed ``nstates`` or a fresh
     max-ELBO sweep over the recorded grid) and re-runs :func:`idealize_molecules` with
     ``overwrite=True``. The refreshed model's provenance hashes are recomputed from the
-    current corrections, so the previously-stale molecules read live again. ``_runner``
+    current corrections, so the previously-stale molecules read live again. The stored
+    cohort is preserved even when one of its members is now rejected; rejection filters
+    new default selections, not the explicit membership of an existing model. ``_runner``
     is the same private sidecar test seam as :func:`idealize_molecules`.
     """
     stored = read_idealization(project, model_name)
@@ -1103,5 +1150,6 @@ def reidealize(
         scratch_dir=scratch_dir,
         timeout=timeout,
         overwrite=True,
+        include_rejected=True,
         **extra,
     )
