@@ -15,6 +15,8 @@ withheld-α → apparent-E path). Headless; runs in the base CI matrix.
 
 from __future__ import annotations
 
+import json
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -29,6 +31,8 @@ import numpy as np  # noqa: E402
 from tether.idealize.driver import SidecarError  # noqa: E402
 from tether.idealize.supervisor import ProbeResult, SidecarSupervision  # noqa: E402
 from tether.io.schema import SCHEMA_VERSION, create_project  # noqa: E402
+from tether.project import batch as batch_module  # noqa: E402
+from tether.project import lock  # noqa: E402
 from tether.project.batch import (  # noqa: E402
     POLICY_FAIL,
     POLICY_WARN,
@@ -47,6 +51,7 @@ from tether.project.batch import (  # noqa: E402
     run_batch,
     run_correct_stage,
 )
+from tether.project.core import Project  # noqa: E402
 
 # --- Marker-writing stub stage runners ---------------------------------------
 #
@@ -60,12 +65,31 @@ def _add_group(path: Path, group_path: str) -> None:
 
 
 def _extract_stub(*, fail: frozenset[str] = frozenset(), low_conf: frozenset[str] = frozenset()):
-    def run(movie_path, output_path, *, options=None, tmap=None, tdat=None, overwrite=False):
+    def run(
+        movie_path,
+        output_path,
+        *,
+        options=None,
+        tmap=None,
+        tdat=None,
+        overwrite=False,
+        publish_guard=None,
+    ):
         stem = Path(output_path).stem
         if stem in fail:
             raise RuntimeError(f"extract boom: {stem}")
         create_project(output_path, overwrite=True)
-        _add_group(Path(output_path), "settings/extraction")
+        path = Path(output_path)
+        _add_group(path, "settings/extraction")
+        with h5py.File(path, "r+") as f:
+            f["settings/extraction"].attrs["profile_json"] = json.dumps(
+                {
+                    "registration_rms_px": 0.75 if stem in low_conf else 0.25,
+                    "rms_gate": 0.5,
+                }
+            )
+        if publish_guard is not None:
+            publish_guard()
         return SimpleNamespace(n_molecules=3, low_confidence_registration=stem in low_conf)
 
     return run
@@ -76,10 +100,13 @@ def _raising_extract(movie_path, output_path, **kwargs):  # must never be called
 
 
 def _correct_stub(*, fail: frozenset[str] = frozenset()):
-    def run(output_path):
+    def run(output_path, **kwargs):
         stem = Path(output_path).stem
         if stem in fail:
             raise RuntimeError(f"correct boom: {stem}")
+        write_guard = kwargs.get("write_guard")
+        if write_guard is not None:
+            write_guard()
         _add_group(Path(output_path), "settings/correction")
         return "α withheld; apparent-E fallback (3 mol)"
 
@@ -95,6 +122,9 @@ def _idealize_stub(*, fail: frozenset[str] = frozenset()):
         stem = Path(output_path).stem
         if stem in fail:
             raise RuntimeError(f"idealize boom: {stem}")
+        write_guard = kwargs.get("write_guard")
+        if write_guard is not None:
+            write_guard()
         _add_group(Path(output_path), "idealization/vbconhmm")
         return SimpleNamespace(model_name="vbconhmm", nstates=2, molecule_keys=["m1", "m2"])
 
@@ -117,6 +147,44 @@ def _run(jobs, **kw):
     kw.setdefault("_correct", _correct_stub())
     kw.setdefault("_idealize", _idealize_stub())
     return run_batch(jobs, **kw)
+
+
+def _replace_sidecar_as_external(
+    project_path: Path,
+    identity: lock.LockIdentity,
+) -> tuple[lock.LockInfo, lock.LockInfo]:
+    """Simulate a different process replacing the sidecar outside this registry."""
+    prior = lock.read_lock(project_path)
+    assert prior is not None
+    successor = lock.LockInfo(
+        host=identity.host,
+        user=identity.user,
+        pid=identity.pid,
+        timestamp=prior.timestamp,
+        nonce=f"external-successor-{identity.pid}",
+    )
+    lock.lock_path(project_path).write_text(
+        json.dumps(successor.to_dict()),
+        encoding="utf-8",
+    )
+    return successor, prior
+
+
+def _assert_reservation_available_from_new_thread(project_path: Path) -> None:
+    errors: list[BaseException] = []
+
+    def claim_and_release() -> None:
+        try:
+            reservation = lock.acquire_process_reservation(project_path)
+            lock.release_process_reservation(project_path, reservation)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    contender = threading.Thread(target=claim_and_release)
+    contender.start()
+    contender.join(timeout=5)
+    assert not contender.is_alive()
+    assert not errors
 
 
 # --- Policy validation -------------------------------------------------------
@@ -401,6 +469,994 @@ def test_policy_fail_fails_low_confidence_movie(tmp_path: Path) -> None:
     assert not r.ok
 
 
+def test_policy_fail_rejection_survives_resume(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.results[0].stages[STAGE_EXTRACT].status == STATUS_FAILED
+
+    second = run_batch(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_raising_idealize,
+    )
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    assert second.n_failed == 1
+
+
+def test_policy_warn_may_resume_a_policy_fail_rejection(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+
+    second = run_batch(
+        jobs,
+        policy=POLICY_WARN,
+        _extract=_raising_extract,
+        _correct=_correct_stub(),
+        _idealize=_idealize_stub(),
+    )
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_CORRECT].status == STATUS_DONE
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_DONE
+    assert r.ok
+
+
+@pytest.mark.parametrize(
+    ("saved_residual", "saved_gate"),
+    [
+        pytest.param(True, 0.5, id="boolean-residual"),
+        pytest.param(0.75, False, id="boolean-gate"),
+        pytest.param("0.75", 0.5, id="numeric-string-residual"),
+        pytest.param(10**400, 0.5, id="overflowing-integer-residual"),
+    ],
+)
+def test_malformed_saved_profile_does_not_invent_policy_rejection(
+    tmp_path: Path,
+    saved_residual: object,
+    saved_gate: object,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(jobs, policy=POLICY_FAIL)
+    assert first.results[0].ok
+    with h5py.File(jobs[0].output_path, "r+") as store:
+        store["settings/extraction"].attrs["profile_json"] = json.dumps(
+            {
+                "registration_rms_px": saved_residual,
+                "rms_gate": saved_gate,
+            }
+        )
+
+    second = run_batch(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_raising_idealize,
+    )
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_CORRECT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_SKIPPED
+    assert r.ok
+
+
+def test_deeply_nested_saved_profile_uses_malformed_checkpoint_fallback(
+    tmp_path: Path,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(jobs, policy=POLICY_FAIL)
+    assert first.results[0].ok
+    deeply_nested_json = "[" * 10_000 + "0" + "]" * 10_000
+    with pytest.raises(RecursionError):
+        json.loads(deeply_nested_json)
+    with h5py.File(jobs[0].output_path, "r+") as store:
+        store["settings/extraction"].attrs["profile_json"] = deeply_nested_json
+
+    second = run_batch(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_raising_idealize,
+    )
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_CORRECT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_SKIPPED
+    assert r.ok
+
+
+@pytest.mark.parametrize(
+    ("new_low_confidence", "expected_extract"),
+    [(False, STATUS_DONE), (True, STATUS_FAILED)],
+)
+def test_overwrite_reextracts_a_rejected_checkpoint_and_regates(
+    tmp_path: Path,
+    new_low_confidence: bool,
+    expected_extract: str,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+
+    calls = 0
+    low_conf = frozenset({"x"}) if new_low_confidence else frozenset()
+    replacement = _extract_stub(low_conf=low_conf)
+
+    def counted_extract(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return replacement(*args, **kwargs)
+
+    second = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=counted_extract,
+    )
+    r = second.results[0]
+    assert calls == 1
+    assert r.stages[STAGE_EXTRACT].status == expected_extract
+    if new_low_confidence:
+        assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+        assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+        assert not r.ok
+    else:
+        assert r.stages[STAGE_CORRECT].status == STATUS_DONE
+        assert r.stages[STAGE_IDEALIZE].status == STATUS_DONE
+        assert r.ok
+
+
+def test_overwrite_rejected_checkpoint_refuses_a_foreign_lock(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    held = lock.acquire(
+        jobs[0].output_path,
+        identity=lock.LockIdentity(host="OTHER", user="owner", pid=999),
+    )
+    try:
+        second = run_batch(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            _extract=_raising_extract,
+            _correct=_raising_correct,
+            _idealize=_raising_idealize,
+        )
+    finally:
+        assert lock.release(jobs[0].output_path, held)
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "is locked" in r.stages[STAGE_EXTRACT].error
+    assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    assert not r.ok
+
+
+def test_fail_overwrite_refuses_foreign_lock_before_output_exists(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    assert not jobs[0].output_path.exists()
+    held = lock.acquire(
+        jobs[0].output_path,
+        identity=lock.LockIdentity(host="OTHER", user="owner", pid=999),
+    )
+    try:
+        result = run_batch(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            _extract=_raising_extract,
+            _correct=_raising_correct,
+            _idealize=_raising_idealize,
+        )
+        assert lock.read_lock(jobs[0].output_path) == held
+    finally:
+        assert lock.release(jobs[0].output_path, held)
+
+    r = result.results[0]
+    assert not jobs[0].output_path.exists()
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "is locked" in r.stages[STAGE_EXTRACT].error
+    assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    assert not r.ok
+    _assert_reservation_available_from_new_thread(jobs[0].output_path)
+
+
+def test_fail_overwrite_refuses_same_process_lock_before_output_exists(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    assert not jobs[0].output_path.exists()
+    held = lock.acquire(jobs[0].output_path)
+    try:
+        result = run_batch(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            _extract=_raising_extract,
+            _correct=_raising_correct,
+            _idealize=_raising_idealize,
+        )
+        assert lock.read_lock(jobs[0].output_path) == held
+    finally:
+        assert lock.release(jobs[0].output_path, held)
+
+    r = result.results[0]
+    assert not jobs[0].output_path.exists()
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "is locked" in r.stages[STAGE_EXTRACT].error
+    assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    assert not r.ok
+
+
+def test_caller_release_during_batch_reservation_preflight_leaves_no_residue(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    caller_owner = lock.acquire(jobs[0].output_path)
+    real_reserve = lock.acquire_process_reservation
+    reservation_ready = threading.Event()
+    continue_preflight = threading.Event()
+    summaries = []
+    errors: list[BaseException] = []
+
+    def pause_after_reservation(project_path):
+        reservation = real_reserve(project_path)
+        reservation_ready.set()
+        assert continue_preflight.wait(timeout=5)
+        return reservation
+
+    def run_batch_in_thread() -> None:
+        try:
+            summaries.append(
+                _run(
+                    jobs,
+                    policy=POLICY_FAIL,
+                    overwrite=True,
+                )
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    monkeypatch.setattr(lock, "acquire_process_reservation", pause_after_reservation)
+    batch_thread = threading.Thread(target=run_batch_in_thread)
+    batch_thread.start()
+    assert reservation_ready.wait(timeout=5)
+    try:
+        assert lock.release(jobs[0].output_path, caller_owner)
+    finally:
+        continue_preflight.set()
+    batch_thread.join(timeout=10)
+
+    assert not batch_thread.is_alive()
+    assert not errors
+    assert len(summaries) == 1
+    assert summaries[0].results[0].ok
+    assert lock.read_lock(jobs[0].output_path) is None
+    _assert_reservation_available_from_new_thread(jobs[0].output_path)
+
+
+def test_fail_overwrite_guards_absent_output_through_extract(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    assert not jobs[0].output_path.exists()
+    replacement = _extract_stub()
+    observed_nonce = None
+
+    def guarded_extract(*args, **kwargs):
+        nonlocal observed_nonce
+        publish_guard = kwargs.get("publish_guard")
+        assert publish_guard is not None
+        owner = lock.read_lock(jobs[0].output_path)
+        assert owner is not None
+        assert owner.identity == lock.local_identity()
+        observed_nonce = owner.nonce
+        with pytest.raises(lock.LockedError):
+            lock.acquire(jobs[0].output_path)
+        with pytest.raises(lock.LockedError):
+            lock.acquire_process_reservation(jobs[0].output_path)
+        lock.assert_writable(jobs[0].output_path)
+        publish_guard()
+        summary = replacement(*args, **kwargs)
+        assert lock.read_lock(jobs[0].output_path) == owner
+        lock.assert_writable(jobs[0].output_path)
+        publish_guard()
+        return summary
+
+    result = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=guarded_extract,
+    )
+
+    assert observed_nonce is not None
+    assert result.results[0].stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert result.results[0].ok
+    assert lock.read_lock(jobs[0].output_path) is None
+    _assert_reservation_available_from_new_thread(jobs[0].output_path)
+
+
+def test_fail_overwrite_releases_reservation_after_runner_exception(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+
+    def fail_after_claim(*args, **kwargs):
+        publish_guard = kwargs.get("publish_guard")
+        assert publish_guard is not None
+        publish_guard()
+        raise RuntimeError("extract failed after destination claim")
+
+    result = run_batch(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=fail_after_claim,
+        _correct=_raising_correct,
+        _idealize=_raising_idealize,
+    )
+
+    assert result.results[0].stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert lock.read_lock(jobs[0].output_path) is None
+    _assert_reservation_available_from_new_thread(jobs[0].output_path)
+
+
+def test_batch_reservation_blocks_same_process_thread_acquire_and_write(
+    tmp_path: Path,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    with h5py.File(jobs[0].output_path, "r+") as store:
+        store.attrs["reservation_sentinel"] = "unchanged"
+    replacement = _extract_stub()
+    failures: dict[str, BaseException] = {}
+
+    def guarded_extract(*args, **kwargs):
+        publish_guard = kwargs.get("publish_guard")
+        assert publish_guard is not None
+
+        def contend() -> None:
+            project = Project(jobs[0].output_path)
+            try:
+                publish_guard()
+            except BaseException as exc:
+                failures["guard"] = exc
+            try:
+                project.acquire_lock()
+            except BaseException as exc:
+                failures["acquire"] = exc
+            try:
+                Project.create(jobs[0].output_path, overwrite=True)
+            except BaseException as exc:
+                failures["write"] = exc
+
+        contender = threading.Thread(target=contend)
+        contender.start()
+        contender.join(timeout=5)
+        assert not contender.is_alive()
+        assert isinstance(failures.get("guard"), lock.LockError)
+        assert isinstance(failures.get("acquire"), lock.LockedError)
+        assert isinstance(failures.get("write"), lock.LockedError)
+        with h5py.File(jobs[0].output_path, "r") as store:
+            assert store.attrs["reservation_sentinel"] == "unchanged"
+        publish_guard()
+        return replacement(*args, **kwargs)
+
+    result = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=guarded_extract,
+    )
+
+    assert result.results[0].ok
+    assert lock.read_lock(jobs[0].output_path) is None
+    _assert_reservation_available_from_new_thread(jobs[0].output_path)
+
+
+def test_overwrite_rejected_checkpoint_checks_lock_before_unreadable_probe(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    held = lock.acquire(
+        jobs[0].output_path,
+        identity=lock.LockIdentity(host="OTHER", user="owner", pid=999),
+    )
+    extract_called = False
+
+    def destructive_extract(*args, **kwargs):
+        nonlocal extract_called
+        extract_called = True
+        raise AssertionError("destructive extract ran after the unreadable checkpoint probe")
+
+    # Simulate the existing HDF5 project being unreadable while the foreign writer
+    # owns it. The historical probe deliberately collapses that open failure to False.
+    monkeypatch.setattr(batch_module, "_is_extracted", lambda _path: False)
+    try:
+        second = run_batch(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            _extract=destructive_extract,
+            _correct=_raising_correct,
+            _idealize=_raising_idealize,
+        )
+    finally:
+        assert lock.release(jobs[0].output_path, held)
+
+    r = second.results[0]
+    assert not extract_called
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "is locked" in r.stages[STAGE_EXTRACT].error
+    assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    assert not r.ok
+
+
+def test_overwrite_rejected_checkpoint_refuses_caller_owned_lock(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    caller_owner = lock.acquire(jobs[0].output_path)
+
+    try:
+        second = run_batch(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            _extract=_raising_extract,
+            _correct=_raising_correct,
+            _idealize=_raising_idealize,
+        )
+        current_owner = lock.read_lock(jobs[0].output_path)
+        assert current_owner is not None
+        assert current_owner.nonce == caller_owner.nonce
+    finally:
+        assert lock.release(jobs[0].output_path, caller_owner)
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "is locked" in r.stages[STAGE_EXTRACT].error
+    assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    assert not r.ok
+
+
+def test_fail_overwrite_holds_lock_through_incomplete_checkpoint_extract(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    create_project(jobs[0].output_path)
+    replacement = _extract_stub()
+    real_release = lock.release
+    release_seen = False
+    extract_called = False
+
+    def track_release(project_path, info, **kwargs):
+        nonlocal release_seen
+        release_seen = True
+        return real_release(project_path, info, **kwargs)
+
+    def guarded_extract(*args, **kwargs):
+        nonlocal extract_called
+        extract_called = True
+        assert not release_seen
+        publish_guard = kwargs.get("publish_guard")
+        assert publish_guard is not None
+        owner = lock.read_lock(jobs[0].output_path)
+        assert owner is not None
+        assert owner.identity == lock.local_identity()
+        publish_guard()
+        return replacement(*args, **kwargs)
+
+    monkeypatch.setattr(lock, "release", track_release)
+    result = run_batch(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=guarded_extract,
+        _correct=_correct_stub(),
+        _idealize=_idealize_stub(),
+    )
+
+    assert extract_called
+    assert release_seen
+    assert result.results[0].stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert result.results[0].ok
+
+
+def test_lock_release_failure_isolated_to_one_movie(tmp_path: Path, monkeypatch) -> None:
+    jobs = _jobs(tmp_path, "x", "y")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x", "y"})),
+    )
+    assert first.n_failed == 2
+    real_release = lock.release
+
+    def release_with_one_share_failure(project_path, info, **kwargs):
+        if Path(project_path) == jobs[0].output_path:
+            raise OSError("share refused lock cleanup")
+        return real_release(project_path, info, **kwargs)
+
+    monkeypatch.setattr(lock, "release", release_with_one_share_failure)
+    with BatchLog() as log:
+        second = _run(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            log=log,
+        )
+        records = list(log.records)
+
+    stranded_owner = lock.read_lock(jobs[0].output_path)
+    assert stranded_owner is not None
+    _assert_reservation_available_from_new_thread(jobs[0].output_path)
+    assert real_release(jobs[0].output_path, stranded_owner)
+
+    assert len(second.results) == 2
+    assert all(result.ok for result in second.results)
+    assert lock.read_lock(jobs[1].output_path) is None
+    assert any(
+        record["movie"] == "x"
+        and record["stage"] == "lock-release"
+        and record["status"] == STATUS_WARNING
+        and "share refused lock cleanup" in record["error"]
+        for record in records
+    )
+
+
+def test_lock_release_false_warns_preserves_successor_and_continues(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    jobs = _jobs(tmp_path, "x", "y")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x", "y"})),
+    )
+    assert first.n_failed == 2
+    real_release = lock.release
+    successor = None
+
+    def release_after_successor_claim(project_path, info, **kwargs):
+        nonlocal successor
+        if Path(project_path) == jobs[0].output_path:
+            successor, _prior = _replace_sidecar_as_external(
+                project_path,
+                lock.LockIdentity(host="OTHER", user="successor", pid=321),
+            )
+        return real_release(project_path, info, **kwargs)
+
+    monkeypatch.setattr(lock, "release", release_after_successor_claim)
+    with BatchLog() as log:
+        second = _run(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            log=log,
+        )
+        records = list(log.records)
+
+    assert successor is not None
+    assert lock.read_lock(jobs[0].output_path) == successor
+    _assert_reservation_available_from_new_thread(jobs[0].output_path)
+    assert real_release(jobs[0].output_path, successor)
+    assert len(second.results) == 2
+    assert all(result.ok for result in second.results)
+    assert lock.read_lock(jobs[1].output_path) is None
+    assert any(
+        record["movie"] == "x"
+        and record["stage"] == "lock-release"
+        and record["status"] == STATUS_WARNING
+        and "successor lock preserved" in record["error"]
+        for record in records
+    )
+
+
+def test_overwrite_rejected_checkpoint_holds_lock_through_all_writes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    replacement = _extract_stub()
+    correction = _correct_stub()
+    idealization = _idealize_stub()
+    observed_writes: list[str] = []
+
+    def assert_owned(write_name: str) -> None:
+        owner = lock.read_lock(jobs[0].output_path)
+        assert owner is not None
+        assert owner.identity == lock.local_identity()
+        with pytest.raises(lock.LockedError):
+            lock.assert_writable(
+                jobs[0].output_path,
+                identity=lock.LockIdentity(host="OTHER", user="contender", pid=123),
+            )
+        observed_writes.append(write_name)
+
+    def guarded_extract(*args, **kwargs):
+        assert_owned("extract")
+        return replacement(*args, **kwargs)
+
+    def guarded_correct(*args, **kwargs):
+        assert_owned("correct")
+        return correction(*args, **kwargs)
+
+    def guarded_idealize(*args, **kwargs):
+        assert_owned("idealize")
+        return idealization(*args, **kwargs)
+
+    stamp_batch_settings = batch_module._stamp_batch_settings
+
+    def guarded_stamp(*args, **kwargs):
+        assert_owned("provenance")
+        return stamp_batch_settings(*args, **kwargs)
+
+    monkeypatch.setattr(batch_module, "_stamp_batch_settings", guarded_stamp)
+
+    second = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=guarded_extract,
+        _correct=guarded_correct,
+        _idealize=guarded_idealize,
+    )
+
+    assert observed_writes == ["extract", "correct", "idealize", "provenance"]
+    assert second.results[0].ok
+    assert lock.read_lock(jobs[0].output_path) is None
+
+
+def test_overwrite_rejected_checkpoint_aborts_if_lock_is_stolen_before_publish(
+    tmp_path: Path,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    with h5py.File(jobs[0].output_path, "r+") as store:
+        store["settings/batch"].attrs["sentinel"] = "successor must keep this"
+    contender = lock.LockIdentity(host="OTHER", user="contender", pid=123)
+    stolen = None
+
+    def stolen_before_publish(
+        movie_path,
+        output_path,
+        *,
+        options=None,
+        tmap=None,
+        tdat=None,
+        overwrite=False,
+        publish_guard=None,
+    ):
+        nonlocal stolen
+        assert publish_guard is not None
+        stolen, prior = _replace_sidecar_as_external(Path(output_path), contender)
+        assert prior.identity == lock.local_identity()
+        publish_guard()
+        raise AssertionError("publish guard returned after lock ownership changed")
+
+    try:
+        second = run_batch(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            _extract=stolen_before_publish,
+            _correct=_raising_correct,
+            _idealize=_raising_idealize,
+        )
+    finally:
+        if stolen is not None:
+            assert lock.release(jobs[0].output_path, stolen)
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "lock ownership changed during rejected-checkpoint replacement" in (
+        r.stages[STAGE_EXTRACT].error
+    )
+    assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    with h5py.File(jobs[0].output_path, "r") as store:
+        profile = json.loads(store["settings/extraction"].attrs["profile_json"])
+        assert store["settings/batch"].attrs["sentinel"] == "successor must keep this"
+    assert profile["registration_rms_px"] == 0.75
+    assert not r.ok
+
+
+def test_overwrite_rejected_checkpoint_guards_idealization_persistence(
+    tmp_path: Path,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    contender = lock.LockIdentity(host="OTHER", user="successor", pid=456)
+    stolen = None
+
+    def stolen_before_persistence(output_path, *, write_guard=None, **kwargs):
+        nonlocal stolen
+        assert write_guard is not None
+        stolen, prior = _replace_sidecar_as_external(Path(output_path), contender)
+        assert prior.identity == lock.local_identity()
+        with h5py.File(output_path, "r+") as store:
+            store.require_group("settings/batch").attrs["sentinel"] = "successor must keep this"
+        write_guard()
+        raise AssertionError("write guard returned after lock ownership changed")
+
+    try:
+        second = _run(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            _idealize=stolen_before_persistence,
+        )
+    finally:
+        if stolen is not None:
+            assert lock.release(jobs[0].output_path, stolen)
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert r.stages[STAGE_CORRECT].status == STATUS_DONE
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_FAILED
+    assert "lock ownership changed during rejected-checkpoint replacement" in (
+        r.stages[STAGE_IDEALIZE].error
+    )
+    with h5py.File(jobs[0].output_path, "r") as store:
+        assert "vbconhmm" not in store["idealization"]
+        assert store["settings/batch"].attrs["sentinel"] == "successor must keep this"
+    assert not r.ok
+
+
+def test_overwrite_rejected_checkpoint_guards_correction_persistence(
+    tmp_path: Path,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    contender = lock.LockIdentity(host="OTHER", user="successor", pid=789)
+    stolen = None
+
+    def stolen_before_persistence(output_path, *, write_guard=None):
+        nonlocal stolen
+        assert write_guard is not None
+        stolen, prior = _replace_sidecar_as_external(Path(output_path), contender)
+        assert prior.identity == lock.local_identity()
+        with h5py.File(output_path, "r+") as store:
+            store.require_group("settings/batch").attrs["sentinel"] = "successor must keep this"
+        write_guard()
+        raise AssertionError("write guard returned after lock ownership changed")
+
+    try:
+        second = _run(
+            jobs,
+            policy=POLICY_FAIL,
+            overwrite=True,
+            _correct=stolen_before_persistence,
+        )
+    finally:
+        if stolen is not None:
+            assert lock.release(jobs[0].output_path, stolen)
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert r.stages[STAGE_CORRECT].status == STATUS_FAILED
+    assert "lock ownership changed during rejected-checkpoint replacement" in (
+        r.stages[STAGE_CORRECT].error
+    )
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    with h5py.File(jobs[0].output_path, "r") as store:
+        assert "correction" not in store["settings"]
+        assert store["settings/batch"].attrs["sentinel"] == "successor must keep this"
+    assert not r.ok
+
+
+def test_overwrite_rejected_checkpoint_guards_batch_provenance_persistence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    contender = lock.LockIdentity(host="OTHER", user="successor", pid=987)
+    stolen = None
+    real_stamp = batch_module._stamp_batch_settings
+
+    def stolen_before_provenance(path, *, write_guard=None, **kwargs):
+        nonlocal stolen
+        assert write_guard is not None
+        stolen, prior = _replace_sidecar_as_external(Path(path), contender)
+        assert prior.identity == lock.local_identity()
+        with h5py.File(path, "r+") as store:
+            store.require_group("settings/batch").attrs["sentinel"] = "successor must keep this"
+        return real_stamp(path, write_guard=write_guard, **kwargs)
+
+    monkeypatch.setattr(batch_module, "_stamp_batch_settings", stolen_before_provenance)
+    try:
+        with BatchLog() as log:
+            second = _run(
+                jobs,
+                policy=POLICY_FAIL,
+                overwrite=True,
+                log=log,
+            )
+            records = list(log.records)
+    finally:
+        if stolen is not None:
+            assert lock.release(jobs[0].output_path, stolen)
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert r.stages[STAGE_CORRECT].status == STATUS_DONE
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_DONE
+    assert r.ok
+    with h5py.File(jobs[0].output_path, "r") as store:
+        assert store["settings/batch"].attrs["sentinel"] == "successor must keep this"
+    assert any(
+        record["movie"] == "x"
+        and record["stage"] == "provenance"
+        and record["status"] == STATUS_WARNING
+        and "lock ownership changed during rejected-checkpoint replacement" in record["error"]
+        for record in records
+    )
+
+
+def test_overwrite_rechecks_replaced_checkpoint_under_lock(tmp_path: Path, monkeypatch) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    real_acquire = lock.acquire
+
+    def replace_with_accepted_checkpoint(project_path, *args, **kwargs):
+        owner = real_acquire(project_path, *args, **kwargs)
+        with h5py.File(project_path, "r+") as store:
+            store["settings/extraction"].attrs["profile_json"] = json.dumps(
+                {
+                    "registration_rms_px": 0.25,
+                    "rms_gate": 0.5,
+                }
+            )
+        return owner
+
+    monkeypatch.setattr(lock, "acquire", replace_with_accepted_checkpoint)
+    second = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=_raising_extract,
+    )
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_CORRECT].status == STATUS_DONE
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_DONE
+    assert r.ok
+    assert lock.read_lock(jobs[0].output_path) is None
+
+
+def test_overwrite_rechecks_future_schema_under_lock(tmp_path: Path, monkeypatch) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(
+        jobs,
+        policy=POLICY_FAIL,
+        _extract=_extract_stub(low_conf=frozenset({"x"})),
+    )
+    assert first.n_failed == 1
+    real_acquire = lock.acquire
+
+    def replace_with_future_project(project_path, *args, **kwargs):
+        owner = real_acquire(project_path, *args, **kwargs)
+        _stamp_future_schema(Path(project_path))
+        return owner
+
+    monkeypatch.setattr(lock, "acquire", replace_with_future_project)
+    second = run_batch(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_raising_idealize,
+    )
+
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "newer than this app's" in r.stages[STAGE_EXTRACT].error
+    assert r.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    assert not r.ok
+    assert lock.read_lock(jobs[0].output_path) is None
+
+
+def test_overwrite_still_skips_an_in_gate_completed_checkpoint(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "x")
+    first = _run(jobs, policy=POLICY_FAIL)
+    assert first.results[0].stages[STAGE_EXTRACT].status == STATUS_DONE
+
+    second = run_batch(
+        jobs,
+        policy=POLICY_FAIL,
+        overwrite=True,
+        _extract=_raising_extract,
+        _correct=_raising_correct,
+        _idealize=_raising_idealize,
+    )
+    r = second.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_CORRECT].status == STATUS_SKIPPED
+    assert r.stages[STAGE_IDEALIZE].status == STATUS_SKIPPED
+    assert r.ok
+
+
 # --- idealize=False ----------------------------------------------------------
 
 
@@ -682,6 +1738,56 @@ def _build_real_store(path: Path, *, n_mol: int = 3, n_frames: int = 200) -> Non
         parsed=parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif"),
         registration_map=_reg_map(),
     )
+
+
+def test_run_correct_stage_carries_guard_into_every_writer(tmp_path: Path, monkeypatch) -> None:
+    from tether.project import correct as correct_module
+    from tether.project import gamma as gamma_module
+    from tether.project import leakage as leakage_module
+    from tether.project import photobleach as photobleach_module
+
+    path = tmp_path / "guarded.tether"
+    create_project(path)
+
+    def guard() -> None:
+        pass
+
+    observed: list[tuple[str, object]] = []
+
+    def photobleach_stub(project_path, *, write_guard=None):
+        observed.append(("photobleach", write_guard))
+        return SimpleNamespace(n_donor_bleached=1, n_acceptor_bleached=1)
+
+    def leakage_stub(project_path, *, write_guard=None):
+        observed.append(("leakage", write_guard))
+        return SimpleNamespace(applied=True, alpha=0.1)
+
+    def gamma_stub(project_path, *, write_guard=None):
+        observed.append(("gamma", write_guard))
+        return SimpleNamespace(applied=True, gamma=1.2)
+
+    def corrected_stub(project_path, *, write_guard=None):
+        observed.append(("corrected", write_guard))
+        return SimpleNamespace(
+            total_failure=False,
+            apparent_e_only=False,
+            n_corrected=3,
+        )
+
+    monkeypatch.setattr(photobleach_module, "compute_photobleach", photobleach_stub)
+    monkeypatch.setattr(leakage_module, "compute_leakage_alpha", leakage_stub)
+    monkeypatch.setattr(gamma_module, "compute_gamma", gamma_stub)
+    monkeypatch.setattr(correct_module, "compute_corrected_fret", corrected_stub)
+
+    detail = run_correct_stage(path, write_guard=guard)
+
+    assert observed == [
+        ("photobleach", guard),
+        ("leakage", guard),
+        ("gamma", guard),
+        ("corrected", guard),
+    ]
+    assert "3 corrected" in detail
 
 
 def test_integration_real_correct_stage_withheld_alpha(tmp_path: Path) -> None:

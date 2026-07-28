@@ -78,6 +78,7 @@ prose harmonization of the PRD (PRD §12.7).
 | [0051](0051-installed-app-launch-surface.md) | The installed app's launch surface: a real GUI entry point, prefix shims, and a menu shortcut | accepted | §7.8, §4.1, §9 M9 |
 | [0052](0052-concurrent-agent-swarm-coordination.md) | Concurrent issue-swarm coordination | accepted | §12.2–§12.5 |
 | [0053](0053-structured-backlog-intake-gates-swarm-admission.md) | Structured backlog intake gates swarm admission | accepted | §12.5 |
+| [0056](0056-policy-fail-rejected-extraction-checkpoint.md) | Preserve policy-fail rejection across batch resume | accepted | §6, §7.11, §11.2 |
 
 _Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
 by the PRs that implement them._

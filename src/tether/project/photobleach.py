@@ -30,6 +30,7 @@ lock).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -84,6 +85,7 @@ def compute_photobleach(
     b: float = PB_PRIOR_B,
     beta: float = PB_PRIOR_BETA,
     mu: float = PB_PRIOR_MU,
+    write_guard: Callable[[], None] | None = None,
 ) -> PhotobleachSummary:
     """Detect per-channel photobleaching and store frames + the auto window.
 
@@ -97,6 +99,9 @@ def compute_photobleach(
     a, b, beta, mu
         Normal-inverse-Gamma priors for the single-step model (defaults are the
         frozen PRD §11.2 values ``a = b = beta = 1``, ``mu = 1000``).
+    write_guard
+        Optional caller-owned lock/lease check invoked before opening the canonical
+        project and again after detection immediately before persisting results.
 
     Returns
     -------
@@ -125,6 +130,8 @@ def compute_photobleach(
     n_acceptor = 0
     n_windows = 0
 
+    if write_guard is not None:
+        write_guard()
     with h5py.File(path, "r+") as f:
         traces_grp = f[_TRACES]
         for layer in (donor_layer, acceptor_layer):
@@ -170,6 +177,8 @@ def compute_photobleach(
                 analysis_window[i] = (start, sum_pb)
                 n_windows += int(sum_pb < end)
 
+        if write_guard is not None:
+            write_guard()
         f[_MOLECULES][TABLE][:] = table
 
     return PhotobleachSummary(
