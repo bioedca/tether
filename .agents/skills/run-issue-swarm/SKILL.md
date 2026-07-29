@@ -135,14 +135,18 @@ The protocol rationale and invariants are recorded in
 - The coordinator alone routes external reviews. Copilot is optional and best-effort; record whether it
   was not requested, unavailable, quota-exhausted, pending, or complete, but it never blocks a slot or
   merge. Low and standard lanes select Codex GitHub Code Review or CodeRabbit; high/load-bearing lanes
-  require CodeRabbit after the stable diff is green. Qualified human/domain review is required when
-  scientific, security, or release judgment is material. Accept only a substantive PR diff walkthrough from Codex
-  GitHub Code Review or CodeRabbit, bound to the final head SHA. For either provider, refetch the
-  expected reviewer identity, server-bound reviewed
+  require CodeRabbit after the stable diff is green. Human sign-off is required for releases, tags,
+  signing changes, and any new scientific claim or citation. Accept a substantive PR diff walkthrough
+  from Codex GitHub Code Review or CodeRabbit, bound to the head it reviewed. For either provider,
+  refetch the expected reviewer identity, server-bound reviewed
   commit/head, and walkthrough before accepting evidence. Author-side `/review`, local CodeRabbit output,
-  a status/check alone, denial, provider unavailability, or a summary without a diff walkthrough never
-  satisfies that independent gate. Resolve every conversation and every actionable finding. Any head
-  change invalidates final-head review evidence; a material change requires every affected review layer again.
+  or a status/check alone never satisfies that independent gate. The one alternative is the *selected*
+  provider's own statement that it has nothing to review for this PR at the head it read — verified
+  under the same authenticated-identity and server-bound-head checks as a walkthrough, and never
+  substituted by the author or another commenter. Resolve every conversation and disposition every finding
+  per the `AGENTS.md` severity floor — fix blocking, defer the rest to one follow-up issue. Review
+  evidence survives a non-material push, a material push grants no extra round, and a PR gets at most
+  two rounds.
 - When CodeRabbit is required or selected, keep one durable PR comment keyed by
   `(repository, PR, head SHA)` with marker `<!-- tether-coderabbit-queue RECORD -->`; `RECORD` contains
   version, head SHA, state (`queued|triggered|rate-limited|complete`), attempt time, and retry time.
