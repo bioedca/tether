@@ -47,6 +47,9 @@ ADR_REF_RE = re.compile(r"^refs/" + ADR_NAMESPACE + r"/(\d{4})$")
 ADR_FILE_RE = re.compile(r"^(\d{4})-")
 REQUIRED_LABEL = "status:ready"
 
+PER_PAGE = 100
+MAX_PAGES = 20
+
 EXIT_INELIGIBLE = 3
 EXIT_LOST = 4
 EXIT_SUPERSEDED = 5
@@ -95,6 +98,26 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None) -> tupl
             return error.code, None
     except urllib.error.URLError as exc:
         raise ClaimError("GitHub API is unreachable") from exc
+
+
+def _paginate(path: str, what: str) -> list[Any]:
+    """Walk every page of a list endpoint.
+
+    ``_request`` discards response headers, so Link-header following is impossible; page until a
+    short page arrives instead. Reading only page 1 is not a matter of degree here: a re-approval
+    comment past the first 100 would be invisible and the issue reported as *edited after
+    approval*, refusing a claim on work that is properly approved.
+    """
+    joiner = "&" if "?" in path else "?"
+    items: list[Any] = []
+    for page in range(1, MAX_PAGES + 1):
+        status, chunk = _request("GET", f"{path}{joiner}per_page={PER_PAGE}&page={page}")
+        if status != 200 or not isinstance(chunk, list):
+            raise ClaimError(f"{what} could not be read")
+        items += chunk
+        if len(chunk) < PER_PAGE:
+            return items
+    raise ClaimError(f"{what} is larger than this tool will page through")
 
 
 def _scope_hash(title: str, body: str) -> str:
@@ -161,9 +184,7 @@ def _check_eligible(number: int, owner: str) -> dict[str, Any]:
     if [a for a in assignees if a != owner]:
         raise ClaimError(f"#{number} is assigned to someone else")
 
-    status, comments = _request("GET", f"/repos/{REPO}/issues/{number}/comments?per_page=100")
-    if status != 200 or not isinstance(comments, list):
-        raise ClaimError(f"#{number} comments could not be read")
+    comments = _paginate(f"/repos/{REPO}/issues/{number}/comments", f"#{number} comments")
     if not _approval_binds(issue, comments, owner):
         raise ClaimError(
             f"#{number} has no maintainer approval binding its current title and body; "
@@ -184,17 +205,39 @@ def _generation(number: int) -> int | None:
     its ``branch_creation`` id is still returned.
     """
     ref = f"refs/heads/{BRANCH_PREFIX}{number}"
-    status, entries = _request("GET", f"/repos/{REPO}/activity?ref={ref}&per_page=100")
-    if status != 200 or not isinstance(entries, list):
-        raise ClaimError("repository activity could not be read")
-    creations = [int(e["id"]) for e in entries if e.get("activity_type") == "branch_creation"]
+    base = f"/repos/{REPO}/activity?ref={ref}"
+
+    # Filter server-side by activity_type. An unfiltered read is newest-first and mixes in every
+    # push, so a busy claim branch can push its own branch_creation off the page and make a live
+    # holder look reclaimed.
+    def ids(kind: str) -> list[int]:
+        # Filter server-side AND re-check client-side: the query narrows the page so a busy branch
+        # cannot evict what we need, and the re-check means a silently-ignored query parameter
+        # degrades to a correct answer rather than a wrong one.
+        entries = _paginate(f"{base}&activity_type={kind}", "claim activity")
+        return [int(e["id"]) for e in entries if e.get("activity_type") == kind]
+
+    creations = ids("branch_creation")
     if not creations:
         return None
     newest = max(creations)
-    deletions = [int(e["id"]) for e in entries if e.get("activity_type") == "branch_deletion"]
-    if any(deletion > newest for deletion in deletions):
+    if any(deletion > newest for deletion in ids("branch_deletion")):
         return None
     return newest
+
+
+def _ref_exists(number: int) -> bool:
+    """Whether the claim ref exists right now, independent of the activity feed.
+
+    The feed can lag the ref - claim() already treats "201 but no activity record yet" as a real
+    state - so ``_generation() is None`` must never be read as "there is nothing to protect".
+    """
+    status, _ = _request("GET", f"/repos/{REPO}/git/ref/heads/{BRANCH_PREFIX}{number}")
+    if status == 200:
+        return True
+    if status == 404:
+        return False
+    raise ClaimError(f"claim ref state could not be read (HTTP {status})")
 
 
 def _default_sha() -> str:
@@ -260,6 +303,13 @@ def _cmd_claim(args: argparse.Namespace) -> None:
     )
 
 
+def _release_labels(args: argparse.Namespace) -> None:
+    """Undo the claim's label mirror. Best-effort: the mirror is never the lock."""
+    _request("DELETE", f"/repos/{REPO}/issues/{args.issue}/labels/agent:{args.vendor}", None)
+    _request("DELETE", f"/repos/{REPO}/issues/{args.issue}/labels/status:in-progress", None)
+    _request("POST", f"/repos/{REPO}/issues/{args.issue}/labels", {"labels": [REQUIRED_LABEL]})
+
+
 def _cmd_check(args: argparse.Namespace) -> None:
     current = _generation(args.issue)
     if current is None:
@@ -275,38 +325,63 @@ def _cmd_check(args: argparse.Namespace) -> None:
 
 
 def _cmd_release(args: argparse.Namespace) -> None:
+    # Distinguish "there is no ref" from "the ref exists but its generation is unreadable".
+    # Both used to collapse to None, and release read that as authorization to delete - so a stale
+    # worker could delete a live successor's claim and requeue an issue someone was mid-way
+    # through. check() reads the same None as fail-closed; the destructive path must not be the
+    # permissive one.
+    exists = _ref_exists(args.issue)
     current = _generation(args.issue)
-    if current is not None and current != args.generation:
+    if not exists:
+        _release_labels(args)
+        print(json.dumps({"version": 1, "issue": args.issue, "released": True, "ref": "absent"}))
+        return
+    if current is None or current != args.generation:
+        held = "unreadable" if current is None else str(current)
         print(
-            f"refusing: #{args.issue} was reclaimed at generation {current}; "
-            f"releasing would delete a successor's claim",
+            f"refusing: #{args.issue} claim ref exists at generation {held}, not "
+            f"{args.generation}; releasing would delete a successor's claim",
             file=sys.stderr,
         )
         raise SystemExit(EXIT_SUPERSEDED)
     status, _ = _request("DELETE", f"/repos/{REPO}/git/refs/heads/{BRANCH_PREFIX}{args.issue}")
-    if status not in (204, 404, 422):
+    if status not in (204, 404):
         raise ClaimError(f"claim ref deletion failed with HTTP {status}")
-    _request("DELETE", f"/repos/{REPO}/issues/{args.issue}/labels/agent:{args.vendor}", None)
-    _request("DELETE", f"/repos/{REPO}/issues/{args.issue}/labels/status:in-progress", None)
-    _request("POST", f"/repos/{REPO}/issues/{args.issue}/labels", {"labels": [REQUIRED_LABEL]})
-    print(json.dumps({"version": 1, "issue": args.issue, "released": True}))
+    _release_labels(args)
+    print(json.dumps({"version": 1, "issue": args.issue, "released": True, "ref": "deleted"}))
 
 
 def _next_adr_number() -> int:
-    status, refs = _request("GET", f"/repos/{REPO}/git/matching-refs/{ADR_NAMESPACE}")
+    """Highest known ADR number plus one, from BOTH reservations and the committed files.
+
+    Fails closed on a read error. Dropping a failed read used to mean "no ADRs exist", which
+    returned 1 - and because the reservation namespace is legitimately empty today, the single
+    ``contents`` read is the only source of used numbers. One 403 or 502 was therefore enough to
+    hand out 0001, whose compare-and-swap succeeds (no *ref* holds it) while
+    ``docs/adr/0001-provenance-first-data-model.md`` has existed since M0. That is precisely the
+    duplicate-number collision the reservation scheme exists to prevent, so a read that cannot be
+    trusted must stop the reservation rather than silently narrow it.
+    """
     reserved = set()
-    if status == 200 and isinstance(refs, list):
-        for ref in refs:
-            match = ADR_REF_RE.match(ref.get("ref", ""))
-            if match:
-                reserved.add(int(match.group(1)))
+    status, refs = _request("GET", f"/repos/{REPO}/git/matching-refs/{ADR_NAMESPACE}")
+    if status != 200 or not isinstance(refs, list):
+        raise ClaimError("ADR reservations could not be read; refusing to guess a number")
+    for ref in refs:
+        match = ADR_REF_RE.match(ref.get("ref", ""))
+        if match:
+            reserved.add(int(match.group(1)))
+
     status, entries = _request("GET", f"/repos/{REPO}/contents/docs/adr")
-    if status == 200 and isinstance(entries, list):
-        for entry in entries:
-            match = ADR_FILE_RE.match(entry.get("name", ""))
-            if match:
-                reserved.add(int(match.group(1)))
-    return max(reserved) + 1 if reserved else 1
+    if status != 200 or not isinstance(entries, list):
+        raise ClaimError("the ADR directory could not be read; refusing to guess a number")
+    for entry in entries:
+        match = ADR_FILE_RE.match(entry.get("name", ""))
+        if match:
+            reserved.add(int(match.group(1)))
+
+    if not reserved:
+        raise ClaimError("no ADRs found at all; refusing to guess a number")
+    return max(reserved) + 1
 
 
 def _cmd_reserve_adr(args: argparse.Namespace) -> None:

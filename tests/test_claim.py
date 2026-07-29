@@ -269,6 +269,117 @@ def test_a_recreated_ref_supersedes_the_deleted_one(monkeypatch: pytest.MonkeyPa
     assert claim._generation(7) == 91
 
 
+def test_release_refuses_when_the_ref_exists_but_its_generation_is_unreadable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The destructive path must not be the permissive one.
+
+    `check` reads an unreadable generation as fail-closed. `release` used to read the same fact as
+    authorization and delete, so a stale worker could destroy a live successor's mutex ref and
+    requeue an issue someone was mid-way through. The activity feed can lag the ref - `claim`
+    itself handles "201 but no activity record yet" - so this is reachable in the reclaim window.
+    """
+    routes = _routes(
+        {
+            ("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7"): (200, {"object": {}}),
+            ("GET", "/repos/bioedca/tether/activity"): (200, []),
+        }
+    )
+    fake = _install(monkeypatch, Fake(routes))
+    with pytest.raises(SystemExit) as exit_info:
+        claim._cmd_release(_args(issue=7, generation=42, vendor="claude"))
+    assert exit_info.value.code == claim.EXIT_SUPERSEDED
+    assert "unreadable" in capsys.readouterr().err
+    assert not [c for c in fake.calls if c[0] == "DELETE" and "git/refs" in c[1]]
+
+
+def test_release_of_an_absent_ref_cleans_labels_without_deleting(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A legitimately reaped worker must still be able to reset the labels."""
+    routes = _routes(
+        {
+            ("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7"): (404, None),
+            ("GET", "/repos/bioedca/tether/activity"): (200, []),
+        }
+    )
+    fake = _install(monkeypatch, Fake(routes))
+    claim._cmd_release(_args(issue=7, generation=42, vendor="claude"))
+    assert json.loads(capsys.readouterr().out)["ref"] == "absent"
+    assert not [c for c in fake.calls if c[0] == "DELETE" and "git/refs" in c[1]]
+    assert [c for c in fake.calls if c[0] == "POST" and "labels" in c[1]]
+
+
+def test_the_fence_filters_by_activity_type_so_pushes_cannot_evict_the_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unfiltered feed is newest-first and mixes in pushes, which can hide the creation."""
+    fake = _install(monkeypatch, Fake(_routes()))
+    claim._generation(7)
+    activity = [p for _, p in fake.calls if "/activity" in p]
+    assert activity, "no activity call made"
+    assert all(
+        "activity_type=branch_creation" in p or "activity_type=branch_deletion" in p
+        for p in activity
+    )
+
+
+def test_approval_discovery_pages_past_the_first_hundred_comments(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A re-approval past comment 100 must be found, not reported as an edited-after-approval."""
+    page1 = [{"user": {"login": "bioedca"}, "body": "chatter"} for _ in range(100)]
+    page2 = [{"user": {"login": "bioedca"}, "body": f"Re-approved.\n\n{MARKER}"}]
+
+    def transport(method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if "/issues/7/comments" in path:
+            return 200, page2 if "page=2" in path else page1
+        if path.endswith("/issues/7"):
+            return 200, _issue()
+        if "git/ref/heads/main" in path:
+            return 200, {"object": {"sha": HEAD}}
+        if method == "POST" and path.endswith("/git/refs"):
+            return 201, {}
+        if "/activity" in path:
+            return 200, [{"id": 42, "activity_type": "branch_creation"}]
+        return 200, None
+
+    monkeypatch.setattr(claim, "_request", transport)
+    monkeypatch.setattr(claim, "_scope_hash", lambda title, body: DIGEST)
+    claim._cmd_claim(_args(issue=7))
+    assert json.loads(capsys.readouterr().out)["generation"] == 42
+
+
+@pytest.mark.parametrize("status", [403, 404, 500, 502], ids=["forbidden", "missing", "500", "502"])
+def test_reserve_adr_refuses_to_guess_when_discovery_fails(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], status: int
+) -> None:
+    """Dropping a failed read meant "no ADRs exist" -> 0001, which collides with a real ADR.
+
+    The reservation namespace is legitimately empty today, so the contents read is the only source
+    of used numbers: one 403 was enough, and the CAS cannot catch it because no *ref* holds 0001.
+    """
+    posted: list[str] = []
+
+    def transport(method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if method == "GET" and path.endswith("/git/matching-refs/adr-reservations"):
+            return 200, []
+        if method == "GET" and path.endswith("/contents/docs/adr"):
+            return status, None
+        if method == "GET" and "git/ref/heads/main" in path:
+            return 200, {"object": {"sha": HEAD}}
+        if method == "POST" and path.endswith("/git/refs"):
+            posted.append(body["ref"])
+            return 201, {}
+        return 200, None
+
+    monkeypatch.setattr(claim, "_request", transport)
+    assert claim.main.__module__  # module import sanity
+    with pytest.raises(claim.ClaimError, match="refusing to guess"):
+        claim._cmd_reserve_adr(_args(attempts=8))
+    assert posted == [], "no reservation may be created when the number is a guess"
+
+
 def test_generation_never_comes_from_commit_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     """committedDate is client-settable, so the generation must come from the activity API alone."""
     fake = _install(monkeypatch, Fake(_routes()))
