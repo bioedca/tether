@@ -5,7 +5,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0053 — Structured backlog intake gates swarm admission
 
-- **Status:** accepted
+- **Status:** accepted, **superseded by [ADR-0057](0057-github-native-swarm-coordination.md)** on who
+  may admit work. The intake gates themselves — issue forms, `status:ready`, maintainer approval of a
+  scope hash — **remain in force**; ADR-0057 changes the admitting authority, not that admission is gated.
 - **Date:** 2026-07-26
 - **Deciders:** bioedca
 - **PRD anchor:** §12.5 (issue tracking and project planning)
