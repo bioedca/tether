@@ -1,4 +1,4 @@
 interface:
-  display_name: "Run Issue Swarm"
-  short_description: "Run a leased concurrent issue worker pool"
-  default_prompt: "/goal $run-issue-swarm Run 4 isolated workers through merge. I explicitly authorize the coordinator to perform exact-head/exact-base guarded squash merges after all required gates and reviews pass; keep refilling until the ready queue is empty or I tell the swarm to stop."
+  display_name: "Swarm Approval Digest"
+  short_description: "Check whether a maintainer approval still binds an issue snapshot"
+  default_prompt: "Verify that the tether-agent-ready approval on issue #N still binds its current title and body, and report the digest."
