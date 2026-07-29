@@ -85,19 +85,36 @@ def _last_activity(number: int) -> datetime | None:
 
 
 def _open_pr(number: int) -> dict[str, Any] | None:
+    """The PR for this claim, or ``None`` only when the API says there genuinely is none.
+
+    Fails closed. A 403/429/500 or a malformed body previously collapsed to ``None``, which the
+    sweep reads as "no PR" and therefore as grounds to reclaim - so one transient API error could
+    destroy a healthy claim. Not-knowing and knowing-there-is-none must never be the same value.
+    """
     branch = f"{BRANCH_PREFIX}{number}"
     status, prs = claim._request("GET", f"/repos/{REPO}/pulls?head=bioedca:{branch}&state=all")
-    if status != 200 or not isinstance(prs, list) or not prs:
+    if status != 200 or not isinstance(prs, list):
+        raise ReaperError(f"#{number} pull-request state could not be read (HTTP {status})")
+    if not prs:
         return None
     open_prs = [p for p in prs if p.get("state") == "open"]
     return open_prs[0] if open_prs else prs[0]
 
 
 def _checks_running(sha: str) -> bool:
+    """Whether CI is live on this head. Fails closed for the same reason as ``_open_pr``.
+
+    Returning ``False`` on an error would let the sweep close a PR whose checks are still running.
+    This needs ``checks: read`` in the workflow - with an explicit ``permissions:`` block every
+    unlisted scope is ``none``, so omitting it yields a 403 that used to read as "no checks".
+    """
     status, suites = claim._request("GET", f"/repos/{REPO}/commits/{sha}/check-suites")
     if status != 200 or not isinstance(suites, dict):
-        return False
-    return any(s.get("status") in {"queued", "in_progress"} for s in suites.get("check_suites", []))
+        raise ReaperError(f"check-suite state could not be read (HTTP {status})")
+    entries = suites.get("check_suites")
+    if not isinstance(entries, list):
+        raise ReaperError("check-suite response was malformed")
+    return any(s.get("status") in {"queued", "in_progress"} for s in entries)
 
 
 def _requeue(number: int, *, dry_run: bool) -> None:

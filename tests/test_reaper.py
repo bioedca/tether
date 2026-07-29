@@ -198,6 +198,82 @@ def test_a_dirty_pr_is_flagged_and_its_claim_left_alone(monkeypatch: pytest.Monk
     assert not fake.did("PATCH", "/pulls/99")
 
 
+# ------------------------------------------------------------------ fail closed on API errors
+
+
+@pytest.mark.parametrize(
+    "response",
+    [(403, None), (429, None), (500, None), (502, None), (200, {"unexpected": "shape"})],
+    ids=["forbidden", "rate-limited", "500", "502", "malformed"],
+)
+def test_an_unreadable_pr_state_stops_the_sweep_instead_of_reclaiming(
+    monkeypatch: pytest.MonkeyPatch, response: tuple[int, Any]
+) -> None:
+    """Not-knowing must never equal knowing-there-is-no-PR.
+
+    Collapsing an API error to "no PR" lets one transient 403 destroy a healthy claim - and this
+    job runs unattended every 30 minutes, so nobody would see it happen.
+    """
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (200, [{"timestamp": _ago(minutes=91)}])
+    routes[("GET", "/repos/bioedca/tether/pulls?head")] = response
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(reaper.ReaperError, match="pull-request state could not be read"):
+        reaper.sweep(dry_run=False)
+    assert not [c for c in fake.calls if c[0] in {"DELETE", "PATCH", "POST"}]
+
+
+@pytest.mark.parametrize(
+    "response",
+    [(403, None), (500, None), (200, {"check_suites": "not-a-list"})],
+    ids=["forbidden-missing-checks-read", "500", "malformed"],
+)
+def test_unreadable_check_state_never_closes_a_pr(
+    monkeypatch: pytest.MonkeyPatch, response: tuple[int, Any]
+) -> None:
+    """A 403 here is the realistic case: with an explicit permissions block, omitting
+    `checks: read` makes every check-suite read a 403. Reading that as "no checks running" would
+    close a PR whose CI is mid-flight."""
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/pulls?head")] = (
+        200,
+        [
+            {
+                "number": 99,
+                "state": "open",
+                "updated_at": _ago(hours=7),
+                "mergeable_state": "clean",
+                "head": {"sha": "d" * 40},
+            }
+        ],
+    )
+    routes[("GET", "/repos/bioedca/tether/commits/")] = response
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(reaper.ReaperError, match="check-suite"):
+        reaper.sweep(dry_run=False)
+    assert not fake.did("PATCH", "/pulls/99")
+    assert not [c for c in fake.calls if c[0] in {"DELETE", "POST"}]
+
+
+def test_a_genuinely_empty_pr_list_still_permits_reclamation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fail-closed guard must not block the ordinary case: 200 with [] means no PR exists."""
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (200, [{"timestamp": _ago(minutes=91)}])
+    routes[("GET", "/repos/bioedca/tether/pulls?head")] = (200, [])
+    fake = _install(monkeypatch, routes)
+    assert reaper.sweep(dry_run=False)[0]["action"] == "requeue"
+    assert fake.did("DELETE", "git/refs/heads/agent/issue-7")
+
+
+def test_the_workflow_grants_checks_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`statuses: read` does not cover /check-suites, and an unlisted scope is `none`."""
+    workflow = (ROOT / ".github" / "workflows" / "agent-reaper.yml").read_text(encoding="utf-8")
+    permissions = workflow.split("permissions:", 1)[1].split("concurrency:", 1)[0]
+    assert "checks: read" in permissions
+
+
 # ------------------------------------------------------------------ safety properties
 
 

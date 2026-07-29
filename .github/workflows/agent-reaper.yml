@@ -21,12 +21,19 @@ on:
         type: boolean
         default: true
 
-# Least privilege, stated explicitly. contents: write is needed to DELETE the claim ref;
-# issues: write to move labels; pull-requests: write to close a stale PR. Nothing else.
+# Least privilege, stated explicitly. With an explicit block every UNLISTED scope is `none`, so an
+# omission is a 403 rather than a default -- and the reaper now fails closed on one, which would
+# stop the sweep rather than silently mis-read it.
+#   contents: write        DELETE the claim ref
+#   issues: write          move the status:*/agent:* labels
+#   pull-requests: write   close a stale PR
+#   checks: read           read /commits/{sha}/check-suites; `statuses: read` does NOT cover it,
+#                          and without it a PR whose CI is still running would look idle
 permissions:
   contents: write
   issues: write
   pull-requests: write
+  checks: read
 
 concurrency:
   # Two overlapping sweeps could both act on one claim. Never cancel a sweep mid-mutation.
