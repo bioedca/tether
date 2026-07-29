@@ -108,7 +108,7 @@ def _routes(pr: dict[str, Any] | None = None) -> dict[tuple[str, str], tuple[int
             200,
             [{"ref": "refs/heads/agent/issue-7"}],
         ),
-        ("GET", "/repos/bioedca/tether/activity"): (200, [{"timestamp": _ago(minutes=5)}]),
+        ("GET", "/repos/bioedca/tether/activity"): (200, [{"id": 1, "timestamp": _ago(minutes=5)}]),
         ("GET", "/repos/bioedca/tether/pulls?head"): (200, [] if pr is None else [pr]),
         ("GET", "/repos/bioedca/tether/issues/7"): (200, {"state": "open"}),
     }
@@ -149,7 +149,10 @@ def test_no_claim_refs_is_success_not_failure(monkeypatch: pytest.MonkeyPatch) -
 
 def test_a_silent_claim_with_no_pr_is_reclaimed(monkeypatch: pytest.MonkeyPatch) -> None:
     routes = _routes()
-    routes[("GET", "/repos/bioedca/tether/activity")] = (200, [{"timestamp": _ago(minutes=91)}])
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
     fake = _install(monkeypatch, routes)
     actions = reaper.sweep(dry_run=False)
     assert actions == [{"issue": 7, "action": "requeue", "reason": "no-open-pr"}]
@@ -222,7 +225,10 @@ def test_an_unreadable_pr_state_stops_the_sweep_instead_of_reclaiming(
     job runs unattended every 30 minutes, so nobody would see it happen.
     """
     routes = _routes()
-    routes[("GET", "/repos/bioedca/tether/activity")] = (200, [{"timestamp": _ago(minutes=91)}])
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
     routes[("GET", "/repos/bioedca/tether/pulls?head")] = response
     fake = _install(monkeypatch, routes)
     with pytest.raises(reaper.ReaperError, match="pull-request state could not be read"):
@@ -255,7 +261,10 @@ def test_a_genuinely_empty_pr_list_still_permits_reclamation(
 ) -> None:
     """The fail-closed guard must not block the ordinary case: 200 with [] means no PR exists."""
     routes = _routes()
-    routes[("GET", "/repos/bioedca/tether/activity")] = (200, [{"timestamp": _ago(minutes=91)}])
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
     routes[("GET", "/repos/bioedca/tether/pulls?head")] = (200, [])
     fake = _install(monkeypatch, routes)
     assert reaper.sweep(dry_run=False)[0]["action"] == "requeue"
@@ -378,12 +387,62 @@ def test_a_pr_that_changed_since_the_decision_is_not_closed(
     assert not fake.did("PATCH", "/pulls/99")
 
 
+def test_a_missing_activity_record_is_unknown_not_stale(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The feed lags a just-created ref, so no record must never mean "silent for 90 minutes".
+
+    claim.py has an explicit path for `201 but no activity record appeared`, so this is a real
+    state - and with no record the fingerprint is None too, disabling the later recheck.
+    """
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (200, [])
+    fake = _install(monkeypatch, routes)
+    assert reaper.sweep(dry_run=False) == [
+        {"issue": 7, "action": "keep", "reason": "activity-unknown"}
+    ]
+    assert not [c for c in fake.calls if c[0] in {"DELETE", "PATCH", "POST"}]
+
+
+def test_the_stale_pr_path_is_fenced_like_the_no_pr_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A push after the head revalidation must still save the claim on the stale-PR route."""
+    routes = _routes(_pr(updated_at=_ago(hours=7)))
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(hours=7)}],
+    )
+    routes[("GET", "/repos/bioedca/tether/commits/")] = (200, {"check_suites": []})
+    # Activity reads in this path: _fingerprint (1), _last_activity (2), then _requeue's
+    # revalidating _fingerprint (3). Flipping after 2 puts the push exactly in the window between
+    # the decision and the destructive call.
+    fake = Changing(routes, flip_after=2)
+    monkeypatch.setattr(reaper.claim, "_request", fake)
+    monkeypatch.setattr(reaper.claim, "_paginate", lambda path, what: fake("GET", path)[1] or [])
+    monkeypatch.setattr(reaper, "_now", lambda: NOW)
+    with pytest.raises(reaper.ReaperError, match="new activity mid-sweep"):
+        reaper.sweep(dry_run=False)
+    assert not fake.did("DELETE", "git/refs")
+
+
+def test_a_failed_conflict_label_is_not_reported_as_flagged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The label is the only persistent conflict marker; claiming it was set when it was not
+    publishes state that is false."""
+    routes = _routes(_pr(mergeable_state="dirty", mergeable=False))
+    routes[("POST", "/repos/bioedca/tether/issues/7/labels")] = (403, None)
+    _install(monkeypatch, routes)
+    with pytest.raises(reaper.ReaperError, match="agent:conflicted could not be applied"):
+        reaper.sweep(dry_run=False)
+
+
 # ------------------------------------------------------------------ safety properties
 
 
 def test_dry_run_mutates_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     routes = _routes()
-    routes[("GET", "/repos/bioedca/tether/activity")] = (200, [{"timestamp": _ago(minutes=91)}])
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
     fake = _install(monkeypatch, routes)
     assert reaper.sweep(dry_run=True)[0]["action"] == "requeue"
     assert not [c for c in fake.calls if c[0] in {"DELETE", "PATCH", "POST"}]
@@ -392,7 +451,10 @@ def test_dry_run_mutates_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_a_closed_issue_is_not_reopened_onto_the_queue(monkeypatch: pytest.MonkeyPatch) -> None:
     """Reclaiming a merged issue's leftover ref must not put it back in Ready."""
     routes = _routes()
-    routes[("GET", "/repos/bioedca/tether/activity")] = (200, [{"timestamp": _ago(minutes=91)}])
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
     routes[("GET", "/repos/bioedca/tether/issues/7")] = (200, {"state": "closed"})
     fake = _install(monkeypatch, routes)
     reaper.sweep(dry_run=False)
@@ -412,7 +474,10 @@ def test_the_sweep_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_staleness_never_reads_commit_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     """committedDate is client-written: keying on it lets a claim be pinned open or stolen."""
     routes = _routes()
-    routes[("GET", "/repos/bioedca/tether/activity")] = (200, [{"timestamp": _ago(minutes=91)}])
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
     fake = _install(monkeypatch, routes)
     reaper.sweep(dry_run=False)
     paths = [p for _, p in fake.calls]
@@ -424,7 +489,10 @@ def test_a_malformed_server_timestamp_is_refused_not_guessed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     routes = _routes()
-    routes[("GET", "/repos/bioedca/tether/activity")] = (200, [{"timestamp": "not-a-date"}])
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": "not-a-date"}],
+    )
     _install(monkeypatch, routes)
     with pytest.raises(reaper.ReaperError, match="ISO-8601"):
         reaper.sweep(dry_run=False)

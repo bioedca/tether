@@ -183,6 +183,10 @@ def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = Non
     # recoverable. With the ref deleted last it is the commit point: any failure before it leaves
     # the ref in place, so the next sweep simply re-decides and retries. Restoring status:ready
     # while the ref still exists is harmless, because a claimer would lose the ref race with 422.
+    # These two are deliberately best-effort, unlike every other mutation here: removing a label
+    # that is not present returns 404, which is the common case (only one vendor's label exists,
+    # and status:in-progress may already be gone). A stale label is cosmetic; the queue label and
+    # the ref below are what correctness depends on, and both are checked.
     for vendor in claim.VENDORS:
         claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/agent:{vendor}", None)
     claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/status:in-progress", None)
@@ -212,10 +216,18 @@ def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
         expect = _fingerprint(number)
         pr = _open_pr(number)
         last = _last_activity(number)
-        age_min = (now - last).total_seconds() / 60 if last else None
+
+        # No activity record is UNKNOWN, not stale. The feed can lag a ref that was just created -
+        # claim.py's own `201 but no activity record appeared` path exists for exactly that - so
+        # reclaiming here would reap brand-new claims, and `expect` would be None so the later
+        # fingerprint recheck could not catch it either.
+        if last is None or expect is None:
+            actions.append({"issue": number, "action": "keep", "reason": "activity-unknown"})
+            continue
+        age_min = (now - last).total_seconds() / 60
 
         if pr is None or pr.get("state") != "open":
-            if age_min is not None and age_min < NO_PR_MINUTES:
+            if age_min < NO_PR_MINUTES:
                 actions.append({"issue": number, "action": "keep", "reason": "recent-activity"})
                 continue
             _requeue(number, dry_run=dry_run, expect=expect)
@@ -224,11 +236,19 @@ def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
 
         if pr.get("mergeable_state") == "dirty":
             if not dry_run:
-                claim._request(
+                # The label is the only persistent marker that this claim needs a human. Reporting
+                # flag-conflicted in the run summary while the write silently failed would publish
+                # state that is not true.
+                status, _ = claim._request(
                     "POST",
                     f"/repos/{REPO}/issues/{number}/labels",
                     {"labels": ["agent:conflicted"]},
                 )
+                if status != 200:
+                    raise ReaperError(
+                        f"#{number} is conflicted but agent:conflicted could not be applied "
+                        f"(HTTP {status}); not reporting a flag that was never set"
+                    )
             actions.append({"issue": number, "action": "flag-conflicted", "reason": "dirty"})
             continue
 
@@ -266,7 +286,10 @@ def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
                         f"PR #{pr['number']} could not be closed (HTTP {status}); "
                         f"refusing to release #{number}'s claim while its PR is still open"
                     )
-            _requeue(number, dry_run=dry_run)
+            # Same fencing as the no-PR path. A worker can push after the head/check revalidation
+            # above and before or just after the close, and without `expect` the requeue would
+            # delete the branch it had just revived.
+            _requeue(number, dry_run=dry_run, expect=expect)
             actions.append(
                 {"issue": number, "action": "requeue", "reason": "stale-pr", "pr": pr["number"]}
             )
