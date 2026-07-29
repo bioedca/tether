@@ -34,8 +34,11 @@ the approval, and a fresh one is required. The swarm never creates or edits appr
 ## Commands
 
 Standard library only; the helper never calls GitHub. Fetch bodies from the server
-(`gh issue view N --json title,body`) and write them with `newline=""` — a shell round-trip that
-rewrites line endings silently changes the digest.
+(`gh issue view N --json title,body`) and write them with `newline=""` to preserve the bytes as
+fetched. Line endings specifically are **not** the hazard: `_scope_hash` folds CRLF and lone CR to
+LF and strips trailing newlines before hashing, and the tests pin that all three variants produce
+the same digest. What a round-trip *can* change is the content — most easily by prepending a BOM,
+which PowerShell's `Out-File -Encoding utf8` does and which the helper does not currently strip.
 
 | Command | Purpose |
 |---|---|
