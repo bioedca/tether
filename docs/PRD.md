@@ -995,8 +995,8 @@ green or status-only result do not satisfy the independent gate.
 
 Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
 rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
-non-material, while executable code, scientific claims, data, schema, locks and CI/release configuration are
-material. A material push re-arms the review but grants **no additional round**, and a PR gets **at most two
+non-material, while executable code, scientific claims, data, schema, locks, CI/release configuration and the
+governance text itself (`AGENTS.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`, `.agents/**`) are material. A material push re-arms the review but grants **no additional round**, and a PR gets **at most two
 rounds** — a third means the issue was scoped too large. Blocking findings (CodeRabbit `Critical`/`Major`/
 `Potential issue`, Codex `P1`, anything reaching secrets, unlicensed data, a frozen oracle or tolerance, the §5
 skeleton without an ADR and version bump, or a CodeQL alert, plus anything that falsifies a claim the PR itself

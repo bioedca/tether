@@ -90,7 +90,8 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   cross-component work) selects CodeRabbit; `low`/`standard` may select either it or Codex GitHub Code
   Review. Author-side or local output, and a status-only result, never satisfy this gate.
 - **Material change.** Evidence survives a non-material push, so answering findings never restarts the
-  gate. *Material*: executable code, scientific claims, data, schema, locks, CI/release config.
+  gate. *Material*: executable code, scientific claims, data, schema, locks, CI/release config, and
+  governance text (this file, `CONTRIBUTING.md`, `docs/PRD.md`, `docs/adr/**`, `.agents/**`).
   *Non-material*: a clean `main` merge/rebase, formatting, comment/docstring edits, ADR renumbering.
   A material push re-arms the review and grants **no extra round**.
 - **Severity floor.** Blocking: CodeRabbit `Critical`/`Major`/`Potential issue`, Codex `P1`, and —
@@ -104,8 +105,7 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
 - **Capability is not quota.** A reviewer reporting nothing to review (a deletion, a pure rename)
   satisfies the gate — record its words. Swap a provider that *cannot* act, stating why; never swap to
   evade quota. Only a genuinely unavailable required provider freezes a PR.
-- Human sign-off is required for releases, tags, signing, and any new scientific claim or citation.
-  Nothing else waits on a human.
+- Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit PR or recorded swarm-run authority, with checks green, threads resolved, and
   evidence bound to the merged head. Workers stop PR-ready; an authorized coordinator alone merges and
   refills the slot. Squash with `--match-head-commit`; `main` has no strict rule and no merge queue.

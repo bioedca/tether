@@ -287,8 +287,9 @@ CodeRabbit. Author-side or local review, and status-only output, do not satisfy 
 Review evidence **survives a non-material push**, so addressing findings does not
 restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
 renumbering are all non-material, while executable code, scientific claims, data,
-schema, locks and CI/release config are material. A material push re-arms the review
-but grants no extra round, and there are **at most two rounds**.
+schema, locks, CI/release config and the governance text itself (`AGENTS.md`, this
+file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`) are material. A material push
+re-arms the review but grants no extra round, and there are **at most two rounds**.
 
 Fix blocking findings (CodeRabbit `Critical`/`Major`/`Potential issue`, Codex `P1`,
 anything touching secrets, unlicensed data, a frozen oracle, the §5 skeleton, or a
