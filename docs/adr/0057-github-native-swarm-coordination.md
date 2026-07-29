@@ -59,15 +59,33 @@ the direct cause of the failures.
 **GitHub is the coordinator; there is no coordinator agent.** Every agent is a peer that claims an
 issue, does the work, opens a PR, arms auto-merge, and exits.
 
+- **Eligibility is a precondition of the claim, not a consequence of it.** The mutex decides *who*
+  works an issue; it never decides *whether* the issue may be worked. Before creating the ref an agent
+  must confirm the ADR-0053 intake gates on the authenticated issue: open, `status:ready`, no competing
+  assignee, and a maintainer approval bound to the exact scope snapshot it is about to act on. A claim
+  taken on unapproved or since-edited work is invalid regardless of who won the race, and the ref must
+  be released rather than worked.
 - **Claim by atomic ref creation.** `POST /git/refs` returns `201` to the first writer and `422
   Reference already exists` to every other — verified live against this repository. That is a genuine
   compare-and-swap: one call, no election, no singleton writer, identical for both vendors. The branch
   is `agent/issue-<N>` with **no title slug**, because a slug derived from the title is not
   deterministic across agents; two agents could otherwise create two different refs for one issue and
   both succeed, silently voiding the mutex.
-- **No lease, no TTL, no heartbeat.** Liveness is the ref's own `committedDate`. A scheduled CI reaper
-  reclaims dead claims — it runs while every human and agent is asleep, which is precisely what the
-  terminal freeze needed and what a coordinator-only renewal monopoly could not provide.
+- **No lease, no TTL, no heartbeat — but liveness must be server-observed, and the claim must be
+  fenced.** Commit metadata such as `committedDate` is written by the client and cannot carry this:
+  an agent may stamp any value, so a reaper keying on it can reclaim a live claim or preserve a dead
+  one. Staleness must therefore be judged from a timestamp GitHub itself records, and the implementing
+  change must name that source and demonstrate it is not client-settable.
+  Reclamation alone is also not sufficient. Deleting a ref does not stop the worker that held it, so
+  once a successor recreates `agent/issue-<N>` two workers can believe they own it. Each claim
+  therefore carries a **monotonically increasing generation**, revalidated immediately before every
+  authoritative write, so a superseded worker's late write is refused rather than silently applied.
+  This is the same discipline the project store already uses for long writes, where
+  `_assert_held_lock(expected_nonce=…)` binds each persistence point to the ownership epoch validated
+  before the work began.
+- A scheduled CI reaper reclaims dead claims — it runs while every human and agent is asleep, which is
+  precisely what the terminal freeze needed and what a coordinator-only renewal monopoly could not
+  provide.
 - **No waiting.** Arm auto-merge and exit; an event-driven workflow turns check and review events into
   a single label the launcher reads in one call.
 - **Review turns on materiality, not head identity**, with a severity floor and a two-round cap.
