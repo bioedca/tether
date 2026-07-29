@@ -140,9 +140,11 @@ The protocol rationale and invariants are recorded in
   GitHub Code Review or CodeRabbit, bound to the final head SHA. For either provider, refetch the
   expected reviewer identity, server-bound reviewed
   commit/head, and walkthrough before accepting evidence. Author-side `/review`, local CodeRabbit output,
-  a status/check alone, denial, provider unavailability, or a summary without a diff walkthrough never
-  satisfies that independent gate. Resolve every conversation and every actionable finding. Any head
-  change invalidates final-head review evidence; a material change requires every affected review layer again.
+  or a status/check alone never satisfies that independent gate; a reviewer reporting it has nothing to
+  review does satisfy it, on its own statement. Resolve every conversation and disposition every finding
+  per the `AGENTS.md` severity floor — fix blocking, defer the rest to one follow-up issue. Review
+  evidence survives a non-material push, a material push grants no extra round, and a PR gets at most
+  two rounds.
 - When CodeRabbit is required or selected, keep one durable PR comment keyed by
   `(repository, PR, head SHA)` with marker `<!-- tether-coderabbit-queue RECORD -->`; `RECORD` contains
   version, head SHA, state (`queued|triggered|rate-limited|complete`), attempt time, and retry time.

@@ -11,6 +11,14 @@ SPDX-License-Identifier: GPL-3.0-or-later
 - **PRD anchor:** §12.2–§12.5 (GitHub Flow, reviews, pull requests, and issue planning)
 - **Milestone:** Cross-cutting repository governance
 
+> **Review-evidence clause superseded (2026-07-28).** The paragraph below stating that *any* head
+> change invalidates final-head review evidence no longer describes the gate. Combined with a reviewer
+> that fired on every push it produced a livelock — PR #238 reached 16 heads in 12h45m without merging,
+> because each fix invalidated the approval that asked for it. `AGENTS.md` §Review gate now governs:
+> evidence survives a **non-material** push, a material push grants no extra round, and a PR gets at
+> most two. The rest of this record — worker/coordinator separation, guarded merge, the `PR-ready`
+> terminal path — stands as decided.
+
 ## Context and problem statement
 
 Independent agent sessions share one GitHub identity, while process memory and host-local locks do

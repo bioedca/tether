@@ -968,11 +968,14 @@ are exportable as JSON, version-history-tracked, and layer cleanly):
 - **Block force-pushes** and **block branch deletion** on `main`.
 
 **How the solo dev merges.** With 0 ruleset approvals, bioedca squash-merges only after the §12.4 risk path is
-complete on the exact head SHA and required checks are green on the current base. An authorized coordinator may
-use auto-merge only when a server rule or merge queue enforces that same head/base binding; otherwise the
-coordinator performs the exact-head/exact-base guarded squash merge. **No standing "include
-administrators / bypass" exemption** — a rare genuine emergency uses a deliberate, logged temporary bypass, not a
-permanent admin exception.
+complete on the exact head SHA and required checks are green on the current base. The binding is enforced by the
+merger, not the server: `main` carries no strict up-to-date rule, and **merge queue is unavailable** because it
+requires an organization-owned repository, so every merge passes an expected-head guard
+(`gh pr merge --squash --match-head-commit <full 40-char SHA>`). Dropping the strict rule is deliberate — with it,
+each merge invalidated every other open PR's checks and serialized merges at roughly one per ten minutes; the
+post-merge `sidecar / parity`, `ci` and `schema-guard` runs on `main` are what catch a semantic conflict instead.
+**No standing "include administrators / bypass" exemption** — a rare genuine emergency uses a deliberate, logged
+temporary bypass, not a permanent admin exception.
 
 **Scale-up path (documented, not active).** If contributors join: set **required approvals ≥ 1**, uncomment a
 `CODEOWNERS` mapping §4.2 modules to owners (e.g. `/src/tether/idealize/ @bioedca`), enable **require review from
@@ -985,14 +988,23 @@ Small, **milestone-scoped** PRs are the unit of work (ideally one issue ↔ one 
 as a **draft PR** and cannot merge. The PR title is a Conventional-Commits string (§12.2) — it
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
-`AGENTS.md` risk path: Copilot is optional and best-effort, while every lane requires a substantive PR diff
-walkthrough bound to the final head SHA from Codex GitHub Code Review or CodeRabbit. Low and standard may use
-either; high/load-bearing changes require CodeRabbit on the stable, green diff. Qualified human/domain review is
-required when scientific, security, or release judgment is material. Author-side/local review, a green or status-only
-result, denial, provider unavailability, or a summary without a diff walkthrough does not satisfy the independent
-gate. CodeRabbit quota blocks only when CodeRabbit is required or selected; Copilot quota never blocks. Any head
-change invalidates final-head review evidence; a material change requires every affected review layer again. Every
-conversation and every actionable finding must be resolved.
+`AGENTS.md` risk path: Copilot is optional, while every PR requires **one substantive independent review** from
+Codex GitHub Code Review or CodeRabbit, requested once required checks are green and the diff is declared final.
+Low and standard may use either; high/load-bearing changes require CodeRabbit. Author-side/local review and a
+green or status-only result do not satisfy the independent gate.
+
+Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
+rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
+non-material, while executable code, scientific claims, data, schema, locks and CI/release configuration are
+material. A material push re-arms the review but grants **no additional round**, and a PR gets **at most two
+rounds** — a third means the issue was scoped too large. Blocking findings (CodeRabbit `Critical`/`Major`/
+`Potential issue`, Codex `P1`, anything reaching secrets, unlicensed data, a frozen oracle or tolerance, the §5
+skeleton without an ADR and version bump, or a CodeQL alert, plus anything that falsifies a claim the PR itself
+introduces) must be fixed. Every other finding is deferred to one follow-up issue per PR and its thread resolved
+with that link; fixing non-blocking findings in the same PR is a scope breach. A reviewer reporting that a change
+has nothing to review satisfies the gate on its own statement, and a provider that *cannot* act may be swapped
+with the reason recorded — capability, never quota. Human sign-off is required for releases, tags, signing
+changes, and any new scientific claim or citation; everything else merges without it.
 
 `.github/pull_request_template.md` carries the **self-review checklist** — the human-judgment gate in the solo model:
 

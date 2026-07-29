@@ -80,35 +80,35 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   input/output checksums, transformations, parameters, and random seeds. Keep citations with claims.
 - Never send sensitive or uncommitted material to external search, AI, or review services.
 
-## Mandatory review path
+## Review gate
 
-- Before merge, classify and record `low`, `standard`, or `high` in the PR with a reason. Risk may
-  only increase as the diff evolves. The authoring agent is never the only reviewer.
-- Every path: complete the template and author-side built-in `/review` (outside the external ladder),
-  inspect the final diff, run gates, and resolve every conversation/thread and every actionable finding.
-  Copilot Cloud Agent is optional and best-effort; record its state, but absence or quota never blocks.
-- Every lane requires a substantive PR diff walkthrough bound to the final head SHA from Codex GitHub
-  Code Review or CodeRabbit. Author-side `/review`, local CodeRabbit output, a green/status-only result,
-  denial, provider unavailability, or a summary without a diff walkthrough never satisfies this gate.
-- **Low** — prose, comments, formatting, or non-executable metadata with no behavior, science, or
-  configuration effect: base path plus green required CI/security checks and either qualifying reviewer.
-- **Standard** — bounded bug, feature, refactor, test, or ordinary configuration: low path plus
-  either Codex or CodeRabbit as the qualifying reviewer.
-- **High/load-bearing** — scientific logic/claims, data/provenance/schema, security, dependencies,
-  CI/release, public API, persistence/migration, concurrency, HPC/Slurm, or broad cross-component work:
-  require CodeRabbit after the diff is stable and CI is green; it satisfies the universal reviewer gate.
-  Qualified human/domain review is required when scientific, security, or release judgment is material.
-- Any head change invalidates final-head review evidence; a material change requires every affected review layer again.
-  CodeRabbit's five-per-hour quota blocks only when it is required or selected; queue then, never
-  downgrade or retrigger a completed unchanged-head review. A denied/unperformed attempt may retry once
-  after its recorded wait. Copilot quota never blocks.
-- Before sending a diff, confirm policy permits the reviewer. Low/standard choose either Codex or
-  CodeRabbit before dispatch; never switch to evade selected CodeRabbit quota. If both are disallowed, or a
-  required/selected provider is unavailable, freeze as `pending-review` and do not merge.
-- Merge only under explicit PR or recorded swarm-run authority. Workers stop PR-ready and never merge; an authorized
-  coordinator alone performs a guarded merge and refills the slot. Bind exact `(PR, head SHA, base ref,
-  base SHA)` with green reviews/checks. Under strict up-to-date protection, direct squash-merge with an
-  expected-head guard; under a verified merge queue, enqueue that head. Otherwise stop.
+- Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. The authoring
+  agent is never the only reviewer. Copilot is optional; its absence or quota never blocks.
+- **One substantive independent review** of the diff, requested once required checks are green and the
+  diff is declared final. `high` (scientific logic/claims, data/provenance/schema, security,
+  dependencies, CI/release, public API, persistence/migration, concurrency, HPC/Slurm, or broad
+  cross-component work) selects CodeRabbit; `low`/`standard` may select either it or Codex GitHub Code
+  Review. Author-side or local output, and a status-only result, never satisfy this gate.
+- **Material change.** Evidence survives a non-material push, so answering findings never restarts the
+  gate. *Material*: executable code, scientific claims, data, schema, locks, CI/release config.
+  *Non-material*: a clean `main` merge/rebase, formatting, comment/docstring edits, ADR renumbering.
+  A material push re-arms the review and grants **no extra round**.
+- **Severity floor.** Blocking: CodeRabbit `Critical`/`Major`/`Potential issue`, Codex `P1`, and —
+  whatever the label — a secret or private path, raw or unlicensed data, a weakened frozen oracle or
+  tolerance, a §5 skeleton change without an ADR and version bump, any CodeQL/`secret-scan` alert, or
+  **a finding that falsifies a claim this PR introduces**. Everything else is non-blocking: one
+  follow-up issue per PR, reply `Deferred: … Tracked in #N`, resolve the thread. **Never fix a
+  non-blocking finding in the PR** — that is scope breach, not diligence.
+- **Two rounds.** One round = a review at a declared-final green head plus the answer to its blocking
+  findings. At the cap, safety-class findings escalate; the rest become follow-ups and the PR merges.
+- **Capability is not quota.** A reviewer reporting nothing to review (a deletion, a pure rename)
+  satisfies the gate — record its words. Swap a provider that *cannot* act, stating why; never swap to
+  evade quota. Only a genuinely unavailable required provider freezes a PR.
+- Human sign-off is required for releases, tags, signing, and any new scientific claim or citation.
+  Nothing else waits on a human.
+- Merge under explicit PR or recorded swarm-run authority, with checks green, threads resolved, and
+  evidence bound to the merged head. Workers stop PR-ready; an authorized coordinator alone merges and
+  refills the slot. Squash with `--match-head-commit`; `main` has no strict rule and no merge queue.
 
 ## WSL clusters and Slurm
 

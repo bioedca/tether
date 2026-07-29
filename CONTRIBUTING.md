@@ -247,9 +247,9 @@ Before requesting review / merging, confirm:
 - [ ] **No secrets committed** — no token, key, credential or private path in code,
       tests, logs or fixtures; `secret-scan` green.
 - [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
-- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; optional
-      Copilot state; substantive final-head Codex-or-CodeRabbit result; high-risk
-      CodeRabbit and applicable domain-review state from `AGENTS.md`.
+- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; the round;
+      the substantive Codex-or-CodeRabbit result (CodeRabbit for `high`); blocking
+      findings fixed and non-blocking ones deferred to a follow-up issue, per `AGENTS.md`.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
       **same** PR.
 
@@ -278,16 +278,24 @@ is what PRD §12.8 recommends for a solo maintainer — and is gated by a separa
 **Reviews.** The ruleset requires **0 approving reviews** but does require
 **conversation resolution**: an unresolved review thread blocks the merge even when
 every check is green. Classify the final diff before merge and follow `AGENTS.md`:
-Copilot is optional and best-effort, while every lane needs a substantive PR diff
-walkthrough bound to the final head SHA from Codex GitHub Code Review or CodeRabbit.
-Low and standard may select either; high/load-bearing requires CodeRabbit on the
-stable, green diff. Qualified human/domain review is required when scientific, security,
-or release judgment is material. Author-side or local review,
-status-only output, denial, unavailability, or a summary without a diff walkthrough
-does not satisfy the independent gate. CodeRabbit's five-per-hour quota blocks only
-when CodeRabbit is required or selected; Copilot quota never blocks. Resolve every
-conversation and every actionable finding. Any head change invalidates final-head review
-evidence; a material change requires every affected review layer again.
+Copilot is optional, while every PR needs **one substantive independent review**, from
+Codex GitHub Code Review or CodeRabbit, requested once checks are green and the diff is
+declared final. Low and standard may select either; high/load-bearing requires
+CodeRabbit. Author-side or local review, and status-only output, do not satisfy it.
+
+Review evidence **survives a non-material push**, so addressing findings does not
+restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
+renumbering are all non-material, while executable code, scientific claims, data,
+schema, locks and CI/release config are material. A material push re-arms the review
+but grants no extra round, and there are **at most two rounds**.
+
+Fix blocking findings (CodeRabbit `Critical`/`Major`/`Potential issue`, Codex `P1`,
+anything touching secrets, unlicensed data, a frozen oracle, the §5 skeleton, or a
+CodeQL alert — plus anything that falsifies a claim the PR itself introduces). Defer
+everything else to **one** follow-up issue per PR and resolve the thread with a link;
+do not fix non-blocking findings in the same PR. A reviewer that reports nothing to
+review — a deletion, a pure rename — satisfies the gate; quote it. Human sign-off is
+required only for releases, tags, signing, and new scientific claims.
 
 ## Reporting bugs & security issues
 
