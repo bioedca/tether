@@ -101,9 +101,13 @@ issue, does the work, opens a PR, arms auto-merge, and exits.
 - Dropping the strict up-to-date rule means a semantic conflict can land green; post-merge `ci`,
   `schema-guard` and `sidecar / parity` runs on `main` are the compensating detection, which is why
   `sidecar.yml` gained a `push` trigger.
-- Gaps in ADR numbering are legal and expected: numbers are reserved atomically as `refs/tags/adr/NNNN`
-  and never reused, so a collision can never force the renumbering that previously invalidated reviews
-  across three PRs at once.
+- Gaps in ADR numbering are legal and expected: numbers are reserved atomically as
+  `refs/adr-reservations/NNNN` and never reused, so a collision can never force the renumbering that
+  previously invalidated reviews across three PRs at once. The namespace is deliberately **not** under
+  `refs/tags/`. `hatch-vcs` derives the package version from tags, so a non-version tag makes
+  `pip install -e .` fail with *"Can't parse version from tag"* — which broke the post-merge
+  `sidecar / parity` on this ADR's own merge commit. A custom ref namespace is a compare-and-swap on
+  creation exactly as a tag is, but is invisible to every tag consumer.
 - Two vendors sharing one backlog need no vendor-specific protocol, but they also gain no mutual
   review guarantee from this record; cross-vendor peer review is deliberately left to the change that
   introduces a second lane, rather than written as policy for something that cannot yet happen.
