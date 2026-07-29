@@ -535,6 +535,41 @@ def test_the_archive_ref_name_carries_the_full_sha(monkeypatch: pytest.MonkeyPat
     assert sha[:8] != sha and not bodies[0]["ref"].endswith(sha[:8]), "must not be a prefix"
 
 
+def test_an_aborted_retirement_leaves_the_labels_untouched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every abortable step must run before any state change.
+
+    When the archive/verify ran *after* the label transition, an abort left a live claim ref beside
+    a falsely `status:ready` issue: claimers lost the 422 race forever, and later sweeps saw the
+    fresh activity, kept the claim, and never repaired the labels.
+    """
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    fake = _install(monkeypatch, routes)
+    original = fake.__call__
+    reads = {"n": 0}
+
+    def moving(method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if method == "GET" and "git/ref/heads/agent/issue-7" in path:
+            reads["n"] += 1
+            if reads["n"] > 1:  # the worker pushed while we were archiving
+                return 200, {"object": {"sha": "f" * 40}}
+        return original(method, path, body)
+
+    monkeypatch.setattr(reaper.claim, "_request", moving)
+    with pytest.raises(reaper.ReaperError, match="moved while being archived"):
+        reaper.sweep(dry_run=False)
+    assert not fake.did("DELETE", "git/refs"), "the ref must survive"
+    assert not fake.did("POST", "/issues/7/labels"), "status:ready must not have been added"
+    assert not fake.did("DELETE", "/issues/7/labels/status:in-progress"), (
+        "the active-claim labels must be intact so the next sweep re-decides cleanly"
+    )
+
+
 def test_a_failed_archive_prevents_the_deletion(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the commits cannot be preserved, the branch must not be destroyed."""
     routes = _routes()

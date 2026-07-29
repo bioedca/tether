@@ -221,7 +221,15 @@ def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = Non
     if expect is not None and _fingerprint(number) != expect:
         raise ReaperError(f"#{number} saw new activity mid-sweep; refusing to reclaim")
 
-    # ORDER IS THE RECOVERY MECHANISM. Labels first, ref deletion last.
+    # Archive and verify the tip FIRST. This is the last step that can abort, and it must run before
+    # any label change: previously it ran after, so an abort left a live claim ref beside a falsely
+    # `status:ready` issue - claimers lost the 422 race forever, and later sweeps saw the fresh
+    # activity, kept the claim, and never repaired the labels. Creating the archive ref is additive
+    # and harmless if the reap is then abandoned.
+    if _prepare_retire(number) is None:
+        return
+
+    # ORDER IS THE RECOVERY MECHANISM. Labels next, ref deletion last.
     #
     # Deleting the ref first made every later failure permanent: sweeps discover work only through
     # claim refs, so an issue whose ref was gone and whose status:ready never got restored was
@@ -259,31 +267,33 @@ def _read_ref(number: int) -> str | None:
     return str(current["object"]["sha"])
 
 
-def _retire_ref(number: int) -> None:
-    """Archive the claim ref, confirm it has not moved, then delete it.
+def _prepare_retire(number: int) -> str | None:
+    """Archive the tip and confirm it has not moved. The last step that can abort.
+
+    Separated from the delete so that **every abortable step runs before any state change**. It
+    used to run after the labels had already flipped, so an abort left a live claim ref beside a
+    falsely `status:ready` issue: claimers lost the 422 race forever, and later sweeps saw the
+    fresh activity, kept the claim, and never repaired the labels. Creating the archive ref is
+    additive, so it is harmless if the reap is then abandoned.
 
     **What this does and does not guarantee.** `DELETE /git/refs` takes no expected-SHA, so GitHub
     offers no compare-and-swap for ref deletion, and `concurrency` serializes reaper runs against
     each other rather than against workers. A residual window therefore **cannot be eliminated**,
-    only bounded - and an earlier version of this docstring claimed the archive made losing the race
+    only bounded - an earlier version of this docstring claimed the archive made losing the race
     harmless, which was wrong: archiving tip A and then deleting whatever the ref points at destroys
     a push that landed in between, unarchived.
 
-    So the sequence is archive, **re-read**, and delete only if the tip is unchanged:
+    So: read the tip, copy it to ``refs/reaped/issue-<N>-<sha>``, read it again, and let the caller
+    delete only if it is unchanged. A push during those steps aborts the reap. A push between the
+    final read and the caller's DELETE is the irreducible remainder: one round-trip wide. Three
+    things keep even that from being a loss - the tip is archived, the worker still holds the
+    commits locally, and its next `claim check` fails on the generation fence.
 
-    1. read the tip
-    2. copy it to ``refs/reaped/issue-<N>-<sha>``
-    3. read it again - if it moved, abort without deleting; the stray archive is harmless
-    4. delete
-
-    A push during 1-3 aborts the reap. A push between 3 and 4 is the irreducible remainder: one
-    round-trip wide, and bounded rather than closed. Two things keep even that from being a loss -
-    the worker still holds the commits in its local clone, and its next `claim check` fails on the
-    generation fence, so it learns it was superseded instead of pushing into a deleted branch.
+    Returns the archived sha, or ``None`` when there is no ref left to retire.
     """
     before = _read_ref(number)
     if before is None:
-        return
+        return None
 
     # The FULL sha, not a prefix. With an 8-character prefix a 422 was ambiguous - it could mean
     # "this exact archive exists" or "a different commit sharing that prefix was archived earlier",
@@ -300,14 +310,22 @@ def _retire_ref(number: int) -> None:
             f"#{number} claim ref could not be archived (HTTP {status}); refusing to delete it"
         )
 
-    # Only delete the tip we actually archived. If it moved while we were archiving, the worker is
-    # alive and this reap is abandoned.
+    # Only let the caller delete the tip we actually archived. If it moved while we were archiving,
+    # the worker is alive and this reap is abandoned - before any label has changed.
     after = _read_ref(number)
     if after != before:
         raise ReaperError(
             f"#{number} claim ref moved while being archived; refusing to delete an unarchived tip"
         )
+    return before
 
+
+def _retire_ref(number: int) -> None:
+    """Commit the retirement: delete the ref whose tip ``_prepare_retire`` already archived.
+
+    This is the commit point. Everything that can abort has already run, and every failure after it
+    leaves the ref in place for the next sweep to re-decide and retry.
+    """
     status, _ = claim._request("DELETE", f"/repos/{REPO}/git/refs/heads/{BRANCH_PREFIX}{number}")
     if status not in (204, 404):
         raise ReaperError(f"#{number} claim ref could not be deleted (HTTP {status})")
