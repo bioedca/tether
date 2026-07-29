@@ -98,7 +98,16 @@ def _open_pr(number: int) -> dict[str, Any] | None:
     if not prs:
         return None
     open_prs = [p for p in prs if p.get("state") == "open"]
-    return open_prs[0] if open_prs else prs[0]
+    summary = open_prs[0] if open_prs else prs[0]
+
+    # The LIST representation omits mergeable/mergeable_state entirely - verified against the API,
+    # not assumed. Deciding "not conflicted" from it makes that test ALWAYS false, so a conflicted
+    # PR would fall through to the stale path and be closed and requeued instead of flagged. Only
+    # /pulls/{number} populates them.
+    status, full = claim._request("GET", f"/repos/{REPO}/pulls/{summary['number']}")
+    if status != 200 or not isinstance(full, dict):
+        raise ReaperError(f"PR #{summary['number']} state could not be read (HTTP {status})")
+    return full
 
 
 def _checks_running(sha: str) -> bool:
@@ -118,19 +127,52 @@ def _checks_running(sha: str) -> bool:
 
 
 def _requeue(number: int, *, dry_run: bool) -> None:
-    """Delete the claim ref and put the issue back on the queue. Idempotent."""
+    """Delete the claim ref and put the issue back on the queue.
+
+    Order matters. Everything that can fail is checked BEFORE anything destructive happens:
+
+    * The issue is read first. Reading it afterwards meant a transient non-200 left the ref
+      already deleted and the labels already stripped, while ``status:ready`` was silently never
+      restored. Sweeps discover work only through claim refs, so that issue would be stranded
+      forever - the precise failure this whole workflow exists to repair.
+    * The PR state is re-read immediately before the delete. ``concurrency`` serializes reaper runs
+      against each other, not against workers, and opening a PR does not refresh branch activity -
+      so a delayed worker could open its PR after the earlier check and still lose its claim.
+    * Restoring the queue label is treated as an error, not best-effort: an issue left without
+      ``status:ready`` is invisible to every future sweep.
+    """
     if dry_run:
         return
-    claim._request("DELETE", f"/repos/{REPO}/git/refs/heads/{BRANCH_PREFIX}{number}")
+
+    status, issue = claim._request("GET", f"/repos/{REPO}/issues/{number}")
+    if status != 200 or not isinstance(issue, dict):
+        raise ReaperError(f"#{number} could not be read (HTTP {status}); refusing to reclaim")
+    still_open = issue.get("state") == "open"
+
+    # Only an OPEN pull request means someone is still working: the stale path closes the PR just
+    # before calling this, so aborting on any PR at all would refuse the reclaim it just authorized.
+    fresh = _open_pr(number)
+    if fresh is not None and fresh.get("state") == "open":
+        raise ReaperError(f"#{number} gained an open pull request mid-sweep; refusing to reclaim")
+
+    status, _ = claim._request("DELETE", f"/repos/{REPO}/git/refs/heads/{BRANCH_PREFIX}{number}")
+    if status not in (204, 404):
+        raise ReaperError(f"#{number} claim ref could not be deleted (HTTP {status})")
+
     for vendor in claim.VENDORS:
         claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/agent:{vendor}", None)
     claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/status:in-progress", None)
-    # Only re-open the issue's queue slot if it is still open; a merged issue must stay done.
-    status, issue = claim._request("GET", f"/repos/{REPO}/issues/{number}")
-    if status == 200 and isinstance(issue, dict) and issue.get("state") == "open":
-        claim._request(
+
+    # A closed issue must stay done; only an open one goes back on the queue.
+    if still_open:
+        status, _ = claim._request(
             "POST", f"/repos/{REPO}/issues/{number}/labels", {"labels": [claim.REQUIRED_LABEL]}
         )
+        if status != 200:
+            raise ReaperError(
+                f"#{number} lost its claim ref but {claim.REQUIRED_LABEL} could not be restored "
+                f"(HTTP {status}); it is now invisible to future sweeps"
+            )
 
 
 def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
@@ -149,7 +191,7 @@ def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
             actions.append({"issue": number, "action": "requeue", "reason": "no-open-pr"})
             continue
 
-        if pr.get("mergeable_state") == "dirty" or pr.get("mergeStateStatus") == "DIRTY":
+        if pr.get("mergeable_state") == "dirty":
             if not dry_run:
                 claim._request(
                     "POST",
@@ -159,10 +201,27 @@ def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
             actions.append({"issue": number, "action": "flag-conflicted", "reason": "dirty"})
             continue
 
+        # GitHub computes mergeability asynchronously: `mergeable: null` means "not known yet",
+        # which is not the same as "not conflicted". Deciding to close on an unknown would be the
+        # fail-open this PR already had to fix once.
+        if pr.get("mergeable") is None:
+            actions.append({"issue": number, "action": "keep", "reason": "mergeability-unknown"})
+            continue
+
         pr_age_h = (now - _parse(pr["updated_at"])).total_seconds() / 3600
         if pr_age_h >= STALE_PR_HOURS and not _checks_running(pr["head"]["sha"]):
             if not dry_run:
-                claim._request("PATCH", f"/repos/{REPO}/pulls/{pr['number']}", {"state": "closed"})
+                # Require the close to succeed BEFORE releasing the claim. Ignoring the result left
+                # an open PR pointing at a branch the successor recreates, so the successor could
+                # silently inherit or mutate someone else's stale PR.
+                status, _ = claim._request(
+                    "PATCH", f"/repos/{REPO}/pulls/{pr['number']}", {"state": "closed"}
+                )
+                if status != 200:
+                    raise ReaperError(
+                        f"PR #{pr['number']} could not be closed (HTTP {status}); "
+                        f"refusing to release #{number}'s claim while its PR is still open"
+                    )
             _requeue(number, dry_run=dry_run)
             actions.append(
                 {"issue": number, "action": "requeue", "reason": "stale-pr", "pr": pr["number"]}

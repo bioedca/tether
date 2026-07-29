@@ -33,7 +33,13 @@ def _ago(**kw: float) -> str:
 
 
 class Fake:
-    """Answers by (method, path-prefix) and records every request."""
+    """Answers by (method, path-prefix) and records every request.
+
+    Defaults mirror the real API's success codes, because the reaper now checks them: a DELETE that
+    "succeeds" with 200 instead of 204 would look like a failure and mask a real regression.
+    """
+
+    DEFAULTS = {"DELETE": (204, None), "POST": (200, None), "PATCH": (200, None)}
 
     def __init__(self, routes: dict[tuple[str, str], tuple[int, Any]]) -> None:
         self.routes = routes
@@ -41,10 +47,26 @@ class Fake:
 
     def __call__(self, method: str, path: str, body: Any = None) -> tuple[int, Any]:
         self.calls.append((method, path))
+
+        # Model the one side effect the reaper depends on: closing a PR makes subsequent reads
+        # return state="closed". Without this the requeue-after-close path would look like
+        # "a PR appeared mid-sweep" and be refused - which is the guard working, not a bug.
+        if method == "PATCH" and "/pulls/" in path and isinstance(body, dict):
+            new_state = body.get("state")
+            for _, payload in self.routes.values():
+                items = payload if isinstance(payload, list) else [payload]
+                for item in items:
+                    if isinstance(item, dict) and item.get("number") is not None:
+                        item["state"] = new_state or item.get("state")
+
+        best: tuple[int, tuple[int, Any]] | None = None
         for (m, prefix), response in self.routes.items():
-            if method == m and path.startswith(prefix):
-                return response
-        return 200, None
+            # Longest prefix wins, so "/pulls/99" is not shadowed by "/pulls?head".
+            if m == method and path.startswith(prefix) and (best is None or len(prefix) > best[0]):
+                best = (len(prefix), response)
+        if best is not None:
+            return best[1]
+        return self.DEFAULTS.get(method, (200, None))
 
     def did(self, method: str, fragment: str) -> bool:
         return any(m == method and fragment in p for m, p in self.calls)
@@ -61,17 +83,38 @@ def _install(
     return fake
 
 
-def _routes() -> dict[tuple[str, str], tuple[int, Any]]:
-    """A live, healthy claim: ref present, active 5 minutes ago, no PR yet, issue open."""
-    return {
+def _pr(**over: Any) -> dict[str, Any]:
+    """A full PR object as `/pulls/{number}` returns it - mergeable* only exist there."""
+    pr = {
+        "number": 99,
+        "state": "open",
+        "updated_at": _ago(minutes=5),
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "head": {"sha": "d" * 40},
+    }
+    pr.update(over)
+    return pr
+
+
+def _routes(pr: dict[str, Any] | None = None) -> dict[tuple[str, str], tuple[int, Any]]:
+    """A live, healthy claim: ref present, active 5 minutes ago, no PR yet, issue open.
+
+    Pass `pr` to give the claim a pull request; both the list and single-PR reads are wired, since
+    `_open_pr` follows the list with `/pulls/{number}` to obtain mergeability.
+    """
+    routes: dict[tuple[str, str], tuple[int, Any]] = {
         ("GET", "/repos/bioedca/tether/git/matching-refs/heads/agent/issue-"): (
             200,
             [{"ref": "refs/heads/agent/issue-7"}],
         ),
         ("GET", "/repos/bioedca/tether/activity"): (200, [{"timestamp": _ago(minutes=5)}]),
-        ("GET", "/repos/bioedca/tether/pulls?head"): (200, []),
+        ("GET", "/repos/bioedca/tether/pulls?head"): (200, [] if pr is None else [pr]),
         ("GET", "/repos/bioedca/tether/issues/7"): (200, {"state": "open"}),
     }
+    if pr is not None:
+        routes[("GET", f"/repos/bioedca/tether/pulls/{pr['number']}")] = (200, pr)
+    return routes
 
 
 # ------------------------------------------------------------------ ref discovery
@@ -128,19 +171,7 @@ def test_a_recently_active_claim_with_no_pr_is_kept(monkeypatch: pytest.MonkeyPa
 def test_a_pr_untouched_for_six_hours_with_no_checks_is_closed_and_requeued(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    routes = _routes()
-    routes[("GET", "/repos/bioedca/tether/pulls?head")] = (
-        200,
-        [
-            {
-                "number": 99,
-                "state": "open",
-                "updated_at": _ago(hours=7),
-                "mergeable_state": "clean",
-                "head": {"sha": "d" * 40},
-            }
-        ],
-    )
+    routes = _routes(_pr(updated_at=_ago(hours=7)))
     routes[("GET", "/repos/bioedca/tether/commits/")] = (200, {"check_suites": []})
     fake = _install(monkeypatch, routes)
     actions = reaper.sweep(dry_run=False)
@@ -151,19 +182,7 @@ def test_a_pr_untouched_for_six_hours_with_no_checks_is_closed_and_requeued(
 
 def test_a_stale_pr_with_checks_still_running_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
     """CI can legitimately outlast the window; killing a PR mid-run loses real work."""
-    routes = _routes()
-    routes[("GET", "/repos/bioedca/tether/pulls?head")] = (
-        200,
-        [
-            {
-                "number": 99,
-                "state": "open",
-                "updated_at": _ago(hours=7),
-                "mergeable_state": "clean",
-                "head": {"sha": "d" * 40},
-            }
-        ],
-    )
+    routes = _routes(_pr(updated_at=_ago(hours=7)))
     routes[("GET", "/repos/bioedca/tether/commits/")] = (
         200,
         {"check_suites": [{"status": "in_progress"}]},
@@ -179,19 +198,7 @@ def test_a_stale_pr_with_checks_still_running_is_kept(monkeypatch: pytest.Monkey
 
 def test_a_dirty_pr_is_flagged_and_its_claim_left_alone(monkeypatch: pytest.MonkeyPatch) -> None:
     """A conflict needs a human or a rebase, not a reclaim - the work is still good."""
-    routes = _routes()
-    routes[("GET", "/repos/bioedca/tether/pulls?head")] = (
-        200,
-        [
-            {
-                "number": 99,
-                "state": "open",
-                "updated_at": _ago(minutes=5),
-                "mergeable_state": "dirty",
-                "head": {"sha": "d" * 40},
-            }
-        ],
-    )
+    routes = _routes(_pr(mergeable_state="dirty", mergeable=False))
     fake = _install(monkeypatch, routes)
     assert reaper.sweep(dry_run=False)[0]["action"] == "flag-conflicted"
     assert not fake.did("DELETE", "git/refs")
@@ -234,19 +241,7 @@ def test_unreadable_check_state_never_closes_a_pr(
     """A 403 here is the realistic case: with an explicit permissions block, omitting
     `checks: read` makes every check-suite read a 403. Reading that as "no checks running" would
     close a PR whose CI is mid-flight."""
-    routes = _routes()
-    routes[("GET", "/repos/bioedca/tether/pulls?head")] = (
-        200,
-        [
-            {
-                "number": 99,
-                "state": "open",
-                "updated_at": _ago(hours=7),
-                "mergeable_state": "clean",
-                "head": {"sha": "d" * 40},
-            }
-        ],
-    )
+    routes = _routes(_pr(updated_at=_ago(hours=7)))
     routes[("GET", "/repos/bioedca/tether/commits/")] = response
     fake = _install(monkeypatch, routes)
     with pytest.raises(reaper.ReaperError, match="check-suite"):
