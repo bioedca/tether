@@ -175,6 +175,10 @@ def _only_in_progress(number: int) -> bool:
     status, issue = claim._request("GET", f"/repos/{REPO}/issues/{number}")
     if status != 200 or not isinstance(issue, dict):
         raise ReaperError(f"#{number} labels could not be re-read (HTTP {status})")
+    if issue.get("state") != "open":
+        # The open/closed check in the caller came from an earlier read; a maintainer closing the
+        # issue in between must not end up with status:ready on a closed issue.
+        return False
     names = {label["name"] for label in issue.get("labels", []) if isinstance(label, dict)}
     return not ({n for n in names if n.startswith("status:")} - {"status:in-progress"})
 
@@ -305,10 +309,24 @@ def _prepare_retire(number: int) -> str | None:
         f"/repos/{REPO}/git/refs",
         {"ref": f"refs/reaped/issue-{number}-{before}", "sha": before},
     )
+    archive = f"refs/reaped/issue-{number}-{before}"
     if status not in (201, 422):
         raise ReaperError(
             f"#{number} claim ref could not be archived (HTTP {status}); refusing to delete it"
         )
+    if status == 422:
+        # 422 from POST /git/refs is not only "already exists" - it also covers validation failures
+        # such as an unknown sha or a malformed name. Assuming the benign meaning would let the
+        # delete proceed against an archive that was never created, so confirm it exists and points
+        # where we think it does.
+        status, existing = claim._request(
+            "GET", f"/repos/{REPO}/git/ref/{archive.removeprefix('refs/')}"
+        )
+        target = existing.get("object", {}).get("sha") if isinstance(existing, dict) else None
+        if status != 200 or target != before:
+            raise ReaperError(
+                f"#{number} archive {archive} is absent or points elsewhere; refusing to delete"
+            )
 
     # Only let the caller delete the tip we actually archived. If it moved while we were archiving,
     # the worker is alive and this reap is abandoned - before any label has changed.

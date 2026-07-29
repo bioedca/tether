@@ -570,6 +570,82 @@ def test_an_aborted_retirement_leaves_the_labels_untouched(
     )
 
 
+def test_a_422_archive_is_verified_rather_than_assumed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """422 from POST /git/refs is not only "already exists".
+
+    It also covers validation failures such as an unknown sha or a malformed name. Assuming the
+    benign meaning would let the delete proceed against an archive that was never created.
+    """
+    sha = "abc12345" + "0" * 32
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    routes[("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7")] = (
+        200,
+        {"object": {"sha": sha}},
+    )
+    routes[("POST", "/repos/bioedca/tether/git/refs")] = (422, None)
+    # The archive it claims to already have does not exist.
+    routes[("GET", f"/repos/bioedca/tether/git/ref/reaped/issue-7-{sha}")] = (404, None)
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(reaper.ReaperError, match="absent or points elsewhere"):
+        reaper.sweep(dry_run=False)
+    assert not fake.did("DELETE", "git/refs")
+
+
+def test_a_422_archive_pointing_elsewhere_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    sha = "abc12345" + "0" * 32
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    routes[("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7")] = (
+        200,
+        {"object": {"sha": sha}},
+    )
+    routes[("POST", "/repos/bioedca/tether/git/refs")] = (422, None)
+    routes[("GET", f"/repos/bioedca/tether/git/ref/reaped/issue-7-{sha}")] = (
+        200,
+        {"object": {"sha": "9" * 40}},
+    )
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(reaper.ReaperError, match="absent or points elsewhere"):
+        reaper.sweep(dry_run=False)
+    assert not fake.did("DELETE", "git/refs")
+
+
+def test_an_issue_closed_mid_sweep_does_not_get_the_ready_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The open/closed check in the caller came from an earlier read.
+
+    A maintainer closing the issue in between must not leave status:ready on a closed issue.
+    """
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    fake = _install(monkeypatch, routes)
+    original = fake.__call__
+    reads = {"n": 0}
+
+    def closing(method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if method == "GET" and path.endswith("/issues/7"):
+            reads["n"] += 1
+            if reads["n"] > 1:  # closed after our first read
+                return 200, {"state": "closed", "labels": []}
+        return original(method, path, body)
+
+    monkeypatch.setattr(reaper.claim, "_request", closing)
+    reaper.sweep(dry_run=False)
+    assert not fake.did("POST", "/issues/7/labels"), "a closed issue must not be marked ready"
+    assert fake.did("DELETE", "git/refs/heads/agent/issue-7"), "the claim is still released"
+
+
 def test_a_failed_archive_prevents_the_deletion(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the commits cannot be preserved, the branch must not be destroyed."""
     routes = _routes()
