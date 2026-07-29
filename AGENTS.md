@@ -113,30 +113,12 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
 ## WSL clusters and Slurm
 
 - Use remote compute only when local execution is impractical and the goal or maintainer explicitly
-  authorizes the exact cluster, data, account, and resource ceiling. From WSL set `CLUSTER` to
-  exactly `zero`, `one`, or `two`; endpoints, users, keys, and tokens live only in `~/.ssh/config`.
-- On first use each session, fail closed unless WSL, strict host keys, aliases, and `sbatch squeue
-  sacct scancel srun sinfo` pass a noninteractive `BatchMode=yes`/`ConnectTimeout=10` probe. Never
-  edit SSH state, accept an unknown host key, forward an agent, or weaken checks autonomously.
-  Use `ssh -n -T -o BatchMode=yes -o ConnectTimeout=10 -o ConnectionAttempts=1
-  -o StrictHostKeyChecking=yes -o UpdateHostKeys=no -o ForwardAgent=no "$CLUSTER"
-  'hostname >/dev/null && for c in sbatch squeue sacct scancel srun sinfo; do command -v "$c"
-  >/dev/null || exit 127; done'`.
-- Never compute on login nodes, run daemons/nohup, or recurse through SSH. Submit with `sbatch`;
-  use `srun` only inside an allocation and when site policy permits.
-- Build one `git archive <SHA>` from a clean commit; reject links/devices/absolute/traversal entries.
-  Secret-scan names and extracted bytes, record its digest, transfer those bytes, and verify remotely;
-  allowlist data separately. Extract under atomic `mktemp` in verified scratch; require owner, mode
-  700, resolved non-symlink path. Never copy `.git`, `.env`, credentials, or a home tree.
-- Batch scripts use `set -euo pipefail`, `umask 077`, explicit environment/resources, `%x-%j` logs,
-  and conservative limits. Never guess account, partition, QoS, or site policy. Use `--export=NIL`
-  only if installed `sbatch --help` supports it; otherwise require the site-approved clean pattern.
-- Submit once with `sbatch --parsable`; require a numeric job ID and retain the full tuple `(SSH
-  alias, returned Slurm cluster if any, job ID, owner, submission time)`. Use that tuple for exact-ID
-  `squeue`/`sacct` queries and poll no faster than 30 seconds.
-- `scancel` only that task-created tuple, on explicit stop or a documented safety breach—never by
-  user, name, or wildcard. Accept results only after logs, expected outputs, checksums, provenance,
-  terminal state, exit code, and resources agree.
+  authorizes the exact cluster, data, account, and resource ceiling.
+- **Read `docs/agents/hpc.md` before touching a cluster.** It carries the operative rules: the
+  `CLUSTER` values, the fail-closed first-use probe, no login-node compute, the `git archive`
+  transfer discipline, batch-script requirements, the `sbatch --parsable` tuple, the poll floor, and
+  the `scancel` restriction. Not having read it is itself a bar to acting: if you have not, you are
+  not authorized to run remote compute, and neither authorization above nor urgency substitutes.
 
 ## Handoff and cleanup
 
