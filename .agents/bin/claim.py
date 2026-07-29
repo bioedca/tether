@@ -127,7 +127,9 @@ def _scope_hash(title: str, body: str) -> str:
     would be a second thing to keep in step, and the first divergence would be silent.
     """
     helper = Path(__file__).resolve().parents[1] / "skills/run-issue-swarm/scripts/swarm_lease.py"
-    # newline="" so no platform line-ending rewrite can silently change the digest.
+    # newline="" writes the body's bytes as fetched. Line endings are not the hazard - _scope_hash
+    # folds CRLF/CR to LF - but a platform rewrite that alters content (a prepended BOM, say) would
+    # change the digest, and the body came from the API rather than from a file to begin with.
     with tempfile.TemporaryDirectory() as directory:
         target = Path(directory) / "body.md"
         target.write_text(body, encoding="utf-8", newline="")
