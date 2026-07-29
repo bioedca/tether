@@ -78,7 +78,17 @@ def _install(
     fake = Fake(routes)
     # Patch the module OBJECTS, not dotted strings - these are file-loaded, not importable packages.
     monkeypatch.setattr(reaper.claim, "_request", fake)
-    monkeypatch.setattr(reaper.claim, "_paginate", lambda path, what: fake("GET", path)[1] or [])
+
+    def paginate(path: str, what: str) -> list[Any]:
+        # Mirror the real _paginate contract: it RAISES on a non-200 or a non-list body. The
+        # previous stub returned [] instead, which silently turned every fail-closed test into a
+        # "genuinely empty list" test - the fake was hiding the behaviour the tests exist to pin.
+        status, payload = fake("GET", path)
+        if status != 200 or not isinstance(payload, list):
+            raise reaper.claim.ClaimError(f"{what} could not be read")
+        return payload
+
+    monkeypatch.setattr(reaper.claim, "_paginate", paginate)
     monkeypatch.setattr(reaper, "_now", lambda: NOW)
     return fake
 
@@ -141,6 +151,36 @@ def test_only_well_formed_claim_refs_are_swept(monkeypatch: pytest.MonkeyPatch) 
     )
     _install(monkeypatch, routes)
     assert reaper._claim_refs() == [7]
+
+
+@pytest.mark.parametrize(
+    ("func", "path_fragment"),
+    [
+        ("_claim_refs", "git/matching-refs/heads/agent/issue-"),
+        ("_fingerprint", "/activity?ref="),
+    ],
+    ids=["claim-refs", "activity"],
+)
+def test_every_list_read_goes_through_the_paginating_helper(
+    monkeypatch: pytest.MonkeyPatch, func: str, path_fragment: str
+) -> None:
+    """A single-page read means claims beyond page one are NEVER reaped.
+
+    Every scheduled run would receive the same first page, so the workflow silently stops working
+    on a busy repo. This is the third unpaginated-read defect in this change, so it is pinned
+    structurally rather than trusted.
+    """
+    fake = _install(monkeypatch, _routes())
+    seen: list[str] = []
+
+    def spy(path: str, what: str) -> list[Any]:
+        seen.append(path)
+        status, payload = fake("GET", path)
+        return payload if isinstance(payload, list) else []
+
+    monkeypatch.setattr(reaper.claim, "_paginate", spy)
+    getattr(reaper, func)(*([] if func == "_claim_refs" else [7]))
+    assert any(path_fragment in p for p in seen), f"{func} must read through _paginate; saw {seen}"
 
 
 def test_no_claim_refs_is_success_not_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -460,6 +500,39 @@ def test_the_claim_ref_is_archived_before_it_is_deleted(monkeypatch: pytest.Monk
     archive = next(i for i, c in enumerate(order) if c.startswith("POST") and "git/refs" in c)
     delete = next(i for i, c in enumerate(order) if c.startswith("DELETE") and "git/refs" in c)
     assert archive < delete, "the tip must be archived before the ref is deleted"
+
+
+def test_the_archive_ref_name_carries_the_full_sha(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An 8-character prefix makes a 422 ambiguous.
+
+    It could mean "this exact archive exists" or "a different commit sharing that prefix was
+    archived earlier" - and accepting the second deletes a tip that was never preserved. The full
+    sha makes the ref name identify the commit, so 422 can only mean identical.
+    """
+    sha = "abc12345" + "0" * 32
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    routes[("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7")] = (
+        200,
+        {"object": {"sha": sha}},
+    )
+    fake = _install(monkeypatch, routes)
+    bodies: list[Any] = []
+    original = fake.__call__
+
+    def record(method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if method == "POST" and path.endswith("/git/refs"):
+            bodies.append(body)
+        return original(method, path, body)
+
+    monkeypatch.setattr(reaper.claim, "_request", record)
+    reaper.sweep(dry_run=False)
+    assert bodies, "no archive ref was created"
+    assert bodies[0]["ref"] == f"refs/reaped/issue-7-{sha}"
+    assert sha[:8] != sha and not bodies[0]["ref"].endswith(sha[:8]), "must not be a prefix"
 
 
 def test_a_failed_archive_prevents_the_deletion(monkeypatch: pytest.MonkeyPatch) -> None:

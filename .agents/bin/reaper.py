@@ -58,11 +58,20 @@ def _parse(stamp: str) -> datetime:
 
 def _claim_refs() -> list[int]:
     """Every issue number with a live claim ref."""
-    status, refs = claim._request("GET", f"/repos/{REPO}/git/matching-refs/heads/{BRANCH_PREFIX}")
-    if status == 404:
-        return []
-    if status != 200 or not isinstance(refs, list):
-        raise ReaperError("claim refs could not be listed")
+    # Paginated: reading one page means abandoned claims beyond it are NEVER reaped, because every
+    # scheduled run would receive the same first page. That silently defeats the whole workflow on a
+    # busy repo, and it is the third unpaginated-read defect in this change - so every list read
+    # here is now either paginated or truncation-checked.
+    try:
+        refs = claim._paginate(
+            f"/repos/{REPO}/git/matching-refs/heads/{BRANCH_PREFIX}", "claim refs"
+        )
+    except claim.ClaimError as exc:
+        # matching-refs 404s when nothing matches, which is an empty sweep rather than a failure.
+        status, _ = claim._request("GET", f"/repos/{REPO}/git/matching-refs/heads/{BRANCH_PREFIX}")
+        if status == 404:
+            return []
+        raise ReaperError("claim refs could not be listed") from exc
     numbers = []
     for ref in refs:
         name = ref.get("ref", "")
@@ -107,9 +116,10 @@ def _open_pr(number: int) -> dict[str, Any] | None:
     destroy a healthy claim. Not-knowing and knowing-there-is-none must never be the same value.
     """
     branch = f"{BRANCH_PREFIX}{number}"
-    status, prs = claim._request("GET", f"/repos/{REPO}/pulls?head=bioedca:{branch}&state=all")
-    if status != 200 or not isinstance(prs, list):
-        raise ReaperError(f"#{number} pull-request state could not be read (HTTP {status})")
+    try:
+        prs = claim._paginate(f"/repos/{REPO}/pulls?head=bioedca:{branch}&state=all", "PR list")
+    except claim.ClaimError as exc:
+        raise ReaperError(f"#{number} pull-request state could not be read") from exc
     if not prs:
         return None
     open_prs = [p for p in prs if p.get("state") == "open"]
@@ -132,12 +142,20 @@ def _checks_running(sha: str) -> bool:
     This needs ``checks: read`` in the workflow - with an explicit ``permissions:`` block every
     unlisted scope is ``none``, so omitting it yields a 403 that used to read as "no checks".
     """
-    status, suites = claim._request("GET", f"/repos/{REPO}/commits/{sha}/check-suites")
+    status, suites = claim._request("GET", f"/repos/{REPO}/commits/{sha}/check-suites?per_page=100")
     if status != 200 or not isinstance(suites, dict):
         raise ReaperError(f"check-suite state could not be read (HTTP {status})")
     entries = suites.get("check_suites")
     if not isinstance(entries, list):
         raise ReaperError("check-suite response was malformed")
+    # This endpoint wraps its list in an object, so `_paginate` does not apply. Detect truncation
+    # instead of silently under-reading: a missed in_progress suite would let the sweep close a PR
+    # whose CI is live, which is the same failure the fail-closed guard above exists to prevent.
+    total = suites.get("total_count")
+    if isinstance(total, int) and total > len(entries):
+        raise ReaperError(
+            f"check-suite list truncated ({len(entries)} of {total}); refusing to judge CI state"
+        )
     return any(s.get("status") in {"queued", "in_progress"} for s in entries)
 
 
@@ -267,12 +285,17 @@ def _retire_ref(number: int) -> None:
     if before is None:
         return
 
+    # The FULL sha, not a prefix. With an 8-character prefix a 422 was ambiguous - it could mean
+    # "this exact archive exists" or "a different commit sharing that prefix was archived earlier",
+    # and accepting the second would delete a tip that was never preserved. With the full sha the
+    # ref name identifies the commit exactly, so 422 can only mean the identical archive is already
+    # there. The ambiguity is removed rather than checked for.
     status, _ = claim._request(
         "POST",
         f"/repos/{REPO}/git/refs",
-        {"ref": f"refs/reaped/issue-{number}-{before[:8]}", "sha": before},
+        {"ref": f"refs/reaped/issue-{number}-{before}", "sha": before},
     )
-    if status not in (201, 422):  # 422 = an identical archive already exists, which is fine
+    if status not in (201, 422):
         raise ReaperError(
             f"#{number} claim ref could not be archived (HTTP {status}); refusing to delete it"
         )
