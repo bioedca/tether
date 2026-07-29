@@ -269,6 +269,115 @@ def test_the_workflow_grants_checks_read(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "checks: read" in permissions
 
 
+# ------------------------------------------------- decide-then-mutate (TOCTOU) properties
+
+
+class Changing(Fake):
+    """A fake whose activity feed changes once, after the Nth read.
+
+    Models the only thing that matters here: a worker becoming active between the sweep's decision
+    and its destructive call. `concurrency` serializes reaper runs against each other, not against
+    workers, and a push opens no PR - so nothing else in the sweep would notice.
+    """
+
+    def __init__(self, routes: dict[tuple[str, str], tuple[int, Any]], flip_after: int) -> None:
+        super().__init__(routes)
+        self.flip_after = flip_after
+        self.activity_reads = 0
+
+    def __call__(self, method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if method == "GET" and "/activity" in path:
+            self.activity_reads += 1
+            if self.activity_reads > self.flip_after:
+                self.calls.append((method, path))
+                return 200, [{"id": 999, "timestamp": _ago(minutes=0)}]
+        return super().__call__(method, path, body)
+
+
+def test_a_push_between_decision_and_delete_saves_the_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The worker was silent when we decided, then pushed. Its claim must survive."""
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    fake = Changing(routes, flip_after=2)
+    monkeypatch.setattr(reaper.claim, "_request", fake)
+    monkeypatch.setattr(reaper.claim, "_paginate", lambda path, what: fake("GET", path)[1] or [])
+    monkeypatch.setattr(reaper, "_now", lambda: NOW)
+    with pytest.raises(reaper.ReaperError, match="new activity mid-sweep"):
+        reaper.sweep(dry_run=False)
+    assert not fake.did("DELETE", "git/refs")
+
+
+def test_the_claim_ref_is_deleted_last_so_a_failed_requeue_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Order is the recovery mechanism.
+
+    Sweeps discover work only through claim refs, so deleting the ref before restoring
+    `status:ready` made any later failure permanent - raising made it loud, not recoverable. With
+    the ref deleted last it is the commit point and the next sweep simply retries.
+    """
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    routes[("POST", "/repos/bioedca/tether/issues/7/labels")] = (502, None)
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(reaper.ReaperError, match="left in place so the next sweep retries"):
+        reaper.sweep(dry_run=False)
+    assert not fake.did("DELETE", "git/refs"), "the ref must survive so the sweep can retry"
+
+
+def test_ref_deletion_happens_after_the_queue_label_is_restored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    fake = _install(monkeypatch, routes)
+    reaper.sweep(dry_run=False)
+    order = [f"{m} {p}" for m, p in fake.calls]
+    label = next(i for i, c in enumerate(order) if c.startswith("POST") and "labels" in c)
+    delete = next(i for i, c in enumerate(order) if c.startswith("DELETE") and "git/refs" in c)
+    assert label < delete, "status:ready must be restored before the ref is deleted"
+
+
+def test_a_pr_that_changed_since_the_decision_is_not_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker that pushed a new head since the staleness reading is alive, not abandoned."""
+    stale = _pr(updated_at=_ago(hours=7))
+    routes = _routes(stale)
+    routes[("GET", "/repos/bioedca/tether/commits/")] = (200, {"check_suites": []})
+    fake = _install(monkeypatch, routes)
+
+    original = fake.__call__
+    seen = {"n": 0}
+
+    def moving(method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        # After the decision read, the PR reports a fresh head - the worker pushed.
+        if method == "GET" and path.endswith("/pulls/99"):
+            seen["n"] += 1
+            if seen["n"] > 1:
+                return 200, _pr(updated_at=_ago(minutes=1), head={"sha": "e" * 40})
+        return original(method, path, body)
+
+    monkeypatch.setattr(reaper.claim, "_request", moving)
+    assert reaper.sweep(dry_run=False)[0] == {
+        "issue": 7,
+        "action": "keep",
+        "reason": "pr-changed",
+    }
+    assert not fake.did("PATCH", "/pulls/99")
+
+
 # ------------------------------------------------------------------ safety properties
 
 

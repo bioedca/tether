@@ -72,6 +72,21 @@ def _claim_refs() -> list[int]:
     return sorted(numbers)
 
 
+def _fingerprint(number: int) -> tuple[int, str] | None:
+    """A server-recorded snapshot of this claim ref's activity: (newest id, newest timestamp).
+
+    The decision to reclaim is made from a snapshot and acted on later. `concurrency` serializes
+    reaper runs against each other but not against workers, so anything can change in between - and
+    a push does not open a PR, so checking only for a PR misses it. Re-reading this immediately
+    before a destructive call and requiring it to be identical closes that window generally, rather
+    than patching each place it shows up.
+    """
+    ref = f"refs/heads/{BRANCH_PREFIX}{number}"
+    entries = claim._paginate(f"/repos/{REPO}/activity?ref={ref}", "claim activity")
+    ids = [(int(e["id"]), str(e.get("timestamp", ""))) for e in entries if e.get("id") is not None]
+    return max(ids) if ids else None
+
+
 def _last_activity(number: int) -> datetime | None:
     """Newest SERVER-recorded activity timestamp for this claim ref.
 
@@ -126,7 +141,7 @@ def _checks_running(sha: str) -> bool:
     return any(s.get("status") in {"queued", "in_progress"} for s in entries)
 
 
-def _requeue(number: int, *, dry_run: bool) -> None:
+def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = None) -> None:
     """Delete the claim ref and put the issue back on the queue.
 
     Order matters. Everything that can fail is checked BEFORE anything destructive happens:
@@ -155,10 +170,19 @@ def _requeue(number: int, *, dry_run: bool) -> None:
     if fresh is not None and fresh.get("state") == "open":
         raise ReaperError(f"#{number} gained an open pull request mid-sweep; refusing to reclaim")
 
-    status, _ = claim._request("DELETE", f"/repos/{REPO}/git/refs/heads/{BRANCH_PREFIX}{number}")
-    if status not in (204, 404):
-        raise ReaperError(f"#{number} claim ref could not be deleted (HTTP {status})")
+    # A push does not open a PR, so the check above cannot see one. Require the server-recorded
+    # activity to be exactly what the decision was made from.
+    if expect is not None and _fingerprint(number) != expect:
+        raise ReaperError(f"#{number} saw new activity mid-sweep; refusing to reclaim")
 
+    # ORDER IS THE RECOVERY MECHANISM. Labels first, ref deletion last.
+    #
+    # Deleting the ref first made every later failure permanent: sweeps discover work only through
+    # claim refs, so an issue whose ref was gone and whose status:ready never got restored was
+    # invisible to every future sweep. Raising did not help - it made the stranding loud, not
+    # recoverable. With the ref deleted last it is the commit point: any failure before it leaves
+    # the ref in place, so the next sweep simply re-decides and retries. Restoring status:ready
+    # while the ref still exists is harmless, because a claimer would lose the ref race with 422.
     for vendor in claim.VENDORS:
         claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/agent:{vendor}", None)
     claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/status:in-progress", None)
@@ -170,15 +194,22 @@ def _requeue(number: int, *, dry_run: bool) -> None:
         )
         if status != 200:
             raise ReaperError(
-                f"#{number} lost its claim ref but {claim.REQUIRED_LABEL} could not be restored "
-                f"(HTTP {status}); it is now invisible to future sweeps"
+                f"#{number} could not be returned to {claim.REQUIRED_LABEL} (HTTP {status}); "
+                "its claim ref is deliberately left in place so the next sweep retries"
             )
+
+    status, _ = claim._request("DELETE", f"/repos/{REPO}/git/refs/heads/{BRANCH_PREFIX}{number}")
+    if status not in (204, 404):
+        raise ReaperError(f"#{number} claim ref could not be deleted (HTTP {status})")
 
 
 def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
     now = _now()
     actions: list[dict[str, Any]] = []
     for number in _claim_refs():
+        # The snapshot every decision below is made from. Re-checked immediately before any
+        # destructive call, so a worker that becomes active mid-sweep keeps its claim.
+        expect = _fingerprint(number)
         pr = _open_pr(number)
         last = _last_activity(number)
         age_min = (now - last).total_seconds() / 60 if last else None
@@ -187,7 +218,7 @@ def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
             if age_min is not None and age_min < NO_PR_MINUTES:
                 actions.append({"issue": number, "action": "keep", "reason": "recent-activity"})
                 continue
-            _requeue(number, dry_run=dry_run)
+            _requeue(number, dry_run=dry_run, expect=expect)
             actions.append({"issue": number, "action": "requeue", "reason": "no-open-pr"})
             continue
 
@@ -211,6 +242,19 @@ def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
         pr_age_h = (now - _parse(pr["updated_at"])).total_seconds() / 3600
         if pr_age_h >= STALE_PR_HOURS and not _checks_running(pr["head"]["sha"]):
             if not dry_run:
+                # Revalidate against the snapshot the staleness decision was made from. A worker
+                # that pushed a new head or started checks since then is alive, and closing its PR
+                # on the old reading would then let _requeue see a closed PR and delete the branch
+                # it had just revived.
+                current = _open_pr(number)
+                if (
+                    current is None
+                    or current.get("updated_at") != pr.get("updated_at")
+                    or current.get("head", {}).get("sha") != pr.get("head", {}).get("sha")
+                    or _checks_running(current["head"]["sha"])
+                ):
+                    actions.append({"issue": number, "action": "keep", "reason": "pr-changed"})
+                    continue
                 # Require the close to succeed BEFORE releasing the claim. Ignoring the result left
                 # an open PR pointing at a branch the successor recreates, so the successor could
                 # silently inherit or mutate someone else's stale PR.
