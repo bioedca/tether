@@ -3,11 +3,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Compute and verify the scope digest that binds a maintainer's swarm approval.
 
-Claims are git refs, not comments: ``POST /git/refs`` returns ``201`` to the first writer and
-``422 Reference already exists`` to everyone after, so the lease, TTL, heartbeat and coordinator
-election this file used to implement are gone (ADR-0057). What remains is the approval binding —
-a maintainer comment carrying the SHA-256 of the exact issue snapshot they approved, so a later
-edit to the title or body provably invalidates it.
+ADR-0057 decided that a claim becomes an atomic git ref, retiring the lease, TTL, heartbeat and
+coordinator election this file used to implement. That decision is *recorded but not yet
+implemented* — see the ADR's "Adoption status" — so this module no longer ships the lease tooling,
+and nothing has replaced it yet. Do not infer a claim mechanism from this file's absence of one;
+root ``AGENTS.md`` is the contract in the interim.
+
+What is unaffected, and all that remains here, is the approval binding: a maintainer comment
+carrying the SHA-256 of the exact issue snapshot they approved, so a later edit to the title or
+body provably invalidates it.
 
 The digest is a published contract: markers already posted on #188, #189, #216 and #218 must keep
 verifying, so ``_scope_hash`` normalization is frozen.
@@ -153,8 +157,11 @@ def _extract_ready(text: str) -> dict[str, Any]:
 
 
 def _render_marker(digest: str) -> str:
+    # Emit "version" first, matching every marker already published on a live issue and the form
+    # documented in SKILL.md. Field order is not semantic - the parser is order-agnostic - but a
+    # rendered marker that does not look like the existing corpus invites a needless diff.
     record = _validate_ready({"version": 1, "criteria_sha256": digest})
-    payload = json.dumps(record, separators=(",", ":"), sort_keys=True)
+    payload = json.dumps(record, separators=(",", ":"))
     return f"<!-- tether-agent-ready {payload} -->"
 
 
@@ -217,7 +224,11 @@ def _parser() -> argparse.ArgumentParser:
     verify = subparsers.add_parser(
         "verify", help="check a fetched approval still binds the current issue snapshot"
     )
-    _add_snapshot_arguments(verify)
+    verify.add_argument("--title", required=True)
+    # Required, unlike the single-input commands: verify reads two files, so defaulting either to
+    # stdin is ambiguous. Silently digesting an empty body would report a valid approval as stale -
+    # a confident, wrong answer on the gate that decides whether work may proceed.
+    verify.add_argument("--body-file", required=True, help="UTF-8 issue body or - for stdin")
     verify.add_argument("--approval-file", required=True, help="fetched approval comment")
     verify.set_defaults(func=_cmd_verify)
     return parser

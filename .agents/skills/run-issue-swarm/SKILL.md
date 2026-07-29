@@ -5,14 +5,24 @@ description: Compute and verify the SHA-256 scope digest that binds a maintainer
 
 # Swarm approval digest
 
-The coordinator runbook that used to live here is retired. Claims are git refs, not comments:
-`POST /git/refs` returns `201` to the first writer and `422 Reference already exists` to everyone
-after, so there is no lease, no TTL, no heartbeat, no lowest-comment-ID election, and no
-coordinator agent. The decision is recorded in
-`docs/adr/0057-github-native-swarm-coordination.md`, and the worker contract is root `AGENTS.md`.
+The coordinator runbook that used to live here has been withdrawn, along with the tooling for the
+lease and run-record protocol it drove.
 
-What survives is the **approval binding**. A maintainer approves an exact issue snapshot by
-commenting a marker carrying the SHA-256 of its normalized title and body:
+**Read this before assuming how work is claimed.** `docs/adr/0057-github-native-swarm-coordination.md`
+*decided* that a claim becomes an atomic git ref — `POST /git/refs` returns `201` to the first
+writer and `422 Reference already exists` to everyone after — but its **Adoption status** section
+records that the claim mutex, `agent/issue-<N>` branches, and the removal of the coordinator and
+leases are **not yet implemented**. Nothing in this repository creates or checks such a ref today.
+Root `AGENTS.md` still describes the coordinator-serialized protocol, and it remains the contract.
+
+So the honest state is: the ADR-0052 lease protocol is **decided against but still written down**,
+and its tooling is now gone. There is no automated claim mechanism in the interim. Work proceeds
+under direct maintainer instruction, one agent at a time, until `claim.py` lands. Do not read the
+paragraph above as permission to skip anything `AGENTS.md` requires.
+
+What survives here is the **approval binding**, which is unaffected by any of that. A maintainer
+approves an exact issue snapshot by commenting a marker carrying the SHA-256 of its normalized
+title and body:
 
 ```
 <!-- tether-agent-ready {"version":1,"criteria_sha256":"HASH"} -->
@@ -39,9 +49,13 @@ python .agents/skills/run-issue-swarm/scripts/swarm_lease.py --help
 ```
 
 `verify` exits `0` when the approval binds and `2` when it does not. `ready-inspect` refuses a
-comment that mixes or repeats coordination markers, so an approval sitting alongside stale lease
-or run state from the retired model is rejected rather than half-read; a marker name merely
-mentioned in prose is not a claim and does not trip it.
+comment that mixes or repeats coordination markers, so an approval sitting alongside stale lease or
+run state from the withdrawn model is rejected rather than half-read.
+
+The mixing check keys on an enumerated list of coordination marker names, so a *different* anchor
+such as `tether-grooming-v1` or `tether-rescope-v1` does not trip it even when a comment names one.
+It is not a Markdown parser: it does not know about code fences, and a real approval marker is
+recognized wherever it appears in the comment body.
 
 Digests published before this rewrite still verify — the normalization is frozen and pinned by a
 regression test.

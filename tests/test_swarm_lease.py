@@ -21,6 +21,7 @@ SCRIPT = ROOT / ".agents" / "skills" / "run-issue-swarm" / "scripts" / "swarm_le
 PIN_TITLE = "build(packaging): pin the wheel"
 PIN_BODY = "Acceptance criteria\n\n- [ ] one source of truth\n"
 PIN_DIGEST = "9906a25c28495a649934b2e809e2b70c136b724b25b025db6907f1797100e0dc"
+NON_ASCII_DIGEST = "329909edc2df9090ff2861ea36485b53039d0bd28f79d91eeac2bb2a7b9cb8c8"
 
 MAX_INPUT_BYTES = 131_072
 SAMPLE_DIGEST = "b" * 64
@@ -78,6 +79,15 @@ def test_scope_hash_normalizes_line_endings_and_trailing_newlines(
     assert result.stdout.strip() == PIN_DIGEST
 
 
+def test_scope_hash_is_pinned_for_a_non_ascii_snapshot(tmp_path: Path) -> None:
+    """Pins ensure_ascii=False: \\uXXXX-escaping before hashing changes every non-ASCII issue."""
+    body = "Rationale: the γ correction factor — see Hellenkamp 2018.\n"
+    path = _write(tmp_path, "body.md", body)
+    result = _run("scope-hash", "--title", "fix(fret): γ factor", "--body-file", path)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == NON_ASCII_DIGEST
+
+
 def test_scope_hash_separates_title_from_body(tmp_path: Path) -> None:
     """Moving text across the title/body boundary must change the digest."""
     first = _run("scope-hash", "--title", "ab", "--body-file", _write(tmp_path, "1.md", "c"))
@@ -91,7 +101,10 @@ def test_ready_marker_round_trips_through_inspect(tmp_path: Path) -> None:
         "ready-marker", "--title", PIN_TITLE, "--body-file", _write(tmp_path, "body.md", PIN_BODY)
     )
     assert rendered.returncode == 0, rendered.stderr
-    assert PIN_DIGEST in rendered.stdout
+    # Field order matches every marker already published on a live issue, and SKILL.md.
+    assert rendered.stdout.strip() == (
+        '<!-- tether-agent-ready {"version":1,"criteria_sha256":"' + PIN_DIGEST + '"} -->'
+    )
 
     inspected = _run(
         "ready-inspect",
@@ -106,6 +119,16 @@ def test_ready_marker_round_trips_through_inspect(tmp_path: Path) -> None:
         "criteria_sha256": PIN_DIGEST,
         "comment_id": 5113663198,
     }
+
+
+def test_verify_requires_an_explicit_body_file(tmp_path: Path) -> None:
+    """Omitting --body-file must not silently digest an empty body: the failure mode is a confident
+    "the body changed, get a fresh approval" against a perfectly valid approval."""
+    approval = _write(tmp_path, "approval.md", _marker(PIN_DIGEST))
+    result = _run("verify", "--title", PIN_TITLE, "--approval-file", approval)
+    assert result.returncode == 2
+    assert "fresh approval is required" not in result.stderr
+    assert "--body-file" in result.stderr
 
 
 def test_verify_binds_a_matching_snapshot_and_rejects_an_edited_one(tmp_path: Path) -> None:
@@ -155,7 +178,31 @@ def test_inspect_refuses_an_approval_mixed_with_retired_coordination_state(
 
 def test_inspect_refuses_a_repeated_approval_marker(tmp_path: Path) -> None:
     path = _write(tmp_path, "twice.md", f"{_marker()}\n{_marker()}")
-    assert _run("ready-inspect", "--file", path).returncode == 2
+    result = _run("ready-inspect", "--file", path)
+    assert result.returncode == 2
+    assert "found 2" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "comment_id",
+    ["0", "-1", "9223372036854775808"],
+    ids=["zero", "negative", "above-signed-64-bit"],
+)
+def test_comment_id_must_be_a_positive_signed_64_bit_integer(
+    tmp_path: Path, comment_id: str
+) -> None:
+    """_positive_github_id is on the keep list, so it needs coverage that fails if it is removed."""
+    path = _write(tmp_path, "approval.md", _marker())
+    result = _run("ready-inspect", "--file", path, "--comment-id", comment_id)
+    assert result.returncode == 2
+    assert "positive signed 64-bit integer" in result.stderr
+
+
+def test_comment_id_accepts_the_largest_valid_id(tmp_path: Path) -> None:
+    path = _write(tmp_path, "approval.md", _marker())
+    result = _run("ready-inspect", "--file", path, "--comment-id", "9223372036854775807")
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["comment_id"] == 9223372036854775807
 
 
 def test_inspect_ignores_a_prose_mention_of_an_unrelated_anchor(tmp_path: Path) -> None:
@@ -214,11 +261,23 @@ def test_stdin_is_bounded_by_encoded_size_not_character_count() -> None:
     assert "safe read limit" in result.stderr
 
 
+def test_the_file_branch_is_bounded_too_and_does_not_truncate(tmp_path: Path) -> None:
+    """Cap the path branch too, else an oversized file is truncated and parsed as if complete."""
+    path = _write(tmp_path, "huge.md", f"{_marker()}\n" + "x" * MAX_INPUT_BYTES)
+    result = _run("ready-inspect", "--file", path)
+    assert result.returncode == 2
+    assert "safe read limit" in result.stderr
+
+
 def test_deeply_nested_json_is_rejected_without_a_traceback(tmp_path: Path) -> None:
-    payload = "[" * 60_000 + "]" * 60_000
+    """Must be an OBJECT: READY_RE captures only `{...}`, so a bare `[[[...]]]` payload would fail
+    the marker count before json.loads ran, and the test would pass for the wrong reason."""
+    payload = '{"a":' * 20_000 + "1" + "}" * 20_000
     result = _run("ready-inspect", "--file", _write_marker(tmp_path, "deep.md", payload))
     assert result.returncode == 2
     assert "Traceback" not in result.stderr
+    # Names the parser, proving the recursion guard - not the marker-count check - rejected this.
+    assert "approval JSON is invalid" in result.stderr
 
 
 def test_missing_input_file_never_emits_its_path(tmp_path: Path) -> None:
