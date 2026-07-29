@@ -5,7 +5,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0052 — Concurrent issue-swarm coordination
 
-- **Status:** accepted
+- **Status:** accepted, **superseded by [ADR-0057](0057-github-native-swarm-coordination.md)**. Adoption
+  is phased: the clauses ADR-0057 has not yet replaced — worker/coordinator separation, leases, run
+  records, guarded merge — **remain operative** until that machinery merges. See its *Adoption status*.
 - **Date:** 2026-07-21
 - **Deciders:** bioedca
 - **PRD anchor:** §12.2–§12.5 (GitHub Flow, reviews, pull requests, and issue planning)
