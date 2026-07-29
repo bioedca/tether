@@ -538,6 +538,36 @@ def test_a_maintainer_status_change_is_never_overwritten(
     assert not fake.did("POST", "/issues/7/labels"), f"{status_label} must not be overwritten"
 
 
+def test_a_block_landing_mid_sweep_still_prevents_the_requeue_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first label read happens several round-trips before the write.
+
+    A maintainer blocking the issue in between must not end up with both blocked and ready, since
+    claim._check_eligible only requires ready to be present.
+    """
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    fake = _install(monkeypatch, routes)
+    original = fake.__call__
+    reads = {"n": 0}
+
+    def blocking(method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if method == "GET" and path.endswith("/issues/7"):
+            reads["n"] += 1
+            if reads["n"] > 1:  # the maintainer blocked it after our first read
+                return 200, {"state": "open", "labels": [{"name": "status:blocked"}]}
+        return original(method, path, body)
+
+    monkeypatch.setattr(reaper.claim, "_request", blocking)
+    reaper.sweep(dry_run=False)
+    assert not fake.did("POST", "/issues/7/labels"), "a late block must still win"
+    assert fake.did("DELETE", "git/refs/heads/agent/issue-7"), "the claim is still released"
+
+
 # ------------------------------------------------------------------ safety properties
 
 

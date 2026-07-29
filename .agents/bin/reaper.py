@@ -141,6 +141,26 @@ def _checks_running(sha: str) -> bool:
     return any(s.get("status") in {"queued", "in_progress"} for s in entries)
 
 
+def _only_in_progress(number: int) -> bool:
+    """Re-read the labels immediately before granting claimability.
+
+    The earlier read happens before several network round-trips, and a maintainer can block an issue
+    in between. Adding ``status:ready`` on top of ``status:blocked`` would let a successor take work
+    a person deliberately stopped, so the decision is re-taken against fresh state here.
+
+    This narrows the window; it does not close it. Label writes are not conditional either, so a
+    block landing in the final round-trip still races. The durable fix belongs on the consumer
+    side: ``claim._check_eligible`` should require ``status:ready`` to be the *only* status label
+    rather than merely present, which makes a stray ready harmless instead of authoritative. That
+    touches ``claim.py`` and is tracked separately rather than widened into this change.
+    """
+    status, issue = claim._request("GET", f"/repos/{REPO}/issues/{number}")
+    if status != 200 or not isinstance(issue, dict):
+        raise ReaperError(f"#{number} labels could not be re-read (HTTP {status})")
+    names = {label["name"] for label in issue.get("labels", []) if isinstance(label, dict)}
+    return not ({n for n in names if n.startswith("status:")} - {"status:in-progress"})
+
+
 def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = None) -> None:
     """Delete the claim ref and put the issue back on the queue.
 
@@ -199,7 +219,7 @@ def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = Non
         claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/agent:{vendor}", None)
     claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/status:in-progress", None)
 
-    if requeue_label:
+    if requeue_label and _only_in_progress(number):
         status, _ = claim._request(
             "POST", f"/repos/{REPO}/issues/{number}/labels", {"labels": [claim.REQUIRED_LABEL]}
         )
