@@ -480,6 +480,64 @@ def test_a_failed_archive_prevents_the_deletion(monkeypatch: pytest.MonkeyPatch)
     assert not fake.did("DELETE", "git/refs")
 
 
+def test_a_tip_that_moves_while_being_archived_is_not_deleted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the tip we actually archived may be deleted.
+
+    Archiving A and then deleting whatever the ref points at destroys a push that landed in
+    between - unarchived. The window cannot be closed (no expected-SHA on DELETE), but deleting an
+    unarchived tip can be refused.
+    """
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    fake = _install(monkeypatch, routes)
+    original = fake.__call__
+    reads = {"n": 0}
+
+    def moving(method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if method == "GET" and "git/ref/heads/agent/issue-7" in path:
+            reads["n"] += 1
+            if reads["n"] > 1:  # the worker pushed while we were archiving
+                return 200, {"object": {"sha": "f" * 40}}
+        return original(method, path, body)
+
+    monkeypatch.setattr(reaper.claim, "_request", moving)
+    with pytest.raises(reaper.ReaperError, match="moved while being archived"):
+        reaper.sweep(dry_run=False)
+    assert not fake.did("DELETE", "git/refs")
+
+
+@pytest.mark.parametrize(
+    "status_label",
+    ["status:blocked", "status:backlog", "status:done", "status:in-review"],
+)
+def test_a_maintainer_status_change_is_never_overwritten(
+    monkeypatch: pytest.MonkeyPatch, status_label: str
+) -> None:
+    """The reaper undoes its own bookkeeping; it does not overrule a person.
+
+    `claim._check_eligible` only requires that `status:ready` be *present*, so adding it on top of
+    a maintainer's `status:blocked` would let a successor immediately take work a human stopped.
+    """
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    routes[("GET", "/repos/bioedca/tether/issues/7")] = (
+        200,
+        {"state": "open", "labels": [{"name": status_label}]},
+    )
+    fake = _install(monkeypatch, routes)
+    reaper.sweep(dry_run=False)
+    assert fake.did("DELETE", "git/refs/heads/agent/issue-7"), "the claim is still released"
+    assert not fake.did("POST", "/issues/7/labels"), f"{status_label} must not be overwritten"
+
+
 # ------------------------------------------------------------------ safety properties
 
 

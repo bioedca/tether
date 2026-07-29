@@ -162,7 +162,15 @@ def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = Non
     status, issue = claim._request("GET", f"/repos/{REPO}/issues/{number}")
     if status != 200 or not isinstance(issue, dict):
         raise ReaperError(f"#{number} could not be read (HTTP {status}); refusing to reclaim")
-    still_open = issue.get("state") == "open"
+
+    # Restore the queue slot ONLY if the issue still looks like the in-progress claim we are
+    # reaping. A maintainer may have moved it to blocked, backlog or done while the claim sat
+    # abandoned; adding status:ready on top would leave both labels, and claim._check_eligible only
+    # requires that ready be *present* - so a successor could immediately take work a human had
+    # deliberately stopped. The reaper undoes its own bookkeeping; it does not overrule a person.
+    labels = {label["name"] for label in issue.get("labels", []) if isinstance(label, dict)}
+    other_status = {name for name in labels if name.startswith("status:")} - {"status:in-progress"}
+    requeue_label = issue.get("state") == "open" and not other_status
 
     # Only an OPEN pull request means someone is still working: the stale path closes the PR just
     # before calling this, so aborting on any PR at all would refuse the reclaim it just authorized.
@@ -191,8 +199,7 @@ def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = Non
         claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/agent:{vendor}", None)
     claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/status:in-progress", None)
 
-    # A closed issue must stay done; only an open one goes back on the queue.
-    if still_open:
+    if requeue_label:
         status, _ = claim._request(
             "POST", f"/repos/{REPO}/issues/{number}/labels", {"labels": [claim.REQUIRED_LABEL]}
         )
@@ -205,39 +212,60 @@ def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = Non
     _retire_ref(number)
 
 
-def _retire_ref(number: int) -> None:
-    """Archive the claim ref, then delete it - never delete outright.
-
-    The residual race cannot be closed by checking harder. `DELETE /git/refs` takes no expected-SHA,
-    so there is **no atomic compare-and-swap for ref deletion**, and `concurrency` serializes reaper
-    runs against each other rather than against workers. Every check-then-delete leaves a window in
-    which a worker pushes and then loses the branch.
-
-    So the design stops trying to win the race and makes losing it harmless: the ref's current
-    target is copied to `refs/reaped/issue-<N>-<sha>` first. If the reaper does delete a branch a
-    worker had just revived, the commits are still reachable and recoverable by name; if the copy
-    fails, nothing is deleted at all. A bounded window that costs nothing is worth more than a
-    smaller window that destroys work.
-    """
-    ref = f"/repos/{REPO}/git/refs/heads/{BRANCH_PREFIX}{number}"
+def _read_ref(number: int) -> str | None:
     status, current = claim._request("GET", f"/repos/{REPO}/git/ref/heads/{BRANCH_PREFIX}{number}")
     if status == 404:
-        return
+        return None
     if status != 200 or not isinstance(current, dict):
         raise ReaperError(f"#{number} claim ref could not be read (HTTP {status})")
-    sha = current["object"]["sha"]
+    return str(current["object"]["sha"])
+
+
+def _retire_ref(number: int) -> None:
+    """Archive the claim ref, confirm it has not moved, then delete it.
+
+    **What this does and does not guarantee.** `DELETE /git/refs` takes no expected-SHA, so GitHub
+    offers no compare-and-swap for ref deletion, and `concurrency` serializes reaper runs against
+    each other rather than against workers. A residual window therefore **cannot be eliminated**,
+    only bounded - and an earlier version of this docstring claimed the archive made losing the race
+    harmless, which was wrong: archiving tip A and then deleting whatever the ref points at destroys
+    a push that landed in between, unarchived.
+
+    So the sequence is archive, **re-read**, and delete only if the tip is unchanged:
+
+    1. read the tip
+    2. copy it to ``refs/reaped/issue-<N>-<sha>``
+    3. read it again - if it moved, abort without deleting; the stray archive is harmless
+    4. delete
+
+    A push during 1-3 aborts the reap. A push between 3 and 4 is the irreducible remainder: one
+    round-trip wide, and bounded rather than closed. Two things keep even that from being a loss -
+    the worker still holds the commits in its local clone, and its next `claim check` fails on the
+    generation fence, so it learns it was superseded instead of pushing into a deleted branch.
+    """
+    before = _read_ref(number)
+    if before is None:
+        return
 
     status, _ = claim._request(
         "POST",
         f"/repos/{REPO}/git/refs",
-        {"ref": f"refs/reaped/issue-{number}-{sha[:8]}", "sha": sha},
+        {"ref": f"refs/reaped/issue-{number}-{before[:8]}", "sha": before},
     )
     if status not in (201, 422):  # 422 = an identical archive already exists, which is fine
         raise ReaperError(
             f"#{number} claim ref could not be archived (HTTP {status}); refusing to delete it"
         )
 
-    status, _ = claim._request("DELETE", ref)
+    # Only delete the tip we actually archived. If it moved while we were archiving, the worker is
+    # alive and this reap is abandoned.
+    after = _read_ref(number)
+    if after != before:
+        raise ReaperError(
+            f"#{number} claim ref moved while being archived; refusing to delete an unarchived tip"
+        )
+
+    status, _ = claim._request("DELETE", f"/repos/{REPO}/git/refs/heads/{BRANCH_PREFIX}{number}")
     if status not in (204, 404):
         raise ReaperError(f"#{number} claim ref could not be deleted (HTTP {status})")
 
