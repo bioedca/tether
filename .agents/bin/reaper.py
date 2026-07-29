@@ -202,7 +202,42 @@ def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = Non
                 "its claim ref is deliberately left in place so the next sweep retries"
             )
 
-    status, _ = claim._request("DELETE", f"/repos/{REPO}/git/refs/heads/{BRANCH_PREFIX}{number}")
+    _retire_ref(number)
+
+
+def _retire_ref(number: int) -> None:
+    """Archive the claim ref, then delete it - never delete outright.
+
+    The residual race cannot be closed by checking harder. `DELETE /git/refs` takes no expected-SHA,
+    so there is **no atomic compare-and-swap for ref deletion**, and `concurrency` serializes reaper
+    runs against each other rather than against workers. Every check-then-delete leaves a window in
+    which a worker pushes and then loses the branch.
+
+    So the design stops trying to win the race and makes losing it harmless: the ref's current
+    target is copied to `refs/reaped/issue-<N>-<sha>` first. If the reaper does delete a branch a
+    worker had just revived, the commits are still reachable and recoverable by name; if the copy
+    fails, nothing is deleted at all. A bounded window that costs nothing is worth more than a
+    smaller window that destroys work.
+    """
+    ref = f"/repos/{REPO}/git/refs/heads/{BRANCH_PREFIX}{number}"
+    status, current = claim._request("GET", f"/repos/{REPO}/git/ref/heads/{BRANCH_PREFIX}{number}")
+    if status == 404:
+        return
+    if status != 200 or not isinstance(current, dict):
+        raise ReaperError(f"#{number} claim ref could not be read (HTTP {status})")
+    sha = current["object"]["sha"]
+
+    status, _ = claim._request(
+        "POST",
+        f"/repos/{REPO}/git/refs",
+        {"ref": f"refs/reaped/issue-{number}-{sha[:8]}", "sha": sha},
+    )
+    if status not in (201, 422):  # 422 = an identical archive already exists, which is fine
+        raise ReaperError(
+            f"#{number} claim ref could not be archived (HTTP {status}); refusing to delete it"
+        )
+
+    status, _ = claim._request("DELETE", ref)
     if status not in (204, 404):
         raise ReaperError(f"#{number} claim ref could not be deleted (HTTP {status})")
 

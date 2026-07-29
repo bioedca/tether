@@ -111,6 +111,13 @@ def _routes(pr: dict[str, Any] | None = None) -> dict[tuple[str, str], tuple[int
         ("GET", "/repos/bioedca/tether/activity"): (200, [{"id": 1, "timestamp": _ago(minutes=5)}]),
         ("GET", "/repos/bioedca/tether/pulls?head"): (200, [] if pr is None else [pr]),
         ("GET", "/repos/bioedca/tether/issues/7"): (200, {"state": "open"}),
+        # Read by _retire_ref, which archives the tip to refs/reaped/ before deleting it.
+        ("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7"): (
+            200,
+            {"object": {"sha": "abc12345" + "0" * 32}},
+        ),
+        # Ref creation returns 201, not the generic 200 the POST default gives.
+        ("POST", "/repos/bioedca/tether/git/refs"): (201, {}),
     }
     if pr is not None:
         routes[("GET", f"/repos/bioedca/tether/pulls/{pr['number']}")] = (200, pr)
@@ -432,6 +439,45 @@ def test_a_failed_conflict_label_is_not_reported_as_flagged(
     _install(monkeypatch, routes)
     with pytest.raises(reaper.ReaperError, match="agent:conflicted could not be applied"):
         reaper.sweep(dry_run=False)
+
+
+def test_the_claim_ref_is_archived_before_it_is_deleted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The residual race cannot be closed - DELETE /git/refs takes no expected-SHA - so losing it
+    must be harmless. The branch tip is copied to refs/reaped/ first, keeping the commits
+    reachable if the reaper ever deletes a branch a worker had just revived."""
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    routes[("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7")] = (
+        200,
+        {"object": {"sha": "abc12345" + "0" * 32}},
+    )
+    fake = _install(monkeypatch, routes)
+    reaper.sweep(dry_run=False)
+    order = [f"{m} {p}" for m, p in fake.calls]
+    archive = next(i for i, c in enumerate(order) if c.startswith("POST") and "git/refs" in c)
+    delete = next(i for i, c in enumerate(order) if c.startswith("DELETE") and "git/refs" in c)
+    assert archive < delete, "the tip must be archived before the ref is deleted"
+
+
+def test_a_failed_archive_prevents_the_deletion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If the commits cannot be preserved, the branch must not be destroyed."""
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    routes[("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7")] = (
+        200,
+        {"object": {"sha": "abc12345" + "0" * 32}},
+    )
+    routes[("POST", "/repos/bioedca/tether/git/refs")] = (500, None)
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(reaper.ReaperError, match="could not be archived"):
+        reaper.sweep(dry_run=False)
+    assert not fake.did("DELETE", "git/refs")
 
 
 # ------------------------------------------------------------------ safety properties
