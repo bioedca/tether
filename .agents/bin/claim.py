@@ -130,23 +130,30 @@ def _scope_hash(title: str, body: str) -> str:
     # newline="" writes the body's bytes as fetched. Line endings are not the hazard - _scope_hash
     # folds CRLF/CR to LF - but a platform rewrite that alters content (a prepended BOM, say) would
     # change the digest, and the body came from the API rather than from a file to begin with.
-    with tempfile.TemporaryDirectory() as directory:
-        target = Path(directory) / "body.md"
-        target.write_text(body, encoding="utf-8", newline="")
-        out = subprocess.run(
-            [
-                sys.executable,
-                str(helper),
-                "scope-hash",
-                "--title",
-                title,
-                "--body-file",
-                str(target),
-            ],
-            capture_output=True,
-            check=False,
-            timeout=60,
-        )
+    #
+    # The same guard as _token(): TimeoutExpired is a SubprocessError, which main() does not catch,
+    # so a hung helper would escape as an uncaught traceback carrying the temp path and this file's
+    # absolute path. Every failure here becomes a ClaimError instead.
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "body.md"
+            target.write_text(body, encoding="utf-8", newline="")
+            out = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "scope-hash",
+                    "--title",
+                    title,
+                    "--body-file",
+                    str(target),
+                ],
+                capture_output=True,
+                check=False,
+                timeout=60,
+            )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ClaimError("the approved-scope digest could not be computed") from exc
     if out.returncode != 0:
         raise ClaimError("could not compute the approved-scope digest")
     return out.stdout.decode("utf-8").strip()

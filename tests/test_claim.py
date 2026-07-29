@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -378,6 +379,33 @@ def test_reserve_adr_refuses_to_guess_when_discovery_fails(
     with pytest.raises(claim.ClaimError, match="refusing to guess"):
         claim._cmd_reserve_adr(_args(attempts=8))
     assert posted == [], "no reservation may be created when the number is a guess"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        subprocess.TimeoutExpired(cmd=["scope-hash"], timeout=60),
+        subprocess.SubprocessError("spawn failed"),
+        OSError("no such interpreter"),
+    ],
+    ids=["timeout", "subprocess-error", "oserror"],
+)
+def test_a_failing_digest_helper_never_escapes_as_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], error: Exception
+) -> None:
+    """TimeoutExpired is a SubprocessError, which main() does not catch.
+
+    Unguarded, a hung helper escapes as an uncaught traceback carrying the temp-file path and this
+    file's absolute path - the no-path contract broken by the one call that shells out.
+    """
+
+    def boom(*args: Any, **kwargs: Any) -> Any:
+        raise error
+
+    monkeypatch.setattr(claim.subprocess, "run", boom)
+    with pytest.raises(claim.ClaimError, match="approved-scope digest"):
+        claim._scope_hash("feat(io): a thing", "body\n")
+    assert capsys.readouterr().err == ""
 
 
 def test_generation_never_comes_from_commit_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
