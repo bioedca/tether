@@ -247,9 +247,10 @@ Before requesting review / merging, confirm:
 - [ ] **No secrets committed** — no token, key, credential or private path in code,
       tests, logs or fixtures; `secret-scan` green.
 - [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
-- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; the round;
-      the substantive Codex-or-CodeRabbit result (CodeRabbit for `high`); blocking
-      findings fixed and non-blocking ones deferred to a follow-up issue, per `AGENTS.md`.
+- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; the round; the
+      Codex-or-CodeRabbit result, **either** a substantive review **or** the reviewer's quoted
+      "nothing to review" (CodeRabbit for `high`); blocking findings fixed and non-blocking
+      ones deferred to a follow-up issue, per `AGENTS.md`.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
       **same** PR.
 

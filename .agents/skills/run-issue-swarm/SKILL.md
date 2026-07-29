@@ -135,10 +135,10 @@ The protocol rationale and invariants are recorded in
 - The coordinator alone routes external reviews. Copilot is optional and best-effort; record whether it
   was not requested, unavailable, quota-exhausted, pending, or complete, but it never blocks a slot or
   merge. Low and standard lanes select Codex GitHub Code Review or CodeRabbit; high/load-bearing lanes
-  require CodeRabbit after the stable diff is green. Qualified human/domain review is required when
-  scientific, security, or release judgment is material. Accept only a substantive PR diff walkthrough from Codex
-  GitHub Code Review or CodeRabbit, bound to the final head SHA. For either provider, refetch the
-  expected reviewer identity, server-bound reviewed
+  require CodeRabbit after the stable diff is green. Human sign-off is required for releases, tags,
+  signing changes, and any new scientific claim or citation. Accept a substantive PR diff walkthrough
+  from Codex GitHub Code Review or CodeRabbit, bound to the head it reviewed. For either provider,
+  refetch the expected reviewer identity, server-bound reviewed
   commit/head, and walkthrough before accepting evidence. Author-side `/review`, local CodeRabbit output,
   or a status/check alone never satisfies that independent gate; a reviewer reporting it has nothing to
   review does satisfy it, on its own statement. Resolve every conversation and disposition every finding
