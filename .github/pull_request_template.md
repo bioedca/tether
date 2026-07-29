@@ -35,7 +35,7 @@ linked work maps to one. The checklist, not CI, enforces those fields.
 - Final head SHA:
 - Review round: 1/2 | 2/2
 - Independent reviewer: Codex GitHub Code Review | CodeRabbit
-- Independent review result: pending | substantive review complete | nothing to review (quote the reviewer)
+- Independent review result: pending | substantive review complete | nothing to review (quote the selected provider, naming the head it read)
 - Provider switched: no | yes (which, and why it could not act — capability, never quota)
 - Findings: <N> blocking (fixed) | <M> non-blocking (deferred to #____)
 - Human sign-off: n/a | release/tag/signing | new scientific claim (reviewer and evidence)

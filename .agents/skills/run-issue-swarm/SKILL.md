@@ -140,8 +140,10 @@ The protocol rationale and invariants are recorded in
   from Codex GitHub Code Review or CodeRabbit, bound to the head it reviewed. For either provider,
   refetch the expected reviewer identity, server-bound reviewed
   commit/head, and walkthrough before accepting evidence. Author-side `/review`, local CodeRabbit output,
-  or a status/check alone never satisfies that independent gate; a reviewer reporting it has nothing to
-  review does satisfy it, on its own statement. Resolve every conversation and disposition every finding
+  or a status/check alone never satisfies that independent gate. The one alternative is the *selected*
+  provider's own statement that it has nothing to review for this PR at the head it read — verified
+  under the same authenticated-identity and server-bound-head checks as a walkthrough, and never
+  substituted by the author or another commenter. Resolve every conversation and disposition every finding
   per the `AGENTS.md` severity floor — fix blocking, defer the rest to one follow-up issue. Review
   evidence survives a non-material push, a material push grants no extra round, and a PR gets at most
   two rounds.

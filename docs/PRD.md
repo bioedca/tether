@@ -1001,9 +1001,10 @@ rounds** — a third means the issue was scoped too large. Blocking findings (Co
 `Potential issue`, Codex `P1`, anything reaching secrets, unlicensed data, a frozen oracle or tolerance, the §5
 skeleton without an ADR and version bump, or a CodeQL alert, plus anything that falsifies a claim the PR itself
 introduces) must be fixed. Every other finding is deferred to one follow-up issue per PR and its thread resolved
-with that link; fixing non-blocking findings in the same PR is a scope breach. A reviewer reporting that a change
-has nothing to review satisfies the gate on its own statement, and a provider that *cannot* act may be swapped
-with the reason recorded — capability, never quota. Human sign-off is required for releases, tags, signing
+with that link; fixing non-blocking findings in the same PR is a scope breach. When the **selected** provider
+reports that a change has nothing to review for that PR at the head it read, that statement satisfies the gate —
+quoted, and never substituted by the author or any other commenter — and a provider that *cannot* act may be
+swapped with the reason recorded, capability never quota. Human sign-off is required for releases, tags, signing
 changes, and any new scientific claim or citation; everything else merges without it.
 
 `.github/pull_request_template.md` carries the **self-review checklist** — the human-judgment gate in the solo model:

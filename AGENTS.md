@@ -101,10 +101,10 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   follow-up issue per PR, reply `Deferred: … Tracked in #N`, resolve the thread. **Never fix a
   non-blocking finding in the PR** — that is scope breach, not diligence.
 - **Two rounds.** One round = a review at a declared-final green head plus the answer to its blocking
-  findings. At the cap, safety-class findings escalate; the rest become follow-ups and the PR merges.
-- **Capability is not quota.** A reviewer reporting nothing to review (a deletion, a pure rename)
-  satisfies the gate — record its words. Swap a provider that *cannot* act, stating why; never swap to
-  evade quota. Only a genuinely unavailable required provider freezes a PR.
+  findings. At the cap, safety-class findings escalate to the maintainer; the rest become follow-ups.
+- **Capability is not quota.** The *selected* provider reporting nothing to review for this PR at the
+  head it read satisfies the gate; quote it, never the author or another commenter. Swap a provider
+  that *cannot* act, saying why; never to evade quota. Genuine unavailability freezes the PR.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit PR or recorded swarm-run authority, with checks green, threads resolved, and
   evidence bound to the merged head. Workers stop PR-ready; an authorized coordinator alone merges and

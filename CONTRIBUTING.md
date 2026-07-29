@@ -248,9 +248,9 @@ Before requesting review / merging, confirm:
       tests, logs or fixtures; `secret-scan` green.
 - [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
 - [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; the round; the
-      Codex-or-CodeRabbit result, **either** a substantive review **or** the reviewer's quoted
-      "nothing to review" (CodeRabbit for `high`); blocking findings fixed and non-blocking
-      ones deferred to a follow-up issue, per `AGENTS.md`.
+      Codex-or-CodeRabbit result, **either** a substantive review **or** that same selected
+      provider's quoted "nothing to review" for the head it read (CodeRabbit for `high`);
+      blocking findings fixed and non-blocking ones deferred to a follow-up issue, per `AGENTS.md`.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
       **same** PR.
 
@@ -295,9 +295,11 @@ Fix blocking findings (CodeRabbit `Critical`/`Major`/`Potential issue`, Codex `P
 anything touching secrets, unlicensed data, a frozen oracle, the §5 skeleton, or a
 CodeQL alert — plus anything that falsifies a claim the PR itself introduces). Defer
 everything else to **one** follow-up issue per PR and resolve the thread with a link;
-do not fix non-blocking findings in the same PR. A reviewer that reports nothing to
-review — a deletion, a pure rename — satisfies the gate; quote it. Human sign-off is
-required only for releases, tags, signing, and new scientific claims.
+do not fix non-blocking findings in the same PR. If the **selected** provider reports
+nothing to review for this PR at the head it read — a deletion, a pure rename — that
+satisfies the gate; quote it. A statement from the author, or from any other commenter,
+never does. Human sign-off is required only for releases, tags, signing, and new
+scientific claims.
 
 ## Reporting bugs & security issues
 
