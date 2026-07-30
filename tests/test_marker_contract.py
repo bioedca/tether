@@ -22,6 +22,8 @@ import fnmatch
 import re
 from pathlib import Path, PurePosixPath
 
+import yaml  # provided by the base conda-lock (a mkdocs dependency); see `_steps` below
+
 # Must match the glob in .github/workflows/sidecar.yml's parity step
 # (test_contract_glob_matches_workflow_glob asserts they stay in lockstep).
 SIDECAR_FILE_GLOB = "test_*sidecar*.py"
@@ -480,22 +482,78 @@ def test_the_release_pipeline_carries_no_code_signing_leg() -> None:
     )
 
 
-def _executable_yaml(text: str) -> str:
-    """``text`` with whole-line YAML comments dropped -- what the runner actually runs.
+#: The action whose presence *is* ADR-0059's integrity anchor for the installers.
+ATTEST_ACTION = "actions/attest-build-provenance@"
 
-    A guard on the raw file cannot tell a step from a sentence *about* a step, and this
-    workflow's header comment names both integrity anchors by name. So a substring sweep
-    over the whole file would be satisfied by the prose that survives the deletion it is
-    supposed to catch.
+
+#: The job that publishes the Release, and therefore the only job whose attestation counts.
+PUBLISH_JOB = "release"
+
+#: `if:` values that disable a step unconditionally. A step gated on a runtime expression
+#: (the real one is `needs.verify.outputs.publish == 'true'`) is live; one gated on a literal
+#: false is dead, and dead is exactly the state ADR-0059 removed the signing legs for.
+_STATICALLY_DISABLED = frozenset({"false", "${{ false }}", "${{false}}"})
+
+
+def _job_steps(text: str, job_id: str) -> list[dict]:
+    """The steps of ONE named job, from the parsed workflow.
+
+    Scoping to a job matters: an `actions/attest-build-provenance` step in `build`, or in
+    some future unrelated job, attests nothing about the published Release, and a guard that
+    accepted one would go green while the publish path had none.
     """
-    return "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
+    workflow = yaml.safe_load(text)
+    job = (workflow.get("jobs") or {}).get(job_id)
+    assert job is not None, f"release.yml must keep a `{job_id}` job"
+    return [step for step in (job.get("steps") or []) if isinstance(step, dict)]
 
 
-#: The attestation as an executable step: a `uses:` key, SHA-pinned like every action here.
-#: The optional `- ` matters -- the step is written both as a bare `uses:` under a `- name:`
-#: and as a `- uses:` list item, and a pattern that missed the second form would be the same
-#: false-green in a different place.
-_ATTEST_STEP_RE = re.compile(r"^\s*-?\s*uses:\s*actions/attest-build-provenance@", re.M)
+def _is_live(step: dict) -> bool:
+    """False only when the step is switched off by a constant, not by a runtime gate."""
+    condition = step.get("if")
+    if condition is None:
+        return True
+    if isinstance(condition, bool):
+        return condition
+    return str(condition).strip().lower() not in _STATICALLY_DISABLED
+
+
+def _steps(text: str) -> list[dict]:
+    """Every step of every job, from the PARSED workflow.
+
+    Deliberately a YAML parse -- the one place this module departs from its otherwise
+    stdlib-only (``ast``/``re``) style. Two text-matching versions of the guard below were
+    both false-green, and the second failure is the argument for parsing:
+
+    * v1 searched the whole file for the bare action name, which this workflow's own header
+      comment contains, so deleting the step kept the guard green (Codex, #319);
+    * v2 stripped whole-line comments and matched a ``uses:`` line pattern, which a
+      ``run: |`` block scalar containing that text still satisfies, and which a perfectly
+      valid ``uses: "actions/attest-build-provenance@<sha>"`` still misses (CodeRabbit,
+      #319).
+
+    A parser tells a step's ``uses`` key from a string that merely looks like one, which no
+    regex over the same text can. ``yaml`` is on the base 3-OS ``test`` matrix already --
+    ``test_issue_forms``, ``test_docs_prd_pointers``, ``test_citation_metadata``,
+    ``test_scope_guard`` and ``test_triage`` all import it -- so this costs no dependency.
+    """
+    workflow = yaml.safe_load(text)
+    return [
+        step
+        for job in (workflow.get("jobs") or {}).values()
+        for step in (job.get("steps") or [])
+        if isinstance(step, dict)
+    ]
+
+
+def _step_uses(text: str) -> list[str]:
+    """Every step's ``uses:`` value -- an action the runner really invokes."""
+    return [s["uses"] for s in _steps(text) if isinstance(s.get("uses"), str)]
+
+
+def _step_run_scripts(text: str) -> str:
+    """Every step's ``run:`` script -- the shell the runner really executes."""
+    return "\n".join(s["run"] for s in _steps(text) if isinstance(s.get("run"), str))
 
 
 def test_the_integrity_anchor_that_replaced_signing_is_still_wired() -> None:
@@ -505,37 +563,97 @@ def test_the_integrity_anchor_that_replaced_signing_is_still_wired() -> None:
     A guard on the absence alone would stay green if the replacement were deleted too,
     which is the worse outcome of the two, so both are pinned together.
 
-    Asserted on the *executable* YAML, not on the file text. The first version of this
-    guard searched the whole file for the bare string ``actions/attest-build-provenance``
-    -- which this workflow's own header comment contains. Deleting the attestation step
-    while leaving that comment in place would have published a release with no provenance
-    and a green guard: the exact "inert but green" failure ADR-0059 exists to end,
-    reintroduced by the test written to prevent it. Codex caught it on #319.
+    Both halves assert against the PARSED workflow: the attestation as a live step's
+    ``uses`` key **in the publishing job**, the manifests as text in a real step's ``run``
+    script. See :func:`_steps` for the false-greens that got it here -- three distinct ways
+    for this guard to pass while the published Release carries no provenance, two of them
+    found by reviewers rather than by me.
     """
-    executable = _executable_yaml(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
-    assert _ATTEST_STEP_RE.search(executable), (
-        "release.yml must RUN actions/attest-build-provenance (a `uses:` step, not a "
-        "mention in a comment) — it is ADR-0059's integrity anchor for the installers"
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    attesting = [
+        step
+        for step in _job_steps(text, PUBLISH_JOB)
+        if isinstance(step.get("uses"), str)
+        and step["uses"].startswith(ATTEST_ACTION)
+        and _is_live(step)
+    ]
+    assert attesting, (
+        f"the `{PUBLISH_JOB}` job must carry a live `uses: {ATTEST_ACTION}<sha>` step -- "
+        "ADR-0059's integrity anchor for the installers. A step in another job, or one "
+        "switched off by a constant `if:`, attests nothing about the published Release. "
+        f"Steps found in `{PUBLISH_JOB}`: "
+        f"{sorted(s.get('uses', '(run)') for s in _job_steps(text, PUBLISH_JOB))}"
     )
-    assert "SHA256SUMS" in executable, (
-        "release.yml must still produce the SHA-256 manifests — ADR-0059's other anchor"
+    assert "SHA256SUMS" in _step_run_scripts(text), (
+        "a `run:` step in release.yml must still produce the SHA-256 manifests -- "
+        "ADR-0059's other anchor"
     )
 
 
-def test_the_anchor_guard_is_not_satisfied_by_a_comment() -> None:
+def test_the_anchor_guard_recognises_a_step_and_nothing_else() -> None:
     """The regression test for the guard itself, since its whole failure was staying green.
 
-    An absence-assertion proves nothing unless presence is shown, and here the thing that
-    has to be shown is that prose does *not* count.
+    An absence-assertion proves nothing unless presence is shown, so both false-green forms
+    that actually shipped are pinned here beside the valid spellings that must pass.
     """
-    commented_out = (
-        "jobs:\n  release:\n    steps:\n      # uses: actions/attest-build-provenance@v3\n"
+    step = "jobs:\n  release:\n    steps:\n      - uses: {}\n"
+
+    # Valid spellings. The quoted form is why this is a parse and not a regex: v2's pattern
+    # rejected it while accepting text that was not a step at all.
+    assert _step_uses(step.format("actions/attest-build-provenance@abc123")) == [
+        "actions/attest-build-provenance@abc123"
+    ]
+    assert _step_uses(step.format('"actions/attest-build-provenance@abc123"')) == [
+        "actions/attest-build-provenance@abc123"
+    ]
+
+    # v1's false green: named in a comment, with no step at all.
+    commented = "jobs:\n  release:\n    steps:\n      # uses: actions/attest-build-provenance@v3\n"
+    assert not [u for u in _step_uses(commented) if u.startswith(ATTEST_ACTION)]
+
+    # v2's false green: the same text inside a `run:` block scalar, which is a shell script
+    # and attests nothing.
+    block_scalar = (
+        "jobs:\n"
+        "  release:\n"
+        "    steps:\n"
+        "      - name: Not an attestation\n"
+        "        run: |\n"
+        "          echo 'uses: actions/attest-build-provenance@abc123'\n"
     )
-    assert not _ATTEST_STEP_RE.search(_executable_yaml(commented_out))
-    real = (
-        "jobs:\n  release:\n    steps:\n      - uses: actions/attest-build-provenance@abc123 # v3\n"
+    assert not [u for u in _step_uses(block_scalar) if u.startswith(ATTEST_ACTION)]
+
+
+def test_the_anchor_guard_rejects_an_attestation_that_cannot_run() -> None:
+    """The two bypasses Codex named that surviving the parse alone would not have closed.
+
+    A step can be perfectly real, perfectly parsed, and still attest nothing about the
+    published Release -- by sitting in a different job, or by being switched off with a
+    constant. Both are the same failure ADR-0059 removed the signing legs to end: present,
+    green, and dead.
+    """
+    attest = f"      - uses: {ATTEST_ACTION}abc123\n"
+
+    # Wrong job. `build` runs per-platform and publishes nothing.
+    wrong_job = (
+        f"jobs:\n  build:\n    steps:\n{attest}  release:\n    steps:\n      - run: echo hi\n"
     )
-    assert _ATTEST_STEP_RE.search(_executable_yaml(real))
+    assert not [
+        s
+        for s in _job_steps(wrong_job, PUBLISH_JOB)
+        if str(s.get("uses", "")).startswith(ATTEST_ACTION)
+    ]
+
+    # Right job, switched off by a constant.
+    disabled = f"jobs:\n  release:\n    steps:\n{attest}        if: false\n"
+    steps = _job_steps(disabled, PUBLISH_JOB)
+    assert steps and str(steps[0]["uses"]).startswith(ATTEST_ACTION)
+    assert not _is_live(steps[0])
+
+    # A runtime gate is NOT a constant -- the real step carries one and must stay live.
+    gate = "        if: needs.verify.outputs.publish == 'true'\n"
+    live = f"jobs:\n  release:\n    steps:\n{attest}{gate}"
+    assert _is_live(_job_steps(live, PUBLISH_JOB)[0])
 
 
 # --- The release-staging completeness gate (release.yml, M9 / ADR-0059) ---
