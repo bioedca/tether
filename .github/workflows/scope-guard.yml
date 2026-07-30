@@ -80,15 +80,19 @@ jobs:
             printf '## scope-guard\n\nNot on the default branch yet; nothing measured.\n' \
               > "${GITHUB_STEP_SUMMARY}"
           else
-            # `set -e` is deliberately NOT on for this call: exit 3 means "over budget", which is a
-            # RESULT and not a failure.
             since=()
             if [ -n "${SINCE:-}" ] && [ "${SINCE}" != "0000000000000000000000000000000000000000" ]; then
               since=(--since "${SINCE}")
             fi
-            python .agents/bin/scope_guard.py --pr "${PR_NUMBER}" --markdown "${since[@]}" \
-              > /tmp/scope.json 2> /tmp/scope.md
-            code=$?
+            # `|| code=$?` is load-bearing, not idiom. This step runs under `shell: bash -el {0}`,
+            # so `errexit` is ALREADY ON and `set -uo pipefail` above does not clear it - it adds
+            # nounset and pipefail and touches nothing else. A bare invocation followed by
+            # `code=$?` therefore aborts the step the moment the guard returns its advisory 3,
+            # making an advisory check into a gate at exactly the moment it reports something.
+            # Inside a `||` list the command's failure is handled, so errexit does not fire.
+            code=0
+            python .agents/bin/scope_guard.py --pr "${PR_NUMBER}" --markdown "${since[@]-}" \
+              > /tmp/scope.json 2> /tmp/scope.md || code=$?
             cat /tmp/scope.json
             cat /tmp/scope.md >> "${GITHUB_STEP_SUMMARY}"
             # Only 0 and the advisory 3 are success. Everything else - the named exit 2, an

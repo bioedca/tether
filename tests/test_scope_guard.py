@@ -743,12 +743,35 @@ def test_over_budget_does_not_fail_the_job() -> None:
     body = WORKFLOW.read_text(encoding="utf-8")
     classifier = _exit_classifier()
     assert "3)" in classifier and "::warning::" in classifier, "over budget warns, never fails"
-    assert "set -uo pipefail" in body, "`set -e` must be off so exit 3 does not abort the step"
     statements = [
         line.split("#", 1)[0] for line in body.splitlines() if not line.strip().startswith("#")
     ]
     assert not [s for s in statements if s.strip() == "exit 0"], (
         "an explicit zero exit reports failure"
+    )
+
+
+def test_the_advisory_exit_survives_the_inherited_errexit() -> None:
+    """`shell: bash -el {0}` means errexit is ALREADY ON, and `set -uo pipefail` does not clear it.
+
+    Found by CodeRabbit on this PR, and it had never fired: on the pull request that introduces the
+    workflow the script is not on the default branch yet, so every run so far took the bootstrap
+    branch and exited 0. The first genuinely over-budget PR after merge would have been the first
+    execution of this line - and it would have failed the job, turning the advisory check into a
+    gate at precisely the moment it had something to report.
+
+    The invocation must therefore handle its own failure. Inside a `||` list errexit does not fire;
+    a bare command followed by `code=$?` aborts before `code` is ever assigned.
+    """
+    step = _workflow()["jobs"]["measure"]["steps"][-1]
+    assert step["shell"] == "bash -el {0}", "the premise of this test - errexit comes from `-e`"
+
+    run = step["run"]
+    invocation = run[run.index("python .agents/bin/scope_guard.py") :]
+    invocation = invocation[: invocation.index("\n", invocation.index("scope.md"))]
+    assert "|| code=$?" in invocation, (
+        "under errexit the guard's advisory exit must be handled by the invocation itself; "
+        f"got: {invocation!r}"
     )
 
 
