@@ -77,8 +77,19 @@ CAPPED_LABEL = "agent:review-capped"
 AMEND_LABEL = "agent:needs-amend"
 ALL_ROUND_LABELS = (*ROUND_LABELS, CAPPED_LABEL)
 
-FAILED_CONCLUSIONS = frozenset({"failure", "timed_out", "action_required", "startup_failure"})
+# `cancelled` and `stale` are here deliberately. Neither is a live status nor a pass, so leaving
+# them out made a readable-but-not-green head report as green and CLEAR a real
+# `agent:needs-amend` - the
+# fail-open direction, on the one label that carries AMEND authority. `skipped` and `neutral` are
+# genuinely non-failing and stay out.
+FAILED_CONCLUSIONS = frozenset(
+    {"failure", "timed_out", "action_required", "startup_failure", "cancelled", "stale"}
+)
 LIVE_STATUSES = frozenset({"queued", "in_progress", "pending", "requested", "waiting"})
+# A review at the current head that is still waiting for an answer. CHANGES_REQUESTED is explicit;
+# inline comments are the form both providers actually use (both answered #285 as COMMENTED with
+# inline findings), so keying only on CHANGES_REQUESTED would see no outstanding review at all.
+BLOCKING_REVIEW_STATES = frozenset({"CHANGES_REQUESTED"})
 
 
 class TriageError(RuntimeError):
@@ -137,17 +148,26 @@ def _issue_labels(number: int) -> set[str] | None:
     return {label["name"] for label in issue.get("labels", []) if isinstance(label, dict)}
 
 
-def _reviewed_heads(pr_number: int) -> set[str]:
-    """Every head SHA at which an external provider left head-bound review evidence.
+def _review_state(pr_number: int, head: str) -> tuple[set[str], bool]:
+    """``(heads with external review evidence, whether the CURRENT head owes an answer)``.
 
     Both sources carry ``commit_id``: submitted reviews and inline review comments. Inline comments
     are included because a provider can post findings with no submission wrapper, and missing one
     of those would undercount a round that really happened.
+
+    The second value is what makes an *ordinary* blocking review issue AMEND authority. Keying only
+    on a failed check suite left a real hole: a provider requesting changes at a **green** head
+    produced no authority at all, so the launcher never started the session that answers the review
+    — on the workflow whose whole job is to publish that authority. A head owes an answer when an
+    external provider left inline findings on it, or submitted ``CHANGES_REQUESTED`` for it. A clean
+    pass leaves nothing owed, and pushing a fix moves the head, so the next head owes nothing until
+    a provider looks at it.
     """
     heads: set[str] = set()
-    for path, what in (
-        (f"/repos/{REPO}/pulls/{pr_number}/reviews", "review list"),
-        (f"/repos/{REPO}/pulls/{pr_number}/comments", "review-comment list"),
+    owed = False
+    for path, what, is_reviews in (
+        (f"/repos/{REPO}/pulls/{pr_number}/reviews", "review list", True),
+        (f"/repos/{REPO}/pulls/{pr_number}/comments", "review-comment list", False),
     ):
         try:
             entries = claim._paginate(path, what)
@@ -156,9 +176,14 @@ def _reviewed_heads(pr_number: int) -> set[str]:
         for entry in entries:
             login = ((entry.get("user") or {}).get("login")) or ""
             sha = entry.get("commit_id")
-            if login in EXTERNAL_PROVIDERS and isinstance(sha, str) and sha:
-                heads.add(sha)
-    return heads
+            if login not in EXTERNAL_PROVIDERS or not isinstance(sha, str) or not sha:
+                continue
+            heads.add(sha)
+            if sha != head:
+                continue
+            if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
+                owed = True
+    return heads, owed
 
 
 def _suite_state(sha: str) -> tuple[bool, bool]:
@@ -195,14 +220,17 @@ def _round_label(rounds: int) -> str | None:
 def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> None:
     """Write the label delta. Adds are fatal on failure; removals are best-effort.
 
-    An add that silently fails publishes a state that is not true — and for ``agent:review-capped``
-    that means a third round looks authorised. A removal that fails leaves a stale marker, which is
-    cosmetic against the same standard, and the next event recomputes it anyway.
+    **ORDER IS THE SAFETY PROPERTY: add first, remove second.** Removing first meant a failed
+    ``agent:review-capped`` POST left the PR with *neither* the old round label nor the cap — a
+    window in which the launcher reads an uncapped PR carrying AMEND authority and issues a third,
+    while this run exits non-zero and looks like it changed nothing. With additions first, the same
+    failure leaves the previous round label in place and the next event simply retries.
+
+    An add that silently fails publishes state that is not true, so it raises. A removal that fails
+    leaves a stale marker, which is cosmetic against that standard and is recomputed next event.
     """
     if dry_run:
         return
-    for label in remove:
-        claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/{label}", None)
     if add:
         status, _ = claim._request("POST", f"/repos/{REPO}/issues/{number}/labels", {"labels": add})
         if status != 200:
@@ -210,6 +238,8 @@ def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> 
                 f"#{number} needs {', '.join(add)} but the write failed (HTTP {status}); "
                 "not reporting state that was never published"
             )
+    for label in remove:
+        claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/{label}", None)
 
 
 def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str, Any]:
@@ -234,9 +264,12 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     if not head:
         raise TriageError(f"PR #{pr['number']} has no head sha")
 
-    rounds = len(_reviewed_heads(pr["number"]))
+    reviewed, review_owed = _review_state(pr["number"], head)
+    rounds = len(reviewed)
     running, failed = _suite_state(head)
     capped = rounds >= CAP
+    # Either reason owes the same single AMEND session: CI to fix, or a review to answer.
+    owed = failed or review_owed
 
     add: list[str] = []
     remove: list[str] = []
@@ -257,10 +290,10 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     # An existing marker is left alone - see the module docstring on the two writers.
     if capped:
         amend = "withheld-at-cap"
-    elif failed and AMEND_LABEL not in labels:
+    elif owed and AMEND_LABEL not in labels:
         add.append(AMEND_LABEL)
         amend = "added"
-    elif not failed and not running and AMEND_LABEL in labels:
+    elif not owed and not running and AMEND_LABEL in labels:
         remove.append(AMEND_LABEL)
         amend = "cleared"
     else:
@@ -275,6 +308,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         "rounds": rounds,
         "capped": capped,
         "checks": "running" if running else ("failed" if failed else "green"),
+        "review_owed": review_owed,
         "amend": amend,
         "added": add,
         "removed": remove,

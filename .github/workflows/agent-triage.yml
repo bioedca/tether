@@ -69,10 +69,21 @@ concurrency:
   # Per pull request, not global: two PRs must triage in parallel, but two events on ONE PR must not
   # race to write its labels. Never cancel - a cancelled run leaves the labels describing an older
   # head, and the launcher would read that as authority.
+  #
+  # KEYED ON THE HEAD BRANCH FOR EVERY REAL EVENT, which is the point. Using the PR number for review
+  # events and the branch for check_suite gave one PR two different keys, so a delayed check run could
+  # snapshot pre-cap state and apply its stale delta *after* the review run published the cap. The
+  # branch is the right normaliser rather than the PR number: it is present on both event payloads,
+  # whereas `check_suite.pull_requests` can be empty. Branch and PR are 1:1 here because the branch
+  # IS the claim ref.
+  #
+  # `workflow_dispatch` can only key on the number it was given, so a manual run does not serialise
+  # against a concurrent event. That is why it defaults to `dry_run: true`: the un-normalised path
+  # writes nothing unless a human deliberately says otherwise.
   group: >-
-    agent-triage-${{ github.event.pull_request.number
-      || inputs.pr
-      || github.event.check_suite.head_branch }}
+    agent-triage-${{ github.event.pull_request.head.ref
+      || github.event.check_suite.head_branch
+      || format('dispatch-{0}', inputs.pr) }}
   cancel-in-progress: false
 
 jobs:
@@ -88,8 +99,15 @@ jobs:
       || github.event_name == 'pull_request_review_comment'
       || startsWith(github.event.check_suite.head_branch, 'agent/issue-')
     steps:
+      # PINNED TO THE DEFAULT BRANCH, NOT THE EVENT'S REF. `pull_request_review` and
+      # `pull_request_review_comment` are pull-request-family events, so GITHUB_REF is the PR's MERGE
+      # ref - the default checkout would take `triage.py` and the `claim.py` it imports from the
+      # unmerged branch under review. Any PR touching either file would then execute unreviewed Python
+      # with GH_TOKEN and `issues: write`, on a workflow whose whole job is to publish review state.
+      # The default branch is reviewed code by construction (`main` takes no direct pushes).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

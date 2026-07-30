@@ -20,6 +20,12 @@ from typing import Any
 
 import pytest
 
+# Imported, not `importorskip`ed. pyyaml is already a hard test dependency
+# (`tests/test_issue_forms.py` imports it at module scope), and skipping on its absence would let
+# the workflow's `permissions` and `concurrency` assertions silently disappear - the two checks
+# that stop an over-grant or a de-serialised label write from landing.
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / ".agents" / "bin" / "triage.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "agent-triage.yml"
@@ -259,6 +265,87 @@ def test_a_running_suite_neither_owes_nor_clears(monkeypatch: pytest.MonkeyPatch
     assert fake.removed == []
 
 
+@pytest.mark.parametrize("conclusion", ["cancelled", "stale"], ids=["cancelled", "stale"])
+def test_a_non_green_completed_suite_never_clears_the_marker(
+    monkeypatch: pytest.MonkeyPatch, conclusion: str
+) -> None:
+    """`cancelled` is readable, completed, and NOT a pass.
+
+    Treating it as green cleared a real `agent:needs-amend` - the fail-open direction on the one
+    label that carries AMEND authority. `skipped` and `neutral` are genuinely non-failing and are
+    deliberately not in this list.
+    """
+    suites = _suites({"status": "completed", "conclusion": conclusion})
+    fake, result = _run(_routes(labels=[triage.AMEND_LABEL], suites=suites), monkeypatch)
+    assert result["checks"] == "failed"
+    assert result["amend"] == "unchanged"
+    assert fake.removed == []
+
+
+@pytest.mark.parametrize("conclusion", ["skipped", "neutral"], ids=["skipped", "neutral"])
+def test_a_genuinely_non_failing_conclusion_still_clears(
+    monkeypatch: pytest.MonkeyPatch, conclusion: str
+) -> None:
+    """The other direction: over-broadening the failure set would strand every PR as owing."""
+    suites = _suites({"status": "completed", "conclusion": conclusion})
+    _, result = _run(_routes(labels=[triage.AMEND_LABEL], suites=suites), monkeypatch)
+    assert result["checks"] == "green"
+    assert result["amend"] == "cleared"
+
+
+# ------------------------------------------------------------- an unanswered review
+
+
+def test_a_blocking_review_at_a_green_head_still_owes_an_amend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The hole this workflow existed to fill, and originally did not.
+
+    Keying AMEND authority on a failed check suite alone meant a provider requesting changes at a
+    GREEN head produced no authority at all, so the launcher never started the session that answers
+    an ordinary blocking review.
+    """
+    fake, result = _run(
+        _routes(comments=[_review(CODEX, HEAD)], suites=GREEN),
+        monkeypatch,
+    )
+    assert result["checks"] == "green"
+    assert result["review_owed"] is True
+    assert result["amend"] == "added"
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_changes_requested_at_the_head_owes_an_amend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A submission with no inline comments still asks for changes explicitly."""
+    review = {**_review(RABBIT, HEAD), "state": "CHANGES_REQUESTED"}
+    _, result = _run(_routes(reviews=[review], suites=GREEN), monkeypatch)
+    assert result["review_owed"] is True
+    assert result["amend"] == "added"
+
+
+def test_a_clean_pass_at_the_head_owes_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A provider that looked and had nothing to say must not owe an AMEND.
+
+    Otherwise every PR would owe one forever the moment it was reviewed, and the launcher would
+    respawn a worker to answer a review with no findings.
+    """
+    review = {**_review(CODEX, HEAD), "state": "APPROVED"}
+    fake, result = _run(_routes(labels=[triage.AMEND_LABEL], reviews=[review]), monkeypatch)
+    assert result["review_owed"] is False
+    assert result["amend"] == "cleared"
+    assert triage.AMEND_LABEL in fake.removed
+
+
+def test_a_review_on_an_older_head_does_not_owe_at_the_current_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pushing the fix moves the head, which is exactly how an answered round stops owing."""
+    _, result = _run(_routes(comments=[_review(CODEX, OLDER)], suites=GREEN), monkeypatch)
+    assert result["rounds"] == 1
+    assert result["review_owed"] is False
+    assert result["amend"] == "unchanged"
+
+
 def test_a_capped_pr_keeps_a_marker_the_reaper_applied(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two writers share this label and must not fight over it.
 
@@ -376,6 +463,28 @@ def test_a_failed_capped_label_write_is_fatal(monkeypatch: pytest.MonkeyPatch) -
         triage.triage(number=99, branch=None, dry_run=False)
 
 
+def test_a_failed_cap_write_leaves_the_previous_round_label_in_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Add BEFORE remove, so a failed cap write cannot leave the PR with no round label at all.
+
+    Removing first opened a window with neither `agent:round-1` nor `agent:review-capped` present,
+    in which the launcher reads an uncapped PR still carrying AMEND authority and issues a third
+    round - while this run exits non-zero and looks like it changed nothing.
+    """
+    routes = _routes(
+        labels=["agent:round-1", triage.AMEND_LABEL],
+        reviews=[_review(CODEX, OLDER), _review(RABBIT, HEAD)],
+        suites=GREEN,
+    )
+    routes[("POST", "/repos/bioedca/tether/issues/7/labels")] = (403, None)
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(triage.TriageError, match="never published"):
+        triage.triage(number=99, branch=None, dry_run=False)
+    assert fake.removed == [], "nothing may be deleted until the replacement is published"
+    assert "agent:round-1" not in fake.removed
+
+
 def test_an_absent_pull_request_is_a_skip_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
     routes = _routes()
     routes[("GET", "/repos/bioedca/tether/pulls/99")] = (404, None)
@@ -401,7 +510,6 @@ def test_the_branch_lookup_path_resolves_a_pull_request(monkeypatch: pytest.Monk
 
 
 def _workflow() -> dict[str, Any]:
-    yaml = pytest.importorskip("yaml")
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
 
 
@@ -421,10 +529,36 @@ def test_the_workflow_permissions_are_exactly_what_triage_needs() -> None:
 
 def test_the_workflow_never_cancels_a_run_in_progress() -> None:
     """A cancelled run leaves labels describing an older head, which reads as authority."""
-    concurrency = _workflow()["concurrency"]
-    assert concurrency["cancel-in-progress"] is False
-    # Per pull request: a global group would serialise every PR behind one.
-    assert "github.event.pull_request.number" in concurrency["group"]
+    assert _workflow()["concurrency"]["cancel-in-progress"] is False
+
+
+def test_every_real_event_shares_one_concurrency_key_for_a_pull_request() -> None:
+    """Review events and check_suite events must serialise against EACH OTHER, not just themselves.
+
+    Keying reviews on the PR number and check suites on the branch gave one PR two groups, so a
+    delayed check run could snapshot pre-cap state and apply its stale delta after the review run
+    published the cap. The head branch is the normaliser rather than the number because it is
+    present on both payloads - `check_suite.pull_requests` can be empty - and branch and PR are 1:1
+    here, the branch being the claim ref itself.
+    """
+    group = _workflow()["concurrency"]["group"]
+    assert "github.event.pull_request.head.ref" in group
+    assert "github.event.check_suite.head_branch" in group
+    # The number must NOT key a real event: that is precisely the split that de-serialised them.
+    assert "github.event.pull_request.number" not in group
+
+
+def test_the_workflow_checks_out_the_default_branch_not_the_event_ref() -> None:
+    """`pull_request_review` is a pull-request-family event, so GITHUB_REF is the PR's MERGE ref.
+
+    The default checkout would run `triage.py` and the `claim.py` it imports from the unmerged
+    branch under review, so any PR editing either file would execute unreviewed Python with
+    `GH_TOKEN` and `issues: write` - on the workflow whose whole job is publishing review state.
+    """
+    steps = _workflow()["jobs"]["triage"]["steps"]
+    checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@"))
+    assert checkout["with"]["ref"] == "${{ github.event.repository.default_branch }}"
+    assert checkout["with"]["persist-credentials"] is False
 
 
 def test_the_workflow_listens_for_the_three_state_changing_events() -> None:
