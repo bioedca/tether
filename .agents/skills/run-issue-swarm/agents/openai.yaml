@@ -1,4 +1,0 @@
-interface:
-  display_name: "Swarm Approval Digest"
-  short_description: "Check whether a maintainer approval still binds an issue snapshot"
-  default_prompt: "Verify that the tether-agent-ready approval on issue #N still binds its current title and body, and report the digest."

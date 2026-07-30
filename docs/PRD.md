@@ -937,6 +937,11 @@ though **tMAVEN is never vendored** — reference clones are algorithm-reference
   `feat/issue-123-m1-atrous-detector`, `fix/issue-124-correct-nan-guard`, `docs/issue-125-mkdocs-deploy`. The slug is
   kebab-case, ≤ ~5 words; the branch name is not load-bearing (the PR title + linked issue carry authoritative
   metadata) — it exists for at-a-glance `git branch` scanning.
+- **One exception, where the branch name *is* load-bearing.** An automated agent claims an issue by atomically
+  creating `agent/issue-N` — deliberately **without** a slug ([ADR-0057](adr/0057-github-native-swarm-coordination.md)).
+  That ref is the mutex: `POST /git/refs` returns `201` to the first writer and `422 Reference already exists` to every
+  other. A title-derived slug is not deterministic across agents, so two agents could create two different refs for one
+  issue and both succeed, silently voiding the mutex.
 - **Conventional Commits** [ConventionalCommits] govern **both commit messages and PR titles**: `type(scope):
   summary`. The **scope is a §4.2 module** without the `tether.` prefix — `io | imaging | fret | idealize | ml |
   analysis | gui | project` — plus cross-cutting scopes `schema | ci | deps | docs | release`. Examples:
@@ -1034,14 +1039,20 @@ changes, and any new scientific claim or citation; everything else merges withou
 **All work is tracked as GitHub Issues**, linked by the `Closes #N` footer (§12.2) so the issue ↔ PR ↔ commit ↔
 FR/milestone chain is queryable.
 
-Concurrent automated work follows [ADR-0052](adr/0052-concurrent-agent-swarm-coordination.md): new claims
-originate only from authenticated maintainer-approved `status:ready` scope. Same-snapshot renewals and
-authorized resumes may retain or re-establish that lease after `in-progress` or `in-review`; every lease
-coordinates one isolated issue/branch/worktree/PR and never grants merge authority.
+Concurrent automated work follows [ADR-0057](adr/0057-github-native-swarm-coordination.md): **GitHub is the
+coordinator and there is no coordinator agent.** New claims still originate only from authenticated
+maintainer-approved `status:ready` scope, bound to the SHA-256 of the exact title/body snapshot approved — but the
+claim itself is one atomic `POST /git/refs` creating `agent/issue-N`, so ownership needs no election, no lease, no
+TTL and no heartbeat. Eligibility is a precondition of the claim, never a consequence of winning the race.
 
-Workers remain PR-ready producers and never merge. Only a coordinator with explicit run-scoped `merge` authority
-may perform an exact-head/exact-base guarded squash merge after the final review/check state is verified; after a
-confirmed merge it completes the lease, cleans only the owned state, and refills the available worker slot.
+Each claim carries a **server-assigned generation** (a repository-activity `id`, which no request parameter can
+set), revalidated immediately before every authoritative write so a superseded worker's late write is refused
+rather than silently applied. A scheduled CI reaper reclaims dead claims unattended — the failure mode that froze
+the ADR-0052 run was a lease that only a sleeping human could renew.
+
+Every agent is a peer: it claims one issue, works one isolated worktree/branch/PR, arms auto-merge bound to the
+reviewed head with `--match-head-commit`, and exits. No agent waits on another, and no agent merges on another's
+behalf. ADR-0052's coordinator, leases, run records and guarded-merge monopoly are retired, not merely superseded.
 
 **Label taxonomy** (prefixed namespaces, so labels group and filter cleanly):
 
@@ -1049,10 +1060,19 @@ confirmed merge it completes the lease, cleans only the owned state, and refills
 |---|---|
 | `type:` | `bug`, `feature`, `refactor`, `docs`, `test`, `chore`, `ci`, `perf`, `question`, `validation-oracle-failure` (a dedicated type for a §8 NFR-VALID oracle regressing) |
 | `area:` | one per §4.2 module — `io`, `imaging`, `fret`, `idealize`, `ml`, `analysis`, `gui`, `project` — plus `schema`, `sidecar`, `packaging`, `docs` |
-| `milestone:` | `M0`, `M0.5`, `M1` … `M10` (including the fractional de-risking gate M0.5 and post-1.0 documentation/community milestone M10, mirroring GitHub Milestones for cross-filtering; redundant by design so a closed-milestone search still works) |
-| `priority:` | `P0` (blocker) … `P3` (nice-to-have) |
+| `priority:` | `P0` (blocker), `P1`, `P2` (nice-to-have) |
 | `status:` | `backlog`, `ready`, `in-progress`, `in-review`, `blocked`, `done` (mirror the board columns) |
-| standalone | `good-first-issue`, `security`, `help-wanted` (the last two latent until contributors join) |
+| `agent:` | `claude`, `codex`, `copilot` — the claiming lane, written by `claim.py` as a **mirror** of the claim ref, never as the lock; `human` (reserved for the maintainer, not claimable); `needs-amend` (one AMEND session is owed); `conflicted` (the PR is `DIRTY` and needs a person) |
+| `size:` | `XS`, `S`, `M`, `L` — the diff budget in added lines, 50 / 150 / 400 / 900, excluding lockfiles and generated files. There is no rung above `L`; work that does not fit is `needs:split` |
+| `risk:` | `low`, `standard`, `high` — the review-gate lane (§12.4) |
+| `needs:` | `split` (over the diff budget), `adr` (an ADR is required in the implementation PR) |
+| `blocked-by:` | `issue` (another open issue here), `maintainer` (a decision), `external` (an upstream or third party) — the *reason* a `status:blocked` item is blocked |
+| standalone | `preauth` (covered by the standing pre-authorization scope), `good-first-issue`, `security`, `help-wanted`, `dependencies` (applied by Dependabot) |
+
+There is **no `milestone:` label namespace** — an earlier revision of this table specified one, but none was ever
+created and GitHub Milestones alone carry M0–M10; a mirrored label set would be a second thing to keep in step.
+`size:`, `risk:`, `needs:` and `blocked-by:` are applied at **grooming**, not by the issue forms: a form's `labels:`
+list is static, so it cannot encode a per-issue judgement (§12.5, ADR-0053).
 
 **Roadmap milestones → GitHub Milestones.** Each of M0, M0.5, M1 … M10 is a GitHub Milestone. M0–M9 descriptions
 **embed the §9 acceptance criteria verbatim as a markdown checklist**; M10 tracks post-1.0 documentation and
