@@ -243,6 +243,19 @@ def test_withholds_below_min_qualifying(tmp_path: Path) -> None:
         assert np.isnan(float(grp.attrs["alpha"]))
 
 
+def test_withholding_recompute_clears_previously_applied_alpha(tmp_path: Path) -> None:
+    path = tmp_path / "leak.tether"
+    _cohort_store(path, n_mol=12, alpha=0.1)
+
+    first = compute_leakage_alpha(path)
+    assert first.applied is True
+    assert np.all(np.isfinite(read_molecules(path)["alpha"]))
+
+    second = compute_leakage_alpha(path, min_qualifying_traces=999)
+    assert second.applied is False
+    assert np.all(np.isnan(read_molecules(path)["alpha"]))
+
+
 def test_recompute_overwrites_settings(tmp_path: Path) -> None:
     path = tmp_path / "leak.tether"
     _cohort_store(path, n_mol=12, alpha=0.1)
