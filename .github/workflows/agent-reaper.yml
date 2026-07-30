@@ -26,13 +26,14 @@ on:
 # stop the sweep rather than silently mis-read it.
 #   contents: write        DELETE the claim ref
 #   issues: write          move the status:*/agent:* labels
-#   pull-requests: write   close a stale PR
+#   pull-requests: read    read PR state only. Since #277 the sweep never closes a PR, so `write`
+#                          here would be standing authority for a mutation the code cannot perform
 #   checks: read           read /commits/{sha}/check-suites; `statuses: read` does NOT cover it,
 #                          and without it a PR whose CI is still running would look idle
 permissions:
   contents: write
   issues: write
-  pull-requests: write
+  pull-requests: read
   checks: read
 
 concurrency:

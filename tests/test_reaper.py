@@ -44,20 +44,15 @@ class Fake:
     def __init__(self, routes: dict[tuple[str, str], tuple[int, Any]]) -> None:
         self.routes = routes
         self.calls: list[tuple[str, str]] = []
+        # Which labels were actually POSTed. `calls` records only (method, path), and both markers
+        # go to the same `/labels` path through one helper, so without this a test asserting
+        # "flag-needs-amend" could not tell `agent:needs-amend` from `agent:conflicted`.
+        self.labels: list[str] = []
 
     def __call__(self, method: str, path: str, body: Any = None) -> tuple[int, Any]:
         self.calls.append((method, path))
-
-        # Model the one side effect the reaper depends on: closing a PR makes subsequent reads
-        # return state="closed". Without this the requeue-after-close path would look like
-        # "a PR appeared mid-sweep" and be refused - which is the guard working, not a bug.
-        if method == "PATCH" and "/pulls/" in path and isinstance(body, dict):
-            new_state = body.get("state")
-            for _, payload in self.routes.values():
-                items = payload if isinstance(payload, list) else [payload]
-                for item in items:
-                    if isinstance(item, dict) and item.get("number") is not None:
-                        item["state"] = new_state or item.get("state")
+        if method == "POST" and path.endswith("/labels") and isinstance(body, dict):
+            self.labels.extend(body.get("labels", []))
 
         best: tuple[int, tuple[int, Any]] | None = None
         for (m, prefix), response in self.routes.items():
@@ -218,20 +213,33 @@ def test_a_recently_active_claim_with_no_pr_is_kept(monkeypatch: pytest.MonkeyPa
 # ------------------------------------------------------------------ rule 2: stale PR
 
 
-def test_a_pr_untouched_for_six_hours_with_no_checks_is_closed_and_requeued(
+def test_a_stale_pr_is_flagged_and_left_completely_alone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """#277: the stale-PR case labels the issue and touches nothing else.
+
+    An abandoned PR is visible in the pull-request list; an abandoned claim ref is not. The sweep
+    therefore spends its unattended authority on the invisible case only, and hands the visible one
+    to the launcher's AMEND path - which can continue the *existing* PR precisely because the claim
+    survives. This asserts the absence of all three mutations the closing version performed.
+    """
     routes = _routes(_pr(updated_at=_ago(hours=7)))
     routes[("GET", "/repos/bioedca/tether/commits/")] = (200, {"check_suites": []})
     fake = _install(monkeypatch, routes)
     actions = reaper.sweep(dry_run=False)
-    assert actions[0]["action"] == "requeue" and actions[0]["reason"] == "stale-pr"
-    assert fake.did("PATCH", "/pulls/99")
-    assert fake.did("DELETE", "git/refs/heads/agent/issue-7")
+    assert actions[0]["action"] == "flag-needs-amend"
+    assert actions[0]["reason"] == "stale-pr"
+    assert actions[0]["pr"] == 99
+    assert fake.labels == ["agent:needs-amend"]
+    assert not fake.did("PATCH", "/pulls/99"), "the PR must not be closed"
+    assert not fake.did("DELETE", "git/refs"), "the claim ref must survive"
+    assert not fake.did("DELETE", "labels/status:in-progress"), "the labels must not move"
 
 
-def test_a_stale_pr_with_checks_still_running_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
-    """CI can legitimately outlast the window; killing a PR mid-run loses real work."""
+def test_a_stale_pr_with_checks_still_running_is_not_even_flagged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CI can legitimately outlast the window, so a mid-run PR is active, not abandoned."""
     routes = _routes(_pr(updated_at=_ago(hours=7)))
     routes[("GET", "/repos/bioedca/tether/commits/")] = (
         200,
@@ -239,6 +247,7 @@ def test_a_stale_pr_with_checks_still_running_is_kept(monkeypatch: pytest.Monkey
     )
     fake = _install(monkeypatch, routes)
     assert reaper.sweep(dry_run=False)[0]["action"] == "keep"
+    assert fake.labels == []
     assert not fake.did("PATCH", "/pulls/99")
     assert not fake.did("DELETE", "git/refs")
 
@@ -251,8 +260,55 @@ def test_a_dirty_pr_is_flagged_and_its_claim_left_alone(monkeypatch: pytest.Monk
     routes = _routes(_pr(mergeable_state="dirty", mergeable=False))
     fake = _install(monkeypatch, routes)
     assert reaper.sweep(dry_run=False)[0]["action"] == "flag-conflicted"
+    assert fake.labels == ["agent:conflicted"]
     assert not fake.did("DELETE", "git/refs")
     assert not fake.did("PATCH", "/pulls/99")
+
+
+def test_a_resolved_conflict_loses_the_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Once the PR is no longer dirty the marker is stale, and nothing else ever removed it.
+
+    The label is meant to be the only persistent signal that a claim needs a person, so an issue
+    left falsely marked degrades the very signal it exists to provide - and a marker that is never
+    cleared is indistinguishable from one that is never checked. 200 from the label DELETE is the
+    real API's "a label was actually removed"; 404 is the ordinary no-marker case, covered below.
+    """
+    routes = _routes(_pr())
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/agent:conflicted")] = (200, [])
+    fake = _install(monkeypatch, routes)
+    assert reaper.sweep(dry_run=False) == [
+        {"issue": 7, "action": "clear-conflicted", "reason": "conflict-resolved"}
+    ]
+    assert fake.did("DELETE", "labels/agent:conflicted")
+    # Clearing a cosmetic marker must not escalate into touching the claim.
+    assert not fake.did("DELETE", "git/refs")
+    assert fake.labels == []
+
+
+def test_a_clean_pr_without_a_marker_reports_nothing_to_do(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The common case: the DELETE 404s, which is not an error and not a state change."""
+    routes = _routes(_pr())
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/agent:conflicted")] = (404, None)
+    fake = _install(monkeypatch, routes)
+    assert reaper.sweep(dry_run=False) == [{"issue": 7, "action": "keep", "reason": "pr-active"}]
+    assert not fake.did("DELETE", "git/refs")
+
+
+def test_a_failed_marker_clear_does_not_abort_the_sweep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deliberately best-effort, unlike `_mark`.
+
+    Aborting a whole unattended sweep over a label nobody reads would trade a real reclamation for a
+    tidy one, and the next sweep retries anyway. This pins that asymmetry so it cannot be "fixed"
+    into a fail-closed check by someone sweeping for the class.
+    """
+    routes = _routes(_pr())
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/agent:conflicted")] = (500, None)
+    _install(monkeypatch, routes)
+    assert reaper.sweep(dry_run=False) == [{"issue": 7, "action": "keep", "reason": "pr-active"}]
 
 
 # ------------------------------------------------------------------ fail closed on API errors
@@ -288,19 +344,23 @@ def test_an_unreadable_pr_state_stops_the_sweep_instead_of_reclaiming(
     [(403, None), (500, None), (200, {"check_suites": "not-a-list"})],
     ids=["forbidden-missing-checks-read", "500", "malformed"],
 )
-def test_unreadable_check_state_never_closes_a_pr(
+def test_unreadable_check_state_mutates_nothing_at_all(
     monkeypatch: pytest.MonkeyPatch, response: tuple[int, Any]
 ) -> None:
     """A 403 here is the realistic case: with an explicit permissions block, omitting
     `checks: read` makes every check-suite read a 403. Reading that as "no checks running" would
-    close a PR whose CI is mid-flight."""
+    flag a PR whose CI is merely mid-flight.
+
+    The assertion covers every write verb rather than one path. Excluding only `/pulls/99` passed
+    while a regression that mutated some *other* PR went unnoticed, and the sweep has no business
+    issuing any write once it has admitted it cannot read the state it is deciding from.
+    """
     routes = _routes(_pr(updated_at=_ago(hours=7)))
     routes[("GET", "/repos/bioedca/tether/commits/")] = response
     fake = _install(monkeypatch, routes)
     with pytest.raises(reaper.ReaperError, match="check-suite"):
         reaper.sweep(dry_run=False)
-    assert not fake.did("PATCH", "/pulls/99")
-    assert not [c for c in fake.calls if c[0] in {"DELETE", "POST"}]
+    assert not [c for c in fake.calls if c[0] in {"DELETE", "PATCH", "POST"}]
 
 
 def test_a_genuinely_empty_pr_list_still_permits_reclamation(
@@ -405,35 +465,6 @@ def test_ref_deletion_happens_after_the_queue_label_is_restored(
     assert label < delete, "status:ready must be restored before the ref is deleted"
 
 
-def test_a_pr_that_changed_since_the_decision_is_not_closed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A worker that pushed a new head since the staleness reading is alive, not abandoned."""
-    stale = _pr(updated_at=_ago(hours=7))
-    routes = _routes(stale)
-    routes[("GET", "/repos/bioedca/tether/commits/")] = (200, {"check_suites": []})
-    fake = _install(monkeypatch, routes)
-
-    original = fake.__call__
-    seen = {"n": 0}
-
-    def moving(method: str, path: str, body: Any = None) -> tuple[int, Any]:
-        # After the decision read, the PR reports a fresh head - the worker pushed.
-        if method == "GET" and path.endswith("/pulls/99"):
-            seen["n"] += 1
-            if seen["n"] > 1:
-                return 200, _pr(updated_at=_ago(minutes=1), head={"sha": "e" * 40})
-        return original(method, path, body)
-
-    monkeypatch.setattr(reaper.claim, "_request", moving)
-    assert reaper.sweep(dry_run=False)[0] == {
-        "issue": 7,
-        "action": "keep",
-        "reason": "pr-changed",
-    }
-    assert not fake.did("PATCH", "/pulls/99")
-
-
 def test_a_missing_activity_record_is_unknown_not_stale(monkeypatch: pytest.MonkeyPatch) -> None:
     """The feed lags a just-created ref, so no record must never mean "silent for 90 minutes".
 
@@ -449,36 +480,31 @@ def test_a_missing_activity_record_is_unknown_not_stale(monkeypatch: pytest.Monk
     assert not [c for c in fake.calls if c[0] in {"DELETE", "PATCH", "POST"}]
 
 
-def test_the_stale_pr_path_is_fenced_like_the_no_pr_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A push after the head revalidation must still save the claim on the stale-PR route."""
-    routes = _routes(_pr(updated_at=_ago(hours=7)))
-    routes[("GET", "/repos/bioedca/tether/activity")] = (
-        200,
-        [{"id": 1, "timestamp": _ago(hours=7)}],
-    )
+@pytest.mark.parametrize(
+    ("pr", "label"),
+    [
+        (_pr(mergeable_state="dirty", mergeable=False), "agent:conflicted"),
+        (_pr(updated_at=_ago(hours=7)), "agent:needs-amend"),
+    ],
+    ids=["conflicted", "needs-amend"],
+)
+def test_a_failed_marker_is_never_reported_as_applied(
+    monkeypatch: pytest.MonkeyPatch, pr: dict[str, Any], label: str
+) -> None:
+    """Since #277 the marker is the ONLY thing either PR path does.
+
+    It is no longer a hint beside a close and a reclaim - it *is* the action - so a silently failed
+    write would report a flag that was never set and leave the PR unattended, which is the
+    silent-state failure this whole workflow exists to end. Both markers go through one helper, so
+    both are pinned here.
+    """
+    routes = _routes(pr)
     routes[("GET", "/repos/bioedca/tether/commits/")] = (200, {"check_suites": []})
-    # Activity reads in this path: _fingerprint (1), _last_activity (2), then _requeue's
-    # revalidating _fingerprint (3). Flipping after 2 puts the push exactly in the window between
-    # the decision and the destructive call.
-    fake = Changing(routes, flip_after=2)
-    monkeypatch.setattr(reaper.claim, "_request", fake)
-    monkeypatch.setattr(reaper.claim, "_paginate", lambda path, what: fake("GET", path)[1] or [])
-    monkeypatch.setattr(reaper, "_now", lambda: NOW)
-    with pytest.raises(reaper.ReaperError, match="new activity mid-sweep"):
+    routes[("POST", "/repos/bioedca/tether/issues/7/labels")] = (403, None)
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(reaper.ReaperError, match=rf"needs {label} but it could not be applied"):
         reaper.sweep(dry_run=False)
     assert not fake.did("DELETE", "git/refs")
-
-
-def test_a_failed_conflict_label_is_not_reported_as_flagged(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The label is the only persistent conflict marker; claiming it was set when it was not
-    publishes state that is false."""
-    routes = _routes(_pr(mergeable_state="dirty", mergeable=False))
-    routes[("POST", "/repos/bioedca/tether/issues/7/labels")] = (403, None)
-    _install(monkeypatch, routes)
-    with pytest.raises(reaper.ReaperError, match="agent:conflicted could not be applied"):
-        reaper.sweep(dry_run=False)
 
 
 def test_the_claim_ref_is_archived_before_it_is_deleted(monkeypatch: pytest.MonkeyPatch) -> None:

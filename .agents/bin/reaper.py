@@ -17,6 +17,22 @@ must not come back.
 **Discard, don't hand off.** The diff budget bounds an issue to <=400 lines and workers push after
 every green gate, so reclaiming loses one increment. The handoff ceremony the retired model used
 cost more than the work it protected.
+
+**A claim with an open pull request is never reclaimed here** (issue #277). Only the no-PR case is
+reclaimed; a stale PR is labelled ``agent:needs-amend`` and otherwise left exactly as it is - PR
+open, claim ref intact, labels untouched.
+
+The reason is an asymmetry, not squeamishness. An abandoned **PR is visible** in the pull-request
+list; an abandoned **claim ref is silent**, and silent state is what caused the freeze this workflow
+exists to prevent. Unattended recovery is worth its complexity for the invisible case and is not for
+the visible one. Closing a PR additionally required three mutations with no transaction - close,
+move labels, delete the ref - and ``PATCH /pulls/{n}`` accepts no expected-head, ``DELETE
+/git/refs`` no expected-SHA, and label writes no precondition, so a push landing between the final
+revalidation and the close closed a PR that had just come back to life with nothing to reverse it.
+Seven review rounds narrowed that window and none closed it; the fix was to stop needing it.
+
+Nothing is stranded by that choice: the claim survives, so the launcher's AMEND path continues the
+existing PR on the existing claim rather than discarding an increment.
 """
 
 from __future__ import annotations
@@ -183,6 +199,50 @@ def _only_in_progress(number: int) -> bool:
     return not ({n for n in names if n.startswith("status:")} - {"status:in-progress"})
 
 
+def _mark(number: int, label: str, *, dry_run: bool) -> None:
+    """Apply a persistent marker, treating a failed write as fatal.
+
+    On both pull-request paths this label is the ONLY thing the sweep does: since #277 the reaper
+    neither closes a PR nor reclaims its ref, so the marker is not a hint beside the real action, it
+    *is* the action. Reporting a flag in the run summary while the write silently failed would
+    publish state that is not true and leave the PR unattended - the same silent-state failure this
+    workflow exists to end. Raising instead leaves the claim untouched for the next sweep to retry.
+    """
+    if dry_run:
+        return
+    status, _ = claim._request("POST", f"/repos/{REPO}/issues/{number}/labels", {"labels": [label]})
+    if status != 200:
+        raise ReaperError(
+            f"#{number} needs {label} but it could not be applied (HTTP {status}); "
+            "not reporting a flag that was never set"
+        )
+
+
+def _clear_conflicted(number: int, *, dry_run: bool) -> bool:
+    """Drop a stale ``agent:conflicted`` marker once the pull request is no longer dirty.
+
+    Nothing removed it before, so an issue stayed marked as needing human conflict resolution long
+    after a worker had rebased successfully. Because that label is meant to be the only persistent
+    signal that a claim needs a person, a stale one degrades the very signal it exists to provide: a
+    marker that is never cleared is indistinguishable from one that is never checked.
+
+    Clearing on the next clean sweep is self-healing, and it is deliberately preferred over clearing
+    inside ``_requeue``: a human usually resolves the conflict *without* the claim ever being
+    reclaimed, and that is the case ``_requeue`` would never see.
+
+    The outcome is read from the response rather than from a prior GET - 404 is the ordinary case
+    (no marker) and 200 means one was really cleared - so the common path costs one call and no
+    read. Unlike ``_mark`` this is best-effort: aborting a whole sweep over a cosmetic label would
+    trade a real reclamation for a tidy one, and the next sweep retries regardless.
+    """
+    if dry_run:
+        return False
+    status, _ = claim._request(
+        "DELETE", f"/repos/{REPO}/issues/{number}/labels/agent:conflicted", None
+    )
+    return status == 200
+
+
 def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = None) -> None:
     """Delete the claim ref and put the issue back on the queue.
 
@@ -214,8 +274,12 @@ def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = Non
     other_status = {name for name in labels if name.startswith("status:")} - {"status:in-progress"}
     requeue_label = issue.get("state") == "open" and not other_status
 
-    # Only an OPEN pull request means someone is still working: the stale path closes the PR just
-    # before calling this, so aborting on any PR at all would refuse the reclaim it just authorized.
+    # Since #277 the ONLY caller is the no-PR path, so an open pull request here means the premise
+    # the decision rested on is gone - a worker opened one after the earlier read. This used to be
+    # softened because the stale path closed a PR immediately before calling in, which made "abort
+    # on any PR" refuse the reclaim it had just authorized; with that path gone the guard is
+    # unconditionally correct rather than a compromise. A *closed* PR is still fine: it is exactly
+    # what the caller already saw.
     fresh = _open_pr(number)
     if fresh is not None and fresh.get("state") == "open":
         raise ReaperError(f"#{number} gained an open pull request mid-sweep; refusing to reclaim")
@@ -377,20 +441,7 @@ def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
             continue
 
         if pr.get("mergeable_state") == "dirty":
-            if not dry_run:
-                # The label is the only persistent marker that this claim needs a human. Reporting
-                # flag-conflicted in the run summary while the write silently failed would publish
-                # state that is not true.
-                status, _ = claim._request(
-                    "POST",
-                    f"/repos/{REPO}/issues/{number}/labels",
-                    {"labels": ["agent:conflicted"]},
-                )
-                if status != 200:
-                    raise ReaperError(
-                        f"#{number} is conflicted but agent:conflicted could not be applied "
-                        f"(HTTP {status}); not reporting a flag that was never set"
-                    )
+            _mark(number, "agent:conflicted", dry_run=dry_run)
             actions.append({"issue": number, "action": "flag-conflicted", "reason": "dirty"})
             continue
 
@@ -402,38 +453,35 @@ def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
             continue
 
         pr_age_h = (now - _parse(pr["updated_at"])).total_seconds() / 3600
-        if pr_age_h >= STALE_PR_HOURS and not _checks_running(pr["head"]["sha"]):
-            if not dry_run:
-                # Revalidate against the snapshot the staleness decision was made from. A worker
-                # that pushed a new head or started checks since then is alive, and closing its PR
-                # on the old reading would then let _requeue see a closed PR and delete the branch
-                # it had just revived.
-                current = _open_pr(number)
-                if (
-                    current is None
-                    or current.get("updated_at") != pr.get("updated_at")
-                    or current.get("head", {}).get("sha") != pr.get("head", {}).get("sha")
-                    or _checks_running(current["head"]["sha"])
-                ):
-                    actions.append({"issue": number, "action": "keep", "reason": "pr-changed"})
-                    continue
-                # Require the close to succeed BEFORE releasing the claim. Ignoring the result left
-                # an open PR pointing at a branch the successor recreates, so the successor could
-                # silently inherit or mutate someone else's stale PR.
-                status, _ = claim._request(
-                    "PATCH", f"/repos/{REPO}/pulls/{pr['number']}", {"state": "closed"}
-                )
-                if status != 200:
-                    raise ReaperError(
-                        f"PR #{pr['number']} could not be closed (HTTP {status}); "
-                        f"refusing to release #{number}'s claim while its PR is still open"
-                    )
-            # Same fencing as the no-PR path. A worker can push after the head/check revalidation
-            # above and before or just after the close, and without `expect` the requeue would
-            # delete the branch it had just revived.
-            _requeue(number, dry_run=dry_run, expect=expect)
+        stale = pr_age_h >= STALE_PR_HOURS and not _checks_running(pr["head"]["sha"])
+
+        # ONLY NOW is it safe to write: `_checks_running` above is the last read that can fail, and
+        # it fails closed. Clearing before it meant an unreadable check state deleted a label and
+        # *then* raised - a sweep that has just admitted it cannot read the state it is deciding
+        # from must not already have mutated. The PR is open and demonstrably not dirty at this
+        # point, so any conflict marker it still carries is false whether or not it has also gone
+        # quiet; leaving it would pair `agent:conflicted` with `agent:needs-amend` on one issue.
+        cleared = _clear_conflicted(number, dry_run=dry_run)
+
+        if stale:
+            # #277: label only. No close, no label move, no ref deletion - so there is no ordering
+            # to get wrong, nothing to revalidate against, and no need to fence with `expect`. A
+            # worker that comes back finds its PR and its claim exactly where it left them, and the
+            # launcher's AMEND path continues the PR instead of a successor starting over.
+            _mark(number, "agent:needs-amend", dry_run=dry_run)
             actions.append(
-                {"issue": number, "action": "requeue", "reason": "stale-pr", "pr": pr["number"]}
+                {
+                    "issue": number,
+                    "action": "flag-needs-amend",
+                    "reason": "stale-pr",
+                    "pr": pr["number"],
+                }
+            )
+            continue
+
+        if cleared:
+            actions.append(
+                {"issue": number, "action": "clear-conflicted", "reason": "conflict-resolved"}
             )
             continue
 
