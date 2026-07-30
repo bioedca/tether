@@ -77,6 +77,12 @@ CAPPED_LABEL = "agent:review-capped"
 AMEND_LABEL = "agent:needs-amend"
 ALL_ROUND_LABELS = (*ROUND_LABELS, CAPPED_LABEL)
 
+# The claim's label MIRROR: the labels that describe work in flight, cleared when its PR merges
+# (#308). `status:ready` is deliberately NOT in this set and is never written by the merge path —
+# see `clear_mirror`. `agent:conflicted` is also absent: the reaper owns it (#276) and clears it on
+# the first clean sweep, and two writers for one label is what this set exists to avoid.
+MIRROR_LABELS = ("status:in-progress", AMEND_LABEL, *ALL_ROUND_LABELS)
+
 # `cancelled` and `stale` are here deliberately. Neither is a live status nor a pass, so leaving
 # them out made a readable-but-not-green head report as green and CLEAR a real
 # `agent:needs-amend` - the
@@ -146,6 +152,67 @@ def _issue_labels(number: int) -> set[str] | None:
     if issue.get("state") != "open":
         return None
     return {label["name"] for label in issue.get("labels", []) if isinstance(label, dict)}
+
+
+def _mirror_present(labels: set[str]) -> list[str]:
+    """The mirror labels actually on the issue, vendor markers included.
+
+    Returned rather than deleted blindly so the run reports what it changed, and so a DELETE is
+    not issued for a label that was never there.
+    """
+    mirror = set(MIRROR_LABELS) | {f"agent:{vendor}" for vendor in claim.VENDORS}
+    return sorted(labels & mirror)
+
+
+def clear_mirror(*, number: int, dry_run: bool) -> dict[str, Any]:
+    """Clear a merged claim's label mirror from its linked issue (#308).
+
+    The happy path is the one path with no cleanup. ``claim.py release`` clears the mirror and the
+    reaper's ``_requeue`` clears it, but a PR that simply *merges* clears nothing: the squash
+    deletes the branch (so the mutex releases correctly) and ``Closes: #N`` closes the issue, while
+    the worker exited long before, exactly as ``arm auto-merge and exit`` intends. The labels then
+    describe live work on a finished item — and `#276` already settled that a marker nothing removes
+    is indistinguishable from one nothing checks.
+
+    Three properties, each of which is a way this could go wrong:
+
+    * **Merged, not merely closed.** A PR closed *without* merging leaves the claim live and the ref
+      in place, so its mirror is still true. Only ``merged`` clears.
+    * **Never re-queues.** ``status:ready`` is not in :data:`MIRROR_LABELS` and this function has no
+      add path at all — that is the structural guarantee, not a rule to remember. Merged work is
+      *done*, and returning it to the queue would hand a finished item to the next worker. This is
+      the one place the merge path must differ from ``reaper._requeue``, which requeues on purpose.
+    * **Reads the issue whatever its state.** ``_issue_labels`` gates on ``open`` and returns
+      ``None`` otherwise, which is right for the round counter and fatal here: by the time a PR has
+      merged, ``Closes: #N`` has already closed the issue. Reading it separately is the point of
+      this function rather than a flag threaded through :func:`triage`.
+
+    Deletions are best-effort and individually issued, matching :func:`_apply`: a stale label is
+    cosmetic against the cost of aborting, and 404 is the ordinary answer for one already gone.
+    """
+    status, pr = claim._request("GET", f"/repos/{REPO}/pulls/{number}")
+    if status == 404:
+        return {"action": "skip", "reason": "no-pull-request", "pr": number}
+    if status != 200 or not isinstance(pr, dict):
+        raise TriageError(f"PR #{number} could not be read (HTTP {status})")
+    if not pr.get("merged"):
+        # Fails closed on the safe side: an unmerged close means the claim may still be live.
+        return {"action": "skip", "reason": "closed-without-merging", "pr": number}
+
+    issue = _linked_issue(pr)
+    if issue is None:
+        return {"action": "skip", "reason": "not-agent-claimed", "pr": number}
+
+    status, payload = claim._request("GET", f"/repos/{REPO}/issues/{issue}")
+    if status != 200 or not isinstance(payload, dict):
+        raise TriageError(f"#{issue} could not be read (HTTP {status})")
+    labels = {label["name"] for label in payload.get("labels", []) if isinstance(label, dict)}
+
+    remove = _mirror_present(labels)
+    if not dry_run:
+        for label in remove:
+            claim._request("DELETE", f"/repos/{REPO}/issues/{issue}/labels/{label}", None)
+    return {"action": "clear-mirror", "pr": number, "issue": issue, "removed": remove}
 
 
 def _reviewed_head(entry: dict[str, Any]) -> str | None:
@@ -354,9 +421,20 @@ def main() -> int:
     source.add_argument("--pr", type=int, help="pull-request number")
     source.add_argument("--branch", help="head branch name, e.g. agent/issue-42")
     parser.add_argument("--dry-run", action="store_true", help="report without mutating anything")
+    parser.add_argument(
+        "--merged",
+        action="store_true",
+        help="clear a merged claim's label mirror instead of publishing round state",
+    )
     args = parser.parse_args()
+    if args.merged and args.pr is None:
+        parser.error("--merged needs --pr: a merged PR is identified by number, not by branch")
     try:
-        result = triage(number=args.pr, branch=args.branch, dry_run=args.dry_run)
+        result = (
+            clear_mirror(number=args.pr, dry_run=args.dry_run)
+            if args.merged
+            else triage(number=args.pr, branch=args.branch, dry_run=args.dry_run)
+        )
     except (TriageError, claim.ClaimError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
