@@ -306,6 +306,28 @@ def test_export_molecule_table_csv_pins_documented_semantics(tmp_path):
         assert row["delta"] == "0.0"
 
 
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf], ids=["nan", "inf", "-inf"])
+def test_export_molecule_table_csv_blanks_a_non_finite_delta(tmp_path, value):
+    """The page's *other* `delta` promise: non-finite exports blank, not `nan`/`inf` text.
+
+    The constant-default assertion above only ever sees `0.0`, so it could not distinguish "blanks
+    correctly" from "never blanks" — a `delta`-specific regression that bypassed the shared float
+    formatter would leave both it and the prose-pattern guard green while the published page still
+    promised a blank cell. Codex's finding on this PR.
+
+    Parametrised over all three non-finite values because `NaN` and the infinities take different
+    branches in most formatters, and the page's wording — "stored value is non-finite" — covers all
+    three rather than just the one that is easy to produce.
+    """
+    donor, acceptor = _asym_channels(n=2)
+    project, _ = build_store_with_channels(tmp_path, donor, acceptor)
+    _set_molecule_fields(project.path, delta=np.array([value, 0.25]))
+
+    rows = _read_csv(export_molecule_table_csv(project, tmp_path / "delta.csv").path)
+    assert rows[0]["delta"] == "", f"non-finite delta must export blank, got {rows[0]['delta']!r}"
+    assert rows[1]["delta"] == "0.25", "a finite delta in the same file still exports its value"
+
+
 def test_export_molecule_table_csv_reports_resolved_window(tmp_path):
     # When analysis_window is unset (hi <= lo), apparent-E is computed over the
     # frame_range fallback; window_start/window_end must report that resolved window,
