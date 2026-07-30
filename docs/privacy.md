@@ -1,20 +1,24 @@
 # Privacy policy
 
-**Effective date: 15 July 2026**
+**Effective date: 30 July 2026**
 
 This policy describes how the **Tether** project handles data. It covers both the
 **Tether desktop application** and this **documentation website**
 (`https://bioedca.github.io/tether/`). Tether is free, open-source software
 (GPL-3.0-or-later) developed for the Mondragón Lab at Northwestern University.
 
-In short: **Tether does not collect, transmit, or sell your personal data.** The
-application runs entirely on your own computer, and your research data never leaves it.
+In short: **Tether does not transmit or sell your personal data.** The application
+processes your research data locally on your own computer; you choose its persistent
+storage, and temporary idealization files are described below.
 
 ## The desktop application
 
 - **Local-only processing.** Tether analyses your microscopy movies and single-molecule
   FRET data entirely on your own machine. Your data — image movies, `.tether` project
   files, exported results — stays on your computer (or wherever you choose to save it).
+  During idealization, selected traces are copied to your operating system's temporary
+  directory for local processing; Tether normally removes this scratch directory when the
+  run finishes.
 - **No telemetry or analytics.** The application contains no usage tracking, no analytics,
   no crash/telemetry reporting, no advertising, and no account or login. It makes **no
   network connection** as part of normal analysis; it neither sends your data to us or to
@@ -25,11 +29,12 @@ application runs entirely on your own computer, and your research data never lea
   parameters, and your operating-system username (as the curator, or "labeler", of your
   annotations). A separate sidecar `.lock` file records your computer's hostname, username
   and process id while a project is open, so that a second copy of the application can tell
-  who currently holds the write-lock. This information is stored only in your files, on your
-  machine, and is **never transmitted** to the project or to any third party. If you share a
-  `.tether` file with a collaborator it carries your OS username (the `.lock` sidecar is a
-  separate local file and is not part of the shared project) — so treat shared project files
-  as you would any working document.
+  who currently holds the write-lock. This information is stored only in files at the
+  location you choose and is **never transmitted by Tether** to the project or to any third
+  party. If you share a `.tether` file with a collaborator it carries your OS username and
+  the source movie paths you selected (the `.lock` sidecar is a separate file and is not
+  embedded in the project) — so treat shared project files as you would any working
+  document.
 - **Bundled components.** The installers bundle open-source libraries (for example napari,
   PySide6, and the tMAVEN reference tool) and, optionally, local machine-learning models.
   These run locally, and Tether does not configure them to collect or transmit your data.
@@ -45,20 +50,19 @@ application runs entirely on your own computer, and your research data never lea
   [GitHub General Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
   The Tether project does not receive, store, or use that data.
 
-## Downloads, releases, and code-signing
+## Downloads and releases
 
 - Installers and source releases are distributed through **GitHub Releases**, subject to
   GitHub's own privacy practices (linked above).
-- Windows installers are code-signed through the **[SignPath](https://signpath.io/)**
-  Foundation program for open-source projects; SignPath's own privacy practices apply to
-  that service. Signing does not give the project any data about who downloads or runs
-  Tether.
+- Published releases include SHA-256 checksum manifests and GitHub build-provenance
+  attestations for the installers. GitHub distribution and these integrity records do not
+  give the Tether project data about who downloads or runs Tether.
 
 ## Children's privacy
 
-Tether is a research tool and is not directed at children. It does not knowingly collect or
-transmit personal data — it processes only the scientific imaging data you supply, locally
-on your machine.
+Tether is a research tool and is not directed at children. It processes the scientific
+imaging data and local metadata described above locally; Tether itself does not transmit
+that data to the project or to third parties.
 
 ## Changes to this policy
 

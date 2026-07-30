@@ -76,13 +76,14 @@ prose harmonization of the PRD (PRD §12.7).
 | [0047](0047-deep-model-optional-stack-and-dataset.md) | Deep-model optional stack (Option A) + torch-free training-dataset substrate | accepted | §4.1, §7.5, §9 M8 |
 | [0048](0048-kinsoft-kinetics-oracle.md) | kinSoftChallenge kinetics oracle: base-env HMM, 2-state scope, within-spread band | accepted | §8, §9 M8, §11.2 |
 | [0049](0049-m9-packaging-constructor-architecture.md) | M9 packaging: constructor installer architecture (offline base env + isolated sidecar) | accepted | §4.1, §9 M9, §12.7 |
-| [0050](0050-release-pipeline-and-code-signing.md) | Release pipeline + code-signing (tag-driven, SignPath for Windows, gated Apple) | accepted | §9 M9, §12.7, §4.1 |
+| [0050](0050-release-pipeline-and-code-signing.md) | Release pipeline + code-signing (tag-driven, SignPath for Windows, gated Apple) | accepted; code-signing half superseded by [0059](0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) | §9 M9, §12.7, §4.1 |
 | [0051](0051-installed-app-launch-surface.md) | The installed app's launch surface: a real GUI entry point, prefix shims, and a menu shortcut | accepted | §7.8, §4.1, §9 M9 |
 | [0052](0052-concurrent-agent-swarm-coordination.md) | Concurrent issue-swarm coordination | superseded by 0057 (fully retired) | §12.2–§12.5 |
 | [0053](0053-structured-backlog-intake-gates-swarm-admission.md) | Structured backlog intake gates swarm admission | superseded by 0057 (admitting authority) | §12.5 |
 | [0055](0055-gui-session-writer-ownership.md) | GUI session writer ownership | accepted | §5.4, §7.3, §7.5, §7.10 |
 | [0056](0056-policy-fail-rejected-extraction-checkpoint.md) | Preserve policy-fail rejection across batch resume | accepted | §6, §7.11, §11.2 |
 | [0057](0057-github-native-swarm-coordination.md) | GitHub-native swarm coordination | accepted | §12.2–§12.5 |
+| [0059](0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) | Ship v1.0.0 unsigned, with SHA-256 manifests + build provenance as the integrity anchor | accepted; supersedes the code-signing half of [0050](0050-release-pipeline-and-code-signing.md) | §9 M9, §12.7, §4.1, NFR-PKG |
 | [0060](0060-in-app-update-mechanism-and-integrity-model.md) | In-app update: download, verify against build provenance, hand off to the OS installer | accepted; one implementability conflict escalated (no conda `sigstore` exists) | §4.1, §4.3, §8 NFR-PKG, §7.12 FR-UPDATE |
 
 <!-- gen:adr-index end -->

@@ -14,8 +14,10 @@
 # cannot live in the required `test` matrix — the same posture as `deep-gpu.yml`
 # (ADR-0047). tests/test_marker_contract.py locks this advisory shape.
 #
-# UNSIGNED: constructor leaves installers unsigned by default; Authenticode +
-# productsign/notarization are wired with repository secrets in PR-2 (release.yml).
+# UNSIGNED, and permanently so for 1.0 (ADR-0059): constructor leaves installers
+# unsigned and nothing downstream signs them. The SHA-256 manifests and the
+# build-provenance attestation release.yml publishes are the integrity anchor on
+# every platform.
 name: packaging
 
 on:

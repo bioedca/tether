@@ -18,11 +18,14 @@ The tail estimate needs the per-channel first-bleach frames written by
 Detection and this estimate both run on the **background-subtracted** (``corrected``)
 traces by default.
 
-The factor is **withheld** (``/molecules.alpha`` left untouched) when fewer than
-``min_qualifying_traces`` molecules yield a valid donor-only tail — a per-condition α
-is only trustworthy with enough donor-only tails behind it, and a fabricated one
-would silently bias every corrected E (PRD §7.2 total-failure path; §Data-gaps). The
-provenance group is still stamped (``withheld = True``) so the attempt is auditable.
+The factor is **withheld** (processed ``/molecules.alpha`` rows reset to ``NaN``)
+when fewer than ``min_qualifying_traces`` molecules yield a valid donor-only tail —
+a per-condition α is only trustworthy with enough donor-only tails behind it, and a
+fabricated one would silently bias every corrected E (PRD §7.2 total-failure path;
+§Data-gaps). Because γ is derived from leakage-corrected intensities, withholding α
+also resets processed ``/molecules.gamma`` rows to ``NaN`` so a downstream factor
+from the superseded α cannot remain applied. The provenance group is still stamped
+(``withheld = True``) so the attempt is auditable.
 
 The separate Cy3-only donor-only *sample* path (a global α from a dedicated
 calibration acquisition, cross-checked against this tail α under the §11.2
@@ -83,7 +86,9 @@ class LeakageAlphaSummary:
         The applied dataset leakage factor (median of the qualifying per-trace α),
         or ``None`` when withheld (< ``min_qualifying_traces`` qualified).
     applied
-        Whether ``/molecules.alpha`` was written (i.e. ``alpha is not None``).
+        Whether an estimated factor was applied (i.e. ``alpha is not None``). When
+        false, processed ``/molecules.alpha`` and downstream ``gamma`` rows are
+        cleared to ``NaN``.
     source
         Estimator provenance tag stamped into ``/settings/leakage``.
     intensity_quantity
@@ -137,9 +142,10 @@ def compute_leakage_alpha(
         default 10).
     write_guard
         Optional caller-owned lock/lease check. With a guard, the complete
-        ``/molecules.alpha`` update and ``/settings/leakage`` stamp are written to a
-        same-directory sibling project and published together by one final guarded
-        atomic replace. Without a guard, the established in-place write path remains.
+        ``/molecules.alpha`` update, any downstream ``gamma`` invalidation, and
+        ``/settings/leakage`` stamp are written to a same-directory sibling project
+        and published together by one final guarded atomic replace. Without a guard,
+        the established in-place write path remains.
 
     Returns
     -------
@@ -176,7 +182,9 @@ def compute_leakage_alpha(
         donor_all = traces_grp[donor_layer][:]
         acceptor_all = traces_grp[acceptor_layer][:]
 
-        table = f[_MOLECULES][TABLE][:]  # full copy; only the alpha column is mutated
+        # Full copy; alpha is updated every pass, and a withheld alpha also
+        # invalidates gamma because gamma was derived from leakage-corrected traces.
+        table = f[_MOLECULES][TABLE][:]
         frame_range = table["frame_range"]
         bleach_frames = table["bleach_frames"]
 
@@ -222,12 +230,13 @@ def compute_leakage_alpha(
         )
 
         applied = estimate.alpha is not None
-        if applied:
-            for i in processed_rows:
-                table["alpha"][i] = estimate.alpha
-            if write_guard is not None:
-                write_guard()
-            f[_MOLECULES][TABLE][:] = table
+        for i in processed_rows:
+            table["alpha"][i] = estimate.alpha if applied else np.nan
+            if not applied:
+                table["gamma"][i] = np.nan
+        if write_guard is not None:
+            write_guard()
+        f[_MOLECULES][TABLE][:] = table
 
         if write_guard is not None:
             write_guard()
