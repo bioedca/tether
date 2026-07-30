@@ -91,7 +91,13 @@ jobs:
             # making an advisory check into a gate at exactly the moment it reports something.
             # Inside a `||` list the command's failure is handled, so errexit does not fire.
             code=0
-            python .agents/bin/scope_guard.py --pr "${PR_NUMBER}" --markdown "${since[@]-}" \
+            # `"${since[@]}"`, NOT `"${since[@]-}"`. The `-` default form treats an empty array as
+            # unset and substitutes the default, so it expands to ONE EMPTY ARGUMENT rather than
+            # none - argparse then exits 2 on `unrecognized arguments:` and the classifier below
+            # fails the job on every `opened`, `reopened` and `ready_for_review` event, which is
+            # every event that has no previous head. Bash 4.4+ expands an empty `"${a[@]}"` to zero
+            # words even under `nounset`; the runner is 5.x.
+            python .agents/bin/scope_guard.py --pr "${PR_NUMBER}" --markdown "${since[@]}" \
               > /tmp/scope.json 2> /tmp/scope.md || code=$?
             cat /tmp/scope.json
             cat /tmp/scope.md >> "${GITHUB_STEP_SUMMARY}"

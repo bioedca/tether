@@ -49,8 +49,33 @@ try:  # PyYAML is a mkdocs dependency in the base lock, but not present for a ba
     import yaml
 
     _YAML_ERRORS: tuple[type[Exception], ...] = (yaml.YAMLError,)
+
+    class _Yaml12Loader(yaml.SafeLoader):
+        """A loader with YAML **1.2** booleans, because these files are GitHub Actions workflows.
+
+        PyYAML implements YAML 1.1, where ``on``, ``off``, ``yes`` and ``no`` all resolve to
+        booleans - which is why `tests/test_triage.py` reaches a workflow's trigger block through
+        the key ``True`` rather than ``"on"``. For a materiality digest that coercion is not a
+        curiosity, it is a collapse: an unquoted `with:` input edited from ``on`` to ``yes`` sends a
+        *different string* to the action while both canonicalize to JSON ``true``, so the push
+        digests as unchanged and stale review evidence survives a real change.
+
+        The whitespace substitution this replaced had the same failure with a different cause, and
+        replacing one silent collapse with another would have been no improvement.
+        """
+
+    _BOOL_12 = re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$")
+    _Yaml12Loader.yaml_implicit_resolvers = {
+        first: [(tag, rx) for tag, rx in resolvers if tag != "tag:yaml.org,2002:bool"]
+        for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+    }
+    for _first in "tTfF":
+        _Yaml12Loader.yaml_implicit_resolvers.setdefault(_first, []).insert(
+            0, ("tag:yaml.org,2002:bool", _BOOL_12)
+        )
 except ImportError:  # pragma: no cover - exercised by the workflow's minimal environment
     yaml = None
+    _Yaml12Loader = None
     _YAML_ERRORS = ()
 
 BIN = Path(__file__).resolve().parent
@@ -258,9 +283,9 @@ def _structured(path: str, text: str) -> str:
         elif path.endswith(".toml"):
             parsed = tomllib.loads(text)
         else:
-            if yaml is None:
+            if _Yaml12Loader is None:
                 return text
-            parsed = list(yaml.safe_load_all(text))
+            parsed = list(yaml.load_all(text, Loader=_Yaml12Loader))
     except (ValueError, UnicodeDecodeError, RecursionError) + _YAML_ERRORS:
         return text
     # `default=str` keeps a TOML datetime or a YAML date from raising; the string form is stable,

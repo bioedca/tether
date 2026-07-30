@@ -470,6 +470,29 @@ def test_reordering_yaml_sequence_entries_is_material_but_mapping_keys_are_not()
     assert guard.materiality(keys, reordered)["material"] is False
 
 
+def test_actions_scalars_are_not_coerced_to_booleans() -> None:
+    """PyYAML is YAML 1.1, where `on`/`off`/`yes`/`no` are booleans. These files are workflows.
+
+    Codex's round-2 finding, and it is the *same* collapse the whitespace substitution had, reached
+    by a different route: an unquoted `with:` input edited from `on` to `yes` sends a different
+    string to the action while both resolve to JSON `true`, so the push digests as unchanged and
+    stale review evidence survives a real change.
+
+    `tests/test_triage.py` reaching a workflow's trigger block through the key `True` is the same
+    coercion, visible in the repository already.
+    """
+    step = "jobs:\n  a:\n    steps:\n      - with:\n          flag: {}\n"
+    assert guard.materiality({"w.yml": step.format("on")}, {"w.yml": step.format("yes")})[
+        "material"
+    ], "`on` and `yes` are different strings to the action"
+
+    # The trigger key itself must stay the string "on", not become True.
+    assert '"on"' in guard._canonical("w.yml", "on:\n  push:\n    branches: [main]\n")
+
+    # And real 1.2 booleans still parse as booleans, so `true` and `True` remain one value.
+    assert guard.materiality({"w.yml": "x: true\n"}, {"w.yml": "x: True\n"})["material"] is False
+
+
 def test_unparseable_structured_config_falls_back_to_verbatim() -> None:
     """Fail closed. A file that will not parse is unknown, and unknown must not read as unchanged.
 
