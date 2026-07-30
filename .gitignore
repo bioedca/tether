@@ -8,6 +8,12 @@ PLAN.md
 .claude/settings.local.json
 .claude/*.py
 .claude/RESUME-SWARM-REBUILD.md
+# gate.ps1's PID-liveness admission slots (.pid files, so *.lock below does not cover them)
+.claude/gate-slots/
+
+# swarm_slots.py renders one task file per launched worker into a TRACKED directory. The templates
+# (build.md, amend.md) are committed; the rendered per-issue text is generated and must not be.
+.agents/tasks/_task-issue-*.md
 
 # --- Python / build artifacts ---
 __pycache__/
