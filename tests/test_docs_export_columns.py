@@ -1,27 +1,32 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The exports reference documents exactly the CSV columns the code writes.
+"""The exports reference documents exactly the CSV columns and semantics code writes.
 
 ``tether.project.export.MOLECULE_TABLE_COLUMNS`` is annotated in the source as frozen —
 "a reader may key on these names" — and ``docs/reference/exports.md`` is the page that
-tells that reader what each name means. This module is the drift guard between them: the
-page's column table must list exactly the tuple's names, in the tuple's order. Where the
-two disagree, **the tuple is right** and the page is stale.
+tells that reader what each name means. This module is the drift guard between them:
+the page's column table must list exactly the tuple's names, in the tuple's order, and
+its CSV types must follow ``MOLECULES_DTYPE`` except for explicitly enumerated
+transform/derived fields. Selected load-bearing unit/domain and blankness claims are
+also pinned here and exercised behaviorally in ``test_export_tables.py``. Where code
+and reference disagree, **the code is right** and the page is stale.
 
 Dependency-free by design (the constraint on issue #160), on *both* sides. Neither
 ``python-markdown`` (not in the base 3-OS test environment) nor the scientific stack is
-imported: the page's table is parsed structurally — split each ``|`` row, take its first
-cell — and the tuple is read out of ``src/tether/project/export.py`` with :mod:`ast`
-rather than by importing it. Importing ``tether.project.export`` would pull in
-``numpy``/``scipy``/``h5py`` through :mod:`tether.imaging.extract`, which is why every
-scientific test in this suite opens with ``pytest.importorskip``; a documentation check
-should not need that environment at all.
+imported: all four cells of each Markdown row are parsed structurally, while the tuple
+and dtype declarations are read with :mod:`ast` rather than imported. Importing
+``tether.project.export`` would pull in ``numpy``/``scipy``/``h5py`` through
+:mod:`tether.imaging.extract`, which is why every scientific test in this suite opens
+with ``pytest.importorskip``; a documentation check should not need that environment.
 """
 
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
+
+import pytest
 
 _REPO = Path(__file__).resolve().parents[1]
 
@@ -31,12 +36,54 @@ PAGE = _REPO / "docs" / "reference" / "exports.md"
 #: docstring). This is the repo checkout, which is also what an editable install exposes.
 EXPORT_SOURCE = _REPO / "src" / "tether" / "project" / "export.py"
 
+#: The frozen molecule dtype, parsed as source so this guard stays dependency-free.
+SCHEMA_SOURCE = _REPO / "src" / "tether" / "io" / "schema.py"
+
 #: The heading the column table lives under. Renaming it in the page means updating it
 #: here — deliberately: the guard must never silently stop finding the table.
 _HEADING = "### Molecule-table columns"
 
 #: The frozen tuple's name in :data:`EXPORT_SOURCE`.
 _TUPLE_NAME = "MOLECULE_TABLE_COLUMNS"
+
+#: The dtype declaration's name in :data:`SCHEMA_SOURCE`.
+_DTYPE_NAME = "MOLECULES_DTYPE"
+
+_TABLE_HEADER = ("Column", "CSV type", "Unit / domain", "Blank when")
+
+# These columns are not direct scalar field copies. Enumerating every exception makes a
+# new transform/derived export fail until its CSV representation is reviewed explicitly.
+_CSV_TYPE_EXCEPTIONS = {
+    "curation_label": ("string", "stored integer transformed to vocabulary text"),
+    "donor_bleach_frame": ("integer", "first component of bleach_frames"),
+    "acceptor_bleach_frame": ("integer", "second component of bleach_frames"),
+    "frame_start": ("integer", "first component of frame_range"),
+    "frame_end": ("integer", "second component of frame_range"),
+    "window_start": ("integer", "resolved analysis-window lower bound"),
+    "window_end": ("integer", "resolved analysis-window upper bound"),
+    "n_finite_frames": ("integer", "derived finite apparent-E count"),
+    "mean_apparent_e": ("float", "derived apparent-E mean"),
+    "median_apparent_e": ("float", "derived apparent-E median"),
+}
+
+# These patterns intentionally pin meaning rather than every word of explanatory prose.
+# Their matching behavior is covered by a deliberate-mismatch regression below.
+_SEMANTIC_CELL_REQUIREMENTS = (
+    ("mean_apparent_e", "Unit / domain", r"\*\*Not\*\* \u03b3-corrected"),
+    ("median_apparent_e", "Unit / domain", r"\*\*Dimensionless .* apparent E\*\*"),
+    ("frame_start", "Unit / domain", r"\*\*Frames\*\*, zero-based, \*\*inclusive\*\*"),
+    (
+        "frame_end",
+        "Unit / domain",
+        r"\*\*Frames\*\*, zero-based, \*\*exclusive\*\* \(half-open\)",
+    ),
+    ("window_start", "Unit / domain", r"\*\*Frames\*\*, zero-based, \*\*inclusive\*\*"),
+    ("window_end", "Unit / domain", r"\*\*exclusive\*\*"),
+    ("quality_class", "Blank when", r"`NaN`.*blank in every export"),
+    ("aperture_id", "Blank when", r"^Never\b.*integer is always written$"),
+    ("delta", "Unit / domain", r"`0\.0`.*not blank"),
+    ("delta", "Blank when", r"stored value is non-finite"),
+)
 
 
 def _frozen_columns() -> list[str]:
@@ -63,13 +110,69 @@ def _frozen_columns() -> list[str]:
     raise AssertionError(f"module-level {_TUPLE_NAME} not found in {EXPORT_SOURCE}")
 
 
-def _column_table_rows() -> list[str]:
-    """First cells of the data rows of the column table, backticks stripped.
+def _molecules_dtype_csv_types(field_names: set[str]) -> dict[str, str]:
+    """Scalar CSV types implied by selected ``MOLECULES_DTYPE`` fields."""
+    tree = ast.parse(SCHEMA_SOURCE.read_text(encoding="utf-8"), filename=str(SCHEMA_SOURCE))
+    declaration: ast.AST | None = None
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        elif isinstance(node, ast.Assign):
+            targets = node.targets
+        else:
+            continue
+        if any(isinstance(t, ast.Name) and t.id == _DTYPE_NAME for t in targets):
+            declaration = node.value
+            break
+
+    assert isinstance(declaration, ast.Call), (
+        f"module-level {_DTYPE_NAME} dtype call not found in {SCHEMA_SOURCE}"
+    )
+    assert declaration.args and isinstance(declaration.args[0], ast.List), (
+        f"{_DTYPE_NAME} in {SCHEMA_SOURCE} no longer has a literal field list"
+    )
+
+    csv_types: dict[str, str] = {}
+    for field in declaration.args[0].elts:
+        assert isinstance(field, ast.Tuple) and len(field.elts) >= 2
+        name = ast.literal_eval(field.elts[0])
+        if name not in field_names:
+            continue
+        dtype = field.elts[1]
+        if (
+            isinstance(dtype, ast.Call)
+            and isinstance(dtype.func, ast.Name)
+            and dtype.func.id == "_str"
+        ):
+            csv_type = "string"
+        else:
+            code = ast.literal_eval(dtype)
+            assert isinstance(code, str) and code
+            kind = code.lstrip("<>=|")[0]
+            csv_type = {"i": "integer", "u": "integer", "f": "float"}.get(kind)
+            assert csv_type is not None, f"unsupported dtype {code!r} for {name!r} in {_DTYPE_NAME}"
+        assert name not in csv_types, f"duplicate field {name!r} in {_DTYPE_NAME}"
+        csv_types[name] = csv_type
+    return csv_types
+
+
+def _markdown_row_cells(row: str) -> tuple[str, ...]:
+    """Split one pipe-table row without treating an escaped ``\\|`` as a delimiter."""
+    stripped = row.strip()
+    assert stripped.startswith("|") and stripped.endswith("|"), (
+        f"not a complete Markdown table row: {row!r}"
+    )
+    return tuple(cell.strip() for cell in re.split(r"(?<!\\)\|", stripped[1:-1]))
+
+
+def _column_table_rows(page_text: str | None = None) -> list[tuple[str, str, str, str]]:
+    """All four cells of every data row, with column-name backticks stripped.
 
     Finds the first Markdown table after :data:`_HEADING`, drops its header and
-    ``|---|`` separator rows, and returns one string per remaining row.
+    ``|---|`` separator rows, and returns one four-cell tuple per remaining row.
     """
-    lines = PAGE.read_text(encoding="utf-8").splitlines()
+    text = PAGE.read_text(encoding="utf-8") if page_text is None else page_text
+    lines = text.splitlines()
     try:
         start = lines.index(_HEADING)
     except ValueError:  # pragma: no cover - defensive; the assert below reports it
@@ -85,11 +188,63 @@ def _column_table_rows() -> list[str]:
 
     assert len(table) >= 3, f"no column table found under {_HEADING!r} in {PAGE}"
 
-    cells = []
-    for row in table[2:]:  # skip the header row and the |---| separator
-        first = row.strip("|").split("|")[0]
-        cells.append(first.strip().strip("`").strip())
-    return cells
+    header = _markdown_row_cells(table[0])
+    separator = _markdown_row_cells(table[1])
+    assert header == _TABLE_HEADER, f"unexpected column-table header: {header!r}"
+    assert len(separator) == len(_TABLE_HEADER) and all(
+        re.fullmatch(r":?-{3,}:?", cell) for cell in separator
+    ), f"unexpected column-table separator: {separator!r}"
+
+    rows: list[tuple[str, str, str, str]] = []
+    for row in table[2:]:
+        cells = _markdown_row_cells(row)
+        assert len(cells) == len(_TABLE_HEADER), (
+            f"expected four cells in column-table row, got {len(cells)}: {row!r}"
+        )
+        normalized = (cells[0].strip("`").strip(), *cells[1:])
+        rows.append(normalized)
+    return rows
+
+
+def _assert_exceptions_are_minimal(documented_names: set[str]) -> None:
+    """No entry in ``_CSV_TYPE_EXCEPTIONS`` may be a **no-op**.
+
+    The exception list exists so a transformed column's CSV type is reviewed by a human instead of
+    being pretended inferable from a dtype. An entry that merely *restates* what the schema already
+    derives inverts that: the column's documented type is then checked against a hand-written string
+    that nothing keeps in step with ``MOLECULES_DTYPE``, and a schema change stops being caught. The
+    subset assertion above cannot see it, because a no-op entry is still a documented name.
+
+    Being a dtype field is **not** by itself disqualifying, and getting this wrong is easy:
+    ``curation_label`` is a direct field whose CSV form is genuinely transformed — an integer code
+    stored, vocabulary text written. The test is whether the exception says something *different*
+    from the derivation, not whether the field exists in the dtype.
+
+    Each entry also has to carry a reason, because an exception without one is indistinguishable
+    from an oversight.
+    """
+    derived = _molecules_dtype_csv_types(documented_names)
+    redundant = sorted(
+        name
+        for name, (csv_type, _why) in _CSV_TYPE_EXCEPTIONS.items()
+        if derived.get(name) == csv_type
+    )
+    assert not redundant, (
+        f"these exceptions restate what {_DTYPE_NAME} already derives, so a schema change would "
+        f"stop being caught for them; remove the entries: {redundant}"
+    )
+    unreasoned = sorted(name for name, (_type, why) in _CSV_TYPE_EXCEPTIONS.items() if not why)
+    assert not unreasoned, f"an exception without a stated reason is an oversight: {unreasoned}"
+
+
+def _assert_load_bearing_semantic_cells(page_text: str | None = None) -> None:
+    """Assert selected unit/domain and blankness cells retain their promised meaning."""
+    rows = {row[0]: row for row in _column_table_rows(page_text)}
+    for column, cell_name, pattern in _SEMANTIC_CELL_REQUIREMENTS:
+        cell = rows[column][_TABLE_HEADER.index(cell_name)]
+        assert re.search(pattern, cell), (
+            f"{column!r} {cell_name!r} no longer matches {pattern!r}: {cell!r}"
+        )
 
 
 def test_page_exists_and_is_in_the_nav() -> None:
@@ -109,9 +264,80 @@ def test_frozen_tuple_is_parseable() -> None:
 
 def test_documented_columns_match_the_frozen_tuple_exactly() -> None:
     """Element-for-element, in order — a rename, addition, removal or reorder fails."""
-    assert _column_table_rows() == _frozen_columns()
+    assert [row[0] for row in _column_table_rows()] == _frozen_columns()
 
 
 def test_column_table_row_count() -> None:
     """The table has one data row per column and no stragglers."""
     assert len(_column_table_rows()) == len(_frozen_columns())
+
+
+def test_column_table_parses_all_four_cells() -> None:
+    """Every row has the complete public contract, including escaped Markdown pipes."""
+    rows = _column_table_rows()
+    assert all(len(row) == len(_TABLE_HEADER) for row in rows)
+    assert r"\|" in rows[1][2]  # molecule_key formula contains an escaped pipe
+
+
+def test_documented_csv_types_match_dtype_or_explicit_exception() -> None:
+    """Direct fields follow ``MOLECULES_DTYPE``; transforms are reviewed explicitly."""
+    rows = _column_table_rows()
+    documented_names = {row[0] for row in rows}
+    assert set(_CSV_TYPE_EXCEPTIONS) <= documented_names
+    direct_names = documented_names - set(_CSV_TYPE_EXCEPTIONS)
+    _assert_exceptions_are_minimal(documented_names)
+    schema_types = _molecules_dtype_csv_types(direct_names)
+    assert set(schema_types) == direct_names, (
+        f"direct CSV fields missing from {_DTYPE_NAME}: {sorted(direct_names - set(schema_types))}"
+    )
+
+    for name, csv_type, _unit_domain, _blank_when in rows:
+        if name in _CSV_TYPE_EXCEPTIONS:
+            expected, _reason = _CSV_TYPE_EXCEPTIONS[name]
+        else:
+            assert name in schema_types, (
+                f"{name!r} is not a direct {_DTYPE_NAME} field; enumerate its transform"
+            )
+            expected = schema_types[name]
+        assert csv_type == expected, (
+            f"{name!r} documents CSV type {csv_type!r}; expected {expected!r}"
+        )
+
+
+def test_a_redundant_type_exception_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The minimality check has to be shown firing, or it is an untested absence-assertion.
+
+    ``molecule_id`` is a direct ``MOLECULES_DTYPE`` field, so an exception restating its derived
+    type adds nothing and would silence the schema for that column. ``curation_label`` is the
+    control: also a direct field, but its exception says something different — integer stored,
+    vocabulary text written — so it must NOT be reported.
+    """
+    documented = {row[0] for row in _column_table_rows()}
+    derived = _molecules_dtype_csv_types(documented)
+    assert "molecule_id" in derived, "the fixture depends on this being a direct field"
+
+    monkeypatch.setitem(
+        _CSV_TYPE_EXCEPTIONS, "molecule_id", (derived["molecule_id"], "restates the schema")
+    )
+    with pytest.raises(AssertionError, match="molecule_id"):
+        _assert_exceptions_are_minimal(documented)
+
+
+def test_load_bearing_semantic_cells_are_pinned() -> None:
+    """Scientific/indexing/blankness promises cannot drift as unchecked prose."""
+    _assert_load_bearing_semantic_cells()
+
+
+def test_deliberate_semantic_cell_mismatch_fails_guard() -> None:
+    """Prove the guard rejects a publishably wrong apparent-E semantic cell."""
+    original = PAGE.read_text(encoding="utf-8")
+    not_gamma_corrected = "**Not** \N{GREEK SMALL LETTER GAMMA}-corrected"
+    changed = original.replace(not_gamma_corrected, "gamma-corrected", 1)
+    assert changed != original, "test mutation target disappeared from the reference page"
+
+    try:
+        _assert_load_bearing_semantic_cells(changed)
+    except AssertionError as exc:
+        assert "mean_apparent_e" in str(exc)
+    else:  # pragma: no cover - this is the failure the regression exists to expose
+        raise AssertionError("semantic-cell mismatch unexpectedly passed the guard")

@@ -57,6 +57,15 @@ def _set_frame_range(project_path, ranges):
         handle["molecules"]["table"][:] = table
 
 
+def _set_molecule_fields(project_path, **fields):
+    """Overwrite focused molecule fields without changing the shared store builder."""
+    with h5py.File(project_path, "r+") as handle:
+        table = handle["molecules"]["table"][:]
+        for name, values in fields.items():
+            table[name] = values
+        handle["molecules"]["table"][:] = table
+
+
 # --------------------------------------------------------------------------- #
 # write_deeplasi_txt — the pure serializer (write-side mirror of the reader)   #
 # --------------------------------------------------------------------------- #
@@ -240,6 +249,83 @@ def test_export_molecule_table_csv_rows_and_apparent_e(tmp_path):
         # window fields round-tripped
         assert int(row["window_start"]) == 0
         assert int(row["window_end"]) == n_frames
+
+
+def test_export_molecule_table_csv_pins_documented_semantics(tmp_path):
+    """Pin apparent-E, half-open indices, and constant blankness/value claims."""
+    n_frames = 8
+    apparent_e = np.tile(np.arange(n_frames, dtype="float64") / 10.0, (3, 1))
+    donor = (1.0 - apparent_e) * 100.0
+    acceptor = apparent_e * 100.0
+    project, _ = build_store_with_channels(
+        tmp_path,
+        donor,
+        acceptor,
+        windows=[(2, 5), (2, 5), (0, 0)],
+    )
+    _set_frame_range(project.path, [(1, 7)] * 3)
+    _set_molecule_fields(
+        project.path,
+        alpha=np.array([0.1, 0.9, 0.5]),
+        gamma=np.array([2.0, 20.0, 7.0]),
+    )
+
+    rows = _read_csv(export_molecule_table_csv(project, tmp_path / "semantic.csv").path)
+
+    # Identical traces/windows with very different stored alpha/gamma still export
+    # identical apparent E: these summaries do not silently apply either factor.
+    window_mean = float(np.mean(apparent_e[0, 2:5]))
+    window_median = float(np.median(apparent_e[0, 2:5]))
+    assert [float(row["alpha"]) for row in rows[:2]] == pytest.approx([0.1, 0.9])
+    assert [float(row["gamma"]) for row in rows[:2]] == pytest.approx([2.0, 20.0])
+    assert [float(row["mean_apparent_e"]) for row in rows[:2]] == pytest.approx(
+        [window_mean, window_mean]
+    )
+    assert [float(row["median_apparent_e"]) for row in rows[:2]] == pytest.approx(
+        [window_median, window_median]
+    )
+
+    # Stored frame/window indices are emitted unchanged and used as zero-based,
+    # half-open slices: 2:5 excludes frame 5; an unset window falls back to 1:7.
+    assert [(row["frame_start"], row["frame_end"]) for row in rows] == [("1", "7")] * 3
+    assert [(row["window_start"], row["window_end"]) for row in rows] == [
+        ("2", "5"),
+        ("2", "5"),
+        ("1", "7"),
+    ]
+    fallback_mean = float(np.mean(apparent_e[2, 1:7]))
+    fallback_median = float(np.median(apparent_e[2, 1:7]))
+    assert float(rows[2]["mean_apparent_e"]) == pytest.approx(fallback_mean)
+    assert float(rows[2]["median_apparent_e"]) == pytest.approx(fallback_median)
+
+    # Current extraction initializes these direct fields to the documented constants,
+    # and the CSV serializer preserves their blank/nonblank contract.
+    for row in rows:
+        assert row["quality_class"] == ""
+        assert row["aperture_id"] == "0"
+        assert row["delta"] == "0.0"
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf], ids=["nan", "inf", "-inf"])
+def test_export_molecule_table_csv_blanks_a_non_finite_delta(tmp_path, value):
+    """The page's *other* `delta` promise: non-finite exports blank, not `nan`/`inf` text.
+
+    The constant-default assertion above only ever sees `0.0`, so it could not distinguish "blanks
+    correctly" from "never blanks" — a `delta`-specific regression that bypassed the shared float
+    formatter would leave both it and the prose-pattern guard green while the published page still
+    promised a blank cell. Codex's finding on this PR.
+
+    Parametrised over all three non-finite values because `NaN` and the infinities take different
+    branches in most formatters, and the page's wording — "stored value is non-finite" — covers all
+    three rather than just the one that is easy to produce.
+    """
+    donor, acceptor = _asym_channels(n=2)
+    project, _ = build_store_with_channels(tmp_path, donor, acceptor)
+    _set_molecule_fields(project.path, delta=np.array([value, 0.25]))
+
+    rows = _read_csv(export_molecule_table_csv(project, tmp_path / "delta.csv").path)
+    assert rows[0]["delta"] == "", f"non-finite delta must export blank, got {rows[0]['delta']!r}"
+    assert rows[1]["delta"] == "0.25", "a finite delta in the same file still exports its value"
 
 
 def test_export_molecule_table_csv_reports_resolved_window(tmp_path):
