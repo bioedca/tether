@@ -59,6 +59,15 @@ NO_STATE = -1
 #: runs, but a cold ``tmaven``/Numba import is not instant, so the window is generous
 #: (mirrors the startup liveness probe, :data:`supervisor.DEFAULT_PROBE_TIMEOUT`).
 DEFAULT_OPEN_CHECK_TIMEOUT = 120.0
+#: Default per-idealization-call timeout in seconds (§11.2). The **one** source of
+#: truth for it: every public surface that forwards a ``timeout`` to :func:`run_vbfret`
+#: defaults to this name rather than repeating the number, so the value cannot drift
+#: between the driver, the project-level functions and the documented default.
+#:
+#: It lives here rather than in :mod:`tether.idealize.supervisor` — where it was first
+#: written and from where it is still re-exported — because the supervisor imports the
+#: driver, so the reverse direction would be an import cycle.
+DEFAULT_SIDECAR_TIMEOUT = 1800.0
 
 _RUNNER = Path(__file__).with_name("_sidecar_runner.py")
 
@@ -361,7 +370,7 @@ def run_vbfret(
     group: str = DEFAULT_GROUP,
     nrestarts: int | None = None,
     model_out: str | PathLike[str] | None = None,
-    timeout: float | None = 1800.0,
+    timeout: float | None = DEFAULT_SIDECAR_TIMEOUT,
 ) -> IdealizationResult:
     """Run a headless vbFRET-family idealization on an existing SMD file.
 

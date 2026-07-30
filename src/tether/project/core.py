@@ -17,6 +17,12 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+# A signature default is evaluated at import time, so this one constant cannot come
+# from the deferred ``from tether.project import idealize`` the methods below use. The
+# edge is one-way — nothing under ``tether.idealize`` imports ``tether.project`` — so
+# there is no cycle; it only makes an already-declared dependency (the TYPE_CHECKING
+# import of ``IdealizationResult`` below) eager.
+from tether.idealize.driver import DEFAULT_SIDECAR_TIMEOUT
 from tether.io.filename import ParsedFilename, parse_filename
 from tether.io.schema import (
     SCHEMA_VERSION,
@@ -543,7 +549,7 @@ class Project:
         sidecar_python: str | Path | None = None,
         nrestarts: int | None = None,
         scratch_dir: str | Path | None = None,
-        timeout: float | None = 1800.0,
+        timeout: float | None = DEFAULT_SIDECAR_TIMEOUT,
         overwrite: bool = False,
         include_rejected: bool = False,
         _runner: Callable[..., IdealizationResult] | None = None,
@@ -612,7 +618,7 @@ class Project:
         sidecar_python: str | Path | None = None,
         nrestarts: int | None = None,
         scratch_dir: str | Path | None = None,
-        timeout: float | None = 1800.0,
+        timeout: float | None = DEFAULT_SIDECAR_TIMEOUT,
         _runner: Callable[..., IdealizationResult] | None = None,
     ) -> StoredIdealization:
         """Re-fit a stale model over current inputs (:func:`idealize.reidealize`)."""

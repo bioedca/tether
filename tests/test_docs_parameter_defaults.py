@@ -256,8 +256,12 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             module_constant("tether.project.idealize", "NSTATES_GRID_DEFAULT"),
         ),
         (
+            # Canonical in ``driver`` and re-exported by ``supervisor`` (#222), so the
+            # page's ``tether.idealize.supervisor`` path stays true while the value has
+            # one home. ``module_constant`` reads the *source*, so it has to be pointed
+            # at the module that assigns the literal, not one that imports the name.
             ("DEFAULT_SIDECAR_TIMEOUT",),
-            module_constant("tether.idealize.supervisor", "DEFAULT_SIDECAR_TIMEOUT"),
+            module_constant("tether.idealize.driver", "DEFAULT_SIDECAR_TIMEOUT"),
         ),
         (
             ("DEFAULT_MAX_RESTARTS",),
