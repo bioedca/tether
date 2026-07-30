@@ -307,7 +307,7 @@ Review evidence **survives a non-material push**, so addressing findings does no
 restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
 renumbering are all non-material, while executable code, scientific claims, data,
 schema, locks, CI/release config and the governance text itself (`AGENTS.md`, this
-file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`) are material. A material push
+file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`) are material. A material push
 re-arms the review but grants no extra round, and there are **at most two rounds**.
 
 Fix blocking findings. Blocking is decided on the **severity axis only**: CodeRabbit

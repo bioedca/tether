@@ -120,7 +120,8 @@ longer. **ADR-0053's intake gates remain in force**: what is not yet replaced st
 superseded means *decided*, not automatically *already switched off*.
 
 **In force now:** the review gate (material-change rule, severity floor, two-round cap,
-capability-vs-quota) in `AGENTS.md`; `main` without the strict up-to-date rule; `sidecar / parity`
+capability-vs-quota) in `docs/agents/review.md`, which `AGENTS.md` points to as a bar to acting;
+`main` without the strict up-to-date rule; `sidecar / parity`
 reporting post-merge; the prose-drift guard retired. Since 2026-07-30: **the claim mutex**
 (`.agents/bin/claim.py`) and `agent/issue-<N>` branches, including generation fencing and atomic ADR
 number reservation; **the scheduled reaper** (`.agents/bin/reaper.py`, `agent-reaper.yml`); the

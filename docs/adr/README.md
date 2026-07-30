@@ -16,6 +16,8 @@ prose harmonization of the PRD (PRD §12.7).
 
 ## Index
 
+<!-- gen:adr-index start (scripts/gen_adr_index.py --write) -->
+
 ### Foundational, cross-cutting (M0 seed — PLAN M0 S1)
 
 | ADR | Title | Status | PRD anchor |
@@ -81,6 +83,8 @@ prose harmonization of the PRD (PRD §12.7).
 | [0055](0055-gui-session-writer-ownership.md) | GUI session writer ownership | accepted | §5.4, §7.3, §7.5, §7.10 |
 | [0056](0056-policy-fail-rejected-extraction-checkpoint.md) | Preserve policy-fail rejection across batch resume | accepted | §6, §7.11, §11.2 |
 | [0057](0057-github-native-swarm-coordination.md) | GitHub-native swarm coordination | accepted | §12.2–§12.5 |
+
+<!-- gen:adr-index end -->
 
 _Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
 by the PRs that implement them._

@@ -552,6 +552,71 @@ def test_an_unknown_placeholder_is_refused_not_shipped(tmp_path: Path) -> None:
         slots._render(bad, record, {"vendor": "claude"})
 
 
+def test_a_malformed_template_is_caught_before_any_state_is_consumed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A template defect is a property of the file, so nothing may be spent discovering it.
+
+    Raising from `_render` was too late by construction: `run` has already called `_dispatch_build`,
+    creating the claim ref, or `_authorise_amend`, creating the permanent round ref. The first
+    strands a claim until the reaper; the second irrevocably consumes one of the claim generation's
+    two rounds and launches no worker with it. Neither unwinds.
+
+    So `run` validates every template it may use up front, and the assertion here is about what did
+    NOT happen: no claim ref created, no round issued.
+    """
+    ready = [_issue(9, "status:ready")]
+    fake = _install(monkeypatch, ready=ready, issues={9: ready[0]})
+    for name in ("build.md", "amend.md"):
+        (tmp_path / name).write_text("<!-- never closed\nDo the thing.\n", encoding="utf-8")
+
+    with pytest.raises(slots.SlotError, match="never closed"):
+        slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+
+    mutations = [c for c in fake.calls if c[0] in {"POST", "PATCH", "DELETE"}]
+    assert mutations == [], (
+        f"nothing may be consumed before the template is known good: {mutations}"
+    )
+
+
+def test_an_unclosed_comment_block_is_refused_not_silently_emptied(tmp_path: Path) -> None:
+    """`str.partition` answers ("<!-- ...", "", "") when the separator is absent.
+
+    So tolerating a missing `-->` handed the worker an EMPTY task, which then passed the
+    unsubstituted-placeholder guard because nothing was left to be unsubstituted. Silent, and not
+    free: the claim is already taken by this point, and for an AMEND a round has already been spent
+    on the compare-and-swap ref. A worker would start with no instructions and its issue would have
+    one fewer round available.
+    """
+    bad = tmp_path / "bad.md"
+    bad.write_text("<!-- a maintainer note that never closes\nDo the thing.\n", encoding="utf-8")
+    record = {"issue": 7, "branch": "b", "generation": 1, "base_sha": None}
+    with pytest.raises(slots.SlotError, match="never closed"):
+        slots._render(bad, record, {"vendor": "claude"})
+
+
+def test_a_template_that_renders_to_nothing_is_refused(tmp_path: Path) -> None:
+    """The placeholder guard cannot catch this: an empty task has no placeholder left in it.
+
+    A well-formed comment that happens to be the whole file reaches the same end state as the
+    unclosed one above by a different route, so the emptiness is checked directly rather than only
+    the delimiter that usually causes it.
+    """
+    empty = tmp_path / "empty.md"
+    empty.write_text("<!-- only a note -->\n\n", encoding="utf-8")
+    record = {"issue": 7, "branch": "b", "generation": 1, "base_sha": None}
+    with pytest.raises(slots.SlotError, match="renders to nothing"):
+        slots._render(empty, record, {"vendor": "claude"})
+
+    # A third route, which `_body` cannot see because it happens during substitution: a template
+    # that is nothing but tokens, all of which resolve to empty. The placeholder guard misses it
+    # too, there being no placeholder left.
+    tokens = tmp_path / "tokens.md"
+    tokens.write_text("{{REASON}}\n", encoding="utf-8")
+    with pytest.raises(slots.SlotError, match="renders to nothing"):
+        slots._render(tokens, record, {"vendor": "claude", "reason": ""})
+
+
 def test_the_amend_template_states_that_the_launcher_refuses_past_the_cap() -> None:
     """The template must not grow its own "if capped" branch.
 
