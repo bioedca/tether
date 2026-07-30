@@ -1005,7 +1005,8 @@ draft-ready, or an `@codex review` comment — so a provider that was not asked 
 Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
 rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
 non-material, while executable code, scientific claims, data, schema, locks, CI/release configuration and the
-governance text itself (`AGENTS.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`, `.agents/**`) are material. A material push re-arms the review but grants **no additional round**, and a PR gets **at most two
+governance text itself (`AGENTS.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`, `.agents/**`,
+`docs/agents/**`) are material. A material push re-arms the review but grants **no additional round**, and a PR gets **at most two
 rounds** — a third means the issue was scoped too large. Under the swarm model the **launcher issues rounds**: a
 worker is short-lived, every AMEND is a new session whose task text the launcher injects with an explicit
 `ROUND = N of 2`, and past the cap it injects none — so no worker holds authority for a third. Two things are
