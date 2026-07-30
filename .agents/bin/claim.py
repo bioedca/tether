@@ -318,35 +318,32 @@ def _await_generation(number: int) -> int | None:
     return None
 
 
-def _abandon_own_ref(branch: str, base: str) -> None:
-    """Give back a ref this call created but cannot fence, then raise.
+def _unfenced_claim(branch: str) -> None:
+    """Report a claim that exists but cannot be fenced. **Deliberately does not delete it.**
 
-    Leaving it behind is the worse of the two failures. The ref is the mutex, so every other agent
-    would get 422 while the issue still reads `status:ready` with no `agent:*` label - the board
-    saying the work is free and the mutex saying it is taken - until the reaper's next sweep.
+    An earlier version deleted the ref after checking its tip still equalled the SHA this call
+    created it at. Codex and CodeRabbit both refused that independently, and they were right: the
+    `GET`-compare-`DELETE` is not atomic, `DELETE /git/refs` accepts no expected-SHA precondition
+    (``reaper.py`` documents this at its own retire path), and the base SHA is **not a claim
+    identity** - a successor claiming the same issue while the default branch has not moved creates
+    the ref at exactly the same SHA. So the guard can pass on a ref that is no longer ours, and the
+    delete then removes a successor's live claim.
 
-    Deleting it is only safe while it is still *ours*, so the current tip is checked against the SHA
-    we created it at. A successor that reaped and recreated the ref in the interval will have moved
-    it, and deleting a successor's claim is worse than leaking one - the same reason `_cmd_release`
-    refuses on an unreadable generation rather than assuming.
+    Leaking a claim costs one reaper cycle. Deleting a successor's claim puts two workers on one
+    issue, which is the single failure the mutex exists to prevent. Retaining is the correct trade,
+    and it is what both reviewers asked for.
+
+    The residual is tracked rather than hidden: if the activity record NEVER appears - as opposed to
+    appearing late, which is what was actually observed - the reaper reads it as `activity-unknown`
+    and *keeps* the ref rather than reclaiming it, by design (``reaper.py``: absent is unknown, not
+    stale). That leaves a ref no automated path clears. See #303.
     """
-    status, ref = _request("GET", f"/repos/{REPO}/git/ref/heads/{branch}")
-    tip = (ref or {}).get("object", {}).get("sha") if isinstance(ref, dict) else None
-    if status != 200 or tip != base:
-        raise ClaimError(
-            f"no activity record appeared for {branch} and the ref is no longer at {base[:8]}, so "
-            "it was left alone rather than risk deleting a successor's claim. The reaper will "
-            "resolve it."
-        )
-    deleted, _ = _request("DELETE", f"/repos/{REPO}/git/refs/heads/{branch}")
-    if deleted not in (204, 404):
-        raise ClaimError(
-            f"no activity record appeared for {branch} and releasing it failed with HTTP "
-            f"{deleted}; the ref is still there and the reaper will resolve it."
-        )
     raise ClaimError(
-        f"no activity record appeared for {branch}, so the claim could not be fenced and the ref "
-        "was released. Nothing is stranded - claim again."
+        f"the claim ref {branch} exists but its activity record never appeared, so it cannot be "
+        "fenced and this claim is not usable. The ref is NOT deleted - releasing it here could "
+        "remove a successor's claim, since the base SHA is not a claim identity. Do not re-claim: "
+        "the reaper resolves it once the record lands. If it never does, it needs a maintainer "
+        "(#303)."
     )
 
 
@@ -371,7 +368,7 @@ def _cmd_claim(args: argparse.Namespace) -> None:
 
     generation = _await_generation(number)
     if generation is None:
-        _abandon_own_ref(branch, base)
+        _unfenced_claim(branch)
 
     # The label is a MIRROR, never the lock. If this write fails the claim is still valid and the
     # next agent still gets 422; the reverse would not be safe, so failure here is not fatal.

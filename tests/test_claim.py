@@ -548,57 +548,76 @@ def test_a_late_activity_record_is_waited_for_not_treated_as_absent(
     assert len(adds) == 2, f"agent:<vendor> and status:in-progress, once each: {adds}"
 
 
-def test_a_record_that_never_appears_releases_the_ref_it_created(
+def test_a_record_that_never_appears_leaves_the_ref_alone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Leaving the ref behind is the worse failure: it strands the issue until the reaper.
+    """It must NOT delete, and the reason is a TOCTOU both reviewers refused independently.
 
-    Deleting is safe here precisely because the tip is still the SHA this call created it at, which
-    is what proves no successor took it in the interval.
+    An earlier version deleted the ref after checking its tip still equalled the SHA this call
+    created it at. `GET`-compare-`DELETE` is not atomic, `DELETE /git/refs` takes no expected-SHA
+    precondition, and the base SHA is **not a claim identity**: a successor claiming the same issue
+    while the default branch has not moved creates the ref at exactly the same SHA, so the guard
+    passes on a ref that is no longer ours.
+
+    Leaking a claim costs one reaper cycle. Deleting a successor's claim puts two workers on one
+    issue - the single failure the mutex exists to prevent. This asserts the trade by asserting on
+    what does not happen.
+    """
+    monkeypatch.setattr(claim.time, "sleep", lambda _seconds: None)
+    fake = _install(monkeypatch, LaggingFake(_routes(), appears_on=10_000))
+
+    with pytest.raises(claim.ClaimError, match="NOT deleted"):
+        claim._cmd_claim(_args(issue=7))
+
+    assert not [c for c in fake.calls if c[0] == "DELETE"], (
+        f"no delete may be issued on this path at all: {fake.calls}"
+    )
+
+
+def test_the_same_base_sha_interleaving_cannot_reach_a_delete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CodeRabbit's exact interleaving, pinned so a future 'safe' guard cannot reintroduce it.
+
+    The reaper deletes the ref and a successor recreates it at the SAME unchanged default-branch
+    SHA. Every tip comparison a claimant could make still passes, because the SHA is not an
+    identity. The only defence is not having a delete on this path.
     """
     monkeypatch.setattr(claim.time, "sleep", lambda _seconds: None)
     routes = _routes(
         {
+            # A successor's ref, indistinguishable from ours: identical SHA.
             ("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7"): (
                 200,
                 {"object": {"sha": HEAD}},
-            ),
-            ("DELETE", "/repos/bioedca/tether/git/refs/heads/agent/issue-7"): (204, None),
-        }
-    )
-    fake = _install(monkeypatch, LaggingFake(routes, appears_on=10_000))
-
-    with pytest.raises(claim.ClaimError, match="released"):
-        claim._cmd_claim(_args(issue=7))
-
-    deletes = [c for c in fake.calls if c[0] == "DELETE" and "git/refs/heads/agent" in c[1]]
-    assert len(deletes) == 1, f"the ref this call created must be given back: {fake.calls}"
-
-
-def test_a_ref_that_has_moved_is_left_alone_rather_than_deleted(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Deleting a successor's claim is worse than leaking one.
-
-    If the reaper reclaimed and someone else recreated the ref inside the wait, its tip is no longer
-    the SHA we created it at - and at that point it is not ours to delete. Same distinction
-    `_cmd_release` draws when it refuses on an unreadable generation.
-    """
-    monkeypatch.setattr(claim.time, "sleep", lambda _seconds: None)
-    routes = _routes(
-        {
-            ("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7"): (
-                200,
-                {"object": {"sha": "f" * 40}},
             )
         }
     )
     fake = _install(monkeypatch, LaggingFake(routes, appears_on=10_000))
 
-    with pytest.raises(claim.ClaimError, match="left alone"):
+    with pytest.raises(claim.ClaimError, match="NOT deleted"):
         claim._cmd_claim(_args(issue=7))
 
-    assert not [c for c in fake.calls if c[0] == "DELETE"], "a successor's claim is not ours"
+    assert not [c for c in fake.calls if c[0] == "DELETE"]
+
+
+def test_the_unfenced_message_tells_the_caller_not_to_reclaim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The caller's next move differs from every other failure, so the message must say it.
+
+    Exit 4 means *lost, stand down*. This is *held but unusable*, and re-claiming would get a 422
+    and read as lost - so the message says do not re-claim, names the reaper as the resolver, and
+    points at #303 for the case where the record never lands at all.
+    """
+    monkeypatch.setattr(claim.time, "sleep", lambda _seconds: None)
+    _install(monkeypatch, LaggingFake(_routes(), appears_on=10_000))
+    with pytest.raises(claim.ClaimError) as info:
+        claim._cmd_claim(_args(issue=7))
+    message = str(info.value)
+    assert "Do not re-claim" in message
+    assert "reaper" in message
+    assert "#303" in message, "the residual is a filed issue, not a docstring note"
 
 
 def test_the_wait_is_bounded_and_does_not_poll_indefinitely() -> None:
