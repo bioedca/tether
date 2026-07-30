@@ -36,6 +36,7 @@ import re
 import secrets
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -292,6 +293,63 @@ def _cmd_scope_hash(args: argparse.Namespace) -> None:
     )
 
 
+# The activity API is eventually consistent: `POST /git/refs` can return 201 before the matching
+# `branch_creation` entry is readable. Measured on the first live claim this repository ever made -
+# a single read missed it, and the record was present moments later.
+#
+# This is a read-after-write consistency wait, NOT the polling ADR-0057 retired. That was 977
+# `wait_*` calls waiting on *other agents*; this waits a few seconds on one server's own index for a
+# write it has already acknowledged, and it is bounded by a constant rather than by an outcome.
+# Do not remove it as "polling" without re-reading this paragraph.
+GENERATION_ATTEMPTS = (0.0, 1.0, 2.0, 3.0, 4.0, 5.0)
+
+
+def _await_generation(number: int) -> int | None:
+    """The claim's generation, allowing the activity index to catch up.
+
+    ``None`` when it never does.
+    """
+    for delay in GENERATION_ATTEMPTS:
+        if delay:
+            time.sleep(delay)
+        generation = _generation(number)
+        if generation is not None:
+            return generation
+    return None
+
+
+def _abandon_own_ref(branch: str, base: str) -> None:
+    """Give back a ref this call created but cannot fence, then raise.
+
+    Leaving it behind is the worse of the two failures. The ref is the mutex, so every other agent
+    would get 422 while the issue still reads `status:ready` with no `agent:*` label - the board
+    saying the work is free and the mutex saying it is taken - until the reaper's next sweep.
+
+    Deleting it is only safe while it is still *ours*, so the current tip is checked against the SHA
+    we created it at. A successor that reaped and recreated the ref in the interval will have moved
+    it, and deleting a successor's claim is worse than leaking one - the same reason `_cmd_release`
+    refuses on an unreadable generation rather than assuming.
+    """
+    status, ref = _request("GET", f"/repos/{REPO}/git/ref/heads/{branch}")
+    tip = (ref or {}).get("object", {}).get("sha") if isinstance(ref, dict) else None
+    if status != 200 or tip != base:
+        raise ClaimError(
+            f"no activity record appeared for {branch} and the ref is no longer at {base[:8]}, so "
+            "it was left alone rather than risk deleting a successor's claim. The reaper will "
+            "resolve it."
+        )
+    deleted, _ = _request("DELETE", f"/repos/{REPO}/git/refs/heads/{branch}")
+    if deleted not in (204, 404):
+        raise ClaimError(
+            f"no activity record appeared for {branch} and releasing it failed with HTTP "
+            f"{deleted}; the ref is still there and the reaper will resolve it."
+        )
+    raise ClaimError(
+        f"no activity record appeared for {branch}, so the claim could not be fenced and the ref "
+        "was released. Nothing is stranded - claim again."
+    )
+
+
 def _cmd_claim(args: argparse.Namespace) -> None:
     number = args.issue
     try:
@@ -311,9 +369,9 @@ def _cmd_claim(args: argparse.Namespace) -> None:
     if status != 201:
         raise ClaimError(f"claim ref creation failed with HTTP {status}")
 
-    generation = _generation(number)
+    generation = _await_generation(number)
     if generation is None:
-        raise ClaimError("claim ref created but no server activity record appeared")
+        _abandon_own_ref(branch, base)
 
     # The label is a MIRROR, never the lock. If this write fails the claim is still valid and the
     # next agent still gets 422; the reverse would not be safe, so failure here is not fatal.

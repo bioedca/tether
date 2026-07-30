@@ -502,3 +502,110 @@ def _args(**values: Any) -> Any:
     defaults = {"vendor": "claude", "owner": "bioedca", "base": None, "attempts": 16}
     defaults.update(values)
     return type("Args", (), defaults)()
+
+
+# ------------------------------------------------- the activity index's read-after-write lag
+
+
+class LaggingFake(Fake):
+    """Answers the activity endpoint with nothing until the ``n``-th read.
+
+    The shape measured live on this repository's first claim: `POST /git/refs` returned 201 and the
+    `branch_creation` entry was not yet readable. It appeared moments later.
+    """
+
+    def __init__(self, routes: Routes, *, appears_on: int) -> None:
+        super().__init__(routes)
+        self.appears_on = appears_on
+        self.activity_reads = 0
+
+    def __call__(self, method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if method == "GET" and "/activity" in path:
+            self.activity_reads += 1
+            if self.activity_reads < self.appears_on:
+                self.calls.append((method, path))
+                return 200, []
+        return super().__call__(method, path, body)
+
+
+def test_a_late_activity_record_is_waited_for_not_treated_as_absent(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The defect the pilot's very first live claim hit, and it failed in the worst available way.
+
+    The ref existed, so the mutex was taken and every other agent got 422 - while the caller raised
+    before the label mirror, leaving the issue reading `status:ready` with no `agent:*` label. The
+    board said the work was free and the mutex said it was taken, and the caller was told to stop.
+    """
+    monkeypatch.setattr(claim.time, "sleep", lambda _seconds: None)
+    fake = _install(monkeypatch, LaggingFake(_routes(), appears_on=3))
+    claim._cmd_claim(_args(issue=7))
+
+    assert fake.activity_reads >= 3, "it must actually re-read rather than sleep once and give up"
+    assert json.loads(capsys.readouterr().out)["generation"] == 42
+    # The mirror runs exactly once on the success path, so the board and the mutex agree.
+    adds = [c for c in fake.calls if c[0] == "POST" and c[1].endswith("/labels")]
+    assert len(adds) == 2, f"agent:<vendor> and status:in-progress, once each: {adds}"
+
+
+def test_a_record_that_never_appears_releases_the_ref_it_created(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Leaving the ref behind is the worse failure: it strands the issue until the reaper.
+
+    Deleting is safe here precisely because the tip is still the SHA this call created it at, which
+    is what proves no successor took it in the interval.
+    """
+    monkeypatch.setattr(claim.time, "sleep", lambda _seconds: None)
+    routes = _routes(
+        {
+            ("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7"): (
+                200,
+                {"object": {"sha": HEAD}},
+            ),
+            ("DELETE", "/repos/bioedca/tether/git/refs/heads/agent/issue-7"): (204, None),
+        }
+    )
+    fake = _install(monkeypatch, LaggingFake(routes, appears_on=10_000))
+
+    with pytest.raises(claim.ClaimError, match="released"):
+        claim._cmd_claim(_args(issue=7))
+
+    deletes = [c for c in fake.calls if c[0] == "DELETE" and "git/refs/heads/agent" in c[1]]
+    assert len(deletes) == 1, f"the ref this call created must be given back: {fake.calls}"
+
+
+def test_a_ref_that_has_moved_is_left_alone_rather_than_deleted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deleting a successor's claim is worse than leaking one.
+
+    If the reaper reclaimed and someone else recreated the ref inside the wait, its tip is no longer
+    the SHA we created it at - and at that point it is not ours to delete. Same distinction
+    `_cmd_release` draws when it refuses on an unreadable generation.
+    """
+    monkeypatch.setattr(claim.time, "sleep", lambda _seconds: None)
+    routes = _routes(
+        {
+            ("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-7"): (
+                200,
+                {"object": {"sha": "f" * 40}},
+            )
+        }
+    )
+    fake = _install(monkeypatch, LaggingFake(routes, appears_on=10_000))
+
+    with pytest.raises(claim.ClaimError, match="left alone"):
+        claim._cmd_claim(_args(issue=7))
+
+    assert not [c for c in fake.calls if c[0] == "DELETE"], "a successor's claim is not ours"
+
+
+def test_the_wait_is_bounded_and_does_not_poll_indefinitely() -> None:
+    """A read-after-write wait, not the coordination polling ADR-0057 retired.
+
+    That was 977 `wait_*` calls waiting on other agents. This waits on one server's own index for a
+    write it has already acknowledged, and it is bounded by a constant rather than by an outcome.
+    """
+    assert claim.GENERATION_ATTEMPTS[0] == 0.0, "the first read happens immediately"
+    assert sum(claim.GENERATION_ATTEMPTS) <= 20.0, "a claim must not hang on a lagging index"
