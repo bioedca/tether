@@ -766,12 +766,19 @@ to install this way on real macOS.
 
 One difference is worth knowing, because it is the part we have **not** observed end to end: a
 `.pkg` you downloaded through a browser carries a quarantine attribute that a CI-built one does
-not. If macOS still refuses after the above, clear it — having already verified the checksum
-and the attestation, which is what makes this safe:
+not. If macOS still refuses after the above, you can clear it:
 
 ```bash
 xattr -d com.apple.quarantine Tether-<version>-MacOSX-<arch>.pkg
 ```
+
+Run the checksum and attestation checks first — and be precise about what they buy you. They
+establish **authenticity**: this file is the one Tether's release workflow built, from this
+repository, at that tag. That is not the same as a safety claim, and
+[ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) says so in as
+many words — provenance "does not assert the software is safe". Quarantine is a separate
+control that acts on the file whatever its provenance, so removing it is a decision you are
+making about software you have chosen to trust, not a step our verification has made harmless.
 
 If you hit something these steps do not cover,
 [tell us what you saw](https://github.com/bioedca/tether/issues) with your macOS version, and
