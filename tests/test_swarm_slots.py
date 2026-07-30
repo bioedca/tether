@@ -76,6 +76,7 @@ def _install(
     claimed: list[int] | None = None,
     issues: dict[int, dict[str, Any]] | None = None,
     ref_status: int = 201,
+    issued_refs: list[dict[str, Any]] | None = None,
 ) -> Fake:
     """Wire the fake transport and the claim-ref list.
 
@@ -92,6 +93,14 @@ def _install(
         ("GET", "/repos/bioedca/tether/activity"): (
             200,
             [{"id": 77, "activity_type": "branch_creation"}],
+        ),
+        ("GET", "/repos/bioedca/tether/git/ref/heads/agent/issue-"): (
+            200,
+            {"object": {"sha": HEAD}},
+        ),
+        ("GET", f"/repos/bioedca/tether/git/matching-refs/{slots.AMEND_NAMESPACE}/"): (
+            200,
+            issued_refs or [],
         ),
     }
     for number, issue in (issues or {}).items():
@@ -167,34 +176,107 @@ def test_a_refusal_is_reported_never_silently_skipped(
     assert report["cap"] == slots.CAP
 
 
+def _ref(number: int, generation: int, ordinal: int) -> dict[str, Any]:
+    return {"ref": f"refs/{slots.AMEND_NAMESPACE}/{number}-{generation}-{ordinal}"}
+
+
 @pytest.mark.parametrize(
-    ("label", "spent", "remaining"),
-    [(None, 0, 2), ("agent:round-1", 1, 1)],
-    ids=["ci-only", "round-1"],
+    ("already", "expect_round", "expect_remaining"),
+    [(0, 1, 1), (1, 2, 0)],
+    ids=["first-session", "second-session"],
 )
-def test_the_injected_round_matches_the_published_label(
+def test_the_injected_round_comes_from_the_launchers_own_issuance_count(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    label: str | None,
-    spent: int,
-    remaining: int,
+    already: int,
+    expect_round: int,
+    expect_remaining: int,
 ) -> None:
-    """The round is READ from triage's labels, never recounted here.
+    """The round is the launcher's OWN count, not triage's label.
 
-    A launcher that re-derived the count could disagree with the state the contract publishes, and
-    then the two halves of one cap would be arguing. The `ci-only` case is a real state: a red check
-    suite owes an AMEND before any external review has been spent at all.
+    The first version read `_rounds_spent` from the labels and called that an independent refusal;
+    it was the same undercountable number read twice, so an undercount passed both checks. The count
+    now comes from `refs/amend-rounds/<issue>-<generation>-<n>`, which the launcher creates itself.
+
+    Note the label here says ZERO rounds while the refs say otherwise - deliberately, so the test
+    fails if the implementation drifts back to trusting the label.
+
     """
-    names = [slots.AMEND_LABEL] + ([label] if label else [])
-    _install(monkeypatch, claimed=[7], issues={7: _issue(7, *names)})
-    report = _run(monkeypatch, tmp_path)
-    entry = _by_issue(report, 7)
+    refs = [_ref(7, 77, n + 1) for n in range(already)]
+    _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs)
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
     assert entry["mode"] == "amend"
-    assert (entry["round"], entry["remaining"]) == (spent, remaining)
+    assert (entry["round"], entry["remaining"]) == (expect_round, expect_remaining)
     text = (tmp_path / entry["task_file"]).read_text(encoding="utf-8")
-    assert f"round {spent} of {slots.CAP}" in text
+    assert f"round {expect_round} of {slots.CAP}" in text
     assert "{{" not in text, "an unsubstituted placeholder would be read as literal instruction"
     assert "SPDX" not in text, "the maintainer comment block must not reach the worker's context"
+
+
+def test_the_launcher_refuses_on_its_own_count_even_when_the_label_says_zero(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The independent refusal, and the whole point of the ref counter.
+
+    `agent:needs-amend` present, NO round label at all, and two AMEND sessions already issued. If
+    the launcher trusted the labels it would happily start a third. This is the exact undercount
+    Codex identified on #287.
+
+    """
+    refs = [_ref(7, 77, 1), _ref(7, 77, 2)]
+    _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs)
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse"
+    assert "already issued" in entry["reason"]
+    assert not list(tmp_path.glob("_task-issue-*"))
+
+
+def test_losing_the_amend_round_race_launches_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Two launchers on one `agent:needs-amend` issue must not both start a worker.
+
+    Without the compare-and-swap both would reuse the existing claim and run two sessions on one
+    branch, generation and worktree. 422 means the other launcher took this round.
+    """
+    _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.AMEND_LABEL)},
+        ref_status=422,
+    )
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "lost"
+    assert entry["launched"] is False
+    assert not list(tmp_path.glob("_task-issue-*"))
+
+
+def test_the_amend_ref_is_keyed_to_the_claim_generation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A reaped-and-reclaimed issue must start fresh rather than inherit a spent cap.
+
+    The generation changes on every reclaim, so keying the refs to it means the count belongs to
+    *this* claim. It also means the refs need never be deleted, which is what keeps the counter
+    monotonic.
+
+    """
+    fake = _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)})
+    _run(monkeypatch, tmp_path)
+    reads = [p for m, p in fake.calls if m == "GET" and slots.AMEND_NAMESPACE in p]
+    assert reads, "the issuance count must actually be read"
+    assert all("7-77-" in p for p in reads), "keyed to issue AND generation"
+
+
+def test_an_unreadable_issuance_count_never_authorises_an_amend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reading a failure as zero would hand out a session at the cap - the one thing to avoid."""
+    fake = _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)})
+    prefix = f"/repos/bioedca/tether/git/matching-refs/{slots.AMEND_NAMESPACE}/"
+    fake.routes[("GET", prefix)] = (502, None)
+    with pytest.raises(slots.SlotError, match="refusing to guess"):
+        _run(monkeypatch, tmp_path)
 
 
 def test_a_hand_applied_round_2_label_is_treated_as_the_cap(
@@ -360,22 +442,66 @@ def test_the_claude_lane_goes_through_wsl(monkeypatch: pytest.MonkeyPatch, tmp_p
     """`claude` exists only inside WSL on this machine; it is not on the native Windows PATH."""
     ready = [_issue(9, "status:ready")]
     _install(monkeypatch, ready=ready, issues={9: ready[0]})
-    command = _by_issue(_run(monkeypatch, tmp_path, vendor="claude"), 9)["command"]
-    assert command.startswith("wsl -e bash -lc ")
-    assert "/mnt/c/" in command
-    assert "claude -p" in command
+    entry = _by_issue(_run(monkeypatch, tmp_path, vendor="claude"), 9)
+    script = (tmp_path / entry["wrapper"]).read_text(encoding="utf-8")
+    assert "wsl -e bash -lc " in script
+    assert "/mnt/c/" in script
+    assert "claude -p" in script
 
 
-def test_the_codex_lane_starts_the_native_shim(
+def test_the_codex_lane_runs_the_native_shim(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """`codex` is a native PowerShell shim, so it must not be routed through WSL."""
     ready = [_issue(9, "status:ready")]
     _install(monkeypatch, ready=ready, issues={9: ready[0]})
-    command = _by_issue(_run(monkeypatch, tmp_path, vendor="codex"), 9)["command"]
-    assert "Start-Process" in command
-    assert "codex.ps1" in command
-    assert "wsl" not in command
+    entry = _by_issue(_run(monkeypatch, tmp_path, vendor="codex"), 9)
+    script = (tmp_path / entry["wrapper"]).read_text(encoding="utf-8")
+    assert "codex.ps1" in script
+    assert "wsl" not in script
+
+
+def test_every_worker_is_wrapped_in_the_admission_gate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The gate must wrap the WORKER, not the launcher, or it protects nothing.
+
+    The first version built `gate.ps1` and never invoked it - a repo-wide search for `-Acquire`
+    found only docs and tests, so every worker bypassed both the holder ceiling and the RAM floor
+    (Codex,
+    #287). The launcher cannot hold a slot itself: it exits before the worker starts.
+
+    """
+    ready = [_issue(9, "status:ready")]
+    _install(monkeypatch, ready=ready, issues={9: ready[0]})
+    entry = _by_issue(_run(monkeypatch, tmp_path), 9)
+    script = (tmp_path / entry["wrapper"]).read_text(encoding="utf-8")
+    assert "-Acquire" in script
+    assert "-Release" in script
+    # The release must be in a `finally`, or a crashed worker leaks its slot until PID liveness
+    # reclaims it - which works, but much later than it needs to.
+    assert "finally {" in script
+    # The acquire failure must abort rather than run the worker anyway.
+    assert "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }" in script
+    assert entry["command"].startswith("powershell -NoProfile")
+
+
+def test_the_gate_wrapper_aborts_before_starting_a_worker_it_cannot_admit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The exit codes have to survive into the wrapper, not just exist in the gate.
+
+    Exit 4 (no slot) and 5 (below the RAM floor) must reach the caller unchanged so a retry loop can
+    tell "wait" from "this machine is too small right now".
+    """
+    ready = [_issue(9, "status:ready")]
+    _install(monkeypatch, ready=ready, issues={9: ready[0]})
+    entry = _by_issue(_run(monkeypatch, tmp_path), 9)
+    script = (tmp_path / entry["wrapper"]).read_text(encoding="utf-8")
+    acquire = script.index("-Acquire")
+    guard = script.index("if ($LASTEXITCODE -ne 0)")
+    worker = script.index("try {")
+    assert acquire < guard < worker, "the guard must sit between admission and the worker"
 
 
 def test_spawn_is_interlocked_until_the_unknowns_are_probed(
@@ -452,6 +578,28 @@ def test_both_templates_forbid_self_issued_rounds() -> None:
 # ----------------------------------------------------------------------------------- gate
 
 
+def test_stale_slot_reclamation_never_deletes_the_file() -> None:
+    """The race both reviewers found: delete-then-recreate can admit two holders to one slot.
+
+    Two acquirers can each observe the SAME dead pid; the loser then deletes the winner's freshly
+    written slot and recreates it for itself, so both report success. Reproduced against the pre-fix
+    code - one trial admitted **three** holders to a one-slot gate - and the fix is an exclusive
+    `FileShare.None` handle held across the read-and-overwrite, so the file is never removed and
+    there is nothing for a successor to lose.
+
+    Asserted structurally because the live interleaving proof needs concurrent Windows processes,
+    which CI cannot run; the measurements are recorded on the pull request.
+
+    """
+    text = GATE.read_text(encoding="utf-8")
+    after_catch = text.split("catch [System.IO.IOException]", 1)[1]
+    reclaim = after_catch.split("Write-Output $slot.Path", 1)[0]
+    assert "Remove-Item" not in reclaim, "reclamation must not delete a slot a successor may own"
+    assert "[System.IO.FileMode]::Open" in reclaim
+    assert "[System.IO.FileShare]::None" in reclaim
+    assert "SetLength(0)" in reclaim, "overwrite in place, under the exclusive handle"
+
+
 def test_the_gate_is_not_a_semaphore_and_says_why() -> None:
     """A named Semaphore leaks its count when a holder is OOM-killed, then deadlocks forever.
 
@@ -493,7 +641,7 @@ def test_the_generated_state_is_gitignored() -> None:
     """
     patterns = (ROOT / ".gitignore").read_text(encoding="utf-8")
     assert ".claude/gate-slots/" in patterns
-    assert ".agents/tasks/_task-issue-*.md" in patterns
+    assert ".agents/tasks/_task-issue-*" in patterns
 
 
 def test_the_gate_records_that_its_floor_is_provisional() -> None:

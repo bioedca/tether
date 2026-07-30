@@ -135,17 +135,38 @@ if ($Acquire) {
                 [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
         }
         catch [System.IO.IOException] {
-            # Lost the race, or a stale file exists. A stale file was reported free above, so replace
-            # it - but only after re-confirming its holder is still gone.
-            if (Test-HolderAlive -Path $slot.Path) { continue }
-            try { Remove-Item -LiteralPath $slot.Path -Force -ErrorAction Stop }
-            catch { continue }
+            # The file exists: either a live holder, or a stale file whose process is gone.
+            #
+            # RECLAIM IN PLACE UNDER AN EXCLUSIVE HANDLE. Never delete-then-recreate. Both reviewers
+            # independently found the race in that version on #287: two acquirers can each observe the
+            # SAME dead pid, then the loser deletes the winner's freshly written slot and recreates it
+            # for itself, so both report success and the holder ceiling is defeated.
+            #
+            # FileShare.None means only one acquirer can hold this handle at a time, so reading the pid
+            # and overwriting it happen inside one exclusive window - the check and the write cannot be
+            # interleaved, and the file is never removed, so there is nothing for a successor to lose.
             try {
                 $stream = [System.IO.File]::Open(
-                    $slot.Path, [System.IO.FileMode]::CreateNew,
-                    [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+                    $slot.Path, [System.IO.FileMode]::Open,
+                    [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
             }
-            catch { continue }
+            catch { continue }  # another acquirer holds the handle right now, or the file vanished
+            try {
+                $buffer = New-Object byte[] 32
+                $read = $stream.Read($buffer, 0, $buffer.Length)
+                $existing = ([System.Text.Encoding]::ASCII.GetString($buffer, 0, $read)).Trim()
+                $alive = $false
+                if ($existing -match '^\d+$') {
+                    try { $null = Get-Process -Id ([int]$existing) -ErrorAction Stop; $alive = $true }
+                    catch { $alive = $false }
+                }
+                # Unparseable contents count as dead: a truncated write from a holder killed mid-write
+                # names no live process, and treating it as held would deadlock the slot forever.
+                if ($alive) { $stream.Dispose(); continue }
+                $stream.SetLength(0)
+                $stream.Position = 0
+            }
+            catch { $stream.Dispose(); continue }
         }
         try {
             $bytes = [System.Text.Encoding]::ASCII.GetBytes("$PID`n")

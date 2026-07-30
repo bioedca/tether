@@ -9,17 +9,28 @@ ever holds authority for a third."* This is that launcher. Without it the senten
 nothing.
 
 **Why this is correctness, not throughput.** On #276 the review loop ran inside one long agent
-session that kept deciding to ask again — 9 rounds against a cap of 2. Under the peer model a
-worker is short-lived: it claims, works, pushes, arms auto-merge and exits, so every subsequent
-AMEND is a new session whose entire task text somebody else writes. That is the whole reason the cap
-can bind:
+session that kept deciding to ask again — 9 rounds against a cap of 2. Under the peer model a worker
+is short-lived: it claims, works, pushes, arms auto-merge and exits, so every subsequent AMEND is a
+new session whose entire task text somebody else writes. That is the whole reason the cap can bind:
 
     The cap binds because the launcher is the only issuer of AMEND turns, and the launcher counts.
 
 ``triage.py`` withholds ``agent:needs-amend`` at the cap, so no authority is *published*. This
-refuses to inject an AMEND block past the cap, so no authority is *acted on* even when a label is
-wrong — and the labels can be wrong in the fail-open direction, because that counter only sees
-head-bound review evidence and can undercount. Two independent refusals, deliberately.
+refuses to issue one past the cap, so no authority is *acted on* even when a label is wrong — and
+the labels can be wrong in the fail-open direction, because that counter only sees head-bound review
+evidence and can undercount.
+
+**The second refusal has to count something triage does not, or it is not a second refusal.** The
+first version of this file read ``_rounds_spent`` from triage's labels and called that independent;
+it was not — it was the same undercountable number read twice, so an undercount would have passed
+both checks and issued a third session. Both reviewers caught it on #287.
+
+So the launcher counts **its own issuances**, which is the thing ``AGENTS.md`` actually says it
+counts. Each AMEND is claimed by creating ``refs/amend-rounds/<issue>-<generation>-<n>``: ``201`` to
+the first writer, ``422`` to every other. That is monotonic (refs here are never deleted), atomic
+(so two launchers cannot both issue round *n*), independent of every label, and keyed to the claim
+generation so a reaped-and-reclaimed issue starts fresh. The refusal fires on ``max(label count,
+issued refs)``, which can only ever be *stricter* than the contract's cap, never looser.
 
 **Eligibility is never reimplemented here.** ``_dispatch_build`` calls ``claim._cmd_claim`` itself
 rather than repeating its steps, so the eligibility gate, the 422 race, the generation read and the
@@ -84,6 +95,13 @@ PRIORITY_ORDER = ("priority:P0", "priority:P1", "priority:P2")
 
 WSL_REPO = "/mnt/c/Users/bioed/Documents/smfret-references/Tether"
 CODEX_CLI = r"%APPDATA%\npm\codex.ps1"
+GATE = r".agents\bin\gate.ps1"
+
+# Deliberately NOT under refs/tags/: hatch-vcs derives the package version from tags, so a
+# non-version tag makes `pip install -e .` fail and turns main red - the trap ADR-0057 records for
+# the ADR reservations. A custom namespace is the same compare-and-swap and invisible to every tag
+# consumer.
+AMEND_NAMESPACE = "amend-rounds"
 
 EXIT_NO_WORK = 3
 
@@ -107,6 +125,50 @@ def _rounds_spent(labels: set[str]) -> int:
         return CAP
     spent = [i + 1 for i, name in enumerate(ROUND_LABELS) if name in labels]
     return max(spent, default=0)
+
+
+def _issued_amends(number: int, generation: int) -> int:
+    """How many AMEND sessions have already been issued for this exact claim.
+
+    The launcher's **own** count, and the only part of the cap that does not depend on a label.
+    Keyed to the generation so a reaped-and-reclaimed issue starts fresh rather than inheriting a
+    spent cap.
+
+    Fails closed. Reading a failure as zero would hand out a fresh session at the cap, which is the
+    one outcome the whole mechanism exists to prevent. ``404`` from ``matching-refs`` is the
+    ordinary "nothing matches" answer and genuinely means zero.
+
+    """
+    prefix = f"{AMEND_NAMESPACE}/{number}-{generation}-"
+    status, refs = claim._request("GET", f"/repos/{REPO}/git/matching-refs/{prefix}")
+    if status == 404:
+        return 0
+    if status != 200 or not isinstance(refs, list):
+        raise SlotError(
+            f"#{number} issued-AMEND count could not be read (HTTP {status}); refusing to guess it"
+        )
+    return len(refs)
+
+
+def _take_amend_round(number: int, generation: int, ordinal: int, sha: str) -> bool:
+    """Claim the right to issue AMEND round ``ordinal``. ``True`` if this launcher won it.
+
+    ``POST /git/refs`` is the mutex, exactly as it is for the issue claim itself: ``201`` to the
+    first writer and ``422 Reference already exists`` to every other. Without it two launchers
+    inspecting the same ``agent:needs-amend`` issue would both reuse the existing claim and start
+    two workers on one branch, generation and worktree.
+
+    The target ``sha`` is provenance rather than meaning - it records which head the round was
+    issued against. The ref *name* is the record.
+
+    """
+    ref = f"refs/{AMEND_NAMESPACE}/{number}-{generation}-{ordinal}"
+    status, _ = claim._request("POST", f"/repos/{REPO}/git/refs", {"ref": ref, "sha": sha})
+    if status == 201:
+        return True
+    if status == 422:
+        return False
+    raise SlotError(f"AMEND round {ordinal} for #{number} could not be claimed (HTTP {status})")
 
 
 def _priority(labels: set[str]) -> int:
@@ -159,12 +221,16 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
         number = int(issue["number"])
         spent = _rounds_spent(labels)
         if spent >= CAP:
-            # THE REFUSAL. Not a silent skip: at the cap this issue needs the maintainer, and a
-            # launcher that passed over it quietly would look just like one that had no work.
+            # The FAST refusal, from the published labels. Not the authoritative one - that is the
+            # launcher's own issuance count in `_authorise_amend`, which does not depend on any
+            # label. This one exists so a capped issue costs no further API calls, and it is
+            # reported rather than skipped: a launcher passing over it quietly would look just like
+            # one with no work.
             plan.append(
                 {
                     "issue": number,
                     "mode": "refuse",
+                    "label_rounds": spent,
                     "reason": (
                         f"at the {CAP}-round cap ({CAPPED_LABEL} present or {spent} rounds spent); "
                         "no AMEND authority may be issued. Safety-class findings escalate to the "
@@ -176,12 +242,14 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
             continue
         if AMEND_LABEL not in labels:
             continue
+        # The ROUND is not decided here. `_authorise_amend` reads the launcher's own issuance count
+        # and takes the round by compare-and-swap, because a plan built from labels alone would both
+        # trust triage's undercountable number and let two launchers issue the same round.
         plan.append(
             {
                 "issue": number,
                 "mode": "amend",
-                "round": spent,
-                "remaining": CAP - spent,
+                "label_rounds": spent,
                 "reason": (
                     "agent:needs-amend is published for this claim: a check suite is not "
                     "green, or a review at the current head is unanswered."
@@ -202,7 +270,7 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
 
     # AMEND and refusals first, then priority, then issue number. The number is the tie-break rather
     # than API order so two launchers on the same queue agree on what they are competing for.
-    order = {"refuse": 0, "amend": 1, "build": 2}
+    order = {"refuse": 0, "lost": 0, "amend": 1, "build": 2}
     plan.sort(key=lambda item: (order[item["mode"]], item["priority"], item["issue"]))
 
     # Refusals are reported however many there are; only launches consume a slot.
@@ -279,8 +347,8 @@ def _render(task: Path, record: dict[str, Any], item: dict[str, Any]) -> str:
     return text
 
 
-def _command(record: dict[str, Any], item: dict[str, Any], task_file: Path) -> str:
-    """The launch command for this lane.
+def _inner_command(record: dict[str, Any], item: dict[str, Any], task_file: Path) -> str:
+    """The worker invocation for this lane, before the admission gate wraps it.
 
     The two lanes are genuinely different environments, which is a constraint rather than a detail:
     ``claude`` exists only inside WSL on this machine, and ``codex`` is a native PowerShell shim.
@@ -290,10 +358,41 @@ def _command(record: dict[str, Any], item: dict[str, Any], task_file: Path) -> s
     if item["vendor"] == "claude":
         inner = f'cd {WSL_REPO}/{worktree} && claude -p "$(cat {task_file.as_posix()})"'
         return f"wsl -e bash -lc {shlex.quote(inner)}"
-    return (
-        f'Start-Process -FilePath "powershell" -ArgumentList '
-        f'\'-File "{CODEX_CLI}" exec --cd "{worktree}" --task-file "{task_file}"\''
-    )
+    return f'& "{CODEX_CLI}" exec --cd "{worktree}" --task-file "{task_file}"'
+
+
+def _wrapper(record: dict[str, Any], item: dict[str, Any], task_file: Path, target: Path) -> str:
+    """Write the per-worker launch script and return the command that runs it.
+
+    **The gate has to wrap the WORKER, not the launcher.** The launcher exits immediately, so it
+    cannot hold a slot on a process it does not own - and the first version of this file built
+    ``gate.ps1`` and then never invoked it, so the admission control protected nothing (#287).
+
+    A generated script rather than a one-liner because the alternative is nesting a ``wsl -e bash
+    -lc '...'`` inside a PowerShell ``-Command "..."``, and that quoting is exactly the kind of
+    thing that is wrong in a way nobody notices until a worker silently fails to start. This is
+    readable, and its contents are asserted by a test.
+
+    The gate runs **natively** in both lanes: it guards this machine's RAM and slot count, which is
+    a Windows-side resource even when the worker itself lives inside WSL.
+
+    """
+    inner = _inner_command(record, item, task_file)
+    script = f"""# Generated by .agents/bin/swarm_slots.py - do not edit; regenerate instead.
+# Holds one admission slot for the LIFETIME OF THE WORKER. Exit 4 means every slot is taken, 5 means
+# the machine is below the free-RAM floor; in both cases nothing was started, so retry later.
+$ErrorActionPreference = 'Stop'
+& "{GATE}" -Acquire | Out-Null
+if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}
+try {{
+    {inner}
+}}
+finally {{
+    & "{GATE}" -Release
+}}
+"""
+    target.write_text(script, encoding="utf-8")
+    return f'powershell -NoProfile -ExecutionPolicy Bypass -File "{target}"'
 
 
 def _spawn(command: str) -> None:
@@ -314,6 +413,47 @@ def _spawn(command: str) -> None:
     subprocess.Popen(command, shell=True)  # noqa: S602 - command is built here, not user-supplied
 
 
+def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
+    """Take AMEND authority for this issue, or return ``None`` having recorded why not.
+
+    Three outcomes, and they are deliberately distinct:
+
+    * **refuse** - the launcher's own issuance count has reached the cap. This is the independent
+      refusal: it counts refs this launcher created, not a label another workflow wrote.
+    * **lost** - another launcher claimed the same round first. Not an error and not a refusal.
+    * authorised - ``item`` gains ``round``/``remaining`` and the caller proceeds.
+    """
+    number = item["issue"]
+    record = _existing_claim(number, owner)
+    generation = int(record["generation"])
+    issued = _issued_amends(number, generation)
+
+    # `max` of the two counters, so EITHER can cap it. That makes the launcher's bound at worst as
+    # strict as the contract's and never looser - the property the first version failed to have.
+    if max(issued, item["label_rounds"]) >= CAP:
+        item["mode"] = "refuse"
+        item["reason"] = (
+            f"at the {CAP}-round cap ({issued} AMEND session(s) already issued for generation "
+            f"{generation}; labels report {item['label_rounds']}). No further AMEND authority "
+            "may be issued. Safety-class findings escalate to the maintainer; the rest become "
+            "follow-ups."
+        )
+        return None
+
+    ordinal = issued + 1
+    sha = reaper._read_ref(number)
+    if sha is None:
+        raise SlotError(f"#{number} claim ref vanished before its AMEND could be issued")
+    if not _take_amend_round(number, generation, ordinal, sha):
+        item["mode"] = "lost"
+        item["reason"] = f"another launcher issued AMEND round {ordinal} for #{number} first"
+        return None
+
+    item["round"] = ordinal
+    item["remaining"] = CAP - ordinal
+    return record
+
+
 def run(*, slots: int, vendor: str, owner: str, spawn: bool, tasks: Path) -> dict[str, Any]:
     plan = _plan(slots=slots, vendor=vendor)
     results: list[dict[str, Any]] = []
@@ -322,7 +462,10 @@ def run(*, slots: int, vendor: str, owner: str, spawn: bool, tasks: Path) -> dic
             results.append({**item, "launched": False})
             continue
         if item["mode"] == "amend":
-            record = _existing_claim(item["issue"], owner)
+            record = _authorise_amend(item, owner)
+            if record is None:
+                results.append({**item, "launched": False})
+                continue
             task_file = tasks / "amend.md"
         else:
             taken = _dispatch_build(item["issue"], vendor, owner)
@@ -334,7 +477,8 @@ def run(*, slots: int, vendor: str, owner: str, spawn: bool, tasks: Path) -> dic
 
         rendered = tasks / f"_task-issue-{item['issue']}.md"
         rendered.write_text(_render(task_file, record, item), encoding="utf-8")
-        command = _command(record, item, rendered)
+        wrapper = tasks / f"_task-issue-{item['issue']}.ps1"
+        command = _wrapper(record, item, rendered, wrapper)
         if spawn:
             _spawn(command)
         results.append(
@@ -344,6 +488,7 @@ def run(*, slots: int, vendor: str, owner: str, spawn: bool, tasks: Path) -> dic
                 "branch": record["branch"],
                 "generation": record["generation"],
                 "task_file": rendered.name,
+                "wrapper": wrapper.name,
                 "command": command,
                 "spawned": spawn,
             }
