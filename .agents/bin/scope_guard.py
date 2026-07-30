@@ -82,6 +82,13 @@ PROSE_GUARD_ALLOWLIST = {
     # A real PRD §12.7 / §9-M9 gate: every ADR is indexed and every cross-link resolves. It reads
     # docs/adr/*.md, but it asserts on STRUCTURE (links, completeness), never on wording.
     "tests/test_adr_index.py",
+    # The suite for THIS heuristic. Its added lines carry the detected shape as *fixture strings* -
+    # `'+    assert "two rounds" in Path("AGENTS.md").read_text()'` is the input being classified,
+    # not a read this suite performs. Found by running the guard against its own PR, where it was
+    # the tool's first live finding and it was wrong. A detector that cannot be tested without
+    # accusing its own tests is not worth keeping, so the entry goes here rather than into a more
+    # elaborate rule that would have to tell a quoted diff line from a real one.
+    "tests/test_scope_guard.py",
 }
 GOVERNANCE_PROSE = ("AGENTS.md", "CONTRIBUTING.md", "docs/PRD.md", "docs/adr/*.md")
 
@@ -115,6 +122,34 @@ def _files(number: int) -> list[dict[str, Any]]:
 
     """
     return claim._paginate(f"/repos/{REPO}/pulls/{number}/files", f"PR #{number} file list")
+
+
+# The compare endpoint returns at most this many files and says so in its own response rather than
+# paginating them. Silently measuring a truncated list is the fail-open direction, so it is refused.
+MAX_COMPARE_FILES = 300
+
+
+def _compare_files(base: str, head: str) -> list[dict[str, Any]]:
+    """The diff of ``head`` against an arbitrary ``base``, in the PR-file-list shape.
+
+    This is what makes ``--base`` a *measurement* rather than an annotation. #216 resumes from the
+    `fe74ae4` checkpoint, which is already +259/-20 against an XS budget of 50: a PR opened from
+    there carries those lines in its own file list, so measuring it against `main` charges the
+    claimant for work they inherited. Comparing checkpoint-to-head counts only what they added.
+
+    """
+    status, payload = claim._request("GET", f"/repos/{REPO}/compare/{base}...{head}")
+    if status != 200 or not isinstance(payload, dict):
+        raise GuardError(f"{base}...{head} could not be compared (HTTP {status})")
+    files = payload.get("files")
+    if not isinstance(files, list):
+        raise GuardError(f"{base}...{head} returned no file list")
+    if len(files) >= MAX_COMPARE_FILES:
+        raise GuardError(
+            f"{base}...{head} touches at least {MAX_COMPARE_FILES} files, the compare endpoint's "
+            "cap; the measurement would be truncated and read as smaller than it is"
+        )
+    return files
 
 
 def _labels(pr: dict[str, Any], issue: dict[str, Any] | None) -> set[str]:
@@ -240,7 +275,13 @@ def measure(number: int, *, base_override: str | None = None) -> dict[str, Any]:
 
     labels = _labels(pr, issue)
     label, budget = _budget(labels)
-    files = _files(number)
+    head = (pr.get("head") or {}).get("sha")
+    if base_override:
+        if not isinstance(head, str) or not head:
+            raise GuardError(f"PR #{number} has no head SHA to compare against {base_override}")
+        files = _compare_files(base_override, head)
+    else:
+        files = _files(number)
 
     counted = [f for f in files if not _excluded(f["filename"])]
     added = sum(int(f.get("additions", 0)) for f in counted)
@@ -311,7 +352,7 @@ def measure(number: int, *, base_override: str | None = None) -> dict[str, Any]:
         "pr": number,
         "advisory": True,
         "base": base_override or (pr.get("base") or {}).get("sha"),
-        "head": (pr.get("head") or {}).get("sha"),
+        "head": head,
         "size_label": label,
         "budget": budget,
         "added": added,
@@ -411,8 +452,8 @@ def main() -> int:
     parser.add_argument("--pr", type=int, required=True)
     parser.add_argument(
         "--base",
-        help="report this base instead of the PR's own; for work resuming from a checkpoint, where "
-        "measuring from main would charge a claimant for lines they inherited",
+        help="measure against this commit instead of the PR's own base; for work resuming from a "
+        "checkpoint, where measuring from main would charge a claimant for lines they inherited",
     )
     parser.add_argument("--markdown", action="store_true", help="emit a summary table as well")
     args = parser.parse_args()

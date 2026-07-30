@@ -304,6 +304,23 @@ def test_the_adr_index_test_is_allowlisted_with_a_reason(monkeypatch: pytest.Mon
     assert "tests/test_adr_index.py" in guard.PROSE_GUARD_ALLOWLIST
 
 
+def test_this_suite_is_allowlisted_because_its_fixtures_are_the_detected_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Found by running the guard against its own PR: its first live finding was against itself.
+
+    The fixture strings above *are* the shape the heuristic detects - that is what makes them
+    fixtures - so a suite that tests the detector cannot avoid tripping it. Flagging them would
+    accuse the tests of the defect they exist to catch, so the file is allowlisted here rather than
+    the rule being complicated into telling a quoted diff line from a real one.
+    """
+    patch = '+    patch = \'+ assert "x" in Path("AGENTS.md").read_text()\''
+    files = [_file("tests/test_scope_guard.py", 10, status="modified", patch=patch)]
+    _install(monkeypatch, files=files, labels=["size:XS"])
+    assert guard.measure(99)["findings"] == []
+    assert "tests/test_scope_guard.py" in guard.PROSE_GUARD_ALLOWLIST
+
+
 def test_a_docstring_that_merely_cites_the_contract_is_not_prose_pinning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -458,14 +475,43 @@ def test_the_report_always_declares_itself_advisory(monkeypatch: pytest.MonkeyPa
     assert "Advisory only" in guard._render(report)
 
 
-def test_a_base_override_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_base_override_changes_the_measurement_not_only_the_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """#216 resumes from `fe74ae4`, whose checkpoint is already +259/-20 against an XS budget of 50.
 
-    Measured from `main`, a tool charges the claimant for lines they inherited. The override records
-    what the measurement is actually relative to.
+    Measured from `main` the PR's own file list carries those 259 lines, so the claimant is charged
+    for work they inherited and an XS item reads as 5.6x over. Recording the base in the report
+    without re-measuring would leave that verdict exactly as wrong, only now with a footnote - so
+    the override is pinned as a *measurement*, and the assertion is that the inherited lines are
+    gone from `added`.
     """
-    _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"])
-    assert guard.measure(99, base_override="fe74ae4")["base"] == "fe74ae4"
+    fake = _install(monkeypatch, files=[_file("x.py", 259 + 12)], labels=["size:XS"])
+    fake.routes[("GET", "/repos/bioedca/tether/compare/fe74ae4...")] = (
+        200,
+        {"files": [_file("x.py", 12)]},
+    )
+    report = guard.measure(99, base_override="fe74ae4")
+    assert report["base"] == "fe74ae4"
+    assert report["added"] == 12, "the checkpoint's own lines are not the claimant's"
+    assert report["findings"] == []
+
+
+def test_a_truncated_compare_is_an_error_not_a_smaller_diff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The compare endpoint caps its file list at 300 and does not paginate it.
+
+    Under-reporting is the fail-open direction for a measurement whose entire purpose is to notice
+    something being too large, so the cap is refused rather than measured.
+    """
+    fake = _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"])
+    fake.routes[("GET", "/repos/bioedca/tether/compare/fe74ae4...")] = (
+        200,
+        {"files": [_file(f"f{i}.py", 1) for i in range(guard.MAX_COMPARE_FILES)]},
+    )
+    with pytest.raises(guard.GuardError, match="truncated"):
+        guard.measure(99, base_override="fe74ae4")
 
 
 def test_the_cli_reports_json_and_a_named_over_budget_code(
