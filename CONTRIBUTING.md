@@ -288,10 +288,17 @@ is what PRD §12.8 recommends for a solo maintainer — and is gated by a separa
 **Reviews.** The ruleset requires **0 approving reviews** but does require
 **conversation resolution**: an unresolved review thread blocks the merge even when
 every check is green. Classify the final diff before merge and follow `AGENTS.md`:
-Copilot is optional, while every PR needs **one substantive independent review**, from
-Codex GitHub Code Review or CodeRabbit, requested once checks are green and the diff is
-declared final. Low and standard may select either; high/load-bearing requires
-CodeRabbit. Author-side or local review, and status-only output, do not satisfy it.
+Copilot is optional, while every PR needs substantive independent review requested once
+checks are green and the diff is declared final. **Low and standard route to Codex
+GitHub Code Review; high/load-bearing takes both Codex and CodeRabbit — requested
+together and answered as one round, never as two.** Author-side or local review, and
+status-only output, do not satisfy it.
+
+**Neither provider auto-reviews this repository; you have to ask.** CodeRabbit replies
+to an unrequested PR with *"Auto reviews are disabled on this repository"*, and Codex
+reviews only when you open a PR for review, mark a draft ready, or comment
+`@codex review`. A provider that was never asked has not declined — so if you are
+waiting on a review, check that a request was actually posted.
 
 Review evidence **survives a non-material push**, so addressing findings does not
 restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
@@ -300,15 +307,28 @@ schema, locks, CI/release config and the governance text itself (`AGENTS.md`, th
 file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`) are material. A material push
 re-arms the review but grants no extra round, and there are **at most two rounds**.
 
-Fix blocking findings (CodeRabbit `Critical`/`Major`/`Potential issue`, Codex `P1`,
-anything touching secrets, unlicensed data, a frozen oracle, the §5 skeleton, or a
-CodeQL alert — plus anything that falsifies a claim the PR itself introduces). Defer
-everything else to **one** follow-up issue per PR and resolve the thread with a link;
-do not fix non-blocking findings in the same PR. If the **selected** provider reports
-nothing to review for this PR at the head it read — a deletion, a pure rename — that
-satisfies the gate; quote it. A statement from the author, or from any other commenter,
-never does. Human sign-off is required only for releases, tags, signing, and new
-scientific claims.
+Fix blocking findings. Blocking is decided on the **severity axis only**: CodeRabbit
+`Critical`/`Major`, Codex `P1`, plus anything touching secrets, unlicensed data, a frozen
+oracle, the §5 skeleton, or a CodeQL alert — and anything that falsifies a claim the PR
+itself introduces.
+
+CodeRabbit renders three independent things on a finding and only one of them is the
+severity: a **domain** (`🎯 Functional Correctness`, `📐 Maintainability & Code Quality`,
+…), a **severity** (`🔴 Critical`, `🟠 Major`, `🟡 Minor`), and a machine marker
+(`<!-- cr-indicator-types:potential_issue -->`). The marker is a *category*, not a level —
+it appears on `🟡 Minor` and `🟠 Major` alike — so it never makes a `Minor` blocking. An
+earlier revision of this list read `Critical`/`Major`/`Potential issue`, which mixed the
+two axes and left every `Minor` ambiguous.
+
+Defer everything else to **one** follow-up issue per PR and resolve the thread with a
+link; do not fix non-blocking findings in the same PR, and never point a deferral at an
+issue that does not exist. If a **selected** provider reports nothing to review at the
+head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is its documented
+"no suggestions" — that satisfies its leg; quote it. A statement from the author, or from
+any other commenter, never does. There are **at most two rounds**, and under the swarm
+model the launcher issues them: do not request one yourself on a PR labelled
+`agent:review-capped`. Human sign-off is required only for releases, tags, signing, and
+new scientific claims.
 
 ## Reporting bugs & security issues
 
