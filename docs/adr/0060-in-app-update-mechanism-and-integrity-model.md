@@ -304,6 +304,16 @@ So the honest split is:
   dialog, not an error. An air-gapped machine must be unable to tell the difference between "this
   feature exists" and "nothing happened", or the offline promise breaks by a second route.
 
+**The cost of the silent branch, stated rather than left to be found.** Silence on "could not check"
+means an attacker who can block `api.github.com` keeps a user on an old, possibly vulnerable version
+**indefinitely and invisibly**. That is a real consequence and it is accepted here, for two reasons.
+It is not fixable by design — an attacker who can block the network can equally block the download,
+so no update mechanism can be forced to work against one — and the failure is in the safe direction:
+blocking an update is not the same as installing a bad one. The alternative, warning after N days
+without a successful check, would fire on exactly the air-gapped machines decision 3 exists to leave
+alone. If that trade is ever revisited, it belongs with the release query
+([#248](https://github.com/bioedca/tether/issues/248)), which is what knows how long it has been.
+
 **Do not pin the Sigstore trusted root.** Fetch it. A pinned root goes stale — Sigstore rotates Rekor
 log shards yearly, distributes the keys only via TUF, and explicitly tells clients not to hardcode —
 and under refuse-and-report a stale root becomes a permanently dead updater that refuses every
