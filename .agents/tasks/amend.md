@@ -27,14 +27,16 @@ work, not starting over: the previous session pushed and exited, which is normal
 | Rounds remaining after this one | **{{REMAINING}}** |
 | Why this session exists | {{REASON}} |
 
-Read root `AGENTS.md` §Review gate and `.agents/skills/tether-worker/SKILL.md` first.
+Read root `AGENTS.md`, `docs/agents/review.md` and `.agents/skills/tether-worker/SKILL.md` first.
+The severity floor you classify against lives on `review.md`, not in the resident contract.
 
 ## Do
 
 1. Find the open pull request for `{{BRANCH}}`. Read the failing checks and every unresolved review
    thread on it.
 2. Fix the **blocking** findings only — severity axis: CodeRabbit `Critical`/`Major`, Codex `P1`, plus
-   the label-independent list in `AGENTS.md`. Everything else is deferred to **one** follow-up issue
+   the label-independent list in `docs/agents/review.md`. Everything else is deferred to **one**
+   follow-up issue
    for this PR, answered `Deferred: … Tracked in #N`, and its thread resolved.
 3. Revalidate the fence before any authoritative write:
    `python .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.

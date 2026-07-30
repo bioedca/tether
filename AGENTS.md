@@ -72,16 +72,17 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
 ## Evidence and tool routing
 
 - Never send sensitive or uncommitted material to external search, AI, or review services.
-- **Read `docs/agents/tools.md` before writing against any third-party library, API, CLI, or file
-  format**, and **`docs/agents/evidence.md` before asserting any scientific claim, algorithm choice,
-  validation oracle, or dataset interpretation.** Each page is a bar to acting, not a reference:
-  memory is not a source for either, and the two never substitute for one another.
+- **Read `docs/agents/tools.md` before writing against any third-party library, API, CLI, file
+  format, or workflow behavior**, and **`docs/agents/evidence.md` before asserting any scientific
+  claim, algorithm choice, validation oracle, or dataset interpretation.** Each page is a bar to
+  acting, not a reference: memory is not a source for either, and neither substitutes for the other.
 
 ## Review gate
 
-- **Read `docs/agents/review.md` before requesting a review or merging.** It carries the operative
-  rules: the risk→provider routing, what counts as a material change, the severity floor, the
-  round cap, and the merge mechanics. Not having read it is itself a bar to acting.
+- **Read `docs/agents/review.md` before requesting a review, answering a finding, or merging** — an
+  AMEND session never requests one and still classifies against its severity floor. It carries the
+  routing, what counts as a material change, the severity floor, the round cap and the merge
+  mechanics. Not having read it is itself a bar to acting.
 - Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. **The
   authoring agent is never the only reviewer**, and neither provider self-fires — a provider that
   was not asked has not declined.

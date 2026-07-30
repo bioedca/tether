@@ -18,5 +18,9 @@ local gates have not been run is not final and may not be declared so.**
   A bare `pytest` includes optional large, sidecar, and deep tiers; invoke those only when relevant.
 
 These are the *local* gates. They do not replace the required CI contexts, which run on three
-operating systems and in the isolated sidecar and deep environments — a gate that passes here and
-fails there is a real failure, and `main` staying green is what the pre-merge check protects.
+operating systems and — for `sidecar / parity` — in the isolated sidecar environment. A gate that
+passes here and fails there is a real failure, and `main` staying green is what the pre-merge check
+protects.
+
+`deep.yml` is **not** required and is path-filtered, so an unrelated PR never runs it. Waiting on it
+waits on a check that may never report.
