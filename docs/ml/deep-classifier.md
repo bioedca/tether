@@ -191,5 +191,6 @@ Verified via [Consensus](https://consensus.app) during authoring:
   The Journal of Physical Chemistry B. An LSTM that idealizes FRET traces without Markovian
   assumptions — the LSTM-for-smFRET precedent behind the model's recurrent stage.
 
-The project spec (`docs/PRD.md` §4.1, §7.5, §9 M8, §11.2) and ADR-0047 in the repository carry
-the full design rationale and the enumerated tunables.
+The [internal product specification](https://github.com/bioedca/tether/blob/main/docs/PRD.md)
+(§4.1, §7.5, §9 M8, §11.2) and ADR-0047 in the repository carry the full design rationale
+and the enumerated tunables.

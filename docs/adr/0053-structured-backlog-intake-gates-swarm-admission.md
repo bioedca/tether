@@ -143,7 +143,8 @@ separate change with its own risk class.
 
 - [ADR-0052](0052-concurrent-agent-swarm-coordination.md) owns coordination from
   authenticated `status:ready` approval onward.
-- `docs/PRD.md` §12.5 records the issue lifecycle and public form taxonomy.
+- The [internal product specification](https://github.com/bioedca/tether/blob/main/docs/PRD.md)
+  §12.5 records the issue lifecycle and public form taxonomy. It is not served by this site.
 - `CONTRIBUTING.md` records the contributor-facing grooming lifecycle.
 - `.github/ISSUE_TEMPLATE/` and `tests/test_issue_forms.py` are the executable
   intake contract.
