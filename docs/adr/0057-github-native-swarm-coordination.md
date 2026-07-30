@@ -132,7 +132,14 @@ Also in force since 2026-07-30: **event-driven triage and the review-round count
 `.agents/bin/gate.ps1`). Those two are one control and are recorded together deliberately — see
 [The two-round cap needs both halves](#the-two-round-cap-needs-both-halves).
 
-**Not yet implemented:** Projects/Discussions as coordination surfaces; the advisory scope guard.
+Also in force since 2026-07-30: **the advisory scope guard** (`.agents/bin/scope_guard.py`,
+`scope-guard.yml`), which measures the `size:*` diff budget and classifies a push as material or
+not — the two computations the review gate above already turns on and which were previously applied
+by judgement alone. It is **deliberately not a required context**: replayed over every merged PR of
+this rebuild the thresholds are miscalibrated for new-executable work, and promoting an untested
+threshold would make the ladder impossible to fix without a red `main`.
+
+**Not yet implemented:** Projects/Discussions as coordination surfaces.
 
 Be precise about what "the label model" means, because parts of it still have no writer. Written by
 code: `agent:claude|codex|copilot` (`claim.py`), `agent:conflicted` and `agent:needs-amend`

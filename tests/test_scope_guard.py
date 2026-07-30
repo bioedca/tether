@@ -14,6 +14,7 @@ and not just the arithmetic.
 
 from __future__ import annotations
 
+import base64
 import importlib.util
 import json
 from pathlib import Path
@@ -429,6 +430,76 @@ def test_reindenting_yaml_is_not_material_but_changing_a_value_is() -> None:
     )
 
 
+def test_moving_a_yaml_key_out_of_its_parent_is_material() -> None:
+    """In YAML the indentation IS the nesting, so normalising whitespace is wrong, not conservative.
+
+    Codex's case on this PR, and the reason `_structured` parses instead of substituting. Under a
+    `re.sub(r"\\s+", " ", text)` canonical form both documents below collapse to
+    `root: child: 1 peer: 2` and receive the same digest - so promoting `peer` from a child of
+    `root` to a top-level key, which is a real change to what a workflow does, would be classified
+    as non-material and would preserve review evidence it should have invalidated.
+    """
+    nested = {"w.yml": "root:\n  child: 1\n  peer: 2\n"}
+    promoted = {"w.yml": "root:\n  child: 1\npeer: 2\n"}
+    assert guard.materiality(nested, promoted)["material"] is True
+
+
+def test_whitespace_inside_a_quoted_string_is_material() -> None:
+    """The same substitution rewrote string *contents*, where whitespace is data.
+
+    A workflow step's `run:` is the case that matters here: collapsing the spaces in a command line
+    makes two different commands digest identically.
+    """
+    before = {"w.yml": 'jobs:\n  a:\n    steps:\n      - run: "pytest  -k  slow"\n'}
+    after = {"w.yml": 'jobs:\n  a:\n    steps:\n      - run: "pytest -k slow"\n'}
+    assert guard.materiality(before, after)["material"] is True
+
+
+def test_reordering_yaml_sequence_entries_is_material_but_mapping_keys_are_not() -> None:
+    """Mapping order is not semantic in any of these formats; sequence order is.
+
+    A workflow's `steps:` run in the order written, so reordering them changes behaviour. Sorting
+    everything - the obvious implementation - would call that non-material.
+    """
+    steps = {"w.yml": "steps:\n  - run: build\n  - run: test\n"}
+    swapped = {"w.yml": "steps:\n  - run: test\n  - run: build\n"}
+    assert guard.materiality(steps, swapped)["material"] is True
+
+    keys = {"w.yml": "permissions:\n  contents: read\n  issues: read\n"}
+    reordered = {"w.yml": "permissions:\n  issues: read\n  contents: read\n"}
+    assert guard.materiality(keys, reordered)["material"] is False
+
+
+def test_unparseable_structured_config_falls_back_to_verbatim() -> None:
+    """Fail closed. A file that will not parse is unknown, and unknown must not read as unchanged.
+
+    Deliberately a fallback rather than the `GuardError` Python gets: a Python file that does not
+    parse cannot have been committed by a green PR, while a YAML *fragment* or a format this parser
+    does not know can legitimately appear in a fixture.
+    """
+    before = {"w.yml": "a: [1, 2\n"}
+    assert guard.materiality(before, {"w.yml": "a: [1, 2\n"})["material"] is False
+    assert guard.materiality(before, {"w.yml": "a: [1, 3\n"})["material"] is True
+
+
+def test_json_and_toml_go_through_their_own_parsers() -> None:
+    assert (
+        guard.materiality({"a.json": '{"x": 1, "y": 2}'}, {"a.json": '{\n  "y": 2,\n  "x": 1\n}'})[
+            "material"
+        ]
+        is False
+    )
+    assert guard.materiality({"a.json": '{"x": 1}'}, {"a.json": '{"x": 2}'})["material"] is True
+    assert (
+        guard.materiality({"p.toml": "[t]\nx = 1\n"}, {"p.toml": "[t]\n\nx   =   1\n"})["material"]
+        is False
+    )
+    assert (
+        guard.materiality({"p.toml": "[t]\nx = 1\n"}, {"p.toml": "[t]\nx = 2\n"})["material"]
+        is True
+    )
+
+
 def test_prose_is_compared_verbatim() -> None:
     """No canonical form is guessed for prose.
 
@@ -445,6 +516,84 @@ def test_unparseable_python_is_an_error_not_a_silent_non_material() -> None:
     """A file that will not parse is unknown, and unknown must never read as "nothing changed"."""
     with pytest.raises(guard.GuardError, match="materiality digest"):
         guard.materiality({"a.py": "def f(:\n"}, {"a.py": "def f():\n    pass\n"})
+
+
+def _contents(sha: str, path: str, text: str | None) -> tuple[str, tuple[int, Any]]:
+    route = f"/repos/bioedca/tether/contents/{path}?ref={sha}"
+    if text is None:
+        return (route, (404, None))
+    payload = {"encoding": "base64", "content": base64.b64encode(text.encode()).decode()}
+    return (route, (200, payload))
+
+
+def test_the_digest_is_wired_to_a_real_pair_of_heads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The classification has to be *computed on a push*, not merely computable.
+
+    Codex's finding on this PR: `materiality()` existed with tests and nothing called it, so the
+    contract's material-change rule still had no automated answer. `--since` is the wiring, and
+    `github.event.before` is what the workflow passes into it.
+    """
+    fake = _install(monkeypatch, files=[_file("w.yml", 1)], labels=["size:XS"])
+    old, new = "1" * 40, "b" * 40
+    fake.routes[("GET", f"/repos/bioedca/tether/compare/{old}...")] = (
+        200,
+        {"files": [_file("w.yml", 1)]},
+    )
+    pair = ((old, "root:\n  child: 1\n  peer: 2\n"), (new, "root:\n  child: 1\npeer: 2\n"))
+    for sha, text in pair:
+        route, response = _contents(sha, "w.yml", text)
+        fake.routes[("GET", route)] = response
+
+    verdict = guard.measure(99, since=old)["materiality"]
+    assert verdict["material"] is True
+    assert verdict["material_paths"] == ["w.yml"]
+
+
+def test_no_since_means_no_verdict_rather_than_a_false_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`opened` has no previous head, and "nothing changed" is not the right answer to that."""
+    _install(monkeypatch, files=[_file("w.yml", 1)], labels=["size:XS"])
+    assert guard.measure(99)["materiality"] is None
+
+
+def test_a_file_added_by_the_push_is_material(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Absent-before is a real state, not an empty edit.
+
+    `_blob` answers None there, so the pair differs and the addition is seen.
+    """
+    fake = _install(monkeypatch, files=[_file("new.py", 1)], labels=["size:XS"])
+    old, new = "1" * 40, "b" * 40
+    fake.routes[("GET", f"/repos/bioedca/tether/compare/{old}...")] = (
+        200,
+        {"files": [_file("new.py", 1, status="added")]},
+    )
+    for sha, text in ((old, None), (new, "x = 1\n")):
+        route, response = _contents(sha, "new.py", text)
+        fake.routes[("GET", route)] = response
+
+    assert guard.measure(99, since=old)["materiality"]["material"] is True
+
+
+def test_a_file_too_large_to_read_is_material_not_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Over ~1 MB the contents API answers with an empty body and `encoding: none`.
+
+    A constant placeholder would make both sides equal and call every large file unchanged, which is
+    the fail-open direction; the sentinel carries the SHA so the pair always differs.
+    """
+    fake = _install(monkeypatch, files=[_file("big.bin", 1)], labels=["size:XS"])
+    old, new = "1" * 40, "b" * 40
+    fake.routes[("GET", f"/repos/bioedca/tether/compare/{old}...")] = (
+        200,
+        {"files": [_file("big.bin", 1)]},
+    )
+    for sha in (old, new):
+        fake.routes[("GET", f"/repos/bioedca/tether/contents/big.bin?ref={sha}")] = (
+            200,
+            {"encoding": "none", "content": ""},
+        )
+
+    assert guard.measure(99, since=old)["materiality"]["material"] is True
 
 
 # --------------------------------------------------------------------------- reporting
@@ -582,15 +731,40 @@ def test_the_workflow_checks_out_the_default_branch() -> None:
     assert checkout["with"]["ref"] == "${{ github.event.repository.default_branch }}"
 
 
+def _exit_classifier() -> str:
+    """The workflow's `case` over the guard's exit code, extracted from the parsed run script."""
+    run = _workflow()["jobs"]["measure"]["steps"][-1]["run"]
+    start = run.index('case "${code}" in')
+    return run[start : run.index("esac", start)]
+
+
 def test_over_budget_does_not_fail_the_job() -> None:
-    """Exit 3 is a RESULT. Only exit 2 - a broken measurement - may fail the run."""
+    """Exit 3 is a RESULT. A measurement that did not complete is not."""
     body = WORKFLOW.read_text(encoding="utf-8")
-    assert 'if [ "${code}" = "2" ]' in body
-    assert "::warning::" in body, "over budget warns"
+    classifier = _exit_classifier()
+    assert "3)" in classifier and "::warning::" in classifier, "over budget warns, never fails"
     assert "set -uo pipefail" in body, "`set -e` must be off so exit 3 does not abort the step"
     statements = [
         line.split("#", 1)[0] for line in body.splitlines() if not line.strip().startswith("#")
     ]
     assert not [s for s in statements if s.strip() == "exit 0"], (
         "an explicit zero exit reports failure"
+    )
+
+
+def test_every_unexpected_exit_code_fails_the_job() -> None:
+    """A job reporting success without a valid measurement is worse than no job.
+
+    The classification used to name exit 2 and let everything else fall through to the terminal
+    `echo`, so an import-time traceback exiting 1, or a signal, reported a clean budget check that
+    never ran. Only 0 and the advisory 3 are success; the default arm takes the rest.
+    """
+    classifier = _exit_classifier()
+    assert "*)" in classifier, "a default arm must exist"
+    default = classifier[classifier.index("*)") :]
+    assert "exit 1" in default, "an unexpected exit must fail the job"
+    assert "::error::" in default
+    assert "2)" not in classifier, (
+        "exit 2 must be covered by the default arm, not named - naming it is what left every "
+        "other code falling through"
     )

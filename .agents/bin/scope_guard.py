@@ -33,14 +33,25 @@ from __future__ import annotations
 
 import argparse
 import ast
+import base64
 import fnmatch
 import hashlib
 import importlib.util
 import json
 import re
 import sys
+import tomllib
+import urllib.parse
 from pathlib import Path
 from typing import Any
+
+try:  # PyYAML is a mkdocs dependency in the base lock, but not present for a bare interpreter.
+    import yaml
+
+    _YAML_ERRORS: tuple[type[Exception], ...] = (yaml.YAMLError,)
+except ImportError:  # pragma: no cover - exercised by the workflow's minimal environment
+    yaml = None
+    _YAML_ERRORS = ()
 
 BIN = Path(__file__).resolve().parent
 
@@ -217,10 +228,44 @@ def _canonical(path: str, text: str) -> str:
                     node.body = body[1:] or [ast.Pass()]
         return ast.dump(tree)
     if path.endswith((".yml", ".yaml", ".toml", ".json")):
-        return re.sub(r"\s+", " ", text).strip()
+        return _structured(path, text)
     # Everything else - prose, PowerShell, fixtures - is compared verbatim. Guessing at a canonical
     # form for prose is how a real wording change gets called non-material.
     return text
+
+
+def _structured(path: str, text: str) -> str:
+    """Canonicalize structured config through its own data model, never through its whitespace.
+
+    Whitespace-normalizing YAML is not conservative, it is WRONG, and in the unsafe direction.
+    Indentation is the nesting, so moving ``peer: 2`` out from under ``root:`` to the top level
+    changes the document's meaning while both forms collapse to the same string - and a digest that
+    calls that non-material preserves review evidence the change should have invalidated. The same
+    substitution rewrites whitespace *inside quoted strings*, so a changed command line in a
+    workflow step reads as unchanged.
+
+    Mappings are key-sorted because mapping order is not semantic in any of these formats; sequences
+    are not, because a workflow's ``steps:`` order is.
+
+    **Fails closed.** A file that cannot be parsed - or YAML when PyYAML is not installed, which is
+    the case for a bare interpreter - is compared verbatim, so every byte change is material. The
+    cost is a formatting-only edit re-arming a review; the alternative cost is a semantic edit not
+    doing so.
+    """
+    try:
+        if path.endswith(".json"):
+            parsed: Any = json.loads(text)
+        elif path.endswith(".toml"):
+            parsed = tomllib.loads(text)
+        else:
+            if yaml is None:
+                return text
+            parsed = list(yaml.safe_load_all(text))
+    except (ValueError, UnicodeDecodeError, RecursionError) + _YAML_ERRORS:
+        return text
+    # `default=str` keeps a TOML datetime or a YAML date from raising; the string form is stable,
+    # and these are compared against themselves, never interpreted.
+    return json.dumps(parsed, sort_keys=True, default=str)
 
 
 _ADR_NAME_RE = re.compile(r"(docs/adr/)\d{4}(-)")
@@ -264,7 +309,47 @@ def materiality(before: dict[str, str], after: dict[str, str]) -> dict[str, Any]
 # ------------------------------------------------------------------ measurement
 
 
-def measure(number: int, *, base_override: str | None = None) -> dict[str, Any]:
+def _blob(sha: str, path: str) -> str | None:
+    """A file's text at one commit, or ``None`` when it does not exist there.
+
+    ``None`` is a real answer - a file added by the push is absent before it and present after - and
+    is what lets :func:`materiality` see an addition or a deletion rather than an empty edit.
+    """
+    quoted = urllib.parse.quote(path)
+    status, payload = claim._request("GET", f"/repos/{REPO}/contents/{quoted}?ref={sha}")
+    if status == 404:
+        return None
+    if status != 200 or not isinstance(payload, dict):
+        raise GuardError(f"{path} at {sha[:8]} could not be read (HTTP {status})")
+    if payload.get("encoding") != "base64":
+        # Over ~1 MB the contents API answers with an empty body and `encoding: none`. Returning a
+        # SHA-dependent sentinel makes the pair differ and the change material, which is the
+        # fail-closed direction; a constant would silently call every large file unchanged.
+        return f"unreadable-at-{sha}"
+    raw = base64.b64decode(payload.get("content") or "")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        # A binary fixture has no canonical form, so it is compared by content digest.
+        return f"binary:{hashlib.sha256(raw).hexdigest()}"
+
+
+def materiality_between(since: str, head: str) -> dict[str, Any]:
+    """Whether the change from ``since`` to ``head`` re-arms the review gate.
+
+    This is the half of the guard that answers a question the contract already asks and nobody could
+    previously answer except by judgement: `AGENTS.md`'s review evidence survives a *non-material*
+    push, so whether a push restarts the gate turns on exactly this classification.
+    """
+    paths = [entry["filename"] for entry in _compare_files(since, head)]
+    before = {p: text for p in paths if (text := _blob(since, p)) is not None}
+    after = {p: text for p in paths if (text := _blob(head, p)) is not None}
+    return materiality(before, after)
+
+
+def measure(
+    number: int, *, base_override: str | None = None, since: str | None = None
+) -> dict[str, Any]:
     pr = _pull_request(number)
     linked = _linked_issues(pr)
     issue = None
@@ -364,6 +449,7 @@ def measure(number: int, *, base_override: str | None = None) -> dict[str, Any]:
         "proportional_cap": proportional_cap,
         "linked_issues": linked,
         "review_rounds": _review_rounds(number),
+        "materiality": materiality_between(since, head) if since and head else None,
         "findings": findings,
     }
 
@@ -432,6 +518,18 @@ def _render(report: dict[str, Any]) -> str:
         f"| external review rounds | {report['review_rounds']} |",
         "",
     ]
+    material = report.get("materiality")
+    if material is not None:
+        verdict = (
+            "**material** — this push re-arms the review gate"
+            if material["material"]
+            else ("non-material — review evidence survives this push")
+        )
+        lines += [f"This push is {verdict}.", ""]
+        if material["material_paths"]:
+            lines += ["<details><summary>What made it material</summary>", ""]
+            lines += [f"- `{p}`" for p in material["material_paths"]]
+            lines += ["", "</details>", ""]
     if report["findings"]:
         lines += ["### Findings", ""] + [f"- {f}" for f in report["findings"]]
         lines += [
@@ -455,10 +553,15 @@ def main() -> int:
         help="measure against this commit instead of the PR's own base; for work resuming from a "
         "checkpoint, where measuring from main would charge a claimant for lines they inherited",
     )
+    parser.add_argument(
+        "--since",
+        help="the head this push replaced; classifies the push as material or not, which is what "
+        "decides whether review evidence survives it",
+    )
     parser.add_argument("--markdown", action="store_true", help="emit a summary table as well")
     args = parser.parse_args()
     try:
-        report = measure(args.pr, base_override=args.base)
+        report = measure(args.pr, base_override=args.base, since=args.since)
     except (GuardError, claim.ClaimError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
