@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any
 
 from tether.idealize.driver import (
     _RUNNER,
+    DEFAULT_SIDECAR_TIMEOUT,
     SidecarError,
     _parse_status,
     _sidecar_env,
@@ -62,8 +63,11 @@ __all__ = [
 #: Default auto-restart budget per movie's idealization (§11.2 "Batch sidecar
 #: supervision"). ``N`` restarts means up to ``N + 1`` total attempts.
 DEFAULT_MAX_RESTARTS = 3
-#: Default per-idealization-call timeout, inherited from :func:`run_vbfret` (§11.2).
-DEFAULT_SIDECAR_TIMEOUT = 1800.0
+# DEFAULT_SIDECAR_TIMEOUT is re-exported from tether.idealize.driver (imported above,
+# and kept in __all__). It was declared here originally and this import path is the one
+# the parameter reference documents, so it stays supported; the value itself now has a
+# single home next to the run_vbfret call it bounds (#222).
+
 #: Default timeout for the one-shot startup liveness probe (import + instantiate
 #: ``maven_class`` — far cheaper than a fit, but a cold ``tmaven``/Numba import is
 #: not instant, so the window is generous).
