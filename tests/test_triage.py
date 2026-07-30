@@ -571,15 +571,15 @@ def test_the_workflow_listens_for_the_three_state_changing_events() -> None:
 def test_the_workflow_records_the_bot_trigger_probe_answer() -> None:
     """The probe decides how strong this control is, so its answer is written down, not implied.
 
-    Run on #299 on 2026-07-30 and the answer is **split**, which neither branch of #284 anticipated:
-    CodeRabbit starts a round from a `github-actions[bot]` comment and names the author when it
-    does; Codex refuses with *"To use Codex here, create a Codex account and connect to github"*.
-    An author-identity check, not a platform rule - CodeRabbit got the same comment.
+    Run on #299 on 2026-07-30. CodeRabbit starts a round from a `github-actions[bot]` comment and
+    names the author when it does; Codex both refused the mention and, two minutes later, asserted
+    the opposite, so its leg is read conservatively as no.
 
-    What this test protects is the *conclusion*, not the prose: because the two legs differ, the
-    trigger must stay out of the workflow entirely. Moving only CodeRabbit's would be worse than
-    moving neither — on `high` the two are requested together and answered as one round, so
-    auto-requesting one of them makes it two.
+    What this test protects is the *conclusion*, not the prose: the trigger stays out of the
+    workflow body for **both** providers. The first draft of that note justified it with a
+    round-counting argument that is false - `_review_state` groups by head SHA, so two providers at
+    one head are one round by design - so this pins the behaviour rather than any one sentence of
+    the reasoning.
     """
     header = WORKFLOW.read_text(encoding="utf-8")
     assert "BOT-TRIGGER PROBE" in header

@@ -15,24 +15,38 @@
 #   trigger either provider? If yes, the trigger belongs in this workflow and agent-authored triggers
 #   can be forbidden outright, which is the strongest form of the control since asking is the only way
 #   a round can begin.
-#   Status: ANSWERED 2026-07-30 on #299, and the answer is SPLIT - so this workflow still does not
-#   post triggers, and the reason is now measured rather than assumed.
+#   Status: ANSWERED 2026-07-30 on #299. The trigger stays OUT of this workflow, and the reasons
+#   below are the ones that survived review - an earlier draft of this note gave a round-counting
+#   reason that is simply false, and Codex said so.
 #
-#     CodeRabbit: YES. A `@coderabbitai review` authored by `github-actions[bot]` started a real
-#     review round. Its own reply names the author: "CodeRabbit received the review request from
-#     `github-actions[bot]`; starting a review round for the probe."
+#     CodeRabbit: YES, unambiguously. It named the author: "CodeRabbit received the review request
+#     from `github-actions[bot]`; starting a review round for the probe."
 #
-#     Codex: NO. It answered "To use Codex here, create a Codex account and connect to github." That
-#     is an author-identity check - Codex resolves the commenting user to a Codex account and
-#     `github-actions[bot]` has none. A PROVIDER-SIDE filter, not a platform rule: `GITHUB_TOKEN`
-#     event suppression governs starting workflow runs, not third-party App webhooks, and CodeRabbit
-#     receiving the same comment proves the webhook was delivered.
+#     Codex: AMBIGUOUS, and read conservatively as no. Seven seconds after the bot's comment it
+#     replied "To use Codex here, create a Codex account and connect to github" - an author-identity
+#     refusal. Two minutes later it posted a task summary asserting the opposite. Both cannot be
+#     true, the trigger of the second is not attributable from outside, and a control you cannot
+#     attribute is not a control.
 #
-#   So the trigger CANNOT move into this workflow. Moving only CodeRabbit's leg would be worse than
-#   moving neither: on `high` the two are requested together and answered as ONE round, and a
-#   workflow that auto-requests one of them turns that into two. Defeating the Codex filter needs a
-#   PAT or App identity with a linked Codex account, which is a deliberate decision about credentials
-#   and not a workaround to reach for here.
+#   Why the trigger stays out, on grounds that hold:
+#
+#     1. A WORKFLOW CANNOT KNOW A DIFF IS DECLARED FINAL. A round is a review at a declared-final
+#        green head. Green is not final - a PR goes green repeatedly while work continues - so an
+#        event-driven request reviews heads nobody declared, and since a round is a distinct head
+#        SHA, each reply at a new head spends one. The cost is real; the mechanism is event
+#        repetition, not the split.
+#     2. THE TWO LEGS WOULD DESYNCHRONISE. On `high` they must be requested together and answered as
+#        ONE round. A workflow fires on its own events; the Codex leg is asked at the final head. Two
+#        heads, two rounds, and CodeRabbit answering a head Codex never saw.
+#     3. A BOT-AUTHORED `@codex review` CAN START AN AGENT THAT WRITES CODE. On #299 the mention was
+#        followed by Codex running an agentic task that edited files and committed `25a275d` in its
+#        own sandbox (never pushed - verified absent from this remote). A workflow able to post that
+#        mention is a workflow able to start an agent with commit authority. That alone is reason
+#        enough to keep the capability off the default branch.
+#
+#   NOT a reason, and recorded because it was written down before it was checked: "auto-requesting
+#   one provider turns one round into two" at a single head. It does not. `_review_state` groups by
+#   head SHA and `rounds = len(reviewed)`, so two providers at one head are one round by design.
 #
 #   The cap therefore rests on this counter PLUS the launcher's refusal PLUS a post-merge audit
 #   (#300) - genuinely weaker than a platform-enforced trigger, and said plainly rather than implied.
