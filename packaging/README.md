@@ -13,8 +13,12 @@ Architecture and rationale: **[ADR-0049](../docs/adr/0049-m9-packaging-construct
 - The **isolated tMAVEN sidecar** (`sidecar/conda-lock.yml` — PyQt5 / `numpy<2`) as a
   constructor `extra_envs` at `<prefix>/envs/sidecar`, with the pinned tMAVEN
   (commit `10f4230…`, see `NOTICE`) offline-installed from a bundled wheel.
-- A bundled **`setuptools<81`** wheel, offline-installed into `<prefix>/envs/sidecar`
-  ahead of tMAVEN (issue #212). This is a **deliberate deviation** from pin-and-hold —
+- A bundled **setuptools compatibility wheel**, offline-installed into `<prefix>/envs/sidecar`
+  ahead of tMAVEN (issue #212). Its exact version and SHA-256 live in
+  [`setuptools-compatibility.txt`](setuptools-compatibility.txt), which is the single source every
+  consumer reads — this recipe, both packaging workflows, and `scripts/setup_sidecar.py`. Nothing
+  restates the version, so a bump is a one-file change (issue #218).
+  This is a **deliberate deviation** from pin-and-hold —
   the only one in the sidecar env: `sidecar/conda-lock.yml` resolves setuptools 82.0.1,
   which no longer ships the `pkg_resources` API that tMAVEN's `maven_class.__init__`
   imports, so `post_install` *downgrades* the locked setuptools rather than holding it.
@@ -53,15 +57,26 @@ CI does this on all three OSes in the advisory, non-required
 # 1. A build env with constructor + conda-lock + build tools. `pip` is needed by
 #    `python -m build` and `python -m pip wheel` below.
 micromamba create -n pkgbuild -c conda-forge "constructor>=3.16" conda-lock=4.0.1 \
-    conda-standalone python-build pip "setuptools<81" wheel
+    conda-standalone python-build pip wheel
 micromamba activate pkgbuild
 
-# 2. Build the two wheels into packaging/staging/, plus the setuptools<81 pin the
+# setuptools is NOT a create-arg. tMAVEN builds with --no-build-isolation, so whatever
+# setuptools this env has is what it builds against — install the same hash-pinned wheel
+# that ships, so the build-time and bundled versions are one artifact (#218).
+python -m pip install --require-hashes --only-binary=:all: \
+    -r packaging/setuptools-compatibility.txt
+
+# 2. Build the two wheels into packaging/staging/, plus the pinned setuptools wheel the
 #    sidecar needs for tMAVEN's `pkg_resources` import (issue #212).
 python -m build --wheel --outdir packaging/staging .
 python -m pip wheel --no-deps --no-build-isolation -w packaging/staging \
     "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230b6d13c6d2ad67b05d801696b4a40eff4a"
-python -m pip download --only-binary=:all: --no-deps -d packaging/staging "setuptools<81"
+# Hash-enforced against the one committed source, then re-hashed after staging: a cache
+# hit also exits 0, so a stale packaging/staging/ would otherwise be shipped unchecked.
+python -m pip download --only-binary=:all: --no-deps --require-hashes \
+    -r packaging/setuptools-compatibility.txt -d packaging/staging
+python scripts/setup_sidecar.py --verify-setuptools-wheel \
+    "packaging/staging/$(python scripts/setup_sidecar.py --print-setuptools-wheel)"
 
 # 3. Render the committed locks to per-platform explicit locks (pin-and-hold).
 mkdir -p packaging/locks && cd packaging/locks
@@ -71,9 +86,10 @@ cd ../..
 
 # 4. Stage the license and export the wheel names the recipe reads.
 cp LICENSE packaging/staging/LICENSE.txt
+SETUPTOOLS_WHEEL_NAME="$(python scripts/setup_sidecar.py --print-setuptools-wheel)"
 export TETHER_VERSION=... TETHER_WHEEL=staging/tether-*.whl TETHER_WHEEL_NAME=... \
        TMAVEN_WHEEL=staging/tmaven-*.whl TMAVEN_WHEEL_NAME=... \
-       SETUPTOOLS_WHEEL=staging/setuptools-*.whl SETUPTOOLS_WHEEL_NAME=...
+       SETUPTOOLS_WHEEL="staging/${SETUPTOOLS_WHEEL_NAME}" SETUPTOOLS_WHEEL_NAME
 
 # 5. Validate the recipe, then build.
 constructor --render packaging/     # offline: selectors + Jinja + YAML

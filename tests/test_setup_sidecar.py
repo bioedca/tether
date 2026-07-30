@@ -145,10 +145,15 @@ def test_no_consumer_restates_the_version_or_the_bound() -> None:
     consumer that quietly stops reading and hard-codes again.
     """
     _version, digest = setup.setuptools_requirement()
+    # FIVE consumers, not the three #218 names and not the four the first version of this
+    # test found. `packaging/README.md` carries a runnable local build recipe, and CodeRabbit
+    # caught it still creating exactly the unreproducible artifact this change removes. A
+    # documented command is a consumer: it is copied and run.
     consumers = {
         "scripts/setup_sidecar.py": _SCRIPT,
         "packaging.yml": _REPO_ROOT / ".github" / "workflows" / "packaging.yml",
         "release.yml": _REPO_ROOT / ".github" / "workflows" / "release.yml",
+        "packaging/README.md": _REPO_ROOT / "packaging" / "README.md",
     }
     # A LITERAL requirement: `setuptools`, a comparator, then a digit. Narrowed twice while
     # writing it, and both narrowings are the point rather than concessions.
@@ -337,3 +342,39 @@ def test_main_dry_run_python_mode_runs_nothing(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(setup.subprocess, "run", _boom)
     rc = setup.main(["--dry-run", "--python", "/does/not/matter", "--with-pytest"])
     assert rc == 0
+
+
+def test_no_workflow_run_block_contains_a_literal_escape() -> None:
+    """A literal `\\n` inside a `run:` block is passed to the shell as the argument `n`.
+
+    CodeRabbit's finding on #306, and it reached a pull request: a generated `release.yml`
+    step read
+
+        python -m pip install --require-hashes --only-binary=:all: \\n            -r ...
+
+    so bash would have handed pip an argument `n` and the install would have failed - at
+    RELEASE time, because neither packaging workflow runs on a pull request. Nothing else in
+    the repository would have caught it: the YAML parses, `actionlint` sees a valid string,
+    and the step is never executed by CI.
+    """
+    # The signature is a FAILED LINE CONTINUATION, not the two characters on their own: a
+    # literal `\n` followed by the indentation of the continuation that should have been on
+    # the next line. `printf '### %s\n%s\n\n'` is a correct and common use — its `\n` is
+    # followed by `%` or a closing quote — and flagging it would make this test a nuisance
+    # that gets deleted rather than a guard.
+    #
+    # What it cannot see, stated rather than implied: a literal `\n` inside a quoted string
+    # that is genuinely wrong. Distinguishing those needs a shell parser; this catches the
+    # generated-file defect that actually occurred.
+    failed_continuation = re.compile(r"\\n\s{2,}\S")
+    for name in ("packaging.yml", "release.yml"):
+        text = (_REPO_ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        offending = [
+            line
+            for line in text.splitlines()
+            if failed_continuation.search(line) and not line.lstrip().startswith("#")
+        ]
+        assert not offending, (
+            f"{name} has a literal backslash-n where a line continuation belongs; the shell "
+            f"reads it as the argument 'n': {offending}"
+        )
