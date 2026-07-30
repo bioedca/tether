@@ -29,7 +29,7 @@ both providers one round and gives a second pass its own.
 counts — review submissions and inline review comments, both of which carry ``commit_id``. A
 provider answering in a plain issue comment carries no head binding and is not counted; that
 happened on #282, where CodeRabbit's substantive review arrived as an issue comment while Codex's
-arrived as a review. So this counter can **undercount** and can never overcount, and undercounting
+arrived as a review. So this counter can **undercount**, and undercounting
 is the fail-open direction. Two compensating controls exist and neither is optional: the launcher
 refuses to inject an AMEND block past the cap whatever the labels say, and a post-merge audit reads
 the real round count. Do not promote this to a required check on the counter alone.
@@ -148,12 +148,42 @@ def _issue_labels(number: int) -> set[str] | None:
     return {label["name"] for label in issue.get("labels", []) if isinstance(label, dict)}
 
 
+def _reviewed_head(entry: dict[str, Any]) -> str | None:
+    """The head a provider actually read, which is not always ``commit_id``.
+
+    GitHub carries an inline review comment forward onto later commits and rewrites its
+    ``commit_id`` to match, leaving ``original_commit_id`` as the head it was written against.
+    ``updated_at`` does not change, so the rewrite is invisible in the payload's own metadata.
+
+    Counting ``commit_id`` made an answer to a round score as a round of its own: push the fix, the
+    provider's comment moves to the fix commit, and the counter sees two heads for one review. Every
+    pull request was therefore capped as soon as it answered once - and `agent:review-capped` is
+    what makes the launcher refuse an AMEND, so the failure was silent and looked exactly like the
+    cap working correctly (#307).
+
+    Submitted reviews carry only ``commit_id``; for them the fallback IS the answer.
+    """
+    original = entry.get("original_commit_id")
+    if isinstance(original, str) and original:
+        return original
+    commit = entry.get("commit_id")
+    return commit if isinstance(commit, str) and commit else None
+
+
 def _review_state(pr_number: int, head: str) -> tuple[set[str], bool]:
     """``(heads with external review evidence, whether the CURRENT head owes an answer)``.
 
     Both sources carry ``commit_id``: submitted reviews and inline review comments. Inline comments
     are included because a provider can post findings with no submission wrapper, and missing one
     of those would undercount a round that really happened.
+
+    **The head is ``original_commit_id`` when there is one.** GitHub *mutates* ``commit_id`` on an
+    inline review comment as the pull request advances: the comment is carried forward onto the new
+    head and re-pointed at it, with ``updated_at`` unchanged, so nothing looks edited. Reading
+    ``commit_id`` therefore counted one review twice — once at the head the provider read, once at
+    the head that ANSWERED it — which capped a pull request the moment it responded to its first
+    round (#307, seen live on #304). Submitted reviews have no ``original_commit_id`` and are
+    unaffected.
 
     The second value is what makes an *ordinary* blocking review issue AMEND authority. Keying only
     on a failed check suite left a real hole: a provider requesting changes at a **green** head
@@ -175,7 +205,7 @@ def _review_state(pr_number: int, head: str) -> tuple[set[str], bool]:
             raise TriageError(f"PR #{pr_number} review state could not be read") from exc
         for entry in entries:
             login = ((entry.get("user") or {}).get("login")) or ""
-            sha = entry.get("commit_id")
+            sha = _reviewed_head(entry)
             if login not in EXTERNAL_PROVIDERS or not isinstance(sha, str) or not sha:
                 continue
             heads.add(sha)

@@ -814,3 +814,22 @@ def test_every_unexpected_exit_code_fails_the_job() -> None:
         "exit 2 must be covered by the default arm, not named - naming it is what left every "
         "other code falling through"
     )
+
+
+def test_the_guard_counts_the_head_a_provider_actually_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#307 in the audit half. A guard that disagrees with the counter it mirrors is worse than one
+    that does not mirror it at all — the two would report different round counts for one PR and
+    there would be no way to tell which was right.
+    """
+    reviews = [
+        {"user": {"login": "chatgpt-codex-connector[bot]"}, "commit_id": "c" * 40},
+        {
+            "user": {"login": "chatgpt-codex-connector[bot]"},
+            "original_commit_id": "c" * 40,
+            "commit_id": "d" * 40,
+        },
+    ]
+    _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"], reviews=reviews)
+    assert guard.measure(99)["review_rounds"] == 1

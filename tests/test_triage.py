@@ -753,3 +753,76 @@ def test_the_posting_route_detector_catches_indirection(sample: str, caught: boo
     legitimately makes.
     """
     assert bool(_posting_routes(sample)) is caught
+
+
+# --------------------------------------------- #307: GitHub rewrites commit_id
+
+
+def _carried(user: str, wrote_at: str, now_points_at: str) -> dict[str, Any]:
+    """An inline comment GitHub has carried forward onto a later head.
+
+    The exact payload shape observed on #304: `original_commit_id` is the head Codex read,
+    `commit_id` is the commit that ANSWERED it, and `updated_at` never changed — so nothing in
+    the payload's own metadata reveals the rewrite.
+    """
+    return {
+        "user": {"login": user},
+        "original_commit_id": wrote_at,
+        "commit_id": now_points_at,
+    }
+
+
+def test_answering_a_round_does_not_itself_count_as_a_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#307, and it capped a real pull request: one Codex review, two heads, `review-capped`.
+
+    Reading `commit_id` meant the fix commit — the answer — carried the provider's own comment onto
+    itself and scored as a second round. Every PR was therefore capped the moment it responded once,
+    and because `agent:review-capped` withholding an AMEND looks exactly like the cap working, the
+    failure was silent.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[_review(CODEX, OLDER)],
+            comments=[_carried(CODEX, OLDER, HEAD)],
+            suites=RED,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1, "one review at one head is one round, wherever it now points"
+    assert result["capped"] is False
+    assert triage.CAPPED_LABEL not in fake.added
+    assert triage.AMEND_LABEL in fake.added, "the second round it is owed must still be issued"
+
+
+def test_a_genuine_second_round_still_counts_two(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fix must not become an undercount in the other direction.
+
+    A provider reporting at a NEW head after an answer is a real second round, and the difference
+    from the case above is exactly `original_commit_id`: written at the new head rather than
+    carried onto it.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_review(CODEX, OLDER)],
+            comments=[_carried(CODEX, HEAD, HEAD)],
+            suites=RED,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 2
+    assert result["capped"] is True
+
+
+def test_a_submitted_review_has_no_original_and_still_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`/pulls/{n}/reviews` entries carry only `commit_id`; the fallback IS the answer for them."""
+    assert triage._reviewed_head({"commit_id": HEAD}) == HEAD
+    assert triage._reviewed_head({"original_commit_id": OLDER, "commit_id": HEAD}) == OLDER
+    assert triage._reviewed_head({"original_commit_id": "", "commit_id": HEAD}) == HEAD
+    assert triage._reviewed_head({}) is None
+
+    _, result = _run(_routes(reviews=[_review(CODEX, HEAD)], suites=RED), monkeypatch)
+    assert result["rounds"] == 1
