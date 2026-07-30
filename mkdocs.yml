@@ -58,7 +58,7 @@ nav:
   - Troubleshooting: troubleshooting.md
   - Packaging:
       - Installers &amp; offline bundle: packaging.md
-      - Releasing (signed installers): release.md
+      - Releasing (tag-driven pipeline): release.md
   - Architecture decisions: adr/README.md
   - Stability policy: stability.md
   - Privacy policy: privacy.md

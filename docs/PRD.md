@@ -107,7 +107,7 @@ both — Appendices B and E), HDF5 for self-describing files, and the SMD format
 - **G5 — Per-condition, persistent, incrementally-improving curation.** A sort/rank ML model that travels with a
   *condition* (≈100 videos across many days/files), warm-start-retrains video-by-video, and never auto-drops (§7.5).
 - **G6 — Lab-friendly & cross-platform.** One Python codebase on Windows/Mac/Linux; non-technical lab members never
-  touch a terminal; signed installers eventually.
+  touch a terminal; a one-file installer per OS. (OS code-signing is **not** part of 1.0 — ADR-0059.)
 - **G7 — Headless-first core.** A GUI-independent, scriptable core and an overnight, error-isolated, checkpointed
   batch runner (§7.11, §8).
 - **G8 — First-class Deep-LASI re-analysis.** Re-open existing Deep-LASI acquisitions, recover coordinates and
@@ -183,7 +183,7 @@ operationalized as a calendar gate (§9 is capability-sequenced, with no schedul
   (PyQt5 + `numpy<2`), pinning the **subset of tMAVEN's `install_requires` needed for vbFRET / consensus VB-HMM /
   ebFRET** rather than the full set: `biasd @ git+main` is omitted (lazy-imported, not on conda-forge, unused by the
   three in-scope HMM methods) and the unbounded `numba>=0.51.0` is given an explicit upper bound, so the sidecar can
-  ship inside an offline signed installer (§4.3, §9 M9). Data is exchanged as SMD-HDF5; the same export is the
+  ship inside an offline installer (§4.3, §9 M9). Data is exchanged as SMD-HDF5; the same export is the
   standalone-GUI hand-off.
 - **ML:** scikit-learn / XGBoost [Chen2016] for the classical, warm-start/incremental per-condition model →
   PyTorch (deep, GPU) for DeepFRET-style trace classifiers [Thomsen2020], hosted in a **third isolated `deep/`
@@ -700,8 +700,9 @@ than aborting. The batch policy (warn-and-flag vs. fail-movie) is configurable i
   `tmaven-model/model.hdf5` was idealized from) is committed as the population-model (consensus VB-HMM / ebFRET)
   parity fixture (§9 M6, Appendix D); the full ≈0.9 GB movie + kinSoftChallenge live in a large local/LFS/gated-CI
   tier.
-- **NFR-PKG — Packaging/CI.** 3-OS GitHub Actions build + test; guided sidecar setup for v1 → constructor signed
-  installers at M9; mkdocs documentation. CI design (small committed fixtures in default CI; the large LFS/gated tier in a manual/gated workflow — NFR-FIXTURES) and the release pipeline are governed by §12.
+- **NFR-PKG — Packaging/CI.** 3-OS GitHub Actions build + test; guided sidecar setup for v1 → constructor
+  installers at M9, **unsigned**, with the SHA-256 manifests and the build-provenance attestation as the
+  integrity anchor (ADR-0059); mkdocs documentation. CI design (small committed fixtures in default CI; the large LFS/gated tier in a manual/gated workflow — NFR-FIXTURES) and the release pipeline are governed by §12.
 - **NFR-HEADLESS — Headless-first.** The GUI is a thin layer over a fully scriptable core (FR-BATCH).
 - **NFR-GOVERNANCE — Version control & supply chain.** Solo-developer GitHub Flow with CI-as-merge-gate: `main` is
   always releasable and branch-protected (green required CI + a self-review checklist on every PR; squash-merge,
@@ -733,7 +734,7 @@ validation front-loaded at M0.5.
 | **M6 — Analysis suite** | Consensus + ebFRET; the seven tMAVEN plot types (Appendix C); real TDP; dwell/rate fits; raw FRET cloud; anticorrelation finder; CSV/`.txt`/subset-`.tether`/SMD exports. | Each of the seven plot types renders from real data and visually matches its tMAVEN counterpart; TDP uses only fresh idealizations; all exports carry provenance stamps; consensus VB-HMM and ebFRET reproduce standalone tMAVEN on the ≥ 50-molecule SMD within the **§11.2 idealization-parity tolerance** (state levels + transition matrix + ELBO). |
 | **M7 — Legacy importers** | The polished Deep-LASI re-analysis workflow (§7.8): multi-file intake + movie pairing → a full round-trip-ready project (coords / raw + corrected traces / factors / bleach / categories / selected subset) without re-extraction; robust `TIRFdata` OOP decode, error handling + wizard UI; tMAVEN SMD. | A full Deep-LASI acquisition reconstructs into a round-trip-ready project from `.tdat` or `.mat` coordinates; curated subset and categories survive; intensity-match cross-check passes on the SMD subset. |
 | **M8 — ML v2** | Deep models (GPU, optional add-on) [Thomsen2020], fine-tuning; kinSoftChallenge validation [Götz2022]. | A deep classifier trains on the shared label store and is optional (CPU base app unaffected); kinetics on the **named kinSoftChallenge dataset (§11.2)** fall within that dataset's reported inter-tool spread — an **advisory** check until the gated-CI slice is acquired (M8 is the terminal optional GPU add-on). |
-| **M9 — Packaging & docs** | Fully-bundled constructor signed installers; mkdocs; validation suite; the release pipeline (§12.7) — annotated + signed git tag → 3-OS signed installers + frozen per-release `conda-lock` + SBOM + auto-generated changelog (Conventional Commits) + docs deploy; SemVer 1.0.0 cut here. | Signed installers install clean on Windows + Mac + Linux with the **trimmed/pinned** sidecar bundled (no install-time git/network; `biasd` omitted); docs build in CI; the validation suite runs end-to-end; a signed `v1.0.0` tag drives the §12.7 release pipeline (3-OS signed installers + frozen `conda-lock` + SBOM + changelog + docs deploy) reproducibly. |
+| **M9 — Packaging & docs** | Fully-bundled constructor installers (**unsigned** — ADR-0059); mkdocs; validation suite; the release pipeline (§12.7) — annotated + signed git tag → 3-OS installers + frozen per-release `conda-lock` + SBOM + build-provenance attestation + auto-generated changelog (Conventional Commits) + docs deploy; SemVer 1.0.0 cut here. | The installers install clean on Windows + Mac + Linux with the **trimmed/pinned** sidecar bundled (no install-time git/network; `biasd` omitted); docs build in CI; the validation suite runs end-to-end; a signed `v1.0.0` tag drives the §12.7 release pipeline (3-OS installers + frozen `conda-lock` + SBOM + attestation + changelog + docs deploy) reproducibly. The tag signature is the release's provenance; it is **not** OS code-signing, which 1.0 does not ship (ADR-0059). |
 
 ---
 
@@ -744,7 +745,7 @@ validation front-loaded at M0.5.
 - **tMAVEN sidecar cannot be driven headlessly / bundled.** Mitigation: the **pre-committed escalation** is a
   prebuilt **bundled sidecar invoked over a stable IPC** (not an in-process embed, which would reintroduce the
   `numpy<2` conflict). The sidecar ships a **trimmed/pinned** dependency subset (omit `biasd @ git+main`, bound
-  `numba`) so it fits an offline signed installer (§4.1/§4.3, §9 M9). In-app idealization stays in the MVP;
+  `numba`) so it fits an offline installer (§4.1/§4.3, §9 M9). In-app idealization stays in the MVP;
   hand-off-only is not an acceptable fallback (FR-IDEALIZE). The standalone hand-off remains a *feature*, not the
   mechanism.
 - **tMAVEN is not bit-reproducible — it self-reseeds its RNG.** Mitigation: parity is defined as **statistical
@@ -910,7 +911,7 @@ though **tMAVEN is never vendored** — reference clones are algorithm-reference
   machine-checkable, enforced by a `reuse lint` hook in pre-commit and CI (§12.6, §12.9).
 - **`NOTICE`** records that Tether **interoperates with and runs an isolated tMAVEN sidecar** (GPL-3.0,
   [Verma2024], pinned commit `10f4230…`) shipping under its own license in its own environment (§4.3), and credits
-  Deep-LASI [Wanninger2023] and MASH-FRET [Börner2018] as algorithm references. The M9 signed installer that
+  Deep-LASI [Wanninger2023] and MASH-FRET [Börner2018] as algorithm references. The M9 installer that
   *bundles* the sidecar (§9 M9) must ship tMAVEN's license text alongside Tether's; the SBOM (§12.8) lists the
   sidecar as a distinct, attributed component.
 
@@ -1210,7 +1211,7 @@ CPU `deep.yml` leg, exercising the `device="cuda"` path.
 (`security-events: write` for CodeQL; `pages: write` + `id-token: write` for docs deploy; `contents: write` +
 `id-token: write` + `attestations: write` for the release; `issues: write` for the audit). `concurrency: { group:
 ${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: true }` cancels superseded runs — **except**
-`release.yml` (`cancel-in-progress: false`; never cancel a half-built signed installer).
+`release.yml` (`cancel-in-progress: false`; never cancel a half-built installer).
 `setup-micromamba`'s `cache-environment` is keyed on the lock hash + OS + Python, with separate base/sidecar cache
 namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and a lock bump cleanly invalidates it.
 
@@ -1235,10 +1236,12 @@ namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and 
 - **Release pipeline (`release.yml`, triggered on a signed `v*.*.*` tag):**
   1. **verify-tag** — assert the tag is signed + annotated, on `main`, and all three locks are committed and clean;
      re-run the full required suite as a gate.
-  2. **build-installers** (3-OS matrix) — **constructor** signed installers (§4.1, §8 NFR-PKG, §9 M9) bundling the
+  2. **build-installers** (3-OS matrix) — **constructor** installers (§4.1, §8 NFR-PKG, §9 M9) bundling the
      **trimmed/pinned sidecar** (no install-time git/network; `biasd` omitted; numba bounded — M9 acceptance);
-     OS code-signing (Windows Authenticode, macOS notarization), Linux installer + checksum. Stamp the app version
-     from the git tag (`git describe`) so it flows into the project file (§8 NFR-REPRO).
+     installer + checksum on every platform. The installers are **not OS-code-signed** (ADR-0059): SignPath
+     Foundation declined enrollment and Apple Developer ID is out of budget, so the integrity anchor is the
+     SHA-256 manifests plus the build-provenance attestation in step 3. Stamp the app version from the git tag
+     (`git describe`) so it flows into the project file (§8 NFR-REPRO).
   3. **provenance** — generate an **SBOM** (CycloneDX, via Syft) over all released env stacks; SHA-256 checksums for every
      installer; publish the **base, sidecar, and deep locks** as release assets (any release is
      exactly re-creatable); attach **build-provenance + SBOM attestations** (`actions/attest-build-provenance`,
@@ -1363,7 +1366,7 @@ Governance is **established whole at M0** and then enforced continuously — no 
 | **M0** | All of the above established; schema-guard freeze live; CI green on 3 OSes. |
 | **M0.5** | `sidecar / parity` becomes **required** (vbFRET round-trip + the §11.2 parity row frozen with measured numbers); M2/M6 parity checks inherit the frozen row by reference. |
 | **M1/M2/M3/M6** | §9 acceptance criteria become `@pytest.mark`-tagged tests in the **default (small-fixture) tier**; M1 full-movie extraction + M8 kinetics live in `large-fixtures.yml`. **M3** adds the batch-runner + perf-budget (§8 NFR-PERF / §11.2) and the bleach-frame parity (§8 NFR-VALID (g)) checks. |
-| **M9** | `release.yml` produces the 3-OS signed bundled installers + frozen `conda-lock`s + SBOM + attestations + auto changelog; `docs.yml` deploy + the validation suite run end-to-end; SemVer **1.0.0** is cut from a signed `v1.0.0` tag. |
+| **M9** | `release.yml` produces the 3-OS bundled installers (unsigned — ADR-0059) + frozen `conda-lock`s + SBOM + attestations + auto changelog; `docs.yml` deploy + the validation suite run end-to-end; SemVer **1.0.0** is cut from a signed `v1.0.0` tag. |
 
 The **schema-guard** gate persists from M0 through every later milestone, mechanically enforcing the §5/§9-M0
 invariant that later milestones add **DATA, not STRUCTURE**.

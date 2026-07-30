@@ -22,6 +22,8 @@ import fnmatch
 import re
 from pathlib import Path, PurePosixPath
 
+import yaml  # provided by the base conda-lock (a mkdocs dependency); see `_steps` below
+
 # Must match the glob in .github/workflows/sidecar.yml's parity step
 # (test_contract_glob_matches_workflow_glob asserts they stay in lockstep).
 SIDECAR_FILE_GLOB = "test_*sidecar*.py"
@@ -390,12 +392,17 @@ def test_packaging_install_smoke_exercises_the_pkg_resources_path() -> None:
     )
 
 
-# --- The release pipeline (release.yml, M9 / ADR-0050) ---
-# release.yml builds + code-signs + publishes the installers on a signed `v*` tag. It runs
-# ONLY on a tag push and manual dispatch — never on pull_request/branch-push/merge_group —
-# so, like the advisory legs, it can never report a gating status on a PR (the heavy
-# build+sign must not sit in the required matrix). It also uses `bash -el {0}` in its build
-# job, so the same explicit-exit footgun applies. These guards keep that shape honest.
+# --- The release pipeline (release.yml, M9 / ADR-0059) ---
+# release.yml builds + publishes the installers on a signed `v*` tag. It runs ONLY on a tag
+# push and manual dispatch — never on pull_request/branch-push/merge_group — so, like the
+# advisory legs, it can never report a gating status on a PR (the heavy build must not sit
+# in the required matrix). It also uses `bash -el {0}` in its build job, so the same
+# explicit-exit footgun applies. These guards keep that shape honest.
+#
+# The installers are NOT OS-code-signed (ADR-0059 supersedes ADR-0050): SignPath Foundation
+# declined enrollment and Apple Developer ID is out of budget, so the inert legs were removed
+# rather than shipped dormant. The tag signature the `verify` job checks is a different
+# mechanism and stays.
 RELEASE_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml"
 
 
@@ -404,7 +411,7 @@ def test_release_leg_never_gates_a_pr() -> None:
 
     A ``pull_request``/``merge_group`` trigger, or a branch-filtered ``push``, would report a
     status on a PR or branch and could (silently) become a required merge check. The heavy
-    build+sign pipeline must stay off that path (the ADR-0049/0050 posture). Adding any such
+    build pipeline must stay off that path (the ADR-0049/0059 posture). Adding any such
     trigger fails this guard, so the choice would have to be deliberate.
     """
     text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
@@ -439,7 +446,217 @@ def test_release_workflow_uses_no_explicit_exit() -> None:
     )
 
 
-# --- The release-staging completeness gate (release.yml, M9 / ADR-0050) ---
+#: Every token that only appears in an OS-code-signing leg. ADR-0059 removed both legs, so
+#: none of these may return without a superseding decision -- and a returning leg would be
+#: *inert* again, which is the failure mode that is invisible in a green run.
+_SIGNING_TOKENS = (
+    "SIGNPATH",
+    "signpath",
+    "APPLE_SIGNING",
+    "APPLE_CERT",
+    "APPLE_NOTARY",
+    "productsign",
+    "notarytool",
+    "stapler",
+    "create-keychain",
+    "UNSIGNED",
+)
+
+
+def test_the_release_pipeline_carries_no_code_signing_leg() -> None:
+    """ADR-0059: the inert SignPath and Apple legs are removed, not shipped dormant.
+
+    Both legs were written green-before-secrets, so neither ever executed: `v1.0.0-rc1`'s
+    only annotation was the "SignPath not configured" warning. Inert CI is the specific
+    thing a green run cannot tell you about, which is why the removal needs a guard rather
+    than a commit message -- a re-added leg would be just as green and just as dead.
+
+    This asserts the *shape* only. It takes no position on whether Tether should ever be
+    code-signed; #244 tracks re-applying, and reversing this is an ADR, not an edit.
+    """
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    found = sorted({token for token in _SIGNING_TOKENS if token in text})
+    assert not found, (
+        "release.yml must carry no OS-code-signing leg (ADR-0059 removed them); found "
+        f"{found}. Re-adding signing supersedes ADR-0059 and updates this guard with it."
+    )
+
+
+#: The action whose presence *is* ADR-0059's integrity anchor for the installers.
+ATTEST_ACTION = "actions/attest-build-provenance@"
+
+
+#: The job that publishes the Release, and therefore the only job whose attestation counts.
+PUBLISH_JOB = "release"
+
+#: `if:` values that disable a step unconditionally. A step gated on a runtime expression
+#: (the real one is `needs.verify.outputs.publish == 'true'`) is live; one gated on a literal
+#: false is dead, and dead is exactly the state ADR-0059 removed the signing legs for.
+_STATICALLY_DISABLED = frozenset({"false", "${{ false }}", "${{false}}"})
+
+
+def _job_steps(text: str, job_id: str) -> list[dict]:
+    """The steps of ONE named job, from the parsed workflow.
+
+    Scoping to a job matters: an `actions/attest-build-provenance` step in `build`, or in
+    some future unrelated job, attests nothing about the published Release, and a guard that
+    accepted one would go green while the publish path had none.
+    """
+    workflow = yaml.safe_load(text)
+    job = (workflow.get("jobs") or {}).get(job_id)
+    assert job is not None, f"release.yml must keep a `{job_id}` job"
+    return [step for step in (job.get("steps") or []) if isinstance(step, dict)]
+
+
+def _is_live(step: dict) -> bool:
+    """False only when the step is switched off by a constant, not by a runtime gate."""
+    condition = step.get("if")
+    if condition is None:
+        return True
+    if isinstance(condition, bool):
+        return condition
+    return str(condition).strip().lower() not in _STATICALLY_DISABLED
+
+
+def _steps(text: str) -> list[dict]:
+    """Every step of every job, from the PARSED workflow.
+
+    Deliberately a YAML parse -- the one place this module departs from its otherwise
+    stdlib-only (``ast``/``re``) style. Two text-matching versions of the guard below were
+    both false-green, and the second failure is the argument for parsing:
+
+    * v1 searched the whole file for the bare action name, which this workflow's own header
+      comment contains, so deleting the step kept the guard green (Codex, #319);
+    * v2 stripped whole-line comments and matched a ``uses:`` line pattern, which a
+      ``run: |`` block scalar containing that text still satisfies, and which a perfectly
+      valid ``uses: "actions/attest-build-provenance@<sha>"`` still misses (CodeRabbit,
+      #319).
+
+    A parser tells a step's ``uses`` key from a string that merely looks like one, which no
+    regex over the same text can. ``yaml`` is on the base 3-OS ``test`` matrix already --
+    ``test_issue_forms``, ``test_docs_prd_pointers``, ``test_citation_metadata``,
+    ``test_scope_guard`` and ``test_triage`` all import it -- so this costs no dependency.
+    """
+    workflow = yaml.safe_load(text)
+    return [
+        step
+        for job in (workflow.get("jobs") or {}).values()
+        for step in (job.get("steps") or [])
+        if isinstance(step, dict)
+    ]
+
+
+def _step_uses(text: str) -> list[str]:
+    """Every step's ``uses:`` value -- an action the runner really invokes."""
+    return [s["uses"] for s in _steps(text) if isinstance(s.get("uses"), str)]
+
+
+def _step_run_scripts(text: str) -> str:
+    """Every step's ``run:`` script -- the shell the runner really executes."""
+    return "\n".join(s["run"] for s in _steps(text) if isinstance(s.get("run"), str))
+
+
+def test_the_integrity_anchor_that_replaced_signing_is_still_wired() -> None:
+    """The other half of ADR-0059, and the half that actually protects a downloader.
+
+    Removing signing is only defensible because the manifests and the attestation remain.
+    A guard on the absence alone would stay green if the replacement were deleted too,
+    which is the worse outcome of the two, so both are pinned together.
+
+    Both halves assert against the PARSED workflow: the attestation as a live step's
+    ``uses`` key **in the publishing job**, the manifests as text in a real step's ``run``
+    script. See :func:`_steps` for the false-greens that got it here -- three distinct ways
+    for this guard to pass while the published Release carries no provenance, two of them
+    found by reviewers rather than by me.
+    """
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    attesting = [
+        step
+        for step in _job_steps(text, PUBLISH_JOB)
+        if isinstance(step.get("uses"), str)
+        and step["uses"].startswith(ATTEST_ACTION)
+        and _is_live(step)
+    ]
+    assert attesting, (
+        f"the `{PUBLISH_JOB}` job must carry a live `uses: {ATTEST_ACTION}<sha>` step -- "
+        "ADR-0059's integrity anchor for the installers. A step in another job, or one "
+        "switched off by a constant `if:`, attests nothing about the published Release. "
+        f"Steps found in `{PUBLISH_JOB}`: "
+        f"{sorted(s.get('uses', '(run)') for s in _job_steps(text, PUBLISH_JOB))}"
+    )
+    assert "SHA256SUMS" in _step_run_scripts(text), (
+        "a `run:` step in release.yml must still produce the SHA-256 manifests -- "
+        "ADR-0059's other anchor"
+    )
+
+
+def test_the_anchor_guard_recognises_a_step_and_nothing_else() -> None:
+    """The regression test for the guard itself, since its whole failure was staying green.
+
+    An absence-assertion proves nothing unless presence is shown, so both false-green forms
+    that actually shipped are pinned here beside the valid spellings that must pass.
+    """
+    step = "jobs:\n  release:\n    steps:\n      - uses: {}\n"
+
+    # Valid spellings. The quoted form is why this is a parse and not a regex: v2's pattern
+    # rejected it while accepting text that was not a step at all.
+    assert _step_uses(step.format("actions/attest-build-provenance@abc123")) == [
+        "actions/attest-build-provenance@abc123"
+    ]
+    assert _step_uses(step.format('"actions/attest-build-provenance@abc123"')) == [
+        "actions/attest-build-provenance@abc123"
+    ]
+
+    # v1's false green: named in a comment, with no step at all.
+    commented = "jobs:\n  release:\n    steps:\n      # uses: actions/attest-build-provenance@v3\n"
+    assert not [u for u in _step_uses(commented) if u.startswith(ATTEST_ACTION)]
+
+    # v2's false green: the same text inside a `run:` block scalar, which is a shell script
+    # and attests nothing.
+    block_scalar = (
+        "jobs:\n"
+        "  release:\n"
+        "    steps:\n"
+        "      - name: Not an attestation\n"
+        "        run: |\n"
+        "          echo 'uses: actions/attest-build-provenance@abc123'\n"
+    )
+    assert not [u for u in _step_uses(block_scalar) if u.startswith(ATTEST_ACTION)]
+
+
+def test_the_anchor_guard_rejects_an_attestation_that_cannot_run() -> None:
+    """The two bypasses Codex named that surviving the parse alone would not have closed.
+
+    A step can be perfectly real, perfectly parsed, and still attest nothing about the
+    published Release -- by sitting in a different job, or by being switched off with a
+    constant. Both are the same failure ADR-0059 removed the signing legs to end: present,
+    green, and dead.
+    """
+    attest = f"      - uses: {ATTEST_ACTION}abc123\n"
+
+    # Wrong job. `build` runs per-platform and publishes nothing.
+    wrong_job = (
+        f"jobs:\n  build:\n    steps:\n{attest}  release:\n    steps:\n      - run: echo hi\n"
+    )
+    assert not [
+        s
+        for s in _job_steps(wrong_job, PUBLISH_JOB)
+        if str(s.get("uses", "")).startswith(ATTEST_ACTION)
+    ]
+
+    # Right job, switched off by a constant.
+    disabled = f"jobs:\n  release:\n    steps:\n{attest}        if: false\n"
+    steps = _job_steps(disabled, PUBLISH_JOB)
+    assert steps and str(steps[0]["uses"]).startswith(ATTEST_ACTION)
+    assert not _is_live(steps[0])
+
+    # A runtime gate is NOT a constant -- the real step carries one and must stay live.
+    gate = "        if: needs.verify.outputs.publish == 'true'\n"
+    live = f"jobs:\n  release:\n    steps:\n{attest}{gate}"
+    assert _is_live(_job_steps(live, PUBLISH_JOB)[0])
+
+
+# --- The release-staging completeness gate (release.yml, M9 / ADR-0059) ---
 # The `release` job aggregates the 4-leg `build` matrix with `download-artifact` and stages the
 # assets with `find ... -exec cp`, which exits 0 when it matches NOTHING -- even under `set -euo
 # pipefail`. The two steps that would otherwise notice an empty stage (attest-build-provenance over
