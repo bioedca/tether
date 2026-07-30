@@ -338,12 +338,23 @@ def _render(task: Path, record: dict[str, Any], item: dict[str, Any]) -> str:
     }
     text = task.read_text(encoding="utf-8")
     if text.lstrip().startswith("<!--"):
-        _, _, text = text.partition("-->")
+        # `str.partition` returns ("<!-- ...", "", "") when the separator is absent, so tolerating a
+        # missing "-->" hands the worker an EMPTY task - which then passes the placeholder guard
+        # below, there being nothing left to be unsubstituted. That failure is silent and it is not
+        # free: the claim has already been taken, and for an AMEND a round has already been spent on
+        # the compare-and-swap. Require the delimiter instead.
+        _, closed, remainder = text.partition("-->")
+        if not closed:
+            raise SlotError(f"{task.name} opens a comment block that is never closed")
+        text = remainder
     text = text.lstrip("\n")
     for key, value in values.items():
         text = text.replace(f"{{{{{key}}}}}", value)
     if "{{" in text:
         raise SlotError(f"{task.name} has an unsubstituted placeholder; refusing to inject it")
+    if not text.strip():
+        # The placeholder guard cannot see this one: an empty task has no placeholder left in it.
+        raise SlotError(f"{task.name} renders to nothing; refusing to inject an empty task")
     return text
 
 
