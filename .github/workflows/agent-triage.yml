@@ -15,18 +15,34 @@
 #   trigger either provider? If yes, the trigger belongs in this workflow and agent-authored triggers
 #   can be forbidden outright, which is the strongest form of the control since asking is the only way
 #   a round can begin.
-#   Status: NOT ANSWERED (tracked as #284), and this workflow therefore does not post triggers.
-#   `check_suite` and `workflow_dispatch` require the workflow file to be on the DEFAULT branch, so
-#   neither can fire from the branch that introduces it. `pull_request_review` is different and this
-#   was measured, not assumed: on #285 a review submission DID run this workflow from the pull
-#   request's own head. That is worth knowing for two reasons - the review paths are testable before
-#   merge, and a PR can therefore run its OWN version of this file with `issues: write`. The checkout
-#   pin below removes the unreviewed-*Python* half of that; the workflow *definition* still comes from
-#   the head on review events, which is inherent to the trigger and is accepted here because the
-#   repository is user-owned with no external contributors. Do not read the pin as making a
-#   contributor-facing repository safe.
-#   Until it is: the cap rests on this counter PLUS the launcher's own refusal PLUS a post-merge
-#   audit - genuinely weaker than a platform-enforced trigger, and said plainly rather than implied.
+#   Status: ANSWERED 2026-07-30 on #299, and the answer is SPLIT - so this workflow still does not
+#   post triggers, and the reason is now measured rather than assumed.
+#
+#     CodeRabbit: YES. A `@coderabbitai review` authored by `github-actions[bot]` started a real
+#     review round. Its own reply names the author: "CodeRabbit received the review request from
+#     `github-actions[bot]`; starting a review round for the probe."
+#
+#     Codex: NO. It answered "To use Codex here, create a Codex account and connect to github." That
+#     is an author-identity check - Codex resolves the commenting user to a Codex account and
+#     `github-actions[bot]` has none. A PROVIDER-SIDE filter, not a platform rule: `GITHUB_TOKEN`
+#     event suppression governs starting workflow runs, not third-party App webhooks, and CodeRabbit
+#     receiving the same comment proves the webhook was delivered.
+#
+#   So the trigger CANNOT move into this workflow. Moving only CodeRabbit's leg would be worse than
+#   moving neither: on `high` the two are requested together and answered as ONE round, and a
+#   workflow that auto-requests one of them turns that into two. Defeating the Codex filter needs a
+#   PAT or App identity with a linked Codex account, which is a deliberate decision about credentials
+#   and not a workaround to reach for here.
+#
+#   The cap therefore rests on this counter PLUS the launcher's refusal PLUS a post-merge audit
+#   (#300) - genuinely weaker than a platform-enforced trigger, and said plainly rather than implied.
+#   `pull_request_review` is a different matter and was also measured: on #285 a review submission
+#   DID run this workflow from the pull request's own head. That is worth knowing for two reasons -
+#   the review paths are testable before merge, and a PR can therefore run its OWN version of this
+#   file with `issues: write`. The checkout pin below removes the unreviewed-*Python* half of that;
+#   the workflow *definition* still comes from the head on review events, which is inherent to the
+#   trigger and is accepted here because the repository is user-owned with no external contributors.
+#   Do not read the pin as making a contributor-facing repository safe.
 #
 # The counter can UNDERCOUNT and never overcounts: only head-bound evidence (review submissions and
 # inline review comments, which carry commit_id) is counted, so a provider answering in a plain issue
