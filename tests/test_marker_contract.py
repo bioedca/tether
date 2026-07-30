@@ -390,12 +390,17 @@ def test_packaging_install_smoke_exercises_the_pkg_resources_path() -> None:
     )
 
 
-# --- The release pipeline (release.yml, M9 / ADR-0050) ---
-# release.yml builds + code-signs + publishes the installers on a signed `v*` tag. It runs
-# ONLY on a tag push and manual dispatch — never on pull_request/branch-push/merge_group —
-# so, like the advisory legs, it can never report a gating status on a PR (the heavy
-# build+sign must not sit in the required matrix). It also uses `bash -el {0}` in its build
-# job, so the same explicit-exit footgun applies. These guards keep that shape honest.
+# --- The release pipeline (release.yml, M9 / ADR-0059) ---
+# release.yml builds + publishes the installers on a signed `v*` tag. It runs ONLY on a tag
+# push and manual dispatch — never on pull_request/branch-push/merge_group — so, like the
+# advisory legs, it can never report a gating status on a PR (the heavy build must not sit
+# in the required matrix). It also uses `bash -el {0}` in its build job, so the same
+# explicit-exit footgun applies. These guards keep that shape honest.
+#
+# The installers are NOT OS-code-signed (ADR-0059 supersedes ADR-0050): SignPath Foundation
+# declined enrollment and Apple Developer ID is out of budget, so the inert legs were removed
+# rather than shipped dormant. The tag signature the `verify` job checks is a different
+# mechanism and stays.
 RELEASE_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml"
 
 
@@ -404,7 +409,7 @@ def test_release_leg_never_gates_a_pr() -> None:
 
     A ``pull_request``/``merge_group`` trigger, or a branch-filtered ``push``, would report a
     status on a PR or branch and could (silently) become a required merge check. The heavy
-    build+sign pipeline must stay off that path (the ADR-0049/0050 posture). Adding any such
+    build pipeline must stay off that path (the ADR-0049/0059 posture). Adding any such
     trigger fails this guard, so the choice would have to be deliberate.
     """
     text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
@@ -439,7 +444,57 @@ def test_release_workflow_uses_no_explicit_exit() -> None:
     )
 
 
-# --- The release-staging completeness gate (release.yml, M9 / ADR-0050) ---
+#: Every token that only appears in an OS-code-signing leg. ADR-0059 removed both legs, so
+#: none of these may return without a superseding decision -- and a returning leg would be
+#: *inert* again, which is the failure mode that is invisible in a green run.
+_SIGNING_TOKENS = (
+    "SIGNPATH",
+    "signpath",
+    "APPLE_SIGNING",
+    "APPLE_CERT",
+    "APPLE_NOTARY",
+    "productsign",
+    "notarytool",
+    "stapler",
+    "create-keychain",
+    "UNSIGNED",
+)
+
+
+def test_the_release_pipeline_carries_no_code_signing_leg() -> None:
+    """ADR-0059: the inert SignPath and Apple legs are removed, not shipped dormant.
+
+    Both legs were written green-before-secrets, so neither ever executed: `v1.0.0-rc1`'s
+    only annotation was the "SignPath not configured" warning. Inert CI is the specific
+    thing a green run cannot tell you about, which is why the removal needs a guard rather
+    than a commit message -- a re-added leg would be just as green and just as dead.
+
+    This asserts the *shape* only. It takes no position on whether Tether should ever be
+    code-signed; #244 tracks re-applying, and reversing this is an ADR, not an edit.
+    """
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    found = sorted({token for token in _SIGNING_TOKENS if token in text})
+    assert not found, (
+        "release.yml must carry no OS-code-signing leg (ADR-0059 removed them); found "
+        f"{found}. Re-adding signing supersedes ADR-0059 and updates this guard with it."
+    )
+
+
+def test_the_integrity_anchor_that_replaced_signing_is_still_wired() -> None:
+    """The other half of ADR-0059, and the half that actually protects a downloader.
+
+    Removing signing is only defensible because the manifests and the attestation remain.
+    A guard on the absence alone would stay green if the replacement were deleted too,
+    which is the worse outcome of the two, so both are pinned together.
+    """
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    assert "actions/attest-build-provenance" in text, (
+        "the build-provenance attestation is ADR-0059's integrity anchor for the installers"
+    )
+    assert "SHA256SUMS" in text, "the SHA-256 manifests are ADR-0059's other integrity anchor"
+
+
+# --- The release-staging completeness gate (release.yml, M9 / ADR-0059) ---
 # The `release` job aggregates the 4-leg `build` matrix with `download-artifact` and stages the
 # assets with `find ... -exec cp`, which exits 0 when it matches NOTHING -- even under `set -euo
 # pipefail`. The two steps that would otherwise notice an empty stage (attest-build-provenance over

@@ -5,7 +5,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0050 — Release pipeline + code-signing (tag-driven, SignPath for Windows, gated Apple)
 
-- **Status:** accepted
+- **Status:** accepted; the **code-signing half is superseded by
+  [ADR-0059](0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)** (2026-07-30),
+  which removed the SignPath and Apple legs after SignPath Foundation declined enrollment. The
+  *pipeline* half — the tag-driven shape, green-before-secrets, the checksums, the SBOM, the
+  attestation, and the never-a-required-PR-check posture — still governs. Nothing below is
+  rewritten: the body records what was decided in July 2026, including a signing plan that did
+  not survive contact with the programme's eligibility criteria.
 - **Date:** 2026-07-14
 - **Deciders:** bioedca
 - **PRD anchor:** §9 M9 (packaging & docs), §12.7 (release pipeline), §4.1 (installers)

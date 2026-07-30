@@ -1,23 +1,20 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# release — the M9 release pipeline (PRD §9 M9, §12.7; ADR-0050). Driven by a signed,
-# annotated `v*` tag on main (or a manual dry-run): verify the tag → build the 3-OS
-# constructor installers (the PR-1 recipe) → CODE-SIGN them → checksum + SBOM →
+# release — the M9 release pipeline (PRD §9 M9, §12.7; ADR-0059, superseding ADR-0050).
+# Driven by a signed, annotated `v*` tag on main (or a manual dry-run): verify the tag →
+# build the 3-OS constructor installers (the PR-1 recipe) → checksum + SBOM →
 # build-provenance attestation → GitHub Release with the installers, checksums, SBOM
 # and the frozen conda locks, plus an auto changelog from Conventional Commits.
 #
-# SIGNING IS GATED, NOT HARDCODED (ADR-0050):
-#   * Windows — SignPath (free for OSS). The signing step runs only when the SignPath
-#     repository VARIABLES are set (vars.SIGNPATH_* — non-secret, usable in `if:`),
-#     with the API token as a secret. Until the project is enrolled at signpath.io
-#     and the vars/secret are added, the Windows installer ships UNSIGNED.
-#   * macOS — Developer ID codesign + notarytool, gated on `vars.APPLE_SIGNING_ENABLED
-#     == 'true'`. Until an Apple Developer account + certs/creds exist as secrets, the
-#     macOS installer ships UNSIGNED (Gatekeeper warns).
-#   * Linux — no OS-level signing; the SHA-256 checksums (and provenance attestation)
-#     are the integrity anchor.
-# See docs/release.md for the exact variables/secrets and the SignPath enrollment steps.
+# THE INSTALLERS ARE NOT OS-CODE-SIGNED (ADR-0059). The integrity anchor is the same on
+# all three platforms: the SHA-256 manifests published with the Release, and the
+# `actions/attest-build-provenance` in-toto attestation over every installer, verifiable
+# with `gh attestation verify --repo bioedca/tether <file>`.
+#
+# The tag signature verified in `verify` below is a DIFFERENT mechanism and is unaffected:
+# it authenticates who cut the release, not the binaries. Do not read its presence here as
+# code-signing.
 #
 # `cancel-in-progress: false` — a release must never be cancelled mid-flight.
 name: release
@@ -33,7 +30,7 @@ on:
         type: string
         required: true
       dry_run:
-        description: "Build + sign + validate but do NOT publish a GitHub Release."
+        description: "Build + validate but do NOT publish a GitHub Release."
         type: boolean
         default: true
 
@@ -112,10 +109,10 @@ jobs:
           echo "Verified annotated + signed tag $TAG on main."
 
   # ---------------------------------------------------------------------------
-  # 2) Build + sign the 3-OS installers (the PR-1 constructor recipe + signing).
+  # 2) Build the 3-OS installers (the PR-1 constructor recipe).
   # ---------------------------------------------------------------------------
   build:
-    name: build+sign / ${{ matrix.platform }}
+    name: build / ${{ matrix.platform }}
     needs: verify
     strategy:
       fail-fast: false
@@ -252,85 +249,10 @@ jobs:
       - name: Build the installer
         run: constructor --output-dir packaging/dist packaging/
 
-      # --- Windows code-signing via SignPath (free for OSS) -------------------
-      # Gated on the SignPath repo VARIABLES (non-secret → usable in `if:`); the API
-      # token is a secret. When unset, the .exe ships unsigned (see docs/release.md).
-      - name: Upload the unsigned Windows installer (for SignPath)
-        id: unsigned_exe
-        if: runner.os == 'Windows' && vars.SIGNPATH_ORGANIZATION_ID != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: tether-installer-win-64-unsigned
-          path: packaging/dist/*.exe
-          if-no-files-found: error
-
-      - name: Sign the Windows installer (SignPath)
-        if: runner.os == 'Windows' && vars.SIGNPATH_ORGANIZATION_ID != ''
-        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd # v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ steps.unsigned_exe.outputs.artifact-id }}
-          wait-for-completion: true
-          # Overwrite the unsigned .exe in place with the signed one.
-          output-artifact-directory: packaging/dist
-
-      - name: Note when Windows signing is skipped (no SignPath config)
-        if: runner.os == 'Windows' && vars.SIGNPATH_ORGANIZATION_ID == ''
-        run: echo "::warning::SignPath not configured (vars.SIGNPATH_ORGANIZATION_ID unset) — the Windows installer ships UNSIGNED. See docs/release.md."
-
-      # --- macOS code-signing + notarization (gated; unsigned until enrolled) --
-      # PREREQUISITE before flipping vars.APPLE_SIGNING_ENABLED on: notarization
-      # (notarytool + stapler) additionally requires every Mach-O binary in the
-      # bundled conda payload to be Developer-ID-Application-signed with a hardened
-      # runtime. This step signs only the outer .pkg (productsign); the payload
-      # deep-sign is a documented follow-up (docs/release.md) — until it exists,
-      # enabling the gate would fail notarization. macOS therefore ships UNSIGNED.
-      - name: Sign + notarize the macOS installer (Developer ID)
-        if: runner.os == 'macOS' && vars.APPLE_SIGNING_ENABLED == 'true'
-        env:
-          APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
-          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
-          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
-        run: |
-          set -euo pipefail
-          pkg="$(ls packaging/dist/*.pkg | head -1)"
-          # Import the Developer ID cert into a temporary keychain.
-          kc="$RUNNER_TEMP/tether-signing.keychain-db"
-          kc_pass="$(openssl rand -base64 24)"
-          security create-keychain -p "$kc_pass" "$kc"
-          security set-keychain-settings -lut 21600 "$kc"
-          security unlock-keychain -p "$kc_pass" "$kc"
-          echo "$APPLE_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$APPLE_CERT_PASSWORD" \
-            -T /usr/bin/productsign -T /usr/bin/codesign
-          security list-keychains -d user -s "$kc"
-          security set-key-partition-list -S apple-tool:,apple: -k "$kc_pass" "$kc" >/dev/null
-          # Sign the product installer.
-          signed="$RUNNER_TEMP/$(basename "$pkg" .pkg)-signed.pkg"
-          productsign --sign "$APPLE_SIGNING_IDENTITY" "$pkg" "$signed"
-          mv "$signed" "$pkg"
-          # Notarize with an App Store Connect API key, then staple the ticket.
-          echo "$APPLE_NOTARY_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
-          xcrun notarytool submit "$pkg" \
-            --key "$RUNNER_TEMP/notary.p8" \
-            --key-id "$APPLE_NOTARY_KEY_ID" \
-            --issuer "$APPLE_NOTARY_ISSUER_ID" \
-            --wait
-          xcrun stapler staple "$pkg"
-          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/notary.p8"
-          echo "Signed + notarized $pkg."
-
-      - name: Note when macOS signing is skipped
-        if: runner.os == 'macOS' && vars.APPLE_SIGNING_ENABLED != 'true'
-        run: echo "::warning::Apple signing disabled (vars.APPLE_SIGNING_ENABLED != 'true') — the macOS installer ships UNSIGNED. See docs/release.md."
-
       # --- Checksums + per-platform artifact bundle ---------------------------
+      # The installers are NOT OS-code-signed (ADR-0059). The SHA-256 manifests
+      # below and the build-provenance attestation in `release` are the integrity
+      # anchor for every platform, Windows and macOS included.
       - name: SHA-256 checksums for the installer(s)
         run: |
           set -euo pipefail
@@ -602,5 +524,5 @@ jobs:
       - name: Dry-run summary (no Release published)
         if: needs.verify.outputs.publish != 'true'
         run: |
-          echo "Dry-run for ${{ needs.verify.outputs.tag }} — built, signed (where configured), checksummed and SBOM'd; no Release published." >> "$GITHUB_STEP_SUMMARY"
+          echo "Dry-run for ${{ needs.verify.outputs.tag }} — built, checksummed and SBOM'd; no Release published." >> "$GITHUB_STEP_SUMMARY"
           ls -l out >> "$GITHUB_STEP_SUMMARY"

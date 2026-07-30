@@ -1,10 +1,10 @@
-# Releasing Tether (signed installers)
+# Releasing Tether (tag-driven pipeline)
 
-Tether ships **signed, self-contained installers** for Windows, macOS and Linux,
+Tether ships **self-contained installers** for Windows, macOS and Linux,
 built and published by [`.github/workflows/release.yml`](https://github.com/bioedca/tether/blob/main/.github/workflows/release.yml)
-(see [ADR-0050](adr/0050-release-pipeline-and-code-signing.md)). The pipeline runs on a
-signed `v*` tag: it **verifies** the tag, **builds** the installers (the
-[constructor recipe](packaging.md)), **code-signs** them, and **publishes** a GitHub
+(see [ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). The pipeline
+runs on a signed `v*` tag: it **verifies** the tag, **builds** the installers (the
+[constructor recipe](packaging.md)), and **publishes** a GitHub
 Release with checksums, a CycloneDX SBOM, the frozen Tether GUI/runtime (`conda-lock.yml`), sidecar
 (`sidecar-conda-lock.yml`), and deep (`deep-conda-lock.yml`) source-lock assets, a
 Conventional-Commits changelog, and a build-provenance attestation. Constructor consumes the first
@@ -12,9 +12,18 @@ two as its `tether` and `sidecar` extra environments; its own `base` is a live-s
 bootstrap excluded from that reproducibility bill of materials. The deep lock is standalone; the
 deep environment is not bundled into the desktop installers.
 
-Code-signing is **gated on repository variables**, so the pipeline is green before any
-signing credential exists. Until you complete the setup below, the installers ship
-**unsigned** (a build warning says so) — everything else still works.
+The installers are **not OS-code-signed** on any platform, and that is the settled 1.0 position
+rather than a pending task — SignPath Foundation declined enrollment on 2026-07-26 and Apple
+Developer ID is out of budget, so [ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)
+removed the signing legs instead of shipping them dormant.
+[Verification](#verify-a-downloaded-installer) is by SHA-256 manifest and build-provenance
+attestation, which answers the question a downloader actually has — *is this the file Tether
+built?* — without an OS trust prompt. Re-applying when the project's visibility criteria are met is
+tracked in [#244](https://github.com/bioedca/tether/issues/244).
+
+**Two different signatures, easily confused.** The release *tag* is SSH-signed and `release.yml`
+refuses to build without a GitHub-verified signature on it. That authenticates **who cut the
+release**, not the binaries, and it is unaffected by any of the above.
 
 ## Cutting a release
 
@@ -30,8 +39,8 @@ signing credential exists. Until you complete the setup below, the installers sh
     signing key registered as a *Signing Key* on the account), and its commit must be on
     `main` — `release.yml`'s `verify` job enforces all three.
 3. To rehearse without publishing, run the **`release`** workflow via *Actions → release
-   → Run workflow* with `ref: v1.0.0-rc1` and `dry_run: true` — it builds, signs (where
-   configured), checksums and SBOMs, but publishes no Release.
+   → Run workflow* with `ref: v1.0.0-rc1` and `dry_run: true` — it builds, checksums and
+   SBOMs, but publishes no Release.
 
 ### What a published Release contains: verified `v1.0.0-rc1`
 
@@ -126,13 +135,12 @@ independently hashes its local installer and enforces the GitHub repository, sig
 workflow, source tag, and source commit shown above; verifying one local file does not
 checksum the other three.
 
-#### Signing and documentation status
+#### Documentation status
 
-The RC's Windows `.exe` is **unsigned** because SignPath was not configured. Both
-macOS `.pkg` files are **unsigned** because Apple signing was disabled and the
-required payload deep-signing pass is not yet implemented. Linux has no OS-level
-installer signature by design; its SHA-256 manifests and GitHub build-provenance
-attestation are the integrity anchors.
+Every RC installer is unsigned, on all three platforms, and so is every 1.0 installer that
+follows it ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)).
+The SHA-256 manifests and the GitHub build-provenance attestation verified above are the
+integrity anchor.
 
 The prerelease is intentionally retained as this documented evidence set. Pre-releases
 also intentionally do **not** publish the documentation site: the RC release job logged
@@ -225,49 +233,31 @@ mike delete --push dev
 > first takes the published site down until the stable tree replaces it. After deleting,
 > re-check that `latest` and the site default both still resolve to `1.0`.
 
-## Windows signing — SignPath (free for open source)
+## OS code-signing: why there is none
 
-SignPath's Foundation program signs open-source releases at no cost.
+Windows, macOS and Linux are all the same case, so this section replaced the three that
+used to differ. **No installer is OS-code-signed**, the per-file and combined
+**`SHA256SUMS`** plus the build-provenance attestation are the integrity anchor everywhere,
+and users get a SmartScreen or Gatekeeper warning on Windows and macOS.
 
-1. Enroll `bioedca/tether` at [signpath.io](https://signpath.io/open-source) and create a
-   **project** and a **signing policy** (e.g. `release-signing`).
-2. In the repo, add these **variables** (Settings → Secrets and variables → Actions →
-   *Variables*) and one **secret** (*Secrets*):
+[ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) records
+the decision and the priced alternatives so they are not re-researched. In short:
 
-    | Kind | Name | Value |
-    | --- | --- | --- |
-    | Variable | `SIGNPATH_ORGANIZATION_ID` | your SignPath organization id |
-    | Variable | `SIGNPATH_PROJECT_SLUG` | the project slug (e.g. `tether`) |
-    | Variable | `SIGNPATH_SIGNING_POLICY_SLUG` | the policy slug (e.g. `release-signing`) |
-    | Secret | `SIGNPATH_API_TOKEN` | a SignPath API token |
+- **SignPath Foundation declined** `bioedca/tether` on 2026-07-26 — the programme wants
+  public-visibility signals (stars, forks, contributors, external references, institutional
+  backing) a pre-1.0 project by one maintainer does not have. A paid subscription was offered.
+- **Apple Developer ID** is out of budget at $99/yr, and enabling it was never one setting
+  away: notarization needs every Mach-O binary in the bundled conda payload
+  `codesign`ed with a *Developer ID Application* identity and a hardened runtime, and the
+  removed step signed only the outer `.pkg`.
 
-    The Windows signing step activates the moment `SIGNPATH_ORGANIZATION_ID` is set
-    (variables — not secrets — because GitHub forbids reading a secret in an `if:`).
+The legs were **removed rather than disabled**. Both were written green-before-secrets and
+neither ever executed once — `v1.0.0-rc1`'s only annotation was the "SignPath not
+configured" warning — and a dormant leg is indistinguishable from a working one in a green
+run. `tests/test_marker_contract.py` holds the shape: one guard fails if a signing token
+returns to `release.yml`, another fails if the manifests or attestation that replaced it are
+dropped.
 
-## macOS signing — Apple Developer ID (optional, deferred)
-
-Wired but **disabled by default**. To enable, you need an Apple Developer Program
-membership, a **Developer ID Installer** certificate (`.pkg` installers are signed with
-*Installer*, not *Application*), and an App Store Connect API key for notarization. Then:
-
-| Kind | Name | Value |
-| --- | --- | --- |
-| Variable | `APPLE_SIGNING_ENABLED` | `true` |
-| Variable | `APPLE_SIGNING_IDENTITY` | the Developer ID Installer identity name |
-| Secret | `APPLE_CERTIFICATE_P12_BASE64` | base64 of the `.p12` cert |
-| Secret | `APPLE_CERTIFICATE_PASSWORD` | the `.p12` password |
-| Secret | `APPLE_NOTARY_KEY_ID` | App Store Connect key id |
-| Secret | `APPLE_NOTARY_ISSUER_ID` | App Store Connect issuer id |
-| Secret | `APPLE_NOTARY_KEY_P8_BASE64` | base64 of the `.p8` notary key |
-
-> **Prerequisite before enabling.** The workflow currently `productsign`s only the outer
-> `.pkg`. Apple **notarization** additionally requires every Mach-O binary in the bundled
-> conda payload to be `codesign`ed with a *Developer ID Application* identity **and a
-> hardened runtime** — otherwise `notarytool` returns *Invalid* and `stapler` fails. Add a
-> recursive payload-signing pass (or use constructor's native `signing_identity_name` /
-> `notarization_identity_name`) before flipping `APPLE_SIGNING_ENABLED` to `true`.
-
-## Linux
-
-No OS-level signing; the per-file and combined **`SHA256SUMS`** plus the build-provenance
-attestation are the integrity anchor.
+Re-applying once the visibility criteria are met is tracked in
+[#244](https://github.com/bioedca/tether/issues/244). Reversing this is a superseding ADR
+that updates those guards with it, not an edit.
