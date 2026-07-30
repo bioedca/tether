@@ -993,24 +993,41 @@ Small, **milestone-scoped** PRs are the unit of work (ideally one issue ↔ one 
 as a **draft PR** and cannot merge. The PR title is a Conventional-Commits string (§12.2) — it
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
-`AGENTS.md` risk path: Copilot is optional, while every PR requires **one substantive independent review** from
-Codex GitHub Code Review or CodeRabbit, requested once required checks are green and the diff is declared final.
-Low and standard may use either; high/load-bearing changes require CodeRabbit. Author-side/local review and a
-green or status-only result do not satisfy the independent gate.
+`AGENTS.md` risk path: Copilot is optional, while every PR requires substantive independent review requested once
+required checks are green and the diff is declared final. **Routing: low and standard go to Codex GitHub Code
+Review; high/load-bearing goes to both Codex and CodeRabbit, requested together and answered as one round — two
+reviewers, never two rounds.** Measured on the reaper change, the two providers' findings barely intersected, so on
+the highest-risk work neither alone was sufficient; pairing them is safe only because the round cap binds.
+Author-side/local review and a green or status-only result do not satisfy the independent gate. **Neither provider
+auto-reviews this repository** — CodeRabbit reports auto reviews disabled, and Codex fires only on open-for-review,
+draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined.
 
 Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
 rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
 non-material, while executable code, scientific claims, data, schema, locks, CI/release configuration and the
 governance text itself (`AGENTS.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`, `.agents/**`) are material. A material push re-arms the review but grants **no additional round**, and a PR gets **at most two
-rounds** — a third means the issue was scoped too large. Blocking findings (CodeRabbit `Critical`/`Major`/
-`Potential issue`, Codex `P1`, anything reaching secrets, unlicensed data, a frozen oracle or tolerance, the §5
-skeleton without an ADR and version bump, or a CodeQL alert, plus anything that falsifies a claim the PR itself
-introduces) must be fixed. Every other finding is deferred to one follow-up issue per PR and its thread resolved
-with that link; fixing non-blocking findings in the same PR is a scope breach. When the **selected** provider
-reports that a change has nothing to review for that PR at the head it read, that statement satisfies the gate —
-quoted, and never substituted by the author or any other commenter — and a provider that *cannot* act may be
-swapped with the reason recorded, capability never quota. Human sign-off is required for releases, tags, signing
-changes, and any new scientific claim or citation; everything else merges without it.
+rounds** — a third means the issue was scoped too large. Under the swarm model the **launcher issues rounds**: a
+worker is short-lived, every AMEND is a new session whose task text the launcher injects with an explicit
+`ROUND = N of 2`, and past the cap it injects none — so no worker holds authority for a third. Two things are
+stop-list violations rather than judgement calls: more than one self-review pass before the first external request,
+and any review request on a PR labelled `agent:review-capped`.
+
+Blocking is decided on the **severity axis only**: CodeRabbit `Critical`/`Major`, Codex `P1`, plus anything reaching
+secrets, unlicensed data, a frozen oracle or tolerance, the §5 skeleton without an ADR and version bump, or a CodeQL
+alert — and anything that falsifies a claim the PR itself introduces. CodeRabbit renders three independent things on
+a finding, and only one is the severity: a **domain** (`Functional Correctness`, `Maintainability & Code Quality`, …),
+a **severity** (`Critical`, `Major`, `Minor`), and a machine marker (`cr-indicator-types:potential_issue`). The
+marker is a *category*, not a level — it appears on `Minor` and `Major` alike — so it never promotes a `Minor` to
+blocking. An earlier revision of this list read `Critical`/`Major`/`Potential issue`, mixing the two axes and leaving
+every `Minor` ambiguously blocking.
+
+Every other finding is deferred to one follow-up issue per PR and its thread resolved with that link; fixing
+non-blocking findings in the same PR is a scope breach, and a deferral must never point at an issue that does not
+exist. When a **selected** provider reports that a change has nothing to review for that PR at the head it read —
+including Codex's 👍 reaction, its documented form of "no suggestions" — that statement satisfies its leg, quoted and
+never substituted by the author or any other commenter. On `high`, one provider that genuinely *cannot* act leaves
+the other sufficient with the reason recorded; capability, never quota. Human sign-off is required for releases,
+tags, signing changes, and any new scientific claim or citation; everything else merges without it.
 
 `.github/pull_request_template.md` carries the **self-review checklist** — the human-judgment gate in the solo model:
 

@@ -33,10 +33,10 @@ linked work maps to one. The checklist, not CI, enforces those fields.
 - Review path (may only increase): low | standard | high
 - Risk rationale:
 - Final head SHA:
-- Review round: 1/2 | 2/2
-- Independent reviewer: Codex GitHub Code Review | CodeRabbit
-- Independent review result: pending | substantive review complete | nothing to review (quote the selected provider, naming the head it read)
-- Provider switched: no | yes (which, and why it could not act — capability, never quota)
+- Review round: 1/2 | 2/2 (a third is a stop-list violation — the launcher issues rounds, not you)
+- Independent reviewer(s): Codex (`low`/`standard`) | **both Codex and CodeRabbit** (`high`, one round)
+- Independent review result: pending | substantive review complete | nothing to review (quote each selected provider, naming the head it read; a Codex 👍 reaction counts)
+- Provider unavailable: no | yes (which, and why it could not act — capability, never quota)
 - Findings: <N> blocking (fixed) | <M> non-blocking (deferred to #____)
 - Human sign-off: n/a | release/tag/signing | new scientific claim (reviewer and evidence)
 - Optional Copilot state: not requested | pending | complete | unavailable | quota-exhausted
@@ -59,7 +59,7 @@ Confirm before requesting review:
 - [ ] **Data policy respected** — no raw/private/unlicensed data or large data in ordinary Git; issue-authorized redistributable fixtures carry license and provenance in named small or LFS/gated paths.
 - [ ] **No secrets committed** — no token, key, credential, or private path in code, tests, logs, or fixtures; `secret-scan` and push protection are green.
 - [ ] **Code scanning clean** — CodeQL (GitHub code-scanning *default setup*, hence no `codeql.yml` workflow) reports no new alerts on this PR.
-- [ ] **Review path complete** — optional Copilot state recorded; required substantive final-head review from Codex or CodeRabbit complete; high/load-bearing CodeRabbit and applicable human/domain review complete; every conversation and every actionable finding resolved.
+- [ ] **Review path complete** — optional Copilot state recorded; the substantive final-head review complete from **every** provider this risk lane routes to (`low`/`standard` → Codex; `high` → Codex **and** CodeRabbit, in one round), *or*, for a provider that genuinely **cannot** act, its unavailability recorded above with the reason — capability, never quota; applicable human/domain review complete; every conversation and every actionable finding resolved.
 - [ ] **Provenance stamped** — coordinates / corrections / app-version / parameters written into the `.tether` for any new analysis (NFR-REPRO).
 - [ ] **New tunables registered in PRD §11.2** (single source of truth), not hardcoded.
 - [ ] **Scientific/statistical claims carry a citation**; **SPDX `GPL-3.0-or-later`** header on every new source file (`reuse lint` green).
