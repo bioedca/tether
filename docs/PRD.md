@@ -183,7 +183,7 @@ operationalized as a calendar gate (§9 is capability-sequenced, with no schedul
   (PyQt5 + `numpy<2`), pinning the **subset of tMAVEN's `install_requires` needed for vbFRET / consensus VB-HMM /
   ebFRET** rather than the full set: `biasd @ git+main` is omitted (lazy-imported, not on conda-forge, unused by the
   three in-scope HMM methods) and the unbounded `numba>=0.51.0` is given an explicit upper bound, so the sidecar can
-  ship inside an offline signed installer (§4.3, §9 M9). Data is exchanged as SMD-HDF5; the same export is the
+  ship inside an offline installer (§4.3, §9 M9). Data is exchanged as SMD-HDF5; the same export is the
   standalone-GUI hand-off.
 - **ML:** scikit-learn / XGBoost [Chen2016] for the classical, warm-start/incremental per-condition model →
   PyTorch (deep, GPU) for DeepFRET-style trace classifiers [Thomsen2020], hosted in a **third isolated `deep/`
@@ -745,7 +745,7 @@ validation front-loaded at M0.5.
 - **tMAVEN sidecar cannot be driven headlessly / bundled.** Mitigation: the **pre-committed escalation** is a
   prebuilt **bundled sidecar invoked over a stable IPC** (not an in-process embed, which would reintroduce the
   `numpy<2` conflict). The sidecar ships a **trimmed/pinned** dependency subset (omit `biasd @ git+main`, bound
-  `numba`) so it fits an offline signed installer (§4.1/§4.3, §9 M9). In-app idealization stays in the MVP;
+  `numba`) so it fits an offline installer (§4.1/§4.3, §9 M9). In-app idealization stays in the MVP;
   hand-off-only is not an acceptable fallback (FR-IDEALIZE). The standalone hand-off remains a *feature*, not the
   mechanism.
 - **tMAVEN is not bit-reproducible — it self-reseeds its RNG.** Mitigation: parity is defined as **statistical
@@ -911,7 +911,7 @@ though **tMAVEN is never vendored** — reference clones are algorithm-reference
   machine-checkable, enforced by a `reuse lint` hook in pre-commit and CI (§12.6, §12.9).
 - **`NOTICE`** records that Tether **interoperates with and runs an isolated tMAVEN sidecar** (GPL-3.0,
   [Verma2024], pinned commit `10f4230…`) shipping under its own license in its own environment (§4.3), and credits
-  Deep-LASI [Wanninger2023] and MASH-FRET [Börner2018] as algorithm references. The M9 signed installer that
+  Deep-LASI [Wanninger2023] and MASH-FRET [Börner2018] as algorithm references. The M9 installer that
   *bundles* the sidecar (§9 M9) must ship tMAVEN's license text alongside Tether's; the SBOM (§12.8) lists the
   sidecar as a distinct, attributed component.
 
@@ -1211,7 +1211,7 @@ CPU `deep.yml` leg, exercising the `device="cuda"` path.
 (`security-events: write` for CodeQL; `pages: write` + `id-token: write` for docs deploy; `contents: write` +
 `id-token: write` + `attestations: write` for the release; `issues: write` for the audit). `concurrency: { group:
 ${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: true }` cancels superseded runs — **except**
-`release.yml` (`cancel-in-progress: false`; never cancel a half-built signed installer).
+`release.yml` (`cancel-in-progress: false`; never cancel a half-built installer).
 `setup-micromamba`'s `cache-environment` is keyed on the lock hash + OS + Python, with separate base/sidecar cache
 namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and a lock bump cleanly invalidates it.
 

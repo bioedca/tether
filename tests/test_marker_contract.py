@@ -480,18 +480,62 @@ def test_the_release_pipeline_carries_no_code_signing_leg() -> None:
     )
 
 
+def _executable_yaml(text: str) -> str:
+    """``text`` with whole-line YAML comments dropped -- what the runner actually runs.
+
+    A guard on the raw file cannot tell a step from a sentence *about* a step, and this
+    workflow's header comment names both integrity anchors by name. So a substring sweep
+    over the whole file would be satisfied by the prose that survives the deletion it is
+    supposed to catch.
+    """
+    return "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
+
+
+#: The attestation as an executable step: a `uses:` key, SHA-pinned like every action here.
+#: The optional `- ` matters -- the step is written both as a bare `uses:` under a `- name:`
+#: and as a `- uses:` list item, and a pattern that missed the second form would be the same
+#: false-green in a different place.
+_ATTEST_STEP_RE = re.compile(r"^\s*-?\s*uses:\s*actions/attest-build-provenance@", re.M)
+
+
 def test_the_integrity_anchor_that_replaced_signing_is_still_wired() -> None:
     """The other half of ADR-0059, and the half that actually protects a downloader.
 
     Removing signing is only defensible because the manifests and the attestation remain.
     A guard on the absence alone would stay green if the replacement were deleted too,
     which is the worse outcome of the two, so both are pinned together.
+
+    Asserted on the *executable* YAML, not on the file text. The first version of this
+    guard searched the whole file for the bare string ``actions/attest-build-provenance``
+    -- which this workflow's own header comment contains. Deleting the attestation step
+    while leaving that comment in place would have published a release with no provenance
+    and a green guard: the exact "inert but green" failure ADR-0059 exists to end,
+    reintroduced by the test written to prevent it. Codex caught it on #319.
     """
-    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
-    assert "actions/attest-build-provenance" in text, (
-        "the build-provenance attestation is ADR-0059's integrity anchor for the installers"
+    executable = _executable_yaml(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    assert _ATTEST_STEP_RE.search(executable), (
+        "release.yml must RUN actions/attest-build-provenance (a `uses:` step, not a "
+        "mention in a comment) — it is ADR-0059's integrity anchor for the installers"
     )
-    assert "SHA256SUMS" in text, "the SHA-256 manifests are ADR-0059's other integrity anchor"
+    assert "SHA256SUMS" in executable, (
+        "release.yml must still produce the SHA-256 manifests — ADR-0059's other anchor"
+    )
+
+
+def test_the_anchor_guard_is_not_satisfied_by_a_comment() -> None:
+    """The regression test for the guard itself, since its whole failure was staying green.
+
+    An absence-assertion proves nothing unless presence is shown, and here the thing that
+    has to be shown is that prose does *not* count.
+    """
+    commented_out = (
+        "jobs:\n  release:\n    steps:\n      # uses: actions/attest-build-provenance@v3\n"
+    )
+    assert not _ATTEST_STEP_RE.search(_executable_yaml(commented_out))
+    real = (
+        "jobs:\n  release:\n    steps:\n      - uses: actions/attest-build-provenance@abc123 # v3\n"
+    )
+    assert _ATTEST_STEP_RE.search(_executable_yaml(real))
 
 
 # --- The release-staging completeness gate (release.yml, M9 / ADR-0059) ---
