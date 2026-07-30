@@ -36,6 +36,7 @@ import re
 import secrets
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -292,6 +293,60 @@ def _cmd_scope_hash(args: argparse.Namespace) -> None:
     )
 
 
+# The activity API is eventually consistent: `POST /git/refs` can return 201 before the matching
+# `branch_creation` entry is readable. Measured on the first live claim this repository ever made -
+# a single read missed it, and the record was present moments later.
+#
+# This is a read-after-write consistency wait, NOT the polling ADR-0057 retired. That was 977
+# `wait_*` calls waiting on *other agents*; this waits a few seconds on one server's own index for a
+# write it has already acknowledged, and it is bounded by a constant rather than by an outcome.
+# Do not remove it as "polling" without re-reading this paragraph.
+GENERATION_ATTEMPTS = (0.0, 1.0, 2.0, 3.0, 4.0, 5.0)
+
+
+def _await_generation(number: int) -> int | None:
+    """The claim's generation, allowing the activity index to catch up.
+
+    ``None`` when it never does.
+    """
+    for delay in GENERATION_ATTEMPTS:
+        if delay:
+            time.sleep(delay)
+        generation = _generation(number)
+        if generation is not None:
+            return generation
+    return None
+
+
+def _unfenced_claim(branch: str) -> None:
+    """Report a claim that exists but cannot be fenced. **Deliberately does not delete it.**
+
+    An earlier version deleted the ref after checking its tip still equalled the SHA this call
+    created it at. Codex and CodeRabbit both refused that independently, and they were right: the
+    `GET`-compare-`DELETE` is not atomic, `DELETE /git/refs` accepts no expected-SHA precondition
+    (``reaper.py`` documents this at its own retire path), and the base SHA is **not a claim
+    identity** - a successor claiming the same issue while the default branch has not moved creates
+    the ref at exactly the same SHA. So the guard can pass on a ref that is no longer ours, and the
+    delete then removes a successor's live claim.
+
+    Leaking a claim costs one reaper cycle. Deleting a successor's claim puts two workers on one
+    issue, which is the single failure the mutex exists to prevent. Retaining is the correct trade,
+    and it is what both reviewers asked for.
+
+    The residual is tracked rather than hidden: if the activity record NEVER appears - as opposed to
+    appearing late, which is what was actually observed - the reaper reads it as `activity-unknown`
+    and *keeps* the ref rather than reclaiming it, by design (``reaper.py``: absent is unknown, not
+    stale). That leaves a ref no automated path clears. See #303.
+    """
+    raise ClaimError(
+        f"the claim ref {branch} exists but its activity record never appeared, so it cannot be "
+        "fenced and this claim is not usable. The ref is NOT deleted - releasing it here could "
+        "remove a successor's claim, since the base SHA is not a claim identity. Do not re-claim: "
+        "the reaper resolves it once the record lands. If it never does, it needs a maintainer "
+        "(#303)."
+    )
+
+
 def _cmd_claim(args: argparse.Namespace) -> None:
     number = args.issue
     try:
@@ -311,9 +366,9 @@ def _cmd_claim(args: argparse.Namespace) -> None:
     if status != 201:
         raise ClaimError(f"claim ref creation failed with HTTP {status}")
 
-    generation = _generation(number)
+    generation = _await_generation(number)
     if generation is None:
-        raise ClaimError("claim ref created but no server activity record appeared")
+        _unfenced_claim(branch)
 
     # The label is a MIRROR, never the lock. If this write fails the claim is still valid and the
     # next agent still gets 422; the reverse would not be safe, so failure here is not fatal.
