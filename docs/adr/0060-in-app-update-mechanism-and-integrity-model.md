@@ -5,9 +5,18 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0060 — In-app update: download, verify against build provenance, hand off to the OS installer
 
-- **Status:** accepted, with **one implementability conflict escalated to the maintainer** (§"The
-  one decision that cannot be implemented as written"). Every other clause is decided and is not
-  re-opened here.
+- **Status:** accepted, with **two items left open, both deliberately and both named here** so a
+  reader checking the six decisions off does not have to find them:
+  1. **Escalated to the maintainer** — decision 2's "verified in-process, via a sigstore verifier in
+     the base `conda-lock`" cannot be implemented as written (§"The one decision that cannot be
+     implemented as written"). This one needs an answer before the verifier work can be filed.
+  2. **Delegated, with a reason** — decision 3 asks this record to state *where* the consent answer
+     is stored. It does not, because the tree has no application settings store at all and the
+     per-OS re-install behaviour that decides the right location has not been measured. Stating a
+     location here would be a guess presented as a decision; [#330](https://github.com/bioedca/tether/issues/330)
+     measures it instead (§3).
+
+  Every other clause is decided and is not re-opened here.
 - **Date:** 2026-07-30
 - **Deciders:** bioedca (mechanism, integrity model, consent, channel — recorded 2026-07-27)
 - **PRD anchor:** §4.1 (application shell), §4.3 (offline installer/sidecar), §8 NFR-PKG; introduces
@@ -74,6 +83,13 @@ execution as the user.
 
 ### 2. Integrity — the GitHub build-provenance attestation, checked before anything is executed
 
+Decision 2 as given also fixes *where* the check runs: **in-process**, "checked inside the
+application before the downloaded file is executed", with "a sigstore verifier in the base
+`conda-lock`" named as its consequence. That clause is recorded here as decided like the rest — and
+it is the one clause of the six that cannot be implemented as written, for reasons that are a
+packaging fact rather than a disagreement. See §"The one decision that cannot be implemented as
+written"; nothing else in this section is affected by how it is resolved.
+
 A SHA-256 match against `SHA256SUMS.txt` is **necessary but not sufficient**: whoever can serve a
 tampered asset can serve a matching manifest, because both come from the same place. The attestation
 is what proves *which workflow, from which repository, at which commit* produced the artifact.
@@ -90,11 +106,23 @@ What an attacker must control to get code executed, and what stops them:
 | --- | --- | --- |
 | DNS/TLS interception between the user and GitHub | Serves any binary; the app runs it | Attestation does not verify against the expected repository/workflow → refuse |
 | Compromise of the release assets, manifest included | SHA-256 matches; the app runs it | Attestation is bound to a Sigstore-issued certificate for `bioedca/tether`'s release workflow → refuse |
+| **The same interceptor, replaying a genuine older release** | Serves an old Tether; the app runs it | **Not stopped by the attestation.** A previously published installer carries a real, verifying attestation, so an attacker who also controls the release *query* can answer "what is newest" with a genuine old artifact and roll a user back onto known-vulnerable code. See the rollback requirement below. |
 | Compromise of a maintainer's GitHub credentials | — | **Not stopped.** An attacker who can push a tag and run the release workflow produces a genuine attestation. This is the residual risk, and it is the same one the release pipeline already carries. |
+| Replacing the downloaded file between verification and execution | Runs the substituted file | **Not stopped by the attestation**, which proves a property of bytes at one instant. Closing the verify-to-execute window is [#331](https://github.com/bioedca/tether/issues/331)'s problem, not the verifier's. |
 | Local attacker with write access to the install prefix | Already game over | Already game over — out of scope |
 
-The middle two rows are the reason a checksum alone was rejected. The last row is stated so nobody
-reads this mechanism as stronger than it is.
+Rows 2 and 3 are the reason a checksum alone was rejected. The last row is stated so nobody reads
+this mechanism as stronger than it is — and the three "not stopped" rows are stated for the same
+reason. An artifact signature of any kind proves *origin*, never *freshness* and never *liveness*;
+reading attestation verification as protection against rollback or substitution is the specific
+mistake this table exists to prevent.
+
+**Rollback requirement, following from row 3.** An offered release must be **strictly newer than the
+installed version**, compared as a version rather than trusted from the query, and the comparison
+happens on the client. Refusing to move backwards is not an optimisation — it is the only control
+here that addresses row 3 at all, because the artifact it would install is genuinely ours and every
+signature-style check will pass. This does not re-open decision 4; stable-only and
+strictly-newer-than-installed are different constraints and both apply.
 
 ### 3. Consent — off until an explicit first-run prompt is answered
 

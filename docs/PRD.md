@@ -670,7 +670,9 @@ The installed application **shall** be able to detect a newer **stable** release
 running platform, **verify it against the GitHub build-provenance attestation**, and hand off to the OS installer.
 It **shall not** apply an in-place environment update and **shall not** update silently. Prereleases **shall never**
 be offered: a prerelease is not a supported target and this mechanism provides no way back, so moving a user onto one
-could be undone only by a manual reinstall.
+could be undone only by a manual reinstall. An offered release **shall** additionally be **strictly newer than the
+installed version**, compared on the client — an attacker who controls the release query can otherwise replay a
+genuine, genuinely-attested *older* installer, which every signature-style check passes.
 
 **The verification is the entire trust boundary.** 1.0 installers carry no OS code signature
 ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)), so nothing stands behind this
