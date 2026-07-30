@@ -670,9 +670,10 @@ The installed application **shall** be able to detect a newer **stable** release
 running platform, **verify it against the GitHub build-provenance attestation**, and hand off to the OS installer.
 It **shall not** apply an in-place environment update and **shall not** update silently. Prereleases **shall never**
 be offered: a prerelease is not a supported target and this mechanism provides no way back, so moving a user onto one
-could be undone only by a manual reinstall. "Stable" **shall** be derived from the **verified** source tag, never
-from the releases API's `prerelease` flag — an attacker who controls the release query controls that flag too, and
-can relabel a genuine, attested release candidate as stable. An offered release **shall** additionally be **strictly
+could be undone only by a manual reinstall. "Stable" **shall** be derived from the source tag in the verified
+**certificate** (`verificationResult.signature.certificate`), never from the releases API's `prerelease` flag and
+never from the attestation *statement* — an attacker who controls the release query controls that flag too, and the
+statement's predicate is controlled by the originating workflow. An offered release **shall** additionally be **strictly
 newer than the installed version**, compared on the client, since the same attacker can otherwise replay a genuine,
 genuinely-attested *older* installer, which every signature-style check passes.
 
@@ -698,10 +699,12 @@ unsure is the safe error.
 lives on the published privacy policy (`docs/privacy.md`), not in this document, and the sole `socket` call in
 `src/tether/` is `gethostname()` in `project/lock.py`, which sends nothing. The exception is
 bounded: the requests go to **three** endpoints and no others — the GitHub **releases** and **attestations** APIs,
-and the **Sigstore TUF** trusted-root service — all unauthenticated, all public, carrying no identifier and no
-telemetry. All three **shall** be named in the privacy disclosure and in the administrator documentation: a site
-that allow-lists only the GitHub endpoints silently disables verification, which is correct behaviour but an
-operational trap if undocumented. They are made **only
+and the **Sigstore TUF** trusted-root service — all unauthenticated and all public. Each destination necessarily
+observes the machine's **source IP address** and a **user-agent**, and the disclosure **shall** say so for all three
+rather than claiming "no identifier"; what Tether adds beyond that is nothing — no account, no installation id, no
+usage data, **no telemetry**. All three endpoints **shall** be named in the privacy disclosure and in the
+administrator documentation: a site that allow-lists only the GitHub endpoints silently disables verification, which
+is correct behaviour but an operational trap if undocumented. They are made **only
 after** an explicit first-run consent prompt is answered, so a machine that is never asked never asks; and an
 air-gapped machine **shall** see no error, no dialog and no startup delay. The consent answer **shall** survive an
 update — a flag that resets on upgrade would silently re-enable checking for a user who declined — and a site

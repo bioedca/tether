@@ -167,18 +167,32 @@ flag. They can relabel a genuine, genuinely-attested release candidate as stable
 then passes both the strictly-newer check and provenance verification, because the artifact really is
 ours. The server-side filter is a convenience, not a control.
 
-The trustworthy signal is the one the attestation binds: the certificate's `sourceRepositoryRef`
-(`refs/tags/v1.0.0-rc1` on the published RC). So the client parses the tag **out of the verified
-statement, after verification succeeds**, and refuses anything carrying a SemVer prerelease component.
-Ordering matters — this check is worthless if it runs on unverified metadata.
+The trustworthy signal is the one the attestation binds: the **certificate's** `sourceRepositoryRef`
+(`refs/tags/v1.0.0-rc1` on the published RC). Read it from `--format json` at
+**`verificationResult.signature.certificate`**, and refuse anything carrying a SemVer prerelease
+component.
+
+**Not from the statement.** An earlier revision said "out of the verified statement", which is wrong
+by one level and would have reintroduced the very problem this paragraph fixes: `gh` documents that
+only `verificationResult.signature.certificate` and the verified timestamps are non-manipulable, while
+`verificationResult.statement.predicate` is **controlled by the originating workflow**. A check that
+reads the tag from the statement is trusting attacker-reachable metadata to decide whether to trust
+the artifact. Ordering matters too — the check runs *after* verification succeeds, never on unverified
+metadata.
 
 ### 5. Privacy disclosure — amended in the PR that adds the network call
 
 `docs/privacy.md` is amended **in the PR that actually adds the request** — never before (the page
 would describe behaviour that does not exist) and never after (the page would be false in a shipped
-release). It must disclose: that the request goes to the GitHub releases API; that it carries an IP
-address and a user-agent and **no identifiers and no telemetry**; that it happens only after the
-first-run prompt is accepted; and how to turn it off permanently.
+release). It must disclose: that the requests go to **three** endpoints — the GitHub releases and
+attestations APIs and the Sigstore TUF trusted-root service (§"Tether owns every network step"); that
+**each of the three** observes the machine's IP address and a user-agent, which is what "unauthenticated
+HTTP" means and is not avoidable; that Tether adds **no account, no installation id, no usage data and
+no telemetry** on top of that; that they happen only after the first-run prompt is accepted; and how to
+turn it off permanently.
+
+The decision comment names only the GitHub request because the Sigstore one is a consequence of the
+mechanism chosen later. Recording the narrower version would understate what a user's network exposes.
 
 ### 6. Per-OS apply mechanics — specified as constraints, resolved by the implementation
 
@@ -353,9 +367,32 @@ which `gh` cannot express, since every outcome is exit 1.
 So the sequence is fixed:
 
 1. Tether fetches the release list, the attestation bundle, **and** the trusted root
-   (`gh attestation trusted-root`, which works unauthenticated — verified, exit 0).
-2. Tether invokes `gh attestation verify --bundle <bundle> --custom-trusted-root <root>`, which now
-   makes **no network call at all**.
+   (`gh attestation trusted-root`, which works unauthenticated — verified, exit 0, 34,634 bytes).
+2. Tether invokes the verifier, which now makes **no network call at all**:
+
+   ```
+   gh attestation verify <installer> \
+     --bundle <bundle> --custom-trusted-root <root> \
+     --repo bioedca/tether \
+     --signer-workflow bioedca/tether/.github/workflows/release.yml
+   ```
+
+**The identity flags are not optional and are not decoration.** An earlier revision of this section
+showed the invocation with `--bundle --custom-trusted-root` alone, which was a regression introduced
+by the offline fix itself: without `--repo` and `--signer-workflow`, an interceptor who substitutes
+**both** the artifact and a valid Sigstore bundle from another repository or workflow passes
+verification. The digest and filename checks do not save it, because the substituted artifact matches
+the substituted bundle. Identity is the control that makes those checks mean anything.
+
+They also cost nothing here: `--repo` triggers `gh`'s authentication gate only on the path where `gh`
+fetches the bundle itself. With `--bundle` supplied, `--repo` and `--signer-workflow` run
+**unauthenticated** — verified, exit 1 (reached verification) rather than exit 4 (auth required).
+
+That `--custom-trusted-root` genuinely removes the network dependency is likewise measured, not
+assumed. With all egress blackholed: **without** it, `gh` fails at `error creating Sigstore verifier:
+no valid Sigstore verifiers could be initialized` — it never reaches verification. **With** it, `gh`
+reaches verification and fails on the artifact instead. That difference is the whole basis of the
+taxonomy below.
 
 That buys both properties. **Egress is exactly three enumerable endpoints**, so it can be disclosed
 truthfully and allow-listed by a site administrator. And **any non-zero exit from step 2 is a
