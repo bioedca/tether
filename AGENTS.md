@@ -59,71 +59,40 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
 - Never weaken a frozen scientific oracle/tolerance to fit an implementation or fabricate a passing
   reference value; source, version, checksum, and provenance-lock every accepted reference.
 - Add an ADR in the implementation PR for schema/version, dependency/isolation, architectural, or
-  scientifically consequential choices. Index it as required by the existing ADR contract.
+  scientifically consequential choices. **Read `docs/agents/adr.md` before adding one**: it carries
+  the numbering mechanics, and picking a number by reading `docs/adr/` is how two records come to
+  share one — a collision git cannot see.
 - Never commit raw/private/unlicensed data, secrets, or large data to ordinary Git. Work-item-authorized,
   redistributable fixtures may use named small or LFS/gated paths with license and provenance.
 - Add SPDX/REUSE coverage to new files. Update MkDocs and public docstrings for user-visible changes.
-- Run the narrowest relevant tests first, then the required local gates before review:
-  - `pre-commit run --all-files`
-  - PowerShell: `$env:QT_QPA_PLATFORM='offscreen'; pytest -m "not large and not sidecar and not deep"`
-  - Docs changes: `mkdocs build --strict`
-  - Schema changes: `python scripts/dump_schema.py --check`
-  A bare `pytest` includes optional large, sidecar, and deep tiers; invoke those only when relevant.
+- Run the narrowest relevant tests first, then the required local gates before review. **The commands
+  are in `docs/agents/gates.md`** — a diff whose local gates have not been run is not final and may
+  not be declared so, and not having read that page means they have not been run.
 
 ## Evidence and tool routing
 
-- For external library, API, CLI, file-format, or workflow behavior, query Context7 first using the
-  locked/installed version. Use `@Browser` when Context7 is insufficient or live/visual UI state is
-  material. Record version and authoritative finding; do not rely on memory for unstable behavior.
-- For scientific claims, algorithms, validation oracles, and dataset interpretation, search
-  Consensus and `@Scite` first; use both for load-bearing claims. Then use the most specific
-  Life-Science-Research or NGS-Analysis tool. Prefer primary evidence and official records; check
-  retractions/corrections and reconcile conflicting evidence.
-- Record DOI/accession, source and tool/database version, query/config, retrieval date, license,
-  input/output checksums, transformations, parameters, and random seeds. Keep citations with claims.
 - Never send sensitive or uncommitted material to external search, AI, or review services.
+- **Read `docs/agents/tools.md` before writing against any third-party library, API, CLI, or file
+  format**, and **`docs/agents/evidence.md` before asserting any scientific claim, algorithm choice,
+  validation oracle, or dataset interpretation.** Each page is a bar to acting, not a reference:
+  memory is not a source for either, and the two never substitute for one another.
 
 ## Review gate
 
-- Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. The authoring
-  agent is never the only reviewer. Copilot is optional; its absence or quota never blocks.
-- **Routing, and you must ask — neither provider self-fires here.** Request once required checks are
-  green and the diff is declared final; one request per provider per round; a provider that was not
-  asked **has not declined**. `low`/`standard` → Codex. `high` (scientific logic/claims,
-  data/provenance/schema, security, dependencies, CI/release, public API, persistence/migration,
-  concurrency, HPC/Slurm, or broad cross-component work) → **both** Codex and CodeRabbit, requested
-  together and answered as **one round** — two reviewers, never two rounds, since they barely
-  overlap. Author-side or local output, and a status-only result, never satisfy this gate.
-- **Material change.** Evidence survives a non-material push, so answering findings never restarts the
-  gate. *Material*: executable code, scientific claims, data, schema, locks, CI/release config, and
-  governance text (this file, `CONTRIBUTING.md`, `docs/PRD.md`, `docs/adr/**`, `.agents/**`).
-  *Non-material*: a clean `main` merge/rebase, formatting, comment/docstring edits, ADR renumbering.
-  A material push re-arms the review and grants **no extra round**.
-- **Severity floor — the severity axis only.** Blocking: CodeRabbit `Critical`/`Major`, Codex `P1`,
-  and — whatever the label — a secret or private path, raw or unlicensed data, a weakened frozen
-  oracle or tolerance, a §5 skeleton change without an ADR and version bump, any CodeQL or
-  `secret-scan` alert, or **a finding that falsifies a claim this PR introduces**. CodeRabbit's
-  *domain* label and its `cr-indicator-types:` marker are **not** severities and never promote a
-  finding; `potential_issue` sits on `🟡 Minor` and `🟠 Major` alike. Everything else is non-blocking:
-  one follow-up issue per PR, reply `Deferred: … Tracked in #N` — never at an issue that does not
-  exist — and resolve the thread. **Never fix a non-blocking finding in the PR**: that is scope
-  breach, not diligence.
-- **Two rounds, issued by the launcher, not requested by you.** One round = a review at a
-  declared-final green head plus the answer to its blocking findings. Every AMEND is a fresh
-  short-lived session whose task text the launcher injects with an explicit `ROUND = N of 2`; past
-  the cap it injects none, so no worker ever holds authority for a third. At the cap, safety-class
-  findings escalate to the maintainer and the rest become follow-ups. Stop-list, not judgement:
-  **one self-review pass at most**, before the first external request, and **never a review request
-  while `agent:review-capped` is present**.
-- **Capability is not quota.** A selected provider reporting nothing to review at the head it read
-  satisfies its leg — including a Codex 👍 reaction, its documented form of "no suggestions". Quote
-  the provider, never the author or another commenter. On `high`, one provider that genuinely
-  *cannot* act leaves the other sufficient with the unavailability quoted; never swap to evade
-  quota, and genuine unavailability of both freezes the PR.
+- **Read `docs/agents/review.md` before requesting a review or merging.** It carries the operative
+  rules: the risk→provider routing, what counts as a material change, the severity floor, the
+  round cap, and the merge mechanics. Not having read it is itself a bar to acting.
+- Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. **The
+  authoring agent is never the only reviewer**, and neither provider self-fires — a provider that
+  was not asked has not declined.
+- **Two rounds, and you do not issue them.** Every AMEND is a fresh session whose task text the
+  launcher injects with an explicit `ROUND = N of 2`; past the cap it injects none, so no worker
+  ever holds authority for a third. Stop-list, not judgement: **one self-review pass at most**,
+  before the first external request, and **never a review request while `agent:review-capped` is
+  present**.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to
-  the merged head. Then **arm auto-merge and exit** — never wait, never poll. Squash with
-  `--match-head-commit`, which is what replaces the merge queue this repository cannot have.
+  the merged head. Then **arm auto-merge and exit** — never wait, never poll.
 
 ## WSL clusters and Slurm
 
