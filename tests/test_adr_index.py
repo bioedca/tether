@@ -18,6 +18,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ADR_DIR = Path(__file__).resolve().parents[1] / "docs" / "adr"
 INDEX = ADR_DIR / "README.md"
 
@@ -219,3 +221,71 @@ def test_index_wired_into_rendered_site() -> None:
     assert not any(pat.startswith("adr/") for pat in exclude_docs), (
         f"mkdocs.yml exclude_docs must not drop the ADR records; got {exclude_docs}"
     )
+
+
+# --------------------------------------------------------------- the index is generated
+
+
+def _generator():
+    """Load ``scripts/gen_adr_index.py`` by path.
+
+    ``scripts/`` is not a package and is not on ``sys.path`` in the installed layout, which is why
+    ``scripts/dump_schema.py`` has no test importing it either. Loading by location keeps this suite
+    on the base 3-OS ``test`` matrix with no packaging change.
+    """
+    import importlib.util
+
+    path = ADR_DIR.parents[1] / "scripts" / "gen_adr_index.py"
+    spec = importlib.util.spec_from_file_location("tether_gen_adr_index", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_committed_index_matches_the_records() -> None:
+    """``--check`` is green against the committed index — the generate-plus-verify gate.
+
+    This is the assertion that makes the generator load-bearing rather than a convenience: an ADR
+    added without an index row, or an index row whose Title drifted from the record's H1, fails on
+    all three operating systems in the required ``test`` context.
+    """
+    assert _generator().main(["--check"]) == 0, (
+        "docs/adr/README.md does not match docs/adr/*.md — run `python scripts/gen_adr_index.py`"
+    )
+
+
+def test_two_records_sharing_a_number_is_fatal(tmp_path, monkeypatch) -> None:
+    """#251's exact shape, which git cannot see.
+
+    #251 adds an ADR numbered 0057 while `main` already carries a different record numbered 0057.
+    The filenames differ, so git reports no conflict on either record — only on the index, where a
+    careless resolution ships both. Every other assertion in this module passes in that state: both
+    are indexed, both links resolve, both titles match their own H1. So the collision has to be
+    caught by number, and it has to be fatal rather than reported.
+    """
+    gen = _generator()
+    adr_dir = tmp_path / "adr"
+    adr_dir.mkdir()
+    for name in ("0057-first.md", "0057-second.md"):
+        (adr_dir / name).write_text(f"# 0057 — {name}\n", encoding="utf-8")
+    monkeypatch.setattr(gen, "ADR_DIR", adr_dir)
+
+    with pytest.raises(gen.IndexError_) as excinfo:
+        gen._records()
+    message = str(excinfo.value)
+    assert "0057-first.md" in message and "0057-second.md" in message, (
+        f"both colliding filenames must be named so the collision can be acted on: {message}"
+    )
+
+
+def test_a_gap_in_the_numbering_is_not_a_collision() -> None:
+    """0054 was retired with #239 and 0058 is next. A missing number is normal; a shared one is not.
+
+    Worth pinning because the obvious implementation of collision detection — comparing the record
+    count to `max(number)` — would call today's tree broken and would have to be worked around
+    rather than fixed.
+    """
+    numbers = sorted(_generator()._records())
+    assert 54 not in numbers, "0054 was retired; this test is about a real gap, not a hypothetical"
+    assert len(numbers) == len(set(numbers))
