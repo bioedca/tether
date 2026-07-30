@@ -514,13 +514,21 @@ def _review_rounds(number: int) -> int:
     answering in a plain issue comment carries no head binding - so it is a visible number for a
     human audit, not an input to any decision here.
 
+    It shared the OVERCOUNT too, until #307. GitHub rewrites an inline review comment's
+    ``commit_id`` as the pull request advances, so one review counted once at the head it read and
+    again at the head that answered it. The head is ``original_commit_id`` when present - the same
+    fix, made in the same change, because a guard that disagrees with the counter it claims to
+    mirror is worse than one that does not mirror it at all.
+
+    **The 12 heads this reported for #276 on #290 came from the broken version and are inflated.**
+
     """
     heads: set[str] = set()
     providers = {"chatgpt-codex-connector[bot]", "coderabbitai[bot]"}
     for path in (f"/repos/{REPO}/pulls/{number}/reviews", f"/repos/{REPO}/pulls/{number}/comments"):
         for entry in claim._paginate(path, f"PR #{number} review state"):
             login = ((entry.get("user") or {}).get("login")) or ""
-            sha = entry.get("commit_id")
+            sha = entry.get("original_commit_id") or entry.get("commit_id")
             if login in providers and isinstance(sha, str) and sha:
                 heads.add(sha)
     return len(heads)

@@ -58,10 +58,16 @@
 #   trigger and is accepted here because the repository is user-owned with no external contributors.
 #   Do not read the pin as making a contributor-facing repository safe.
 #
-# The counter can UNDERCOUNT and never overcounts: only head-bound evidence (review submissions and
-# inline review comments, which carry commit_id) is counted, so a provider answering in a plain issue
-# comment is invisible to it. That happened on #282. See .agents/bin/triage.py. Do not promote this to
-# a required check on the counter alone.
+# The counter can UNDERCOUNT: only head-bound evidence (review submissions and inline review
+# comments) is counted, so a provider answering in a plain issue comment is invisible to it. That
+# happened on #282. Do not promote this to a required check on the counter alone.
+#
+# It also OVERCOUNTED, until #307. GitHub rewrites an inline comment's `commit_id` as the pull
+# request advances, so answering a round made the provider's own comment reappear at the answering
+# head and score as a second round - capping every PR the moment it responded once, silently,
+# because `agent:review-capped` withholding an AMEND looks identical to the cap working. The head is
+# now read from `original_commit_id`. The claim is earned by `_reviewed_head` and its tests, not by
+# this comment. See .agents/bin/triage.py.
 name: agent-triage
 
 on:
