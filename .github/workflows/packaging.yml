@@ -89,8 +89,11 @@ jobs:
           environment-name: pkgbuild
           # A build-only env, NOT one of the pin-and-held stacks: it just needs
           # constructor (>=3.16 for --render), conda-lock to render the committed
-          # locks, and the wheel-build tools. `setuptools<81` still ships
-          # `pkg_resources`, which tMAVEN imports (sidecar.yml precedent).
+          # locks, and the wheel-build tools. setuptools is deliberately ABSENT: the
+          # build env used to carry its own `setuptools<81` bound, a second copy of a
+          # pin that lives in packaging/setuptools-compatibility.txt, and the step
+          # below installs that exact hashed wheel here instead (#218). Same artifact
+          # in the build env and in the shipped installer, by construction.
           # NOTE: setup-micromamba splits create-args on whitespace and passes
           # each token to micromamba verbatim — do NOT quote a match spec here or
           # the quotes reach libmamba ("Error parsing version" on setuptools<81"").
@@ -104,7 +107,6 @@ jobs:
             conda-standalone
             python-build
             pip
-            setuptools<81
             wheel
           init-shell: bash
           cache-environment: true
@@ -112,12 +114,21 @@ jobs:
       - name: Build the tether wheel (hatch-vcs version from git)
         run: python -m build --wheel --outdir packaging/staging .
 
+      - name: Install the pinned setuptools into the BUILD env (same wheel that ships)
+        # tMAVEN is built with --no-build-isolation, so it builds against whatever
+        # setuptools this env has. That used to be a separate `setuptools<81` bound in
+        # create-args - a second copy of the pin, free to drift from the one that ships.
+        # Installing the hashed requirement here makes the two the same artifact.
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: \
+            -r packaging/setuptools-compatibility.txt
+
       - name: Build the pinned trimmed tMAVEN wheel (offline sidecar payload)
-        # --no-build-isolation so tMAVEN builds against the env's setuptools<81
-        # (pkg_resources); --no-deps because the sidecar conda env provides them.
+        # --no-build-isolation so tMAVEN builds against the pinned setuptools installed
+        # above (pkg_resources); --no-deps because the sidecar conda env provides them.
         run: python -m pip wheel --no-deps --no-build-isolation -w packaging/staging "${TMAVEN_SPEC}"
 
-      - name: Stage the setuptools<81 wheel (restores pkg_resources in the sidecar)
+      - name: Stage the hash-pinned setuptools wheel (restores pkg_resources in the sidecar)
         # tMAVEN's `maven_class.__init__` does `import pkg_resources`, which setuptools
         # DEPRECATED by 80.9.0 (still SHIPPED through 81.0.0, `UserWarning` on import) and
         # REMOVED in 82.0.0 — and sidecar/conda-lock.yml resolves setuptools 82.0.1 on
@@ -136,8 +147,21 @@ jobs:
         # plus the following space form a YAML `key: value` separator mid-line, and the
         # parser rejects the step outright (`ScannerError`).
         run: |
-          python -m pip download --only-binary=:all: --no-deps \
-            -d packaging/staging "setuptools<81"
+          # --require-hashes against the ONE committed source. pip's hash-checking mode is
+          # all-or-nothing, which is why this is its own invocation and why --no-deps stays:
+          # a transitive requirement would need a hash nobody has pinned.
+          python -m pip download --only-binary=:all: --no-deps --require-hashes \
+            -r packaging/setuptools-compatibility.txt -d packaging/staging
+          # Assert the exact artifact rather than trusting the exit code. `pip download`
+          # succeeds on a cache hit too, and a stale packaging/staging/ left by an earlier
+          # unpinned run would otherwise be staged and shipped unnoticed.
+          expected="$(python scripts/setup_sidecar.py --print-setuptools-wheel)"
+          if [ ! -f "packaging/staging/${expected}" ]; then
+            echo "::error::expected packaging/staging/${expected}"
+            ls -1 packaging/staging
+            false
+          fi
+          python scripts/setup_sidecar.py --verify-setuptools-wheel "packaging/staging/${expected}"
 
       - name: Render per-platform EXPLICIT locks (pin-and-hold; no re-solve)
         # conda-lock render emits `conda-<platform>.lock` (@EXPLICIT) from the
@@ -158,7 +182,10 @@ jobs:
           cp LICENSE packaging/staging/LICENSE.txt
           tether_whl="$(ls packaging/staging/tether-*.whl | head -1)"
           tmaven_whl="$(ls packaging/staging/tmaven-*.whl | head -1)"
-          setuptools_whl="$(ls packaging/staging/setuptools-*.whl | head -1)"
+          # The exact pinned name, never a glob: a glob stages whatever happens to be
+          # present, which is how an unpinned resolve could ship a different build per
+          # platform and leave no record of which one.
+          setuptools_whl="packaging/staging/$(python scripts/setup_sidecar.py --print-setuptools-wheel)"
           {
             echo "TETHER_VERSION=$(python -c 'import tether._version as v; print(v.__version__)' 2>/dev/null || git describe --tags --always | sed 's/^v//')"
             echo "TETHER_WHEEL=staging/$(basename "$tether_whl")"

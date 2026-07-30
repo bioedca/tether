@@ -26,14 +26,34 @@ command. It encodes the two things that live **outside** the committed
 
 1. **tMAVEN itself** — the GPL reference app, driven over IPC and installed from a pinned
    git commit (it is not a conda-lock dependency); and
-2. **`setuptools<81`** — tMAVEN imports the legacy `pkg_resources` API at runtime, which
-   setuptools deprecated by 80.9.0 (still shipped through 81.0.0) and removed in 82.0.0,
-   so it must be pinned back into the sidecar env. `<81` rather than `<82` is the bound
-   that setuptools' own deprecation warning names ("pin to Setuptools<81").
+2. **the setuptools compatibility wheel** — tMAVEN imports the legacy `pkg_resources` API
+   at runtime without declaring it. setuptools deprecated it by 80.9.0 (still shipped
+   through 81.0.0) and **removed it in 82.0.0**, while `sidecar/conda-lock.yml` resolves
+   82.0.1 on every platform — past the removal. Without the pin an installed app builds
+   its sidecar env fine and then fails at the *first* idealization.
 
-The script runs three phases — **create** the env from the lock, **install** tMAVEN +
-`setuptools<81`, then **probe** liveness (import and instantiate `maven_class`, no fit) —
-and prints the line that points Tether at the interpreter.
+   The exact version and its SHA-256 live in **`packaging/setuptools-compatibility.txt`**,
+   which is the single source: this script and both packaging workflows read it, and
+   nothing restates the version anywhere else. The download is hash-enforced
+   (`pip --require-hashes`), so the tagged commit alone determines what shipped — before
+   this, three OS runners resolved `setuptools<81` independently and a rebuild of the same
+   tag could bundle a different build.
+
+   **This is a runtime-only compatibility exception, not a dependency.** It is installed
+   into the *isolated* sidecar env and never the base app env, purely so an unmaintained
+   upstream's undeclared import resolves. Retaining a release older than the ecosystem
+   default keeps a deprecated API alive in one interpreter; that is a knowing trade,
+   recorded rather than hidden, and it is not waived from dependency auditing.
+
+   **Removal trigger:** delete the file and its three consumers when tMAVEN no longer
+   imports `pkg_resources`. Nothing else changes — the sidecar lock already resolves a
+   current setuptools on its own.
+
+The script runs three phases — **create** the env from the lock, **install** the
+hash-checked setuptools wheel and then tMAVEN, then **probe** liveness (import and
+instantiate `maven_class`, no fit) — and prints the line that points Tether at the
+interpreter. The install is two `pip` commands rather than one because pip's hash-checking
+mode is all-or-nothing and the tMAVEN spec is a git URL with no hash to give.
 
 From a fresh checkout, with a conda front-end on `PATH`
 ([`micromamba`](https://mamba.readthedocs.io/), `mamba`, or `conda` +

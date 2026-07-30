@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# THE single source of truth for the sidecar's setuptools compatibility wheel.
+# Both packaging workflows and scripts/setup_sidecar.py read this file; nothing may
+# re-state the version or the bound anywhere else.
+#
+# WHY THIS EXISTS. tMAVEN's `maven_class.__init__` does `import pkg_resources`, which it
+# never declares. setuptools DEPRECATED pkg_resources by 80.9.0 (still shipped, warns on
+# import), and REMOVED it in 82.0.0 — while sidecar/conda-lock.yml resolves 82.0.1 on
+# every platform, i.e. past the removal. Without this wheel an installed app builds its
+# sidecar env fine and then fails at the FIRST idealization (#212).
+#
+# WHY A HASH. Every other component of this installer is pin-and-held through a committed
+# lock. `pip download "setuptools<81"` was the one exception: unpinned and unhashed, so the
+# three OS runners resolved independently and one release could bundle different builds
+# across platforms — and a rebuild of the same tag could bundle a different one again.
+# The tagged commit is now sufficient to determine what shipped.
+#
+# WHY 80.9.0 AND NOT 81.x. `<81` is the bound setuptools' own deprecation warning names
+# ("pin to Setuptools<81"), so 80.9.0 is the newest release inside the bound the upstream
+# project itself recommends — one full release of headroom before removal.
+#
+# ONE FILE, ALL PLATFORMS. setuptools publishes a pure-Python `py3-none-any` wheel, so a
+# single artifact serves win-64, osx-64, osx-arm64 and linux-64. No per-platform matrix.
+#
+# THIS IS A RUNTIME-ONLY COMPATIBILITY EXCEPTION, NOT A DEPENDENCY. It is installed into
+# the ISOLATED sidecar env, never the base app env, and only so an unmaintained upstream's
+# undeclared import resolves. It is deliberately an older release than the ecosystem
+# default, and that is a knowing trade recorded here rather than hidden: retaining it
+# keeps a deprecated API alive in one isolated interpreter.
+#
+# REMOVAL TRIGGER, so this does not become permanent by inattention: delete this file and
+# its three consumers the moment tMAVEN no longer imports `pkg_resources`. Nothing else
+# needs to change — the sidecar lock already resolves a current setuptools on its own.
+#
+# TO UPDATE: `pip hash <the downloaded wheel>` and replace both the version and the digest
+# together. Verified against PyPI on 2026-07-30: setuptools-80.9.0-py3-none-any.whl,
+# 1201486 bytes, requires_python >=3.9.
+setuptools==80.9.0 \
+    --hash=sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922

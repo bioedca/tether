@@ -13,6 +13,7 @@ guided setup would silently install a *different* sidecar than CI validates.
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -43,31 +44,163 @@ def _workflow_tmaven_spec() -> str:
 # --- command construction ----------------------------------------------------
 
 
-def test_build_pip_cmd_is_the_exact_recipe() -> None:
-    """The install command is exactly ``pip install --no-build-isolation [pytest] <pins>``.
+def test_the_install_is_two_commands_hashed_first() -> None:
+    """It cannot be one command, and the order is load-bearing.
 
-    Pins the shape of the one command that installs the non-lock deps into the sidecar,
-    the recipe the live parity job used to inline before delegating to this script.
+    pip's hash-checking mode is **all-or-nothing**: give a hash for any requirement and
+    every requirement in the same invocation needs one — and the tMAVEN spec is a git URL
+    with no hash to give. Splitting is what lets the setuptools half be hash-enforced at
+    all, instead of dropping the guarantee to keep a single command.
+
+    setuptools must land **first**, because ``--no-build-isolation`` means tMAVEN builds
+    against whatever setuptools the env already has. Installed second, tMAVEN would build
+    against the lock's 82.x — the release that removed ``pkg_resources``, which is the
+    entire defect this pin exists to prevent (#212).
     """
-    assert setup.build_pip_cmd("py", tmaven_spec="spec", with_pytest=True) == [
+    pinned, rest = setup.build_pip_cmds("py", tmaven_spec="spec", with_pytest=True)
+
+    assert pinned == [
         "py",
         "-m",
         "pip",
         "install",
-        "--no-build-isolation",
-        "pytest",
-        setup.SETUPTOOLS_PIN,
-        "spec",
+        "--require-hashes",
+        "--only-binary=:all:",
+        "-r",
+        str(setup.SETUPTOOLS_REQUIREMENTS),
     ]
+    assert "spec" not in pinned, "a git URL in the hashed command would break hash mode"
+    assert rest == ["py", "-m", "pip", "install", "--no-build-isolation", "pytest", "spec"]
 
 
-def test_build_pip_cmd_without_pytest_drops_only_pytest() -> None:
-    with_pytest = setup.build_pip_cmd("py", tmaven_spec="spec", with_pytest=True)
-    without = setup.build_pip_cmd("py", tmaven_spec="spec", with_pytest=False)
+def test_the_tmaven_command_drops_only_pytest() -> None:
+    with_pytest = setup.build_pip_cmds("py", tmaven_spec="spec", with_pytest=True)[1]
+    without = setup.build_pip_cmds("py", tmaven_spec="spec", with_pytest=False)[1]
     assert "pytest" in with_pytest and "pytest" not in without
     assert without == [t for t in with_pytest if t != "pytest"]
-    # setuptools pin + tmaven spec are always last, in that order.
-    assert without[-2:] == [setup.SETUPTOOLS_PIN, "spec"]
+    assert without[-1] == "spec", "the tmaven spec is always last"
+
+
+# --- #218: one source of truth for the compatibility wheel -------------------
+
+
+def test_the_requirement_is_pinned_and_hashed() -> None:
+    """An exact version with a sha256 — the whole point of #218.
+
+    `pip download "setuptools<81"` floated: three OS runners resolved independently, so one
+    release could bundle different builds across platforms and a rebuild of the same tag
+    could bundle a different one again. The tagged commit is now sufficient to determine
+    what shipped, with no network-only resolution record.
+    """
+    version, digest = setup.setuptools_requirement()
+    assert version == "80.9.0"
+    assert len(digest) == 64 and set(digest) <= set("0123456789abcdef")
+    # Verified against PyPI on 2026-07-30 and matching the groomed decision on #218.
+    assert digest == "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922"
+    assert setup.setuptools_wheel_name() == f"setuptools-{version}-py3-none-any.whl"
+
+
+def test_a_requirements_file_that_is_not_one_pinned_hashed_line_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fail loudly. Silently accepting a floating or unhashed line restores the defect.
+
+    Each rejected form is one that would otherwise "work": an unhashed pin still installs,
+    a bound still resolves, and two requirements still succeed — while none of the three
+    determines what shipped.
+    """
+    for content in (
+        "setuptools==80.9.0\n",
+        "setuptools<81 --hash=sha256:" + "a" * 64 + "\n",
+        "setuptools==80.9.0 --hash=sha256:" + "a" * 63 + "\n",
+        "setuptools==80.9.0 --hash=sha256:" + "a" * 64 + "\nwheel==0.45.0\n",
+        "",
+    ):
+        path = tmp_path / "req.txt"
+        path.write_text(content, encoding="utf-8")
+        monkeypatch.setattr(setup, "SETUPTOOLS_REQUIREMENTS", path)
+        with pytest.raises(setup.SetupError, match="pinned, sha256-hashed"):
+            setup.setuptools_requirement()
+
+
+def test_comments_and_continuations_do_not_change_the_parse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The committed file is mostly rationale, and pip's own style wraps with a backslash."""
+    path = tmp_path / "req.txt"
+    path.write_text(
+        "# why this exists\n#\n# more prose\n"
+        "setuptools==80.9.0 \\\n    --hash=sha256:" + "b" * 64 + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(setup, "SETUPTOOLS_REQUIREMENTS", path)
+    assert setup.setuptools_requirement() == ("80.9.0", "b" * 64)
+
+
+def test_no_consumer_restates_the_version_or_the_bound() -> None:
+    """The third defect in #218: `<81` was hard-coded in two workflows and this script.
+
+    A bump had to find all three. Now every consumer reads the file, so this asserts the
+    absence of a second copy rather than the presence of a first — the failure mode is a
+    consumer that quietly stops reading and hard-codes again.
+    """
+    _version, digest = setup.setuptools_requirement()
+    consumers = {
+        "scripts/setup_sidecar.py": _SCRIPT,
+        "packaging.yml": _REPO_ROOT / ".github" / "workflows" / "packaging.yml",
+        "release.yml": _REPO_ROOT / ".github" / "workflows" / "release.yml",
+    }
+    # A LITERAL requirement: `setuptools`, a comparator, then a digit. Narrowed twice while
+    # writing it, and both narrowings are the point rather than concessions.
+    #
+    # Not the version NUMBER: `setup_sidecar.py`'s docstring explains that setuptools
+    # deprecated `pkg_resources` by 80.9.0 and removed it in 82.0.0 — deprecation history a
+    # reader needs, not a pin a bump has to find.
+    #
+    # And not every `setuptools<comparator>`: the same module contains the regex that PARSES
+    # the requirements file, and an f-string that echoes the version it just parsed. Both
+    # read the single source; neither restates it. Requiring a literal digit next admits
+    # `setuptools=={version}` and `setuptools==(?P<version>...)` while still rejecting
+    # `setuptools<81` and `setuptools==80.9.0`, which is exactly #218's third defect.
+    requirement = re.compile(r"setuptools\s*(==|<=|>=|<|>|~=)\s*[0-9]")
+    for name, path in consumers.items():
+        text = path.read_text(encoding="utf-8")
+        offending = [
+            line
+            for line in text.splitlines()
+            if requirement.search(line) and not line.lstrip().startswith("#")
+        ]
+        assert not offending, f"{name} restates the pin instead of reading the file: {offending}"
+        assert digest not in text, f"{name} restates the digest"
+
+
+def test_both_workflows_download_with_hash_enforcement() -> None:
+    """The download must be hash-checked and staged by exact name, in BOTH workflows.
+
+    They drifted apart trivially before — the same unpinned command was pasted into each —
+    so the assertion covers both rather than a representative one.
+    """
+    for name in ("packaging.yml", "release.yml"):
+        text = (_REPO_ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        assert "--require-hashes" in text, f"{name} downloads without hash enforcement"
+        assert "-r packaging/setuptools-compatibility.txt" in text, f"{name} ignores the source"
+        assert "--print-setuptools-wheel" in text, f"{name} does not stage the exact name"
+        assert "--verify-setuptools-wheel" in text, f"{name} does not re-verify the bytes"
+        assert "ls packaging/staging/setuptools-*.whl" not in text, (
+            f"{name} still globs for the wheel, which stages whatever happens to be present"
+        )
+
+
+def test_the_removal_trigger_is_recorded() -> None:
+    """A temporary exception with no stated end becomes permanent by inattention.
+
+    #218 asks for the trigger explicitly, and it is a fact about tMAVEN rather than about
+    setuptools: the pin goes away when tMAVEN stops importing `pkg_resources`.
+    """
+    text = setup.SETUPTOOLS_REQUIREMENTS.read_text(encoding="utf-8")
+    assert "REMOVAL TRIGGER" in text
+    assert "pkg_resources" in text
+    assert "82.0.0" in text, "the removal release is what makes the pin load-bearing"
 
 
 # --- lockstep contracts ------------------------------------------------------

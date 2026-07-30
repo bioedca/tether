@@ -158,7 +158,8 @@ jobs:
           micromamba-version: "2.8.1-0"
           environment-name: pkgbuild
           # See packaging.yml for the create-args rationale (no quoted match specs;
-          # explicit pip; setuptools<81 for tMAVEN's pkg_resources).
+          # explicit pip). setuptools is installed from the hashed requirements file
+          # below, not bounded here (#218).
           create-args: >-
             python=3.12
             constructor>=3.16
@@ -166,7 +167,6 @@ jobs:
             conda-standalone
             python-build
             pip
-            setuptools<81
             wheel
           init-shell: bash
           cache-environment: true
@@ -174,10 +174,19 @@ jobs:
       - name: Build the tether wheel (hatch-vcs version from git)
         run: python -m build --wheel --outdir packaging/staging .
 
+      - name: Install the pinned setuptools into the BUILD env (same wheel that ships)
+        # tMAVEN is built with --no-build-isolation, so it builds against whatever
+        # setuptools this env has. That used to be a separate `setuptools` bound in
+        # create-args - a second copy of the pin, free to drift from the one that ships.
+        # Installing the hashed requirement here makes the two the same artifact (#218).
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: \n            -r packaging/setuptools-compatibility.txt
+
       - name: Build the pinned trimmed tMAVEN wheel (offline sidecar payload)
+        # --no-build-isolation so tMAVEN builds against the pinned setuptools above.
         run: python -m pip wheel --no-deps --no-build-isolation -w packaging/staging "${TMAVEN_SPEC}"
 
-      - name: Stage the setuptools<81 wheel (restores pkg_resources in the sidecar)
+      - name: Stage the hash-pinned setuptools wheel (restores pkg_resources in the sidecar)
         # tMAVEN's `maven_class.__init__` does `import pkg_resources`, which setuptools
         # DEPRECATED by 80.9.0 (still shipped through 81.0.0) and REMOVED in 82.0.0, while
         # sidecar/conda-lock.yml resolves 82.0.1 on every platform — so the installed
@@ -190,8 +199,21 @@ jobs:
         # `--only-binary=:all:` plus the following space form a YAML `key: value`
         # separator mid-line and the parser rejects the step outright (`ScannerError`).
         run: |
-          python -m pip download --only-binary=:all: --no-deps \
-            -d packaging/staging "setuptools<81"
+          # --require-hashes against the ONE committed source. pip's hash-checking mode is
+          # all-or-nothing, which is why this is its own invocation and why --no-deps stays:
+          # a transitive requirement would need a hash nobody has pinned.
+          python -m pip download --only-binary=:all: --no-deps --require-hashes \
+            -r packaging/setuptools-compatibility.txt -d packaging/staging
+          # Assert the exact artifact rather than trusting the exit code. `pip download`
+          # succeeds on a cache hit too, and a stale packaging/staging/ left by an earlier
+          # unpinned run would otherwise be staged and shipped unnoticed.
+          expected="$(python scripts/setup_sidecar.py --print-setuptools-wheel)"
+          if [ ! -f "packaging/staging/${expected}" ]; then
+            echo "::error::expected packaging/staging/${expected}"
+            ls -1 packaging/staging
+            false
+          fi
+          python scripts/setup_sidecar.py --verify-setuptools-wheel "packaging/staging/${expected}"
 
       - name: Render per-platform EXPLICIT locks (pin-and-hold; no re-solve)
         run: |
@@ -207,7 +229,10 @@ jobs:
           cp LICENSE packaging/staging/LICENSE.txt
           tether_whl="$(ls packaging/staging/tether-*.whl | head -1)"
           tmaven_whl="$(ls packaging/staging/tmaven-*.whl | head -1)"
-          setuptools_whl="$(ls packaging/staging/setuptools-*.whl | head -1)"
+          # The exact pinned name, never a glob: a glob stages whatever happens to be
+          # present, which is how an unpinned resolve could ship a different build per
+          # platform and leave no record of which one.
+          setuptools_whl="packaging/staging/$(python scripts/setup_sidecar.py --print-setuptools-wheel)"
           {
             # construct.yaml reads `version: {{ environ.get("TETHER_VERSION", "0.0.0") }}`;
             # without this the installer would be built + named 0.0.0 for a real tag.

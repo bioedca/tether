@@ -14,11 +14,12 @@ cross-OS hand-off check) does the same steps every time:
 
 1. **tMAVEN itself** — the GPL reference app driven over IPC, pinned by commit and
    installed from git (never a conda-lock dep).
-2. **``setuptools<81``** — tMAVEN imports the legacy ``pkg_resources`` API at runtime
-   without declaring it; setuptools deprecated ``pkg_resources`` by 80.9.0 (still shipped
-   through 81.0.0) and removed it in 82.0.0, so it must be pinned back into the sidecar
-   env alongside tMAVEN (``<81`` is the bound that setuptools' own deprecation warning
-   names).
+2. **the setuptools compatibility wheel** — tMAVEN imports the legacy ``pkg_resources``
+   API at runtime without declaring it; setuptools deprecated it by 80.9.0 (still shipped
+   through 81.0.0) and removed it in 82.0.0, so an exact version is pinned back into the
+   sidecar env alongside tMAVEN. The version and its sha256 live in
+   ``packaging/setuptools-compatibility.txt`` — the single source this script and both
+   packaging workflows read, and the only place either is written.
 
 Flow (each phase is skippable):
 
@@ -26,8 +27,9 @@ Flow (each phase is skippable):
   conda front-end (``conda-lock install``, else ``micromamba``/``mamba create -f``).
   Skipped when ``--python`` targets an already-built interpreter (e.g. in CI, where the
   micromamba action restored the env already).
-* **install** the pinned tMAVEN + ``setuptools<81`` (+ ``pytest`` with ``--with-pytest``)
-  into the sidecar interpreter — byte-for-byte the command ``sidecar.yml`` runs.
+* **install** the hash-checked setuptools wheel and then the pinned tMAVEN (+ ``pytest``
+  with ``--with-pytest``) into the sidecar interpreter. Two commands, not one: pip's
+  hash-checking mode is all-or-nothing and the tMAVEN spec is a git URL with no hash.
 * **probe** the result by launching :mod:`tether.idealize._sidecar_runner` ``--probe``
   (import + instantiate ``maven_class``, no fit), the same liveness check the batch
   supervisor uses (:func:`tether.idealize.supervisor.probe_sidecar`).
@@ -40,8 +42,10 @@ needed) so it runs from any Python on a clean checkout.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -51,17 +55,16 @@ from pathlib import Path
 #: ``TMAVEN_SPEC`` env — ``test_setup_sidecar.py`` binds the two). tMAVEN is the GPL
 #: reference app driven over IPC, not a conda-lock dep, so it is git-installed here.
 DEFAULT_TMAVEN_SPEC = "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230"
-#: setuptools pin restoring the ``pkg_resources`` API tMAVEN imports at runtime
-#: (deprecated by setuptools 80.9.0, still shipped through 81.0.0, removed in 82.0.0;
-#: ``<81`` is the bound that setuptools' own deprecation warning names), matching
-#: ``sidecar.yml``'s ``"setuptools<81"``.
-SETUPTOOLS_PIN = "setuptools<81"
 #: Default name of the created sidecar env.
 DEFAULT_ENV_NAME = "tether-sidecar"
 #: Conda front-ends tried, in order, when ``--conda-exe`` is not given.
 CONDA_FRONTENDS = ("micromamba", "mamba", "conda")
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+#: THE single source of the setuptools compatibility pin. Read, never restated — the
+#: version used to be spelled out in this module and twice more in the packaging
+#: workflows, so a bump had to find all three (#218).
+SETUPTOOLS_REQUIREMENTS = _REPO_ROOT / "packaging" / "setuptools-compatibility.txt"
 #: The committed sidecar lock (isolated numpy<2 / PyQt5 stack).
 DEFAULT_LOCK = _REPO_ROOT / "sidecar" / "conda-lock.yml"
 #: The headless runner whose ``--probe`` fast-path we launch to verify liveness.
@@ -118,19 +121,95 @@ def build_env_create_cmd(frontend: str, env_name: str, lock: Path) -> list[str]:
     )
 
 
-def build_pip_cmd(sidecar_python: str, *, tmaven_spec: str, with_pytest: bool) -> list[str]:
-    """The offline-safe ``pip install`` of the non-lock deps into the sidecar interpreter.
+def setuptools_requirement() -> tuple[str, str]:
+    """``(version, sha256)`` parsed from :data:`SETUPTOOLS_REQUIREMENTS`.
 
-    Mirrors ``sidecar.yml`` exactly: ``pip install --no-build-isolation [pytest]
-    setuptools<81 <tmaven_spec>``. ``--no-build-isolation`` keeps pip from spinning up a
-    fresh PEP-517 build env (which would re-pull an unpinned setuptools).
+    Parsed rather than restated, so this module carries no second copy of the version to
+    drift from the file the workflows install. Fails loudly: a requirements file that has
+    stopped being a single pinned-and-hashed line is a packaging change nobody should be
+    able to make by accident.
     """
-    cmd = [sidecar_python, "-m", "pip", "install", "--no-build-isolation"]
+    text = SETUPTOOLS_REQUIREMENTS.read_text(encoding="utf-8")
+    joined = " ".join(
+        line.strip().rstrip("\\").strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    match = re.fullmatch(
+        r"setuptools==(?P<version>[\w.]+)\s+--hash=sha256:(?P<digest>[0-9a-f]{64})", joined.strip()
+    )
+    if match is None:
+        raise SetupError(
+            f"{SETUPTOOLS_REQUIREMENTS.name} must be exactly one pinned, sha256-hashed "
+            f"setuptools requirement; got {joined.strip()!r}"
+        )
+    return match["version"], match["digest"]
+
+
+def setuptools_wheel_name() -> str:
+    """The exact wheel filename the pin resolves to.
+
+    setuptools publishes a pure-Python ``py3-none-any`` wheel, so one artifact serves every
+    platform and the name is fully determined by the version. The packaging workflows stage
+    *this* name rather than globbing ``setuptools-*.whl``, which is what let an unpinned
+    download stage whatever it happened to resolve.
+    """
+    version, _digest = setuptools_requirement()
+    return f"setuptools-{version}-py3-none-any.whl"
+
+
+def _answer_setuptools_query(args: argparse.Namespace) -> int:
+    """Serve ``--print-setuptools-wheel`` / ``--verify-setuptools-wheel``.
+
+    The verify path re-hashes the staged bytes rather than trusting pip's exit code.
+    ``pip download`` reports success for a cache hit as well, so a stale
+    ``packaging/staging/`` left by an earlier unpinned run would otherwise be staged into
+    the installer with nothing having checked it.
+    """
+    if args.print_setuptools_wheel:
+        print(setuptools_wheel_name())
+        return 0
+
+    _version, expected = setuptools_requirement()
+    staged = Path(args.verify_setuptools_wheel)
+    if not staged.is_file():
+        raise SetupError(f"staged wheel not found: {staged}")
+    digest = hashlib.sha256(staged.read_bytes()).hexdigest()
+    if digest != expected:
+        raise SetupError(f"{staged.name} sha256 {digest} does not match the pin {expected}")
+    print(f"{staged.name} matches the pinned sha256")
+    return 0
+
+
+def build_pip_cmds(sidecar_python: str, *, tmaven_spec: str, with_pytest: bool) -> list[list[str]]:
+    """The offline-safe ``pip install`` of the non-lock deps, as **two** commands.
+
+    They cannot be one. pip's hash-checking mode is **all-or-nothing**: supply a hash for
+    any requirement and every requirement in the same invocation needs one — and
+    ``tmaven_spec`` is a git URL, which has no hash to give. Splitting is what lets the
+    setuptools half be hash-enforced at all rather than dropping the guarantee to keep a
+    single command.
+
+    Order is load-bearing. setuptools lands **first**, because ``--no-build-isolation``
+    means tMAVEN builds against whatever setuptools the env already has; installing it
+    second would build tMAVEN against the lock's 82.x, which is the release that removed
+    ``pkg_resources``.
+    """
+    pinned = [
+        sidecar_python,
+        "-m",
+        "pip",
+        "install",
+        "--require-hashes",
+        "--only-binary=:all:",
+        "-r",
+        str(SETUPTOOLS_REQUIREMENTS),
+    ]
+    rest = [sidecar_python, "-m", "pip", "install", "--no-build-isolation"]
     if with_pytest:
-        cmd.append("pytest")
-    cmd.append(SETUPTOOLS_PIN)
-    cmd.append(tmaven_spec)
-    return cmd
+        rest.append("pytest")
+    rest.append(tmaven_spec)
+    return [pinned, rest]
 
 
 def resolve_env_python(frontend: str, env_name: str) -> str:
@@ -266,11 +345,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run", action="store_true", help="print the commands without running them"
     )
+    # Query modes. The packaging workflows call these instead of restating the version, so
+    # the pin has exactly one home and a bump is a one-file change (#218).
+    parser.add_argument(
+        "--print-setuptools-wheel",
+        action="store_true",
+        help="print the exact compatibility-wheel filename and exit",
+    )
+    parser.add_argument(
+        "--verify-setuptools-wheel",
+        metavar="PATH",
+        help="verify a staged wheel's sha256 against the pin and exit",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    # Query modes run before any env work: they answer from the committed file alone and
+    # are called from a workflow step that has no sidecar to build.
+    if args.print_setuptools_wheel or args.verify_setuptools_wheel:
+        try:
+            return _answer_setuptools_query(args)
+        except SetupError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
 
     try:
         # 1) Resolve the sidecar interpreter (create the env unless --python was given).
@@ -293,17 +393,16 @@ def main(argv: list[str] | None = None) -> int:
                 else resolve_env_python(frontend, args.env_name)
             )
 
-        # 2) Install the non-lock deps (tMAVEN + setuptools<81 [+ pytest]).
+        # 2) Install the non-lock deps: the hashed setuptools wheel FIRST, then tMAVEN.
         if args.skip_install:
             print("[2/3] Skipping tMAVEN install (--skip-install)")
         else:
-            print(f"[2/3] Installing tMAVEN + {SETUPTOOLS_PIN} into the sidecar env")
-            _run(
-                build_pip_cmd(
-                    sidecar_python, tmaven_spec=args.tmaven_spec, with_pytest=args.with_pytest
-                ),
-                dry_run=args.dry_run,
-            )
+            version, _digest = setuptools_requirement()
+            print(f"[2/3] Installing setuptools=={version} (hash-checked) + tMAVEN")
+            for cmd in build_pip_cmds(
+                sidecar_python, tmaven_spec=args.tmaven_spec, with_pytest=args.with_pytest
+            ):
+                _run(cmd, dry_run=args.dry_run)
 
         # 3) Verify the env can build the tMAVEN driver (liveness).
         if args.no_probe or args.dry_run:
