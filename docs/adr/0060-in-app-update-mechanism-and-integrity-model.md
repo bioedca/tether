@@ -169,8 +169,21 @@ ours. The server-side filter is a convenience, not a control.
 
 The trustworthy signal is the one the attestation binds: the **certificate's** `sourceRepositoryRef`
 (`refs/tags/v1.0.0-rc1` on the published RC). Read it from `--format json` at
-**`verificationResult.signature.certificate`**, and refuse anything carrying a SemVer prerelease
-component.
+**`verificationResult.signature.certificate`**.
+
+**Allowlist the exact form; do not merely deny prereleases.** "Reject a SemVer prerelease component"
+is a denylist, and a denylist still accepts `refs/heads/main`, a four-component `v1.0.0.0`, or any
+other ref that simply fails to look like a prerelease. The ref **must match** `refs/tags/vMAJOR.MINOR.PATCH`
+exactly — three numeric components, no prerelease, no build metadata — which is not a new rule: it is
+the same form `release.yml` already enforces on the tag it will build (`docs/release.md`: anything
+else, "including a four-component `1.0.0.0` or a pre-release `1.0.0-rc1`, is **rejected**") and the
+form PRD §12.7 specifies for a release tag. The client is mirroring the pipeline, not inventing a
+policy.
+
+**And bind the parsed tag to the version being installed.** The version parsed out of the verified
+ref must equal the version the client used for the strictly-newer comparison. Without that binding
+the two can diverge — the client compares one number and installs an artifact attested to another —
+and each check passes in isolation while the pair proves nothing.
 
 **Not from the statement.** An earlier revision said "out of the verified statement", which is wrong
 by one level and would have reintroduced the very problem this paragraph fixes: `gh` documents that

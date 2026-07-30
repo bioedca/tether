@@ -673,7 +673,11 @@ be offered: a prerelease is not a supported target and this mechanism provides n
 could be undone only by a manual reinstall. "Stable" **shall** be derived from the source tag in the verified
 **certificate** (`verificationResult.signature.certificate`), never from the releases API's `prerelease` flag and
 never from the attestation *statement* — an attacker who controls the release query controls that flag too, and the
-statement's predicate is controlled by the originating workflow. An offered release **shall** additionally be **strictly
+statement's predicate is controlled by the originating workflow. That ref **shall** be required to match
+`refs/tags/vMAJOR.MINOR.PATCH` exactly — an allowlist, not a prerelease denylist, since a denylist still admits
+`refs/heads/main` or a four-component `v1.0.0.0`; this is the same form §12.7 specifies and `release.yml` already
+enforces. The version parsed from that ref **shall** equal the version used for the strictly-newer comparison, so the
+two cannot diverge. An offered release **shall** additionally be **strictly
 newer than the installed version**, compared on the client, since the same attacker can otherwise replay a genuine,
 genuinely-attested *older* installer, which every signature-style check passes.
 
