@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0057 — Reviewed GitHub wiki index with a fail-closed mirror publisher
+# 0058 — Reviewed GitHub wiki index with a fail-closed mirror publisher
 
 - **Status:** accepted
 - **Date:** 2026-07-27

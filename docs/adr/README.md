@@ -16,6 +16,8 @@ prose harmonization of the PRD (PRD §12.7).
 
 ## Index
 
+<!-- gen:adr-index start (scripts/gen_adr_index.py --write) -->
+
 ### Foundational, cross-cutting (M0 seed — PLAN M0 S1)
 
 | ADR | Title | Status | PRD anchor |
@@ -76,9 +78,14 @@ prose harmonization of the PRD (PRD §12.7).
 | [0049](0049-m9-packaging-constructor-architecture.md) | M9 packaging: constructor installer architecture (offline base env + isolated sidecar) | accepted | §4.1, §9 M9, §12.7 |
 | [0050](0050-release-pipeline-and-code-signing.md) | Release pipeline + code-signing (tag-driven, SignPath for Windows, gated Apple) | accepted | §9 M9, §12.7, §4.1 |
 | [0051](0051-installed-app-launch-surface.md) | The installed app's launch surface: a real GUI entry point, prefix shims, and a menu shortcut | accepted | §7.8, §4.1, §9 M9 |
-| [0052](0052-concurrent-agent-swarm-coordination.md) | Concurrent issue-swarm coordination | accepted | §12.2–§12.5 |
-| [0053](0053-structured-backlog-intake-gates-swarm-admission.md) | Structured backlog intake gates swarm admission | accepted | §12.5 |
-| [0057](0057-reviewed-github-wiki-index-publisher.md) | Reviewed GitHub wiki index with a fail-closed mirror publisher | accepted | §12.7 |
+| [0052](0052-concurrent-agent-swarm-coordination.md) | Concurrent issue-swarm coordination | superseded by 0057 (fully retired) | §12.2–§12.5 |
+| [0053](0053-structured-backlog-intake-gates-swarm-admission.md) | Structured backlog intake gates swarm admission | superseded by 0057 (admitting authority) | §12.5 |
+| [0055](0055-gui-session-writer-ownership.md) | GUI session writer ownership | accepted | §5.4, §7.3, §7.5, §7.10 |
+| [0056](0056-policy-fail-rejected-extraction-checkpoint.md) | Preserve policy-fail rejection across batch resume | accepted | §6, §7.11, §11.2 |
+| [0057](0057-github-native-swarm-coordination.md) | GitHub-native swarm coordination | accepted | §12.2–§12.5 |
+| [0058](0058-reviewed-github-wiki-index-publisher.md) | Reviewed GitHub wiki index with a fail-closed mirror publisher | accepted | §12.7 (CI/CD and durable architectural decisions) |
+
+<!-- gen:adr-index end -->
 
 _Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
 by the PRs that implement them._

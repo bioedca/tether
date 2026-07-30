@@ -10,11 +10,12 @@ respective contract governs.
 Tether is currently maintained **solo (account `bioedca`) with CI and a
 risk-classified review path as merge gates**: branch protection on `main` requires
 green required CI plus a self-review checklist on every PR, while `AGENTS.md`
-requires a substantive final-head review from Codex or CodeRabbit on every lane.
+requires a substantive final-head review on every lane: **Codex for `low` and
+`standard`, and both Codex and CodeRabbit — in one round — for `high`.**
 Copilot is optional and best-effort. The ruleset still requires zero GitHub approval
-reviews; load-bearing changes require CodeRabbit and any qualified human/domain
-judgment specified in `AGENTS.md`. This scales to required human reviews +
-`CODEOWNERS` if contributors join (PRD §12.3).
+reviews; load-bearing changes additionally need any qualified human/domain judgment
+specified in `AGENTS.md`. This scales to required human reviews + `CODEOWNERS` if
+contributors join (PRD §12.3).
 
 `main` is **always releasable and protected**. Never push to `main` directly;
 never merge, release, or declare a PR ready while required checks are red or pending.
@@ -48,6 +49,12 @@ never merge, release, or declare a PR ready while required checks are red or pen
   e.g. `feat/issue-123-m1-atrous-detector`, `fix/issue-124-correct-nan-guard`. The
   slug is kebab-case, ≤ ~5 words. The branch name is not load-bearing (the PR
   title + linked issue carry authoritative metadata).
+- **One exception, and it is load-bearing:** an automated agent claims an issue by
+  atomically creating `agent/issue-N` — **no slug** — because that ref *is* the mutex
+  (`POST /git/refs` answers `201` once and `422` thereafter). A slug derived from the
+  title is not deterministic across agents, so two agents could create two different
+  refs for one issue and both succeed, silently voiding it. See
+  [ADR-0057](docs/adr/0057-github-native-swarm-coordination.md) and `AGENTS.md`.
 - **Conventional Commits** govern **both commit messages and PR titles**:
   `type(scope): summary (FR-ID when applicable)`. Types: `feat fix docs chore refactor test ci
   build perf revert`. The **scope is a §4.2 module** without the `tether.`
@@ -247,9 +254,12 @@ Before requesting review / merging, confirm:
 - [ ] **No secrets committed** — no token, key, credential or private path in code,
       tests, logs or fixtures; `secret-scan` green.
 - [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
-- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; optional
-      Copilot state; substantive final-head Codex-or-CodeRabbit result; high-risk
-      CodeRabbit and applicable domain-review state from `AGENTS.md`.
+- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; the round; and a
+      result from **every** provider the lane routes to (Codex for `low`/`standard`; Codex **and**
+      CodeRabbit for `high`, in one round) — **either** a substantive review **or** that provider's
+      own quoted "nothing to review" for the head it read, a Codex 👍 included. If one provider
+      genuinely *cannot* act, record which and why and the other satisfies the lane. Blocking
+      findings fixed, non-blocking ones deferred to a follow-up issue, per `AGENTS.md`.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
       **same** PR.
 
@@ -259,9 +269,12 @@ Merge **squash-only** (linear history, delete-branch-on-merge) once the review i
 addressed **and all required CI checks are green** — wait for in-progress checks;
 **never merge over a red or pending check**.
 
-In an issue swarm, workers stop at PR-ready and never merge. Only the coordinator with
-explicit run-scoped `merge` authority performs the exact-head/exact-base guarded squash
-merge and refills the completed slot.
+Automated agents are peers, not a hierarchy: each claims one issue, opens one PR, and
+**arms auto-merge and exits** rather than waiting or handing off to a merger. There is
+no coordinator. The merge is bound to the head the review evidence covers with
+`gh pr merge N --auto --squash --match-head-commit <SHA>` — that guard is what stands in
+for the merge queue, which needs an organization-owned repository and so is unavailable
+here.
 
 The `main-baseline` ruleset requires these **11** status checks:
 
@@ -278,16 +291,49 @@ is what PRD §12.8 recommends for a solo maintainer — and is gated by a separa
 **Reviews.** The ruleset requires **0 approving reviews** but does require
 **conversation resolution**: an unresolved review thread blocks the merge even when
 every check is green. Classify the final diff before merge and follow `AGENTS.md`:
-Copilot is optional and best-effort, while every lane needs a substantive PR diff
-walkthrough bound to the final head SHA from Codex GitHub Code Review or CodeRabbit.
-Low and standard may select either; high/load-bearing requires CodeRabbit on the
-stable, green diff. Qualified human/domain review is required when scientific, security,
-or release judgment is material. Author-side or local review,
-status-only output, denial, unavailability, or a summary without a diff walkthrough
-does not satisfy the independent gate. CodeRabbit's five-per-hour quota blocks only
-when CodeRabbit is required or selected; Copilot quota never blocks. Resolve every
-conversation and every actionable finding. Any head change invalidates final-head review
-evidence; a material change requires every affected review layer again.
+Copilot is optional, while every PR needs substantive independent review requested once
+checks are green and the diff is declared final. **Low and standard route to Codex
+GitHub Code Review; high/load-bearing takes both Codex and CodeRabbit — requested
+together and answered as one round, never as two.** Author-side or local review, and
+status-only output, do not satisfy it.
+
+**Neither provider auto-reviews this repository; you have to ask.** CodeRabbit replies
+to an unrequested PR with *"Auto reviews are disabled on this repository"*, and Codex
+reviews only when you open a PR for review, mark a draft ready, or comment
+`@codex review`. A provider that was never asked has not declined — so if you are
+waiting on a review, check that a request was actually posted.
+
+Review evidence **survives a non-material push**, so addressing findings does not
+restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
+renumbering are all non-material, while executable code, scientific claims, data,
+schema, locks, CI/release config and the governance text itself (`AGENTS.md`, this
+file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`) are material. A material push
+re-arms the review but grants no extra round, and there are **at most two rounds**.
+
+Fix blocking findings. Blocking is decided on the **severity axis only**: CodeRabbit
+`Critical`/`Major`, Codex `P1`, plus anything touching secrets, unlicensed data, a frozen
+oracle, the §5 skeleton, or a CodeQL alert — and anything that falsifies a claim the PR
+itself introduces.
+
+CodeRabbit renders three independent things on a finding and only one of them is the
+severity: a **domain** (`🎯 Functional Correctness`, `📐 Maintainability & Code Quality`,
+…), a **severity** (`🔴 Critical`, `🟠 Major`, `🟡 Minor`), and a machine marker
+(`<!-- cr-indicator-types:potential_issue -->`). The marker is a *category*, not a level —
+it appears on `🟡 Minor` and `🟠 Major` alike — so it never makes a `Minor` blocking. An
+earlier revision of this list read `Critical`/`Major`/`Potential issue`, which mixed the
+two axes and left every `Minor` ambiguous.
+
+Defer everything else to **one** follow-up issue per PR and resolve the thread with a
+link; do not fix non-blocking findings in the same PR, and never point a deferral at an
+issue that does not exist. If a **selected** provider reports nothing to review at the
+head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is its documented
+"no suggestions" — that satisfies its leg; quote it. A statement from the author, or from
+any other commenter, never does. On `high`, a provider that genuinely **cannot** act
+leaves the other sufficient, with which one and why recorded — capability, never quota;
+both genuinely unavailable freezes the PR. There are **at most two rounds**, and under
+the swarm model the launcher issues them: do not request one yourself on a PR labelled
+`agent:review-capped`. Human sign-off is required only for releases, tags, signing, and
+new scientific claims.
 
 ## Reporting bugs & security issues
 

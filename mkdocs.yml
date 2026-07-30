@@ -74,6 +74,7 @@ exclude_docs: |
 
 not_in_nav: |
   adr/0*.md
+  agents/*.md
 
 # Material's version selector reads mike's versions.json at deploy time; this is a
 # theme setting only — the required docs-build job needs no `mike` install to pass

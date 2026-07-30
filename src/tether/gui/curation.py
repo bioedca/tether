@@ -25,8 +25,8 @@ without Qt (mirroring :mod:`tether.gui.trace_dock`):
   ``Enter``/``I`` and the reserved ``C``/``V`` no-ops. Rebindable and
   JSON-persistable; renders a cheat-sheet.
 * :class:`CurationController` — routes a :class:`Command` to injected handler
-  callbacks (later sessions wire real ``/labels`` writes, idealize, camera jumps;
-  M2 S2 records the dispatch for tests) and keeps the integer↔category contract
+  callbacks (the shell wires loaded-project accept/reject/un-reject to real
+  ``/labels`` writes) and keeps the integer↔category contract
   (tMAVEN class ``0`` ↔ Tether *uncategorized*, ``≥ 1`` ↔ named categories).
 * :class:`CurationEventFilter` — the ``QObject`` installed on the ``QApplication``
   that implements the focus contract. Qt is imported lazily in ``__init__`` so
@@ -81,6 +81,7 @@ class CurationAction(StrEnum):
 
     ACCEPT = "accept"  # Tether-only: Space
     REJECT = "reject"  # Tether-only: Backspace / Delete
+    UNREJECT = "unreject"  # Tether-only: visible one-click reversal control
     JUMP = "jump"  # Tether-only: Enter — round-trip to the movie spot
     IDEALIZE = "idealize"  # Tether-only: I — one-click vbFRET (wired at M2 S6)
     NEXT = "next"  # inherited: Right / Down
@@ -139,6 +140,7 @@ def action_description(command: Command) -> str:
 _ACTION_TEXT: dict[CurationAction, str] = {
     CurationAction.ACCEPT: "Accept trace",
     CurationAction.REJECT: "Reject trace",
+    CurationAction.UNREJECT: "Un-reject trace",
     CurationAction.JUMP: "Jump to movie spot",
     CurationAction.IDEALIZE: "One-click idealize",
     CurationAction.NEXT: "Next trace",
@@ -162,10 +164,12 @@ _ACTION_TEXT: dict[CurationAction, str] = {
 class CurationHandlers:
     """Injected callbacks the controller invokes for each dispatched command.
 
-    Every hook is optional; an unset hook makes its action a silent no-op at M2
-    S2 (the curation/labels writer, one-click idealize, and the camera jump wire
-    their real backends at M2 S5/S6/S4). ``assign_category`` receives the integer
-    class; ``window_start``/``window_end`` receive the ``±1`` nudge delta.
+    Every hook remains optional so the Qt-free controller is independently
+    injectable; an unset hook is a silent no-op. :class:`~tether.gui.shell.TetherShell`
+    wires loaded-project accept/reject/un-reject to the real labels writer and
+    reports unavailable store commands explicitly. ``assign_category`` receives
+    the integer class; ``window_start``/``window_end`` receive the ``±1`` nudge
+    delta.
     """
 
     accept: Callable[[], Any] | None = None
@@ -181,6 +185,8 @@ class CurationHandlers:
     reset_window: Callable[[], Any] | None = None
     photobleach: Callable[[], Any] | None = None
     grid: Callable[[], Any] | None = None
+    # Appended to preserve positional construction of the pre-existing handler API.
+    unreject: Callable[[], Any] | None = None
 
 
 class CurationController:
@@ -219,6 +225,8 @@ class CurationController:
             _call(h.accept)
         elif a is CurationAction.REJECT:
             _call(h.reject)
+        elif a is CurationAction.UNREJECT:
+            _call(h.unreject)
         elif a is CurationAction.JUMP:
             _call(h.jump)
         elif a is CurationAction.IDEALIZE:
@@ -434,6 +442,7 @@ _ACTION_ORDER: dict[CurationAction, int] = {
         (
             CurationAction.ACCEPT,
             CurationAction.REJECT,
+            CurationAction.UNREJECT,
             CurationAction.JUMP,
             CurationAction.IDEALIZE,
             CurationAction.PREV,
@@ -493,11 +502,13 @@ class CurationEventFilter:
 
     Composes a lazily-created ``QObject`` (so importing this module needs no Qt,
     matching :mod:`tether.gui.trace_dock`). On a ``KeyPress`` for a chord in the
-    keymap, and only when the **focused** widget is not a text editor, it
-    dispatches the :class:`Command` to the controller and **consumes** the event
-    (returning ``True``) so the native list/canvas binding never fires; the
-    matching ``KeyRelease`` is consumed too. After a ``JUMP`` (camera round-trip)
-    focus is returned to the registered dock widget, mirroring tMAVEN.
+    keymap, and only when the event remains inside the registered curation window
+    and the **focused** widget is not a text editor, it dispatches the
+    :class:`Command` to the controller and **consumes** the event (returning
+    ``True``) so the native list/canvas binding never fires; the matching
+    ``KeyRelease`` is consumed too. Dialogs and popup menus remain outside that
+    scope. After a ``JUMP`` (camera round-trip) focus is returned to the
+    registered dock widget, mirroring tMAVEN.
 
     The exemption is keyed on the **focused** widget, not merely the event's
     target: a focused ``QLineEdit`` that *ignores* a key (e.g. ``Enter``, which it
@@ -517,12 +528,18 @@ class CurationEventFilter:
         keymap: Keymap | None = None,
         *,
         focus_dock: QtWidgets.QWidget | None = None,
+        scope_window: QtWidgets.QWidget | None = None,
+        scope_widgets: tuple[QtWidgets.QWidget, ...] = (),
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtWidgets
 
         self._controller = controller
         self._keymap = keymap if keymap is not None else Keymap.default()
         self._focus_dock = focus_dock
+        self._scope_window = scope_window
+        # Explicit shell-owned top-level surfaces that may detach from the main
+        # window (notably a floating Browser QDockWidget). Dialogs are not added.
+        self._scope_widgets = tuple(scope_widgets)
         self._app: QtCore.QCoreApplication | None = None
         self._qtwidgets = QtWidgets  # cached for the per-event focus lookup
         # Key codes whose KeyPress this filter consumed, so the paired KeyRelease
@@ -614,24 +631,52 @@ class CurationEventFilter:
             return False
         if event_type != self._key_press:
             return False
+        # Dialogs and popup menus own every native key while active. The filter is
+        # application-wide, so without these guards a bare Space/Backspace/Delete
+        # could curate the trace hidden behind them.
+        app = self._qtwidgets.QApplication
+        if app.activeModalWidget() is not None or app.activePopupWidget() is not None:
+            return False
+        focus = self._current_focus() if focus_widget is _UNSET else focus_widget
+        # The actual event receiver defines scope. QDialog/QMenu.window() is the
+        # dialog/menu itself even when parented by the main window, so modeless
+        # help and popup surfaces remain natively interactive. A shell-owned dock
+        # may itself become the top-level window when floated; only explicitly
+        # registered dock surfaces extend the main-window scope.
+        if self._scope_window is not None:
+            if not isinstance(watched, self._qtwidgets.QWidget):
+                return False
+            watched_window = watched.window()
+            if watched_window != self._scope_window and not any(
+                watched_window is widget for widget in self._scope_widgets
+            ):
+                return False
         # A focused text editor keeps native text semantics (PRD §7.3 exemption).
         # Check both the event's target and the focused widget: on key-event
         # propagation the target climbs to non-text parents while focus stays on
         # the text field, so the focus check is what keeps the category field
         # exempt for keys it ignores (e.g. Enter).
-        focus = self._current_focus() if focus_widget is _UNSET else focus_widget
         if is_text_entry(watched) or is_text_entry(focus):
             return False
         modifiers = _as_int(event.modifiers()) & self._significant_mask
         command = self._keymap.command_for(_as_int(event.key()), modifiers)
         if command is None:
             return False  # unmapped: let the native widget handle it
-        # Dispatch on press (auto-repeat included, mirroring tMAVEN) and record the
-        # key so its release is consumed too — the native binding sees neither.
+        key = _as_int(event.key())
+        # One physical hold must not append repeated accept/reject provenance rows.
+        # Navigation still repeats so a curator can keep moving through the list.
+        if event.isAutoRepeat() and command.action in {
+            CurationAction.ACCEPT,
+            CurationAction.REJECT,
+        }:
+            self._consumed_press_keys.add(key)
+            return True
+        # Dispatch on press and record the key so its release is consumed too —
+        # the native binding sees neither.
         self._controller.dispatch(command)
         if command.action is CurationAction.JUMP and self._focus_dock is not None:
             self._focus_dock.setFocus()
-        self._consumed_press_keys.add(_as_int(event.key()))
+        self._consumed_press_keys.add(key)
         return True
 
     def _current_focus(self) -> Any:

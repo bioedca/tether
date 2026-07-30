@@ -36,6 +36,7 @@ from tether.imaging.register import PolyTransform2D  # noqa: E402
 from tether.imaging.split import ChannelGeometry  # noqa: E402
 from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import TABLE, create_project  # noqa: E402
+from tether.project import lock  # noqa: E402
 from tether.project.correct import (  # noqa: E402
     METHOD_APPARENT_TOGGLE,
     METHOD_APPARENT_UNAVAILABLE,
@@ -419,3 +420,58 @@ def test_recompute_overwrites_settings(tmp_path: Path) -> None:
     compute_corrected_fret(path, apparent_e_only=True)
     with h5py.File(path, "r") as f:
         assert bool(f["settings/correction"].attrs["apparent_e_only"]) is True
+
+
+def test_guarded_correction_publish_preserves_successor_data_and_stamp(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "guarded-correction.tether"
+    _build_store(path, n_mol=6)
+    _set_factors(path, alpha=0.09, gamma=1.2)
+    owner = lock.acquire(path)
+    successor: lock.LockInfo | None = None
+
+    def lose_ownership_after_complete_stage() -> None:
+        nonlocal successor
+        stages = list(tmp_path.glob(".guarded-correction.tether.*.correction.tmp"))
+        stage_complete = False
+        if stages:
+            try:
+                with h5py.File(stages[0], "r") as staged:
+                    methods = staged["molecules"][TABLE]["correction_method"].astype(str)
+                    stage_complete = "correction" in staged["settings"] and np.all(
+                        methods == METHOD_CORRECTED
+                    )
+            except OSError:
+                pass
+        if stage_complete and successor is None:
+            successor, prior = lock.steal_lock(
+                path,
+                identity=lock.LockIdentity(host="OTHER", user="successor", pid=701),
+            )
+            assert prior == owner
+            with h5py.File(path, "r+") as canonical:
+                table = canonical["molecules"][TABLE][:]
+                table["correction_method"][:] = METHOD_APPARENT_TOGGLE
+                table["correction_confidence"][:] = 0.0
+                canonical["molecules"][TABLE][:] = table
+                stamp = canonical["settings"].create_group("correction")
+                stamp.attrs["successor_sentinel"] = "preserve"
+        current = lock.read_lock(path)
+        if current is None or current.nonce != owner.nonce:
+            raise lock.LockError("destination ownership changed")
+
+    try:
+        with pytest.raises(lock.LockError, match="ownership changed"):
+            compute_corrected_fret(path, write_guard=lose_ownership_after_complete_stage)
+    finally:
+        if successor is not None:
+            assert lock.release(path, successor)
+        else:
+            assert lock.release(path, owner)
+
+    assert successor is not None
+    assert _methods(path) == [METHOD_APPARENT_TOGGLE] * 6
+    with h5py.File(path, "r") as canonical:
+        assert canonical["settings/correction"].attrs["successor_sentinel"] == "preserve"
+    assert not list(tmp_path.glob(".guarded-correction.tether.*.correction.tmp"))

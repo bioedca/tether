@@ -32,8 +32,8 @@
 #   * Live (this workflow): drives the real fits vs the frozen tolerance, which needs
 #     the heavy sidecar env + tMAVEN.
 #
-# Trigger: `pull_request` (path-gated, below) + manual `workflow_dispatch` + nightly
-# `schedule`. On a PR the job ALWAYS runs but only does the heavy env+fit when the PR
+# Trigger: `pull_request` (path-gated, below) + `push` to `main` (post-merge) + manual
+# `workflow_dispatch` + nightly `schedule`. On a PR the job ALWAYS runs but only does the heavy env+fit when the PR
 # touches idealization-relevant paths (src/tether/idealize, sidecar, the tolerance,
 # the sidecar tests, this workflow, or the setup-env action); an unrelated PR reports
 # a fast "not applicable" success in seconds. Because the single `sidecar / parity`
@@ -45,6 +45,14 @@ name: sidecar
 
 on:
   pull_request:
+  push:
+    # Post-merge detection on `main`. Every other required workflow (ci.yml,
+    # schema-guard.yml) already reports on pushes to `main`; this one did not, so a
+    # parity break that landed via a semantic conflict between two green PRs stayed
+    # invisible until the nightly `schedule` fired — up to ~24h of red `main`. The
+    # relevance step below treats any non-`pull_request` event as "run the full live
+    # suite", so a merge to `main` always exercises the real fits.
+    branches: [main]
   workflow_dispatch:
   schedule:
     # Nightly at 06:37 UTC (off the hour to avoid the cron stampede).
@@ -83,7 +91,7 @@ jobs:
       # is installed into the sidecar env here.
       TMAVEN_SPEC: "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # Full history so the relevance step can diff the PR against its base. LFS

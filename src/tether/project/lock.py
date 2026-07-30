@@ -49,16 +49,19 @@ project so the user can reconcile them.
 
 from __future__ import annotations
 
+import errno
 import getpass
 import glob as _glob
 import json
 import os
 import socket
+import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -75,15 +78,20 @@ __all__ = [
     "LockIdentity",
     "LockInfo",
     "LockedError",
+    "ProcessReservation",
     "acquire",
+    "acquire_process_reservation",
     "assert_writable",
+    "assert_process_reservation",
     "conflict_copies",
     "create_split_curation",
     "held_lock",
     "local_identity",
     "lock_path",
     "read_lock",
+    "refresh",
     "release",
+    "release_process_reservation",
     "steal_lock",
 ]
 
@@ -95,6 +103,63 @@ DEFAULT_STALENESS_TIMEOUT_S: float = 30.0 * 60.0
 #: (``exp.tether`` -> ``exp.tether.lock``), so it never collides with a sibling
 #: project sharing the stem but a different extension.
 LOCK_SUFFIX = ".lock"
+
+#: Stable same-path sidecar used only as an OS advisory serialization inode.
+#: Lifecycle operations request ``0666`` (subject to the site's umask) so a
+#: group-shared project can keep one cross-user ``O_RDWR`` guard, and never unlink
+#: or replace it.
+_GUARD_SUFFIX = ".guard"
+_GUARD_ACQUIRE_TIMEOUT_S = 5.0
+_GUARD_RETRY_INTERVAL_S = 0.01
+_ATOMIC_REPLACE_TIMEOUT_S = 5.0
+_ATOMIC_REPLACE_RETRY_INTERVAL_S = 0.01
+_WINDOWS_SHARING_WINERRORS = {5, 32, 33}
+_ACTIVE_GUARD_FDS: set[int] = set()
+_GUARD_REGISTRY_LOCK = Lock()
+
+# A strict claim that repeatedly loses O_EXCL to a writer whose sidecar vanishes
+# must fail closed rather than busy-spin the whole batch queue forever.
+_STRICT_CLAIM_ATTEMPTS = 5
+
+
+class _ProcessReservationState:
+    """One ref-counted per-destination gate in this Python process."""
+
+    __slots__ = ("gate", "tokens", "users")
+
+    def __init__(self) -> None:
+        self.gate = threading.Lock()
+        self.tokens: set[str] = set()
+        self.users = 0
+
+
+_PROCESS_RESERVATIONS_GUARD = threading.Lock()
+_PROCESS_RESERVATIONS: dict[str, _ProcessReservationState] = {}
+_PROCESS_RESERVATIONS_CONTEXT = threading.local()
+_PROCESS_RESERVATIONS_PID = os.getpid()
+
+
+def _reset_process_reservations() -> None:
+    """Drop inherited in-process gates after fork; sidecar locks remain authoritative."""
+    global _PROCESS_RESERVATIONS_GUARD
+    global _PROCESS_RESERVATIONS
+    global _PROCESS_RESERVATIONS_CONTEXT
+    global _PROCESS_RESERVATIONS_PID
+
+    _PROCESS_RESERVATIONS_GUARD = threading.Lock()
+    _PROCESS_RESERVATIONS = {}
+    _PROCESS_RESERVATIONS_CONTEXT = threading.local()
+    _PROCESS_RESERVATIONS_PID = os.getpid()
+
+
+def _ensure_process_reservations_current() -> None:
+    """Reset a registry inherited from a parent PID before consulting its locks."""
+    if os.getpid() != _PROCESS_RESERVATIONS_PID:
+        _reset_process_reservations()
+
+
+if hasattr(os, "register_at_fork"):  # pragma: no branch - platform capability
+    os.register_at_fork(after_in_child=_reset_process_reservations)
 
 
 # --- errors ------------------------------------------------------------------
@@ -109,17 +174,19 @@ class CorruptLockError(LockError):
 
     Surfaced rather than silently ignored: an unparseable lock has an unknown
     owner, so a write is refused (via :class:`LockedError`) until the lock is
-    explicitly stolen (which overwrites it).
+    explicitly stolen (which overwrites it once no process-local reservation blocks
+    that execution context).
     """
 
 
 class LockedError(LockError):
-    """Raised when a canonical write/acquire is refused by a foreign lock.
+    """Raised when a canonical write/acquire is refused by a lock or reservation.
 
     Attributes
     ----------
     owner:
-        The current lock holder, or ``None`` when the lock is present but corrupt.
+        The current sidecar holder, or ``None`` when a process-local reservation
+        blocks access or the sidecar is corrupt.
     stale:
         Whether the held lock is older than the staleness timeout (PRD §5.4) — the
         GUI uses this to offer a one-click steal ("owner idle > 30 min").
@@ -252,6 +319,16 @@ class LockInfo:
         return info
 
 
+@dataclass(frozen=True)
+class ProcessReservation:
+    """Opaque ownership token for one in-process destination critical section."""
+
+    path_key: str
+    nonce: str
+    owner_pid: int
+    owner_thread: int
+
+
 # --- helpers -----------------------------------------------------------------
 
 
@@ -301,8 +378,168 @@ def _new_info(identity: LockIdentity, *, now: datetime | None = None) -> LockInf
 def _atomic_write(lp: Path, info: LockInfo) -> None:
     """Write the lock JSON via a temp file + atomic ``os.replace`` (crash/torn-write safe)."""
     tmp = lp.with_name(f"{lp.name}.tmp-{info.nonce}")
-    tmp.write_text(json.dumps(info.to_dict(), indent=2), encoding="utf-8")
-    os.replace(tmp, lp)  # atomic on both POSIX and Windows for same-directory paths
+    deadline = time.monotonic() + _ATOMIC_REPLACE_TIMEOUT_S
+    try:
+        tmp.write_text(json.dumps(info.to_dict(), indent=2), encoding="utf-8")
+        while True:
+            try:
+                os.replace(tmp, lp)
+                return
+            except OSError as exc:
+                windows_sharing_violation = os.name == "nt" and (
+                    isinstance(exc, PermissionError)
+                    or getattr(exc, "winerror", None) in _WINDOWS_SHARING_WINERRORS
+                )
+                if not windows_sharing_violation or time.monotonic() >= deadline:
+                    raise
+                time.sleep(_ATOMIC_REPLACE_RETRY_INTERVAL_S)
+    finally:
+        with suppress(FileNotFoundError):
+            tmp.unlink()
+
+
+def _guard_path(lp: Path) -> Path:
+    """Return the stable advisory file for this exact lock-sidecar spelling."""
+    return lp.with_name(lp.name + _GUARD_SUFFIX)
+
+
+def _guard_registry_before_fork() -> None:
+    """Prevent fork from landing between guard descriptor open/register or close."""
+    _GUARD_REGISTRY_LOCK.acquire()
+
+
+def _guard_registry_after_fork_parent() -> None:
+    """Release the descriptor registry in the parent after ``fork()``."""
+    _GUARD_REGISTRY_LOCK.release()
+
+
+def _guard_registry_after_fork_child() -> None:
+    """Close every inherited guard descriptor and reset the child registry mutex."""
+    global _GUARD_REGISTRY_LOCK
+
+    for fd in tuple(_ACTIVE_GUARD_FDS):
+        with suppress(OSError):
+            os.close(fd)
+    _ACTIVE_GUARD_FDS.clear()
+    # The pre-fork mutex is inherited locked by a thread that no longer exists in
+    # the child. Replace it rather than attempting to release that inherited state.
+    _GUARD_REGISTRY_LOCK = Lock()
+
+
+def _ensure_windows_guard_byte(fd: int, gp: Path, *, deadline: float) -> None:
+    """Create the byte-range-lock target despite a concurrent first opener.
+
+    A peer may observe the zero-length guard just before another process writes
+    and locks byte zero. Its own stale first-use write then receives a Windows
+    sharing violation. Retry the size check/write within the same bounded guard
+    deadline; once the winner's byte is visible, ordinary lock acquisition below
+    serializes the contenders.
+    """
+    while True:
+        try:
+            if os.fstat(fd).st_size >= 1:
+                return
+            os.lseek(fd, 0, os.SEEK_SET)
+            if os.write(fd, b"\0") != 1:  # pragma: no cover - defensive short write
+                raise OSError("short write while initializing lock lifecycle guard")
+            os.fsync(fd)
+            return
+        except OSError as exc:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"timed out initializing lock lifecycle guard: {gp}") from exc
+            time.sleep(_GUARD_RETRY_INTERVAL_S)
+
+
+_register_at_fork = getattr(os, "register_at_fork", None)
+if _register_at_fork is not None:  # pragma: no branch - platform capability
+    _register_at_fork(
+        before=_guard_registry_before_fork,
+        after_in_parent=_guard_registry_after_fork_parent,
+        after_in_child=_guard_registry_after_fork_child,
+    )
+
+
+@contextmanager
+def _lifecycle_guard(lp: Path) -> Iterator[None]:
+    """Serialize same-path sidecar mutations across processes with a stable OS lock.
+
+    The descriptor exists only for this operation; no process-local mutex is
+    retained. Acquisition is non-blocking with a bounded retry so an inherited or
+    misbehaving holder fails closed instead of deadlocking. The guard inode is
+    persistent: Tether never unlinks or path-replaces it. A distinct hard-link
+    spelling has a distinct sidecar and guard; callers requiring cross-process
+    coordination must use the same canonical lock-sidecar path.
+    """
+    gp = _guard_path(lp)
+    with _GUARD_REGISTRY_LOCK:
+        fd = os.open(gp, os.O_CREAT | os.O_RDWR, 0o666)
+        try:
+            os.set_inheritable(fd, False)
+            _ACTIVE_GUARD_FDS.add(fd)
+        except BaseException:
+            os.close(fd)
+            raise
+    acquired = False
+    deadline = time.monotonic() + _GUARD_ACQUIRE_TIMEOUT_S
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            # msvcrt.locking requires a real byte range. Multiple first openers
+            # can retain a stale zero-size observation after a peer writes and locks
+            # byte zero, so initialization shares this operation's bounded retry.
+            _ensure_windows_guard_byte(fd, gp, deadline=deadline)
+            while True:
+                os.lseek(fd, 0, os.SEEK_SET)
+                try:
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                    acquired = True
+                    break
+                except OSError as exc:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"timed out acquiring lock lifecycle guard: {gp}"
+                        ) from exc
+                    time.sleep(_GUARD_RETRY_INTERVAL_S)
+        else:
+            import fcntl
+
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except OSError as exc:
+                    if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                        raise
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"timed out acquiring lock lifecycle guard: {gp}"
+                        ) from exc
+                    time.sleep(_GUARD_RETRY_INTERVAL_S)
+        yield
+    finally:
+        with _GUARD_REGISTRY_LOCK:
+            try:
+                if acquired and fd in _ACTIVE_GUARD_FDS:
+                    if os.name == "nt":
+                        import msvcrt
+
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                if fd in _ACTIVE_GUARD_FDS:
+                    _ACTIVE_GUARD_FDS.remove(fd)
+                    os.close(fd)
+
+
+def _publish_refresh(lp: Path, info: LockInfo) -> None:
+    """Atomically publish a refresh while the caller holds ``_lifecycle_guard``."""
+    _atomic_write(lp, info)
 
 
 def _exclusive_create(lp: Path, info: LockInfo) -> bool:
@@ -361,6 +598,165 @@ def _read_settled(
     return info, corrupt
 
 
+def _reservation_key(project_path: str | Path) -> str:
+    """Stable normalized absolute key for the destination's lexical sidecar path."""
+    return os.path.normcase(os.path.abspath(os.fspath(lock_path(project_path))))
+
+
+def _context_reservations() -> dict[str, ProcessReservation]:
+    reservations = getattr(_PROCESS_RESERVATIONS_CONTEXT, "reservations", None)
+    if reservations is None:
+        reservations = {}
+        _PROCESS_RESERVATIONS_CONTEXT.reservations = reservations
+    return reservations
+
+
+def _checkout_reservation_state(key: str) -> _ProcessReservationState:
+    _ensure_process_reservations_current()
+    with _PROCESS_RESERVATIONS_GUARD:
+        state = _PROCESS_RESERVATIONS.get(key)
+        if state is None:
+            state = _ProcessReservationState()
+            _PROCESS_RESERVATIONS[key] = state
+        state.users += 1
+        return state
+
+
+def _return_reservation_state(key: str, state: _ProcessReservationState) -> None:
+    with _PROCESS_RESERVATIONS_GUARD:
+        state.users -= 1
+        if state.users == 0 and not state.tokens and _PROCESS_RESERVATIONS.get(key) is state:
+            del _PROCESS_RESERVATIONS[key]
+
+
+def _reservation_locked_error(project_path: str | Path) -> LockedError:
+    lp = lock_path(project_path)
+    owner, corrupt = _read_tolerant(lp)
+    return LockedError(owner, corrupt=corrupt, path=lp)
+
+
+def acquire_process_reservation(project_path: str | Path) -> ProcessReservation:
+    """Fail-fast claim of one normalized destination inside this Python process.
+
+    The returned token is also installed as this thread's active execution context,
+    allowing owning-path canonical writers to re-enter :func:`assert_writable`.
+    Recursive reservation claims remain untransferred and are refused.
+    """
+    key = _reservation_key(project_path)
+    state = _checkout_reservation_state(key)
+    acquired = False
+    token: ProcessReservation | None = None
+    try:
+        with _PROCESS_RESERVATIONS_GUARD:
+            already_reserved = bool(state.tokens)
+        if already_reserved or not state.gate.acquire(blocking=False):
+            raise _reservation_locked_error(project_path)
+        acquired = True
+        token = ProcessReservation(
+            path_key=key,
+            nonce=uuid4().hex,
+            owner_pid=os.getpid(),
+            owner_thread=threading.get_ident(),
+        )
+        with _PROCESS_RESERVATIONS_GUARD:
+            state.tokens.add(token.nonce)
+        contexts = _context_reservations()
+        if key in contexts:
+            raise LockError(f"process reservation context already active for {project_path}")
+        contexts[key] = token
+        return token
+    except Exception:
+        if acquired:
+            with _PROCESS_RESERVATIONS_GUARD:
+                if token is not None:
+                    state.tokens.discard(token.nonce)
+            state.gate.release()
+        _return_reservation_state(key, state)
+        raise
+
+
+def assert_process_reservation(
+    project_path: str | Path,
+    reservation: ProcessReservation,
+) -> None:
+    """Verify that ``reservation`` still owns this process-local destination."""
+    _ensure_process_reservations_current()
+    key = _reservation_key(project_path)
+    with _PROCESS_RESERVATIONS_GUARD:
+        state = _PROCESS_RESERVATIONS.get(key)
+        valid = (
+            reservation.path_key == key
+            and reservation.owner_pid == os.getpid()
+            and reservation.owner_thread == threading.get_ident()
+            and state is not None
+            and reservation.nonce in state.tokens
+        )
+    if not valid:
+        raise LockError(f"process reservation ownership changed for {project_path}")
+
+
+def release_process_reservation(
+    project_path: str | Path,
+    reservation: ProcessReservation,
+) -> None:
+    """Release an owning reservation token; never release another context's gate."""
+    _ensure_process_reservations_current()
+    key = _reservation_key(project_path)
+    if reservation.owner_pid != os.getpid() or reservation.owner_thread != threading.get_ident():
+        raise LockError(f"process reservation belongs to another execution context: {project_path}")
+    with _PROCESS_RESERVATIONS_GUARD:
+        state = _PROCESS_RESERVATIONS.get(key)
+        if reservation.path_key != key or state is None or reservation.nonce not in state.tokens:
+            raise LockError(f"process reservation ownership changed for {project_path}")
+        state.tokens.remove(reservation.nonce)
+        contexts = _context_reservations()
+        if contexts.get(key) != reservation:
+            state.tokens.add(reservation.nonce)
+            raise LockError(f"process reservation context changed for {project_path}")
+        del contexts[key]
+        state.gate.release()
+    _return_reservation_state(key, state)
+
+
+@contextmanager
+def _process_local_access(
+    project_path: str | Path,
+    *,
+    reservation: ProcessReservation | None = None,
+    allow_context: bool = False,
+) -> Iterator[None]:
+    """Serialize ordinary access or recognize an explicitly transferred owner."""
+    key = _reservation_key(project_path)
+    state = _checkout_reservation_state(key)
+    gate_acquired = False
+    try:
+        candidate = reservation
+        if candidate is None and allow_context:
+            candidate = _context_reservations().get(key)
+        with _PROCESS_RESERVATIONS_GUARD:
+            token_active = (
+                candidate is not None
+                and candidate.path_key == key
+                and candidate.owner_pid == os.getpid()
+                and candidate.owner_thread == threading.get_ident()
+                and candidate.nonce in state.tokens
+            )
+            reserved = bool(state.tokens)
+        if reservation is not None and not token_active:
+            raise _reservation_locked_error(project_path)
+        if reserved and not token_active:
+            raise _reservation_locked_error(project_path)
+        if not token_active:
+            gate_acquired = state.gate.acquire(blocking=False)
+            if not gate_acquired:
+                raise _reservation_locked_error(project_path)
+        yield
+    finally:
+        if gate_acquired:
+            state.gate.release()
+        _return_reservation_state(key, state)
+
+
 # --- public lifecycle --------------------------------------------------------
 
 
@@ -383,55 +779,109 @@ def assert_writable(
     *,
     identity: LockIdentity | None = None,
     timeout_s: float = DEFAULT_STALENESS_TIMEOUT_S,
+    process_reservation: ProcessReservation | None = None,
     now: datetime | None = None,
 ) -> None:
-    """Refuse a canonical write if a **foreign** lock is held (single-writer guard).
+    """Refuse a canonical write if another writer context owns the destination.
 
-    Passes silently when the file is unlocked or the lock is ours (a full
-    ``(host, user, pid)`` identity match). A foreign lock — live *or* stale — raises
-    :class:`LockedError` (carrying
-    ``stale`` so the GUI can offer a steal); a corrupt lock raises too (unknown
-    owner). This is the boundary the :class:`~tether.project.core.Project` writers
-    consult before mutating the canonical file.
+    First refuses a reservation held by another local execution context. Otherwise
+    passes when the sidecar is unlocked or ours (a full ``(host, user, pid)`` identity
+    match). A foreign lock — live *or* stale — raises :class:`LockedError` (carrying
+    ``stale`` so the GUI can offer a steal); a corrupt lock raises too (unknown owner).
+    This is the boundary the :class:`~tether.project.core.Project` writers consult
+    before mutating the canonical file.
     """
-    identity = identity if identity is not None else local_identity()
-    lp = lock_path(project_path)
-    info, corrupt = _read_tolerant(lp)
-    if corrupt:
-        raise LockedError(None, corrupt=True, path=lp)
-    if info is None or info.identity == identity:
-        return
-    raise LockedError(info, stale=info.is_stale(timeout_s=timeout_s, now=now), path=lp)
+    with _process_local_access(
+        project_path,
+        reservation=process_reservation,
+        allow_context=True,
+    ):
+        identity = identity if identity is not None else local_identity()
+        lp = lock_path(project_path)
+        info, corrupt = _read_tolerant(lp)
+        if corrupt:
+            raise LockedError(None, corrupt=True, path=lp)
+        if info is None or info.identity == identity:
+            return
+        raise LockedError(info, stale=info.is_stale(timeout_s=timeout_s, now=now), path=lp)
 
 
-def acquire(
+def _acquire_sidecar(
     project_path: str | Path,
     *,
-    identity: LockIdentity | None = None,
-    timeout_s: float = DEFAULT_STALENESS_TIMEOUT_S,
-    steal: bool = False,
-    now: datetime | None = None,
+    identity: LockIdentity | None,
+    timeout_s: float,
+    steal: bool,
+    allow_existing_owner: bool,
+    now: datetime | None,
 ) -> LockInfo:
-    """Acquire the single-writer lock, returning the written :class:`LockInfo`.
+    """Claim the sidecar under the OS lifecycle guard.
 
-    With ``steal=False`` (default) a foreign lock — live or stale — raises
-    :class:`LockedError` (a stale lock still requires an explicit steal, PRD §5.4);
-    an unlocked file, or one already held by this same ``(host, user, pid)``
-    identity, is (re)written and refreshed. With ``steal=True`` any existing lock
-    is overwritten
-    unconditionally (prefer :func:`steal_lock`, which also returns the ousted
-    owner so the caller can warn).
-
-    A fresh claim on an unlocked path uses an atomic ``O_CREAT | O_EXCL`` create
-    (:func:`_exclusive_create`) so two concurrent local writers cannot both claim it;
-    if the race is lost, the winner's lock is re-evaluated as a foreign lock.
+    Two independent exclusions compose here, outermost first: :func:`acquire` holds
+    the process-local reservation gate, this frame holds the cross-process
+    ``_lifecycle_guard`` inode, and :func:`_acquire_without_guard` performs the
+    sidecar I/O. Neither guard subsumes the other — the reservation orders writers
+    inside one interpreter, the guard orders them across processes.
     """
     identity = identity if identity is not None else local_identity()
     lp = lock_path(project_path)
+    with _lifecycle_guard(lp):
+        return _acquire_without_guard(
+            lp,
+            identity=identity,
+            timeout_s=timeout_s,
+            steal=steal,
+            allow_existing_owner=allow_existing_owner,
+            now=now,
+        )
+
+
+def _acquire_without_guard(
+    lp: Path,
+    *,
+    identity: LockIdentity,
+    timeout_s: float,
+    steal: bool,
+    allow_existing_owner: bool,
+    now: datetime | None,
+) -> LockInfo:
+    """Implement :func:`acquire` while its caller holds ``_lifecycle_guard``.
+
+    ``allow_existing_owner=False`` is the strict batch claim: it refuses any
+    already-present lock, including this process's own, and takes precedence over
+    ``steal``.
+    """
     info = _new_info(identity, now=now)
-    if steal:
+    if steal and allow_existing_owner:
         _atomic_write(lp, info)
         return info
+
+    if not allow_existing_owner:
+        for _attempt in range(_STRICT_CLAIM_ATTEMPTS):
+            existing, corrupt = _read_tolerant(lp)
+            if corrupt:
+                raise LockedError(None, corrupt=True, path=lp)
+            if existing is not None:
+                raise LockedError(
+                    existing,
+                    stale=existing.is_stale(timeout_s=timeout_s, now=now),
+                    path=lp,
+                )
+            if _exclusive_create(lp, info):
+                return info
+            existing, corrupt = _read_settled(lp)
+            if corrupt:
+                raise LockedError(None, corrupt=True, path=lp)
+            if existing is not None:
+                raise LockedError(
+                    existing,
+                    stale=existing.is_stale(timeout_s=timeout_s, now=now),
+                    path=lp,
+                )
+            # The writer that won O_EXCL disappeared before its record settled.
+            # Retry only through O_EXCL; never fall through to os.replace, because
+            # a successor could appear between this observation and replacement.
+        raise LockedError(None, path=lp)
 
     existing, corrupt = _read_tolerant(lp)
     if corrupt:
@@ -446,10 +896,94 @@ def acquire(
         if corrupt:
             raise LockedError(None, corrupt=True, path=lp)
     if existing is not None and existing.identity != identity:
-        raise LockedError(existing, stale=existing.is_stale(timeout_s=timeout_s, now=now), path=lp)
+        raise LockedError(
+            existing,
+            stale=existing.is_stale(timeout_s=timeout_s, now=now),
+            path=lp,
+        )
     # Unlocked again (raced away) or already ours: (re)write and refresh.
     _atomic_write(lp, info)
     return info
+
+
+def refresh(
+    project_path: str | Path,
+    held: LockInfo,
+    *,
+    now: datetime | None = None,
+) -> LockInfo:
+    """Refresh one retained session without changing or recreating its nonce.
+
+    Unlike :func:`acquire`, this operation never claims an unlocked path and never
+    treats a matching process identity as sufficient. The current sidecar must carry
+    ``held.nonce``; a vanished, corrupt, or replacement record raises
+    :class:`LockedError`. A successful refresh advances only the timestamp, preserving
+    the ownership epoch that long-running writers validate before persistence.
+    """
+    lp = lock_path(project_path)
+    with _lifecycle_guard(lp):
+        current, corrupt = _read_tolerant(lp)
+        if corrupt:
+            raise LockedError(None, corrupt=True, path=lp)
+        if current is None or current.nonce != held.nonce:
+            raise LockedError(current, path=lp)
+        refreshed = LockInfo(
+            host=held.host,
+            user=held.user,
+            pid=held.pid,
+            timestamp=(now if now is not None else _utc_now()).isoformat(),
+            nonce=held.nonce,
+        )
+        # Keep lock-free readers on the established all-old-or-all-new invariant:
+        # publish by same-directory atomic replace, but only while every
+        # cooperating lifecycle mutation is excluded by the stable OS guard.
+        _publish_refresh(lp, refreshed)
+        current, corrupt = _read_tolerant(lp)
+        if corrupt:
+            raise LockedError(None, corrupt=True, path=lp)
+        if current is None or current.nonce != held.nonce:
+            raise LockedError(current, path=lp)
+        return current
+
+
+def acquire(
+    project_path: str | Path,
+    *,
+    identity: LockIdentity | None = None,
+    timeout_s: float = DEFAULT_STALENESS_TIMEOUT_S,
+    steal: bool = False,
+    allow_existing_owner: bool = True,
+    process_reservation: ProcessReservation | None = None,
+    now: datetime | None = None,
+) -> LockInfo:
+    """Acquire the single-writer lock, returning the written :class:`LockInfo`.
+
+    With ``steal=False`` (default) a foreign lock — live or stale — raises
+    :class:`LockedError` (a stale lock still requires an explicit steal, PRD §5.4);
+    an unlocked file, or one already held by this same ``(host, user, pid)``
+    identity, is (re)written and refreshed. With ``steal=True`` an existing sidecar
+    is overwritten when no process-local reservation blocks access (prefer
+    :func:`steal_lock`, which also returns the ousted owner so the caller can warn).
+    With ``allow_existing_owner=False``, any already-present lock is refused, including
+    one with this process's identity; strict mode takes precedence over ``steal=True``
+    and never replaces a lock. This mode is for destructive jobs that have not
+    received an explicit transfer of another same-process writer's critical section.
+
+    A fresh claim on an unlocked path uses an atomic ``O_CREAT | O_EXCL`` create
+    (:func:`_exclusive_create`) so two concurrent local writers cannot both claim it;
+    if the race is lost, the winner's lock is re-evaluated as a foreign lock. An active
+    process reservation refuses ordinary recursive/competing acquisition;
+    ``process_reservation`` is the explicit owning token used by the strict batch path.
+    """
+    with _process_local_access(project_path, reservation=process_reservation):
+        return _acquire_sidecar(
+            project_path,
+            identity=identity,
+            timeout_s=timeout_s,
+            steal=steal,
+            allow_existing_owner=allow_existing_owner,
+            now=now,
+        )
 
 
 def steal_lock(
@@ -458,17 +992,30 @@ def steal_lock(
     identity: LockIdentity | None = None,
     now: datetime | None = None,
 ) -> tuple[LockInfo, LockInfo | None]:
-    """Force-acquire the lock, returning ``(new_lock, ousted_owner_or_None)``.
+    """Replace the sidecar lock, returning ``(new_lock, ousted_owner_or_None)``.
 
     The typed-confirmation UX is a GUI concern (M2 S9 PR-B); this is its headless
     engine. The returned prior owner is what the GUI surfaces to *warn the stealer*
     (PRD §5.4): last-write-wins, and the prior owner's unsaved work is not merged.
     A corrupt prior lock is reported as ``None`` (unknown owner) and overwritten.
+    A process-local reservation held by another execution context is never stolen;
+    it raises :class:`LockedError` before the sidecar is inspected or replaced.
     """
     identity = identity if identity is not None else local_identity()
-    prior, _corrupt = _read_tolerant(lock_path(project_path))
-    info = acquire(project_path, identity=identity, steal=True, now=now)
-    return info, prior
+    lp = lock_path(project_path)
+    with _lifecycle_guard(lp):
+        prior, _corrupt = _read_tolerant(lp)
+        info = _acquire_without_guard(
+            lp,
+            identity=identity,
+            timeout_s=DEFAULT_STALENESS_TIMEOUT_S,
+            steal=True,
+            # An explicit steal is precisely the "replace whatever is there" path,
+            # so it must not take the strict no-replacement branch.
+            allow_existing_owner=True,
+            now=now,
+        )
+        return info, prior
 
 
 def release(project_path: str | Path, info: LockInfo) -> bool:
@@ -476,24 +1023,23 @@ def release(project_path: str | Path, info: LockInfo) -> bool:
 
     Only removes the sidecar when the on-disk ``nonce`` still matches ``info`` — so
     a holder never deletes a lock that was stolen from them in the meantime, and a
-    double release is harmless.
+    double release is harmless. Release remains available during a process reservation:
+    it is cleanup, not a canonical write, and can remove only its supplied exact nonce.
 
-    A narrow read-then-``unlink`` window remains (a steal landing between the nonce
-    check and the ``unlink`` would delete the successor's lock). Closing it fully
-    needs OS advisory locking, which is deliberately out of scope: PRD §5.4 adopts a
-    one-owner-at-a-time, wall-clock-staleness model precisely because atomic locking
-    is impossible on an eventually-consistent share, so a sub-millisecond same-host
-    race is not the threat this guard defends against.
+    Acquire, explicit steal, retained refresh, and release all hold the same stable
+    per-project OS advisory guard. The nonce check and unlink are therefore one
+    serialized lifecycle operation and cannot delete a cooperating successor.
     """
     lp = lock_path(project_path)
-    current, corrupt = _read_tolerant(lp)
-    if corrupt or current is None or current.nonce != info.nonce:
-        return False
-    try:
-        lp.unlink()
-    except FileNotFoundError:  # pragma: no cover - raced away between read and unlink
-        return False
-    return True
+    with _lifecycle_guard(lp):
+        current, corrupt = _read_tolerant(lp)
+        if corrupt or current is None or current.nonce != info.nonce:
+            return False
+        try:
+            lp.unlink()
+        except FileNotFoundError:  # pragma: no cover - defensive; guard serializes peers
+            return False
+        return True
 
 
 @contextmanager
@@ -507,9 +1053,10 @@ def held_lock(
 ) -> Iterator[LockInfo]:
     """Context manager that acquires the lock on entry and releases it on exit.
 
-    Raises :class:`LockedError` on entry if a foreign lock blocks acquisition
-    (unless ``steal=True``). Release is nonce-checked, so a lock stolen mid-session
-    is not clobbered on exit.
+    Raises :class:`LockedError` on entry if a process-local reservation blocks
+    acquisition, or if a foreign sidecar blocks it and ``steal=False``. A local
+    reservation is never overridden by ``steal=True``. Release is nonce-checked,
+    so a lock stolen mid-session is not clobbered on exit.
     """
     info = acquire(project_path, identity=identity, timeout_s=timeout_s, steal=steal, now=now)
     try:

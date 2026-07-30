@@ -5,7 +5,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0053 — Structured backlog intake gates swarm admission
 
-- **Status:** accepted
+- **Status:** accepted, **superseded by [ADR-0057](0057-github-native-swarm-coordination.md)** on who
+  may admit work. The intake gates themselves — issue forms, `status:ready`, maintainer approval of a
+  scope hash — **remain in force**; ADR-0057 changes the admitting authority, not that admission is gated.
 - **Date:** 2026-07-26
 - **Deciders:** bioedca
 - **PRD anchor:** §12.5 (issue tracking and project planning)
@@ -101,6 +103,41 @@ exception, milestone coverage, question exclusion, and disabled blank issues.
 - **Follow-up.** Changes to the admission boundary, registered autonomy choices,
   or question eligibility require an ADR amendment or superseding decision and
   matching contract-test updates.
+
+## Amendment, 2026-07-30 — `size`, `risk` and `adr_needed` at intake
+
+This record's own Follow-up requires an amendment for a change to the registered
+field set, so this is it rather than a new decision.
+
+**What changed.** Each of the five work forms gains three required `dropdown`
+controls — `size`, `risk`, `adr_needed` — added to `ROUTING_FIELD_IDS` with frozen
+option sets asserted the same way `AUTONOMY_OPTIONS` is. `question.yml` is
+unchanged and remains non-worker intake.
+
+**What did not change: the admission boundary.** Admission is still
+`status:ready` plus an authenticated maintainer approval of the scope hash, and
+neither a filer nor a template can self-promote work. These three answers are
+*evidence for grooming*, not authority — a reporter selecting `risk: low` does not
+make the work low-risk, exactly as an `autonomy` answer never granted autonomy.
+
+**Why they are required rather than optional.** Both are consumed by machinery
+that did not exist when this record was written. `risk:*` selects the reviewer
+under [ADR-0057](0057-github-native-swarm-coordination.md)'s review gate, and
+`size:*` carries the diff budget `.agents/bin/scope_guard.py` measures against.
+An unanswered field leaves an issue `status:ready` with no lane able to take it,
+which is the state #240, #242, #243 and #244 are in.
+
+**Why `dropdown` and not `checkboxes`.** `_is_required` requires a literal
+`validations: {required: true}`; GitHub puts a per-option `required:` inside
+`checkboxes` instead, so a checkbox control would satisfy "the field exists" while
+collecting nothing.
+
+**Deliberately still out.** No `preauth` control — `preauth` records a
+*maintainer's* standing authorization, and a form field would let an untrusted
+reporter assert their own. No `non_goals` field — `scope` is already titled
+"Scope and non-goals". No automatic labelling: a form's `labels:` list is static
+and no `on: issues:` workflow exists, so applying these answers as labels is a
+separate change with its own risk class.
 
 ## More information
 

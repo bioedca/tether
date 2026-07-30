@@ -72,6 +72,7 @@ def test_controller_routes_every_action_to_its_handler() -> None:
     handlers = CurationHandlers(
         accept=lambda: calls.append(("accept",)),
         reject=lambda: calls.append(("reject",)),
+        unreject=lambda: calls.append(("unreject",)),
         jump=lambda: calls.append(("jump",)),
         idealize=lambda: calls.append(("idealize",)),
         next=lambda: calls.append(("next",)),
@@ -88,6 +89,7 @@ def test_controller_routes_every_action_to_its_handler() -> None:
     commands = [
         Command(A.ACCEPT),
         Command(A.REJECT),
+        Command(A.UNREJECT),
         Command(A.JUMP),
         Command(A.IDEALIZE),
         Command(A.NEXT),
@@ -177,13 +179,13 @@ def test_is_text_entry_false_for_none_and_plain_object() -> None:
 # --- GUI focus-contract smokes (@pytest.mark.gui) ----------------------------
 
 
-def _key_event(key, modifiers=None, *, press=True, text=""):
+def _key_event(key, modifiers=None, *, press=True, text="", auto_repeat=False):
     from pyqtgraph.Qt import QtCore, QtGui
 
     qt = QtCore.Qt
     mods = modifiers if modifiers is not None else qt.KeyboardModifier.NoModifier
     etype = QtCore.QEvent.Type.KeyPress if press else QtCore.QEvent.Type.KeyRelease
-    return QtGui.QKeyEvent(etype, int(key), mods, text)
+    return QtGui.QKeyEvent(etype, int(key), mods, text, auto_repeat, 1)
 
 
 @pytest.fixture
@@ -269,6 +271,33 @@ def test_four_bare_keys_fire_from_each_child_focus(curation) -> None:
 
 @pytest.mark.gui
 @_needs_qt
+def test_auto_repeat_skips_persistent_curation_but_keeps_navigation(curation) -> None:
+    from pyqtgraph.Qt import QtCore, QtWidgets
+
+    k = QtCore.Qt.Key
+    surface = QtWidgets.QListWidget()
+    curation.qtbot.addWidget(surface)
+
+    for key in (k.Key_Space, k.Key_Backspace, k.Key_Delete):
+        before = list(curation.controller.history)
+        event = _key_event(key, auto_repeat=True)
+        assert event.isAutoRepeat()
+        assert curation.filter.filter_event(surface, event, focus_widget=surface) is True
+        assert curation.controller.history == before
+
+    for key, command in (
+        (k.Key_Left, Command(A.PREV)),
+        (k.Key_Right, Command(A.NEXT)),
+    ):
+        before = len(curation.controller.history)
+        event = _key_event(key, auto_repeat=True)
+        assert curation.filter.filter_event(surface, event, focus_widget=surface) is True
+        assert len(curation.controller.history) == before + 1
+        assert curation.controller.last == command
+
+
+@pytest.mark.gui
+@_needs_qt
 def test_text_entry_is_exempt_from_the_keymap(curation) -> None:
     from pyqtgraph.Qt import QtCore, QtWidgets
 
@@ -281,6 +310,77 @@ def test_text_entry_is_exempt_from_the_keymap(curation) -> None:
     consumed = curation.filter.filter_event(field, _key_event(k.Key_Space))
     assert consumed is False
     assert curation.controller.history == []
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_active_modal_dialog_suspends_curation_shortcuts(curation) -> None:
+    from pyqtgraph.Qt import QtCore, QtWidgets
+
+    k = QtCore.Qt.Key
+    dialog = QtWidgets.QDialog()
+    dialog.setModal(True)
+    curation.qtbot.addWidget(dialog)
+    dialog.show()
+    curation.qtbot.waitUntil(
+        lambda: QtWidgets.QApplication.activeModalWidget() is dialog,
+        timeout=2000,
+    )
+
+    consumed = curation.filter.filter_event(
+        dialog,
+        _key_event(k.Key_Space),
+        focus_widget=dialog,
+    )
+
+    assert consumed is False
+    assert curation.controller.history == []
+    dialog.close()
+    curation.qtbot.waitUntil(
+        lambda: QtWidgets.QApplication.activeModalWidget() is None,
+        timeout=2000,
+    )
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_non_main_windows_and_popups_suspend_curation_shortcuts(qapp, qtbot) -> None:
+    from pyqtgraph.Qt import QtCore, QtWidgets
+
+    from tether.gui.curation import CurationController, CurationEventFilter
+
+    controller = CurationController()
+    main = QtWidgets.QMainWindow()
+    main_child = QtWidgets.QWidget(main)
+    dialog = QtWidgets.QDialog(main)
+    popup = QtWidgets.QMenu(main)
+    for widget in (main, main_child, dialog, popup):
+        qtbot.addWidget(widget)
+    filt = CurationEventFilter(
+        controller,
+        Keymap.default(),
+        scope_window=main,
+    )
+    k = QtCore.Qt.Key
+
+    assert filt.filter_event(
+        main_child,
+        _key_event(k.Key_Space),
+        focus_widget=main_child,
+    )
+    assert controller.last == Command(A.ACCEPT)
+    before = list(controller.history)
+
+    for outside_surface in (dialog, popup):
+        assert (
+            filt.filter_event(
+                outside_surface,
+                _key_event(k.Key_Backspace),
+                focus_widget=outside_surface,
+            )
+            is False
+        )
+        assert controller.history == before
 
 
 @pytest.mark.gui

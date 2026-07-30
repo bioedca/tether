@@ -5,11 +5,24 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0052 — Concurrent issue-swarm coordination
 
-- **Status:** accepted
+- **Status:** **superseded by [ADR-0057](0057-github-native-swarm-coordination.md)** and **fully
+  switched off since 2026-07-30**. Nothing below governs any longer: the claim mutex, the reaper and
+  the peer model replaced the coordinator, the leases, the run records and the guarded merge, and the
+  tooling this record called its executable protocol has been deleted. Kept for its history and for
+  the measurements that justified replacing it.
 - **Date:** 2026-07-21
 - **Deciders:** bioedca
 - **PRD anchor:** §12.2–§12.5 (GitHub Flow, reviews, pull requests, and issue planning)
 - **Milestone:** Cross-cutting repository governance
+
+> **Historical record only (2026-07-30).** Every clause below has been replaced. Two are worth naming
+> because they were the specific mechanisms that failed. First, the review-evidence rule: *any* head
+> change invalidated final-head review evidence, and combined with a reviewer that fired on every push
+> it produced a livelock — PR #238 reached 16 heads in 12h45m without merging, because each fix
+> invalidated the approval that asked for it. `AGENTS.md` §Review gate now governs; evidence survives a
+> **non-material** push, a material push grants no extra round, and a PR gets at most two. Second, the
+> worker/coordinator separation and guarded merge: a peer now claims by atomic ref, arms auto-merge and
+> exits, so no agent is a bottleneck for another. Read this record for why, never for what to do.
 
 ## Context and problem statement
 
@@ -49,9 +62,10 @@ explicit, earlier run-bound record. A merge-policy run is actionable only when t
 run and authority envelopes resolve as one lineage. Only the coordinator may perform an exact-head,
 exact-base guarded merge after the required review path is complete.
 
-The standard-library swarm helper and its tests are the executable protocol. A material change to marker
-schemas, canonical election, transition edges, or authority separation requires a superseding ADR;
-compatible clarifications require an explicitly labeled amendment. Update the executable tests with either.
+A standard-library swarm helper and its tests were the executable protocol. PR #269 deleted the lease,
+election and run-record half of it and PR #280 deleted the rest; the only part that survives is the
+frozen approval-scope digest, now in `.agents/bin/claim.py`, because markers published on live issues
+bind to that exact normalization.
 
 ## Amendment — exact-head independent review (2026-07-22)
 
@@ -78,6 +92,8 @@ the worker slot. An explicit `PR-ready` run remains a non-merging terminal path.
 
 ## More information
 
-- `AGENTS.md`: Concurrent GitHub Flow, Mandatory review path, and Handoff and cleanup.
-- `.agents/skills/run-issue-swarm/SKILL.md` and `.agents/skills/solve-issue-goal/SKILL.md`.
-- `.agents/skills/run-issue-swarm/scripts/swarm_lease.py` and `tests/test_swarm_lease.py`.
+- [ADR-0057](0057-github-native-swarm-coordination.md) — what replaced this, and the measured reasons.
+- `AGENTS.md`: Concurrent GitHub Flow, Review gate, and Handoff and cleanup.
+- `.agents/bin/claim.py`, `.agents/bin/reaper.py`, `.agents/skills/tether-worker/SKILL.md`. The files
+  this record used to cite — `run-issue-swarm/`, `solve-issue-goal/`, `swarm_lease.py` and
+  `tests/test_swarm_lease.py` — no longer exist.

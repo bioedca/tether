@@ -937,6 +937,11 @@ though **tMAVEN is never vendored** — reference clones are algorithm-reference
   `feat/issue-123-m1-atrous-detector`, `fix/issue-124-correct-nan-guard`, `docs/issue-125-mkdocs-deploy`. The slug is
   kebab-case, ≤ ~5 words; the branch name is not load-bearing (the PR title + linked issue carry authoritative
   metadata) — it exists for at-a-glance `git branch` scanning.
+- **One exception, where the branch name *is* load-bearing.** An automated agent claims an issue by atomically
+  creating `agent/issue-N` — deliberately **without** a slug ([ADR-0057](adr/0057-github-native-swarm-coordination.md)).
+  That ref is the mutex: `POST /git/refs` returns `201` to the first writer and `422 Reference already exists` to every
+  other. A title-derived slug is not deterministic across agents, so two agents could create two different refs for one
+  issue and both succeed, silently voiding the mutex.
 - **Conventional Commits** [ConventionalCommits] govern **both commit messages and PR titles**: `type(scope):
   summary`. The **scope is a §4.2 module** without the `tether.` prefix — `io | imaging | fret | idealize | ml |
   analysis | gui | project` — plus cross-cutting scopes `schema | ci | deps | docs | release`. Examples:
@@ -968,11 +973,14 @@ are exportable as JSON, version-history-tracked, and layer cleanly):
 - **Block force-pushes** and **block branch deletion** on `main`.
 
 **How the solo dev merges.** With 0 ruleset approvals, bioedca squash-merges only after the §12.4 risk path is
-complete on the exact head SHA and required checks are green on the current base. An authorized coordinator may
-use auto-merge only when a server rule or merge queue enforces that same head/base binding; otherwise the
-coordinator performs the exact-head/exact-base guarded squash merge. **No standing "include
-administrators / bypass" exemption** — a rare genuine emergency uses a deliberate, logged temporary bypass, not a
-permanent admin exception.
+complete on the exact head SHA and required checks are green on the current base. The binding is enforced by the
+merger, not the server: `main` carries no strict up-to-date rule, and **merge queue is unavailable** because it
+requires an organization-owned repository, so every merge passes an expected-head guard
+(`gh pr merge --squash --match-head-commit <full 40-char SHA>`). Dropping the strict rule is deliberate — with it,
+each merge invalidated every other open PR's checks and serialized merges at roughly one per ten minutes; the
+post-merge `sidecar / parity`, `ci` and `schema-guard` runs on `main` are what catch a semantic conflict instead.
+**No standing "include administrators / bypass" exemption** — a rare genuine emergency uses a deliberate, logged
+temporary bypass, not a permanent admin exception.
 
 **Scale-up path (documented, not active).** If contributors join: set **required approvals ≥ 1**, uncomment a
 `CODEOWNERS` mapping §4.2 modules to owners (e.g. `/src/tether/idealize/ @bioedca`), enable **require review from
@@ -985,14 +993,42 @@ Small, **milestone-scoped** PRs are the unit of work (ideally one issue ↔ one 
 as a **draft PR** and cannot merge. The PR title is a Conventional-Commits string (§12.2) — it
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
-`AGENTS.md` risk path: Copilot is optional and best-effort, while every lane requires a substantive PR diff
-walkthrough bound to the final head SHA from Codex GitHub Code Review or CodeRabbit. Low and standard may use
-either; high/load-bearing changes require CodeRabbit on the stable, green diff. Qualified human/domain review is
-required when scientific, security, or release judgment is material. Author-side/local review, a green or status-only
-result, denial, provider unavailability, or a summary without a diff walkthrough does not satisfy the independent
-gate. CodeRabbit quota blocks only when CodeRabbit is required or selected; Copilot quota never blocks. Any head
-change invalidates final-head review evidence; a material change requires every affected review layer again. Every
-conversation and every actionable finding must be resolved.
+`AGENTS.md` risk path: Copilot is optional, while every PR requires substantive independent review requested once
+required checks are green and the diff is declared final. **Routing: low and standard go to Codex GitHub Code
+Review; high/load-bearing goes to both Codex and CodeRabbit, requested together and answered as one round — two
+reviewers, never two rounds.** Measured on the reaper change, the two providers' findings barely intersected, so on
+the highest-risk work neither alone was sufficient; pairing them is safe only because the round cap binds.
+Author-side/local review and a green or status-only result do not satisfy the independent gate. **Neither provider
+auto-reviews this repository** — CodeRabbit reports auto reviews disabled, and Codex fires only on open-for-review,
+draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined.
+
+Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
+rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
+non-material, while executable code, scientific claims, data, schema, locks, CI/release configuration and the
+governance text itself (`AGENTS.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`, `.agents/**`,
+`docs/agents/**`) are material. A material push re-arms the review but grants **no additional round**, and a PR gets **at most two
+rounds** — a third means the issue was scoped too large. Under the swarm model the **launcher issues rounds**: a
+worker is short-lived, every AMEND is a new session whose task text the launcher injects with an explicit
+`ROUND = N of 2`, and past the cap it injects none — so no worker holds authority for a third. Two things are
+stop-list violations rather than judgement calls: more than one self-review pass before the first external request,
+and any review request on a PR labelled `agent:review-capped`.
+
+Blocking is decided on the **severity axis only**: CodeRabbit `Critical`/`Major`, Codex `P1`, plus anything reaching
+secrets, unlicensed data, a frozen oracle or tolerance, the §5 skeleton without an ADR and version bump, or a CodeQL
+alert — and anything that falsifies a claim the PR itself introduces. CodeRabbit renders three independent things on
+a finding, and only one is the severity: a **domain** (`Functional Correctness`, `Maintainability & Code Quality`, …),
+a **severity** (`Critical`, `Major`, `Minor`), and a machine marker (`cr-indicator-types:potential_issue`). The
+marker is a *category*, not a level — it appears on `Minor` and `Major` alike — so it never promotes a `Minor` to
+blocking. An earlier revision of this list read `Critical`/`Major`/`Potential issue`, mixing the two axes and leaving
+every `Minor` ambiguously blocking.
+
+Every other finding is deferred to one follow-up issue per PR and its thread resolved with that link; fixing
+non-blocking findings in the same PR is a scope breach, and a deferral must never point at an issue that does not
+exist. When a **selected** provider reports that a change has nothing to review for that PR at the head it read —
+including Codex's 👍 reaction, its documented form of "no suggestions" — that statement satisfies its leg, quoted and
+never substituted by the author or any other commenter. On `high`, one provider that genuinely *cannot* act leaves
+the other sufficient with the reason recorded; capability, never quota. Human sign-off is required for releases,
+tags, signing changes, and any new scientific claim or citation; everything else merges without it.
 
 `.github/pull_request_template.md` carries the **self-review checklist** — the human-judgment gate in the solo model:
 
@@ -1021,14 +1057,20 @@ conversation and every actionable finding must be resolved.
 **All work is tracked as GitHub Issues**, linked by the `Closes #N` footer (§12.2) so the issue ↔ PR ↔ commit ↔
 FR/milestone chain is queryable.
 
-Concurrent automated work follows [ADR-0052](adr/0052-concurrent-agent-swarm-coordination.md): new claims
-originate only from authenticated maintainer-approved `status:ready` scope. Same-snapshot renewals and
-authorized resumes may retain or re-establish that lease after `in-progress` or `in-review`; every lease
-coordinates one isolated issue/branch/worktree/PR and never grants merge authority.
+Concurrent automated work follows [ADR-0057](adr/0057-github-native-swarm-coordination.md): **GitHub is the
+coordinator and there is no coordinator agent.** New claims still originate only from authenticated
+maintainer-approved `status:ready` scope, bound to the SHA-256 of the exact title/body snapshot approved — but the
+claim itself is one atomic `POST /git/refs` creating `agent/issue-N`, so ownership needs no election, no lease, no
+TTL and no heartbeat. Eligibility is a precondition of the claim, never a consequence of winning the race.
 
-Workers remain PR-ready producers and never merge. Only a coordinator with explicit run-scoped `merge` authority
-may perform an exact-head/exact-base guarded squash merge after the final review/check state is verified; after a
-confirmed merge it completes the lease, cleans only the owned state, and refills the available worker slot.
+Each claim carries a **server-assigned generation** (a repository-activity `id`, which no request parameter can
+set), revalidated immediately before every authoritative write so a superseded worker's late write is refused
+rather than silently applied. A scheduled CI reaper reclaims dead claims unattended — the failure mode that froze
+the ADR-0052 run was a lease that only a sleeping human could renew.
+
+Every agent is a peer: it claims one issue, works one isolated worktree/branch/PR, arms auto-merge bound to the
+reviewed head with `--match-head-commit`, and exits. No agent waits on another, and no agent merges on another's
+behalf. ADR-0052's coordinator, leases, run records and guarded-merge monopoly are retired, not merely superseded.
 
 **Label taxonomy** (prefixed namespaces, so labels group and filter cleanly):
 
@@ -1036,10 +1078,19 @@ confirmed merge it completes the lease, cleans only the owned state, and refills
 |---|---|
 | `type:` | `bug`, `feature`, `refactor`, `docs`, `test`, `chore`, `ci`, `perf`, `question`, `validation-oracle-failure` (a dedicated type for a §8 NFR-VALID oracle regressing) |
 | `area:` | one per §4.2 module — `io`, `imaging`, `fret`, `idealize`, `ml`, `analysis`, `gui`, `project` — plus `schema`, `sidecar`, `packaging`, `docs` |
-| `milestone:` | `M0`, `M0.5`, `M1` … `M10` (including the fractional de-risking gate M0.5 and post-1.0 documentation/community milestone M10, mirroring GitHub Milestones for cross-filtering; redundant by design so a closed-milestone search still works) |
-| `priority:` | `P0` (blocker) … `P3` (nice-to-have) |
+| `priority:` | `P0` (blocker), `P1`, `P2` (nice-to-have) |
 | `status:` | `backlog`, `ready`, `in-progress`, `in-review`, `blocked`, `done` (mirror the board columns) |
-| standalone | `good-first-issue`, `security`, `help-wanted` (the last two latent until contributors join) |
+| `agent:` | `claude`, `codex`, `copilot` — the claiming lane, written by `claim.py` as a **mirror** of the claim ref, never as the lock; `human` (reserved for the maintainer, not claimable); `needs-amend` (one AMEND session is owed); `conflicted` (the PR is `DIRTY` and needs a person) |
+| `size:` | `XS`, `S`, `M`, `L` — the diff budget in added lines, 50 / 150 / 400 / 900, excluding lockfiles and generated files. There is no rung above `L`; work that does not fit is `needs:split` |
+| `risk:` | `low`, `standard`, `high` — the review-gate lane (§12.4) |
+| `needs:` | `split` (over the diff budget), `adr` (an ADR is required in the implementation PR) |
+| `blocked-by:` | `issue` (another open issue here), `maintainer` (a decision), `external` (an upstream or third party) — the *reason* a `status:blocked` item is blocked |
+| standalone | `preauth` (covered by the standing pre-authorization scope), `good-first-issue`, `security`, `help-wanted`, `dependencies` (applied by Dependabot) |
+
+There is **no `milestone:` label namespace** — an earlier revision of this table specified one, but none was ever
+created and GitHub Milestones alone carry M0–M10; a mirrored label set would be a second thing to keep in step.
+`size:`, `risk:`, `needs:` and `blocked-by:` are applied at **grooming**, not by the issue forms: a form's `labels:`
+list is static, so it cannot encode a per-issue judgement (§12.5, ADR-0053).
 
 **Roadmap milestones → GitHub Milestones.** Each of M0, M0.5, M1 … M10 is a GitHub Milestone. M0–M9 descriptions
 **embed the §9 acceptance criteria verbatim as a markdown checklist**; M10 tracks post-1.0 documentation and

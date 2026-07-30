@@ -31,11 +31,42 @@ EXPECTED_TYPE_LABELS = {
     "validation-oracle-failure.yml": "type:validation-oracle-failure",
 }
 WORK_FORM_NAMES = EXPECTED_FORMS - {"question.yml"}
-ROUTING_FIELD_IDS = {"acceptance", "dependencies", "autonomy", "overlap", "scope"}
+ROUTING_FIELD_IDS = {
+    "acceptance",
+    "adr_needed",
+    "autonomy",
+    "dependencies",
+    "overlap",
+    "risk",
+    "scope",
+    "size",
+}
 AUTONOMY_OPTIONS = {
     "agent-can-do-alone",
     "maintainer decision required",
     "external/human action required",
+}
+# Frozen option sets, asserted the same way AUTONOMY_OPTIONS is. Without them a form offering
+# "size:S" where another offers "S" goes uncaught, and whoever reads these answers at grooming has
+# no stable vocabulary to read. Each label names the CONSEQUENCE, which is what makes a
+# non-maintainer's answer usable: `risk` selects the reviewer, `size` promises a line budget.
+SIZE_OPTIONS = {
+    "XS — up to 50 added lines",
+    "S — up to 150 added lines",
+    "M — up to 400 added lines",
+    "L — up to 900 added lines, the largest budget there is",
+    "unsure — leave it to grooming",
+}
+RISK_OPTIONS = {
+    "low — Codex reviews it",
+    "standard — Codex reviews it",
+    "high — both Codex and CodeRabbit, answering as one round",
+    "unsure — leave it to grooming",
+}
+ADR_NEEDED_OPTIONS = {
+    "no",
+    "yes — a decision gets made here",
+    "unsure — leave it to grooming",
 }
 SAFETY_ATTESTATIONS = {
     "I searched existing issues and this is not a duplicate.",
@@ -119,10 +150,38 @@ def test_work_forms_require_grooming_and_overlap_fields(path: Path) -> None:
     for field_id in ROUTING_FIELD_IDS:
         assert _is_required(controls[field_id]), f"{path.name}:{field_id} must be required"
     assert _option_labels(controls["autonomy"]) == AUTONOMY_OPTIONS
+    assert _option_labels(controls["size"]) == SIZE_OPTIONS, path.name
+    assert _option_labels(controls["risk"]) == RISK_OPTIONS, path.name
+    assert _option_labels(controls["adr_needed"]) == ADR_NEEDED_OPTIONS, path.name
     for field_id in ("dependencies", "overlap"):
         attributes = controls[field_id].get("attributes")
         assert isinstance(attributes, dict)
         assert attributes.get("placeholder") == "none"
+
+
+@pytest.mark.parametrize(
+    "path",
+    tuple(path for path in FORM_PATHS if path.name in WORK_FORM_NAMES),
+    ids=lambda path: path.stem,
+)
+def test_the_grooming_selectors_are_dropdowns_not_checkboxes(path: Path) -> None:
+    """`checkboxes` cannot carry `validations: {required: true}` and would be silently optional.
+
+    `_is_required` demands a literal `validations: {required: true}`, and none of the six committed
+    forms' checkbox controls carry one - GitHub puts a per-option `required:` inside `checkboxes`
+    instead. A `size` or `risk` checkbox would therefore satisfy "the field exists" while collecting
+    nothing, which is the failure that leaves an issue `status:ready` with no budget to measure
+    against.
+    """
+    controls = _controls(_load(path))
+    for field_id in ("size", "risk", "adr_needed"):
+        assert controls[field_id].get("type") == "dropdown", f"{path.name}:{field_id}"
+
+
+def test_the_question_form_gains_no_grooming_fields() -> None:
+    """`question.yml` is explicitly non-worker intake, so it has nothing to groom."""
+    controls = _controls(_load(ISSUE_TEMPLATE_DIR / "question.yml"))
+    assert not controls.keys() & {"size", "risk", "adr_needed"}
 
 
 @pytest.mark.parametrize("path", FORM_PATHS, ids=lambda path: path.stem)

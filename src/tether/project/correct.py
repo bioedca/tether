@@ -61,6 +61,7 @@ responsibility, mirroring :func:`tether.project.gamma.compute_gamma`.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -68,6 +69,7 @@ from pathlib import Path
 import numpy as np
 
 from tether.io.schema import TABLE
+from tether.project._guarded_publish import guarded_project_write
 
 __all__ = [
     "METHOD_APPARENT_TOGGLE",
@@ -157,6 +159,7 @@ def compute_corrected_fret(
     apparent_e_only: bool = False,
     alpha_override: float | None = None,
     gamma_override: float | None = None,
+    write_guard: Callable[[], None] | None = None,
 ) -> CorrectionSummary:
     """Resolve + stamp each molecule's correction method and store the provenance.
 
@@ -181,6 +184,11 @@ def compute_corrected_fret(
         value is written into the applied ``/molecules.alpha`` / ``/molecules.gamma``
         for every examined molecule and the molecule is stamped :data:`METHOD_MANUAL`.
         ``gamma_override`` must be ``> 0`` (a non-physical γ is rejected).
+    write_guard
+        Optional caller-owned lock/lease check. With a guard, the complete
+        ``/molecules`` update and ``/settings/correction`` stamp are written to a
+        same-directory sibling project and published together by one final guarded
+        atomic replace. Without a guard, the established in-place write path remains.
 
     Returns
     -------
@@ -209,7 +217,10 @@ def compute_corrected_fret(
     path = Path(project_path)
     n_molecules = n_corrected = n_manual = n_apparent = 0
 
-    with h5py.File(path, "r+") as f:
+    with (
+        guarded_project_write(path, write_guard=write_guard, label="correction") as write_path,
+        h5py.File(write_path, "r+") as f,
+    ):
         table = f[_MOLECULES][TABLE][:]  # full copy; only the correction columns mutate
         frame_range = table["frame_range"]
         alpha_col = table["alpha"]
@@ -256,9 +267,13 @@ def compute_corrected_fret(
             table["correction_method"][i] = method
             table["correction_confidence"][i] = confidence
 
+        if write_guard is not None:
+            write_guard()
         f[_MOLECULES][TABLE][:] = table
 
         total_failure = (n_corrected + n_manual) == 0
+        if write_guard is not None:
+            write_guard()
         _stamp_correction_settings(
             f,
             apparent_e_only=apparent_e_only,

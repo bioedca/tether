@@ -87,8 +87,9 @@ class Project:
         clobber an existing file unless ``overwrite=True``. ``identity`` sets the
         handle's single-writer identity (§5.4; defaults to the local process). An
         ``overwrite=True`` that would truncate an existing project is refused
-        (``LockedError``) when a **foreign** ``.lock`` is held, so the single-writer
-        invariant is not bypassed by a destructive re-create.
+        (``LockedError``) when a **foreign** ``.lock`` or another local execution
+        context's destination reservation is held, so the single-writer invariant is
+        not bypassed by a destructive re-create.
         """
         if overwrite:
             from tether.project import lock
@@ -167,16 +168,45 @@ class Project:
         return self._identity
 
     def _assert_writable(self) -> None:
-        """Refuse a canonical write if a foreign lock is held (raises ``LockedError``, §5.4).
+        """Refuse a canonical write if another writer context holds the destination.
 
         The single-writer boundary every canonical mutator on this handle passes
-        through: unlocked or self-owned -> silent; a foreign (or corrupt) lock ->
-        :class:`~tether.project.lock.LockedError`. Reads never call this — a
-        non-owner may always browse read-only (§7.10).
+        through: an untransferred local reservation or foreign/corrupt sidecar raises
+        :class:`~tether.project.lock.LockedError`; the owning reservation context and
+        self-owned sidecar pass. Reads never call this — a non-owner may always browse
+        read-only (§7.10).
         """
         from tether.project import lock
 
         lock.assert_writable(self.path, identity=self._acting_identity())
+
+    def _assert_held_lock(self, *, expected_nonce: str | None = None) -> str:
+        """Require and return this retained session's exact ownership nonce.
+
+        GUI sessions retain a lock across long background writes. An identity-only
+        writer check is insufficient for their point-of-persistence guard because a
+        stolen lock may be released before the worker returns. This stricter boundary
+        refuses an absent, corrupt, or replacement sidecar. ``expected_nonce`` binds
+        a long-running write to the epoch it validated before work began. Retained
+        refresh preserves that nonce, so a timer heartbeat may interleave this read
+        without spuriously changing the ownership epoch.
+        """
+        from tether.project import lock
+
+        self._acting_identity()  # fork-safety: clear a child's inherited held lock
+        held = self._held_lock
+        try:
+            current = lock.read_lock(self.path)
+        except lock.CorruptLockError as exc:
+            raise lock.LockedError(None, corrupt=True, path=self.lock_path) from exc
+        if (
+            held is None
+            or current is None
+            or current.nonce != held.nonce
+            or (expected_nonce is not None and held.nonce != expected_nonce)
+        ):
+            raise lock.LockedError(current, path=self.lock_path)
+        return held.nonce
 
     @property
     def lock_path(self) -> Path:
@@ -200,6 +230,8 @@ class Project:
 
         Drives the GUI read-only banner (M2 S9 PR-B): returns ``None`` when the file
         is unlocked or the lock is ours, and the holding :class:`LockInfo` otherwise.
+        This reports sidecar ownership only; a canonical write can still fail when
+        another local execution context holds a process reservation.
         """
         owner = self.lock_owner()
         if owner is None or owner.identity == self._acting_identity():
@@ -209,10 +241,11 @@ class Project:
     def acquire_lock(self, *, steal: bool = False, timeout_s: float | None = None) -> LockInfo:
         """Acquire the single-writer lock for this handle (:func:`lock.acquire`).
 
-        Raises :class:`~tether.project.lock.LockedError` if a foreign lock blocks
-        acquisition and ``steal`` is ``False`` (a stale lock still requires an
-        explicit steal, §5.4). ``timeout_s`` overrides the staleness window
-        (default :data:`~tether.project.lock.DEFAULT_STALENESS_TIMEOUT_S`).
+        Raises :class:`~tether.project.lock.LockedError` if a foreign lock or another
+        local execution context's reservation blocks acquisition. With no reservation,
+        ``steal=True`` may replace a sidecar; a stale lock still requires that explicit
+        steal (§5.4). ``timeout_s`` overrides the staleness window (default
+        :data:`~tether.project.lock.DEFAULT_STALENESS_TIMEOUT_S`).
         """
         from tether.project import lock
 
@@ -225,12 +258,31 @@ class Project:
         self._held_lock = info
         return info
 
+    def refresh_lock(self) -> LockInfo:
+        """Refresh this retained lock's timestamp without changing its nonce.
+
+        This is the long-lived GUI-session heartbeat. It requires the sidecar to
+        carry the exact nonce already held by this handle and never recreates a
+        vanished lock, so ownership lost and later released is still detected as a
+        broken epoch rather than silently reacquired.
+        """
+        from tether.project import lock
+
+        self._assert_held_lock()
+        held = self._held_lock
+        assert held is not None  # established by _assert_held_lock
+        refreshed = lock.refresh(self.path, held)
+        self._held_lock = refreshed
+        return refreshed
+
     def steal_lock(self) -> tuple[LockInfo, LockInfo | None]:
-        """Force-acquire the lock, returning ``(new_lock, ousted_owner_or_None)``.
+        """Replace the sidecar lock, returning ``(new_lock, ousted_owner_or_None)``.
 
         The ousted owner is what the GUI surfaces to warn the stealer (§5.4); the
         typed-confirmation UX is M2 S9 PR-B. Last-write-wins — the prior owner's
-        unsaved work is not merged back.
+        unsaved work is not merged back. A process-local reservation held by another
+        execution context is never stolen and raises
+        :class:`~tether.project.lock.LockedError`.
         """
         from tether.project import lock
 
@@ -244,15 +296,28 @@ class Project:
         Nonce-checked (:func:`lock.release`): never deletes a lock that was stolen
         away in the meantime. Resolving the identity first drops an inherited
         ``_held_lock`` in a forked child (see :meth:`_acting_identity`), so a child
-        never releases the parent's lock.
+        never releases the parent's lock. After a ``False`` result, a readable
+        missing or replacement sidecar definitively ends this handle's epoch and
+        clears the retained nonce. An unreadable sidecar, or the original nonce
+        still being present, is indeterminate and retains the nonce so lifecycle
+        owners can retry rather than dropping their claim.
         """
         from tether.project import lock
 
         self._acting_identity()  # fork-safety: clears a child's inherited held lock
-        if self._held_lock is None:
+        held = self._held_lock
+        if held is None:
             return False
-        released = lock.release(self.path, self._held_lock)
-        self._held_lock = None
+        released = lock.release(self.path, held)
+        if released:
+            self._held_lock = None
+            return True
+        try:
+            current = lock.read_lock(self.path)
+        except lock.CorruptLockError:
+            return False
+        if current is None or current.nonce != held.nonce:
+            self._held_lock = None
         return released
 
     def write_lock(
@@ -480,14 +545,16 @@ class Project:
         scratch_dir: str | Path | None = None,
         timeout: float | None = 1800.0,
         overwrite: bool = False,
+        include_rejected: bool = False,
         _runner: Callable[..., IdealizationResult] | None = None,
     ) -> StoredIdealization:
         """Idealize selected molecules into ``/idealization`` (:func:`idealize.idealize_molecules`).
 
         The headless core behind the dock's ``I`` key: reads the selected molecules'
         traces, fits vbFRET / consensus VB-HMM via the sidecar, and writes the model
-        back as additive data with a per-molecule input-provenance hash. The defaults
-        mirror :func:`tether.project.idealize.idealize_molecules` (its
+        back as additive data with a per-molecule input-provenance hash. Rejected
+        molecules are excluded unless ``include_rejected=True``. The defaults mirror
+        :func:`tether.project.idealize.idealize_molecules` (its
         ``MODEL_TYPE_DEFAULT`` / ``NSTATES_GRID_DEFAULT``); ``_runner`` is a private
         test seam for injecting a fake sidecar.
         """
@@ -510,6 +577,7 @@ class Project:
             scratch_dir=scratch_dir,
             timeout=timeout,
             overwrite=overwrite,
+            include_rejected=include_rejected,
             **extra,
         )
 
@@ -614,15 +682,33 @@ class Project:
         accept_classes: bool | Iterable[str] = False,
         import_idealization: bool = False,
         overwrite: bool = False,
+        require_held_lock: bool = False,
     ) -> AppliedReconcile:
         """Commit accepted return-leg changes, non-destructively
         (:func:`handoff.apply_reconcile`).
 
         Refuses the canonical write if the file is locked by another writer (§5.4).
+
+        The entry check alone does not bound the write: :func:`handoff.apply_reconcile`
+        re-resolves the match and reads the returned model before it persists anything,
+        and a foreign writer can steal the lock during that work. The guard built here
+        is therefore re-invoked at each point of persistence. ``require_held_lock`` is
+        the retained-session contract used by the GUI — it binds every write to the
+        exact ownership epoch validated here, so a stolen-then-released lock is still
+        refused; the default identity-only guard is the batch/CLI boundary (§5.4).
         """
         from tether.project import handoff
 
-        self._assert_writable()
+        writer_guard: Callable[[], object]
+        if require_held_lock:
+            start_nonce = self._assert_held_lock()
+
+            def writer_guard() -> None:
+                self._assert_held_lock(expected_nonce=start_nonce)
+
+        else:
+            writer_guard = self._assert_writable
+        writer_guard()
         return handoff.apply_reconcile(
             self,
             smd_path,
@@ -633,4 +719,5 @@ class Project:
             accept_classes=accept_classes,
             import_idealization=import_idealization,
             overwrite=overwrite,
+            writer_guard=writer_guard,
         )

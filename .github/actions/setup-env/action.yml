@@ -37,7 +37,7 @@ runs:
       # `github-actions` ecosystem with `directory: "/"` scans only
       # .github/workflows plus a ROOT-level action.yml, never .github/actions/**
       # (dependabot-core#6345). .github/dependabot.yml now covers this directory.
-      uses: mamba-org/setup-micromamba@d7c9bd84e824b79d2af72a2d4196c7f4300d3476 # v3.0.0
+      uses: mamba-org/setup-micromamba@ce51e99f4bb8a82ab7158c4dc59ef4634c59c4f9 # v3.1.0
       with:
         # Pin the micromamba BINARY, not just the action SHA (pin-and-hold, PRD §4.1).
         # Unset, this input defaults to `latest`, which leaves the tool that RESTORES

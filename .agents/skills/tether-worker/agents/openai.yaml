@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tether Worker"
+  short_description: "Claim one accepted issue and take it to an auto-merging PR"
+  default_prompt: "Use $tether-worker to claim issue #N with .agents/bin/claim.py, implement it in an isolated worktree, open a PR, arm auto-merge, and exit."

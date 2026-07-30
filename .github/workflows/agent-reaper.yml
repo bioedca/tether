@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Reclaims dead agent claims on a schedule, so a stalled worker cannot strand an issue until a
+# human wakes up. This is the regression fix for the 2026-07-26 terminal freeze: leases expired at
+# 08:03Z, only the coordinator could renew them, and its contract forbade renewing an expired lease
+# without typed human approval. The 604-minute dead gap that followed is what this removes.
+#
+# Staleness comes from the repository activity API, never from a commit date - see reaper.py.
+name: agent-reaper
+
+on:
+  schedule:
+    # Every 30 minutes. Deliberately frequent: the whole point is that it runs while everyone is
+    # asleep. GitHub may delay scheduled runs under load, which only ever makes a claim older.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would be reclaimed without mutating anything"
+        type: boolean
+        default: true
+
+# Least privilege, stated explicitly. With an explicit block every UNLISTED scope is `none`, so an
+# omission is a 403 rather than a default -- and the reaper now fails closed on one, which would
+# stop the sweep rather than silently mis-read it.
+#   contents: write        DELETE the claim ref
+#   issues: write          move the status:*/agent:* labels
+#   pull-requests: read    read PR state only. Since #277 the sweep never closes a PR, so `write`
+#                          here would be standing authority for a mutation the code cannot perform
+#   checks: read           read /commits/{sha}/check-suites; `statuses: read` does NOT cover it,
+#                          and without it a PR whose CI is still running would look idle
+permissions:
+  contents: write
+  issues: write
+  pull-requests: read
+  checks: read
+
+concurrency:
+  # Two overlapping sweeps could both act on one claim. Never cancel a sweep mid-mutation.
+  group: agent-reaper
+  cancel-in-progress: false
+
+jobs:
+  reap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v5.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@e9d6f990972a57673cdb72ec29e19d42ba28880f # v5.4.0
+        with:
+          python-version: "3.12"
+
+      - name: Sweep dead claims
+        shell: bash -el {0}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A manual run defaults to dry-run; the schedule always acts.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "${DRY_RUN}" = "true" ]; then
+            python .agents/bin/reaper.py --dry-run | tee /tmp/reaper.json
+          else
+            python .agents/bin/reaper.py | tee /tmp/reaper.json
+          fi
+          # No explicit `exit 0` here: in a `bash -el {0}` step an explicit exit reports failure on
+          # the runner even when the value is zero. Fall through to a terminal command instead.
+          python - <<'PY'
+          import json, os, pathlib
+          actions = json.loads(pathlib.Path("/tmp/reaper.json").read_text("utf-8"))["actions"]
+          changed = [a for a in actions if a["action"] != "keep"]
+          lines = ["## agent-reaper", "", f"Claims inspected: **{len(actions)}**",
+                   f"Reclaimed or flagged: **{len(changed)}**", ""]
+          if changed:
+              lines += ["| issue | action | reason |", "|---|---|---|"]
+              lines += [f"| #{a['issue']} | {a['action']} | {a['reason']} |" for a in changed]
+          else:
+              lines.append("Nothing to reclaim.")
+          pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines), encoding="utf-8")
+          PY

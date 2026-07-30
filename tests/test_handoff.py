@@ -19,6 +19,7 @@ PR-B GUI follow-up.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -283,6 +284,25 @@ def test_hand_off_unknown_quantity_raises(tmp_path):
         hand_off_to_tmaven(proj, out_path=tmp_path / "o.hdf5", intensity_quantity="bogus")
 
 
+@pytest.mark.parametrize("alias_kind", ["source", "hardlink"])
+def test_hand_off_rejects_source_project_and_file_aliases(tmp_path, alias_kind):
+    proj, _ = _build_store(
+        tmp_path / "p.tether",
+        _step_trace(2, 10),
+        _step_trace(2, 10),
+    )
+    out = proj.path
+    if alias_kind == "hardlink":
+        out = tmp_path / "project-alias.hdf5"
+        os.link(proj.path, out)
+
+    with pytest.raises(ValueError, match="source .tether project"):
+        hand_off_to_tmaven(proj, out_path=out)
+
+    with h5py.File(proj.path, "r") as h5:
+        assert "dataset" not in h5
+
+
 # --------------------------------------------------------------------------- #
 # return leg — matching
 # --------------------------------------------------------------------------- #
@@ -422,6 +442,71 @@ def test_apply_window_edit_updates_store_and_restales(tmp_path):
     assert keys[1] in applied.stale_after
     assert keys[1] in stale_molecule_keys(proj, "prior")
     assert keys[0] not in stale_molecule_keys(proj, "prior")
+
+
+def test_apply_reconcile_refuses_a_steal_during_reconcile(tmp_path, monkeypatch):
+    """A lock stolen while ``_reconcile`` runs must not reach the store (§5.4).
+
+    The entry check cannot bound this write: ``_reconcile`` re-resolves the match and
+    reads the returned model, and a foreign writer can steal ownership during that
+    unbounded work. The steal is also *released* before the return leg persists, so an
+    identity-only check at the point of write would still pass -- only the retained
+    session's nonce reveals that the epoch changed.
+    """
+    from contextlib import suppress
+
+    from tether.project import handoff as _handoff
+    from tether.project import lock as _lock
+    from tether.project.lock import LockedError, LockIdentity
+
+    donor, acceptor = _step_trace(3, 40), _step_trace(3, 40) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    pre = np.zeros(3, dtype="int64")
+    post = np.full(3, 40, dtype="int64")
+    post[1] = 25
+    ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, pre=pre, post=post)
+
+    # Every acquire is released in the matching `finally`: an abandoned lock leaks its
+    # guard descriptor into the process-global `lock._ACTIVE_GUARD_FDS`, which outlives
+    # this test's tmp_path and is walked by the after-fork child handler.
+    proj.acquire_lock()
+    try:
+        before = read_molecules(proj.path)["analysis_window"].copy()
+        real_reconcile = _handoff._reconcile
+
+        def _steal_midway(*args, **kwargs):
+            state = real_reconcile(*args, **kwargs)
+            foreign = _lock.acquire(
+                proj.path,
+                identity=LockIdentity(host="OTHER-HOST", user="other", pid=999),
+                steal=True,
+            )
+            assert _lock.release(proj.path, foreign)
+            return state
+
+        monkeypatch.setattr(_handoff, "_reconcile", _steal_midway)
+
+        with pytest.raises(LockedError):
+            proj.apply_reconcile(ret, accept_windows=True, require_held_lock=True)
+    finally:
+        # The steal replaced this session's epoch, so the retained handle no longer
+        # owns the sidecar; release what is actually there rather than asserting.
+        with suppress(Exception):
+            proj.release_lock()
+
+    # The canonical write never happened.
+    np.testing.assert_array_equal(read_molecules(proj.path)["analysis_window"], before)
+
+    # The boundary this fix draws (§5.4): the identity-only guard cannot see a
+    # steal that was released again, so the default batch/CLI path still writes.
+    # Only the retained-session nonce binding above refuses it -- which is exactly
+    # why the GUI return leg opts in to `require_held_lock`.
+    proj.acquire_lock()
+    try:
+        proj.apply_reconcile(ret, accept_windows=True)
+    finally:
+        proj.release_lock()
+    np.testing.assert_array_equal(read_molecules(proj.path)["analysis_window"][1], [0, 25])
 
 
 def test_apply_window_default_no_change(tmp_path):
