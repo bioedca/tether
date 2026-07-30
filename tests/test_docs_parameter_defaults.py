@@ -25,6 +25,13 @@ value in its **Default** cell. A parameter documented twice (``min_window_frames
 gates both the leakage and the gamma estimator) therefore has to agree with itself as
 well as with the code. A second pass walks the rows rather than the entries, so on a
 row that prints several values no drifted default can hide behind a sibling's.
+
+Both passes originally looked only at the *set* of literals in a Default cell, which is
+blind on the two rows that key their values to a **mode name** rather than to a
+position (``detection_threshold``, ``min_separation``). Swapping those labels leaves
+every literal present and distinct, so the guard stayed green while the page printed
+the wrong per-mode number. A registry entry may therefore carry mode labels, and a
+labelled value must appear next to *its own* label — see :class:`Claim`.
 """
 
 from __future__ import annotations
@@ -32,6 +39,7 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -155,17 +163,71 @@ def _states(text: str, value: object) -> bool:
     return type(parsed) is type(value) and bool(parsed == value)
 
 
+# --- Labelled Default cells ---------------------------------------------------
+# Two rows print several values keyed by a *mode name* rather than by position:
+#
+#   detection_threshold | `None` (per-mode: `0.5` intensity, `0.98` bandpass)
+#   min_separation      | `None` (per-mode: `8.0` wavelet, `3.0` intensity and bandpass)
+#
+# Every check below this point used to look only at the *set* of literals in the
+# cell, so swapping the two labels -- writing `0.98` intensity and `0.5` bandpass --
+# left both literals present and distinct and every assertion green, while the page
+# told a reader the wrong per-mode number. A label is not decoration on these rows;
+# it is half of the claim.
+
+#: A backticked literal and the run of prose up to the next literal. That span is the
+#: literal's label text: the cell is read left to right, and a label written after a
+#: value belongs to it until the next value starts. Bounded by construction, so a
+#: label cannot be satisfied by a word sitting next to some other number.
+_LITERAL_SPAN_RE = re.compile(r"`([^`]+)`([^`]*)")
+
+#: Word characters only -- `intensity,` and `bandpass)` must match the bare labels.
+_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+
+
+def _labelled_literals(cell: str) -> list[tuple[str, frozenset[str]]]:
+    """Each backticked literal in ``cell`` with the label words that follow it."""
+    return [
+        (literal, frozenset(_WORD_RE.findall(span)))
+        for literal, span in _LITERAL_SPAN_RE.findall(cell)
+    ]
+
+
+class Claim(NamedTuple):
+    """One documented default: the row it lives on, its live value, and its labels.
+
+    ``labels`` is empty for the ordinary single-value row, where the value alone is
+    the whole claim and any literal in the cell may satisfy it -- the behaviour every
+    row had before mode labels existed. When labels are present the literal must
+    *also* carry all of them, which is what makes a swap fail.
+    """
+
+    tokens: tuple[str, ...]
+    value: object
+    labels: frozenset[str] = frozenset()
+
+    def satisfied_by(self, cell: str) -> bool:
+        """Does ``cell`` state this claim's value under *all* of its labels?"""
+        return any(
+            _states(literal, self.value) and self.labels <= words
+            for literal, words in _labelled_literals(cell)
+        )
+
+
 # --- The registry -------------------------------------------------------------
-# (backticked tokens the Parameter cell must carry, live value). Some names are
-# documented on more than one row (``learning_rate`` is both a ranker and a deep
-# hyper-parameter), so an entry may pin a second token to identify its row. The
+# (backticked tokens the Parameter cell must carry, live value[, mode labels]). Some
+# names are documented on more than one row (``learning_rate`` is both a ranker and a
+# deep hyper-parameter), so an entry may pin a second token to identify its row. The
 # value is read from the source, so a code change the page does not follow fails
-# here.
+# here. The optional third element is the mode label(s) the value must be printed
+# under; omit it on a row that prints one value.
+
+_Entry = tuple[tuple[str, ...], object] | tuple[tuple[str, ...], object, tuple[str, ...]]
 
 
-def _registry() -> list[tuple[tuple[str, ...], object]]:
+def _registry() -> list[_Entry]:
     opt = ("tether.project.extract", "ExtractOptions")
-    entries: list[tuple[tuple[str, ...], object]] = [
+    entries: list[_Entry] = [
         # Detection and extraction (ExtractOptions is the pinned CLI contract).
         ((name,), dataclass_field(*opt, name))
         for name in (
@@ -190,15 +252,39 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
     entries += [
         # Per-mode detector defaults. ``ExtractOptions`` stores ``None`` for both and
         # the mode's own function supplies the number the page prints, so these are
-        # reachable only as function-signature defaults.
-        (("detection_threshold",), function_default(detect, "detect_spots_intensity", "threshold")),
-        (("detection_threshold",), function_default(detect, "detect_spots_bandpass", "threshold")),
-        (("min_separation",), function_default(detect, "detect_spots", "min_separation")),
+        # reachable only as function-signature defaults. Each is labelled with the mode
+        # it belongs to, because on these two rows the label carries as much of the
+        # claim as the number does.
+        #
+        # ``min_separation`` is read from all three functions even though intensity and
+        # bandpass currently agree: the two entries MERGE into one labelled claim only
+        # while their live values are equal, so changing one of them alone splits them
+        # again and the page is asked for a literal it does not print.
+        (
+            ("detection_threshold",),
+            function_default(detect, "detect_spots_intensity", "threshold"),
+            ("intensity",),
+        ),
+        (
+            ("detection_threshold",),
+            function_default(detect, "detect_spots_bandpass", "threshold"),
+            ("bandpass",),
+        ),
+        (
+            ("min_separation",),
+            function_default(detect, "detect_spots", "min_separation"),
+            ("wavelet",),
+        ),
         (
             ("min_separation",),
             function_default(detect, "detect_spots_intensity", "min_separation"),
+            ("intensity",),
         ),
-        (("min_separation",), function_default(detect, "detect_spots_bandpass", "min_separation")),
+        (
+            ("min_separation",),
+            function_default(detect, "detect_spots_bandpass", "min_separation"),
+            ("bandpass",),
+        ),
         # Batch over-gate policy (the row names no constant, only its module).
         (("tether.project.batch",), module_constant("tether.project.batch", "POLICY_WARN")),
         # Photobleaching priors.
@@ -256,8 +342,12 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
             module_constant("tether.project.idealize", "NSTATES_GRID_DEFAULT"),
         ),
         (
+            # Canonical in ``driver`` and re-exported by ``supervisor`` (#222), so the
+            # page's ``tether.idealize.supervisor`` path stays true while the value has
+            # one home. ``module_constant`` reads the *source*, so it has to be pointed
+            # at the module that assigns the literal, not one that imports the name.
             ("DEFAULT_SIDECAR_TIMEOUT",),
-            module_constant("tether.idealize.supervisor", "DEFAULT_SIDECAR_TIMEOUT"),
+            module_constant("tether.idealize.driver", "DEFAULT_SIDECAR_TIMEOUT"),
         ),
         (
             ("DEFAULT_MAX_RESTARTS",),
@@ -626,7 +716,31 @@ def _registry() -> list[tuple[tuple[str, ...], object]]:
     return entries
 
 
-REGISTRY = _registry()
+def _claims(entries: list[_Entry]) -> list[Claim]:
+    """Registry entries as :class:`Claim`s, merging the ones the page prints once.
+
+    Two entries with the same tokens and the same live value are **one** documented
+    claim, not two -- ``min_separation`` reads its default from both the intensity and
+    the bandpass detector and the page prints a single ``3.0`` for the pair. Merging
+    unions their labels, so that one literal is required to carry *both* mode names,
+    which is the acceptance criterion for a value shared by several labels.
+
+    The merge is by live value, so it is not a way of excusing drift: if the two
+    functions stop agreeing, the entries no longer merge and the page is asked for a
+    literal it does not print. This is the same collapse the row-walking pass already
+    performed inline, lifted here so both passes see one consistent claim list.
+    """
+    merged: dict[tuple[tuple[str, ...], str, str], Claim] = {}
+    for entry in entries:
+        tokens, value = entry[0], entry[1]
+        labels = frozenset(entry[2]) if len(entry) > 2 else frozenset()
+        key = (tokens, type(value).__name__, repr(value))
+        previous = merged.get(key)
+        merged[key] = Claim(tokens, value, labels | (previous.labels if previous else frozenset()))
+    return list(merged.values())
+
+
+REGISTRY = _claims(_registry())
 
 
 def _rows() -> list[list[str]]:
@@ -662,17 +776,31 @@ def test_page_does_not_link_the_unpublished_spec() -> None:
     assert "PRD.md" not in text
 
 
-@pytest.mark.parametrize(("tokens", "value"), REGISTRY, ids=[tokens[0] for tokens, _ in REGISTRY])
-def test_documented_default_matches_the_code(tokens: tuple[str, ...], value: object) -> None:
-    label = tokens[0]
-    matches = [row for row in ROWS if set(tokens) <= set(_BACKTICKED_RE.findall(row[0]))]
-    assert matches, f"no Parameter cell on the page mentions `{label}`"
+@pytest.mark.parametrize(
+    "claim",
+    REGISTRY,
+    ids=[
+        claim.tokens[0] + ("-" + "-".join(sorted(claim.labels)) if claim.labels else "")
+        for claim in REGISTRY
+    ],
+)
+def test_documented_default_matches_the_code(claim: Claim) -> None:
+    name = claim.tokens[0]
+    matches = [row for row in ROWS if set(claim.tokens) <= set(_BACKTICKED_RE.findall(row[0]))]
+    assert matches, f"no Parameter cell on the page mentions `{name}`"
     for row in matches:
         literals = _BACKTICKED_RE.findall(row[1])
-        assert literals, f"the Default cell for `{label}` has no backticked literal"
-        assert any(_states(text, value) for text in literals), (
-            f"docs/reference/parameters.md documents {literals} for `{label}`, "
-            f"but the code says {_fmt(value)!r}"
+        assert literals, f"the Default cell for `{name}` has no backticked literal"
+        assert claim.satisfied_by(row[1]), (
+            f"docs/reference/parameters.md documents {literals} for `{name}`"
+            + (f" under {sorted(claim.labels)}" if claim.labels else "")
+            + f", but the code says {_fmt(claim.value)!r}"
+            + (
+                " — the value must be printed next to its own mode label, so a label swap "
+                "fails here even when every number is still on the row"
+                if claim.labels
+                else ""
+            )
         )
 
 
@@ -688,34 +816,34 @@ def test_a_multi_value_row_states_each_registered_default_separately() -> None:
 
     Two registry lines that carry the same tokens *and* the same value are one
     documented claim, not two — ``min_separation`` prints a single ``3.0`` for both
-    the intensity and the bandpass detector — so they collapse before the walk. A
-    row that still prints fewer literals than it has entries has collapsed values
-    the registry cannot tell apart (``dt`` / ``time_dt`` print one ``1.0`` for
-    three separately-named constants); it keeps the per-entry check only.
+    the intensity and the bandpass detector — so they collapse in :func:`_claims`
+    before the walk. A row that still prints fewer literals than it has entries has
+    collapsed values the registry cannot tell apart (``dt`` / ``time_dt`` print one
+    ``1.0`` for three separately-named constants); it keeps the per-entry check only.
+
+    A labelled claim additionally has to take a literal that carries its labels, so on
+    the two mode-keyed rows this pass fails a swap as well — it does not merely count.
     """
     for row in ROWS:
         parameter_tokens = set(_BACKTICKED_RE.findall(row[0]))
-        seen: set[tuple[tuple[str, ...], str, str]] = set()
-        entries: list[tuple[tuple[str, ...], object]] = []
-        for tokens, value in REGISTRY:
-            key = (tokens, type(value).__name__, repr(value))
-            if set(tokens) <= parameter_tokens and key not in seen:
-                seen.add(key)
-                entries.append((tokens, value))
-        literals = _BACKTICKED_RE.findall(row[1]) if len(row) > 1 else []
+        entries = [claim for claim in REGISTRY if set(claim.tokens) <= parameter_tokens]
+        cell = row[1] if len(row) > 1 else ""
+        literals = _BACKTICKED_RE.findall(cell)
         if len(entries) < 2 or len(literals) < len(entries):
             continue
-        unclaimed = list(literals)
-        for tokens, value in entries:
-            for i, text in enumerate(unclaimed):
-                if _states(text, value):
+        unclaimed = _labelled_literals(cell)
+        for claim in entries:
+            for i, (text, words) in enumerate(unclaimed):
+                if _states(text, claim.value) and claim.labels <= words:
                     del unclaimed[i]
                     break
             else:
                 raise AssertionError(
-                    f"the row for `{tokens[0]}` prints {literals} but has no literal left "
-                    f"for its live value {_fmt(value)!r} — a default on this row has "
-                    f"drifted and is hiding behind a sibling's value"
+                    f"the row for `{claim.tokens[0]}` prints {literals} but has no literal left "
+                    f"for its live value {_fmt(claim.value)!r}"
+                    + (f" under {sorted(claim.labels)}" if claim.labels else "")
+                    + " — a default on this row has drifted and is hiding behind a sibling's "
+                    "value, or its mode label has been swapped"
                 )
 
 
@@ -730,7 +858,7 @@ def test_every_constant_the_page_prints_a_value_for_is_registered() -> None:
     table is exempt on purpose: it deliberately does not restate values, so it has
     no Default cell to check.
     """
-    registered = {token for tokens, _ in REGISTRY for token in tokens}
+    registered = {token for claim in REGISTRY for token in claim.tokens}
     documented: set[str] = set()
     for row in ROWS:
         if len(row) != 6:
@@ -749,3 +877,145 @@ def test_every_row_states_whether_it_is_recorded_in_the_project() -> None:
         if len(row) != 6:
             continue  # the two 3-column explanatory tables
         assert row[5], f"empty 'Recorded in .tether' cell in row: {row[0]}"
+
+
+# --- The label binding itself -------------------------------------------------
+# The passes above assert what the page currently says. These assert that the guard
+# would NOTICE if it changed -- which is the whole of #221, since every literal stayed
+# present and distinct through the swap that motivated it.
+
+#: The two mode-keyed cells as the page writes them today.
+_THRESHOLD_CELL = "`None` (per-mode: `0.5` intensity, `0.98` bandpass)"
+_SEPARATION_CELL = "`None` (per-mode: `8.0` wavelet, `3.0` intensity and bandpass)"
+
+
+@pytest.mark.parametrize(
+    ("parameter", "modes"),
+    [
+        ("detection_threshold", ("intensity", "bandpass")),
+        ("min_separation", ("wavelet", "intensity", "bandpass")),
+    ],
+)
+def test_each_mode_label_lands_in_exactly_one_literals_span(
+    parameter: str, modes: tuple[str, ...]
+) -> None:
+    """The premise: the cell parses into labelled clauses, one owner per mode.
+
+    Deliberately structural rather than a byte-for-byte pin on the cell. The claims
+    above are all *subset* tests, so a rewording that dropped a mode word entirely
+    would make them pass vacuously -- the binding would quietly become the
+    set-of-literals check it replaced, and nothing would say so. This is the check
+    that notices, while still leaving the prose free to be rewritten.
+
+    A mode owned by two spans is the same defect from the other side: it would let a
+    value satisfy a label that also sits next to a different value.
+    """
+    cell = next(
+        row[1] for row in ROWS if parameter in _BACKTICKED_RE.findall(row[0]) and len(row) > 1
+    )
+    spans = _labelled_literals(cell)
+    for mode in modes:
+        owners = [literal for literal, words in spans if mode in words]
+        assert len(owners) == 1, (
+            f"the `{parameter}` Default cell must name the `{mode}` mode next to exactly one "
+            f"value for the label binding to mean anything; it is claimed by {owners} in "
+            f"{cell!r}"
+        )
+
+
+def test_a_label_swap_fails_even_though_every_literal_survives() -> None:
+    """#221's acceptance criterion, and the exact hole it was filed for.
+
+    Swapping the two mode labels leaves `0.5` and `0.98` both present and both
+    distinct, so the set-of-literals checks that predate this stay green while the
+    page tells a reader to threshold `bandpass` at `0.5`.
+    """
+    swapped = "`None` (per-mode: `0.98` intensity, `0.5` bandpass)"
+    # The literals are untouched by the swap -- which is why counting them cannot help.
+    assert set(_BACKTICKED_RE.findall(swapped)) == set(_BACKTICKED_RE.findall(_THRESHOLD_CELL))
+
+    intensity = Claim(("detection_threshold",), 0.5, frozenset({"intensity"}))
+    bandpass = Claim(("detection_threshold",), 0.98, frozenset({"bandpass"}))
+    assert intensity.satisfied_by(_THRESHOLD_CELL)
+    assert bandpass.satisfied_by(_THRESHOLD_CELL)
+    assert not intensity.satisfied_by(swapped)
+    assert not bandpass.satisfied_by(swapped)
+
+
+def test_one_literal_may_carry_several_labels() -> None:
+    """A value shared by two modes is one literal that must answer for both.
+
+    ``min_separation`` prints a single ``3.0`` for intensity and bandpass. The merged
+    claim demands both words in that literal's span, so dropping either from the page
+    fails -- while the ``8.0`` sitting beside it cannot satisfy either.
+    """
+    shared = Claim(("min_separation",), 3.0, frozenset({"intensity", "bandpass"}))
+    assert shared.satisfied_by(_SEPARATION_CELL)
+    assert not shared.satisfied_by("`None` (per-mode: `8.0` wavelet, `3.0` intensity)")
+    assert not shared.satisfied_by("`None` (per-mode: `3.0` intensity, `8.0` bandpass)")
+
+    wavelet = Claim(("min_separation",), 8.0, frozenset({"wavelet"}))
+    assert wavelet.satisfied_by(_SEPARATION_CELL)
+    assert not wavelet.satisfied_by(
+        "`None` (per-mode: `3.0` wavelet, `8.0` intensity and bandpass)"
+    )
+
+
+def test_a_label_is_bounded_by_the_next_literal() -> None:
+    """A label may not be satisfied by a word belonging to a different value.
+
+    Without the bound, "the cell contains `0.5` and contains 'intensity'" is true of
+    every arrangement of those tokens, which is precisely the check that failed to
+    catch the swap. The span ends at the next backtick, so a label written *before* a
+    value belongs to the value it follows, not the one it precedes.
+    """
+    assert _labelled_literals(_THRESHOLD_CELL) == [
+        ("None", frozenset({"per-mode"})),
+        ("0.5", frozenset({"intensity"})),
+        ("0.98", frozenset({"bandpass"})),
+    ]
+
+
+def test_an_unlabelled_claim_is_satisfied_by_any_literal_in_the_cell() -> None:
+    """Every ordinary row keeps the behaviour it had before labels existed.
+
+    The empty label set is a subset of every span, so an unlabelled claim never
+    consults the prose -- the binding is opt-in per registry entry, and the ~200 rows
+    that print one value are unaffected.
+    """
+    plain = Claim(("window",), 21)
+    assert plain.satisfied_by("`21`")
+    assert plain.satisfied_by("`None` (per-mode: `21` whatever, `3.0` else)")
+    assert not plain.satisfied_by("`22`")
+
+
+def test_entries_sharing_tokens_and_value_merge_their_labels() -> None:
+    """The merge is by live value, so it cannot excuse two defaults drifting apart.
+
+    While intensity and bandpass agree, they are one claim carrying both labels. Give
+    them different values and they split into two claims that each demand their own
+    labelled literal -- so a code change to one of them alone is still caught.
+    """
+    tokens = ("min_separation",)
+    agreeing = _claims([(tokens, 3.0, ("intensity",)), (tokens, 3.0, ("bandpass",))])
+    assert len(agreeing) == 1
+    assert agreeing[0].labels == frozenset({"intensity", "bandpass"})
+
+    drifted = _claims([(tokens, 3.0, ("intensity",)), (tokens, 4.0, ("bandpass",))])
+    assert len(drifted) == 2
+    assert not any(claim.satisfied_by(_SEPARATION_CELL) for claim in drifted if claim.value == 4.0)
+
+
+def test_the_two_mode_keyed_rows_are_registered_with_labels() -> None:
+    """The binding is worthless if the registry stops using it.
+
+    Pins the mode/value pairs #221 names, read from the live registry rather than
+    restated, so this fails if an entry loses its label or its source function.
+    """
+    labelled = {(claim.tokens[0], claim.value): claim.labels for claim in REGISTRY if claim.labels}
+    assert labelled == {
+        ("detection_threshold", 0.5): frozenset({"intensity"}),
+        ("detection_threshold", 0.98): frozenset({"bandpass"}),
+        ("min_separation", 8.0): frozenset({"wavelet"}),
+        ("min_separation", 3.0): frozenset({"intensity", "bandpass"}),
+    }

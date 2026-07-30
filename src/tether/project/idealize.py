@@ -74,6 +74,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from tether.idealize.driver import (
+    DEFAULT_SIDECAR_TIMEOUT,
     IdealizationResult,
     run_vbfret,
     states_from_idealized,
@@ -402,7 +403,7 @@ def idealize_molecules(
     sidecar_python: str | PathLike[str] | None = None,
     nrestarts: int | None = None,
     scratch_dir: str | PathLike[str] | None = None,
-    timeout: float | None = 1800.0,
+    timeout: float | None = DEFAULT_SIDECAR_TIMEOUT,
     overwrite: bool = False,
     include_rejected: bool = False,
     require_held_lock: bool = False,
@@ -1109,7 +1110,7 @@ def reidealize(
     sidecar_python: str | PathLike[str] | None = None,
     nrestarts: int | None = None,
     scratch_dir: str | PathLike[str] | None = None,
-    timeout: float | None = 1800.0,
+    timeout: float | None = DEFAULT_SIDECAR_TIMEOUT,
     _runner: Callable[..., IdealizationResult] | None = None,
 ) -> StoredIdealization:
     """Re-fit an existing model over its molecule set with the *current* inputs.
