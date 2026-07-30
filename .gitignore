@@ -1,5 +1,8 @@
-# --- Local-only working docs (never committed; see CLAUDE.md / PLAN.md) ---
-CLAUDE.md
+# --- Local-only working docs (never committed) ---
+# CLAUDE.md itself is TRACKED (#312): it is Claude Code's entry point and routes to AGENTS.md, so a
+# fresh clone must have it. Per-machine setup — absolute paths, which CLIs live where, local venvs —
+# goes in CLAUDE.local.md, which does not.
+CLAUDE.local.md
 PLAN.md
 # Claude Code working directory. Named paths rather than a blanket `.claude/`: a directory-wide
 # ignore silently swallows anything an agent leaves there, including files that should have been
