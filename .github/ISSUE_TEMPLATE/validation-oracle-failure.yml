@@ -97,7 +97,8 @@ body:
       description: >-
         This picks the reviewer, not the priority. High covers scientific logic or
         claims, data, provenance, schema, security, dependencies, CI/release, a public
-        API, persistence or migration, concurrency, and broad cross-component work.
+        API, persistence or migration, concurrency, HPC/Slurm, and broad
+        cross-component work.
       options:
         - "low — Codex reviews it"
         - "standard — Codex reviews it"
