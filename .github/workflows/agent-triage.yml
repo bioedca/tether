@@ -15,10 +15,16 @@
 #   trigger either provider? If yes, the trigger belongs in this workflow and agent-authored triggers
 #   can be forbidden outright, which is the strongest form of the control since asking is the only way
 #   a round can begin.
-#   Status: NOT ANSWERED, and this workflow therefore does not post triggers. `check_suite` and
-#   `workflow_dispatch` both require the workflow file to be on the default branch, so the probe
-#   cannot run from the branch that introduces it. It is tracked as a follow-up and must be answered
-#   before the pilot.
+#   Status: NOT ANSWERED (tracked as #284), and this workflow therefore does not post triggers.
+#   `check_suite` and `workflow_dispatch` require the workflow file to be on the DEFAULT branch, so
+#   neither can fire from the branch that introduces it. `pull_request_review` is different and this
+#   was measured, not assumed: on #285 a review submission DID run this workflow from the pull
+#   request's own head. That is worth knowing for two reasons - the review paths are testable before
+#   merge, and a PR can therefore run its OWN version of this file with `issues: write`. The checkout
+#   pin below removes the unreviewed-*Python* half of that; the workflow *definition* still comes from
+#   the head on review events, which is inherent to the trigger and is accepted here because the
+#   repository is user-owned with no external contributors. Do not read the pin as making a
+#   contributor-facing repository safe.
 #   Until it is: the cap rests on this counter PLUS the launcher's own refusal PLUS a post-merge
 #   audit - genuinely weaker than a platform-enforced trigger, and said plainly rather than implied.
 #
@@ -30,9 +36,10 @@ name: agent-triage
 
 on:
   # A completed suite is the state change that decides whether an AMEND is owed. NOTE: like
-  # `schedule`, `check_suite` only ever triggers from the workflow file on the DEFAULT branch, so
-  # changes here cannot be exercised by their own pull request - verify with the dispatch below after
-  # merge, exactly as agent-reaper.yml was.
+  # `schedule`, `check_suite` only ever triggers from the workflow file on the DEFAULT branch, so this
+  # trigger cannot be exercised by its own pull request - verify with the dispatch below after merge,
+  # exactly as agent-reaper.yml was. The two review triggers DO fire from a PR head; see the probe
+  # note above.
   check_suite:
     types: [completed]
   pull_request_review:
@@ -125,6 +132,30 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
           set -euo pipefail
+          # BOOTSTRAP GUARD, and deliberately a narrow one. The checkout above is pinned to the
+          # DEFAULT branch, so on the pull request that introduces this workflow the script does not
+          # exist there yet and `python .agents/bin/triage.py` fails with ENOENT - which is exactly
+          # what happened on #285 before this guard existed.
+          #
+          # The two cases are distinguished rather than both waved through, because "the script is
+          # missing" is otherwise indistinguishable from a real breakage:
+          #   * workflow present on the default branch, script absent -> someone removed or moved the
+          #     script and left its workflow behind. FAIL LOUDLY.
+          #   * neither present -> this workflow is newer than the default branch, i.e. its own
+          #     introducing PR. Report and do nothing. This branch stops being reachable the moment
+          #     the workflow lands, so it cannot become a standing excuse.
+          if [ ! -f .agents/bin/triage.py ]; then
+            if [ -f .github/workflows/agent-triage.yml ]; then
+              echo "::error::agent-triage.yml is on the default branch but triage.py is missing"
+              exit 1
+            fi
+            echo "::notice::agent-triage is not on the default branch yet; nothing to publish."
+            printf '## agent-triage\n\nNot on the default branch yet; nothing published.\n' \
+              > "${GITHUB_STEP_SUMMARY}"
+            # No explicit `exit 0`: in a `bash -el {0}` step an explicit zero exit is reported as a
+            # FAILURE on the runner. Fall through to a terminal command instead.
+            true
+          else
           args=()
           if [ -n "${PR_NUMBER}" ]; then
             args+=(--pr "${PR_NUMBER}")
@@ -135,8 +166,6 @@ jobs:
             args+=(--dry-run)
           fi
           python .agents/bin/triage.py "${args[@]}" | tee /tmp/triage.json
-          # No explicit `exit 0`: in a `bash -el {0}` step an explicit exit reports failure on the
-          # runner even when the value is zero. Fall through to a terminal command instead.
           python - <<'PY'
           import json, os, pathlib
           r = json.loads(pathlib.Path("/tmp/triage.json").read_text("utf-8"))
@@ -157,3 +186,4 @@ jobs:
                   lines += ["", "**At the cap.** No AMEND authority is issued; this PR needs the maintainer."]
           pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines), encoding="utf-8")
           PY
+          fi

@@ -571,14 +571,39 @@ def test_the_workflow_listens_for_the_three_state_changing_events() -> None:
 def test_the_workflow_records_the_bot_trigger_probe_answer() -> None:
     """The probe decides how strong this control is, so its state is written down, not implied.
 
-    It cannot be run from the branch that introduces the workflow - `check_suite` and
-    `workflow_dispatch` both need the file on the default branch - so the honest record is that it
-    is unanswered and that the workflow therefore posts no triggers.
+    `check_suite` and `workflow_dispatch` both need the file on the default branch, so the probe
+    cannot run from the branch that introduces the workflow. The honest record is that it is
+    unanswered, tracked, and that the workflow therefore posts no triggers at all.
     """
     header = WORKFLOW.read_text(encoding="utf-8")
     assert "BOT-TRIGGER PROBE" in header
     assert "NOT ANSWERED" in header
     assert "@codex review" in header
+    # The trigger must be absent from the body, not merely discussed in the header.
+    assert "@coderabbitai review" not in header.split("permissions:")[-1]
+
+
+def test_the_bootstrap_guard_distinguishes_missing_from_broken() -> None:
+    """A missing `triage.py` is either "not merged yet" or "someone broke it" - never both.
+
+    Waving both through would make a real removal silently green on the workflow that publishes
+    review state; failing both would make this PR permanently red. The guard keys on whether the
+    workflow itself is present on the default branch, so the tolerant branch stops being reachable
+    the moment this lands.
+    """
+    body = WORKFLOW.read_text(encoding="utf-8")
+    assert "BOOTSTRAP GUARD" in body
+    assert "::error::agent-triage.yml is on the default branch but triage.py is missing" in body
+    assert "not on the default branch yet" in body
+    # An explicit zero exit is reported as a FAILURE in a `bash -el {0}` step (#138), so there must
+    # be no `exit 0` STATEMENT. Comments are stripped first: the header explains the rule and would
+    # otherwise match the very text it warns against.
+    statements = [
+        line.split("#", 1)[0].strip()
+        for line in body.splitlines()
+        if not line.strip().startswith("#")
+    ]
+    assert not [s for s in statements if s == "exit 0" or s.endswith(" exit 0")]
 
 
 def test_the_module_records_that_the_counter_can_undercount() -> None:
