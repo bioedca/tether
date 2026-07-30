@@ -1,0 +1,141 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Turns check and review events into the labels the launcher reads in ONE call, so a worker that has
+# already exited does not have to poll for them. The retired model made 977 `wait_*` calls, one
+# unbroken run of 162 (ADR-0057); this is the eventing that replaces them.
+#
+# It is also the half of the review cap that makes it bind. `agent:review-capped` is published at two
+# rounds and `agent:needs-amend` is then withheld - and that label is the launcher's authority to
+# start an AMEND session, so a third round is never authorised rather than merely forbidden. The cap
+# failed on #276 at 9 rounds against a limit of 2 because prose was the only thing holding it.
+#
+# BOT-TRIGGER PROBE - the answer, recorded because it decides how strong this control is.
+#   Question: does `@codex review` / `@coderabbitai review` posted by `github-actions[bot]` actually
+#   trigger either provider? If yes, the trigger belongs in this workflow and agent-authored triggers
+#   can be forbidden outright, which is the strongest form of the control since asking is the only way
+#   a round can begin.
+#   Status: NOT ANSWERED, and this workflow therefore does not post triggers. `check_suite` and
+#   `workflow_dispatch` both require the workflow file to be on the default branch, so the probe
+#   cannot run from the branch that introduces it. It is tracked as a follow-up and must be answered
+#   before the pilot.
+#   Until it is: the cap rests on this counter PLUS the launcher's own refusal PLUS a post-merge
+#   audit - genuinely weaker than a platform-enforced trigger, and said plainly rather than implied.
+#
+# The counter can UNDERCOUNT and never overcounts: only head-bound evidence (review submissions and
+# inline review comments, which carry commit_id) is counted, so a provider answering in a plain issue
+# comment is invisible to it. That happened on #282. See .agents/bin/triage.py. Do not promote this to
+# a required check on the counter alone.
+name: agent-triage
+
+on:
+  # A completed suite is the state change that decides whether an AMEND is owed. NOTE: like
+  # `schedule`, `check_suite` only ever triggers from the workflow file on the DEFAULT branch, so
+  # changes here cannot be exercised by their own pull request - verify with the dispatch below after
+  # merge, exactly as agent-reaper.yml was.
+  check_suite:
+    types: [completed]
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request_review_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Pull-request number to triage"
+        required: true
+      dry_run:
+        description: "Report what would change without writing any label"
+        type: boolean
+        default: true
+
+# Least privilege, stated explicitly. With an explicit block every UNLISTED scope is `none`, so an
+# omission is a 403 rather than a default - and triage.py fails closed on one, which stops the run
+# rather than publishing a wrong round count.
+#   issues: write          add/remove the agent:round-*/agent:review-capped/agent:needs-amend labels
+#   pull-requests: read    read PR state, reviews and inline review comments. Never `write`: this
+#                          workflow has no mutation to make on a PR, and standing authority for one
+#                          it cannot perform is what #277 removed from the reaper
+#   checks: read           read /commits/{sha}/check-suites. `statuses: read` does NOT cover it, and
+#                          without it a head whose CI is still running looks green
+#   contents: read         checkout only
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  checks: read
+
+concurrency:
+  # Per pull request, not global: two PRs must triage in parallel, but two events on ONE PR must not
+  # race to write its labels. Never cancel - a cancelled run leaves the labels describing an older
+  # head, and the launcher would read that as authority.
+  group: >-
+    agent-triage-${{ github.event.pull_request.number
+      || inputs.pr
+      || github.event.check_suite.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Cheap pre-filter so the common case - a check suite on main, on a maintainer branch, or on any
+    # branch that is not a claim ref - costs no runner minutes. triage.py re-checks the same thing
+    # from the API and is the authority; this only avoids the spawn.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || github.event_name == 'pull_request_review'
+      || github.event_name == 'pull_request_review_comment'
+      || startsWith(github.event.check_suite.head_branch, 'agent/issue-')
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Publish review-round state
+        shell: bash -el {0}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Untrusted event data is passed through env, never interpolated into the script body.
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+          HEAD_BRANCH: ${{ github.event.check_suite.head_branch }}
+          # A manual run defaults to dry-run; a real event always acts.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "${PR_NUMBER}" ]; then
+            args+=(--pr "${PR_NUMBER}")
+          else
+            args+=(--branch "${HEAD_BRANCH}")
+          fi
+          if [ "${DRY_RUN}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python .agents/bin/triage.py "${args[@]}" | tee /tmp/triage.json
+          # No explicit `exit 0`: in a `bash -el {0}` step an explicit exit reports failure on the
+          # runner even when the value is zero. Fall through to a terminal command instead.
+          python - <<'PY'
+          import json, os, pathlib
+          r = json.loads(pathlib.Path("/tmp/triage.json").read_text("utf-8"))
+          if r["action"] == "skip":
+              lines = ["## agent-triage", "", f"Skipped: **{r['reason']}**"]
+          else:
+              lines = [
+                  "## agent-triage",
+                  "",
+                  f"PR #{r['pr']} → issue #{r['issue']} · checks **{r['checks']}**",
+                  "",
+                  f"| rounds | capped | amend | added | removed |",
+                  "|---|---|---|---|---|",
+                  f"| {r['rounds']} of 2 | {r['capped']} | {r['amend']} "
+                  f"| {', '.join(r['added']) or '—'} | {', '.join(r['removed']) or '—'} |",
+              ]
+              if r["capped"]:
+                  lines += ["", "**At the cap.** No AMEND authority is issued; this PR needs the maintainer."]
+          pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines), encoding="utf-8")
+          PY
