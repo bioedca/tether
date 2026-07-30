@@ -669,7 +669,8 @@ No updater code exists at the time of writing.
 The installed application **shall** be able to detect a newer **stable** release, download the installer for the
 running platform, **verify it against the GitHub build-provenance attestation**, and hand off to the OS installer.
 It **shall not** apply an in-place environment update and **shall not** update silently. Prereleases **shall never**
-be offered: `docs/stability.md` states there is no downgrade path, so moving a user is a one-way door.
+be offered: a prerelease is not a supported target and this mechanism provides no way back, so moving a user onto one
+could be undone only by a manual reinstall.
 
 **The verification is the entire trust boundary.** 1.0 installers carry no OS code signature
 ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)), so nothing stands behind this

@@ -32,8 +32,10 @@ three were re-verified against the tree at `414e809` rather than taken from the 
    "urllib.request\|requests\.get\|httpx\|urlopen\|socket\." src/tether/` returns exactly one line —
    `src/tether/project/lock.py:354`, `socket.gethostname()` for the `.lock` sidecar, which sends
    nothing. (The issue cites `:277`; the call is at `:354` on current `main`.) An update check would
-   be the first byte Tether ever sends off the machine, and `docs/privacy.md:18-20` currently rests
-   on that: *"It makes no network connection as part of normal analysis."*
+   be the first byte Tether ever sends off the machine, and the **"No telemetry or analytics"**
+   bullet on `docs/privacy.md` currently rests on that: *"It makes no network connection as part of
+   normal analysis."* (Cited by bullet rather than by line: that page moved under this record once
+   already, when #321 landed while this branch was held.)
 3. **Offline operation is a product promise.** The installer is specified fully offline — no
    install-time git or network — for lab machines that are air-gapped or on restricted networks.
 
@@ -50,7 +52,10 @@ those three?
 - The installed launch surface from [ADR-0051](0051-installed-app-launch-surface.md) — the
   `<prefix>/bin/tether` and `<prefix>/bin/tether-gui` shims, the Windows Start Menu `.lnk`, the Linux
   `.desktop` — must survive an update.
-- `docs/stability.md` states there is no downgrade path, so moving a user is a one-way door.
+- There is no automated way back from an update, so moving a user is a one-way door. (Note that
+  `docs/stability.md`'s "no downgrade path" is about a `.tether` file's `schema_version` under
+  *Project file compatibility*, not about application versions — it does not license this claim, and
+  an earlier draft cited it as though it did.)
 
 ## Decision outcome
 
@@ -115,9 +120,10 @@ determine the per-OS behaviour empirically and site the store where the answer d
 
 ### 4. Channel — stable only
 
-Prereleases are never offered. `v1.0.0-rc1` and its successors must be invisible to this mechanism.
-This follows `docs/stability.md`: there is no downgrade path, so putting a scientist on a release
-candidate cannot be undone. A yanked or deleted release is treated as "no update available", never as
+Prereleases are never offered. `v1.0.0-rc1` and its successors must be invisible to this mechanism,
+because a prerelease is not a supported target and this mechanism provides no way back: moving a
+scientist onto an RC could only be undone by a manual reinstall, which is the opposite of what an
+updater is for. A yanked or deleted release is treated as "no update available", never as
 a reason to offer the next-newest.
 
 ### 5. Privacy disclosure — amended in the PR that adds the network call
@@ -158,10 +164,19 @@ packaging fact, measured against the live index and the committed lock on 2026-0
 | It would also drag in a currently-absent tree | `cryptography` is **absent** from the base lock today |
 | conda-native verifiers **do** exist, on all four target platforms | `cosign` **3.0.4** and `gh` **2.96.0**, both covering `linux-64`, `osx-64`, `osx-arm64`, `win-64` |
 
-So an in-process verifier means making `sigstore` the **first pip-installed package in a
-1192-package, 100%-conda, pin-and-hold environment**, and pulling `cryptography` and its transitive
-tree in behind it. That is a materially larger change than "a lock bump", and it weakens the very
-bill-of-materials guarantee that the `.tether` provenance stamps refer to.
+So an in-process verifier means making `sigstore` the **first pip-managed entry in the 1192-entry,
+100%-conda, pin-and-hold lock**, and pulling `cryptography` and its transitive tree in behind it.
+That is a materially larger change than "a lock bump", and it weakens the very bill-of-materials
+guarantee that the `.tether` provenance stamps refer to.
+
+Two words there are load-bearing and were wrong in a first draft. **"Entry", not "package":** 1192
+counts lock entries across four platforms (`linux-64` 331, `osx-64`/`osx-arm64`/`win-64` 287 each,
+353 distinct names), not the size of any environment a user installs. **"Lock", not "environment":**
+the installed environment already contains pip-installed packages — `packaging/scripts/post_install.sh`
+and its `.bat` twin `pip install --no-index --no-deps` the `tether` and `tmaven` wheels into it, which
+[ADR-0049](0049-m9-packaging-constructor-architecture.md) and
+[ADR-0051](0051-installed-app-launch-surface.md) both record. What is 100% conda is the **lock**, and
+the lock is the bill of materials the provenance stamps refer to, so the argument is unaffected.
 
 **Recommended resolution, and what this ADR assumes unless the maintainer says otherwise:** keep
 every substantive part of decision 2 — attestation-based verification, checksum treated as necessary
@@ -212,22 +227,33 @@ Either way the lock bump is a **separate, deliberate PR** with its own regenerat
 
 ## Follow-up implementation issues
 
-Ordered by dependency. Each is filed against this accepted design.
+Ordered by dependency. Four are filed and are linked by number; **two are deliberately not filed
+yet**, and which is which is stated rather than left to be discovered.
 
-1. **Application settings store outside the install prefix**, with a value that survives an update
-   and a machine-wide administrator override. Prerequisite for everything else, and currently absent
-   from the tree entirely.
+1. **[#330](https://github.com/bioedca/tether/issues/330) — application settings store** outside the
+   install prefix, with a value that survives an update and a machine-wide administrator override.
+   Prerequisite for everything else, and absent from the tree entirely today.
 2. **The base-lock verifier bump** — a standalone re-lock adding the chosen conda-forge verifier,
-   with `conda-lock-verify` green and a re-tested GUI stack. Gated on the maintainer resolving the
-   conflict above.
-3. **Release query + channel policy** — the stable-only GitHub releases lookup, gated on consent,
-   with the air-gapped path proven to produce no error, no dialog and no startup delay.
-4. **Download + attestation verification**, with refuse-and-report and a test that a tampered asset
-   is rejected. The security-critical unit; it should land with an adversarial test, not a happy-path
-   one.
-5. **Per-OS hand-off**, including the launch-surface survival check from ADR-0051.
-6. **The `docs/privacy.md` amendment**, which by decision 5 lands *in* issue 3 rather than as its own
-   PR — listed here so it is not forgotten, not so it is separated.
+   with `conda-lock-verify` green and a re-tested GUI stack. **Not filed:** its content depends
+   entirely on how the maintainer answers the conflict above, and filing it now would bake in an
+   answer that has not been given.
+3. **[#248](https://github.com/bioedca/tether/issues/248) — release query + channel policy**, the
+   stable-only lookup gated on consent, with the air-gapped path proven to produce no error, no
+   dialog and no startup delay. Note that #248 **predates this record** (filed 38 minutes before the
+   decision comment) and is scoped to check-and-notify. That is not a contradiction of decision 1 —
+   it says so itself, *"implementable against any outcome of that design"* — but it is the check
+   half only, and it is now blocked on #330 for the consent flag it assumes.
+4. **Download + attestation verification**, with refuse-and-report and a test that a *tampered* asset
+   is rejected — the security-critical unit, and it should land with an adversarial test rather than
+   a happy-path one. **Not filed:** same reason as 2. What it verifies *with* is unresolved.
+5. **[#331](https://github.com/bioedca/tether/issues/331) — per-OS hand-off**, including the
+   launch-surface survival check from ADR-0051 and the interrupted-update behaviour.
+6. **The `docs/privacy.md` amendment**, which by decision 5 lands *inside* #248 rather than as its
+   own PR — listed here so it is not forgotten, not so it is separated.
+
+An earlier draft of this section claimed all six were filed when none were. They are enumerated with
+their real numbers now precisely because a decision record that overstates its own follow-through is
+the kind of thing a future reader has no way to check.
 
 ## More information
 
@@ -236,7 +262,7 @@ Ordered by dependency. Each is filed against this accepted design.
 - [ADR-0051](0051-installed-app-launch-surface.md) — the launch surface an update must not orphan.
 - [ADR-0004](0004-pin-and-hold-dual-lock-isolation.md) — the pin-and-hold invariant the verifier
   choice runs into.
-- `docs/privacy.md:18-20` — the claim this feature amends.
+- `docs/privacy.md`, the **"No telemetry or analytics"** bullet — the claim this feature amends.
 - `docs/release.md` — the manifests and attestation as published today, and how to verify them by
   hand.
 - [GitHub artifact attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds)
