@@ -709,26 +709,47 @@ refuses up front rather than producing a half-wired project, with reasons such a
 **Symptom.** Windows SmartScreen or macOS Gatekeeper warns that the installer is from an
 unidentified developer.
 
-**Cause.** **Every Tether installer published so far is unsigned** — release builds included.
-Code-signing is wired into the release pipeline but **gated on repository variables** that are
-not yet set: `.github/workflows/release.yml` runs the SignPath submission only
-`if: runner.os == 'Windows' && vars.SIGNPATH_ORGANIZATION_ID != ''`, and the macOS
-`codesign`/`notarytool` leg only `if: … vars.APPLE_SIGNING_ENABLED == 'true'`. With the gates
-off, each build emits a `::warning::` saying the installer ships UNSIGNED, and that is the
-current state of the published assets. Re-downloading from the release page will reproduce the
-same warning.
+**Cause.** **No Tether installer is OS-code-signed**, and for 1.0 none will be. The warning is
+expected, it is not a sign that the download failed or was tampered with, and re-downloading
+will reproduce it.
+[ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) records why.
 
-**Remedy.** Verify the download instead of trusting the OS prompt, then click through it:
+**Remedy — verify first, then click through.** The verification is the part that matters; the
+OS prompt only asks whether you want to proceed, and it cannot tell you whether the file is
+genuine.
 
-- Check the file against the release's `SHA256SUMS-<platform>.txt` (`sha256sum -c` on
-  Linux, `shasum -a 256 -c` on macOS, `Get-FileHash` on Windows).
-- Check the **build-provenance attestation** the pipeline publishes for the same assets
-  (`gh attestation verify <file> -R bioedca/tether`).
+Verify (either check is worth more than the prompt):
 
-Authenticode and Apple-notarized installers arrive once SignPath enrollment and the Apple gate
-are completed — the maintainer-side steps are in
-[Releasing (signed installers)](release.md), and macOS additionally needs a hardened-runtime
-pass over the conda payload before `APPLE_SIGNING_ENABLED` can be flipped.
+- Against the release's `SHA256SUMS-<platform>.txt` — `sha256sum -c` on Linux,
+  `shasum -a 256 -c` on macOS, `Get-FileHash` on Windows.
+- Against the **build-provenance attestation**, which is the stronger check because it binds
+  the file to the workflow, repository and tag that built it:
+
+```bash
+gh attestation verify --repo bioedca/tether Tether-<version>-<platform>.<ext>
+```
+
+Then, per platform:
+
+- **Windows.** SmartScreen shows *"Windows protected your PC"*. Choose **More info** →
+  **Run anyway**.
+- **macOS.** The old Control-click → **Open** shortcut **no longer works**: macOS Sequoia
+  removed it, and Tahoe tightened the path further. Open **System Settings → Privacy &
+  Security**, scroll to **Security**, and use the **Open Anyway** button, then authenticate as
+  an administrator. Two things catch people out: the button only appears *after* you have
+  tried to open the file and been blocked, and it is available for **about an hour** after
+  that — miss the window and you must trigger the block again.
+- **Linux.** The `.sh` installer is not gated by an OS trust prompt; verify it and run it.
+
+> **The macOS `.pkg` path is not verified.** Tether ships a `.pkg` on macOS. Apple documents
+> the **Open Anyway** flow above for *applications*, and we have not confirmed it end to end
+> for an unsigned `.pkg` on current macOS — there are reports of installers being refused
+> outright rather than offered the button. Rather than print a click-path that may not work,
+> we are saying so.
+>
+> If **Open Anyway** does not appear for the `.pkg`, verify the download with the two checks
+> above and [tell us what you saw](https://github.com/bioedca/tether/issues) — including your
+> macOS version — and this entry will be corrected from a real observation.
 
 ### The deep classifier does not see the GPU
 

@@ -225,9 +225,10 @@ which needs an older, incompatible numeric stack of its own. Two full environmen
 bundled Python make the install considerably larger than a single-environment desktop
 utility.
 
-No figure is quoted here on purpose: the first signed release has not been cut, so any
-number would be a guess. The [installers page](packaging.md) is where the measured
-per-platform artifact sizes will live once they exist.
+No installed-footprint figure is quoted here on purpose: it has not been measured, and a
+guess about disk usage is worse than no number. Installer **download** sizes are a different
+quantity — an installer is compressed and unpacks to more than it weighs — and those are on
+the [release page](https://github.com/bioedca/tether/releases) for every published build.
 
 ## Still not sure?
 

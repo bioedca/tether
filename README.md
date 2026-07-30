@@ -45,8 +45,10 @@ stamped into a single self-describing project file, and the trace ⇄ movie
 
 ## Installation
 
-> Packaging (conda-forge + `constructor` signed installers) lands at milestone
-> M9. For now Tether is a source checkout against a pinned conda environment.
+> Packaging (conda-forge + `constructor` installers) lands at milestone M9. The installers
+> are **not OS-code-signed** — see
+> [ADR-0059](docs/adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md).
+> For now Tether is a source checkout against a pinned conda environment.
 
 ```bash
 git clone https://github.com/bioedca/tether.git
