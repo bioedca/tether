@@ -316,15 +316,42 @@ def _existing_claim(number: int, owner: str) -> dict[str, Any]:
     }
 
 
-def _render(task: Path, record: dict[str, Any], item: dict[str, Any]) -> str:
-    """Substitute the task template. Every token must be consumed, or the worker reads a literal.
+def _body(task: Path) -> str:
+    """The template minus its leading comment block, validated - **before any state is consumed**.
 
-    The leading HTML comment block is **stripped, not substituted**. It carries the SPDX header and
-    the maintainer's rationale - including the token syntax itself, which is why the
-    unsubstituted-placeholder guard below tripped on the templates when the block was kept. Removing
-    it is the right fix rather than rewording the comment: this text becomes resident context for
-    the worker's whole session, so notes to whoever edits the template do not belong in it.
+    The comment is stripped, not substituted. It carries the SPDX header and the maintainer's
+    rationale, including the token syntax itself, and this text becomes resident context for the
+    worker's whole session, so notes to whoever edits the template do not belong in it.
+
+    Two ways a template renders to nothing, and the second is not the first with a different cause:
+
+    * ``str.partition`` answers ``("<!-- ...", "", "")`` when the separator is absent, so tolerating
+      a missing ``-->`` yields an empty remainder;
+    * a *well-formed* comment that happens to be the whole file leaves nothing behind either.
+
+    Both then pass the unsubstituted-placeholder guard, there being nothing left to be
+    unsubstituted, and reach the worker as its entire task text.
+
+    This is a separate function from :func:`_render` because *when* it runs is the point. It needs
+    no record, so :func:`run` calls it on every template it may use before taking a claim or
+    authorising a round - a malformed BUILD template would otherwise strand its claim until the
+    reaper, and a malformed AMEND template would irrevocably consume one of the two rounds without
+    ever launching a worker.
     """
+    text = task.read_text(encoding="utf-8")
+    if text.lstrip().startswith("<!--"):
+        _, closed, remainder = text.partition("-->")
+        if not closed:
+            raise SlotError(f"{task.name} opens a comment block that is never closed")
+        text = remainder
+    text = text.lstrip("\n")
+    if not text.strip():
+        raise SlotError(f"{task.name} renders to nothing; refusing to inject an empty task")
+    return text
+
+
+def _render(task: Path, record: dict[str, Any], item: dict[str, Any]) -> str:
+    """Substitute the task template. Every token must be consumed, or the worker reads a literal."""
     values = {
         "ISSUE": str(record["issue"]),
         "BRANCH": record["branch"],
@@ -336,14 +363,16 @@ def _render(task: Path, record: dict[str, Any], item: dict[str, Any]) -> str:
         "REMAINING": str(item.get("remaining", CAP)),
         "REASON": item.get("reason", "a fresh build"),
     }
-    text = task.read_text(encoding="utf-8")
-    if text.lstrip().startswith("<!--"):
-        _, _, text = text.partition("-->")
-    text = text.lstrip("\n")
+    text = _body(task)
     for key, value in values.items():
         text = text.replace(f"{{{{{key}}}}}", value)
     if "{{" in text:
         raise SlotError(f"{task.name} has an unsubstituted placeholder; refusing to inject it")
+    if not text.strip():
+        # Substitution can empty a template the body check passed - a file that is nothing but
+        # tokens. The placeholder guard cannot see it either, because nothing is left to be
+        # unsubstituted.
+        raise SlotError(f"{task.name} renders to nothing; refusing to inject an empty task")
     return text
 
 
@@ -456,6 +485,12 @@ def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
 
 def run(*, slots: int, vendor: str, owner: str, spawn: bool, tasks: Path) -> dict[str, Any]:
     plan = _plan(slots=slots, vendor=vendor)
+    # Validate every template this run may use BEFORE any of it is consumed. A template defect is a
+    # property of the file alone, so there is no reason to discover it after taking a claim - which
+    # would strand the ref until the reaper - or after authorising a round, which spends one of the
+    # two irrevocably and launches nothing with it.
+    for mode in {item["mode"] for item in plan} & {"amend", "build"}:
+        _body(tasks / f"{mode}.md")
     results: list[dict[str, Any]] = []
     for item in plan:
         if item["mode"] == "refuse":
