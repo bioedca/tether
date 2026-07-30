@@ -7,15 +7,18 @@ This policy describes how the **Tether** project handles data. It covers both th
 (`https://bioedca.github.io/tether/`). Tether is free, open-source software
 (GPL-3.0-or-later) developed for the Mondragón Lab at Northwestern University.
 
-In short: **Tether does not transmit or sell your personal data.** The application runs
-entirely on your own computer, and your research data stays in the storage locations you
-choose.
+In short: **Tether does not transmit or sell your personal data.** The application
+processes your research data locally on your own computer; you choose its persistent
+storage, and temporary idealization files are described below.
 
 ## The desktop application
 
 - **Local-only processing.** Tether analyses your microscopy movies and single-molecule
   FRET data entirely on your own machine. Your data — image movies, `.tether` project
   files, exported results — stays on your computer (or wherever you choose to save it).
+  During idealization, selected traces are copied to your operating system's temporary
+  directory for local processing; Tether normally removes this scratch directory when the
+  run finishes.
 - **No telemetry or analytics.** The application contains no usage tracking, no analytics,
   no crash/telemetry reporting, no advertising, and no account or login. It makes **no
   network connection** as part of normal analysis; it neither sends your data to us or to
@@ -58,8 +61,8 @@ choose.
 ## Children's privacy
 
 Tether is a research tool and is not directed at children. It processes the scientific
-imaging data and local metadata described above at the storage location you choose; Tether
-itself does not transmit that data to the project or to third parties.
+imaging data and local metadata described above locally; Tether itself does not transmit
+that data to the project or to third parties.
 
 ## Changes to this policy
 
