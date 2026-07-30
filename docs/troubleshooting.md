@@ -710,9 +710,16 @@ refuses up front rather than producing a half-wired project, with reasons such a
 unidentified developer.
 
 **Cause.** **No Tether installer is OS-code-signed**, and for 1.0 none will be. The warning is
-expected, it is not a sign that the download failed or was tampered with, and re-downloading
-will reproduce it.
+expected and does not mean the download failed or was tampered with, so re-downloading
+normally reproduces it.
 [ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) records why.
+
+Whether the prompt appears at all is up to the OS, not to us: SmartScreen may stay quiet once
+a file has built reputation, a managed machine may have these checks configured off, and
+neither system prompts for a file that never picked up the download marker Windows and macOS
+attach (Mark-of-the-Web and the quarantine attribute) — a copy from a USB stick or an internal
+share often has not. **Not seeing a warning is not evidence that the installer is signed**, so
+verify either way.
 
 **Remedy — verify first, then click through.** The verification is the part that matters; the
 OS prompt only asks whether you want to proceed, and it cannot tell you whether the file is
@@ -741,15 +748,34 @@ Then, per platform:
   that — miss the window and you must trigger the block again.
 - **Linux.** The `.sh` installer is not gated by an OS trust prompt; verify it and run it.
 
-> **The macOS `.pkg` path is not verified.** Tether ships a `.pkg` on macOS. Apple documents
-> the **Open Anyway** flow above for *applications*, and we have not confirmed it end to end
-> for an unsigned `.pkg` on current macOS — there are reports of installers being refused
-> outright rather than offered the button. Rather than print a click-path that may not work,
-> we are saying so.
->
-> If **Open Anyway** does not appear for the `.pkg`, verify the download with the two checks
-> above and [tell us what you saw](https://github.com/bioedca/tether/issues) — including your
-> macOS version — and this entry will be corrected from a real observation.
+#### If macOS will not open the `.pkg`
+
+Tether ships a `.pkg` on macOS, and Apple documents **Open Anyway** for *applications*. If the
+button does not appear for the installer, you do not need it — install from the command line
+instead, after verifying the file:
+
+```bash
+installer -pkg Tether-<version>-MacOSX-<arch>.pkg -target CurrentUserHomeDirectory
+```
+
+That lands the app in `~/Tether` and needs no administrator password. It is not a workaround
+we are guessing at: it is the exact command Tether's own macOS build check runs on every
+packaging build, on GitHub's `macos-latest` and `macos-15-intel` runners, and the check then
+launches `tether --version` and the sidecar from the installed prefix. So the package is known
+to install this way on real macOS.
+
+One difference is worth knowing, because it is the part we have **not** observed end to end: a
+`.pkg` you downloaded through a browser carries a quarantine attribute that a CI-built one does
+not. If macOS still refuses after the above, clear it — having already verified the checksum
+and the attestation, which is what makes this safe:
+
+```bash
+xattr -d com.apple.quarantine Tether-<version>-MacOSX-<arch>.pkg
+```
+
+If you hit something these steps do not cover,
+[tell us what you saw](https://github.com/bioedca/tether/issues) with your macOS version, and
+this entry will be corrected from the observation.
 
 ### The deep classifier does not see the GPU
 

@@ -42,9 +42,10 @@ is where an environment problem actually surfaces.
 
 ## How to verify a download
 
-**No Tether installer is OS-code-signed.** Windows SmartScreen and macOS Gatekeeper warn
-about every one of them, and that is the permanent state for 1.0 rather than a gap waiting to
-close. [ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)
+**No Tether installer is OS-code-signed**, and that is the settled position for 1.0 rather
+than a gap waiting to close. Expect Windows SmartScreen or macOS Gatekeeper to warn you when
+you open one.
+[ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)
 records the decision;
 [Releasing](release.md#os-code-signing-why-there-is-none) carries the maintainer-side detail.
 
@@ -58,9 +59,11 @@ Verify the file instead. Two anchors ship with every published release:
 gh attestation verify --repo bioedca/tether Tether-<version>-<platform>.<ext>
 ```
 
-The attestation is the stronger of the two. It binds the artifact to the workflow, repository
-and tag that produced it — which is what "did Tether build this file?" actually asks. A code
-signature would have attested only that someone held a certificate.
+The two answer different questions. A code signature is a real cryptographic check on the
+file: it binds the artifact to whoever holds the signing certificate, so tampering breaks it.
+What it does not say is *which build* produced the file. The attestation binds it to the
+repository, workflow and tag — which is what "did Tether build this exact file?" asks, and is
+the question you can actually check against this project.
 
 Both come from the **release** workflow alone. The advisory `packaging.yml` run validates,
 builds, install-smokes and uploads `packaging/dist/*` and nothing else, so a
