@@ -10,11 +10,12 @@ respective contract governs.
 Tether is currently maintained **solo (account `bioedca`) with CI and a
 risk-classified review path as merge gates**: branch protection on `main` requires
 green required CI plus a self-review checklist on every PR, while `AGENTS.md`
-requires a substantive final-head review from Codex or CodeRabbit on every lane.
+requires a substantive final-head review on every lane: **Codex for `low` and
+`standard`, and both Codex and CodeRabbit — in one round — for `high`.**
 Copilot is optional and best-effort. The ruleset still requires zero GitHub approval
-reviews; load-bearing changes require CodeRabbit and any qualified human/domain
-judgment specified in `AGENTS.md`. This scales to required human reviews +
-`CODEOWNERS` if contributors join (PRD §12.3).
+reviews; load-bearing changes additionally need any qualified human/domain judgment
+specified in `AGENTS.md`. This scales to required human reviews + `CODEOWNERS` if
+contributors join (PRD §12.3).
 
 `main` is **always releasable and protected**. Never push to `main` directly;
 never merge, release, or declare a PR ready while required checks are red or pending.
@@ -253,10 +254,12 @@ Before requesting review / merging, confirm:
 - [ ] **No secrets committed** — no token, key, credential or private path in code,
       tests, logs or fixtures; `secret-scan` green.
 - [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
-- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; the round; the
-      Codex-or-CodeRabbit result, **either** a substantive review **or** that same selected
-      provider's quoted "nothing to review" for the head it read (CodeRabbit for `high`);
-      blocking findings fixed and non-blocking ones deferred to a follow-up issue, per `AGENTS.md`.
+- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; the round; and a
+      result from **every** provider the lane routes to (Codex for `low`/`standard`; Codex **and**
+      CodeRabbit for `high`, in one round) — **either** a substantive review **or** that provider's
+      own quoted "nothing to review" for the head it read, a Codex 👍 included. If one provider
+      genuinely *cannot* act, record which and why and the other satisfies the lane. Blocking
+      findings fixed, non-blocking ones deferred to a follow-up issue, per `AGENTS.md`.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
       **same** PR.
 
@@ -325,8 +328,10 @@ link; do not fix non-blocking findings in the same PR, and never point a deferra
 issue that does not exist. If a **selected** provider reports nothing to review at the
 head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is its documented
 "no suggestions" — that satisfies its leg; quote it. A statement from the author, or from
-any other commenter, never does. There are **at most two rounds**, and under the swarm
-model the launcher issues them: do not request one yourself on a PR labelled
+any other commenter, never does. On `high`, a provider that genuinely **cannot** act
+leaves the other sufficient, with which one and why recorded — capability, never quota;
+both genuinely unavailable freezes the PR. There are **at most two rounds**, and under
+the swarm model the launcher issues them: do not request one yourself on a PR labelled
 `agent:review-capped`. Human sign-off is required only for releases, tags, signing, and
 new scientific claims.
 

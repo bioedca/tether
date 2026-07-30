@@ -59,7 +59,7 @@ Confirm before requesting review:
 - [ ] **Data policy respected** — no raw/private/unlicensed data or large data in ordinary Git; issue-authorized redistributable fixtures carry license and provenance in named small or LFS/gated paths.
 - [ ] **No secrets committed** — no token, key, credential, or private path in code, tests, logs, or fixtures; `secret-scan` and push protection are green.
 - [ ] **Code scanning clean** — CodeQL (GitHub code-scanning *default setup*, hence no `codeql.yml` workflow) reports no new alerts on this PR.
-- [ ] **Review path complete** — optional Copilot state recorded; the substantive final-head review complete from **every** provider this risk lane routes to (`low`/`standard` → Codex; `high` → Codex **and** CodeRabbit, in one round); applicable human/domain review complete; every conversation and every actionable finding resolved.
+- [ ] **Review path complete** — optional Copilot state recorded; the substantive final-head review complete from **every** provider this risk lane routes to (`low`/`standard` → Codex; `high` → Codex **and** CodeRabbit, in one round), *or*, for a provider that genuinely **cannot** act, its unavailability recorded above with the reason — capability, never quota; applicable human/domain review complete; every conversation and every actionable finding resolved.
 - [ ] **Provenance stamped** — coordinates / corrections / app-version / parameters written into the `.tether` for any new analysis (NFR-REPRO).
 - [ ] **New tunables registered in PRD §11.2** (single source of truth), not hardcoded.
 - [ ] **Scientific/statistical claims carry a citation**; **SPDX `GPL-3.0-or-later`** header on every new source file (`reuse lint` green).
