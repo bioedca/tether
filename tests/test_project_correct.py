@@ -212,7 +212,7 @@ def test_total_failure_falls_to_apparent_never_nan(tmp_path: Path) -> None:
     assert not np.any(np.isnan(table["correction_confidence"]))
 
 
-def test_real_estimators_withholding_recompute_falls_to_apparent(tmp_path: Path) -> None:
+def test_withheld_leakage_invalidates_gamma_before_manual_recovery(tmp_path: Path) -> None:
     path = tmp_path / "c.tether"
     n_molecules = 14
     _gamma_store(path, n_mol=n_molecules)
@@ -221,13 +221,19 @@ def test_real_estimators_withholding_recompute_falls_to_apparent(tmp_path: Path)
     assert compute_gamma(path).applied is True
     assert compute_corrected_fret(path).n_corrected == n_molecules
 
-    # Gamma requires a currently applied alpha, so clear gamma first, then alpha.
-    assert compute_gamma(path, min_qualifying_traces=999).applied is False
+    # The ordered pipeline skips gamma after leakage is withheld, so the leakage
+    # writer must invalidate the downstream factor derived from its prior alpha.
     assert compute_leakage_alpha(path, min_qualifying_traces=999).applied is False
+    table = read_molecules(path)
+    assert np.all(np.isnan(table["alpha"]))
+    assert np.all(np.isnan(table["gamma"]))
 
-    summary = compute_corrected_fret(path)
+    # A supported partial recovery must not combine the new manual alpha with the
+    # obsolete gamma from the first pass.
+    summary = compute_corrected_fret(path, alpha_override=0.08)
     assert summary.total_failure is True
     assert summary.n_corrected == 0
+    assert summary.n_manual == 0
     assert summary.n_apparent == n_molecules
     assert _methods(path) == [METHOD_APPARENT_UNAVAILABLE] * n_molecules
     assert np.all(read_molecules(path)["correction_confidence"] == 0.0)
