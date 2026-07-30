@@ -569,18 +569,27 @@ def test_the_workflow_listens_for_the_three_state_changing_events() -> None:
 
 
 def test_the_workflow_records_the_bot_trigger_probe_answer() -> None:
-    """The probe decides how strong this control is, so its state is written down, not implied.
+    """The probe decides how strong this control is, so its answer is written down, not implied.
 
-    `check_suite` and `workflow_dispatch` both need the file on the default branch, so the probe
-    cannot run from the branch that introduces the workflow. The honest record is that it is
-    unanswered, tracked, and that the workflow therefore posts no triggers at all.
+    Run on #299 on 2026-07-30 and the answer is **split**, which neither branch of #284 anticipated:
+    CodeRabbit starts a round from a `github-actions[bot]` comment and names the author when it
+    does; Codex refuses with *"To use Codex here, create a Codex account and connect to github"*.
+    An author-identity check, not a platform rule - CodeRabbit got the same comment.
+
+    What this test protects is the *conclusion*, not the prose: because the two legs differ, the
+    trigger must stay out of the workflow entirely. Moving only CodeRabbit's would be worse than
+    moving neither — on `high` the two are requested together and answered as one round, so
+    auto-requesting one of them makes it two.
     """
     header = WORKFLOW.read_text(encoding="utf-8")
     assert "BOT-TRIGGER PROBE" in header
-    assert "NOT ANSWERED" in header
+    assert "ANSWERED" in header and "NOT ANSWERED" not in header
     assert "@codex review" in header
-    # The trigger must be absent from the body, not merely discussed in the header.
+    # The trigger must be absent from the BODY, not merely discussed in the header. This is the
+    # assertion that keeps the answer and the behaviour in step: the day someone moves a trigger in,
+    # this fails and they have to revisit the reasoning above rather than route around it.
     assert "@coderabbitai review" not in header.split("permissions:")[-1]
+    assert "@codex review" not in header.split("permissions:")[-1]
 
 
 def test_the_bootstrap_guard_distinguishes_missing_from_broken() -> None:
