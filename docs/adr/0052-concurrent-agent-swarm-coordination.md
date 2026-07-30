@@ -62,9 +62,10 @@ explicit, earlier run-bound record. A merge-policy run is actionable only when t
 run and authority envelopes resolve as one lineage. Only the coordinator may perform an exact-head,
 exact-base guarded merge after the required review path is complete.
 
-A standard-library swarm helper and its tests were the executable protocol. That tooling was deleted in
-#269 and #279; the only part of it that survives is the frozen approval-scope digest, now in
-`.agents/bin/claim.py`, because markers published on live issues bind to that exact normalization.
+A standard-library swarm helper and its tests were the executable protocol. PR #269 deleted the lease,
+election and run-record half of it and PR #280 deleted the rest; the only part that survives is the
+frozen approval-scope digest, now in `.agents/bin/claim.py`, because markers published on live issues
+bind to that exact normalization.
 
 ## Amendment — exact-head independent review (2026-07-22)
 
