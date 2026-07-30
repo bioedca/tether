@@ -5,18 +5,17 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0060 — In-app update: download, verify against build provenance, hand off to the OS installer
 
-- **Status:** accepted, with **two items left open, both deliberately and both named here** so a
-  reader checking the six decisions off does not have to find them:
-  1. **Escalated to the maintainer** — decision 2's "verified in-process, via a sigstore verifier in
-     the base `conda-lock`" cannot be implemented as written (§"The one decision that cannot be
-     implemented as written"). This one needs an answer before the verifier work can be filed.
-  2. **Delegated, with a reason** — decision 3 asks this record to state *where* the consent answer
-     is stored. It does not, because the tree has no application settings store at all and the
-     per-OS re-install behaviour that decides the right location has not been measured. Stating a
-     location here would be a guess presented as a decision; [#330](https://github.com/bioedca/tether/issues/330)
-     measures it instead (§3).
+- **Status:** accepted. Decision 2's *mechanism* was amended by the maintainer on 2026-07-30 — the
+  originally-specified in-process verifier is not implementable, and the resolution is
+  `gh attestation verify --bundle` shipped via `extra_files` (§"Amending decision 2's mechanism").
+  Everything decision 2 requires *substantively* is unchanged.
 
-  Every other clause is decided and is not re-opened here.
+  **One item is left open, deliberately**, and is named here so a reader checking the six decisions
+  off does not have to go looking: decision 3 asks this record to state *where* the consent answer is
+  stored. It does not, because the tree has no application settings store at all and the per-OS
+  re-install behaviour that decides the right location has not been measured. Stating a location here
+  would be a guess presented as a decision; [#330](https://github.com/bioedca/tether/issues/330)
+  measures it instead (§3).
 - **Date:** 2026-07-30
 - **Deciders:** bioedca (mechanism, integrity model, consent, channel — recorded 2026-07-27)
 - **PRD anchor:** §4.1 (application shell), §4.3 (offline installer/sidecar), §8 NFR-PKG; introduces
@@ -83,12 +82,13 @@ execution as the user.
 
 ### 2. Integrity — the GitHub build-provenance attestation, checked before anything is executed
 
-Decision 2 as given also fixes *where* the check runs: **in-process**, "checked inside the
+Decision 2 as given also fixed *where* the check runs: **in-process**, "checked inside the
 application before the downloaded file is executed", with "a sigstore verifier in the base
-`conda-lock`" named as its consequence. That clause is recorded here as decided like the rest — and
-it is the one clause of the six that cannot be implemented as written, for reasons that are a
-packaging fact rather than a disagreement. See §"The one decision that cannot be implemented as
-written"; nothing else in this section is affected by how it is resolved.
+`conda-lock`" named as its consequence. That clause could not be implemented as written — a packaging
+fact, not a disagreement — and the maintainer amended it on 2026-07-30 to a bundled
+`gh attestation verify --bundle` invoked as a subprocess. See §"Amending decision 2's mechanism".
+**Nothing else in this section changes**: what is verified, what is necessary-but-not-sufficient, and
+what happens on failure are all as decided.
 
 A SHA-256 match against `SHA256SUMS.txt` is **necessary but not sufficient**: whoever can serve a
 tampered asset can serve a matching manifest, because both come from the same place. The attestation
@@ -178,11 +178,21 @@ The decisions above fix *what* happens. *How*, per platform, is where the remain
   on an air-gapped machine. A site administrator must have a documented way to disable the mechanism
   permanently and machine-wide.
 
-## The one decision that cannot be implemented as written
+## Amending decision 2's mechanism: how verification runs
 
 Decision 2 says verification happens **in-process**, and names *"a sigstore verifier in the base
-`conda-lock`"* as its consequence. Those two cannot both hold. This is not a preference; it is a
-packaging fact, measured against the live index and the committed lock on 2026-07-30:
+`conda-lock`"* as its consequence. Those two cannot both hold. This section was written as an
+escalation; the maintainer resolved it on 2026-07-30 and it is now recorded as decided.
+
+**Decided: `gh attestation verify --bundle`, shipped as a pinned-and-hashed `extra_files` artifact,
+with the bundle fetched from the public attestations API. Not from conda-forge, and not in the lock.**
+
+Everything substantive in decision 2 survives intact — attestation-based verification, checksum
+necessary-but-not-sufficient, refuse-and-report with no "install anyway". What changed is the call
+mechanism (subprocess, not in-process) and the delivery mechanism (`extra_files`, not the lock).
+
+The packaging fact that forced it, measured against the live index and the committed lock on
+2026-07-30:
 
 | Fact | Evidence |
 | --- | --- |
@@ -206,23 +216,102 @@ and its `.bat` twin `pip install --no-index --no-deps` the `tether` and `tmaven`
 [ADR-0051](0051-installed-app-launch-surface.md) both record. What is 100% conda is the **lock**, and
 the lock is the bill of materials the provenance stamps refer to, so the argument is unaffected.
 
-**Recommended resolution, and what this ADR assumes unless the maintainer says otherwise:** keep
-every substantive part of decision 2 — attestation-based verification, checksum treated as necessary
-but not sufficient, refuse-and-report — and **bundle a conda-native verifier binary from conda-forge
-into the base lock**, invoked as a subprocess.
+### The lock is not touched at all
 
-The intent of "in-process" is, as far as this record can tell, *"the verifier ships with the
-application, pinned in the lock, with no user prerequisite"* — and a bundled `cosign` satisfies that
-exactly. The trust boundary is identical either way; what changes is the call mechanism. Shelling out
-to a tool **the user may or may not have** was rightly rejected in the issue; shelling out to a tool
-**we ship and pin** is a different proposition and is not weaker.
+An earlier draft of this record framed the choice as *"bundle into the base lock"* versus *"first pip
+entry in the base lock"*. **That was a false binary**, and the third option was already proven in this
+repository: `construct.yaml`'s `extra_files` with a pinned, hashed, single-source-of-truth artifact —
+the pattern [#306](https://github.com/bioedca/tether/issues/306) established for the bundled
+`setuptools` wheel. It ships a third-party binary with full provenance and **never re-solves the
+1192-entry lock**.
 
-If the maintainer's intent was literally in-process Python, then the honest answer is that this
-feature requires a first-of-its-kind pip dependency in the base lock, and that trade should be
-decided explicitly rather than discovered during implementation.
+So the re-lock this record previously insisted must be "a separate, deliberate PR" is not owed at
+all. That is the single biggest cost the escalation was about, and it evaporates.
 
-Either way the lock bump is a **separate, deliberate PR** with its own regeneration and
-`conda-lock-verify` run. It must not be smuggled in as a side effect of the feature.
+It also decouples the verifier from the conda-forge feedstock, which matters more than it sounds: the
+`cosign` feedstock sits at **3.0.4 against upstream 3.1.2** — roughly six months and four releases
+behind, three versions ever published, one recipe maintainer. Pin-and-holding a *security* tool to a
+channel that does not patch it promptly inverts the point of pinning. `extra_files` pins upstream
+directly, by hash.
+
+### Why `gh` rather than `cosign`
+
+Both verify Tether's real published attestation and both fail closed; this was tested against the
+actual `v1.0.0-rc1` bundle, fetched unauthenticated, not reasoned about. The difference is **how much
+of the security logic Tether has to author**.
+
+`cosign` is a signature engine and not a sufficient verifier on its own:
+
+- It **ignores `--type` entirely** — a `spdxjson` predicate and a nonsense predicate URI both returned
+  `Verified OK`, exit 0.
+- It binds the **digest only, never the subject filename**, so the Linux `.sh` verifies happily
+  against the bundle being used for the Windows `.exe`.
+- The caller must hand-author the Fulcio identity policy. A wrong `--certificate-identity-regexp`
+  **silently accepts any Sigstore-signed artifact from any repository** — and that regex would be the
+  single highest-consequence line in the product.
+
+`gh attestation verify` encodes GitHub's own policy instead: `--repo`, `--signer-workflow` and
+`--source-ref` express the constraint directly, and it enforces the predicate type. It is also the
+path GitHub's own offline-verification documentation prescribes, and it is the command
+`docs/release.md` already tells users to run by hand — so the app does automatically what a user can
+reproduce.
+
+**The authentication trap, and why it does not apply.** `gh attestation verify <file> --repo <owner/repo>`
+**refuses without a token** — exit 4, before any network call, even for a public repository. A first
+reading of that disqualifies `gh` outright, and this record said so in an earlier draft. It is wrong:
+the gate is `gh`'s own client-side policy, not an API restriction, and it applies only to the path
+where `gh` fetches the bundle itself. Two facts, both verified:
+
+- The attestations REST endpoint is **fully public** — `GET /repos/bioedca/tether/attestations/{digest}`
+  with **no `Authorization` header** returns HTTP 200 and a complete
+  `application/vnd.dev.sigstore.bundle.v0.3+json` bundle.
+- `gh attestation verify <file> --bundle <file>` then verifies **with no credentials at all**, exit 0,
+  demonstrated end-to-end against the real 624 MB `v1.0.0-rc1` macOS arm64 installer.
+
+So Tether fetches the bundle itself and passes `--bundle`. No token, on any user's machine, ever. No
+release-pipeline change is required either: the bundle comes from the API, not from a release asset.
+
+### What Tether must still do itself
+
+Neither tool is sufficient alone, so these are **requirements, not polish**:
+
+1. **Bind the artifact to the subject.** Assert the download's SHA-256 equals the subject digest *and*
+   that the subject **filename** is this platform's installer. The bundle covers all four installers
+   at once, so a digest match alone does not establish that the file is the one for this platform.
+2. **Read the API response as explicit UTF-8.** Reading it with the platform default encoding
+   (`cp1252` on Windows) corrupts the em-dash in the Rekor checkpoint and produces a **false
+   verification failure that is indistinguishable from tampering**. Verified by A/B test. This is a
+   Windows-only footgun in the exact code this feature needs.
+3. **Pin `gh >= 2.67.0`.** [CVE-2025-25204](https://github.com/cli/cli/security/advisories/GHSA-fgw4-v983-mgp8)
+   made `gh attestation verify` **fail open** — exit 0 on a predicate-type mismatch — in 2.49.0
+   through 2.66.x. A fail-open in the exact command this design depends on is the strongest possible
+   argument for both the version floor and for requirement 1 as defence in depth.
+4. **Prefer the inline `bundle`, tolerate `bundle_url`.** The API returns both today; the `bundle_url`
+   variant is a snappy-compressed blob and GitHub has served `bundle: null` inline in some cases.
+
+### Refuse-and-report has a limit worth stating plainly
+
+Decision 2 asks that on failure "the user is told why". **That is not achievable**, and the record
+should say so rather than imply a capability the implementation cannot deliver. `gh` collapses every
+verification outcome to exit 1 — a tampered artifact and an unreachable network are indistinguishable
+by exit code, and only exit 4 (auth) is separable. `cosign` behaves the same, and its stderr is
+explicitly outside its versioning contract.
+
+So the honest split is:
+
+- **Verification ran and failed** → refuse, visibly.
+- **Verification could not run** (no network, blocked proxy, rate-limited) → **silent no-op**. Not a
+  dialog, not an error. An air-gapped machine must be unable to tell the difference between "this
+  feature exists" and "nothing happened", or the offline promise breaks by a second route.
+
+**Do not pin the Sigstore trusted root.** Fetch it. A pinned root goes stale — Sigstore rotates Rekor
+log shards yearly, distributes the keys only via TUF, and explicitly tells clients not to hardcode —
+and under refuse-and-report a stale root becomes a permanently dead updater that refuses every
+genuine release. Fetching makes the failure mode "no update" instead of "wrong update". The
+alternative is owning a trust-root refresh channel, which is a second updater.
+
+**Rate limit.** The unauthenticated attestations API allows **60 requests/hour per IP**. A lab behind
+one NAT can exhaust it, which lands in the silent-no-op branch above.
 
 ### Considered and rejected
 
@@ -230,6 +319,29 @@ Either way the lock bump is a **separate, deliberate PR** with its own regenerat
   nothing an attacker who controls that origin cannot forge.
 - **Shell out to a `gh` the user might have.** Rejected in the issue. Silent unavailability on most
   lab machines would turn refuse-and-report into never-updates, or tempt a warn-and-continue path.
+  Note this is *not* what was chosen: Tether **ships** a pinned `gh`, so availability is not in
+  question.
+- **`sigstore-python`, in-process — the originally specified mechanism.** Rejected on three grounds,
+  and the lock cost is the least of them.
+  1. **Seven pip-only entries, not one.** `sigstore`, `sigstore-models`, `sigstore-rekor-types`,
+     `rfc8785`, `rfc3161-client` and `tuf` have **no conda-forge package at all** — measured by
+     installing 4.5.0 and checking all 31 resulting distributions against anaconda.org.
+     `rfc3161-client` is a Rust extension, so that is a per-platform compiled wheel inside an
+     installer that today contains only conda artifacts.
+  2. **The security-critical step is not public API.** `Verifier.verify_dsse` explicitly refuses to
+     bind the payload to the artifact, and the binding helper is underscore-private behind a
+     CLI-private path. For a design whose entire value is that binding, depending on a private method
+     across a library that broke its API at 4.0.0 is the wrong risk profile.
+  3. **Its offline trusted root is read from a user-writable path without signature verification**
+     ("Using unverified trusted root from cache"). An attacker with ordinary user write access could
+     substitute a trust root and have a forged attestation accepted while the app reports success.
+     The safe call exists; the obvious one is the unsafe one.
+- **`cosign`.** Verified working and fails closed, but see §"Why `gh` rather than `cosign`": it
+  ignores the predicate type, does not bind the subject filename, and makes Tether author the Fulcio
+  identity policy.
+- **A conda-forge verifier in the base lock.** Superseded by `extra_files`, which achieves the same
+  "we ship it, pinned, no user prerequisite" property without re-solving the lock and without
+  inheriting a stale feedstock.
 - **In-place environment update from the released `conda-lock.yml`.** Genuinely attractive — the
   locks are already published as release assets precisely because they are the authoritative bill of
   materials, and it would move megabytes instead of ~800 MB. The maintainer chose installer hand-off,
@@ -255,33 +367,33 @@ Either way the lock bump is a **separate, deliberate PR** with its own regenerat
 
 ## Follow-up implementation issues
 
-Ordered by dependency. Four are filed and are linked by number; **two are deliberately not filed
-yet**, and which is which is stated rather than left to be discovered.
+Ordered by dependency. **All six are filed and linked by number.**
 
 1. **[#330](https://github.com/bioedca/tether/issues/330) — application settings store** outside the
    install prefix, with a value that survives an update and a machine-wide administrator override.
    Prerequisite for everything else, and absent from the tree entirely today.
-2. **The base-lock verifier bump** — a standalone re-lock adding the chosen conda-forge verifier,
-   with `conda-lock-verify` green and a re-tested GUI stack. **Not filed:** its content depends
-   entirely on how the maintainer answers the conflict above, and filing it now would bake in an
-   answer that has not been given.
+2. **[#332](https://github.com/bioedca/tether/issues/332) — bundle a pinned, hashed `gh` via
+   `extra_files`**, at `>= 2.67.0`. Not a re-lock: a PR that touches `conda-lock.yml` has used the
+   wrong mechanism.
 3. **[#248](https://github.com/bioedca/tether/issues/248) — release query + channel policy**, the
    stable-only lookup gated on consent, with the air-gapped path proven to produce no error, no
    dialog and no startup delay. Note that #248 **predates this record** (filed 38 minutes before the
    decision comment) and is scoped to check-and-notify. That is not a contradiction of decision 1 —
    it says so itself, *"implementable against any outcome of that design"* — but it is the check
    half only, and it is now blocked on #330 for the consent flag it assumes.
-4. **Download + attestation verification**, with refuse-and-report and a test that a *tampered* asset
-   is rejected — the security-critical unit, and it should land with an adversarial test rather than
-   a happy-path one. **Not filed:** same reason as 2. What it verifies *with* is unresolved.
+4. **[#333](https://github.com/bioedca/tether/issues/333) — download + attestation verification**,
+   the security-critical unit. It carries the four app-side requirements above and is specified to
+   land with adversarial tests — tampered artifact, wrong-release bundle, subject-filename mismatch,
+   `cp1252`-decoded bundle — rather than a happy-path one.
 5. **[#331](https://github.com/bioedca/tether/issues/331) — per-OS hand-off**, including the
-   launch-surface survival check from ADR-0051 and the interrupted-update behaviour.
+   launch-surface survival check from ADR-0051, the interrupted-update behaviour, and closing the
+   verify-to-execute window.
 6. **The `docs/privacy.md` amendment**, which by decision 5 lands *inside* #248 rather than as its
    own PR — listed here so it is not forgotten, not so it is separated.
 
-An earlier draft of this section claimed all six were filed when none were. They are enumerated with
-their real numbers now precisely because a decision record that overstates its own follow-through is
-the kind of thing a future reader has no way to check.
+An earlier draft of this section claimed all six were filed when none were. The numbers are here now
+because a decision record that overstates its own follow-through is exactly the kind of claim a
+future reader has no way to check.
 
 ## More information
 

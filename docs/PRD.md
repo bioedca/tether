@@ -678,13 +678,20 @@ genuine, genuinely-attested *older* installer, which every signature-style check
 ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)), so nothing stands behind this
 check. A SHA-256 match against the published manifest is **necessary but not sufficient** — an attacker who can
 serve a tampered asset can serve a matching manifest — so the attestation, which binds the artifact to a workflow,
-repository and commit, is what is verified. On failure, or when verification **cannot be performed**, the update
-**shall** refuse and report; there **shall be no** "install anyway" affordance.
+repository and commit, is what is verified. The update **shall not** proceed unless verification succeeds, and there
+**shall be no** "install anyway" affordance — not behind a confirmation, not behind a setting.
+
+How the refusal surfaces depends on *why*, and the two **shall** be distinguished: verification that **ran and
+failed** is reported to the user; verification that **could not run** (no network, blocked proxy, rate-limited) is a
+**silent no-op** — no dialog, no error — because an air-gapped machine must not be able to tell the feature exists.
+Note the verifier cannot say *which* failure occurred: `gh attestation verify` collapses every outcome to one exit
+code, so "tell the user why" is bounded by what the tool reports (ADR-0060).
 
 **This is the only sanctioned exception to "no outbound network".** Today the application makes none — the promise
 lives on the published privacy policy (`docs/privacy.md`), not in this document, and the sole `socket` call in
 `src/tether/` is `gethostname()` in `project/lock.py`, which sends nothing. The exception is
-bounded: the request goes to the GitHub releases API and carries no identifier and no telemetry; it is made **only
+bounded: the requests go to the GitHub **releases** and **attestations** APIs — both unauthenticated, both public —
+and carry no identifier and no telemetry; they are made **only
 after** an explicit first-run consent prompt is answered, so a machine that is never asked never asks; and an
 air-gapped machine **shall** see no error, no dialog and no startup delay. The consent answer **shall** survive an
 update — a flag that resets on upgrade would silently re-enable checking for a user who declined — and a site
