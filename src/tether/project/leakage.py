@@ -18,11 +18,12 @@ The tail estimate needs the per-channel first-bleach frames written by
 Detection and this estimate both run on the **background-subtracted** (``corrected``)
 traces by default.
 
-The factor is **withheld** (``/molecules.alpha`` left untouched) when fewer than
-``min_qualifying_traces`` molecules yield a valid donor-only tail — a per-condition α
-is only trustworthy with enough donor-only tails behind it, and a fabricated one
-would silently bias every corrected E (PRD §7.2 total-failure path; §Data-gaps). The
-provenance group is still stamped (``withheld = True``) so the attempt is auditable.
+The factor is **withheld** (processed ``/molecules.alpha`` rows reset to ``NaN``)
+when fewer than ``min_qualifying_traces`` molecules yield a valid donor-only tail —
+a per-condition α is only trustworthy with enough donor-only tails behind it, and a
+fabricated one would silently bias every corrected E (PRD §7.2 total-failure path;
+§Data-gaps). The provenance group is still stamped (``withheld = True``) so the
+attempt is auditable.
 
 The separate Cy3-only donor-only *sample* path (a global α from a dedicated
 calibration acquisition, cross-checked against this tail α under the §11.2
@@ -83,7 +84,8 @@ class LeakageAlphaSummary:
         The applied dataset leakage factor (median of the qualifying per-trace α),
         or ``None`` when withheld (< ``min_qualifying_traces`` qualified).
     applied
-        Whether ``/molecules.alpha`` was written (i.e. ``alpha is not None``).
+        Whether an estimated factor was applied (i.e. ``alpha is not None``). When
+        false, processed ``/molecules.alpha`` rows are cleared to ``NaN``.
     source
         Estimator provenance tag stamped into ``/settings/leakage``.
     intensity_quantity
@@ -222,12 +224,11 @@ def compute_leakage_alpha(
         )
 
         applied = estimate.alpha is not None
-        if applied:
-            for i in processed_rows:
-                table["alpha"][i] = estimate.alpha
-            if write_guard is not None:
-                write_guard()
-            f[_MOLECULES][TABLE][:] = table
+        for i in processed_rows:
+            table["alpha"][i] = estimate.alpha if applied else np.nan
+        if write_guard is not None:
+            write_guard()
+        f[_MOLECULES][TABLE][:] = table
 
         if write_guard is not None:
             write_guard()

@@ -269,6 +269,19 @@ def test_withholds_below_min_qualifying(tmp_path: Path) -> None:
         assert np.isnan(float(grp.attrs["gamma"]))
 
 
+def test_withholding_recompute_clears_previously_applied_gamma(tmp_path: Path) -> None:
+    path = tmp_path / "g.tether"
+    _gamma_store(path, n_mol=12, gamma_true=1.2, alpha=0.1)
+
+    first = compute_gamma(path)
+    assert first.applied is True
+    assert np.all(np.isfinite(read_molecules(path)["gamma"]))
+
+    second = compute_gamma(path, min_qualifying_traces=999)
+    assert second.applied is False
+    assert np.all(np.isnan(read_molecules(path)["gamma"]))
+
+
 def test_all_traces_rejected_yields_no_qualifying(tmp_path: Path) -> None:
     # Every post-segment too short (don−acc == 15 < 20) → 0 qualifying, γ withheld,
     # np.median([]) never called.

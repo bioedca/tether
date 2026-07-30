@@ -23,6 +23,7 @@ pytest.importorskip("h5py")
 import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 
+from test_project_gamma import _gamma_store  # noqa: E402, PLC2701
 from tether.imaging.aperture import IntegratedTraces  # noqa: E402
 from tether.imaging.calibrate import RegistrationMap  # noqa: E402
 from tether.imaging.coloc import ColocalizedMolecules  # noqa: E402
@@ -44,6 +45,8 @@ from tether.project.correct import (  # noqa: E402
     METHOD_MANUAL,
     compute_corrected_fret,
 )
+from tether.project.gamma import compute_gamma  # noqa: E402
+from tether.project.leakage import compute_leakage_alpha  # noqa: E402
 
 _PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
 _WINDOW = 21
@@ -207,6 +210,27 @@ def test_total_failure_falls_to_apparent_never_nan(tmp_path: Path) -> None:
     assert _methods(path) == [METHOD_APPARENT_UNAVAILABLE] * 6
     assert np.all(table["correction_confidence"] == 0.0)
     assert not np.any(np.isnan(table["correction_confidence"]))
+
+
+def test_real_estimators_withholding_recompute_falls_to_apparent(tmp_path: Path) -> None:
+    path = tmp_path / "c.tether"
+    n_molecules = 14
+    _gamma_store(path, n_mol=n_molecules)
+
+    assert compute_leakage_alpha(path).applied is True
+    assert compute_gamma(path).applied is True
+    assert compute_corrected_fret(path).n_corrected == n_molecules
+
+    # Gamma requires a currently applied alpha, so clear gamma first, then alpha.
+    assert compute_gamma(path, min_qualifying_traces=999).applied is False
+    assert compute_leakage_alpha(path, min_qualifying_traces=999).applied is False
+
+    summary = compute_corrected_fret(path)
+    assert summary.total_failure is True
+    assert summary.n_corrected == 0
+    assert summary.n_apparent == n_molecules
+    assert _methods(path) == [METHOD_APPARENT_UNAVAILABLE] * n_molecules
+    assert np.all(read_molecules(path)["correction_confidence"] == 0.0)
 
 
 def test_fresh_store_nan_factors_is_total_failure(tmp_path: Path) -> None:

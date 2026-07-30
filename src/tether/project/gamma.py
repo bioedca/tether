@@ -30,10 +30,11 @@ uncorrected data. A legitimately *withheld* leakage (α never computed) means th
 correction chain has already fallen to apparent-E, so the total-failure path — not
 this writer — is the caller's next step (PRD §7.2).
 
-The dataset γ is **withheld** (``/molecules.gamma`` left untouched) when fewer than
-``min_qualifying_traces`` molecules yield a valid acceptor-bleach step — the typical
-pure-FRET case lacking clean steps (PRD §7.2 total-failure path; §Data-gaps). The
-provenance group is still stamped (``withheld = True``) so the attempt is auditable.
+The dataset γ is **withheld** (processed ``/molecules.gamma`` rows reset to ``NaN``)
+when fewer than ``min_qualifying_traces`` molecules yield a valid acceptor-bleach
+step — the typical pure-FRET case lacking clean steps (PRD §7.2 total-failure path;
+§Data-gaps). The provenance group is still stamped (``withheld = True``) so the
+attempt is auditable.
 
 The single-writer ``.lock`` is the caller's responsibility, mirroring
 :func:`tether.project.leakage.compute_leakage_alpha` (a low-level ``r+`` writer; the
@@ -88,7 +89,8 @@ class GammaSummary:
         The dataset median γ (also the fallback value), or ``None`` when withheld
         (< ``min_qualifying_traces`` qualified).
     applied
-        Whether ``/molecules.gamma`` was written (i.e. ``gamma is not None``).
+        Whether an estimated factor was applied (i.e. ``gamma is not None``). When
+        false, processed ``/molecules.gamma`` rows are cleared to ``NaN``.
     source
         Estimator provenance tag stamped into ``/settings/gamma``.
     intensity_quantity
@@ -255,9 +257,11 @@ def compute_gamma(
                 table["gamma"][row] = estimate.effective_gamma(local_i)
                 if estimate.is_fallback(local_i):
                     n_fallback += 1
-            if write_guard is not None:
-                write_guard()
-            f[_MOLECULES][TABLE][:] = table
+        else:
+            table["gamma"][processed_rows] = np.nan
+        if write_guard is not None:
+            write_guard()
+        f[_MOLECULES][TABLE][:] = table
 
         if write_guard is not None:
             write_guard()
