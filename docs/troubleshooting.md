@@ -576,11 +576,13 @@ removal.
 **Remedy.** Get `setuptools<81` into the sidecar environment. Which side you are on decides
 whether that has already happened.
 
-*Sidecar built from a source checkout.* `scripts/setup_sidecar.py` applies the pin for you
-(`SETUPTOOLS_PIN = "setuptools<81"`), and that script is the **only** place the pin lives:
-`sidecar/conda-lock.yml` deliberately resolves setuptools `82.0.1`, and the script's own pip
-step downgrades it after the env is created. Do not go looking for the pin in the lock file or
-the workflow — `.github/workflows/sidecar.yml` just calls the script.
+*Sidecar built from a source checkout.* `scripts/setup_sidecar.py` applies the pin for you.
+The version and its SHA-256 live in **`packaging/setuptools-compatibility.txt`**, which is the
+only place either is written — the script parses that file rather than carrying its own copy,
+and installs it hash-checked. `sidecar/conda-lock.yml` deliberately resolves setuptools
+`82.0.1`, and the script's pip step downgrades it after the env is created. Do not go looking
+for the pin in the lock file or the workflow — `.github/workflows/sidecar.yml` just calls the
+script.
 
 *Sidecar that came with the installer.* The pin is applied for you. `envs/sidecar` is
 materialised from the rendered `sidecar/conda-lock.yml` (setuptools `82.0.1`), and the

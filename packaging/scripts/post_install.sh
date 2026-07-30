@@ -27,8 +27,10 @@ SIDECAR_PY="$PREFIX/envs/sidecar/bin/python"
 # through 81.0.0) and REMOVED in 82.0.0, and the sidecar lock resolves setuptools 82.0.1
 # — so without this the env builds cleanly and then dies at the first idealization
 # (issue #212). `<81` rather than `<82` is the bound that setuptools' own deprecation
-# warning names ("pin to Setuptools<81"). scripts/setup_sidecar.py applies the same pin
-# (SETUPTOOLS_PIN) on the source path; this is the installer's equivalent.
+# warning names ("pin to Setuptools<81"). scripts/setup_sidecar.py applies the same pin on
+# the source path, reading the version and its sha256 from
+# packaging/setuptools-compatibility.txt; this is the installer's equivalent, using the
+# wheel that file's hash-checked download staged.
 #
 # pip is given the wheel by PATH, not by requirement spec, so it downgrades the conda
 # setuptools rather than reporting "already satisfied". Ordering is deliberate: tMAVEN's

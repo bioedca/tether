@@ -16,7 +16,8 @@ Architecture and rationale: **[ADR-0049](../docs/adr/0049-m9-packaging-construct
 - A bundled **setuptools compatibility wheel**, offline-installed into `<prefix>/envs/sidecar`
   ahead of tMAVEN (issue #212). Its exact version and SHA-256 live in
   [`setuptools-compatibility.txt`](setuptools-compatibility.txt), which is the single source every
-  consumer reads — this recipe, both packaging workflows, and `scripts/setup_sidecar.py`. Nothing
+  consumer reads — this recipe, both packaging workflows, and `scripts/setup_sidecar.py`, all four
+  named in the file itself and enforced by a contract test. Nothing
   restates the version, so a bump is a one-file change (issue #218).
   This is a **deliberate deviation** from pin-and-hold —
   the only one in the sidecar env: `sidecar/conda-lock.yml` resolves setuptools 82.0.1,
@@ -26,7 +27,7 @@ Architecture and rationale: **[ADR-0049](../docs/adr/0049-m9-packaging-construct
   older version installed. Pinning it in `sidecar/environment.yml` instead would force a
   full sidecar re-lock, so the deviation is deliberate and contained; issue #212 records
   the trade-off. The source path applies the same pin through
-  `scripts/setup_sidecar.py`'s `SETUPTOOLS_PIN`.
+  `scripts/setup_sidecar.py`, which parses the same hash-pinned requirements file.
 - A thin **`python` + `conda` bootstrap** as the constructor `base` — required so the
   installer's own conda can lay down the two pinned `extra_envs` offline (constructor
   refuses `extra_envs` without `conda` in `base`). It is solved fresh at build time, holds

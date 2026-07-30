@@ -30,9 +30,21 @@
 # default, and that is a knowing trade recorded here rather than hidden: retaining it
 # keeps a deprecated API alive in one isolated interpreter.
 #
-# REMOVAL TRIGGER, so this does not become permanent by inattention: delete this file and
-# its three consumers the moment tMAVEN no longer imports `pkg_resources`. Nothing else
-# needs to change — the sidecar lock already resolves a current setuptools on its own.
+# THE CONSUMERS, named rather than counted. A count goes stale the moment one is added, which is
+# exactly what happened here: this file said "three" while the contract test had already found a
+# fourth and a review found a fifth.
+#
+#   .github/workflows/packaging.yml   downloads + stages the wheel, installs it into the build env
+#   .github/workflows/release.yml     the same, on the tag-driven path
+#   scripts/setup_sidecar.py          parses this file; installs it into the sidecar env
+#   packaging/README.md               the documented local build recipe, which is copied and run
+#
+# `tests/test_setup_sidecar.py::test_no_consumer_restates_the_version_or_the_bound` enforces the
+# list, so adding a consumer without adding it there fails rather than drifting.
+#
+# REMOVAL TRIGGER, so this does not become permanent by inattention: the moment tMAVEN no
+# longer imports `pkg_resources`, delete this file and every consumer named above. Nothing
+# else needs to change — the sidecar lock already resolves a current setuptools on its own.
 #
 # TO UPDATE: `pip hash <the downloaded wheel>` and replace both the version and the digest
 # together. Verified against PyPI on 2026-07-30: setuptools-80.9.0-py3-none-any.whl,

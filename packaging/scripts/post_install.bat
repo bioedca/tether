@@ -35,8 +35,9 @@ rem through 81.0.0) and REMOVED in 82.0.0, and the sidecar lock resolves setupto
 rem 82.0.1 — so without this the env builds cleanly and then dies at the first
 rem idealization (issue #212). `<81` rather than `<82` is the bound that setuptools'
 rem own deprecation warning names ("pin to Setuptools<81").
-rem scripts/setup_sidecar.py applies the same pin (SETUPTOOLS_PIN) on the source path;
-rem this is the installer's equivalent.
+rem scripts/setup_sidecar.py applies the same pin on the source path, reading the version
+rem and its sha256 from packaging/setuptools-compatibility.txt; this is the installer's
+rem equivalent, using the wheel that file's hash-checked download staged.
 rem
 rem pip is given the wheel by PATH, not by requirement spec, so it downgrades the conda
 rem setuptools rather than reporting "already satisfied".

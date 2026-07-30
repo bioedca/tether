@@ -378,3 +378,41 @@ def test_no_workflow_run_block_contains_a_literal_escape() -> None:
             f"{name} has a literal backslash-n where a line continuation belongs; the shell "
             f"reads it as the argument 'n': {offending}"
         )
+
+
+def test_nothing_still_names_the_removed_pin_constant() -> None:
+    """`SETUPTOOLS_PIN` no longer exists, and four files still described it after it went.
+
+    Codex's round-1 finding on #306. Removing a constant is easy; removing every sentence that
+    explains it is what gets missed — and each of those sentences told a reader to go look for
+    something that is not there, in an installer script, a workflow comment and the
+    troubleshooting page a user reads when the sidecar has already failed.
+
+    Asserted repository-wide rather than over a consumer list, because the failure mode is
+    exactly a file nobody thought of as a consumer.
+    """
+    assert not hasattr(setup, "SETUPTOOLS_PIN"), (
+        "the constant is gone; this test is about its ghost"
+    )
+
+    suffixes = {".py", ".md", ".sh", ".bat", ".yml", ".yaml", ".txt"}
+    skip = {".git", ".claude", "site", "node_modules", "__pycache__", ".venv"}
+    offenders = []
+    for path in _REPO_ROOT.rglob("*"):
+        if path.suffix not in suffixes or not path.is_file():
+            continue
+        if set(path.relative_to(_REPO_ROOT).parts) & skip:
+            continue
+        if path.resolve() == Path(__file__).resolve():
+            continue  # this file names it in order to forbid it
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if "SETUPTOOLS_PIN" in text:
+            offenders.append(str(path.relative_to(_REPO_ROOT)))
+
+    assert not offenders, (
+        "these files still refer to the removed `SETUPTOOLS_PIN` constant, so they send a "
+        f"reader looking for something that does not exist: {offenders}"
+    )

@@ -33,8 +33,10 @@ command. It encodes the two things that live **outside** the committed
    its sidecar env fine and then fails at the *first* idealization.
 
    The exact version and its SHA-256 live in **`packaging/setuptools-compatibility.txt`**,
-   which is the single source: this script and both packaging workflows read it, and
-   nothing restates the version anywhere else. The download is hash-enforced
+   which is the single source. Its consumers are named in the file itself rather than
+   counted — `packaging.yml`, `release.yml`, `scripts/setup_sidecar.py` and the local build
+   recipe in `packaging/README.md` — and a contract test enforces that list, so nothing
+   restates the version anywhere else. The download is hash-enforced
    (`pip --require-hashes`), so the tagged commit alone determines what shipped — before
    this, three OS runners resolved `setuptools<81` independently and a rebuild of the same
    tag could bundle a different build.
@@ -45,8 +47,8 @@ command. It encodes the two things that live **outside** the committed
    default keeps a deprecated API alive in one interpreter; that is a knowing trade,
    recorded rather than hidden, and it is not waived from dependency auditing.
 
-   **Removal trigger:** delete the file and its three consumers when tMAVEN no longer
-   imports `pkg_resources`. Nothing else changes — the sidecar lock already resolves a
+   **Removal trigger:** when tMAVEN no longer imports `pkg_resources`, delete the file and
+   every consumer named in it. Nothing else changes — the sidecar lock already resolves a
    current setuptools on its own.
 
 The script runs three phases — **create** the env from the lock, **install** the
