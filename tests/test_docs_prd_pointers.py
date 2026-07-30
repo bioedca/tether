@@ -33,13 +33,38 @@ BLOB_URL = "https://github.com/bioedca/tether/blob/main/docs/PRD.md"
 #: A mention of the excluded document, anywhere in a page.
 _MENTION = re.compile(r"docs/PRD\.md")
 
-#: The two forms a mention may legitimately take: the absolute blob URL a reader can actually
-#: follow, or a scope enumeration -- a backticked path inside a comma-separated list of other
-#: backticked paths and globs. The second is recognised by the company it keeps.
-_ALLOWED = (
-    re.compile(re.escape(BLOB_URL)),
-    re.compile(r"`docs/PRD\.md`(?=[,)])|(?<=[,(] )`docs/PRD\.md`"),
-)
+#: A bare backticked token -- a path or glob and nothing else.
+_BACKTICKED = re.compile(r"^`[^`]+`$")
+
+#: How many backticked companions a scope enumeration must have. Two is the smallest number
+#: that cannot be reached by ordinary prose accidentally: one neighbour is a sentence like
+#: "``docs/PRD.md``, and the schema" and the real lists name four or more paths.
+_MIN_COMPANIONS = 2
+
+
+def _is_scope_enumeration(line: str) -> bool:
+    """True when the mention is an element of a list of backticked paths, not a citation.
+
+    Recognised by the WHOLE construct, not by the punctuation next to it. An earlier version
+    allowed any mention followed by ``,`` or ``)``, which Codex pointed out is satisfied by
+    ordinary prose -- ``Read `docs/PRD.md`, which documents the requirements.`` -- so a real
+    dead pointer sitting before a comma stayed invisible and the sweep stayed green.
+
+    Two conditions, and both are needed. The comma-separated element containing the mention
+    must be *exactly* a backticked token, which rejects ``Read `docs/PRD.md``; and it must
+    keep company with at least two more bare backticked tokens, which rejects a two-clause
+    sentence whose first clause happens to be nothing but the path.
+    """
+    elements = [part.strip() for part in line.split(",")]
+    holding = [part for part in elements if _MENTION.search(part)]
+    if not holding or not _BACKTICKED.match(holding[0]):
+        return False
+    companions = [
+        part
+        for part in elements
+        if part is not holding[0] and _BACKTICKED.match(part.rstrip(").").strip())
+    ]
+    return len(companions) >= _MIN_COMPANIONS
 
 
 def _pages() -> list[Path]:
@@ -52,7 +77,7 @@ def _unresolved_mentions(text: str) -> list[str]:
     for line in text.splitlines():
         if not _MENTION.search(line):
             continue
-        if any(rx.search(line) for rx in _ALLOWED):
+        if BLOB_URL in line or _is_scope_enumeration(line):
             continue
         out.append(line.strip())
     return out
@@ -93,6 +118,26 @@ def test_the_guard_reports_a_bare_pointer() -> None:
     # The scope-enumeration form, which is a rule's operand rather than a citation.
     assert not _unresolved_mentions(
         "governance text (`AGENTS.md`, `CONTRIBUTING.md`, `docs/PRD.md`, `docs/adr/**`)"
+    )
+
+
+def test_prose_before_a_comma_is_not_a_scope_enumeration() -> None:
+    """Codex's counterexample on #305, and the reason the check is on the whole construct.
+
+    The first version allowed any mention followed by `,` or `)`, so a dead pointer in a
+    perfectly ordinary sentence read as a scope list and the sweep stayed green -- the guard
+    reporting nothing while the criterion it enforces had regressed.
+    """
+    assert _unresolved_mentions("Read `docs/PRD.md`, which documents the requirements.")
+    assert _unresolved_mentions("The spec (`docs/PRD.md`) has the details.")
+    # One companion is not a list; it is a two-clause sentence.
+    assert _unresolved_mentions("`docs/PRD.md`, `CONTRIBUTING.md` and a long prose clause.")
+    # Three companions is a list, wherever the mention sits in it.
+    assert not _unresolved_mentions(
+        "material: `AGENTS.md`, `docs/PRD.md`, `docs/adr/**`, `.agents/**`"
+    )
+    assert not _unresolved_mentions(
+        "material: `AGENTS.md`, `CONTRIBUTING.md`, `docs/adr/**`, `docs/PRD.md`"
     )
 
 
