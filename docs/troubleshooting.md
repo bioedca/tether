@@ -709,26 +709,80 @@ refuses up front rather than producing a half-wired project, with reasons such a
 **Symptom.** Windows SmartScreen or macOS Gatekeeper warns that the installer is from an
 unidentified developer.
 
-**Cause.** **Every Tether installer published so far is unsigned** — release builds included.
-Code-signing is wired into the release pipeline but **gated on repository variables** that are
-not yet set: `.github/workflows/release.yml` runs the SignPath submission only
-`if: runner.os == 'Windows' && vars.SIGNPATH_ORGANIZATION_ID != ''`, and the macOS
-`codesign`/`notarytool` leg only `if: … vars.APPLE_SIGNING_ENABLED == 'true'`. With the gates
-off, each build emits a `::warning::` saying the installer ships UNSIGNED, and that is the
-current state of the published assets. Re-downloading from the release page will reproduce the
-same warning.
+**Cause.** **No Tether installer is OS-code-signed**, and for 1.0 none will be. The warning is
+expected and does not mean the download failed or was tampered with, so re-downloading
+normally reproduces it.
+[ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) records why.
 
-**Remedy.** Verify the download instead of trusting the OS prompt, then click through it:
+Whether the prompt appears at all is up to the OS, not to us: SmartScreen may stay quiet once
+a file has built reputation, a managed machine may have these checks configured off, and
+neither system prompts for a file that never picked up the download marker Windows and macOS
+attach (Mark-of-the-Web and the quarantine attribute) — a copy from a USB stick or an internal
+share often has not. **Not seeing a warning is not evidence that the installer is signed**, so
+verify either way.
 
-- Check the file against the release's `SHA256SUMS-<platform>.txt` (`sha256sum -c` on
-  Linux, `shasum -a 256 -c` on macOS, `Get-FileHash` on Windows).
-- Check the **build-provenance attestation** the pipeline publishes for the same assets
-  (`gh attestation verify <file> -R bioedca/tether`).
+**Remedy — verify first, then click through.** The verification is the part that matters; the
+OS prompt only asks whether you want to proceed, and it cannot tell you whether the file is
+genuine.
 
-Authenticode and Apple-notarized installers arrive once SignPath enrollment and the Apple gate
-are completed — the maintainer-side steps are in
-[Releasing (signed installers)](release.md), and macOS additionally needs a hardened-runtime
-pass over the conda payload before `APPLE_SIGNING_ENABLED` can be flipped.
+Verify (either check is worth more than the prompt):
+
+- Against the release's `SHA256SUMS-<platform>.txt` — `sha256sum -c` on Linux,
+  `shasum -a 256 -c` on macOS, `Get-FileHash` on Windows.
+- Against the **build-provenance attestation**, which is the stronger check because it binds
+  the file to the workflow, repository and tag that built it:
+
+```bash
+gh attestation verify --repo bioedca/tether Tether-<version>-<platform>.<ext>
+```
+
+Then, per platform:
+
+- **Windows.** SmartScreen shows *"Windows protected your PC"*. Choose **More info** →
+  **Run anyway**.
+- **macOS.** The old Control-click → **Open** shortcut **no longer works**: macOS Sequoia
+  removed it, and Tahoe tightened the path further. Open **System Settings → Privacy &
+  Security**, scroll to **Security**, and use the **Open Anyway** button, then authenticate as
+  an administrator. Two things catch people out: the button only appears *after* you have
+  tried to open the file and been blocked, and it is available for **about an hour** after
+  that — miss the window and you must trigger the block again.
+- **Linux.** The `.sh` installer is not gated by an OS trust prompt; verify it and run it.
+
+#### If macOS will not open the `.pkg`
+
+Tether ships a `.pkg` on macOS, and Apple documents **Open Anyway** for *applications*. If the
+button does not appear for the installer, you do not need it — install from the command line
+instead, after verifying the file:
+
+```bash
+installer -pkg Tether-<version>-MacOSX-<arch>.pkg -target CurrentUserHomeDirectory
+```
+
+That lands the app in `~/Tether` and needs no administrator password. It is not a workaround
+we are guessing at: it is the exact command Tether's own macOS build check runs on every
+packaging build, on GitHub's `macos-latest` and `macos-15-intel` runners, and the check then
+launches `tether --version` and the sidecar from the installed prefix. So the package is known
+to install this way on real macOS.
+
+One difference is worth knowing, because it is the part we have **not** observed end to end: a
+`.pkg` you downloaded through a browser carries a quarantine attribute that a CI-built one does
+not. If macOS still refuses after the above, you can clear it:
+
+```bash
+xattr -d com.apple.quarantine Tether-<version>-MacOSX-<arch>.pkg
+```
+
+Run the checksum and attestation checks first — and be precise about what they buy you. They
+establish **authenticity**: this file is the one Tether's release workflow built, from this
+repository, at that tag. That is not the same as a safety claim, and
+[ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) says so in as
+many words — provenance "does not assert the software is safe". Quarantine is a separate
+control that acts on the file whatever its provenance, so removing it is a decision you are
+making about software you have chosen to trust, not a step our verification has made harmless.
+
+If you hit something these steps do not cover,
+[tell us what you saw](https://github.com/bioedca/tether/issues) with your macOS version, and
+this entry will be corrected from the observation.
 
 ### The deep classifier does not see the GPU
 

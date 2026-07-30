@@ -40,21 +40,35 @@ same shims a user has on `PATH`, and drives the sidecar's real headless entry po
 offline — constructing the tMAVEN driver, not merely importing the package, since that
 is where an environment problem actually surfaces.
 
-## Release signing
+## How to verify a download
 
-The tagged release pipeline has code-signing wired in — Authenticode on Windows, and
-`productsign` with Apple notarization on macOS — but both legs are **gated on repository
-variables** (`SIGNPATH_ORGANIZATION_ID`, `APPLE_SIGNING_ENABLED`) that are not yet set. Until
-they are, **every installer ships unsigned**, release and advisory build alike.
+**No Tether installer is OS-code-signed**, and that is the settled position for 1.0 rather
+than a gap waiting to close. Expect Windows SmartScreen or macOS Gatekeeper to warn you when
+you open one.
+[ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)
+records the decision;
+[Releasing](release.md#os-code-signing-why-there-is-none) carries the maintainer-side detail.
 
-The unsigned-build `::warning::` annotation, the `SHA256SUMS-<platform>.txt` checksums and the
-build-provenance attestation are all emitted by the **release** workflow only. The advisory
-`packaging.yml` run validates, builds, install-smokes and uploads `packaging/dist/*` and
-nothing else — so a workflow-dispatch artifact carries no checksum file, no attestation and no
-warning annotation. Verify those integrity anchors against a published release, not against an
-advisory build.
+Verify the file instead. Two anchors ship with every published release:
 
-The maintainer-side
-enrollment steps are in [Releasing (signed installers)](release.md), and the OS warning a user
-sees is covered in
+- **`SHA256SUMS-<platform>.txt`** — check with `sha256sum -c` on Linux, `shasum -a 256 -c` on
+  macOS, or `Get-FileHash` on Windows.
+- **A build-provenance attestation** over every installer, checked with:
+
+```bash
+gh attestation verify --repo bioedca/tether Tether-<version>-<platform>.<ext>
+```
+
+The two answer different questions. A code signature is a real cryptographic check on the
+file: it binds the artifact to whoever holds the signing certificate, so tampering breaks it.
+What it does not say is *which build* produced the file. The attestation binds it to the
+repository, workflow and tag — which is what "did Tether build this exact file?" asks, and is
+the question you can actually check against this project.
+
+Both come from the **release** workflow alone. The advisory `packaging.yml` run validates,
+builds, install-smokes and uploads `packaging/dist/*` and nothing else, so a
+workflow-dispatch artifact has no checksum file and no attestation. Verify against a
+published release, never against an advisory build.
+
+The OS warning itself, and how to get past it per platform, is in
 [the installer is flagged as unsigned](troubleshooting.md#the-installer-is-flagged-as-unsigned).
