@@ -127,15 +127,47 @@ number reservation; **the scheduled reaper** (`.agents/bin/reaper.py`, `agent-re
 **vendor label mirror** — and, with them, the removal of the coordinator, the leases and the run
 records from the contract. ADR-0052 no longer governs anything.
 
-**Not yet implemented:** event-driven triage and the review-round counter; the slot launcher;
-Projects/Discussions as coordination surfaces.
+Also in force since 2026-07-30: **event-driven triage and the review-round counter**
+(`.agents/bin/triage.py`, `agent-triage.yml`) and **the slot launcher** (`.agents/bin/swarm_slots.py`,
+`.agents/bin/gate.ps1`). Those two are one control and are recorded together deliberately — see
+[The two-round cap needs both halves](#the-two-round-cap-needs-both-halves).
 
-Be precise about what "the label model" means here, because most of it has no writer yet. Only
-`agent:claude|codex|copilot` are written by code (`claim.py`), and `agent:conflicted` /
-`agent:needs-amend` by the reaper. The remaining new labels — `agent:human`, `preauth`, `size:*`,
-`risk:*`, `blocked-by:*`, `needs:*` — are *provisioned on the repository* and applied by hand at
-grooming; nothing reads or writes them yet. The round labels the cap needs
-(`agent:round-1`/`agent:round-2`/`agent:review-capped`) do not exist at all until triage lands.
+**Not yet implemented:** Projects/Discussions as coordination surfaces; the advisory scope guard.
+
+Be precise about what "the label model" means, because parts of it still have no writer. Written by
+code: `agent:claude|codex|copilot` (`claim.py`), `agent:conflicted` and `agent:needs-amend`
+(`reaper.py` and `triage.py`), and `agent:round-1` / `agent:review-capped` (`triage.py`).
+`agent:round-2` is **provisioned but unreachable by code** — under a two-round cap `_round_label`
+publishes `agent:round-1` at one round and `agent:review-capped` at two, so nothing ever writes the
+middle value. The launcher still honours it if a maintainer applies it by hand, reading it as *both
+rounds spent*. The remaining labels — `agent:human`, `preauth`, `size:*`, `risk:*`, `blocked-by:*`,
+`needs:*` — are provisioned and applied at grooming; nothing reads or writes them.
+
+### The two-round cap needs both halves
+
+The cap failed on #276 at **9 rounds against a limit of 2** because a prose rule was the only thing
+holding it. It is now two independent refusals, and neither is redundant:
+
+- **`triage.py` withholds `agent:needs-amend` at the cap**, so the authority to start an AMEND session
+  is never *published*.
+- **`swarm_slots.py` refuses to inject an AMEND block past the cap**, so it is never *acted on* even
+  when the label is wrong.
+
+The second is not belt-and-braces. That counter only sees head-bound review evidence — submitted
+reviews and inline comments, which carry `commit_id` — so a provider answering in a plain issue comment
+is invisible to it and the count can **undercount**. That is the fail-open direction, which is why the
+launcher re-decides from the published round labels rather than trusting the amend flag alone.
+
+What makes either enforceable is that **a worker is short-lived**. It claims, works, pushes, arms
+auto-merge and exits, so every subsequent AMEND is a new session whose entire task text the launcher
+writes. On #276 the loop ran inside one long session that kept deciding to ask again; there was nothing
+between the agent and a tenth round.
+
+One thing this does **not** yet rest on: whether a review request posted by `github-actions[bot]`
+actually triggers either provider. If it does, the trigger can move into the workflow and
+agent-authored triggers can be forbidden outright — a platform boundary rather than a convention.
+That probe is unanswered and tracked; until then the cap rests on these two refusals plus a post-merge
+audit, and this record does not claim otherwise.
 
 ## More information
 
