@@ -52,6 +52,51 @@ body:
       placeholder: "In scope: ...; out of scope: ..."
     validations:
       required: true
+  - type: dropdown
+    id: size
+    attributes:
+      label: Size estimate
+      description: >-
+        The diff budget the fixing PR gets, counted in lines it ADDS; lockfiles and
+        generated files do not count. Over budget the work is split, not argued.
+      options:
+        - "XS — up to 50 added lines"
+        - "S — up to 150 added lines"
+        - "M — up to 400 added lines"
+        - "L — up to 900 added lines, the largest budget there is"
+        - "unsure — leave it to grooming"
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk level
+      description: >-
+        This picks the reviewer, not the priority. High covers scientific logic or
+        claims, data, provenance, schema, security, dependencies, CI/release, a public
+        API, persistence or migration, concurrency, HPC/Slurm, and broad
+        cross-component work.
+      options:
+        - "low — Codex reviews it"
+        - "standard — Codex reviews it"
+        - "high — both Codex and CodeRabbit, answering as one round"
+        - "unsure — leave it to grooming"
+    validations:
+      required: true
+  - type: dropdown
+    id: adr_needed
+    attributes:
+      label: Does this need an architecture decision record?
+      description: >-
+        An ADR lands in the same PR as the change it records: a schema or version
+        change, a dependency or isolation boundary, an architectural choice, or a
+        scientifically consequential one.
+      options:
+        - "no"
+        - "yes — a decision gets made here"
+        - "unsure — leave it to grooming"
+    validations:
+      required: true
   - type: textarea
     id: dependencies
     attributes:
