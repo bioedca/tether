@@ -26,6 +26,8 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
 _REPO = Path(__file__).resolve().parents[1]
 
 PAGE = _REPO / "docs" / "reference" / "exports.md"
@@ -148,9 +150,7 @@ def _molecules_dtype_csv_types(field_names: set[str]) -> dict[str, str]:
             assert isinstance(code, str) and code
             kind = code.lstrip("<>=|")[0]
             csv_type = {"i": "integer", "u": "integer", "f": "float"}.get(kind)
-            assert csv_type is not None, (
-                f"unsupported dtype {code!r} for {name!r} in {_DTYPE_NAME}"
-            )
+            assert csv_type is not None, f"unsupported dtype {code!r} for {name!r} in {_DTYPE_NAME}"
         assert name not in csv_types, f"duplicate field {name!r} in {_DTYPE_NAME}"
         csv_types[name] = csv_type
     return csv_types
@@ -206,6 +206,37 @@ def _column_table_rows(page_text: str | None = None) -> list[tuple[str, str, str
     return rows
 
 
+def _assert_exceptions_are_minimal(documented_names: set[str]) -> None:
+    """No entry in ``_CSV_TYPE_EXCEPTIONS`` may be a **no-op**.
+
+    The exception list exists so a transformed column's CSV type is reviewed by a human instead of
+    being pretended inferable from a dtype. An entry that merely *restates* what the schema already
+    derives inverts that: the column's documented type is then checked against a hand-written string
+    that nothing keeps in step with ``MOLECULES_DTYPE``, and a schema change stops being caught. The
+    subset assertion above cannot see it, because a no-op entry is still a documented name.
+
+    Being a dtype field is **not** by itself disqualifying, and getting this wrong is easy:
+    ``curation_label`` is a direct field whose CSV form is genuinely transformed — an integer code
+    stored, vocabulary text written. The test is whether the exception says something *different*
+    from the derivation, not whether the field exists in the dtype.
+
+    Each entry also has to carry a reason, because an exception without one is indistinguishable
+    from an oversight.
+    """
+    derived = _molecules_dtype_csv_types(documented_names)
+    redundant = sorted(
+        name
+        for name, (csv_type, _why) in _CSV_TYPE_EXCEPTIONS.items()
+        if derived.get(name) == csv_type
+    )
+    assert not redundant, (
+        f"these exceptions restate what {_DTYPE_NAME} already derives, so a schema change would "
+        f"stop being caught for them; remove the entries: {redundant}"
+    )
+    unreasoned = sorted(name for name, (_type, why) in _CSV_TYPE_EXCEPTIONS.items() if not why)
+    assert not unreasoned, f"an exception without a stated reason is an oversight: {unreasoned}"
+
+
 def _assert_load_bearing_semantic_cells(page_text: str | None = None) -> None:
     """Assert selected unit/domain and blankness cells retain their promised meaning."""
     rows = {row[0]: row for row in _column_table_rows(page_text)}
@@ -254,6 +285,7 @@ def test_documented_csv_types_match_dtype_or_explicit_exception() -> None:
     documented_names = {row[0] for row in rows}
     assert set(_CSV_TYPE_EXCEPTIONS) <= documented_names
     direct_names = documented_names - set(_CSV_TYPE_EXCEPTIONS)
+    _assert_exceptions_are_minimal(documented_names)
     schema_types = _molecules_dtype_csv_types(direct_names)
     assert set(schema_types) == direct_names, (
         f"direct CSV fields missing from {_DTYPE_NAME}: {sorted(direct_names - set(schema_types))}"
@@ -270,6 +302,25 @@ def test_documented_csv_types_match_dtype_or_explicit_exception() -> None:
         assert csv_type == expected, (
             f"{name!r} documents CSV type {csv_type!r}; expected {expected!r}"
         )
+
+
+def test_a_redundant_type_exception_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The minimality check has to be shown firing, or it is an untested absence-assertion.
+
+    ``molecule_id`` is a direct ``MOLECULES_DTYPE`` field, so an exception restating its derived
+    type adds nothing and would silence the schema for that column. ``curation_label`` is the
+    control: also a direct field, but its exception says something different — integer stored,
+    vocabulary text written — so it must NOT be reported.
+    """
+    documented = {row[0] for row in _column_table_rows()}
+    derived = _molecules_dtype_csv_types(documented)
+    assert "molecule_id" in derived, "the fixture depends on this being a direct field"
+
+    monkeypatch.setitem(
+        _CSV_TYPE_EXCEPTIONS, "molecule_id", (derived["molecule_id"], "restates the schema")
+    )
+    with pytest.raises(AssertionError, match="molecule_id"):
+        _assert_exceptions_are_minimal(documented)
 
 
 def test_load_bearing_semantic_cells_are_pinned() -> None:
