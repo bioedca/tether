@@ -1,0 +1,2327 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/validation/">
+      
+      
+        <link rel="prev" href="../analysis/parity-gallery/">
+      
+      
+        <link rel="next" href="../ml/deep-classifier/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Validation & benchmarks - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#validation-benchmarks" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Validation &amp; benchmarks
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../io/legacy-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/parity-gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-to-read-the-tiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to read the tiers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-extraction-vs-deep-lasi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (a) Extraction vs Deep-LASI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b-idealization-parity-vs-tmaven" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (b) Idealization parity vs tMAVEN
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#c-kinetics-vs-kinsoftchallenge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (c) Kinetics vs kinSoftChallenge
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d-ranker-held-out-cross-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (d) Ranker held-out cross-validation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#e-estimator-edge-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (e) α / γ estimator edge cases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#f-round-trip-integrity-and-schema-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (f) Round-trip integrity and schema migration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#g-photobleaching-detector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (g) Photobleaching detector
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#external-benchmark" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        External benchmark
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope-and-known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope and known limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/tether-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-to-read-the-tiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to read the tiers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-extraction-vs-deep-lasi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (a) Extraction vs Deep-LASI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b-idealization-parity-vs-tmaven" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (b) Idealization parity vs tMAVEN
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#c-kinetics-vs-kinsoftchallenge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (c) Kinetics vs kinSoftChallenge
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d-ranker-held-out-cross-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (d) Ranker held-out cross-validation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#e-estimator-edge-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (e) α / γ estimator edge cases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#f-round-trip-integrity-and-schema-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (f) Round-trip integrity and schema migration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#g-photobleaching-detector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (g) Photobleaching detector
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#external-benchmark" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        External benchmark
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope-and-known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope and known limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="validation-benchmarks">Validation &amp; benchmarks</h1>
+<p><strong>Who this page is for:</strong> anyone deciding whether an analysis produced with Tether is
+defensible enough to publish — and what, specifically, has and has not been measured.</p>
+<p>Tether's acceptance criteria are seven validation oracles, (a)–(g), specified in PRD §8
+(NFR-VALID) with their numeric bars in PRD §11.2. This page transcribes each one: what is
+compared, against which reference data, where the frozen tolerance lives, what was
+measured, and which committed test enforces it. Every number below names the file,
+constant or test it comes from, so any claim can be spot-checked with <code>grep</code>.</p>
+<p>Two things this page is <em>not</em>. It is not a claim that every oracle runs on every pull
+request — several are gated to tiers that do not gate <code>main</code>, and the table below says
+which. And it is not the <a href="../analysis/parity-gallery/">seven-plot parity gallery</a>, which
+documents <em>plot inventory</em> parity with tMAVEN, not numerical accuracy.</p>
+<h2 id="how-to-read-the-tiers">How to read the tiers</h2>
+<p>Test markers are declared in <code>pyproject.toml</code> under <code>[tool.pytest.ini_options] markers</code>,
+with <code>--strict-markers</code>. Where a test runs follows from its marker:</p>
+<table>
+<thead>
+<tr>
+<th>Tier</th>
+<th>Marker</th>
+<th>Where it runs</th>
+<th>Gates <code>main</code>?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Required matrix</td>
+<td><em>(unmarked)</em></td>
+<td><code>.github/workflows/ci.yml</code>, <code>pytest -m "not large and not sidecar and not deep"</code> on Ubuntu, macOS and Windows</td>
+<td>Yes — <code>test (ubuntu-latest)</code>, <code>test (macos-latest)</code>, <code>test (windows-latest)</code></td>
+</tr>
+<tr>
+<td>Live sidecar</td>
+<td><code>@pytest.mark.sidecar</code></td>
+<td><code>.github/workflows/sidecar.yml</code> — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env</td>
+<td>Yes — <code>sidecar / parity</code>, but <strong>path-filtered</strong>: a pull request that touches none of <code>src/tether/idealize/</code>, <code>sidecar/</code>, <code>scripts/setup_sidecar.py</code>, <code>schema/parity_tolerance.json</code>, <code>tests/test_*sidecar*.py</code>, the workflow or the setup action reports a fast "not applicable" pass <strong>without running the fits</strong></td>
+</tr>
+<tr>
+<td>Large fixtures</td>
+<td><code>@pytest.mark.large</code></td>
+<td><code>.github/workflows/large-fixtures.yml</code> — manual dispatch + weekly cron, Git-LFS checkout</td>
+<td>No — deliberately not a required check, because its headline leg can skip when the gated movie is absent</td>
+</tr>
+<tr>
+<td>Deep add-on</td>
+<td><code>@pytest.mark.deep</code></td>
+<td><code>.github/workflows/deep.yml</code> (CPU) and <code>deep-gpu.yml</code> (manual dispatch, self-hosted CUDA)</td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+<p>The required set is the <code>main-baseline</code> ruleset: <code>lint</code>, <code>test</code> on the three platforms,
+<code>pre-commit</code>, <code>commitlint</code>, <code>secret-scan</code>, <code>conda-lock-verify</code>, <code>docs-build</code>,
+<code>schema-guard</code> and <code>sidecar / parity</code>.</p>
+<p>Which tier each oracle's <em>headline</em> assertion lives in:</p>
+<table>
+<thead>
+<tr>
+<th>Oracle</th>
+<th>Headline assertion runs in</th>
+<th>Also covered on the required matrix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(a) Extraction vs Deep-LASI</td>
+<td><code>large</code> — but it <strong>skips even there</strong>, because the ≈0.9 GB movie is on no runner; the numbers come from a local run</td>
+<td>scorer unit tests, the committed 4-molecule slice, the registration RMS gate</td>
+</tr>
+<tr>
+<td>(b) Idealization parity vs tMAVEN</td>
+<td><code>sidecar</code> — required, but only actually fits when a pull request touches an idealization path</td>
+<td>the frozen artifact is checked against its own recorded evidence</td>
+</tr>
+<tr>
+<td>(c) kinSoftChallenge kinetics</td>
+<td><code>large</code> — and <strong>advisory</strong>, never a gate</td>
+<td>reference loader + synthetic rate recovery</td>
+</tr>
+<tr>
+<td>(d) Ranker held-out cross-validation</td>
+<td>required matrix</td>
+<td>yes (synthetic stores only)</td>
+</tr>
+<tr>
+<td>(e) α / γ estimators</td>
+<td>required matrix</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>(f) Round-trip and schema integrity</td>
+<td>required matrix (plus the required <code>schema-guard</code> job)</td>
+<td>yes; the live tMAVEN-opens leg is <code>sidecar</code></td>
+</tr>
+<tr>
+<td>(g) Photobleach detector</td>
+<td>required matrix</td>
+<td>yes</td>
+</tr>
+</tbody>
+</table>
+<h2 id="a-extraction-vs-deep-lasi">(a) Extraction vs Deep-LASI</h2>
+<p><strong>What is compared.</strong> Tether's native extraction — donor spot coordinates and the
+per-molecule integrated donor/acceptor traces — against the Deep-LASI <code>.mat</code> export for
+the same movie. The scorers are in <code>src/tether/project/oracle.py</code>: <code>match_coordinates</code>
+(greedy unique nearest-neighbour), <code>coordinate_rms</code>, <code>pooled_pearson</code>,
+<code>evaluate_extraction</code>.</p>
+<p><strong>Reference data.</strong> The UCKOPSB movie plus its <code>.tdat</code>, <code>.tmap</code> and Deep-LASI <code>.mat</code>
+export. The ≈0.9 GB movie is <strong>not in the repository</strong> — the reason is size, not
+licensing: <code>.github/workflows/large-fixtures.yml</code> records that it "is NOT committed (not
+even to LFS; it is too large to host on the repo's LFS budget)", while PRD §8
+(NFR-FIXTURES) states the lab <em>does</em> hold redistribution rights, which is why the cropped
+slice below could be committed at all. The gated test locates the full movie via
+<code>TETHER_UCKOPSB_DIR</code> and skips when it is absent. A committed 4-molecule slice
+(<code>tests/fixtures/deeplasi_export_slice.mat</code>, <code>tests/fixtures/deeplasi_traces_slice.txt</code>)
+covers the readers on every matrix run.</p>
+<p><strong>Frozen tolerance.</strong> Module constants in <code>src/tether/project/oracle.py</code>, not a JSON file:</p>
+<table>
+<thead>
+<tr>
+<th>Constant</th>
+<th>Value</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RECALL_THRESHOLD</code></td>
+<td>0.95</td>
+<td>gated</td>
+</tr>
+<tr>
+<td><code>MATCH_TOL_PX</code></td>
+<td>2.0</td>
+<td>gated (match tolerance for recall)</td>
+</tr>
+<tr>
+<td><code>PEARSON_THRESHOLD</code></td>
+<td>0.95</td>
+<td>gated — <strong>donor channel only</strong></td>
+</tr>
+<tr>
+<td><code>RMS_THRESHOLD_PX</code></td>
+<td>0.5</td>
+<td>gated when registration is fit natively</td>
+</tr>
+</tbody>
+</table>
+<p>These are the M1 bars as reframed by <a href="../adr/0022-m1-acceptance-reframe-and-close/">ADR-0022</a>;
+the original PRD §9 M1 gate asked for 1 px recall and r ≥ 0.99 on both channels.</p>
+<p><strong>Measured result</strong> (ADR-0022, from a <strong>local</strong> run on the maintainer's workstation — see
+"Enforcing tests" below — on the full UCKOPSB pair with imported <code>.tmap</code> registration and
+<code>.tdat</code> intensity-mode detection):</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Recall @ 1 px</td>
+<td>0.928</td>
+<td>below the original 1 px bar — the reason for the reframe</td>
+</tr>
+<tr>
+<td>Recall @ 2 px</td>
+<td>0.984</td>
+<td><strong>gated</strong>, passes</td>
+</tr>
+<tr>
+<td>Donor per-molecule Pearson (median)</td>
+<td>0.982</td>
+<td><strong>gated</strong>, passes</td>
+</tr>
+<tr>
+<td>Acceptor per-molecule Pearson (median)</td>
+<td>0.854</td>
+<td>reported, <strong>never gated</strong></td>
+</tr>
+<tr>
+<td>Donor precision</td>
+<td>0.34</td>
+<td>reported, never gated</td>
+</tr>
+<tr>
+<td>Registration RMS</td>
+<td>not applicable</td>
+<td>the map was imported from the <code>.tmap</code>, not fit</td>
+</tr>
+</tbody>
+</table>
+<p>ADR-0022 records the reasons each reframed bar is science rather than a lowered
+standard: 1 px recall is a localizer-<em>identity</em> test between two independent sub-pixel
+localizers on human-curated picks; Tether is donor-anchored
+(<a href="../adr/0015-donor-anchored-colocalization/">ADR-0015</a>), so the acceptor is read at the
+mapped donor position and its Pearson carries the map's molecule-domain scatter; and a
+bidirectional colocalization filter was measured to collapse recall to ≈0.66.</p>
+<p><strong>Enforcing tests.</strong> <code>tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb</code>
+— <code>@pytest.mark.large</code>, so it is never on the required matrix. It <em>is</em> collected by the
+weekly <code>large-fixtures</code> job, but it <strong>skips there every time</strong>: the movie is absent from
+every GitHub-hosted runner, so this assertion has never executed in CI. (The weekly run of
+2026-07-20 reports <code>test_extraction_meets_m1_acceptance_on_uckopsb SKIPPED</code>, summary
+<code>7 passed, 4 skipped</code>.) The numbers in the table above therefore come from a local run,
+recorded in ADR-0022 and reproducible with <code>scripts/run_m1_oracle.py</code> against a staged
+copy of the movie.</p>
+<p>On the required matrix: <code>tests/test_oracle.py::test_real_slice_txt_correlates_with_mat</code> —
+which is <strong>not an extraction check</strong>. It reads the committed 4-molecule slice's <code>.txt</code> and
+<code>.mat</code> exports through Tether's two Deep-LASI readers and asserts they agree (Pearson
+medians ≥ 0.99 on both channels), passing the <code>.mat</code>'s own coordinates in as the
+"extracted" ones, so recall is 1.0 by construction and <code>tether.imaging.extract</code> is never
+called. It exercises the readers and the scorers, not Tether's extraction — read its
+≥ 0.99 as reader-to-reader agreement, never as extraction fidelity (which was measured at
+donor 0.982 / acceptor 0.854 above). Also
+<code>test_acceptor_pearson_is_diagnostic_not_gated</code>, and the registration leg
+<code>tests/test_register.py::test_native_fit_reproduces_tmap_within_tolerance</code> (native
+degree-2 fit vs the imported <code>.tmap</code>: RMS ≤ 0.5 px and ≥ 95 % of molecule positions
+agreeing within 1 px, on committed fixtures).</p>
+<h2 id="b-idealization-parity-vs-tmaven">(b) Idealization parity vs tMAVEN</h2>
+<p><strong>What is compared.</strong> Four metrics from <code>src/tether/idealize/parity.py</code>, after canonical
+mean-sorted state relabelling: <code>state_count_fraction</code>, <code>state_mean_abs_delta</code>,
+<code>viterbi_agreement</code>, <code>relative_elbo</code>. Parity is statistical, never bit-exact — tMAVEN
+self-reseeds (<a href="../adr/0007-parity-is-statistical/">ADR-0007</a>).</p>
+<p><strong>Reference data.</strong> <code>tests/fixtures/smd_4mol.hdf5</code> (4 molecules, 2 states, cross-seed
+anchored on its own first run) and the Git-LFS <code>tests/fixtures/large/smd_281mol.hdf5</code>
+(281 molecules, 4 states) against the committed reference model
+<code>tests/fixtures/large/model_281mol.hdf5</code>.</p>
+<p><strong>Frozen tolerance.</strong> <code>schema/parity_tolerance.json</code> — <code>schema_version</code> 1,
+<code>frozen_at_milestone</code> <code>"M0.5"</code>, <code>measured_utc</code> <code>"2026-06-26"</code>. The default row at
+<code>$.tolerance</code> applies to consensus VB-HMM and per-trace vbFRET; ebFRET is frozen
+separately at <code>$.tolerance_by_method.ebhmm</code>
+(<a href="../adr/0043-per-method-parity-tolerance/">ADR-0043</a>):</p>
+<table>
+<thead>
+<tr>
+<th>Bound</th>
+<th>Direction</th>
+<th><code>$.tolerance</code> (default)</th>
+<th><code>$.tolerance_by_method.ebhmm</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>state_count_min_fraction</code></td>
+<td>floor</td>
+<td>0.9</td>
+<td>0.5249</td>
+</tr>
+<tr>
+<td><code>state_mean_abs_delta_max</code></td>
+<td>ceiling</td>
+<td>0.02</td>
+<td>0.0518</td>
+</tr>
+<tr>
+<td><code>viterbi_min_agreement</code></td>
+<td>floor</td>
+<td>0.95</td>
+<td>0.9034</td>
+</tr>
+<tr>
+<td><code>relative_elbo_max</code></td>
+<td>ceiling</td>
+<td>0.01</td>
+<td>0.01</td>
+</tr>
+</tbody>
+</table>
+<p>The freeze rule is recorded in the file at <code>$.freeze_policy</code>: the frozen bound is the more
+permissive of the provisional PRD §11.2 default and the measured worst case with a 0.5
+margin. <code>$.provisional</code> holds the same four numbers as <code>$.tolerance</code> — the measured spread
+confirmed the defaults rather than widening them
+(<a href="../adr/0009-parity-metrics-and-freeze/">ADR-0009</a>).</p>
+<p><strong>Measured result.</strong> 20 self-reseeded fits per fixture; 39 recorded comparisons pooled
+across the two fixtures. <code>$.pooled_worst</code> for vbconhmm:</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Pooled worst case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>state_count_fraction</code></td>
+<td>1.0</td>
+</tr>
+<tr>
+<td><code>state_mean_abs_delta</code></td>
+<td>8.34719832143449e-09</td>
+</tr>
+<tr>
+<td><code>viterbi_agreement</code></td>
+<td>1.0</td>
+</tr>
+<tr>
+<td><code>relative_elbo</code></td>
+<td>1.0024658100238614e-09</td>
+</tr>
+</tbody>
+</table>
+<p>ebFRET was measured separately (<code>$.measured_by_method.ebhmm</code>, <code>measured_utc</code>
+<code>"2026-07-08"</code>, 19 cross-seed comparisons on <code>smd_281mol</code>): pooled-worst
+<code>state_count_fraction</code> 0.6832740213523132, <code>state_mean_abs_delta</code> 0.034534406067662116,
+<code>viterbi_agreement</code> 0.9355949176941853, <code>relative_elbo</code> 0.0006627875119730492. ebFRET
+reproduces its kinetic model across seeds, but its empirical-Bayes per-trace state
+<em>selection</em> is genuinely more seed-variable — which is why it gets its own row rather than
+loosening the shared one. Its ELBO is not commensurable with the vbconhmm reference
+model's, so it is anchored cross-seed only (ADR-0043).</p>
+<p><strong>Which build each tolerance was measured on — and the gap that opens.</strong> Both <code>method</code>
+blocks name a build (<code>sidecar_python_version</code>, <code>tmaven_commit</code>) rather than an interpreter
+path, and both carry a <code>build_provenance</code> string. The values in the committed artifact were
+not captured automatically: <code>scripts/measure_parity.py</code> only grew a build probe on
+2026-07-20, after both runs, so both pairs of values are post-hoc attributions. The script
+now emits a non-empty <code>build_provenance</code> description with its measurement-time CPython and
+PEP 610 commit probes, so a future measurement preserves how those two fields were obtained.
+The historical attributions differ in how well-founded they are and — more importantly — in
+<em>which</em> build they name:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>$.method</code> (M0.5, vbconhmm)</th>
+<th><code>$.measured_by_method.ebhmm.method</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>measured_utc</code></td>
+<td>2026-06-26</td>
+<td>2026-07-08</td>
+</tr>
+<tr>
+<td><code>sidecar_python_version</code></td>
+<td>3.9.23</td>
+<td>3.12.13</td>
+</tr>
+<tr>
+<td><code>tmaven_commit</code></td>
+<td><code>71cfa1af…</code> (2025-05-06)</td>
+<td><code>10f4230b…</code> (2025-10-05)</td>
+</tr>
+<tr>
+<td>How the values were obtained</td>
+<td>reconstructed on 2026-07-20 from the interpreter the old workstation path still resolves to; the artifact says "the environment is not guaranteed unchanged since 2026-06-26"</td>
+<td>re-derived from the run's own inputs — <code>.github/workflows/sidecar-measure.yml</code> (dispatch run 28963324581, whose log records <code>python 3.12.13</code> and the resolved <code>@10f4230</code>), <code>sidecar/conda-lock.yml</code> and the workflow's pinned <code>TMAVEN_SPEC</code></td>
+</tr>
+<tr>
+<td>Matches the build the live gate runs?</td>
+<td><strong>No</strong></td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<p>The pin every live assertion uses is <code>10f4230b6d13c6d2ad67b05d801696b4a40eff4a</code> on CPython
+3.12.13 — <code>TMAVEN_SPEC</code> in <code>.github/workflows/sidecar.yml</code>, <code>python=3.12.*</code> in
+<code>sidecar/environment.yml</code> resolving to 3.12.13 on all four platforms in
+<code>sidecar/conda-lock.yml</code>, and the same commit recorded in <code>NOTICE</code> and
+<code>scripts/setup_sidecar.py</code>.</p>
+<blockquote>
+<p>Gap, stated plainly. The <strong>default</strong> frozen tolerance — the <code>$.tolerance</code> row that gates
+the required <code>sidecar / parity</code> vbconhmm fits and is <code>applied_to</code> per-trace vbFRET — was
+measured against tMAVEN <code>71cfa1af</code> (2025-05-06) on CPython 3.9.23. That is 13 upstream
+commits <em>behind</em> the pinned <code>10f4230b</code> (2025-10-05) and a different interpreter from the
+shipped sidecar lock. The intervening commits are not cosmetic: they touch the idealizer
+path (<code>tmaven/controllers/modeler/modeler.py</code>, 256 changed lines;
+<code>.../modeler/fxns/hmm.py</code>, 42). So the frozen bound and the fits it gates were <strong>not
+produced by the same tMAVEN build</strong>. The ebFRET block has no such gap. The mitigating
+facts, also on the record: the M0.5 worst cases (<code>$.pooled_worst</code>, table above) are 1.0 on
+both floors and 8.35e-09 / 1.00e-09 against ceilings of 0.02 and 0.01, and the freeze
+<em>confirmed</em> the provisional PRD §11.2 defaults rather than widening them — <code>$.tolerance</code>
+holds exactly <code>$.provisional</code> — so no bound was derived from the older build's numbers.
+Closing the gap means re-measuring in the pinned sidecar build, which is a deliberate
+re-freeze and needs an ADR (PRD §11.2). <code>sidecar-measure.yml</code> cannot do it as written: its
+measurement step always passes <code>--cross-seed</code>, which forces <code>reference=None</code> for every
+fixture in <code>scripts/measure_parity.py</code>, so it would anchor <code>smd_281mol</code> on its own first run
+rather than on the committed <code>model_281mol.hdf5</code> that the default row was measured against
+and that the live gate asserts. The faithful invocation is the one in that script's own
+docstring — <code>scripts/measure_parity.py --n-runs 20</code> with <strong>no</strong> <code>--cross-seed</code>, which the
+script permits for <code>--model-type vbconhmm</code> — run with <code>TETHER_SIDECAR_PYTHON</code> pointed at the
+pinned sidecar build. (The script itself runs under the base interpreter. Two things then
+execute in the sidecar: the fits, which <code>tether.idealize.driver</code> spawns from that variable,
+and the script's own short build-provenance probe, which <code>scripts/measure_parity.py</code> spawns
+directly.) Two caveats on that command. <code>--out</code> defaults to <code>schema/parity_tolerance.json</code>, so
+running it as written writes over the committed artifact in place — and the write is a full
+replacement, not a merge. The script assembles one literal dict (the <code>out = {...}</code> at the end of
+<code>main()</code> in <code>scripts/measure_parity.py</code> — that dict, not this paragraph, is the authority) with
+exactly ten top-level keys: <code>schema_version</code>, <code>frozen_at_milestone</code>, <code>measured_utc</code>, <code>method</code>,
+<code>coverage</code>, <code>freeze_policy</code>, <code>provisional</code>, <code>tolerance</code>, <code>pooled_worst</code>, <code>spread_by_fixture</code>. It
+then dumps that over the target. So point <code>--out</code> at a scratch file, treat the result as <em>only</em>
+the re-measured numbers, and carry back by hand everything in the committed artifact that the
+fresh dict does not reproduce. Against today's artifact that is two things.
+<code>$.tolerance_by_method</code> and <code>$.measured_by_method</code> fall outside the ten keys entirely, so the
+ebFRET freeze (ADR-0043) vanishes and both
+<code>test_per_method_tolerances_cover_their_own_measured_evidence</code> and
+<code>test_load_frozen_tolerance_selects_per_method</code> fail. The other is that all three sub-keys
+of <code>$.coverage</code> are hand-curated in the artifact but rebuilt from the script's own
+pre-ADR-0043 literals: <code>measured_methods</code> becomes <code>["vbconhmm"]</code> rather than the committed
+<code>"vbconhmm (vb Consensus HMM)"</code> quoted below, <code>applied_to</code> gains <code>"ebFRET (M6)"</code>, and <code>note</code>
+reverts to text asserting one shared tolerance for every
+idealization method — which contradicts ADR-0043 and this page, and which no test reads.</p>
+</blockquote>
+<p><strong>Enforcing tests.</strong> Live fits are <code>tests/test_parity_sidecar.py</code>
+(<code>pytestmark = pytest.mark.sidecar</code>, so deselected from the 3-OS matrix and run instead by
+the required <code>sidecar / parity</code> job — which executes them on every nightly run and on any
+pull request touching an idealization path, and reports a "not applicable" pass otherwise):
+<code>test_281mol_fresh_fit_matches_reference_within_frozen_tolerance</code>,
+<code>test_4mol_cross_seed_matches_within_frozen_tolerance</code>,
+<code>test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance</code>. On the required matrix,
+<code>tests/test_parity.py</code> checks the artifact against itself:
+<code>test_frozen_artifact_covers_its_own_measured_evidence</code> requires <em>every</em> recorded per-run
+value to satisfy <code>$.tolerance</code> and requires <code>$.provisional</code> to still equal the <code>PROVISIONAL</code>
+constant in <code>src/tether/idealize/parity.py</code> — a <em>drift</em> check between the two, not a pin to
+the literal §11.2 numbers, and
+<code>test_per_method_tolerances_cover_their_own_measured_evidence</code> requires every per-method
+tolerance to carry the four bounds and to be satisfied by its own recorded evidence.</p>
+<p>Be precise about what that does and does not catch, because it is a validation claim.
+The core assertion in <code>_assert_spread_within</code> is <code>recorded value ≥ floor</code> /
+<code>recorded value ≤ ceiling</code>, which on its own would let a pull request satisfy a bound by
+<em>deleting</em> the runs that stressed it, so the same helper additionally pins the evidence
+itself: the measured fixture set, and for each fixture the SMD path, the reference anchor,
+the fitted state count and the comparison count, are pinned to <code>_EXPECTED_EVIDENCE</code> (the
+run00-anchored <code>smd_4mol</code> spread at 2 states and 19 of 20 runs; <code>smd_281mol</code> at 4 states and
+20 runs against <code>tests/fixtures/large/model_281mol.hdf5</code>) and, for the per-method blocks, to
+<code>_EXPECTED_EVIDENCE_BY_METHOD</code> (ebFRET on <code>smd_281mol</code> at 4 states, run00-anchored, 19).
+Each count is cross-checked against that block's <code>$.method.n_runs_per_fixture</code>, with the
+anchored-or-not mode taken from the pin, not read back from the artifact. Every fixture must
+carry all four metrics in their declared direction, and each summary's
+<code>n</code>/<code>min</code>/<code>max</code>/<code>mean</code>/<code>worst</code> is recomputed
+from its own <code>values</code> list with the production <code>SpreadSummary</code>. So on every pull request
+these two tests fail on a bound <strong>tightened</strong> below its own evidence, on a deleted fixture,
+on a dropped or truncated run — including one removed cleanly with every summary statistic
+recomputed — on a re-labelled reference anchor, SMD path or state count, on a
+<code>$.provisional</code> that has drifted from <code>PROVISIONAL</code>, and on a per-method
+tolerance with no <code>measured_by_method</code> entry. The anchor pin is a check on the <em>strings the
+artifact records</em>: it asserts the frozen block still names the anchor it was measured
+against, not that the named model file exists or is unchanged — that is Git-LFS plus the
+live sidecar fit. They do <strong>not</strong> fail on a <strong>loosened</strong> bound:
+widening a ceiling or lowering a floor leaves every recorded value comfortably inside it. Nor
+do they fail on a pull request that edits <code>$.provisional</code> and <code>PROVISIONAL</code> <em>in lockstep</em> —
+only one of them alone. The live <code>sidecar / parity</code> arm cannot catch a loosened bound
+either — a looser tolerance only makes its assertions easier to pass — and nothing pins
+<code>$.tolerance</code> or <code>$.provisional</code> to their committed values.</p>
+<p>What the suite does still enforce against loosening is the <em>shape</em> of a tolerance block rather
+than the magnitude of any bound inside it, plus one ordering between two blocks:</p>
+<ul>
+<li>Every block must carry exactly the four bound keys — checked by
+  <code>test_load_frozen_tolerance_returns_the_four_bounds</code> for <code>$.tolerance</code> and by
+  <code>test_per_method_tolerances_cover_their_own_measured_evidence</code> for each
+  <code>$.tolerance_by_method</code> entry — so a bound cannot be loosened by deleting it. Deleting any
+  one of the eight fails at least two tests.</li>
+<li>The four <code>$.tolerance</code> values must additionally be finite, so an infinite ceiling there also
+  fails <code>test_load_frozen_tolerance_returns_the_four_bounds</code>. The per-method bounds carry no
+  finiteness check: <code>$.tolerance_by_method.ebhmm.relative_elbo_max</code> set to infinity passes.</li>
+<li><code>test_load_frozen_tolerance_selects_per_method</code> asserts ebFRET's state-count floor is strictly
+  below the default one, so it fails once <code>$.tolerance.state_count_min_fraction</code> is dropped to
+  ebFRET's frozen <code>0.5249</code> or below (0.5249 and 0.40 fail; 0.5250 and 0.60 pass).</li>
+</ul>
+<p>Widening any of the eight bounds to some <em>other</em> finite value is caught by nothing — including
+all eight widened at once, as long as the default state-count floor stays above <code>0.5249</code>. In
+that region the freeze is protected in the loosening direction by review plus the deliberate
+re-freeze rule (<code>$.freeze_policy</code>, PRD §11.2, ADR-0009), not by a test.</p>
+<blockquote>
+<p>Gap, stated plainly. PRD §8 asks for per-trace <strong>vbFRET</strong> parity on the small fixtures as
+well as the consensus fit. <code>$.coverage.measured_methods</code> records only
+<code>"vbconhmm (vb Consensus HMM)"</code>, while <code>$.coverage.applied_to</code> lists per-trace vbFRET. The
+vbconhmm-measured tolerance is therefore <em>applied</em> to per-trace vbFRET without a per-trace
+measurement, and no committed test fits <code>model_type="vbfret"</code> against it.</p>
+</blockquote>
+<h2 id="c-kinetics-vs-kinsoftchallenge">(c) Kinetics vs kinSoftChallenge</h2>
+<p>This oracle is <strong>advisory</strong> and covers the <strong>2-state level 1 dataset only</strong>; see
+<a href="#external-benchmark">External benchmark</a> below for the full statement with its
+qualifiers, the frozen band, the ground truth and the deferred levels.</p>
+<p><strong>Enforcing test.</strong> <code>tests/test_kinsoft_kinetics.py::test_kinsoft_level1_within_inter_tool_spread</code>
+— <code>@pytest.mark.large</code>, and it skips when <code>tests/fixtures/large/kinsoft_sim.hdf5</code> is an
+unmaterialized Git-LFS pointer. On the required matrix,
+<code>test_load_kinsoft_reference</code> locks the reference file's contents and
+<code>test_evaluate_rejects_deferred_levels</code> proves levels 2 and 3 raise rather than silently
+score; the primitives are covered by <code>test_fit_gaussian_hmm_recovers_synthetic_states</code> and
+<code>test_two_state_rate_constants_recovers_synthetic_rates</code> on synthetic traces.</p>
+<h2 id="d-ranker-held-out-cross-validation">(d) Ranker held-out cross-validation</h2>
+<p><strong>What is compared.</strong> Prequential (interleaved test-then-train) precision@k of the trained
+per-condition ranker against the file-order baseline, per video, aggregated as the
+<strong>median across videos</strong> and reported as an uplift in percentage points.</p>
+<p><strong>Frozen tolerance.</strong> <code>DEFAULT_SHIP_BAR_PTS = 10.0</code> in <code>src/tether/ml/prequential.py</code> — a
+Python constant, not a JSON artifact. Asserted exactly by
+<code>tests/test_ml_prequential.py::test_default_ship_bar_is_ten_points</code>, which pins
+<code>DEFAULT_SHIP_BAR_PTS == 10.0</code> as the PRD §11.2 value. The rationale that apparent
+precision@k is <em>not</em> the gate is <a href="../adr/0034-gradient-boosting-quality-ranker/">ADR-0034</a>.</p>
+<p><strong>Measured result.</strong> None on real data. Both enforcing tests build synthetic or
+programmatic stores; no committed artifact records a precision@k uplift measured on a real
+labelled video set. What is proven is that the <em>protocol</em> behaves: the first video is
+skipped rather than scored against nothing, a ranker equal to file order yields zero uplift
+and does not ship, a non-finite score raises instead of being ranked last, and a
+single-movie project raises rather than inventing a held-out video.</p>
+<p><strong>Enforcing tests</strong> (all unmarked — required 3-OS matrix): <code>tests/test_ml_prequential.py</code>
+(pure core with fake scorers, including <code>test_perfect_ranker_beats_file_order</code>,
+<code>test_ranker_equal_to_file_order_is_zero_uplift_not_shipped</code>,
+<code>test_no_trainable_prior_raises_never_fabricates</code>) and <code>tests/test_project_prequential.py</code>
+(store-integrated: <code>test_gate_ships_on_separable_multivideo</code>,
+<code>test_gate_uplift_is_held_out_not_apparent</code>, <code>test_custom_ship_bar_can_withhold_a_ship</code>,
+<code>test_single_movie_project_has_no_held_out_video</code>).</p>
+<blockquote>
+<p>Gap, stated plainly. PRD §8 says "prequential / leave-one-video-out". Only the
+<strong>prequential</strong> protocol exists — a repository-wide search for <code>leave_one_video_out</code>
+returns nothing in <code>src/</code> or <code>tests/</code>.</p>
+</blockquote>
+<h2 id="e-estimator-edge-cases">(e) α / γ estimator edge cases</h2>
+<p><strong>Frozen constants</strong> (PRD §11.2 rows), all in code:</p>
+<table>
+<thead>
+<tr>
+<th>Constant</th>
+<th>Value</th>
+<th>Module</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LEAKAGE_CEILING</code></td>
+<td>0.3</td>
+<td><code>src/tether/fret/leakage.py</code></td>
+</tr>
+<tr>
+<td><code>DEFAULT_MIN_WINDOW_FRAMES</code></td>
+<td>20</td>
+<td><code>src/tether/fret/leakage.py</code></td>
+</tr>
+<tr>
+<td><code>DEFAULT_MIN_QUALIFYING_TRACES</code></td>
+<td>10</td>
+<td><code>src/tether/fret/leakage.py</code></td>
+</tr>
+<tr>
+<td><code>GAMMA_CEILING</code></td>
+<td>5.0</td>
+<td><code>src/tether/fret/gamma.py</code></td>
+</tr>
+<tr>
+<td><code>DEFAULT_GAMMA_HALF_WINDOW</code></td>
+<td>3</td>
+<td><code>src/tether/fret/gamma.py</code></td>
+</tr>
+</tbody>
+</table>
+<p>The first three are locked by <code>tests/test_fret_leakage.py::test_defaults_match_prd_11_2</code>.</p>
+<p><strong>What is compared.</strong> α (leakage) against <strong>synthetic known-α ground truth</strong>, and γ against
+<strong>synthetic known-γ recovery</strong> (<code>test_recovers_known_gamma</code>, parametrized over γ ∈ {0.5,
+1.0, 2.0, 4.0}) plus a <strong>reference-formula parity check</strong> (<code>test_reference_formula_parity</code>)
+against an independent in-test transcription (<code>_reference_gamma</code>, deliberately computed a
+different way — explicit slices, no shared helper). That transcription is of the δ = 0,
+<strong>bare-<code>I_D</code></strong> simplification of Deep-LASI's <code>deep_autocorrect_2color.m:118-130</code>, which is
+<em>Tether's own</em> convention, so the check proves self-consistency, not agreement with
+Deep-LASI: ADR-0028 deliberately chose bare <code>I_D</code> over Deep-LASI's <code>(1+α)</code>-scaled donor and
+records that "Tether's γ is systematically ≈ <code>(1 + α)</code> times Deep-LASI's on the same step"
+— ≈ 9 % at α ≈ 0.09. The actual Deep-LASI-median comparison is deferred (below). The edge
+cases the PRD names are
+each a test: too-short tail, no tail when the acceptor outlives the donor, above-ceiling
+and negative rejection, degenerate donor, median over qualifying traces only, and
+withholding below the minimum qualifying count rather than emitting a factor from too
+little data. <code>tests/test_fret_leakage.py::test_estimate_empty_qualifying_never_medians_empty</code>
+turns any <code>RuntimeWarning</code> into a failure so an empty median can never leak through.</p>
+<p><strong>Total failure → apparent E, never NaN.</strong> <code>tests/test_project_correct.py</code> covers the path
+that PRD §8 singles out: <code>test_total_failure_falls_to_apparent_never_nan</code>,
+<code>test_fresh_store_nan_factors_is_total_failure</code>, <code>test_zero_gamma_boundary_is_total_failure</code>,
+<code>test_negative_gamma_is_total_failure</code>, <code>test_manual_override_rescues_total_failure</code>,
+<code>test_partial_alpha_override_without_gamma_stays_apparent</code>, and
+<code>test_gamma_override_must_be_positive_finite</code> (parametrized over <code>0.0</code>, <code>-1.0</code>, <code>nan</code>,
+<code>inf</code>). The design rule is <a href="../adr/0003-apparent-e-never-nan/">ADR-0003</a>. All of these run on
+the required matrix.</p>
+<blockquote>
+<p>Not implemented — the two deferred legs of this oracle.</p>
+<ol>
+<li>The <strong>conjunctive two-estimator α agreement</strong> band of PRD §11.2 (relative-median
+   difference ≤ 20 % <em>and</em> both medians within 0.05–0.2) has no code and no test. The
+   donor-only-sample estimator it needs cannot be built from the committed
+   <code>cy3-donor-only-calibration</code> <code>.tdat</code>, whose traces sit in an undecoded MCOS
+   <code>FileWrapper__</code> blob; deferred in
+   <a href="../adr/0027-leakage-alpha-tail-estimator/">ADR-0027</a> gated on an MCOS trace decoder.
+   Until then the tail α is the applied factor and the band is not gated against a
+   fabricated value.</li>
+<li>The <strong>γ within ±10 % of the Deep-LASI median</strong> oracle of PRD §11.2 is deferred: the
+   vendored export carries no per-frame classification, so the shared-frame,
+   estimator-isolated comparison cannot be constructed
+   (<a href="../adr/0028-gamma-acceptor-bleach-step-estimator/">ADR-0028</a>).</li>
+</ol>
+</blockquote>
+<h2 id="f-round-trip-integrity-and-schema-migration">(f) Round-trip integrity and schema migration</h2>
+<p><strong>What is compared.</strong> Three things: the <code>.tether</code> HDF5 structure declared by the code
+against the committed golden manifest; a fresh project reopened with every M0-frozen field
+intact; and the SMD interchange write → read superset round-trip.</p>
+<p><strong>Frozen artifact.</strong> <code>schema/schema_frozen.json</code>, the golden manifest read by
+<code>tests/test_schema.py</code> as <code>GOLDEN_PATH</code>.</p>
+<p><strong>Tolerance.</strong> Structural, not numeric: <strong>additive-only</strong>. Additions pass; removals,
+renames, dtype changes, field reordering, mid-group insertions and a decremented
+<code>schema_version</code> all fail. This is the M0 freeze,
+<a href="../adr/0005-m0-schema-freeze/">ADR-0005</a>.</p>
+<p><strong>Enforcing tests</strong> (all unmarked — required matrix): <code>tests/test_schema.py</code>
+<code>test_round_trip_preserves_version_and_frozen_fields</code>, <code>test_committed_golden_matches_code</code>,
+<code>test_golden_carries_required_frozen_fields</code>, <code>test_assert_compatible_refuses_newer_file</code>,
+and the six negative guards <code>test_guard_flags_removed_field</code>, <code>test_guard_flags_dtype_change</code>,
+<code>test_guard_flags_reordered_field</code>, <code>test_guard_flags_mid_insertion</code>,
+<code>test_guard_flags_removed_group</code>, <code>test_guard_flags_version_decrement</code>, plus
+<code>test_guard_allows_additions</code>. Separately, <code>.github/workflows/schema-guard.yml</code> runs
+<code>python scripts/dump_schema.py --check</code> on every pull request and push to <code>main</code> — a
+required status check independent of the test matrix.</p>
+<p>The SMD interchange leg is <code>tests/test_smd_io.py</code> (unmarked; <code>test_read_4mol_fixture</code>,
+<code>test_written_smd_has_tmaven_openable_structure</code>, <code>test_superset_coordinates_roundtrip</code>,
+<code>test_plain_smd_has_no_superset</code>), with the live proof that a Tether-authored SMD opens in
+tMAVEN's own loader in <code>tests/test_handoff_sidecar.py::test_tether_smd_opens_in_tmaven</code> and
+<code>test_coordinate_superset_intact_after_tmaven_open</code> — <code>sidecar</code>-marked, so they run in the
+required <code>sidecar / parity</code> job under its path filter rather than on the 3-OS matrix.</p>
+<blockquote>
+<p>Gap, stated plainly. There are <strong>no schema-migration tests</strong>, because there is no
+migration machinery: the freeze is additive-only by construction (ADR-0005), so there is
+no version step to migrate across. A search for <code>migrate</code>/<code>migration</code> in <code>tests/</code>,
+<code>src/tether/io/</code> and the workflows returns nothing.</p>
+</blockquote>
+<h2 id="g-photobleaching-detector">(g) Photobleaching detector</h2>
+<p><strong>What PRD §8 asks for, and why it changed.</strong> The PRD specifies comparing per-channel
+first-bleach frames against the <code>.mat</code> <code>pacc</code>/<code>pdon</code> fields within the PRD §11.2 tolerance
+of ±2 frames. <a href="../adr/0026-photobleach-detection-and-window-default/">ADR-0026</a> found this
+field is not a per-molecule oracle: in <code>DeepLASI_MAT_export_…010.mat</code>, <code>pacc</code> and <code>pdon</code>
+are <code>uint8</code> arrays of shape 250×1 whose value is the <strong>constant 60 for all 250 molecules</strong>,
+while the corrected traces bleach at ≈97, ≈644 and ≈1693. Gating on it would require the
+detector to return 60 for a molecule that demonstrably bleaches at 97. It is an
+acquisition-wide marker, not ground truth.</p>
+<p><strong>What is validated instead</strong> (option C in ADR-0026, maintainer-approved 2026-07-02):
+<strong>reference-formula parity</strong> against a line-for-line transcription of tMAVEN's
+<code>photobleaching.py</code> formulas (<code>normal_ln_evidence</code>, <code>normal_mu_ln_evidence</code>,
+<code>ln_likelihood</code>, <code>get_point_pbtime</code>, <code>pb_ensemble</code>), kept in the test file itself as
+<code>_ref_*</code> helpers — plus recovery of a <strong>synthesized known step</strong> to the same ±2-frame
+tolerance. Read the parity leg for what it is: these tests are unmarked, so they run on the
+required matrix, where tMAVEN is not installed and is never imported. What is proven is
+that the O(T) prefix-sum rewrite is faithful to the O(T²) reference <em>formulation</em>; a
+transcription error in the <code>_ref_*</code> helpers would not be caught, because tMAVEN itself does
+not execute here (that is what the <code>sidecar</code> tier does elsewhere on this page).</p>
+<p><strong>Frozen constants.</strong> The ±2-frame tolerance is asserted inline; the priors are named in
+<code>src/tether/fret/photobleach.py</code> — <code>PB_PRIOR_A</code> 1.0, <code>PB_PRIOR_B</code> 1.0, <code>PB_PRIOR_BETA</code> 1.0,
+<code>PB_PRIOR_MU</code> 1000.0 — and locked by
+<code>tests/test_fret_photobleach.py::test_priors_match_registered_defaults</code>.</p>
+<p><strong>Measured result.</strong> Pass/fail against injected truth rather than a headline scalar. The
+step-recovery test sweeps step positions 30, 60, 90, 120 and 160 across three
+signal/noise settings and asserts <code>abs(pbt - k) &lt;= 2</code> for each.</p>
+<p><strong>Enforcing tests</strong> (all unmarked — required 3-OS matrix):
+<code>tests/test_fret_photobleach.py::test_ln_likelihood_matches_reference_formulas</code>,
+<code>test_point_pbtime_matches_reference</code>, <code>test_ensemble_matches_reference</code>,
+<code>test_point_pbtime_recovers_known_step_within_two_frames</code>,
+<code>test_detect_photobleach_window_and_masks</code>, <code>test_never_bleaches_returns_length_and_all_zero_returns_zero</code>,
+<code>test_short_traces_do_not_raise</code>; and at the store level
+<code>tests/test_project_photobleach.py::test_compute_photobleach_populates_frames_and_auto_window</code>
+and <code>test_manual_window_is_not_overwritten</code>.</p>
+<h2 id="external-benchmark">External benchmark</h2>
+<p>Tether's rate constants were compared against the ground truth and the reported inter-tool
+spread of the <strong>kinSoftChallenge</strong> of Götz <em>et al.</em>, <em>Nature Communications</em> <strong>13</strong>:5402
+(2022) — a blind benchmark for the 14 analyses published in it, though not for Tether's own
+retrospective fit (see the qualifiers below). Paper doi
+<code>10.1038/s41467-022-33023-3</code>, data doi <code>10.5281/zenodo.5701310</code> (CC-BY-4.0). Everything
+below is recorded in <code>schema/kinsoft_reference.json</code> (<code>schema_version</code> 1,
+<code>frozen_at_milestone</code> <code>"M8"</code>, <code>measured_utc</code> <code>"2026-07-13"</code>) and rationalized in
+<a href="../adr/0048-kinsoft-kinetics-oracle/">ADR-0048</a>.</p>
+<p>Read the qualifiers first, because the result means nothing without them:</p>
+<ul>
+<li>The check covers <strong>level 1 only</strong> — the 2-state equilibrium dataset of the paper's
+  Fig. 2 (<code>$.levels.level1</code>: 75 traces, <code>dt_s</code> 0.2, <code>sampling_rate_hz</code> 5, <code>snr_estimate</code> 4).</li>
+<li>It is <strong>advisory</strong>. <code>$.description</code> says so verbatim: it "never gates main". A failure
+  here does not block a release.</li>
+<li>It is <strong>gated</strong> to the <code>large</code> fixture tier — <code>@pytest.mark.large</code> on
+  <code>tests/test_kinsoft_kinetics.py::test_kinsoft_level1_within_inter_tool_spread</code>, which runs
+  weekly or on manual dispatch, needs the Git-LFS <code>tests/fixtures/large/kinsoft_sim.hdf5</code>,
+  and skips if that file is still an LFS pointer.</li>
+<li>Levels 2 and 3 are <strong>deferred</strong>, not passed and not attempted.</li>
+<li><strong>Tether's own fit was not blind.</strong> The kinSoftChallenge was a blind benchmark for its 14
+  published analyses; that is a property of the paper, not of this check. Tether's fit is
+  retrospective: the ground-truth rates are committed at
+  <code>$.levels.level1.ground_truth.rates_s_inv</code>, the resulting rates are frozen in the same
+  file, and the enforcing test pins the fit to those frozen values (<code>abs=0.01</code>). What is
+  inherited from the benchmark is the <em>band</em>, not the blindness.</li>
+</ul>
+<p><strong>Band.</strong> <code>$.band.rate_rel_deviation_max = 0.12</code> — the maximum relative deviation from
+ground truth across the 14 published benchmark analyses of the 2-state dataset (5 % average),
+against a finite-dataset MLE uncertainty floor of ≥ 3 % (1σ) recorded at
+<code>$.levels.level1.reported_inter_tool_spread</code>.</p>
+<p><strong>Result</strong> — for the advisory 2-state level 1 oracle only, using a base-environment 2-state
+Gaussian HMM (Baum–Welch + Viterbi) with pooled dwell-time MLE <code>k = 1/⟨τ⟩</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Rate</th>
+<th>Ground truth (s⁻¹)</th>
+<th>Tether (s⁻¹)</th>
+<th>Relative deviation</th>
+<th>Advisory band</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>k12_low_high</code></td>
+<td>0.15</td>
+<td>0.1465</td>
+<td>0.023</td>
+<td>≤ 0.12</td>
+</tr>
+<tr>
+<td><code>k21_high_low</code></td>
+<td>0.22</td>
+<td>0.2131</td>
+<td>0.031</td>
+<td>≤ 0.12</td>
+</tr>
+</tbody>
+</table>
+<p>Both deviations sit inside the advisory band; the artifact characterises both as
+"~4x inside the band" (<code>$.band.rationale</code>, <code>$.levels.level1.tether_measured.note</code>) for this
+one 2-state dataset. That is the whole claim: it is not a general accuracy
+guarantee, and the file records no uncertainty on Tether's own two fitted rates. The
+enforcing test additionally requires both rates to reproduce the frozen values to <code>abs=0.01</code>
+and each state to contribute more than 500 pooled dwells.</p>
+<p><strong>Deferred levels, with ground truth recorded.</strong> Both are stored so a future oracle needs no
+new data sourcing, and both raise <code>ValueError</code> today rather than scoring
+(<code>test_evaluate_rejects_deferred_levels</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Level</th>
+<th>System</th>
+<th>States</th>
+<th>Traces</th>
+<th>Why deferred (<code>$.levels.*.deferred_reason</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>level2 (Fig. 3)</td>
+<td>3-state non-equilibrium steady state</td>
+<td>3</td>
+<td>150</td>
+<td>the best benchmark tools reach only 9–14 % average deviation and most mis-allocate 1↔3 transitions; a faithful oracle needs a 3-state idealizer plus net-flow handling</td>
+</tr>
+<tr>
+<td>level3 (Fig. 4)</td>
+<td>4-state kinetic heterogeneity with blinking</td>
+<td>4</td>
+<td>250</td>
+<td>states 1 and 2 share the low-FRET level and 3 and 4 the high-FRET level, so a FRET-only idealizer sees two states</td>
+</tr>
+</tbody>
+</table>
+<p>Level 3's full ground-truth rate matrix is recorded at
+<code>$.levels.level3.ground_truth.rates_s_inv</code> (k12 0.053, k14 0.018, k21 0.080, k23 0.250,
+k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking rates
+<code>kbright</code> 7 s⁻¹ and <code>kdark</code> 0.007 s⁻¹.</p>
+<h2 id="scope-and-known-limitations">Scope and known limitations</h2>
+<p><strong>Validation coverage.</strong></p>
+<ul>
+<li>Oracles (a) and (c) have their headline assertions on the <code>large</code> tier, which is manual
+  or weekly and is deliberately <strong>not</strong> a required check. Oracle (b)'s live fits are in the
+  required <code>sidecar / parity</code> job, but that job only actually fits when the pull request
+  touches an idealization path. A green required 3-OS matrix run on its own therefore proves
+  the scorers, the frozen artifacts and the pure primitives — not a fresh fit against real
+  reference data.</li>
+<li>Oracle (a) is stronger than that: its headline assertion depends on the ≈0.9 GB UCKOPSB
+  movie, which exceeds the repo's Git-LFS budget and so is on <strong>no</strong> runner. The weekly
+  <code>large-fixtures</code> job collects it and skips it, every time — the assertion has never run in
+  CI, and its numbers come from a local run recorded in ADR-0022.</li>
+<li>The frozen <strong>default</strong> parity tolerance for (b) was measured against tMAVEN <code>71cfa1af</code>
+  (2025-05-06) on CPython 3.9.23 — 13 upstream commits behind the pinned <code>10f4230b</code>
+  (2025-10-05) on CPython 3.12.13 that CI, the installers and every live sidecar assertion
+  actually run, with idealizer-path files changed in between. The frozen bound and the gate
+  that asserts it were not produced by the same tMAVEN build; the ebFRET block has no such
+  gap. Nothing was widened as a result (the measured spread was ≈1e-9 and only confirmed the
+  PRD §11.2 provisional defaults), and closing it needs a re-measure plus a re-freeze ADR.</li>
+<li>Nothing in CI fails on a <strong>loosened</strong> <code>$.tolerance</code>: the artifact self-checks assert
+  recorded values <em>within</em> the bounds, so widening a bound keeps them passing. Only
+  tightening below the evidence, or removing the evidence, is caught (see §(b)).</li>
+<li>The kinSoftChallenge check is advisory, 2-state level 1 only, gated (see above), and
+  <strong>not blind</strong> — the ground truth is committed and the fit is retrospective. Levels 2 and 3
+  are deferred.</li>
+<li>(b) has no per-trace vbFRET measurement, (d) has no leave-one-video-out protocol and no
+  real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
+  Deep-LASI-median oracle, and (f) has no migration tests. Each is stated in its own section
+  above with the ADR that deferred it.</li>
+<li>PRD §8 states that no synthetic-data simulator is introduced. In practice (e) and (g) are
+  validated against <strong>synthesized known-α / known-γ / known-step traces</strong>, and (d) against a
+  synthetic separable multi-video store, because the real fixtures do not carry the required
+  ground-truth field. Two of those substitutions were ratified in an ADR and two were not:
+  <a href="../adr/0026-photobleach-detection-and-window-default/">ADR-0026</a> option C ratifies the
+  synthetic known-step ground truth for (g), and
+  <a href="../adr/0028-gamma-acceptor-bleach-step-estimator/">ADR-0028</a> option D ships γ "validated
+  against synthetic known-γ recovery". The synthetic known-α fixtures and (d)'s synthetic
+  multi-video store carry no such ratification —
+  <a href="../adr/0027-leakage-alpha-tail-estimator/">ADR-0027</a> defers the donor-only α cross-check
+  but never mentions synthetic data, and neither ranker ADR
+  (<a href="../adr/0034-gradient-boosting-quality-ranker/">ADR-0034</a>,
+  <a href="../adr/0038-provisional-prior-training-fold/">ADR-0038</a>) discusses validation data at all. The
+  real-data comparisons that do exist (oracles (a), (b), (c)) stay on real fixtures.</li>
+</ul>
+<p><strong>Accepted diagnostics that are not gates.</strong></p>
+<ul>
+<li>M1 acceptor per-molecule Pearson median <strong>0.854</strong> and donor precision <strong>0.34</strong> are
+  reported, never gated (ADR-0022). Acceptor intensity fidelity and the ≈1.3 px acceptor
+  read-position scatter were carried forward as M3 diagnostics rather than re-opening M1.</li>
+<li><code>pacc</code>/<code>pdon</code> is a constant acquisition marker, not a per-molecule bleach oracle
+  (ADR-0026).</li>
+</ul>
+<p><strong>Input formats refused rather than approximated.</strong></p>
+<ul>
+<li>Deep-LASI particle-detection modes <strong>4 (local-variance)</strong> and <strong>5 (ZMW intensity)</strong> are
+  not ported. <code>src/tether/io/tdat.py</code> raises <code>ValueError</code> on them rather than silently
+  mis-detecting; only modes 1 (wavelet), 2 (intensity) and 3 (bandpass) are supported
+  (<a href="../adr/0021-particle-detection-modes/">ADR-0021</a>). A <code>.tdat</code> with a non-integer or
+  out-of-range mode code also raises. Covered by
+  <code>tests/test_tdat.py::test_unsupported_detection_mode_raises</code> and, at the CLI, by
+  <code>tests/test_extract_cli.py::test_extract_tdat_unsupported_mode_errors</code>, which asserts a
+  non-zero exit and that no output file is written.</li>
+</ul>
+<p><strong>Legacy-import data gaps</strong> (<a href="../adr/0045-deeplasi-round-trip-reconstruction/">ADR-0045</a>,
+documented gaps rather than fabricated values):</p>
+<ul>
+<li>Deep-LASI per-molecule NN/HMM <strong>category assignments are not written</strong> — they sit in an
+  undecoded MCOS blob. Only the category vocabulary is seeded, so a future decode attaches
+  assignments additively.</li>
+<li><strong>Image patches are not populated</strong> from Deep-LASI: the writer takes caller-supplied
+  patches from the import wizard (which opens the movie), and otherwise zero-fills; the
+  movie link keeps crops re-cacheable.</li>
+<li><strong>γ may be absent.</strong> Remapped α/γ are injected only when γ is finite and positive;
+  otherwise the project degrades to the explicit apparent-E substrate — never a NaN E
+  (ADR-0003). The committed Cy3-only fixture exercises that path.</li>
+<li>δ (direct excitation) is inert 0 for single-laser Deep-LASI data, which has no ALEX
+  channel to estimate it from.</li>
+<li>A raw-<code>.txt</code>-sourced SMD has no coordinates and no patches, so it is imported as an
+  explicit <strong>analysis-only</strong> project with the movie round-trip browser and patch-dependent
+  views disabled (<a href="../adr/0046-analysis-only-smd-import/">ADR-0046</a>).</li>
+</ul>
+<p><strong>The deep-learning add-on is not part of the validated core.</strong> The optional torch trace
+classifier lives in its own isolated lock stack
+(<a href="../adr/0047-deep-model-optional-stack-and-dataset/">ADR-0047</a>) and is deselected from the
+base 3-OS matrix by <code>-m "not ... and not deep"</code>. Its GPU leg,
+<code>tests/test_deep_gpu_deep.py</code>, imports torch through <code>pytest.importorskip</code> and self-skips
+without a CUDA device, and <code>.github/workflows/deep-gpu.yml</code> is <code>workflow_dispatch</code>-only —
+by construction it never reports a pull-request status and can never become a required
+check. Treat deep-classifier output as an assistive ranking signal, not a validated
+measurement.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,1970 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/release/">
+      
+      
+        <link rel="prev" href="../packaging/">
+      
+      
+        <link rel="next" href="../adr/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Releasing (signed installers) - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#releasing-tether-signed-installers" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Releasing (signed installers)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../io/legacy-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/parity-gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/tether-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#cutting-a-release" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cutting a release
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cutting a release">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-published-release-contains-verified-v100-rc1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a published Release contains: verified v1.0.0-rc1
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What a published Release contains: verified v1.0.0-rc1">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#verify-a-downloaded-installer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verify a downloaded installer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Verify a downloaded installer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#macos-apple-silicon" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS (Apple silicon)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#macos-intel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS (Intel)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#windows-powershell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows PowerShell
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signing-and-documentation-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signing and documentation status
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#publish-the-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publish the documentation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Publish the documentation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#manual-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verify-it-published" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verify it published
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#after-10-is-live-retire-the-dev-tree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        After 1.0 is live: retire the dev tree
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#windows-signing-signpath-free-for-open-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows signing — SignPath (free for open source)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#macos-signing-apple-developer-id-optional-deferred" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS signing — Apple Developer ID (optional, deferred)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#linux_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#cutting-a-release" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cutting a release
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cutting a release">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-published-release-contains-verified-v100-rc1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a published Release contains: verified v1.0.0-rc1
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What a published Release contains: verified v1.0.0-rc1">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#verify-a-downloaded-installer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verify a downloaded installer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Verify a downloaded installer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#macos-apple-silicon" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS (Apple silicon)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#macos-intel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS (Intel)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#windows-powershell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows PowerShell
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signing-and-documentation-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signing and documentation status
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#publish-the-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publish the documentation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Publish the documentation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#manual-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verify-it-published" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verify it published
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#after-10-is-live-retire-the-dev-tree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        After 1.0 is live: retire the dev tree
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#windows-signing-signpath-free-for-open-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows signing — SignPath (free for open source)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#macos-signing-apple-developer-id-optional-deferred" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS signing — Apple Developer ID (optional, deferred)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#linux_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="releasing-tether-signed-installers">Releasing Tether (signed installers)</h1>
+<p>Tether ships <strong>signed, self-contained installers</strong> for Windows, macOS and Linux,
+built and published by <a href="https://github.com/bioedca/tether/blob/main/.github/workflows/release.yml"><code>.github/workflows/release.yml</code></a>
+(see <a href="../adr/0050-release-pipeline-and-code-signing/">ADR-0050</a>). The pipeline runs on a
+signed <code>v*</code> tag: it <strong>verifies</strong> the tag, <strong>builds</strong> the installers (the
+<a href="../packaging/">constructor recipe</a>), <strong>code-signs</strong> them, and <strong>publishes</strong> a GitHub
+Release with checksums, a CycloneDX SBOM, the frozen Tether GUI/runtime (<code>conda-lock.yml</code>), sidecar
+(<code>sidecar-conda-lock.yml</code>), and deep (<code>deep-conda-lock.yml</code>) source-lock assets, a
+Conventional-Commits changelog, and a build-provenance attestation. Constructor consumes the first
+two as its <code>tether</code> and <code>sidecar</code> extra environments; its own <code>base</code> is a live-solved Python + conda
+bootstrap excluded from that reproducibility bill of materials. The deep lock is standalone; the
+deep environment is not bundled into the desktop installers.</p>
+<p>Code-signing is <strong>gated on repository variables</strong>, so the pipeline is green before any
+signing credential exists. Until you complete the setup below, the installers ship
+<strong>unsigned</strong> (a build warning says so) — everything else still works.</p>
+<h2 id="cutting-a-release">Cutting a release</h2>
+<ol>
+<li>Ensure <code>main</code> is green and releasable.</li>
+<li>
+<p>Create a <strong>signed, annotated</strong> tag on the release commit and push it:</p>
+<p><code>bash
+git tag -s v1.0.0 -m "Tether v1.0.0"
+git push origin v1.0.0</code></p>
+<p>The tag must be <strong>annotated</strong> and its signature <strong>verified by GitHub</strong> (your SSH
+signing key registered as a <em>Signing Key</em> on the account), and its commit must be on
+<code>main</code> — <code>release.yml</code>'s <code>verify</code> job enforces all three.
+3. To rehearse without publishing, run the <strong><code>release</code></strong> workflow via <em>Actions → release
+   → Run workflow</em> with <code>ref: v1.0.0-rc1</code> and <code>dry_run: true</code> — it builds, signs (where
+   configured), checksums and SBOMs, but publishes no Release.</p>
+</li>
+</ol>
+<h3 id="what-a-published-release-contains-verified-v100-rc1">What a published Release contains: verified <code>v1.0.0-rc1</code></h3>
+<p>The retained <a href="https://github.com/bioedca/tether/releases/tag/v1.0.0-rc1"><code>v1.0.0-rc1</code> prerelease</a>
+is the durable rehearsal record for the first successful end-to-end release run. It was
+published on 2026-07-21 with exactly the following 13 project-uploaded assets; the byte
+counts are the values reported by GitHub for the published files. The expanded Release
+asset list shows 15 downloads because GitHub also adds
+<a href="https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases">on-demand source archives</a>
+for the tag as <code>Source code (zip)</code> and <code>Source code (tar.gz)</code>. Those two generated
+archives are not project-uploaded assets and are not part of the inventory below.</p>
+<table>
+<thead>
+<tr>
+<th>Asset</th>
+<th style="text-align: right;">Recorded size (bytes)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CHANGELOG-v1.0.0-rc1.md</code></td>
+<td style="text-align: right;">1,719</td>
+</tr>
+<tr>
+<td><code>conda-lock.yml</code></td>
+<td style="text-align: right;">519,875</td>
+</tr>
+<tr>
+<td><code>SHA256SUMS-linux-64.txt</code></td>
+<td style="text-align: right;">99</td>
+</tr>
+<tr>
+<td><code>SHA256SUMS-osx-64.txt</code></td>
+<td style="text-align: right;">101</td>
+</tr>
+<tr>
+<td><code>SHA256SUMS-osx-arm64.txt</code></td>
+<td style="text-align: right;">100</td>
+</tr>
+<tr>
+<td><code>SHA256SUMS-win-64.txt</code></td>
+<td style="text-align: right;">102</td>
+</tr>
+<tr>
+<td><code>SHA256SUMS.txt</code></td>
+<td style="text-align: right;">1,112</td>
+</tr>
+<tr>
+<td><code>sidecar-conda-lock.yml</code></td>
+<td style="text-align: right;">258,926</td>
+</tr>
+<tr>
+<td><code>Tether-1.0.0-rc1-Linux-x86_64.sh</code></td>
+<td style="text-align: right;">802,018,820</td>
+</tr>
+<tr>
+<td><code>Tether-1.0.0-rc1-MacOSX-arm64.pkg</code></td>
+<td style="text-align: right;">624,027,165</td>
+</tr>
+<tr>
+<td><code>Tether-1.0.0-rc1-MacOSX-x86_64.pkg</code></td>
+<td style="text-align: right;">654,541,025</td>
+</tr>
+<tr>
+<td><code>Tether-1.0.0-rc1-Windows-x86_64.exe</code></td>
+<td style="text-align: right;">786,182,158</td>
+</tr>
+<tr>
+<td><code>tether-sbom.cyclonedx.json</code></td>
+<td style="text-align: right;">54,219</td>
+</tr>
+</tbody>
+</table>
+<p><code>SHA256SUMS.txt</code> lists the other 12 project-uploaded assets (it cannot list itself).
+It does not cover the two GitHub-generated source archives.</p>
+<p>This historical RC predates the current pipeline's addition of
+<code>deep-conda-lock.yml</code> to release staging, so that file is not part of the 13-asset
+record above. Neither the root <code>LICENSE</code> nor the root <code>NOTICE</code> is a standalone RC1
+Release upload. Constructor presents and bundles Tether's root GPL license via its
+<code>license_file</code>, while the bundled sidecar carries its own GPL text. RC1 did not stage
+or package Tether's root <code>NOTICE</code>; it remains available in the source repository and
+the GitHub-generated source archives.</p>
+<h4 id="verify-a-downloaded-installer">Verify a downloaded installer</h4>
+<p>Download an installer and its matching platform manifest into the same directory,
+then verify it before running it.</p>
+<h5 id="linux">Linux</h5>
+<pre><code class="language-bash">sha256sum -c SHA256SUMS-linux-64.txt
+</code></pre>
+<h5 id="macos-apple-silicon">macOS (Apple silicon)</h5>
+<pre><code class="language-bash">shasum -a 256 -c SHA256SUMS-osx-arm64.txt
+</code></pre>
+<h5 id="macos-intel">macOS (Intel)</h5>
+<pre><code class="language-bash">shasum -a 256 -c SHA256SUMS-osx-64.txt
+</code></pre>
+<h5 id="windows-powershell">Windows PowerShell</h5>
+<pre><code class="language-powershell">$expected = ((Get-Content .\SHA256SUMS-win-64.txt) -split '\s+')[0]
+$actual = (Get-FileHash -Algorithm SHA256 `
+  .\Tether-1.0.0-rc1-Windows-x86_64.exe).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw &quot;SHA-256 verification failed&quot; }
+</code></pre>
+<p>GitHub's build-provenance attestation supplies a second, independent check for each
+installer. To verify the complete four-installer set after downloading it, run:</p>
+<pre><code class="language-bash">verify_rc1() {
+  gh attestation verify &quot;$1&quot; \
+    --repo bioedca/tether \
+    --signer-workflow bioedca/tether/.github/workflows/release.yml \
+    --source-ref refs/tags/v1.0.0-rc1 \
+    --source-digest 1ba112683a0f2a5ba842e39893fd757bff2d18b3
+}
+
+verify_rc1 Tether-1.0.0-rc1-Linux-x86_64.sh
+verify_rc1 Tether-1.0.0-rc1-MacOSX-arm64.pkg
+verify_rc1 Tether-1.0.0-rc1-MacOSX-x86_64.pkg
+verify_rc1 Tether-1.0.0-rc1-Windows-x86_64.exe
+</code></pre>
+<p>The published attestation names all four installers as subjects. Each invocation
+independently hashes its local installer and enforces the GitHub repository, signer
+workflow, source tag, and source commit shown above; verifying one local file does not
+checksum the other three.</p>
+<h4 id="signing-and-documentation-status">Signing and documentation status</h4>
+<p>The RC's Windows <code>.exe</code> is <strong>unsigned</strong> because SignPath was not configured. Both
+macOS <code>.pkg</code> files are <strong>unsigned</strong> because Apple signing was disabled and the
+required payload deep-signing pass is not yet implemented. Linux has no OS-level
+installer signature by design; its SHA-256 manifests and GitHub build-provenance
+attestation are the integrity anchors.</p>
+<p>The prerelease is intentionally retained as this documented evidence set. Pre-releases
+also intentionally do <strong>not</strong> publish the documentation site: the RC release job logged
+its pre-release skip notice and created no <code>docs.yml</code> run. Release-triggered
+documentation publishing remains unproven until the stable <code>v1.0.0</code> tag.</p>
+<h2 id="publish-the-documentation">Publish the documentation</h2>
+<p>The documentation site is versioned with <a href="https://github.com/jimporter/mike"><code>mike</code></a> and
+served from the <code>gh-pages</code> branch; each build lives under <code>/tether/&lt;MAJOR.MINOR&gt;/</code>, with
+the <code>latest</code> alias and the site default pointing at the current stable tree.</p>
+<p><strong>A stable release publishes the site automatically.</strong> The last step of <code>release.yml</code>'s
+<code>release</code> job dispatches <a href="https://github.com/bioedca/tether/blob/main/.github/workflows/docs.yml"><code>.github/workflows/docs.yml</code></a>
+with the release tag, right after the GitHub Release is created.</p>
+<p>That explicit dispatch exists because the obvious mechanism does not work. <code>docs.yml</code>
+does trigger on <code>release: [published]</code>, but <code>release.yml</code> creates the Release with the
+default <code>GITHUB_TOKEN</code>, and GitHub deliberately does <strong>not</strong> start new workflow runs from
+events raised by that token. Without the dispatch, <code>docs.yml</code> simply never fires on a
+release — so the site would stay frozen on whatever was last published by hand.</p>
+<p><strong>Pre-releases do not publish.</strong> A hyphenated tag (<code>v1.0.0-rc1</code>) collapses to the same
+<code>1.0</code> documentation label as the stable tag, so publishing it would repoint <code>latest</code> and
+the site default at release-candidate docs. <code>release.yml</code> skips the dispatch for those
+tags and logs a <code>::notice::</code> saying so. This means a release candidate produces <strong>no</strong>
+<code>docs.yml</code> run at all — release-triggered documentation publishing is therefore first
+proven by the stable tag, not by the rehearsal.</p>
+<p>The site is built <strong>from the release tag</strong>, not from whatever <code>main</code> happens to hold. The
+dispatch passes <code>--ref "$TAG"</code>; without it <code>gh workflow run</code> targets the default branch,
+and a tag cut a few commits back — or <code>main</code> advancing during the ~15-minute build matrix
+— would publish unreleased docs under the released version.</p>
+<p>Each version's canonical URLs are handled by <code>mike</code>, not by <code>mkdocs.yml</code>. <code>mike deploy</code>
+injects its own plugin and rewrites <code>site_url</code> to <code>&lt;site_url&gt;/&lt;version&gt;</code> at build time, so
+the published <code>1.0</code> tree carries canonicals and a sitemap under <code>/tether/1.0/</code>. That is why
+<code>mkdocs.yml</code>'s <code>site_url</code> stays at the Pages root: pointing it at <code>/tether/latest/</code> would
+produce <code>/tether/latest/1.0/…</code>, which does not exist.</p>
+<h3 id="manual-fallback">Manual fallback</h3>
+<p>If the dispatch fails, or you need to republish, run <code>docs.yml</code> yourself:</p>
+<pre><code class="language-bash">gh workflow run docs.yml --ref v1.0.0 -f version=1.0
+</code></pre>
+<p><strong>Pass <code>--ref</code> and pass the tag</strong>, exactly as the automatic dispatch does. Without it <code>gh</code>
+targets the default branch, so you would publish whatever <code>main</code> holds right now under a
+released version's label — the mistake the manual path exists to recover from. The same
+applies to <em>Actions → docs → Run workflow</em>: set <strong>Use workflow from</strong> to the release tag,
+not <code>main</code>.</p>
+<p>The <code>version</code> input accepts <code>MAJOR.MINOR</code>, <code>MAJOR.MINOR.PATCH</code> (a leading <code>v</code> is stripped,
+and the patch component is dropped to give the doc tree) or the literal <code>dev</code>. Anything
+else — including a four-component <code>1.0.0.0</code> or a pre-release <code>1.0.0-rc1</code> — is <strong>rejected</strong>
+at the version-resolution step rather than silently truncated to a plausible label.</p>
+<p>Whatever you publish takes over the <code>latest</code> alias and the site default: <code>docs.yml</code> always
+runs <code>mike deploy --update-aliases &lt;label&gt; latest</code> followed by <code>mike set-default --push
+latest</code>. There is no way to publish a version <em>without</em> promoting it, so do not dispatch an
+older branch to "just refresh" an old tree.</p>
+<h3 id="verify-it-published">Verify it published</h3>
+<pre><code class="language-bash">gh api &quot;repos/bioedca/tether/contents/versions.json?ref=gh-pages&quot; \
+  --jq '.content' | base64 -d
+</code></pre>
+<blockquote>
+<p>Keep the quotes. <code>?</code> is a glob character in zsh — the default shell on macOS — and an
+unquoted URL fails with <code>no matches found</code> before <code>gh</code> ever runs.</p>
+</blockquote>
+<p>The new version must appear in the list with <code>latest</code> among its <code>aliases</code>, e.g.
+<code>[{"version": "1.0", "title": "1.0", "aliases": ["latest"]}]</code>. Then load
+<a href="https://bioedca.github.io/tether/latest/">https://bioedca.github.io/tether/latest/</a> and confirm the version selector offers the
+new version.</p>
+<h3 id="after-10-is-live-retire-the-dev-tree">After 1.0 is live: retire the <code>dev</code> tree</h3>
+<p>The site currently carries a placeholder <code>dev</code> tree, created by hand before any release
+existed. Once <code>1.0</code> is published <strong>and</strong> verified as above, it can be removed:</p>
+<pre><code class="language-bash">mike delete --push dev
+</code></pre>
+<blockquote>
+<p><strong>Do not run this before <code>1.0</code> is live.</strong> <code>latest</code> presently aliases <code>dev</code>; deleting it
+first takes the published site down until the stable tree replaces it. After deleting,
+re-check that <code>latest</code> and the site default both still resolve to <code>1.0</code>.</p>
+</blockquote>
+<h2 id="windows-signing-signpath-free-for-open-source">Windows signing — SignPath (free for open source)</h2>
+<p>SignPath's Foundation program signs open-source releases at no cost.</p>
+<ol>
+<li>Enroll <code>bioedca/tether</code> at <a href="https://signpath.io/open-source">signpath.io</a> and create a
+   <strong>project</strong> and a <strong>signing policy</strong> (e.g. <code>release-signing</code>).</li>
+<li>
+<p>In the repo, add these <strong>variables</strong> (Settings → Secrets and variables → Actions →
+   <em>Variables</em>) and one <strong>secret</strong> (<em>Secrets</em>):</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Name</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Variable</td>
+<td><code>SIGNPATH_ORGANIZATION_ID</code></td>
+<td>your SignPath organization id</td>
+</tr>
+<tr>
+<td>Variable</td>
+<td><code>SIGNPATH_PROJECT_SLUG</code></td>
+<td>the project slug (e.g. <code>tether</code>)</td>
+</tr>
+<tr>
+<td>Variable</td>
+<td><code>SIGNPATH_SIGNING_POLICY_SLUG</code></td>
+<td>the policy slug (e.g. <code>release-signing</code>)</td>
+</tr>
+<tr>
+<td>Secret</td>
+<td><code>SIGNPATH_API_TOKEN</code></td>
+<td>a SignPath API token</td>
+</tr>
+</tbody>
+</table>
+<p>The Windows signing step activates the moment <code>SIGNPATH_ORGANIZATION_ID</code> is set
+(variables — not secrets — because GitHub forbids reading a secret in an <code>if:</code>).</p>
+</li>
+</ol>
+<h2 id="macos-signing-apple-developer-id-optional-deferred">macOS signing — Apple Developer ID (optional, deferred)</h2>
+<p>Wired but <strong>disabled by default</strong>. To enable, you need an Apple Developer Program
+membership, a <strong>Developer ID Installer</strong> certificate (<code>.pkg</code> installers are signed with
+<em>Installer</em>, not <em>Application</em>), and an App Store Connect API key for notarization. Then:</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Name</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Variable</td>
+<td><code>APPLE_SIGNING_ENABLED</code></td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td>Variable</td>
+<td><code>APPLE_SIGNING_IDENTITY</code></td>
+<td>the Developer ID Installer identity name</td>
+</tr>
+<tr>
+<td>Secret</td>
+<td><code>APPLE_CERTIFICATE_P12_BASE64</code></td>
+<td>base64 of the <code>.p12</code> cert</td>
+</tr>
+<tr>
+<td>Secret</td>
+<td><code>APPLE_CERTIFICATE_PASSWORD</code></td>
+<td>the <code>.p12</code> password</td>
+</tr>
+<tr>
+<td>Secret</td>
+<td><code>APPLE_NOTARY_KEY_ID</code></td>
+<td>App Store Connect key id</td>
+</tr>
+<tr>
+<td>Secret</td>
+<td><code>APPLE_NOTARY_ISSUER_ID</code></td>
+<td>App Store Connect issuer id</td>
+</tr>
+<tr>
+<td>Secret</td>
+<td><code>APPLE_NOTARY_KEY_P8_BASE64</code></td>
+<td>base64 of the <code>.p8</code> notary key</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Prerequisite before enabling.</strong> The workflow currently <code>productsign</code>s only the outer
+<code>.pkg</code>. Apple <strong>notarization</strong> additionally requires every Mach-O binary in the bundled
+conda payload to be <code>codesign</code>ed with a <em>Developer ID Application</em> identity <strong>and a
+hardened runtime</strong> — otherwise <code>notarytool</code> returns <em>Invalid</em> and <code>stapler</code> fails. Add a
+recursive payload-signing pass (or use constructor's native <code>signing_identity_name</code> /
+<code>notarization_identity_name</code>) before flipping <code>APPLE_SIGNING_ENABLED</code> to <code>true</code>.</p>
+</blockquote>
+<h2 id="linux_1">Linux</h2>
+<p>No OS-level signing; the per-file and combined <strong><code>SHA256SUMS</code></strong> plus the build-provenance
+attestation are the integrity anchor.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

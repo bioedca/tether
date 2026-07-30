@@ -1,0 +1,2903 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/reference/tether-format/">
+      
+      
+        <link rel="prev" href="../parameters/">
+      
+      
+        <link rel="next" href="../../glossary/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Project store (.tether HDF5 schema) - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#the-tether-project-store" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Project store (.tether HDF5 schema)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../io/legacy-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analysis/parity-gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#opening-a-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opening a store
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-frozen-and-what-that-means-for-your-reader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is frozen, and what that means for your reader
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-freshly-created-project-is-nearly-empty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A freshly created project is nearly empty
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#type-notation-used-below" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Type notation used below
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-root-group" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        / — the root group
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#movies-one-row-per-source-movie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /movies — one row per source movie
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#molecules-one-row-per-molecule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /molecules — one row per molecule
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="/molecules — one row per molecule">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#two-sentinels-and-two-derivations-worth-reading-twice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two sentinels and two derivations worth reading twice
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conditions-the-structured-experimental-conditions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /conditions — the structured experimental conditions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#labels-the-append-only-curation-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /labels — the append-only curation log
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#traces-the-integrated-intensity-arrays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /traces — the integrated intensity arrays
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#patches-the-cached-image-crops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /patches — the cached image crops
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings-provenance-of-each-pipeline-stage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /settings — provenance of each pipeline stage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#idealization-one-subgroup-per-fitted-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /idealization — one subgroup per fitted model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#features-the-ml-feature-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /features — the ML feature cache
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#calibration-the-channel-registration-maps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /calibration — the channel registration maps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#models-reserved-and-empty-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /models — reserved, and empty today
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-to-look-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to look next
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#opening-a-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opening a store
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-frozen-and-what-that-means-for-your-reader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is frozen, and what that means for your reader
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-freshly-created-project-is-nearly-empty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A freshly created project is nearly empty
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#type-notation-used-below" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Type notation used below
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-root-group" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        / — the root group
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#movies-one-row-per-source-movie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /movies — one row per source movie
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#molecules-one-row-per-molecule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /molecules — one row per molecule
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="/molecules — one row per molecule">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#two-sentinels-and-two-derivations-worth-reading-twice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two sentinels and two derivations worth reading twice
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conditions-the-structured-experimental-conditions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /conditions — the structured experimental conditions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#labels-the-append-only-curation-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /labels — the append-only curation log
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#traces-the-integrated-intensity-arrays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /traces — the integrated intensity arrays
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#patches-the-cached-image-crops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /patches — the cached image crops
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings-provenance-of-each-pipeline-stage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /settings — provenance of each pipeline stage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#idealization-one-subgroup-per-fitted-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /idealization — one subgroup per fitted model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#features-the-ml-feature-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /features — the ML feature cache
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#calibration-the-channel-registration-maps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /calibration — the channel registration maps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#models-reserved-and-empty-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /models — reserved, and empty today
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-to-look-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to look next
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="the-tether-project-store">The <code>.tether</code> project store</h1>
+<p>This page is for anyone who has been handed a <code>.tether</code> file and wants to read it —
+with plain <code>h5py</code>, in another language, or in a script that must keep working across
+Tether releases. It is the reference for the <strong>internal</strong> project store only. What
+Tether <em>writes out</em> (SMD-HDF5 hand-off, CSV/Parquet tables, plot exports) is a
+separate surface, described in <a href="../exports/">Exports (files, columns, units)</a>.</p>
+<p>A <code>.tether</code> file is an ordinary HDF5 file. There is no proprietary container, no
+sidecar index, and no compression scheme beyond stock gzip on the bulk arrays.</p>
+<p>The format has <strong>two layers</strong>, and they carry different guarantees:</p>
+<ul>
+<li>The <strong>frozen skeleton</strong> — the 12 group paths (the root plus the 11 top-level
+  groups), the four compound <code>table</code> dtypes and the three root attributes — is
+  declared in exactly one place,
+  <code>src/tether/io/schema.py</code>, and a machine-checked copy of it is committed as
+  <code>schema/schema_frozen.json</code>. That manifest is generated by
+  <code>scripts/dump_schema.py</code>, which runs <code>tether.io.schema.build_manifest</code> against a
+  throwaway <code>create_project</code> store, so it cannot drift from the code. Where this page
+  and that manifest disagree about the skeleton, <strong>the manifest is right and this
+  page is a bug</strong>.</li>
+<li>Everything a pipeline stage writes <em>later</em> — <code>/traces/*</code>, <code>/patches/*</code>,
+  <code>/settings/*</code>, <code>/idealization/{model}</code>, <code>/features/table</code>, <code>/conditions/categories</code>,
+  <code>/calibration/*</code> — is additive per-record data declared by the module that writes
+  it. None of it appears in the manifest, so the manifest cannot arbitrate it: the
+  writer named in each section below is the authority. Note the <code>/*</code>: the <strong>container
+  groups</strong> these live in are themselves part of the frozen skeleton above, and only
+  their contents are additive.</li>
+</ul>
+<p>Every claim below names the module, constant, or writer behind it.</p>
+<h2 id="opening-a-store">Opening a store</h2>
+<pre><code class="language-python">import h5py
+
+with h5py.File(&quot;experiment.tether&quot;, &quot;r&quot;) as f:
+    assert f.attrs[&quot;format&quot;] == &quot;tether-project&quot;
+    print(int(f.attrs[&quot;schema_version&quot;]))          # 1
+    mols = f[&quot;/molecules/table&quot;][:]                # a structured (compound) array
+    print(mols[&quot;molecule_key&quot;][0].decode(&quot;utf-8&quot;)) # vlen UTF-8 reads back as bytes
+</code></pre>
+<p>Tether's own validation entry point is
+<code>tether.io.schema.assert_is_compatible_project(path)</code>, which checks, in this order:
+the file is readable HDF5; the root <code>format</code> attribute is <code>tether-project</code>; a
+<code>schema_version</code> stamp exists; the frozen top-level skeleton is present (so a foreign
+<em>or truncated</em> HDF5 file is rejected rather than silently accepted); and that version
+is not newer than the running app. It returns the on-disk <code>schema_version</code>. The order
+matters when you are diagnosing a rejection: a stamp-less file fails on the stamp
+before the skeleton is ever inspected.</p>
+<p>String fields are HDF5 <strong>variable-length UTF-8</strong>
+(<code>h5py.string_dtype(encoding="utf-8")</code>, the <code>_str()</code> helper in
+<code>src/tether/io/schema.py</code>). h5py hands them back as <code>bytes</code> — decode them yourself.</p>
+<h2 id="what-is-frozen-and-what-that-means-for-your-reader">What is frozen, and what that means for your reader</h2>
+<p>The entire group skeleton was forward-declared and version-stamped at milestone M0
+and is <strong>additive-only</strong> thereafter
+(<a href="../../adr/0005-m0-schema-freeze/">ADR-0005</a>). Concretely, the freeze covers:</p>
+<ul>
+<li>the 12 group paths listed on this page;</li>
+<li>the four compound <code>table</code> datasets, including <strong>field order</strong> — a compound dtype's
+  on-disk layout is positional, so new fields may only be <em>appended</em>
+  (<code>_diff_compound</code> in <code>src/tether/io/schema.py</code> requires the golden field sequence
+  to remain an exact prefix of the current one);</li>
+<li>each field's dtype and sub-array shape;</li>
+<li>each table's <code>maxshape</code> (all four are <code>(None,)</code> — 1-D and resizable);</li>
+<li>the presence and type of the three root attributes, plus the <em>values</em> of <code>format</code>
+  and <code>schema_version</code>.</li>
+</ul>
+<p>Those rules are enforced mechanically, not by review: the <code>schema-guard</code> CI job
+(<code>.github/workflows/schema-guard.yml</code>) runs <code>python scripts/dump_schema.py --check</code>,
+which fails a removal, rename, reorder or retype and passes an added group, dataset,
+attribute or <em>trailing</em> table field. The release <strong>policy</strong> behind them is not
+restated here:
+<a href="../../stability/#what-each-release-may-change">what each release may change</a> sets out
+which release types may touch what, and
+<a href="../../stability/#2-the-tether-on-disk-format">the <code>.tether</code> on-disk format</a> lists which
+parts of this page are a promise rather than a description.</p>
+<p>What that means if you write your own reader:</p>
+<blockquote>
+<p><strong>Tolerate what you do not recognise.</strong> Read compound tables <strong>by field name</strong>,
+never by positional index or a hard-coded record size, and ignore fields, datasets,
+groups and attributes you do not know — a later Tether release may add them without
+a <code>schema_version</code> bump. Conversely, you may rely on the <strong>frozen skeleton</strong> above —
+the group paths, the four tables' field names, dtypes and order, and the three root
+attributes (<code>app_version</code> only in a file whose writer stamped it — see the
+root-group section below) — continuing to exist unchanged for as long as
+<code>schema_version</code> stays <code>1</code>. That is exactly the set <code>schema-guard</code> mechanically
+enforces against the writer.</p>
+</blockquote>
+<p>The additive payloads described further down (<code>/traces/*</code>, <code>/patches/*</code>,
+<code>/settings/*</code>, <code>/idealization/{model}</code>, <code>/features/table</code>, <code>/calibration/*</code>) are
+<strong>documented convention, not part of the freeze</strong>. Their <strong>container groups are not</strong>:
+<code>/traces</code>, <code>/patches</code>, <code>/settings</code>, <code>/idealization</code>, <code>/features</code>, <code>/calibration</code> and
+<code>/models</code> are all in the golden's <code>groups</code> list and in <code>_CONTAINER_GROUPS</code>
+(<code>src/tether/io/schema.py</code>), so a file missing any one of them is rejected by
+<code>assert_is_compatible_project</code> as not a project — a <strong>required</strong> group your reader may
+rely on, even when it is empty. Only what is <em>inside</em> them is unarbitrated:
+<code>build_manifest</code> introspects a freshly created, empty store, so none of those child
+names is in the golden and <code>diff_manifest</code> never compares them; renaming or retyping
+one would pass <code>schema-guard</code> with <code>schema_version</code> untouched. They have been additive in practice, and <code>/features/table</code>
+carries its own independent <code>feature_schema_version</code> precisely so its columns can
+change without touching the store's <code>schema_version</code>. Pin your reader to the writer
+module named in each section, and treat a missing or unfamiliar payload as normal.</p>
+<p><code>schema_version</code> is currently <strong><code>1</code></strong> (<code>SCHEMA_VERSION</code>, <code>src/tether/io/schema.py</code>)
+and has never been bumped. What a bump would mean for a file you already hold, and
+what a non-additive change has to carry before one is allowed, are set out under
+<a href="../../stability/#project-file-compatibility">Project file compatibility</a>; how a
+covered name is retired is the
+<a href="../../stability/#deprecation-policy">deprecation policy</a> on the same page.</p>
+<p>Two properties worth knowing before you build on the format:</p>
+<ul>
+<li>The store is a <strong>superset of SMD</strong>, the tMAVEN interchange model
+  (<a href="../../adr/0002-smd-superset-round-trip/">ADR-0002</a>): every SMD concept has a home
+  here, plus the coordinates, patches, corrections and provenance SMD has no slot
+  for. Round-trip fidelity is therefore a property of the data model, not of a
+  converter.</li>
+<li>The <code>&lt;file&gt;.lock</code> single-writer marker is a <strong>sidecar file</strong>, not part of the
+  in-HDF5 schema (<code>src/tether/io/schema.py</code> module docstring); <code>create_project</code>
+  never writes it.</li>
+</ul>
+<h2 id="a-freshly-created-project-is-nearly-empty">A freshly created project is nearly empty</h2>
+<p><code>tether.io.schema.create_project(path)</code> writes the whole skeleton and nothing else:
+11 top-level groups, four <strong>zero-row</strong> compound tables, and three root attributes.
+Everything else on this page is <em>data</em> written later by a specific pipeline stage.
+(Do not treat the file's <em>size</em> as a format property — the same skeleton measures
+12,950 bytes under HDF5 2.0.0 and 13,164 under 1.14.x. Only the structure is fixed.)</p>
+<p>The <code>/traces</code> and <code>/patches</code> <strong>groups</strong> always exist — they are part of the validated
+skeleton (<code>_CONTAINER_GROUPS</code>), and a file missing one is rejected as not a project.
+What a reader must not assume is that anything is <em>inside</em> them: no <code>/traces/*</code> or
+<code>/patches/*</code> dataset, no <code>/features/table</code>, and no <code>/idealization/{model}</code> is
+guaranteed to be there.</p>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>In a fresh store</th>
+<th>First written by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/movies/table</code>, <code>/molecules/table</code>, <code>/conditions/table</code>, <code>/labels/table</code></td>
+<td>yes, 0 rows</td>
+<td><code>create_project</code> (<code>src/tether/io/schema.py</code>)</td>
+</tr>
+<tr>
+<td><code>/calibration</code>, <code>/traces</code>, <code>/patches</code>, <code>/idealization</code>, <code>/settings</code>, <code>/features</code>, <code>/models</code></td>
+<td>yes, empty groups</td>
+<td><code>create_project</code></td>
+</tr>
+<tr>
+<td><code>/calibration/&lt;calibration_id&gt;/…</code></td>
+<td>no</td>
+<td><code>write_calibration</code> (<code>src/tether/imaging/calibrate.py</code>)</td>
+</tr>
+<tr>
+<td><code>/movies</code> and <code>/molecules</code> rows, <code>/traces/*</code>, <code>/patches/*</code>, <code>/settings/extraction</code></td>
+<td>no rows / absent</td>
+<td><code>write_extraction</code> (<code>src/tether/imaging/extract.py</code>)</td>
+</tr>
+<tr>
+<td><code>/idealization/{model}</code></td>
+<td>no</td>
+<td><code>write_idealization_model</code> (<code>src/tether/project/idealize.py</code>)</td>
+</tr>
+<tr>
+<td><code>/labels</code> rows</td>
+<td>0 rows</td>
+<td><code>set_curation_label</code> (<code>src/tether/project/labels.py</code>)</td>
+</tr>
+<tr>
+<td><code>/settings/leakage</code>, <code>/settings/gamma</code>, <code>/settings/correction</code>, <code>/settings/batch</code></td>
+<td>no</td>
+<td><code>tether.project.leakage</code> / <code>.gamma</code> / <code>.correct</code> / <code>.batch</code></td>
+</tr>
+<tr>
+<td><code>/conditions</code> rows, <code>/conditions/categories/&lt;condition_id&gt;</code>, <code>/settings/condition_audit</code></td>
+<td>0 rows / absent</td>
+<td><code>tether.project.conditions</code></td>
+</tr>
+<tr>
+<td><code>/features/table</code></td>
+<td>no</td>
+<td><code>compute_features</code> (<code>src/tether/project/features.py</code>)</td>
+</tr>
+<tr>
+<td><code>/settings/analysis_only</code></td>
+<td>no</td>
+<td><code>import_analysis_only_project</code> (<code>src/tether/project/analysis_import.py</code>)</td>
+</tr>
+<tr>
+<td><code>/models/*</code></td>
+<td>no</td>
+<td>nothing yet — see below</td>
+</tr>
+</tbody>
+</table>
+<p><code>write_extraction</code> is not the only writer of <code>/molecules</code> rows and <code>/traces</code>. Four
+shipped provenances produce a populated store, and they differ in what they fill in.
+The rest of this page describes the native-extraction case unless it says otherwise:</p>
+<table>
+<thead>
+<tr>
+<th>Store provenance</th>
+<th>Writer</th>
+<th>What differs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Native extraction</td>
+<td><code>write_extraction</code> (<code>src/tether/imaging/extract.py</code>)</td>
+<td>The fullest record: <code>/movies</code> rows, coordinates, all six <code>/traces</code> layers, <code>/patches</code> — but only for a movie that yielded at least one molecule; see <a href="#traces-the-integrated-intensity-arrays"><code>/traces</code></a> for the zero-molecule case.</td>
+</tr>
+<tr>
+<td>Deep-LASI reconstruction</td>
+<td><code>reconstruct_project</code> (<code>src/tether/project/reconstruct.py</code>)</td>
+<td>Also goes through <code>write_extraction</code>, so the <code>/movies</code>, <code>/molecules</code>, <code>/traces</code> and <code>/patches</code> layout is the same — but the trace values are the legacy <code>.mat</code> series copied verbatim, <strong>not</strong> an integration this build performed, and <strong>no calibration is written</strong>: <code>reconstruct_project</code> never calls <code>write_calibration</code>, so <code>/calibration</code> stays empty whatever the caller passes. The shipped GUI caller — the wizard is the only caller; no <code>tether</code> subcommand reconstructs — additionally leaves the calibration key and channel geometry unset (<code>_movie_metadata</code>, <code>src/tether/gui/deeplasi_executor.py</code>), so in practice <code>/movies.calibration_id</code> is <code>""</code> and the crop/rotation/flip fields are all zero.</td>
+</tr>
+<tr>
+<td>Analysis-only import</td>
+<td><code>import_analysis_only_project</code> (<code>src/tether/project/analysis_import.py</code>)</td>
+<td>No <code>/movies</code> rows, <code>movie_id = ""</code>, <code>donor_xy</code>/<code>acceptor_xy</code> <code>NaN</code>, <code>/patches</code> empty, only the two corrected <code>/traces</code> layers.</td>
+</tr>
+<tr>
+<td>Subset export</td>
+<td><code>export_subset_tether</code> (<code>src/tether/project/export.py</code>)</td>
+<td>A new store: <code>/molecules</code> rows copied verbatim (so <code>movie_id</code> survives as a <strong>dangling</strong> key), no <code>/movies</code> rows, corrected <code>/traces</code> only unless <code>include_raw=True</code>.</td>
+</tr>
+</tbody>
+</table>
+<p><code>create_project</code> opens the file with <code>track_order=True</code> and creates every skeleton
+group with it, and the later <code>/settings/*</code>, <code>/calibration/&lt;id&gt;</code> and
+<code>/conditions/categories</code> writers do the same, so those links are stored in creation
+order. The promise is <strong>not</strong> store-wide: the per-model <code>/idealization/&lt;name&gt;</code> groups
+and the <code>priors</code> subgroup inside them are created without <code>track_order</code>
+(<code>write_idealization_model</code>, <code>src/tether/project/idealize.py</code>; the copy in
+<code>_copy_idealization</code>, <code>src/tether/project/export.py</code>), so their members fall back to
+HDF5's default ordering. Either way, <code>h5py.Group.visit</code> iterates <strong>alphabetically</strong>.</p>
+<h2 id="type-notation-used-below">Type notation used below</h2>
+<p>The Type column uses the same canonical names as <code>schema/schema_frozen.json</code>, which
+deliberately drops byte order so the manifest is platform-independent
+(<code>_canonical_scalar</code>): <code>i1</code>, <code>i4</code>, <code>i8</code> are signed integers of 1/4/8 bytes, <code>f8</code> is a
+64-bit float, and <code>str:utf-8</code> is a variable-length UTF-8 string. The dtypes actually
+declared in <code>src/tether/io/schema.py</code> are the little-endian spellings <code>&lt;i4</code>, <code>&lt;i8</code>,
+<code>&lt;f8</code> (and <code>i1</code>, which has no byte order).</p>
+<h2 id="the-root-group"><code>/</code> — the root group</h2>
+<p>Three attributes. <code>create_project</code> always writes <code>format</code> and <code>schema_version</code>; the
+third is stamped <strong>by default but optional</strong> (see below):</p>
+<table>
+<thead>
+<tr>
+<th>Attribute</th>
+<th>Type</th>
+<th>Value</th>
+<th>Frozen</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>format</code></td>
+<td><code>str</code></td>
+<td><code>tether-project</code> (<code>FORMAT_TAG</code>)</td>
+<td>name, type <strong>and value</strong></td>
+</tr>
+<tr>
+<td><code>schema_version</code></td>
+<td><code>int</code></td>
+<td><code>1</code> (<code>SCHEMA_VERSION</code>)</td>
+<td>name, type <strong>and value</strong>, monotonic</td>
+</tr>
+<tr>
+<td><code>app_version</code></td>
+<td><code>str</code></td>
+<td>the writing Tether version, e.g. <code>0.8.1.dev16+g…</code></td>
+<td>name and type only</td>
+</tr>
+</tbody>
+</table>
+<p><code>app_version</code> is provenance, not structure, and what is frozen is the <strong>writer's</strong>
+declaration rather than every file: <code>create_project(path, stamp_app_version=False)</code>
+omits the attribute and <code>assert_is_compatible_project</code> never looks for it, so a store
+without it is valid. Read it as <code>f.attrs.get("app_version")</code> and never reject a file
+for its absence. The policy — including why its <em>value</em> is excluded from the manifest
+— is
+<a href="../../stability/#2-the-tether-on-disk-format">the <code>.tether</code> on-disk format</a> section of
+the stability page.</p>
+<p>Subset exports stamp four <strong>additional</strong> root attributes onto the destination file —
+<code>tether_subset_of</code>, <code>tether_subset_created_utc</code>, <code>tether_subset_include_raw</code>,
+<code>tether_subset_n_molecules</code> (<code>src/tether/project/export.py</code>) — a good example of the
+additive rule in practice: your reader should expect unknown root attributes.</p>
+<h2 id="movies-one-row-per-source-movie"><code>/movies</code> — one row per source movie</h2>
+<p>Group holding <code>/movies/table</code>, a resizable 1-D compound dataset (<code>MOVIES_DTYPE</code>,
+20 fields). Rows are appended by <code>write_extraction</code>; re-appending an existing
+<code>movie_id</code> is refused. <code>file_size</code> + <code>mtime</code> + <code>offline_flag</code> are the
+<strong>metadata-only fast signature</strong>: a relocation/staleness check that reads zero bytes
+of the movie and therefore never hydrates a cloud placeholder.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Shape</th>
+<th>Meaning / units</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>movie_id</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Movie identity within this store; the CLI writes <code>mov-&lt;uuid4&gt;</code> (<code>src/tether/project/extract.py</code>).</td>
+</tr>
+<tr>
+<td><code>uri</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Source movie path as text; <code>""</code> when unknown.</td>
+</tr>
+<tr>
+<td><code>sha256</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>64-char hex SHA-256 of the whole movie file (<code>_hash_movie</code>); seeds every <code>molecule_key</code>.</td>
+</tr>
+<tr>
+<td><code>file_size</code></td>
+<td><code>i8</code></td>
+<td>scalar</td>
+<td><code>Path.stat().st_size</code>, <strong>bytes</strong>.</td>
+</tr>
+<tr>
+<td><code>mtime</code></td>
+<td><code>f8</code></td>
+<td>scalar</td>
+<td><code>Path.stat().st_mtime</code>, <strong>POSIX epoch seconds</strong>.</td>
+</tr>
+<tr>
+<td><code>offline_flag</code></td>
+<td><code>i1</code></td>
+<td>scalar</td>
+<td>Cloud-placeholder / offline marker. Reserved: every shipped writer leaves it <code>0</code>.</td>
+</tr>
+<tr>
+<td><code>n_frames</code></td>
+<td><code>i4</code></td>
+<td>scalar</td>
+<td>Frame count of the movie (validated <code>&gt;= 1</code>).</td>
+</tr>
+<tr>
+<td><code>height</code></td>
+<td><code>i4</code></td>
+<td>scalar</td>
+<td>Full-frame height, <strong>pixels</strong>.</td>
+</tr>
+<tr>
+<td><code>width</code></td>
+<td><code>i4</code></td>
+<td>scalar</td>
+<td>Full-frame width, <strong>pixels</strong> — the whole frame, before the two-channel split.</td>
+</tr>
+<tr>
+<td><code>pixel_dtype</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>On-disk pixel dtype string, e.g. <code>&gt;u2</code> (<code>src/tether/io/movie.py</code>).</td>
+</tr>
+<tr>
+<td><code>byteorder</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td><code>&gt;</code> (big-endian) or <code>&lt;</code> (little-endian).</td>
+</tr>
+<tr>
+<td><code>frame_time</code></td>
+<td><code>f8</code></td>
+<td>scalar</td>
+<td><strong>Seconds per frame.</strong> The writer stores whatever the caller's <code>MovieMetadata</code> holds (default <code>0.0</code>), and both shipped writers — <code>tether.project.extract</code> and the Deep-LASI reconstruction's <code>_movie_metadata</code> (<code>src/tether/gui/deeplasi_executor.py</code>) — take it from the movie TIFF's ImageJ <code>finterval</code> tag, and only when that is finite and positive (<code>_read_frame_time</code>, <code>src/tether/io/movie.py</code>); <code>0.0</code> otherwise. A <strong>Deep-LASI reconstruction</strong> is no exception: it builds this row from the raw TIFF as well, and the shipped <code>.tdat</code>/<code>.mat</code> decode reads no <code>FrameTime</code>, so a reconstructed store does <strong>not</strong> preserve a Deep-LASI timebase.</td>
+</tr>
+<tr>
+<td><code>head_tail_hash</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Reserved partial-content digest for the fast signature; no shipped writer sets it (stays <code>""</code>).</td>
+</tr>
+<tr>
+<td><code>calibration_id</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Join key into <code>/calibration</code>.</td>
+</tr>
+<tr>
+<td><code>donor_crop</code></td>
+<td><code>i4</code></td>
+<td><code>(4,)</code></td>
+<td><code>[y1, x1, y2, x2]</code>, <strong>1-based inclusive</strong> pixel bounds (<code>src/tether/imaging/split.py</code>). All-zero means full frame / unspecified.</td>
+</tr>
+<tr>
+<td><code>acceptor_crop</code></td>
+<td><code>i4</code></td>
+<td><code>(4,)</code></td>
+<td>Same convention, acceptor channel.</td>
+</tr>
+<tr>
+<td><code>donor_rotation_deg</code></td>
+<td><code>i4</code></td>
+<td>scalar</td>
+<td>Channel rotation in <strong>degrees</strong>, one of <code>{0, 90, 180, 270}</code>.</td>
+</tr>
+<tr>
+<td><code>acceptor_rotation_deg</code></td>
+<td><code>i4</code></td>
+<td>scalar</td>
+<td>Same, acceptor channel.</td>
+</tr>
+<tr>
+<td><code>donor_flip</code></td>
+<td><code>i1</code></td>
+<td><code>(2,)</code></td>
+<td><code>[vertical, horizontal]</code> flip flags, <code>0</code>/<code>1</code>.</td>
+</tr>
+<tr>
+<td><code>acceptor_flip</code></td>
+<td><code>i1</code></td>
+<td><code>(2,)</code></td>
+<td>Same, acceptor channel.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="molecules-one-row-per-molecule"><code>/molecules</code> — one row per molecule</h2>
+<p>Group holding <code>/molecules/table</code> (<code>MOLECULES_DTYPE</code>, 21 fields). This is the spine
+of the store: <strong>row <code>i</code> of <code>/molecules/table</code>, of every <code>/traces/*</code> array and of
+every <code>/patches/*</code> array is the same molecule</strong> — the join is positional, asserted
+by <code>_validate_alignment</code> in <code>src/tether/imaging/extract.py</code>.</p>
+<p>Later stages mutate columns of existing rows; they never change the structure.
+Photobleach detection rewrites <code>bleach_frames</code> and <code>analysis_window</code>, the leakage /
+gamma / correction stages write <code>alpha</code>, <code>gamma</code>, <code>correction_method</code> and
+<code>correction_confidence</code>, curation writes <code>curation_label</code>, and a condition re-key
+rewrites <code>condition_id</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Shape</th>
+<th>Meaning / units</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>molecule_id</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Stable per-row identity, <code>mol-&lt;uuid4 hex&gt;</code>. <strong>Unique</strong>, so this is the correct join key for per-row data.</td>
+</tr>
+<tr>
+<td><code>molecule_key</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Cross-file content identity, 64-char hex SHA-256. Deterministic across runs and platforms. Two derivations exist (see below); the extraction one is <strong>not</strong> guaranteed unique.</td>
+</tr>
+<tr>
+<td><code>movie_id</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Foreign key into <code>/movies/table</code>. <code>""</code> in an analysis-only import, and <strong>dangling</strong> in a subset export (which carries no <code>/movies</code> rows) — resolve it defensively.</td>
+</tr>
+<tr>
+<td><code>donor_xy</code></td>
+<td><code>f8</code></td>
+<td><code>(2,)</code></td>
+<td>Sub-pixel <code>[x, y]</code> donor (reference-channel) centroid, in <strong>movie pixels</strong> of the donor sub-image.</td>
+</tr>
+<tr>
+<td><code>acceptor_xy</code></td>
+<td><code>f8</code></td>
+<td><code>(2,)</code></td>
+<td>Sub-pixel <code>[x, y]</code> acceptor read position, donor-anchored through the registration map, in <strong>movie pixels</strong>.</td>
+</tr>
+<tr>
+<td><code>aperture_id</code></td>
+<td><code>i4</code></td>
+<td>scalar</td>
+<td>Aperture-geometry id. Always <code>0</code> today (the standard window); no per-aperture registry exists yet.</td>
+</tr>
+<tr>
+<td><code>frame_range</code></td>
+<td><code>i4</code></td>
+<td><code>(2,)</code></td>
+<td><code>[start, stop)</code> <strong>frame indices</strong> of the molecule's valid native extent inside the zero-padded trace arrays.</td>
+</tr>
+<tr>
+<td><code>analysis_window</code></td>
+<td><code>i4</code></td>
+<td><code>(2,)</code></td>
+<td><code>[start, stop)</code> <strong>frame indices</strong> actually analysed. <code>frame_range</code> at native extraction, but an SMD import seeds it from the source's window (see the note below the table); auto-refined by photobleach detection <em>only</em> while it still equals <code>frame_range</code>, so an already-narrowed window wins.</td>
+</tr>
+<tr>
+<td><code>bleach_frames</code></td>
+<td><code>i4</code></td>
+<td><code>(2,)</code></td>
+<td><code>(donor, acceptor)</code> first-bleach <strong>absolute frame indices</strong>. <code>-1</code> is the pre-detection sentinel (see below), <em>not</em> "no bleach".</td>
+</tr>
+<tr>
+<td><code>alpha</code></td>
+<td><code>f8</code></td>
+<td>scalar</td>
+<td>Donor leakage α, dimensionless. <code>NaN</code> = <strong>no factor applied</strong>, which is not the same as "the pass has not run": <code>compute_leakage_alpha</code> <em>withholds</em> the factor — resetting processed α rows and their downstream γ rows to <code>NaN</code> — when fewer than <code>min_qualifying_traces</code> molecules yield a valid donor-only tail (<code>src/tether/project/leakage.py</code>), and an analysis-only import seeds every row at <code>NaN</code> (<code>src/tether/project/analysis_import.py</code>). <code>compute_corrected_fret</code> then stamps <code>apparent-E (corrections unavailable)</code> on every analysable molecule (one whose <code>frame_range</code> is non-empty) and leaves the factor <code>NaN</code> — unless <code>apparent_e_only</code> forces <code>apparent-E (user toggle)</code> instead, or a manual <code>alpha_override</code>/<code>gamma_override</code> completes a usable pair (both effective factors finite, γ &gt; 0), which stamps <code>manual</code> and <strong>persists the override into this cell</strong>. So read <code>correction_method</code> and <code>/settings/leakage</code> (<code>withheld</code>), never this cell, to tell the cases apart.</td>
+</tr>
+<tr>
+<td><code>gamma</code></td>
+<td><code>f8</code></td>
+<td>scalar</td>
+<td>Detection-correction γ, dimensionless. Same <code>NaN</code> convention as <code>alpha</code> — <code>compute_gamma</code> withholds the dataset γ below <code>min_qualifying_traces</code> (<code>src/tether/project/gamma.py</code>) and resets processed rows to <code>NaN</code>; a withheld leakage recomputation also resets those rows because γ was derived from the prior α. A γ pass stamps <code>/settings/gamma</code> with <code>withheld = True</code>, so read <code>correction_method</code> / <code>/settings/gamma</code> rather than this cell.</td>
+</tr>
+<tr>
+<td><code>delta</code></td>
+<td><code>f8</code></td>
+<td>scalar</td>
+<td>Direct-excitation δ, dimensionless. Inert in two-colour work; written <code>0.0</code>.</td>
+</tr>
+<tr>
+<td><code>correction_method</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Closed vocabulary from <code>src/tether/project/correct.py</code>: <code>corrected</code>, <code>manual</code>, <code>apparent-E (corrections unavailable)</code>, <code>apparent-E (user toggle)</code>. <code>""</code> before any correction pass.</td>
+</tr>
+<tr>
+<td><code>correction_confidence</code></td>
+<td><code>f8</code></td>
+<td>scalar</td>
+<td>A <strong>provenance flag, not a confidence interval</strong>: <code>1.0</code> when a real correction was applied, <code>0.0</code> on apparent-E fallback, <code>NaN</code> before any pass.</td>
+</tr>
+<tr>
+<td><code>curation_label</code></td>
+<td><code>i4</code></td>
+<td>scalar</td>
+<td>Signed codec <code>CurationLabel</code> (<code>src/tether/project/labels.py</code>): <code>0</code> uncurated, <code>1</code> accept, <code>-1</code> reject. Mirrors the most recent <strong>human</strong> label only.</td>
+</tr>
+<tr>
+<td><code>category</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Editable per-condition category value, independent of accept/reject. <code>""</code> at extraction.</td>
+</tr>
+<tr>
+<td><code>quality_class</code></td>
+<td><code>f8</code></td>
+<td>scalar</td>
+<td>Read-only ML ranker output, dimensionless. <code>NaN</code> when none; no shipped ML path writes it yet.</td>
+</tr>
+<tr>
+<td><code>condition_id</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Current foreign key into <code>/conditions/table</code>; rewritten by a re-key.</td>
+</tr>
+<tr>
+<td><code>condition_id_provisional</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>The filename-derived condition id, retained verbatim across any re-key.</td>
+</tr>
+<tr>
+<td><code>source_filename</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Original acquisition filename the molecule came from.</td>
+</tr>
+<tr>
+<td><code>tags</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Comma-joined tag string; <code>""</code> when none. The pipeline emits two tags — see below.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>A narrowed <code>analysis_window</code> is not a provenance signal.</strong> In a natively extracted
+store the window starts equal to <code>frame_range</code>, so a narrower one does mean
+photobleach detection or a curator edit. That inference breaks on an <strong>analysis-only
+import</strong>: <code>_normalize_source</code> reads the SMD's tMAVEN <code>pre_list</code>/<code>post_list</code> and
+<code>_build_molecule_rows</code> writes them straight into <code>analysis_window</code>
+(<code>src/tether/project/analysis_import.py</code>), so a <em>freshly imported</em> row can already be
+narrower than <code>frame_range</code> with <code>bleach_frames</code> still <code>-1</code> and <code>curation_label</code>
+still <code>0</code>. And because the auto-refine fires only on a window that still equals
+<code>frame_range</code>, a later <code>compute_photobleach</code> leaves those imported windows alone. On
+a real 2-molecule import with <code>pre_list = [3, 0]</code> / <code>post_list = [30, 40]</code> over 40
+frames, the rows read <code>analysis_window</code> <code>[3, 30]</code> and <code>[0, 40]</code> against <code>frame_range</code>
+<code>[0, 40]</code>, and <code>compute_photobleach</code> reported <code>n_windows_autoset=1</code> — it refined only
+the second row. To tell the cases apart, read <code>/settings/analysis_only</code> or the
+<code>round-trip-unavailable</code> tag, not the window.</p>
+</blockquote>
+<h3 id="two-sentinels-and-two-derivations-worth-reading-twice">Two sentinels and two derivations worth reading twice</h3>
+<p><strong><code>bleach_frames</code>.</strong> <code>-1</code> (<code>_UNDETECTED_FRAME</code>, <code>src/tether/imaging/extract.py</code>) is
+what extraction and analysis-only import write <em>before anyone has looked</em>: it means
+the photobleach detector has not run for that row, not that it ran and found nothing.
+After <code>compute_photobleach</code> (<code>src/tether/project/photobleach.py</code>) a channel that does
+<strong>not</strong> bleach within the trace is recorded as <code>frame_range[1]</code> — the window end — so
+the comparison you want is against <code>frame_range</code>, never against <code>-1</code>. (<code>-1</code> also
+survives on a row with no valid native frames, which the detector skips.) On a real
+40-frame store, one bleaching and two non-bleaching molecules read
+<code>[[30, 20], [40, 40], [40, 40]]</code> against <code>frame_range</code> <code>[[0, 40], [0, 40], [0, 40]]</code>.</p>
+<p><strong><code>tags</code>.</strong> Two tags are emitted by shipped code:</p>
+<table>
+<thead>
+<tr>
+<th>Tag</th>
+<th>Constant</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>low-confidence-registration</code></td>
+<td><code>LOW_CONFIDENCE_TAG</code> (<code>src/tether/imaging/calibrate.py</code>)</td>
+<td>The registration fit for that molecule exceeded the confidence gate.</td>
+</tr>
+<tr>
+<td><code>round-trip-unavailable</code></td>
+<td><code>ANALYSIS_ONLY_TAG</code> (<code>src/tether/project/analysis_import.py</code>)</td>
+<td>Stamped on <strong>every</strong> molecule of an analysis-only import — it is on every row of such a store.</td>
+</tr>
+</tbody>
+</table>
+<p><strong><code>molecule_key</code>.</strong> It is the cross-file join key everything downstream depends on,
+and it is a pure content hash — no salt, no run state
+(<a href="../../adr/0016-extraction-trace-store-layout/">ADR-0016</a>). The <strong>extraction</strong>
+derivation, from <code>molecule_key()</code> in <code>src/tether/imaging/extract.py</code>, is:</p>
+<pre><code class="language-python">q = round_half_away(donor_xy / MOLECULE_KEY_QUANTUM_PX).astype(np.int64)  # 0.1 px
+payload = f&quot;{movie_sha256}|{int(q[0])}|{int(q[1])}&quot;
+key = hashlib.sha256(payload.encode(&quot;utf-8&quot;)).hexdigest()
+</code></pre>
+<p>The 0.1 px quantum absorbs float-representation jitter so the same molecule
+re-extracted, or carried into a split/subset file, hashes identically. Because two
+molecules can in principle quantize to the same coordinate, this key is a <em>content</em>
+key, not a row identity: join per-row data on <code>molecule_id</code>.</p>
+<p>An <strong>analysis-only import</strong> has no movie and no coordinates — <code>molecule_key()</code> would
+in fact raise on its <code>NaN</code> <code>donor_xy</code> — so it uses a second derivation,
+<code>_analysis_only_molecule_key</code> (<code>src/tether/project/analysis_import.py</code>), hashing the
+source identity, the molecule's row index and the raw donor/acceptor trace bytes.
+That variant <em>is</em> unique by construction. The upshot for a downstream reader: <strong>read
+the stored key, do not recompute it</strong> — the recipe above will not reproduce the keys
+of an analysis-only store.</p>
+<h2 id="conditions-the-structured-experimental-conditions"><code>/conditions</code> — the structured experimental conditions</h2>
+<p>Group holding <code>/conditions/table</code> (<code>CONDITIONS_DTYPE</code>, 14 fields). The condition
+<strong>identity key</strong> is (construct/variant, dye, ligand + concentration, buffer,
+temperature, laser power); <code>date</code>, <code>replicate</code> and the source file deliberately vary
+<em>within</em> one condition and are not part of the key
+(<a href="../../adr/0033-condition-identity-and-rekey/">ADR-0033</a>). <code>condition_id</code> is derived
+from that key as <code>cond-&lt;first 12 hex of its sha256&gt;</code>
+(<code>ConditionKey.condition_id()</code> in <code>src/tether/io/filename.py</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Shape</th>
+<th>Meaning / units</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>condition_id</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td><code>cond-&lt;12 hex&gt;</code>, the content hash of the identity key below.</td>
+</tr>
+<tr>
+<td><code>construct_variant</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Construct / variant name. Part of the identity key.</td>
+</tr>
+<tr>
+<td><code>dye</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Dye pair label. Part of the identity key.</td>
+</tr>
+<tr>
+<td><code>ligand</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Ligand name. Part of the identity key.</td>
+</tr>
+<tr>
+<td><code>ligand_concentration</code></td>
+<td><code>f8</code></td>
+<td>scalar</td>
+<td>Numeric concentration <strong>in the unit given by the next field</strong>. <code>NaN</code> is the "absent" sentinel and round-trips back to the same <code>condition_id</code>.</td>
+</tr>
+<tr>
+<td><code>ligand_concentration_unit</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Unit string for the value above, e.g. <code>nM</code>. Part of the identity key.</td>
+</tr>
+<tr>
+<td><code>buffer</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Buffer description. Part of the identity key.</td>
+</tr>
+<tr>
+<td><code>temperature_c</code></td>
+<td><code>f8</code></td>
+<td>scalar</td>
+<td>Temperature in <strong>degrees Celsius</strong>. <code>NaN</code> = absent.</td>
+</tr>
+<tr>
+<td><code>laser_power</code></td>
+<td><code>f8</code></td>
+<td>scalar</td>
+<td>Laser power. <strong>Never produced by the filename parser</strong> — <code>parse_filename</code> fills only construct/variant, dye, ligand, concentration and unit (<code>src/tether/io/filename.py</code>), so this is <code>NaN</code> in any store built purely from filenames; it is entered in the conditions editor. <strong>No unit is stored</strong> and there is no companion <code>laser_power_unit</code> field, though the conditions UI <em>displays</em> the value as mW (<code>_key_summary</code>, <code>src/tether/gui/conditions.py</code>). <code>NaN</code> = absent.</td>
+</tr>
+<tr>
+<td><code>date</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Acquisition date. Within-condition provenance; <strong>not</strong> part of the identity key.</td>
+</tr>
+<tr>
+<td><code>replicate</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Replicate label. Within-condition provenance; not part of the identity key.</td>
+</tr>
+<tr>
+<td><code>leakage_alpha</code></td>
+<td><code>f8</code></td>
+<td>scalar</td>
+<td>Per-condition leakage α, dimensionless. <code>NaN</code> when unset.</td>
+</tr>
+<tr>
+<td><code>leakage_alpha_source</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Provenance of the value above (which donor-only sample it came from).</td>
+</tr>
+<tr>
+<td><code>tags</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Free-form tag string.</td>
+</tr>
+</tbody>
+</table>
+<p>Three identity-key fields — <code>buffer</code>, <code>temperature_c</code> and <code>laser_power</code> — are part of
+the key but are <strong>not</strong> filename-derivable: the only <code>ConditionKey(...)</code> construction
+in <code>parse_filename</code> sets construct/variant, dye, ligand, concentration and unit and
+nothing else. In a store whose conditions came from filename parsing alone they are
+<code>""</code> / <code>NaN</code>, and they change only through the conditions editor (a re-key, logged in
+<code>/settings/condition_audit</code>).</p>
+<p>The group also holds an additive child, <code>/conditions/categories/&lt;condition_id&gt;</code>: one
+resizable 1-D vlen-UTF-8 dataset per condition carrying that condition's ordered,
+editable category names (<code>_write_category_names</code> in
+<code>src/tether/project/conditions.py</code>). It appears only once a category list has been
+set; emptying the list resizes the dataset to zero rows rather than deleting it.</p>
+<h2 id="labels-the-append-only-curation-log"><code>/labels</code> — the append-only curation log</h2>
+<p>Group holding <code>/labels/table</code> (<code>LABELS_DTYPE</code>, 8 fields): one row per labelling
+<em>event</em>, <strong>append-only</strong> and carrying full provenance
+(<a href="../../adr/0023-curation-label-codec-and-labels-log/">ADR-0023</a>). Rows are never
+removed or reordered, and every field except <code>weight</code> is immutable — <code>weight</code> is
+recomputed in place across the whole column at each retrain
+(<code>recompute_label_weights</code>, <code>src/tether/project/weighting.py</code>), so do not cache it.
+The audit row is written <strong>before</strong> the <code>/molecules.curation_label</code> mirror is updated,
+so a crash leaves at worst an orphan label row, never an unaudited state change.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Shape</th>
+<th>Meaning / units</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>molecule_key</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Join key into <code>/molecules.molecule_key</code> — the cross-file key, so labels survive split-file merge-back.</td>
+</tr>
+<tr>
+<td><code>labeler</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Curator identity; defaults to the OS login, or <code>unknown</code>.</td>
+</tr>
+<tr>
+<td><code>timestamp</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Offset-aware ISO-8601, e.g. <code>2026-07-21T00:52:09.949494+00:00</code>. Tether's own writes are UTC, but the writer only requires an explicit offset (<code>set_curation_label</code>, <code>src/tether/project/labels.py</code>), so a merged-in row may carry another one.</td>
+</tr>
+<tr>
+<td><code>source_file</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Caller-supplied source provenance, stored <strong>verbatim</strong>; it only <em>defaults</em> to the basename of the <code>.tether</code> being curated (<code>set_curation_label</code>, <code>src/tether/project/labels.py</code>). Not always a <code>.tether</code> name — the Deep-LASI reconstruction seeds its <code>deeplasi-provisional</code> rows with the acquisition filename instead (<code>parsed.source_filename</code>, <code>src/tether/project/reconstruct.py</code>).</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>Closed vocabulary (<code>src/tether/project/labels.py</code>): <code>human</code>, <code>deeplasi-provisional</code>, <code>cross-condition-seed</code>. The latter two are provisional cold-start priors.</td>
+</tr>
+<tr>
+<td><code>weight</code></td>
+<td><code>f8</code></td>
+<td>scalar</td>
+<td>Effective training weight, dimensionless. Human labels are <code>1.0</code>; provisional weights decay as human labels accrue and this column is <strong>rewritten</strong> at retrain.</td>
+</tr>
+<tr>
+<td><code>label_value</code></td>
+<td><code>i4</code></td>
+<td>scalar</td>
+<td>The same signed codec as <code>curation_label</code>: <code>0</code> uncurated, <code>1</code> accept, <code>-1</code> reject.</td>
+</tr>
+<tr>
+<td><code>condition_id</code></td>
+<td><code>str:utf-8</code></td>
+<td>scalar</td>
+<td>The condition the label is scoped to.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="traces-the-integrated-intensity-arrays"><code>/traces</code> — the integrated intensity arrays</h2>
+<p>Empty in a fresh store. <strong>Up to six</strong> datasets, named
+<code>{donor,acceptor}_{raw,corrected,background}</code>
+(<a href="../../adr/0016-extraction-trace-store-layout/">ADR-0016</a>); <code>write_extraction</code> writes
+all six <strong>only for a movie that yielded at least one molecule</strong>. A movie that
+colocalized zero molecules still appends its <code>/movies</code> row, but creates no
+<code>/traces</code> or <code>/patches</code> dataset at all
+(<code>if molecules.n_molecules:</code>, <code>src/tether/imaging/extract.py</code>) — so a valid,
+error-free store can have a populated <code>/movies</code> and an entirely empty <code>/traces</code>.
+The other provenances write fewer layers:</p>
+<table>
+<thead>
+<tr>
+<th>Dataset</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>donor_raw</code>, <code>acceptor_raw</code></td>
+<td>Uncorrected aperture sum, before background subtraction.</td>
+</tr>
+<tr>
+<td><code>donor_corrected</code>, <code>acceptor_corrected</code></td>
+<td>Background-subtracted disk intensity, exactly <code>raw − background</code>.</td>
+</tr>
+<tr>
+<td><code>donor_background</code>, <code>acceptor_background</code></td>
+<td>The subtracted background: the ring mean of a temporal moving average of the crop, <strong>already scaled by the disk pixel count</strong> <code>n_psf</code> (<code>tether.imaging.aperture</code>).</td>
+</tr>
+</tbody>
+</table>
+<p>Whichever are present are <code>(n_molecules, max_T)</code>, dtype <strong>float32</strong>
+(<code>_TRACE_DTYPE = "&lt;f4"</code>, <code>src/tether/imaging/extract.py</code>), chunked and
+gzip-compressed, with <code>maxshape=(None, None)</code>. <strong>Do not assume all six exist</strong> — see
+the zero-molecule case above and the last two bullets below.</p>
+<ul>
+<li><strong>In a natively appended store the time axis is zero-padded to the longest movie in
+  that store.</strong> Appending a shorter movie leaves zeros past its end; appending a
+  longer one grows the axis and zero-fills the tail of every existing row
+  (<code>_append_padded_2d</code>). A <strong>subset export</strong> instead inherits the <em>source</em> store's
+  width — <code>_copy_trace_layers</code> copies <code>ds[rows]</code> with the source dataset's full second
+  dimension (<code>src/tether/project/export.py</code>) — so a subset's width need not match the
+  longest movie behind its own molecules, and it has no <code>/movies</code> rows to check
+  against. In every case the valid extent of row <code>i</code> is <code>/molecules.frame_range[i]</code> —
+  use it, do not infer it from where the zeros start.</li>
+<li>Row order matches <code>/molecules/table</code> exactly.</li>
+<li>The time axis unit is <strong>frames</strong>; seconds-per-frame lives only in
+  <code>/movies.frame_time</code>.</li>
+<li>The intensity axis carries <strong>no recorded physical unit or gain</strong>, and nothing in
+  the code states a calibration, so do not assume one. What the numbers <em>are</em> depends
+  on the store's provenance: in a natively extracted store they are aperture sums of
+  raw pixel values (<code>tether.imaging.aperture.integrate_traces</code>) in whatever the source
+  pixel dtype held (<code>/movies.pixel_dtype</code>, <code>/movies.byteorder</code>); in a <strong>Deep-LASI
+  reconstruction</strong> they are the pre-integrated <code>.mat</code> series copied verbatim — the
+  aperture integration "is skipped" (<code>_traces_from_export</code>,
+  <code>src/tether/project/reconstruct.py</code>) — and in an <strong>analysis-only import</strong> they are
+  the SMD/text series copied verbatim. Only the first is a sum Tether itself computed.</li>
+<li><code>tether.project.trace_layers.INTENSITY_QUANTITY_LAYERS</code> is the single source of
+  truth for which pair an <code>intensity_quantity</code> selects: <code>corrected</code> and <code>raw</code> only —
+  there is no <code>background</code> quantity.</li>
+<li>An <strong>analysis-only import</strong> (from a legacy Deep-LASI text or SMD file) writes
+  <em>only</em> <code>donor_corrected</code> and <code>acceptor_corrected</code>; the raw and background layers
+  are genuinely absent. See <a href="../../io/legacy-import/">Legacy Deep-LASI import</a>.</li>
+<li>A <strong>subset export</strong> (<code>export_subset_tether</code>, <code>src/tether/project/export.py</code>) writes
+  only <code>donor_corrected</code>/<code>acceptor_corrected</code> unless <code>include_raw=True</code>, which is
+  <strong>not</strong> the default. The raw and background layers travel or are dropped as a set,
+  deliberately: <code>corrected = raw − background</code> exactly, so keeping background would
+  make raw reconstructable and defeat the §5.4 movie-less invariant. Detect it from
+  the <code>tether_subset_include_raw</code> root attribute.</li>
+</ul>
+<h2 id="patches-the-cached-image-crops"><code>/patches</code> — the cached image crops</h2>
+<p>Empty until <code>write_extraction</code> runs <strong>on a movie with at least one molecule</strong> —
+a zero-molecule movie creates neither dataset, as under <code>/traces</code> above.
+Two datasets, <code>donor</code> and <code>acceptor</code>, each
+<code>(n_molecules, window, window)</code> float32, chunked and gzip-compressed, with
+<code>maxshape=(None, window, window)</code> — only the molecule axis grows, because the
+aperture window is fixed per project and validated on every later append.</p>
+<p>In a <strong>natively extracted</strong> store each entry is the <strong>temporal mean</strong> image crop for
+that molecule and channel, in <code>(row, col)</code> image order, centred on the molecule's
+rounded coordinate. <code>_mean_patches</code> (<code>src/tether/imaging/extract.py</code>) zero-fills a
+molecule whose window falls outside the frame, but no such molecule reaches disk:
+<code>colocalize</code> keeps only molecules whose window fits in <strong>both</strong> channels, and
+<code>write_extraction</code> refuses the whole write if any integrated trace is invalid
+(<code>_validate_alignment</code> — "refusing to write an all-zero trace"). The default window is 21 px
+(<code>extract_molecules(..., window=21)</code>); the value actually used is recorded as
+<code>/settings/extraction@window</code>. Row order matches <code>/molecules/table</code>. A subset export
+carries both stacks, row-subset to the exported molecules; <strong>analysis-only imports
+leave <code>/patches</code> empty</strong>, because they have no coordinates.</p>
+<blockquote>
+<p><strong>A Deep-LASI reconstruction's patches are placeholders, not images.</strong>
+<code>reconstruct_project</code> accepts optional <code>donor_patches</code>/<code>acceptor_patches</code>, and
+<code>_resolve_patches</code> (<code>src/tether/project/reconstruct.py</code>) <strong>zero-fills</strong> an
+<code>(n_molecules, 21, 21)</code> stack for whichever is <code>None</code> — the movie link makes the real
+crops re-cacheable later. No shipped caller passes them (the GUI wizard's
+<code>reconstruct_project</code> call omits both), so in practice <strong>every</strong> reconstructed store's
+<code>/patches</code> are entirely zero: a real reconstruction of the committed 4-molecule
+UCKOPSB <code>.mat</code> writes <code>donor</code> and <code>acceptor</code> of shape <code>(4, 21, 21)</code> float32 with
+<code>max() == 0.0</code>. Do <strong>not</strong> read an all-zero patch as an out-of-frame crop in any
+store: the native writer rejects those before they reach disk, so a zero patch is
+either a reconstruction placeholder or a genuinely dark in-frame crop. Check the
+store's provenance first — <code>/settings/extraction@profile_json</code> carries
+<code>"source": "m7-deeplasi-reconstruction"</code> for this path — rather than inferring
+anything from the pixels.</p>
+</blockquote>
+<h2 id="settings-provenance-of-each-pipeline-stage"><code>/settings</code> — provenance of each pipeline stage</h2>
+<p>Empty until a stage runs. Every child is a <strong>group carrying scalar attributes and no
+datasets</strong>, except <code>condition_audit</code>, which is a dataset.</p>
+<table>
+<thead>
+<tr>
+<th>Child</th>
+<th>Written by</th>
+<th>Lifecycle</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>extraction</code></td>
+<td><code>write_extraction</code> (<code>src/tether/imaging/extract.py</code>)</td>
+<td><strong>Write-once</strong> per project; later movies must match the recorded parameters or the write is rejected.</td>
+</tr>
+<tr>
+<td><code>correction</code></td>
+<td><code>compute_corrected_fret</code> (<code>src/tether/project/correct.py</code>)</td>
+<td>Replaced on each pass.</td>
+</tr>
+<tr>
+<td><code>leakage</code></td>
+<td><code>compute_leakage_alpha</code> (<code>src/tether/project/leakage.py</code>)</td>
+<td>Replaced on each pass.</td>
+</tr>
+<tr>
+<td><code>gamma</code></td>
+<td><code>compute_gamma</code> (<code>src/tether/project/gamma.py</code>)</td>
+<td>Replaced on each pass.</td>
+</tr>
+<tr>
+<td><code>batch</code></td>
+<td><code>run_batch</code> (<code>src/tether/project/batch.py</code>)</td>
+<td>Replaced on each run; adds one <code>&lt;stage&gt;_status</code> attribute per stage.</td>
+</tr>
+<tr>
+<td><code>analysis_only</code></td>
+<td><code>import_analysis_only_project</code> (<code>src/tether/project/analysis_import.py</code>)</td>
+<td>Marker that movie round-trip is unavailable for this store.</td>
+</tr>
+<tr>
+<td><code>condition_audit</code></td>
+<td><code>tether.project.conditions</code></td>
+<td>A <strong>dataset</strong>: append-only re-key/merge log, created lazily.</td>
+</tr>
+</tbody>
+</table>
+<p><code>/settings/extraction</code> is the one most readers need, because it records the
+integration geometry behind <code>/traces</code> and <code>/patches</code>. In a <strong>Deep-LASI
+reconstruction</strong> the same attributes are written from the standard 21 px defaults and
+"describe the <em>provenance</em> of the layers, not a fresh integration this module
+performed" (<code>src/tether/project/reconstruct.py</code>) — the traces were integrated by
+Deep-LASI, not by Tether:</p>
+<table>
+<thead>
+<tr>
+<th>Attribute</th>
+<th>Type</th>
+<th>Meaning / units</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>window</code></td>
+<td>int</td>
+<td>Patch/aperture window edge, <strong>pixels</strong> (default 21).</td>
+</tr>
+<tr>
+<td><code>disk_radius</code></td>
+<td>float</td>
+<td>Signal-disk radius, pixels.</td>
+</tr>
+<tr>
+<td><code>ring_inner</code>, <code>ring_outer</code></td>
+<td>float</td>
+<td>Background annulus radii, pixels.</td>
+</tr>
+<tr>
+<td><code>bg_window</code></td>
+<td>int</td>
+<td>Background moving-average length, <strong>frames</strong>.</td>
+</tr>
+<tr>
+<td><code>n_psf</code></td>
+<td>int</td>
+<td>Number of pixels in the disk mask (derived from the radii).</td>
+</tr>
+<tr>
+<td><code>molecule_key_quantum_px</code></td>
+<td>float</td>
+<td>The <code>molecule_key</code> coordinate quantum, pixels (<code>0.1</code>).</td>
+</tr>
+<tr>
+<td><code>app_version</code></td>
+<td>str</td>
+<td>Writing Tether version.</td>
+</tr>
+<tr>
+<td><code>profile_json</code></td>
+<td>str</td>
+<td>The caller's settings profile as JSON — present only when one was supplied.</td>
+</tr>
+</tbody>
+</table>
+<p><code>/settings/condition_audit</code> is a resizable 1-D compound dataset with the fields
+<code>event</code> (<code>rekey</code> or <code>merge</code>), <code>from_condition_id</code>, <code>to_condition_id</code>, <code>n_molecules</code>
+(<code>i8</code>), <code>labeler</code>, <code>timestamp</code>, <code>reason</code>, <code>app_version</code> — all strings except
+<code>n_molecules</code> (<code>_audit_dtype</code> in <code>src/tether/project/conditions.py</code>). It is
+append-only and never rewritten.</p>
+<h2 id="idealization-one-subgroup-per-fitted-model"><code>/idealization</code> — one subgroup per fitted model</h2>
+<p>Empty until an idealization runs. Each fit lands in <code>/idealization/{model_name}</code>
+(<a href="../../adr/0024-idealization-store-layout-staleness-and-nstates/">ADR-0024</a>), staged
+first as <code>{model_name}.__writing__</code> and then swapped in by <strong>delete-then-rename</strong>.
+The staged group is complete before the swap, so a real model name never holds a
+half-written fit — but the swap itself is <strong>not fully atomic</strong>: HDF5 has no atomic
+in-file rename-over, so a crash in the window between removing the old model and
+renaming the staged one can leave <em>only</em> the <code>.__writing__</code> group and no model at all
+(<code>write_idealization_model</code>, <code>src/tether/project/idealize.py</code>). Re-running the write
+repairs it. A reader should normally skip a name ending in <code>.__writing__</code> — but must
+not treat its presence as proof that a good model exists alongside it.</p>
+<p><code>n_fitted</code> below is the number of molecules <strong>this fit covered</strong>, which is <em>not</em> the
+store's molecule count and <em>not</em> the store's row order — see the note under the table.</p>
+<table>
+<thead>
+<tr>
+<th>Member</th>
+<th>Shape</th>
+<th>Dtype</th>
+<th>Present</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mean</code></td>
+<td><code>(nstates,)</code></td>
+<td>float64</td>
+<td>always — the state FRET levels, dimensionless E</td>
+</tr>
+<tr>
+<td><code>var</code></td>
+<td><code>(nstates,)</code></td>
+<td>float64</td>
+<td>when the fit produced variances</td>
+</tr>
+<tr>
+<td><code>tmatrix</code></td>
+<td><code>(nstates, nstates)</code></td>
+<td>float64</td>
+<td>optional — unnormalized transition counts</td>
+</tr>
+<tr>
+<td><code>norm_tmatrix</code></td>
+<td><code>(nstates, nstates)</code></td>
+<td>float64</td>
+<td>optional — row-normalized transition probabilities</td>
+</tr>
+<tr>
+<td><code>rates</code></td>
+<td><code>(nstates, nstates)</code></td>
+<td>float64</td>
+<td>optional — per-frame rates</td>
+</tr>
+<tr>
+<td><code>pi</code></td>
+<td><code>(nstates,)</code></td>
+<td>float64</td>
+<td>optional — the <strong>unnormalized</strong> Dirichlet posterior; it sums to roughly the trace count and is <em>not</em> a probability vector</td>
+</tr>
+<tr>
+<td><code>frac</code></td>
+<td><code>(nstates,)</code></td>
+<td>float64</td>
+<td>optional — the normalized populations; <strong>use this for plots and exports</strong>, not <code>pi</code></td>
+</tr>
+<tr>
+<td><code>priors/&lt;name&gt;</code></td>
+<td><code>(nstates,)</code> or <code>(nstates, nstates)</code></td>
+<td>float64</td>
+<td>optional subgroup — the variational prior hyperparameters</td>
+</tr>
+<tr>
+<td><code>idealized</code></td>
+<td><code>(n_fitted, n_frames)</code></td>
+<td>float64, gzip</td>
+<td>always — per-frame idealized FRET level, <code>NaN</code> outside each molecule's analysis window</td>
+</tr>
+<tr>
+<td><code>state_path</code></td>
+<td><code>(n_fitted, n_frames)</code></td>
+<td>int64, gzip</td>
+<td>always — state index, <code>-1</code> (<code>tether.idealize.NO_STATE</code>) outside the window</td>
+</tr>
+<tr>
+<td><code>molecule_key</code></td>
+<td><code>(n_fitted,)</code></td>
+<td>vlen UTF-8</td>
+<td>always</td>
+</tr>
+<tr>
+<td><code>molecule_id</code></td>
+<td><code>(n_fitted,)</code></td>
+<td>vlen UTF-8</td>
+<td>always — the <strong>unique</strong> join key for staleness and export</td>
+</tr>
+<tr>
+<td><code>input_hash</code></td>
+<td><code>(n_fitted,)</code></td>
+<td>vlen UTF-8</td>
+<td>always — see below</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>The per-molecule rows are a selection, not the store.</strong> Unlike <code>/traces</code> and
+<code>/patches</code>, whose row order matches <code>/molecules/table</code> positionally, these five
+arrays cover only the molecules included in this fit: the writer sizes them from
+<code>len(molecule_keys)</code> and stamps that count as the group's <code>n_molecules</code> attribute.
+A subset export narrows them further. <strong>Join on <code>molecule_id</code></strong> — never index them
+with a <code>/molecules/table</code> row number. A real store with 3 molecules, idealized over
+2 of them, holds <code>idealized</code> of shape <code>(2, 40)</code> and <code>n_molecules = 2</code>.</p>
+</blockquote>
+<p>The <code>priors/</code> subgroup is not uniformly 1-D. The canonical member names, enumerated
+in <code>src/tether/idealize/driver.py</code>, are <code>a_prior</code>, <code>b_prior</code>, <code>beta_prior</code>,
+<code>mu_prior</code> and <code>pi_prior</code> — all <code>(nstates,)</code> — plus <code>tm_prior</code>, the transition-matrix
+Dirichlet prior, which is <code>(nstates, nstates)</code>. Read each member's own shape; do not
+size a buffer from <code>nstates</code> alone.</p>
+<p>The <code>pi</code> / <code>frac</code> distinction is the full Appendix-D.2 population model
+(<a href="../../adr/0041-population-model-and-ebfret/">ADR-0041</a>).</p>
+<p><code>input_hash</code> is a per-molecule composite hash of everything the fit consumed: the
+windowed donor/acceptor input, the <code>intensity_quantity</code>, the analysis-window bounds,
+and the molecule's <strong>effective applied</strong> α and γ. The <code>correction_method</code> string is
+<em>not</em> folded into the digest itself: <code>input_provenance_hash</code> passes it through
+<code>_effective_factors</code> (<code>src/tether/project/idealize.py</code>), which maps every apparent-E
+method — <code>""</code>, <code>apparent-E (corrections unavailable)</code> and <code>apparent-E (user toggle)</code> —
+to the identity <code>(α = 0, γ = 1)</code>, and only the resulting pair is hashed. So a row
+moving between those three methods keeps the <strong>same</strong> <code>input_hash</code>, deliberately: the
+corrected E it would feed is never displayed, so nothing it feeds went stale. Fold the
+method string in yourself and you will falsely mark live idealizations stale. A real
+correction change re-stales exactly the dependent idealizations, with per-factor scope
+(<a href="../../adr/0029-idealization-correction-provenance-hash-and-per-factor-staleness/">ADR-0029</a>).</p>
+<p>Group attributes: <code>type</code>, <code>nstates</code>, <code>dtype</code> (the idealized quantity, e.g. <code>FRET</code>),
+<code>intensity_quantity</code>, <code>nstates_selected_by</code>, <code>n_molecules</code> (the <strong>fitted</strong> count,
+i.e. <code>n_fitted</code> above, not the store's molecule count), <code>app_version</code>,
+<code>created_utc</code>, plus <code>elbo</code> and <code>elbo_by_nstates</code> (a JSON string) when the fitter
+produced them. These names are reserved — a caller's <code>extra_attrs</code> may not override
+them (<code>_RESERVED_MODEL_ATTRS</code>).</p>
+<h2 id="features-the-ml-feature-cache"><code>/features</code> — the ML feature cache</h2>
+<p>Empty until <code>compute_features</code> runs, which writes <code>/features/table</code>: a resizable 1-D
+compound dataset of <strong>11 fields</strong> — two id columns, <code>molecule_id</code> and <code>molecule_key</code>
+(both vlen UTF-8), then <strong>exactly one column per <code>tether.ml.features.FEATURE_NAMES</code>
+entry</strong>, in that order: <code>n_frames</code>, <code>total_intensity</code>, <code>snr</code>, <code>fret_mean</code>, <code>fret_var</code>,
+<code>anticorr_lag0</code>, <code>anticorr_lag1_magnitude</code>, <code>neighbor_distance</code>, <code>aperture_overlap</code>.
+<code>n_frames</code> is a member of that feature list, not a separate column beside it, and it
+is the sole <strong>integer</strong> one — <code>i8</code>, the only entry in <code>_INT_FEATURES</code>; the other eight
+features are <code>f8</code> (<code>_feature_table_dtype</code>, <code>src/tether/project/features.py</code>).</p>
+<p>Units: <code>n_frames</code> is frames, <code>total_intensity</code> is in the same uncalibrated intensity
+units as <code>/traces</code>, <code>neighbor_distance</code> is pixels, <code>aperture_overlap</code> is a fraction,
+and the FRET and anticorrelation features are dimensionless. Undefined features are
+<code>NaN</code>, never fabricated.</p>
+<p>Dataset attributes carry <code>app_version</code>, <code>created_utc</code>, <code>intensity_quantity</code>,
+<code>n_molecules</code>, <code>feature_names</code> (a JSON list — the authoritative column order), and
+<code>feature_schema_version</code>. That last one is <strong>a second, independent version number</strong>
+(<code>FEATURE_SCHEMA_VERSION</code>, currently <code>1</code>) governing the cache layout only; it is not
+the store's <code>schema_version</code>. The table is a recomputable cache, so a mismatch is a
+prompt to recompute, not a migration.</p>
+<h2 id="calibration-the-channel-registration-maps"><code>/calibration</code> — the channel registration maps</h2>
+<p>Empty until <code>write_calibration</code> runs. Each map lands under
+<code>/calibration/&lt;calibration_id&gt;</code>, referenced by <code>/movies.calibration_id</code>, and is
+<strong>write-once</strong> per id. Two direction subgroups, <code>ref_to_moving</code> and <code>moving_to_ref</code>,
+each holding four float64 datasets: <code>a</code> and <code>b</code> (the polynomial coefficient vectors)
+and <code>norm_xy</code> and <code>norm_uv</code> (the <code>(3, 3)</code> normalization matrices).</p>
+<p>Group attributes record the scalar provenance: <code>reference_channel</code>,
+<code>moving_channel</code>, <code>rms_residual</code> (pixels), <code>n_control_points</code>, <code>gate_px</code> (pixels),
+<code>degree</code>, <code>low_confidence</code>, <code>source</code>, <code>provenance_json</code>, plus the per-channel
+geometry attributes written by <code>_write_geometry_attrs</code>
+(<code>src/tether/imaging/calibrate.py</code>).</p>
+<h2 id="models-reserved-and-empty-today"><code>/models</code> — reserved, and empty today</h2>
+<p><code>/models</code> exists in every store because the M0 freeze forward-declared it, but
+<strong>nothing in Tether writes to it</strong>. The quality ranker is persisted as a standalone
+portable model file instead, deliberately: it travels with a <em>condition</em> across many
+experiment files rather than being trapped inside one <code>.tether</code>
+(<code>src/tether/ml/persistence.py</code>, which states outright that nothing in it touches a
+<code>.tether</code>). Subset export copies the group verbatim
+(<code>src/tether/project/export.py</code>). Treat <code>/models</code> as reserved: expect it to be
+present and empty, and do not attach your own payload to it.</p>
+<h2 id="where-to-look-next">Where to look next</h2>
+<ul>
+<li><a href="../../io/legacy-import/">Legacy Deep-LASI import</a> — what Tether reads <em>in</em>, and
+  which legacy artifacts carry coordinates.</li>
+<li><a href="../../adr/">Architecture decisions</a> — the record behind every rule on this
+  page, notably <a href="../../adr/0005-m0-schema-freeze/">ADR-0005</a> (the freeze),
+  <a href="../../adr/0016-extraction-trace-store-layout/">ADR-0016</a> (traces, patches and
+  <code>molecule_key</code>) and
+  <a href="../../adr/0024-idealization-store-layout-staleness-and-nstates/">ADR-0024</a>
+  (idealization layout).</li>
+<li><code>schema/schema_frozen.json</code> in the repository — the machine-checked manifest of the
+  frozen skeleton (12 group paths, four compound tables, three root attributes), and
+  the tiebreaker if this page ever disagrees with it <em>about those</em>. It says nothing
+  about the additive payloads; for those, the writer module named in each section is
+  the authority.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2602 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/troubleshooting/">
+      
+      
+        <link rel="prev" href="../glossary/">
+      
+      
+        <link rel="next" href="../packaging/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Troubleshooting - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#troubleshooting" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Troubleshooting
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../io/legacy-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/parity-gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/tether-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#data-and-analysis-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data and analysis failures
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Data and analysis failures">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#every-efficiency-is-mirrored-when-donor-side-is-backwards" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Every efficiency is mirrored when donor-side is backwards
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-batch-finished-ok-but-nothing-was-idealized" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The batch finished "ok" but nothing was idealized
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-batch-says-correctdone-but-no-corrections-were-applied" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The batch says correct=done but no corrections were applied
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tether-batch-overwrite-changed-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tether batch --overwrite changed nothing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#registration-passed-the-gate-with-a-suspiciously-perfect-residual" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registration passed the gate with a suspiciously perfect residual
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extraction-found-no-molecules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extraction found no molecules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extraction-found-far-fewer-or-far-more-molecules-than-expected" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extraction found far fewer, or far more, molecules than expected
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-movie-will-not-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The movie will not load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tether-extract-rejects-an-option-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tether extract rejects an option value
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#registration-was-flagged-low-confidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registration was flagged low-confidence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-correction-step-refuses-run-something-else-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A correction step refuses: run something else first
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-condition-query-or-per-condition-overlay-returns-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A condition query or per-condition overlay returns nothing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-plot-shows-fewer-molecules-than-i-curated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A plot shows fewer molecules than I curated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-project-will-not-open" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The project will not open
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup-and-environment-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup and environment failures
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setup and environment failures">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#idealization-cannot-find-the-sidecar-interpreter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idealization cannot find the sidecar interpreter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-sidecar-starts-but-tmaven-cannot-import-pkg_resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The sidecar starts but tMAVEN cannot import pkg_resources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#idealization-times-out-or-is-restarted-repeatedly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idealization times out, or is restarted repeatedly
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-deep-lasi-tdat-uses-a-particle-detection-mode-tether-does-not-implement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A Deep-LASI .tdat uses a particle-detection mode Tether does not implement
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-project-is-locked-by-another-user-or-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The project is locked by another user or machine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-spot-and-overlap-views-are-unavailable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The spot and overlap views are unavailable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-installer-is-flagged-as-unsigned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The installer is flagged as unsigned
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-deep-classifier-does-not-see-the-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The deep classifier does not see the GPU
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes-and-where-the-details-go" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exit codes, and where the details go
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#data-and-analysis-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data and analysis failures
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Data and analysis failures">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#every-efficiency-is-mirrored-when-donor-side-is-backwards" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Every efficiency is mirrored when donor-side is backwards
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-batch-finished-ok-but-nothing-was-idealized" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The batch finished "ok" but nothing was idealized
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-batch-says-correctdone-but-no-corrections-were-applied" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The batch says correct=done but no corrections were applied
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tether-batch-overwrite-changed-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tether batch --overwrite changed nothing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#registration-passed-the-gate-with-a-suspiciously-perfect-residual" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registration passed the gate with a suspiciously perfect residual
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extraction-found-no-molecules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extraction found no molecules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extraction-found-far-fewer-or-far-more-molecules-than-expected" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extraction found far fewer, or far more, molecules than expected
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-movie-will-not-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The movie will not load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tether-extract-rejects-an-option-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tether extract rejects an option value
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#registration-was-flagged-low-confidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registration was flagged low-confidence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-correction-step-refuses-run-something-else-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A correction step refuses: run something else first
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-condition-query-or-per-condition-overlay-returns-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A condition query or per-condition overlay returns nothing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-plot-shows-fewer-molecules-than-i-curated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A plot shows fewer molecules than I curated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-project-will-not-open" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The project will not open
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup-and-environment-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup and environment failures
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setup and environment failures">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#idealization-cannot-find-the-sidecar-interpreter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idealization cannot find the sidecar interpreter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-sidecar-starts-but-tmaven-cannot-import-pkg_resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The sidecar starts but tMAVEN cannot import pkg_resources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#idealization-times-out-or-is-restarted-repeatedly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idealization times out, or is restarted repeatedly
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-deep-lasi-tdat-uses-a-particle-detection-mode-tether-does-not-implement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A Deep-LASI .tdat uses a particle-detection mode Tether does not implement
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-project-is-locked-by-another-user-or-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The project is locked by another user or machine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-spot-and-overlap-views-are-unavailable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The spot and overlap views are unavailable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-installer-is-flagged-as-unsigned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The installer is flagged as unsigned
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-deep-classifier-does-not-see-the-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The deep classifier does not see the GPU
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes-and-where-the-details-go" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exit codes, and where the details go
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="troubleshooting">Troubleshooting</h1>
+<p><strong>Who this page is for.</strong> Anyone whose Tether run did something other than what they
+expected — including the runs that <em>looked</em> fine. Entries are keyed by <strong>what you saw</strong>, not
+by which module owns the problem, so scan the headings or paste your error text into your
+browser's find bar: every message quoted here is copied verbatim from the code that raises it
+— Tether's own <code>src/</code> unless the entry says otherwise — and each entry names the module
+responsible. Any term that reads as jargon is defined in the
+<a href="../glossary/">Glossary</a>.</p>
+<p>The <strong>silent</strong> failures come first, because nothing will tell you about them. They are marked
+with a <em>Signature</em> block: something you can check on your own store to confirm or rule the
+diagnosis out.</p>
+<hr />
+<h2 id="data-and-analysis-failures">Data and analysis failures</h2>
+<h3 id="every-efficiency-is-mirrored-when-donor-side-is-backwards">Every efficiency is mirrored when donor-side is backwards</h3>
+<p><strong>Symptom.</strong> The run succeeded. Molecule counts look right. But the population histogram sits
+where you expected its mirror image — a low-FRET construct reads high, a high-FRET construct
+reads low — and every trace's donor and acceptor look swapped.</p>
+<p><strong>Cause.</strong> <code>--donor-side</code> says which horizontal half of the dual-view frame is the donor
+channel. It defaults to <code>left</code>, and <strong>nothing in Tether detects the true orientation.</strong> The
+CLI takes it as free text (<code>tether.cli</code>, <code>metavar="{left,right}"</code> rather than <code>choices=</code>), so
+a <em>typo</em> is rejected downstream by <code>ExtractOptions.__post_init__</code>:</p>
+<pre><code class="language-text">tether extract: donor_side must be 'left' or 'right', got 'middle'
+</code></pre>
+<p>…but a <em>valid-but-wrong</em> value is accepted in silence. All <code>donor_side</code> does is choose which
+crop tuple is returned by <code>_half_split_geometry</code> in <code>tether.project.extract</code>, and detection
+is <a href="../glossary/#donor-anchored-colocalization">donor-anchored</a> — so the swapped run still
+colocalizes and still registers. Since apparent E is <code>A / (D + A)</code>, swapping the two channels
+gives exactly <code>1 − E</code>.</p>
+<p>The molecule count is <em>not</em> a control here. Donor-anchoring makes the molecule set exactly
+the detections in the half you <strong>labelled</strong> donor, so swapping the label swaps which half is
+counted. The two counts agree only when both halves detect the same number of spots — true of
+a symmetric synthetic movie, and not something to rely on with real data, where the
+acceptor-dark and low-FRET population ADR-0015 exists to preserve is precisely the set present
+in one half and not the other.</p>
+<p>Two related traps:</p>
+<ul>
+<li>With <code>--tmap</code>, <code>--donor-side</code> is <strong>ignored</strong>: the split comes from the <code>.tmap</code>'s own crop
+  geometry. No warning is emitted when both flags are passed.</li>
+<li>The <code>tether batch</code> <strong>CLI cannot set it at all.</strong> <code>run_batch()</code> <em>does</em> take an
+  <code>extract_options=</code> argument and forwards it, but <code>tether.cli._run_batch</code> never builds one —
+  so every batch run takes the <code>ExtractOptions</code> defaults. Dumped from a real batch run's
+  <code>/settings/extraction.attrs["profile_json"]</code>: <code>"donor_side": "left"</code>,
+  <code>"detection_mode": "wavelet"</code>, <code>"pair_tol": 2.0</code>, <code>"rms_gate": 0.5</code>.</li>
+</ul>
+<blockquote>
+<p><strong>Signature.</strong> Run the two extractions side by side on one movie and compare. The relevant
+store fields, dumped from a real pair of runs on the same input — a <strong>symmetric</strong> 3-spot
+synthetic movie, which is why the two counts match:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th><code>--donor-side left</code></th>
+<th><code>--donor-side right</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/settings/extraction.attrs["profile_json"]</code> → <code>donor_side</code></td>
+<td><code>"left"</code></td>
+<td><code>"right"</code></td>
+</tr>
+<tr>
+<td><code>/movies/table</code> → <code>donor_crop</code> (1-based <code>[y1, x1, y2, x2]</code>)</td>
+<td><code>[1, 1, 64, 48]</code></td>
+<td><code>[1, 49, 64, 96]</code></td>
+</tr>
+<tr>
+<td><code>/movies/table</code> → <code>acceptor_crop</code></td>
+<td><code>[1, 49, 64, 96]</code></td>
+<td><code>[1, 1, 64, 48]</code></td>
+</tr>
+<tr>
+<td>mean apparent E</td>
+<td><code>0.1986</code></td>
+<td><code>0.8014</code></td>
+</tr>
+</tbody>
+</table>
+<p>Both runs printed the same <code>Extracted 3 molecule(s) -&gt; …</code> line and both exited <code>0</code>.</p>
+</blockquote>
+<p><strong>Remedy.</strong> Confirm the orientation <em>before</em> you trust a dataset, two ways:</p>
+<ul>
+<li><strong>Against the instrument.</strong> <code>donor_crop</code> in <code>/movies/table</code> is a 1-based
+  <code>[y1, x1, y2, x2]</code> box; check that its half of the frame is the one the splitter sends
+  through the donor emission filter.</li>
+<li><strong>Against a trace.</strong> Open a molecule that photobleaches. At the acceptor-bleach step the
+  acceptor channel drops to background and the donor channel <em>rises</em> — the dequenching step
+  Tether's own γ estimator measures as <code>ΔI_A / ΔI_D</code> (<code>tether.fret.gamma</code>). If in your traces
+  the channel labelled <em>acceptor</em> is the one that rises, the sides are swapped.</li>
+</ul>
+<p>If it was wrong, <strong>re-extract</strong>. There is no in-place fix and nothing to flip after the fact:
+the crops, the registration map, the molecule keys and the tags are all written from the
+chosen split.</p>
+<h3 id="the-batch-finished-ok-but-nothing-was-idealized">The batch finished "ok" but nothing was idealized</h3>
+<p><strong>Symptom.</strong></p>
+<pre><code class="language-text">Batch run: 1 movie(s), 1 ok, 0 failed (policy=warn, idealize=on)
+  ok    warp_010  extract=done correct=done idealize=deferred
+</code></pre>
+<p>Exit code <code>0</code>. <code>/idealization</code> is empty.</p>
+<p><strong>Cause.</strong> <code>tether batch</code> probes the sidecar once at startup. When no interpreter resolves,
+and <code>defer_if_unavailable</code> is on (the default), the idealize stage is recorded as
+<code>deferred</code> rather than <code>failed</code> — and <code>deferred</code> is not a failure, so <code>n_failed</code> stays <code>0</code>
+and the CLI returns <code>0</code> (<code>tether.project.batch</code>). The <em>reason</em> is logged at <code>INFO</code>, below
+Python's last-resort handler threshold, so it never reaches your console; the word
+<code>deferred</code> in the stage list is the only tell.</p>
+<blockquote>
+<p><strong>Signature.</strong> <code>/settings/batch.attrs["idealize_status"] == "deferred"</code>, <code>/idealization</code>
+empty, and the JSONL log carries the explanation:</p>
+<p><code>text
+{"movie": "(batch)", "stage": "idealize", "status": "deferred", "detail": "sidecar unavailable \u2014 idealization deferred: no sidecar interpreter: pass sidecar_python= or set TETHER_SIDECAR_PYTHON to a Python in an env built from sidecar/conda-lock.yml with tMAVEN installed"}</code></p>
+<p>That is the byte-for-byte line as it lands on disk. <code>BatchLog.event</code> writes
+<code>json.dumps(record)</code> at the default <code>ensure_ascii=True</code>, so every non-ASCII character in a
+detail string is <strong>escaped</strong>: the em dash the code emits is stored as <code>\u2014</code>. Grep for an
+ASCII-only substring — <code>grep '"status": "deferred"' &lt;out-dir&gt;/batch-log.jsonl</code>, or
+<code>grep 'idealization deferred' …</code> — never for the rendered <code>\u2014</code>.</p>
+</blockquote>
+<p><strong>Remedy.</strong> Fix the sidecar (see
+<a href="#idealization-cannot-find-the-sidecar-interpreter">Idealization cannot find the sidecar interpreter</a>)
+and re-run the same batch — extract and correct report <code>skipped</code> from their checkpoints and
+only idealization runs. To make the condition loud in the first place, pass <code>--no-defer</code>,
+which fails each movie's idealize stage in isolation and exits <code>1</code>:</p>
+<pre><code class="language-text">warp_010 · idealize: failed — no sidecar interpreter: pass sidecar_python= or set TETHER_SIDECAR_PYTHON to a Python in an env built from sidecar/conda-lock.yml with tMAVEN installed
+Batch run: 1 movie(s), 0 ok, 1 failed (policy=warn, idealize=on)
+  FAIL  warp_010  extract=done correct=done idealize=failed(no sidecar interpreter: pass sidecar_python= or set TETHER_SIDECAR_PYTHON to a Python in an env built from sidecar/conda-lock.yml with tMAVEN installed)
+</code></pre>
+<p>The first line is <code>BatchLog.event</code>'s console record — it joins movie and stage with a middle
+dot (<code>·</code>) and the error with an <strong>em dash</strong> (<code>—</code>). The last two lines are
+<code>BatchSummary.format_report</code>, which appends the error text only because the stage is <code>failed</code>.</p>
+<h3 id="the-batch-says-correctdone-but-no-corrections-were-applied">The batch says <code>correct=done</code> but no corrections were applied</h3>
+<p><strong>Symptom.</strong> The run reports <code>correct=done</code> and exit <code>0</code>, but α and γ are NaN on every
+molecule and your efficiencies are uncorrected.</p>
+<p><strong>Cause.</strong> This is the <strong>documented, expected</strong> outcome for an acquisition with no clean
+acceptor-bleach step. <code>compute_leakage_alpha</code> withholds α below
+<code>DEFAULT_MIN_QUALIFYING_TRACES = 10</code> qualifying donor-only tails rather than fabricating one;
+<code>run_correct_stage</code> then skips γ entirely (it cannot run without α) and stamps every molecule
+<code>apparent-E (corrections unavailable)</code>. Nothing is wrong with the code — but the batch
+console never says so, because the explanation lives in the stage <em>detail</em> string, which the
+end-of-run report does not print.</p>
+<blockquote>
+<p><strong>Signature.</strong> Three store reads, dumped from a real run:</p>
+<p><code>text
+/settings/correction : {'apparent_e_only': False, 'n_molecules': 7, 'n_corrected': 0, 'n_manual': 0, 'n_apparent': 7, 'total_failure': True, ...}
+/settings/leakage    : {'alpha': nan, 'withheld': True, 'n_qualifying': 0, 'min_qualifying_traces': 10, ...}
+/settings/gamma      : ABSENT</code></p>
+<p><code>total_failure=True</code> <strong>with</strong> <code>apparent_e_only=False</code> is the unambiguous "correction
+failed" signature; <code>total_failure=True</code> with <code>apparent_e_only=True</code> is the deliberate
+user toggle. The absence of <code>/settings/gamma</code> is itself diagnostic — γ never ran.
+<code>/molecules.correction_method</code> reads <code>apparent-E (corrections unavailable)</code> with
+<code>correction_confidence = 0.0</code>. The stage detail string spells it out. The line below is
+copied byte-for-byte from a real <code>batch-log.jsonl</code>, so the <code>α</code> that <code>run_correct_stage</code>
+builds appears in its escaped on-disk form (<code>ensure_ascii</code> again — see the deferral
+entry above):</p>
+<p><code>text
+{"movie": "warp16b", "stage": "correct", "status": "done", "detail": "pb 0D/0A; \u03b1 withheld; apparent-E fallback (7 mol)"}</code></p>
+</blockquote>
+<p><strong>Remedy.</strong> There is no flag that makes the estimators succeed on data that lacks the step
+they measure. Realistically there are two options: accept apparent E (which is what every
+population plot shows anyway — see <a href="../glossary/#apparent-e">apparent E</a>), or acquire traces
+long enough to capture acceptor photobleaching in ≥ 10 molecules.</p>
+<p>The correction overrides are a <strong>provenance</strong> tool, not a third option. <code>compute_corrected_fret</code>
+accepts <code>alpha_override</code> / <code>gamma_override</code> (<code>tether.project.correct</code>), and <strong>in this state</strong>
+they must be supplied together: the gate is
+<code>np.isfinite(eff_alpha) and np.isfinite(eff_gamma) and eff_gamma &gt; 0.0</code>, an override replaces
+only the factor it names, and here the <em>other</em> factor is still the stored NaN — so passing
+only one leaves every molecule stamped <code>apparent-E (corrections unavailable)</code> exactly as
+before. (Where the other factor <em>was</em> estimated, one override is enough: it combines with the
+stored value and the row is stamped <code>manual</code>.) Even when both are supplied, the visible
+effect is provenance only: the applied factors are persisted to <code>/molecules.alpha</code> /
+<code>.gamma</code>, <code>/settings/correction</code> records the overrides, and <code>correction_method</code> becomes
+<code>manual</code> — but plots and CSV exports still show apparent E, because
+<code>tether.fret.efficiency.corrected_fret</code> has <strong>no call sites</strong> outside the <code>tether.fret</code>
+re-export (<code>tether.analysis.histogram</code>, <code>.cloud</code>, <code>tether.gui.trace_dock</code>,
+<code>tether.project.export</code> and <code>tether.ml.features</code> all call <code>apparent_fret</code>).</p>
+<blockquote>
+<p>Note the related non-silence: a molecule that fails γ's own gates silently receives the
+<strong>dataset median</strong> γ and is still stamped <code>corrected</code> with confidence <code>1.0</code>. Only the
+population count <code>/settings/gamma.attrs["n_fallback"]</code> reveals how many; there is no
+per-row marker.</p>
+</blockquote>
+<h3 id="tether-batch-overwrite-changed-nothing"><code>tether batch --overwrite</code> changed nothing</h3>
+<p><strong>Symptom.</strong> You fixed a parameter, re-ran the batch with <code>--overwrite</code>, and got:</p>
+<pre><code class="language-text">  ok    warp_010  extract=skipped correct=skipped idealize=deferred
+</code></pre>
+<p>The results are the old ones, reported as <code>ok</code>, exit <code>0</code>.</p>
+<p><strong>Cause.</strong> For a normal completed extraction, <code>_do_extract</code> in
+<code>tether.project.batch</code> finds the <code>/settings/extraction</code> checkpoint and returns <code>skipped</code>;
+<code>--overwrite</code> is not a general "recompute completed work" switch. <code>_do_correct</code> likewise
+skips a completed <code>/settings/correction</code>.</p>
+<p>There is one deliberate extraction exception. Under <code>--policy fail</code>, the runner reads the
+saved <code>registration_rms_px</code> and effective <code>rms_gate</code> from the extraction profile. A saved
+over-gate result remains <code>failed</code> on every resume. Passing <code>--overwrite --policy fail</code>
+re-extracts that rejected checkpoint and applies the gate to the new result. An in-gate
+completed extraction still skips, even with <code>--overwrite</code>. Batch claims every
+<code>--overwrite --policy fail</code> destination lock before testing whether its project file
+exists or reading a checkpoint; a lock held by any writer, including another thread in
+the same process, reports the movie as locked and is neither refreshed nor released by
+batch. A process-local per-destination reservation also rejects same-identity access
+from another local thread. Both claims remain held while batch creates, skips, or
+re-extracts the destination.</p>
+<blockquote>
+<p><strong>Signature.</strong> <code>extract=skipped</code> / <code>correct=skipped</code> in the report, and
+<code>/settings/extraction.attrs["profile_json"]</code> still holding the old parameters.</p>
+</blockquote>
+<p><strong>Remedy.</strong> For a policy-rejected project, keep the inspectable <code>.tether</code> and re-run with
+<code>--overwrite --policy fail</code>; downstream stages proceed only if the new extraction passes
+the gate. For a normal completed checkpoint whose parameters must change, preserve or move
+the old project as needed, then use <code>tether extract --overwrite</code> for that movie — the
+batch runner intentionally does not recompute an accepted completed extraction.</p>
+<p>Deleting is not enough if the parameter you fixed is an <strong>extract</strong> tunable
+(<code>--donor-side</code>, <code>--detection-mode</code>, <code>--detection-threshold</code>, <code>--min-separation</code>, <code>--window</code>,
+<code>--pair-tol</code>, <code>--rms-gate</code>). <code>tether batch</code> exposes none of them and never builds an
+<code>ExtractOptions</code>, so a clean re-run silently re-applies the same defaults
+(see <a href="#every-efficiency-is-mirrored-when-donor-side-is-backwards">every efficiency is mirrored</a>).
+Run those movies through <code>tether extract --overwrite</code> one at a time, or drive
+<code>run_batch(..., extract_options=ExtractOptions(...))</code> from the library, which <em>does</em> forward
+them.</p>
+<h3 id="registration-passed-the-gate-with-a-suspiciously-perfect-residual">Registration passed the gate with a suspiciously perfect residual</h3>
+<p><strong>Symptom.</strong> <code>/calibration</code> reports an RMS residual at machine epsilon (<code>1e-14</code> or smaller)
+and <code>low_confidence: False</code>, on a movie you know is not perfectly registered.</p>
+<p><strong>Cause.</strong> The gate is <strong>vacuous whenever the control points exactly determine the fit</strong> — the
+residual of an exactly-determined least-squares fit is zero by construction, so it measures
+nothing about the mapping. <code>_fit_both</code> in <code>tether.imaging.calibrate</code> uses a degree-2
+polynomial at <code>_MIN_POLY_POINTS = 6</code> pairs or more and a 4-DOF similarity below that, which
+gives the condition two arms:</p>
+<ul>
+<li><strong>2 pairs, <code>degree: 1</code></strong> — 4 unknowns, 4 equations.</li>
+<li><strong>6 pairs, <code>degree: 2</code></strong> — the polynomial basis <code>[1, x, y, xy, x², y²]</code> has 6 coefficients
+  per axis (<code>poly_basis_deg2</code> in <code>tether.imaging.register</code>), so a 6×6 system.</li>
+</ul>
+<p>At <strong>3–5 pairs the similarity is over-determined and the residual is real</strong> — the gate works
+normally there, and a <code>low_confidence: True</code> on a 4-point fit is a genuine warning, not an
+artefact. (What it cannot tell you is whether the map needs degree 2: a 3–5-point residual
+only measures how well a <em>similarity</em> fits.) Separately, <code>pair_control_points</code> silently
+<strong>drops</strong> outlier pairs beyond <code>--pair-tol</code> (default 2 px), which is how a movie with plenty
+of spots lands on 6 surviving pairs; only fewer than 2 is a hard error.</p>
+<blockquote>
+<p><strong>Signature.</strong> In <code>/calibration/&lt;cal-id&gt;.attrs</code>: an <code>rms_residual</code> at machine epsilon
+(<code>~1e-14</code>) with <code>n_control_points</code> <strong>equal to the fit's degrees of freedom</strong> — 2 at
+<code>degree: 1</code>, or 6 at <code>degree: 2</code>. Both are verified below on synthetic movies whose true
+donor→acceptor mapping is a <strong>cubic</strong> warp, i.e. deliberately not representable by either
+fit, at the default <code>--rms-gate</code>:</p>
+<p><code>text
+vacuous : {'rms_residual': 4.24e-14, 'n_control_points': 6, 'gate_px': 0.5, 'degree': 2, 'low_confidence': False, 'source': 'native'}
+genuine : {'rms_residual': 0.502,    'n_control_points': 15, 'gate_px': 0.5, 'degree': 2, 'low_confidence': True,  'source': 'native'}</code></p>
+<p>The first row is the trap: a badly mis-mapped movie reporting a <em>perfect</em> fit, and
+<code>degree: 2</code> alone does <strong>not</strong> clear it.</p>
+</blockquote>
+<p><strong>Remedy.</strong> Treat the RMS number as meaningful only when <code>n_control_points</code> is comfortably
+above the fit's DOF — in practice 7 or more, since that is where the degree-2 fit starts being
+over-determined. Get more pairs: raise <code>--pair-tol</code> so genuine pairs are not discarded, lower
+<code>--min-separation</code>, or try <code>--detection-mode intensity</code> with a lower <code>--detection-threshold</code>.</p>
+<p>Importing a Deep-LASI map with <code>--tmap</code> does <strong>not</strong> help here: the imported path skips pairing
+entirely, so the residual is left NaN and the gate is not merely vacuous but absent (see
+<a href="#registration-was-flagged-low-confidence">registration was flagged low-confidence</a>). Tether
+also has no <code>.tmap</code> <strong>writer</strong> — <code>tether.imaging.register.read_tmap</code> is the only entry point —
+so there is no way to extract a bead movie in Tether and export a calibration map from it.</p>
+<h3 id="extraction-found-no-molecules">Extraction found no molecules</h3>
+<p><strong>Symptom.</strong></p>
+<pre><code class="language-text">tether extract: registration failed: only 0 control-point pair(s) matched (need &gt;= 2). Detected 0 donor / 0 acceptor spots; check the channel split, detection sensitivity (--min-separation) or pairing tolerance (--pair-tol).
+</code></pre>
+<p>Exit code <code>1</code>. Raised by <code>tether.project.extract.extract_movie</code> when fewer than 2 control
+points survive pairing (the native path only — an imported <code>--tmap</code> skips pairing entirely).</p>
+<p><strong>Cause and remedy, in the order worth trying.</strong> Read the two counts in the message first:
+they tell you which half of the problem you have.</p>
+<ol>
+<li><strong><code>Detected 0 donor / 0 acceptor</code></strong> — the detector found nothing. Check that the movie
+   really is a side-by-side dual-channel frame and that <code>--donor-side</code> matches, then loosen
+   detection: <code>--detection-mode intensity</code> with a lower <code>--detection-threshold</code> (e.g. <code>0.2</code>;
+   it is a <strong>fraction of the detection-image maximum</strong>, not an absolute count), or a smaller
+   <code>--min-separation</code>.</li>
+<li><strong>Spots were detected but pairs did not match</strong> — the two halves are misaligned by more
+   than <code>--pair-tol</code> (default 2 px). Raise <code>--pair-tol</code>, switch to <code>--prealign similarity</code>,
+   or import the real calibration with <code>--tmap</code>.</li>
+</ol>
+<p>Defaults worth knowing: <code>--detection-threshold</code> is ignored by the <code>wavelet</code> mode, and
+defaults to <code>0.5</code> for <code>intensity</code> and <code>0.98</code> for <code>bandpass</code>. Omitting <code>--min-separation</code>
+gives each mode its own faithful default (wavelet 8 px, intensity/bandpass 3 px;
+ADR-0022).</p>
+<h3 id="extraction-found-far-fewer-or-far-more-molecules-than-expected">Extraction found far fewer, or far more, molecules than expected</h3>
+<p><strong>Symptom.</strong> <code>Extracted N molecule(s)</code> where <em>N</em> is wildly off — a handful on a crowded
+field, or thousands on a sparse one. <strong>No error is raised</strong>; molecule count is not gated.</p>
+<p><strong>Cause.</strong> Detection sensitivity. There is no absolute-count check anywhere in
+<code>tether.project.extract</code>, and remember that colocalization is
+<a href="../glossary/#donor-anchored-colocalization">donor-anchored</a> — <em>every</em> in-frame donor spot
+becomes a molecule, whether or not an acceptor was independently detected, so the count
+tracks donor detections alone. Molecules whose full <code>21 × 21</code> aperture would fall outside
+the frame in either channel are dropped rather than zero-filled, which also trims edge spots.</p>
+<blockquote>
+<p><strong>Signature.</strong> <code>/settings/extraction.attrs["profile_json"]</code> records every tunable verbatim
+(<code>detection_mode</code>, <code>detection_threshold</code>, <code>min_separation</code>, <code>window</code>, <code>pair_tol</code>,
+<code>coloc_distance</code>, <code>rms_gate</code>, <code>donor_side</code>). Compare it against a run you trust; the
+parameters, not the code, will differ.</p>
+</blockquote>
+<p><strong>Remedy.</strong> Adjust <code>--detection-mode</code> / <code>--detection-threshold</code> / <code>--min-separation</code> and
+re-extract. There is no post-hoc re-detection: detection happens once, at extraction.</p>
+<h3 id="the-movie-will-not-load">The movie will not load</h3>
+<p>All three of these arrive wrapped by <code>extract_movie</code> as
+<code>could not extract from &lt;name&gt;: …</code>, exit <code>1</code> — that wrapper catches any non-<code>ExtractionError</code>,
+so the inner text is passed through unchanged from whatever raised it. The first two come from
+<code>tether.io.movie</code>; the third is <strong>not</strong> a Tether message — it is <code>tifffile</code>'s own
+<code>TiffFileError</code>, raised inside <code>MovieReader.__init__</code> when <code>tifffile.TiffFile</code> opens the path,
+so grepping <code>src/</code> for it finds nothing.</p>
+<table>
+<thead>
+<tr>
+<th>Message</th>
+<th>What it means</th>
+<th>Remedy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>… is not memory-mappable; the lazy reader needs an uncompressed, contiguous TIFF (the reference movie format, PRD Appendix A).</code></td>
+<td>A compressed or tiled TIFF. This is the most common real-world case.</td>
+<td>Re-save uncompressed — in ImageJ, <em>Save As → Tiff</em> with no compression.</td>
+</tr>
+<tr>
+<td><code>…: expected a 3-D movie (frames, height, width), got shape (64, 64) (axes 'YX').</code></td>
+<td>A single-page TIFF — often a max-projection saved instead of the stack.</td>
+<td>Point Tether at the stack.</td>
+</tr>
+<tr>
+<td><code>not a TIFF file: header=b'this'</code></td>
+<td>The file is not a TIFF at all: renamed, corrupt, or a copy that never finished.</td>
+<td>Re-copy from the acquisition machine.</td>
+</tr>
+</tbody>
+</table>
+<p>Two more from the same family, raised by <code>tether.project.extract</code>:</p>
+<ul>
+<li><code>movie changed during extraction: &lt;path&gt;</code> — the file's size or mtime moved mid-run
+  (cloud sync, or the acquisition is still writing). Copy the movie locally, or wait for the
+  acquisition to finish.</li>
+<li><code>movie too narrow (1 px) to split into two channels</code> — the frame cannot be halved.
+  Note that a movie of odd width silently drops its trailing column so both halves match.</li>
+</ul>
+<h3 id="tether-extract-rejects-an-option-value"><code>tether extract</code> rejects an option value</h3>
+<p>Every operator-actionable tunable is validated in <code>ExtractOptions.__post_init__</code>
+(<code>tether.project.extract</code>) so bad input fails with a clean one-line message on stderr and
+exit <code>1</code> — never a traceback. The ones you are most likely to meet:</p>
+<table>
+<thead>
+<tr>
+<th>Message</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>donor_side must be 'left' or 'right', got 'middle'</code></td>
+<td>use <code>left</code> or <code>right</code></td>
+</tr>
+<tr>
+<td><code>detection_mode must be one of ('wavelet', 'intensity', 'bandpass'), got 'gaussian'</code></td>
+<td>pick one of the three</td>
+</tr>
+<tr>
+<td><code>detection_threshold must be in [0, 1) (a fraction of the detection-image max), got 1.5</code></td>
+<td>it is a fraction, not a count</td>
+</tr>
+<tr>
+<td><code>min_separation must be &gt; 0, got -1.0</code></td>
+<td>omit it to get each mode's faithful default</td>
+</tr>
+<tr>
+<td><code>window must be a positive odd integer, got 20</code></td>
+<td>the aperture side must be odd (default 21)</td>
+</tr>
+<tr>
+<td><code>ring (2*8.0) does not fit in a 11px window</code></td>
+<td>enlarge <code>--window</code></td>
+</tr>
+<tr>
+<td><code>pair_tol must be &gt; 0, got 0.0</code></td>
+<td>also applies to <code>coloc_distance</code> and <code>rms_gate</code></td>
+</tr>
+<tr>
+<td><code>output exists: &lt;path&gt; (use overwrite=True / --overwrite)</code></td>
+<td>pass <code>--overwrite</code> (the message names the library keyword first)</td>
+</tr>
+<tr>
+<td><code>--detection-mode/--detection-threshold cannot be combined with --tdat (the .tdat supplies the detection mode); pass one or the other</code></td>
+<td>drop one side</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Ordering gotcha.</strong> Option validation runs <strong>before</strong> any file-existence check, and
+<code>movie not found</code> fires before <code>tmap not found</code> / <code>tdat not found</code>. So
+<code>tether extract nope.tif -o x --donor-side middle</code> reports the donor-side error, not the
+missing movie.</p>
+</blockquote>
+<h3 id="registration-was-flagged-low-confidence">Registration was flagged low-confidence</h3>
+<p><strong>Symptom.</strong> On stderr, with the run still succeeding and <strong>exit code <code>0</code></strong>:</p>
+<pre><code class="language-text">  warning: registration RMS 0.368 px exceeds the 0.2 px gate (7 control points); molecules tagged 'low-confidence-registration'.
+Extracted 5 molecule(s) -&gt; …\warp2.tether
+</code></pre>
+<p>The library-level form of the same verdict (<code>tether.imaging.calibrate</code>) reads:</p>
+<pre><code class="language-text">registration RMS residual 0.368 px exceeds the 0.200 px gate (channels 0-&gt;1, 7 control points, source native): calibration flagged low-confidence; molecules will be tagged 'low-confidence-registration'.
+</code></pre>
+<p><strong>Cause.</strong> The fit's RMS residual exceeded <code>--rms-gate</code> (default
+<code>DEFAULT_RMS_GATE_PX = 0.5</code> px). Under the default <code>warn</code> policy this is <strong>accept-with-flag</strong>:
+molecules are tagged, never dropped.</p>
+<blockquote>
+<p><strong>Signature.</strong> <code>/calibration/&lt;cal-id&gt;.attrs</code> carries
+<code>low_confidence: True</code> alongside <code>rms_residual</code>, <code>n_control_points</code>, <code>gate_px</code>, <code>degree</code>
+and <code>source</code>; every row of <code>/molecules.tags</code> carries <code>low-confidence-registration</code>.</p>
+<p><strong>In <code>tether batch</code> the warning disappears entirely</strong> — the end-of-run report prints the
+stage <em>status</em> only, and the flag survives only in the JSONL <code>detail</code>
+(<code>"…; low-confidence registration (flagged)"</code>). Run with <code>--policy fail</code> to make an
+over-gate movie fail loudly and exit <code>1</code>.</p>
+</blockquote>
+<p><strong>Remedy.</strong> Nothing downstream currently filters on the tag — no GUI banner, no analysis
+exclusion — so treat it as a prompt to look at the registration, not as a handled condition.
+Improve the fit (more control points, <code>--prealign similarity</code>, a looser <code>--pair-tol</code> so real
+pairs are not discarded), or import a dedicated calibration with <code>--tmap</code>. Note that an
+imported <code>.tmap</code> leaves the residual NaN and therefore <strong>can never trip the gate</strong> — a clean
+gate on an imported map means nothing was measured, not that the map is good.</p>
+<h3 id="a-correction-step-refuses-run-something-else-first">A correction step refuses: run something else first</h3>
+<p><strong>Symptom.</strong> One of these <code>ValueError</code>s from <code>tether.project.gamma</code> or
+<code>tether.project.leakage</code>:</p>
+<pre><code class="language-text">/molecules row 0 has no photobleach frames (bleach_frames=(-1, -1), the undetected sentinel); run compute_photobleach() before compute_leakage_alpha()
+/molecules row 0 has no photobleach frames (bleach_frames=(-1, -1), the undetected sentinel); run compute_photobleach() before compute_gamma()
+/molecules row 0 has no leakage factor (alpha is NaN); run compute_leakage_alpha() before compute_gamma()
+</code></pre>
+<p><strong>Cause and remedy.</strong> These messages <em>are</em> the fix — they encode the canonical order
+<strong><code>compute_photobleach</code> → <code>compute_leakage_alpha</code> → <code>compute_gamma</code></strong>. <code>(-1, -1)</code> is the
+documented "photobleaching not yet computed" sentinel; <code>alpha</code> being NaN is "leakage not yet
+computed". <code>tether batch</code> runs the chain for you; you only see these when driving the
+library directly.</p>
+<p>Two siblings from the same family:</p>
+<ul>
+<li><code>project has no /traces/&lt;layer&gt;; run extraction first</code> (a <code>KeyError</code>, identical text in
+  <code>tether.project.photobleach</code>, <code>.leakage</code> and <code>.gamma</code>) — the store has no traces yet.</li>
+<li><code>intensity_quantity must be one of ['corrected', 'raw'], got 'bogus'</code> — only those two
+  layers exist. <code>tether.project.export</code> phrases the same condition differently:
+  <code>unknown intensity_quantity 'bogus'; expected one of ['corrected', 'raw']</code>.</li>
+</ul>
+<h3 id="a-condition-query-or-per-condition-overlay-returns-nothing">A condition query or per-condition overlay returns nothing</h3>
+<p><strong>Symptom.</strong> <code>query_molecules(project, key={"ligand": "tRNA"})</code> matches zero molecules, or a
+per-condition histogram overlay <strong>called with that same <code>key=</code> filter</strong> comes back with no
+curves — while the plain population histogram over the same store is fine.</p>
+<p>The <code>key</code> filter is the whole story: an overlay called <em>without</em> <code>key</code> groups on the raw
+<code>condition_id</code> and is unaffected by everything below, so if your unfiltered overlay is empty,
+this is not your entry.</p>
+<p><strong>Cause.</strong> Two rules in <code>tether.analysis.query</code>, both deliberate:</p>
+<ol>
+<li>A <strong><code>key</code> filter only sees materialized <code>/conditions</code> rows.</strong> Until
+   <code>tether.project.conditions.sync_conditions()</code> has run, a molecule's provisional
+   <code>condition_id</code> cannot be resolved back to a key, so it is not key-matchable and the filter
+   excludes it. <code>per_condition_apparent_e_histograms</code> forwards <code>key</code> to <code>query_molecules</code>, so
+   it inherits this rule and nothing else.</li>
+<li><strong>A condition query never returns a molecule with an empty <code>condition_id</code></strong> — it is a
+   <em>condition</em> query by definition. This one is a defensive invariant rather than a likely
+   cause: every Tether writer stamps the id from <code>ConditionKey.condition_id()</code>, which always
+   returns a non-empty <code>cond-&lt;12 hex&gt;</code>, so no natively-extracted or imported store should
+   contain one. If you do meet an empty id, note that <code>sync_conditions</code> cannot repair it — it
+   skips empty ids outright (<code>if not cid: … continue</code>) and excludes them from <code>referenced</code>, so
+   it reports <code>n_unresolved=0</code> while fixing nothing. <code>rekey_condition</code> is not the escape hatch
+   either; it rejects an empty <code>from_condition_id</code>.</li>
+</ol>
+<blockquote>
+<p><strong>Signature.</strong> Verified end to end on a freshly batch-extracted 7-molecule project
+(<code>Tbox_Cy3Cy5_tRNA_100nM_25C.tether</code>), running each probe before and after the sync:</p>
+<p><code>text
+                               before sync   after sync
+plain population histogram N :      7             7
+query (no filter) matches    :      7             7
+query key={'ligand':'tRNA'}  :      0             7
+per-condition overlay curves :      1             1
+overlay + key={'ligand':...} :      0             1
+sync_conditions -&gt; created_ids=('cond-6115d12da682',), n_unresolved=0</code></p>
+<p>Only the two <code>key</code>-filtered rows moved. The unfiltered query, the plain histogram and the
+plain per-condition overlay were never affected — if one of those is what came back empty,
+<code>sync_conditions</code> will not change it.</p>
+</blockquote>
+<p><strong>Remedy.</strong> Call <code>sync_conditions(path)</code> once per store before using <code>key</code> filters, then
+<code>validate_conditions(path)</code> to see anything still dangling. <code>sync_conditions</code> reports
+<code>n_unresolved</code> for ids with neither an existing row nor a filename witness — but read that
+number narrowly: <code>n_unresolved=0</code> means every <strong>non-empty</strong> id either already had a row or got
+one from a filename witness. It is not a claim that every molecule is now key-matchable.</p>
+<h3 id="a-plot-shows-fewer-molecules-than-i-curated">A plot shows fewer molecules than I curated</h3>
+<p><strong>Cause.</strong> Two on-by-default invariants on every store-level group-B/C entry point, both
+Tether additions with no tMAVEN analogue: <strong>stale</strong> molecules are excluded, and <strong>rejected</strong>
+molecules are excluded. A molecule goes stale when its input trace, its analysis window, or
+its effective applied α/γ changed after the model was fitted — so re-running the corrections
+can silently empty a TDP that worked yesterday.</p>
+<p><strong>Remedy.</strong> Pass <code>include_stale=True</code> / <code>include_rejected=True</code> to see them, or re-idealize
+to make the model fresh again. Mind the blast radius: the α estimator is <strong>store-wide</strong> —
+<code>compute_leakage_alpha</code> fits one dataset median over every analysable molecule and writes it
+to every one of their <code>/molecules.alpha</code> cells, with no partition by condition — so
+re-estimating α re-stales <strong>every</strong> molecule in the project, not one condition's cohort. A
+γ-median shift re-stales only the molecules that took the fallback. See
+<a href="../glossary/#staleness-stale-fresh-live">staleness</a>.</p>
+<h3 id="the-project-will-not-open">The project will not open</h3>
+<p>Raised by <code>tether.project.core.Project.open</code> / <code>tether.io.schema</code>. In the GUI these appear on
+the status bar as <code>Open project failed: &lt;msg&gt;</code> — the shell never crashes, and the previously
+loaded project stays in place.</p>
+<table>
+<thead>
+<tr>
+<th>Message</th>
+<th>Cause</th>
+<th>Remedy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>no such .tether project: &lt;path&gt;</code></td>
+<td>path typo, or the file moved</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>file schema_version 99 is newer than this app's 1; refusing to open (PRD section 5.4).</code></td>
+<td>written by a newer Tether</td>
+<td><strong>upgrade Tether.</strong> Do not attempt to edit the file</td>
+</tr>
+<tr>
+<td><code>&lt;path&gt; is not a .tether project (format marker=None)</code></td>
+<td>valid HDF5, but not ours — an SMD, a model, or a <code>.mat</code> opened by mistake</td>
+<td>open the right file</td>
+</tr>
+<tr>
+<td><code>&lt;path&gt; is not a readable .tether HDF5 project</code></td>
+<td>not HDF5 at all, or truncated beyond reading</td>
+<td>restore from backup; check the copy completed</td>
+</tr>
+<tr>
+<td><code>&lt;path&gt; is not a complete .tether project; missing: /movies, /molecules, …</code></td>
+<td>a half-written store; every missing group is named</td>
+<td>re-extract. <code>tether extract</code> itself writes atomically (temp file + replace), so this comes from an external interruption</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>A batch <strong>resume</strong> additionally refuses a newer-schema output even under <code>--overwrite</code>:
+<code>--overwrite</code> means "redo my extraction", not "discard whatever a newer Tether wrote". A
+foreign or half-written HDF5, by contrast, falls through to the normal re-attempt path.</p>
+</blockquote>
+<hr />
+<h2 id="setup-and-environment-failures">Setup and environment failures</h2>
+<h3 id="idealization-cannot-find-the-sidecar-interpreter">Idealization cannot find the sidecar interpreter</h3>
+<p><strong>Symptom.</strong></p>
+<pre><code class="language-text">SidecarError: no sidecar interpreter: pass sidecar_python= or set TETHER_SIDECAR_PYTHON to a Python in an env built from sidecar/conda-lock.yml with tMAVEN installed
+</code></pre>
+<p>or, when the path is set but wrong:</p>
+<pre><code class="language-text">SidecarError: sidecar interpreter does not exist: C:\nope\python.exe
+</code></pre>
+<p>Both are raised by <code>resolve_sidecar_python</code> in <code>tether.idealize.driver</code>, both are
+<strong>deterministic</strong> (<code>transient=False</code>), so the supervisor fails fast instead of burning its
+restart budget.</p>
+<p><strong>Cause.</strong> The interpreter is resolved in this order: the explicit <code>sidecar_python=</code> argument
+→ <code>$TETHER_SIDECAR_PYTHON</code> → the installer's sibling <code>envs/sidecar</code> derived from
+<code>sys.prefix</code>. None of the three resolved.</p>
+<p>On a proper install the third step should cover you even when the environment was never
+activated — that fallback exists precisely because a menu shortcut, a <code>PATH</code> shim or a
+<code>.desktop</code> entry never runs the conda <code>activate.d</code> hook that sets the variable
+(ADR-0051). If you see this error from an
+installed app, the <code>envs/sidecar</code> environment is missing or was moved.</p>
+<p><strong>Remedy.</strong> From a source checkout, build the sidecar with <code>python scripts/setup_sidecar.py</code>,
+which creates the env from <code>sidecar/conda-lock.yml</code>, installs the pinned tMAVEN, probes
+liveness, and prints the line that points Tether at the interpreter. See
+<a href="../idealize/standalone-tmaven-handoff/#guided-sidecar-setup">Guided sidecar setup</a>. Then set
+<code>TETHER_SIDECAR_PYTHON</code>, or pass <code>--sidecar-python</code> to <code>tether batch</code>.</p>
+<h3 id="the-sidecar-starts-but-tmaven-cannot-import-pkg_resources">The sidecar starts but tMAVEN cannot import <code>pkg_resources</code></h3>
+<p><strong>Symptom.</strong> Idealization fails with a sidecar-reported error; the stderr tail carried in
+Tether's wrapper message names <code>pkg_resources</code>. The Tether-side wrapper
+(<code>tether.idealize.driver</code>) looks like:</p>
+<pre><code class="language-text">sidecar idealization failed (exit 1): &lt;the sidecar's own error&gt;
+--- stderr (tail) ---
+…
+</code></pre>
+<p><strong>Cause.</strong> tMAVEN calls <code>import pkg_resources</code> at runtime while setting up its version log
+(<code>tmaven/maven.py</code>), without declaring the dependency. setuptools <strong>deprecated
+<code>pkg_resources</code> by 80.9.0</strong> (still shipped through 81.0.0, with a <code>UserWarning</code> on import)
+and <strong>removed it in 82.0.0</strong>, so a sidecar environment on 82 or newer cannot construct
+<code>maven_class</code> at all. <code>sidecar/conda-lock.yml</code> resolves setuptools <code>82.0.1</code>, i.e. past the
+removal.</p>
+<p><strong>Remedy.</strong> Get <code>setuptools&lt;81</code> into the sidecar environment. Which side you are on decides
+whether that has already happened.</p>
+<p><em>Sidecar built from a source checkout.</em> <code>scripts/setup_sidecar.py</code> applies the pin for you.
+The version and its SHA-256 live in <strong><code>packaging/setuptools-compatibility.txt</code></strong>, which is the
+only place either is written — the script parses that file rather than carrying its own copy,
+and installs it hash-checked. <code>sidecar/conda-lock.yml</code> deliberately resolves setuptools
+<code>82.0.1</code>, and the script's pip step downgrades it after the env is created. Do not go looking
+for the pin in the lock file or the workflow — <code>.github/workflows/sidecar.yml</code> just calls the
+script.</p>
+<p><em>Sidecar that came with the installer.</em> The pin is applied for you. <code>envs/sidecar</code> is
+materialised from the rendered <code>sidecar/conda-lock.yml</code> (setuptools <code>82.0.1</code>), and the
+constructor <code>post_install</code> script then lays a bundled <code>setuptools&lt;81</code> wheel over it — a
+third offline wheel alongside <code>tether-*.whl</code> and <code>tmaven-*.whl</code> — before installing tMAVEN.
+So on an installed app this failure should not happen; if it does, the sidecar env has been
+changed after installation (see below), and it is worth reporting.</p>
+<p><em>Environment you built by hand.</em> Nothing applies the pin here, so downgrade it
+yourself with the sidecar's own interpreter (needs network):</p>
+<pre><code class="language-text"># Linux / macOS
+&lt;install-prefix&gt;/envs/sidecar/bin/python -m pip install &quot;setuptools&lt;81&quot;
+
+# Windows
+&lt;install-prefix&gt;\envs\sidecar\python.exe -m pip install &quot;setuptools&lt;81&quot;
+</code></pre>
+<p>Then re-run the liveness probe or the idealization. The same command is the recovery step if
+you have upgraded setuptools inside <code>envs/sidecar</code> yourself. This affects the <strong>sidecar</strong>
+environment only — Tether's base environment does not import <code>pkg_resources</code>.</p>
+<h3 id="idealization-times-out-or-is-restarted-repeatedly">Idealization times out, or is restarted repeatedly</h3>
+<p><strong>Symptom.</strong> From <code>tether.idealize.driver</code>:</p>
+<pre><code class="language-text">sidecar idealization timed out after 1800.0s
+--- stderr (tail) ---
+</code></pre>
+<p>or, after the restart budget is spent (<code>tether.idealize.supervisor</code>):</p>
+<pre><code class="language-text">sidecar idealization failed after 3 restart(s); last error: …
+</code></pre>
+<p><strong>Cause.</strong> The default per-call timeout is 1800 s and the default restart budget is 3. A cold
+tMAVEN <code>vbconhmm</code> fit is dominated by JIT compilation, so the <em>first</em> fit of a session is far
+slower than the rest. A timeout or crash is classed <strong>transient</strong> and is retried; an error the
+sidecar itself reports is <strong>deterministic</strong> and is never retried — re-running it will only
+repeat the same failure, so look at the data or the model choice instead.</p>
+<p><strong>Remedy.</strong> Raise <code>--sidecar-timeout</code>, or <code>--max-restarts</code> for a flaky machine. <code>0</code> disables
+restarts.</p>
+<h3 id="a-deep-lasi-tdat-uses-a-particle-detection-mode-tether-does-not-implement">A Deep-LASI <code>.tdat</code> uses a particle-detection mode Tether does not implement</h3>
+<p><strong>Symptom.</strong></p>
+<pre><code class="language-text">tether extract: could not use --tdat mode4.tdat: Deep-LASI ParticleDetectionMode 4 is not supported by Tether (only [1, 2, 3] = wavelet/intensity/bandpass; modes 4 'local-variance' and 5 'ZMW intensity' are not ported)
+</code></pre>
+<p>Raised by <code>tether.io.tdat</code>, wrapped by <code>tether.project.extract</code>. A related message tells you
+the file is not a TIRFdata container at all, and prints its actual root keys so you can see
+what you handed it:</p>
+<pre><code class="language-text">tether extract: could not use --tdat notdat.tdat: 'notdat.tdat' is not a Deep-LASI TIRFdata .tdat (no 'temp' struct; root keys: ['junk'])
+</code></pre>
+<p><strong>Remedy.</strong> Re-run <strong>without</strong> <code>--tdat</code> and choose a supported <code>--detection-mode</code> yourself.
+Tether refuses rather than silently substituting a mode, so an import can never mis-detect
+under the wrong method (ADR-0021).</p>
+<blockquote>
+<p>A related non-error: the threshold decode is deliberately best-effort. If the <code>.tdat</code>'s
+MCOS threshold blob cannot be decoded, <code>tether.io.tdat</code> returns <code>None</code> and the detector
+keeps its own default — this never raises, so a slimmed <code>.tdat</code> silently leaves your
+threshold at the CLI/library value.</p>
+</blockquote>
+<h3 id="the-project-is-locked-by-another-user-or-machine">The project is locked by another user or machine</h3>
+<p><strong>Symptom.</strong> One of these from <code>tether.project.lock</code>:</p>
+<pre><code class="language-text">LockedError: &lt;path&gt;.tether.lock is locked: held by alice@OTHERPC (pid 424242, acquired 2026-07-21T02:33:13.661070+00:00)
+LockedError: &lt;path&gt;.tether.lock is locked: held by alice@OTHERPC (pid 424242, acquired 2020-01-01T00:00:00+00:00; stale)
+LockedError: &lt;path&gt;.tether.lock is locked: the lock file is corrupt (unknown owner)
+CorruptLockError: unparseable lock file: &lt;path&gt;.tether.lock
+</code></pre>
+<p><strong>Cause and remedy — the three cases differ, and the message tells you which one you have.</strong></p>
+<ul>
+<li><strong>No <code>; stale</code> suffix</strong> — a live writer. Close the other Tether window, or ask the named
+  host's user to. Do not steal.</li>
+<li><strong><code>; stale</code></strong> — the holder has been idle longer than the ≈30-minute staleness timeout.
+  Liveness is judged by wall clock, not by probing the PID, because a remote PID cannot be
+  probed and cloud storage is eventually consistent. A stale lock is reclaimable only by an
+  <strong>explicit steal</strong>; it is never auto-acquired, and the ousted owner's unsaved work is not
+  merged.</li>
+<li><strong><code>the lock file is corrupt (unknown owner)</code></strong> — the <code>.lock</code> JSON is unreadable, so no
+  owner can be identified and writes are refused until an explicit steal overwrites it.
+  Deleting the stray <code>.tether.lock</code> file is the manual fix.</li>
+</ul>
+<p>While locked out you can still open the project read-only and curate into your own
+split/subset <code>.tether</code>, merged back later on <code>molecule_key</code>.</p>
+<h3 id="the-spot-and-overlap-views-are-unavailable">The spot and overlap views are unavailable</h3>
+<p><strong>Symptom.</strong> A project opens and curates fine, histograms and idealization work, but the
+movie panel and the per-molecule spot/overlap view are not wired, and the shell shows:</p>
+<pre><code class="language-text">coordinates and patches absent; movie round-trip and spot/overlap views unavailable
+</code></pre>
+<p><strong>Cause.</strong> This is an <strong>analysis-only</strong> import — a coordinate-less project built from an SMD
+or a <code>…-donc-accc-w.txt</code> with no <code>.tdat</code> or <code>.mat</code> to supply pixel coordinates. It is not a
+failure: <code>tether.gui.shell</code> deliberately leaves the overlap seam unwired because the view is
+meaningless without coordinates, and surfaces the marker banner once
+(ADR-0046). Every molecule also carries the
+<code>round-trip-unavailable</code> tag.</p>
+<p><strong>Remedy.</strong> To get the round-trip views you must re-import with a coordinate source present —
+the movie <strong>plus</strong> the <code>.mat</code> (the shipped reconstruction path needs both). The import wizard
+refuses up front rather than producing a half-wired project, with reasons such as
+<code>'&lt;key&gt;' cannot reconstruct: no movie and no .mat trace source</code>. See the
+<a href="../io/legacy-import/#coordinate-availability-matrix">coordinate-availability matrix</a>.</p>
+<h3 id="the-installer-is-flagged-as-unsigned">The installer is flagged as unsigned</h3>
+<p><strong>Symptom.</strong> Windows SmartScreen or macOS Gatekeeper warns that the installer is from an
+unidentified developer.</p>
+<p><strong>Cause.</strong> <strong>Every Tether installer published so far is unsigned</strong> — release builds included.
+Code-signing is wired into the release pipeline but <strong>gated on repository variables</strong> that are
+not yet set: <code>.github/workflows/release.yml</code> runs the SignPath submission only
+<code>if: runner.os == 'Windows' &amp;&amp; vars.SIGNPATH_ORGANIZATION_ID != ''</code>, and the macOS
+<code>codesign</code>/<code>notarytool</code> leg only <code>if: … vars.APPLE_SIGNING_ENABLED == 'true'</code>. With the gates
+off, each build emits a <code>::warning::</code> saying the installer ships UNSIGNED, and that is the
+current state of the published assets. Re-downloading from the release page will reproduce the
+same warning.</p>
+<p><strong>Remedy.</strong> Verify the download instead of trusting the OS prompt, then click through it:</p>
+<ul>
+<li>Check the file against the release's <code>SHA256SUMS-&lt;platform&gt;.txt</code> (<code>sha256sum -c</code> on
+  Linux, <code>shasum -a 256 -c</code> on macOS, <code>Get-FileHash</code> on Windows).</li>
+<li>Check the <strong>build-provenance attestation</strong> the pipeline publishes for the same assets
+  (<code>gh attestation verify &lt;file&gt; -R bioedca/tether</code>).</li>
+</ul>
+<p>Authenticode and Apple-notarized installers arrive once SignPath enrollment and the Apple gate
+are completed — the maintainer-side steps are in
+<a href="../release/">Releasing (signed installers)</a>, and macOS additionally needs a hardened-runtime
+pass over the conda payload before <code>APPLE_SIGNING_ENABLED</code> can be flipped.</p>
+<h3 id="the-deep-classifier-does-not-see-the-gpu">The deep classifier does not see the GPU</h3>
+<p><strong>Symptom.</strong> <code>torch.cuda.is_available()</code> is <code>False</code>, or the CUDA runtime fails to initialize,
+in the optional <code>deep/</code> environment.</p>
+<p><strong>Cause.</strong> The committed <code>deep/conda-lock.yml</code> is <strong>CPU-only on purpose</strong>, so that CI stays
+reproducible; a CUDA build is selected at install time and is deliberately outside
+pin-and-hold (ADR-0047). The usual
+failure is a wheel whose CUDA channel (<code>cu124</code> / <code>cu126</code> / <code>cu128</code>) does not match the
+installed NVIDIA driver.</p>
+<p><strong>Remedy.</strong> Install the wheel whose channel matches your driver, per the PyTorch
+<em>Start Locally</em> selector. The CUDA wheel bundles the CUDA runtime, so only an NVIDIA
+<strong>driver</strong> is needed — no system CUDA toolkit. Full instructions and the reference GPU floor
+are on the <a href="../ml/deep-classifier/#gpu-cuda-setup">Deep trace classifier</a> page.</p>
+<hr />
+<h2 id="exit-codes-and-where-the-details-go">Exit codes, and where the details go</h2>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th><code>0</code></th>
+<th><code>1</code></th>
+<th><code>2</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tether extract</code></td>
+<td>success — <strong>including a low-confidence-registration warning</strong></td>
+<td>the run failed; the message is on stderr as <code>tether extract: &lt;msg&gt;</code></td>
+<td>argparse rejected the command line</td>
+</tr>
+<tr>
+<td><code>tether batch</code></td>
+<td>every movie finished without a <code>failed</code> stage — <strong>including <code>deferred</code></strong>, <code>not-requested</code> and <code>warning</code></td>
+<td>at least one movie had a failed stage</td>
+<td>argparse rejected the command line, <strong>or</strong> the run refused to start (colliding output basenames, a bad supervision argument)</td>
+</tr>
+<tr>
+<td><code>tether</code> (no subcommand)</td>
+<td>prints help</td>
+<td>—</td>
+<td>an unknown subcommand or top-level flag</td>
+</tr>
+</tbody>
+</table>
+<p>Two notes on that table:</p>
+<ul>
+<li><strong><code>2</code> is argparse, not Tether.</strong> A missing or unknown option never reaches Tether's own
+  validation: <code>tether extract movie.tif</code> without the required <code>-o/--output</code> prints a usage
+  block and exits <code>2</code>, as does any unrecognized flag or unknown subcommand. A <em>bad value</em> for
+  a known option is different — that is Tether's own <code>ExtractOptions.__post_init__</code> check, one
+  line on stderr and exit <code>1</code>.</li>
+<li><strong><code>blocked</code> never appears on an exit-<code>0</code> run.</strong> A stage is recorded <code>blocked</code> only when its
+  upstream stage was not <code>done</code>/<code>skipped</code>, and the only way upstream lands there is <code>failed</code>
+  (or <code>blocked</code>, which itself implies a <code>failed</code> further up). Any <code>blocked</code> therefore travels
+  with a <code>failed</code> in the same movie, which flips <code>MovieResult.ok</code> and exits <code>1</code>.</li>
+</ul>
+<p>Two things the console deliberately does not print, and where to find them instead:</p>
+<ul>
+<li><strong>Stage details.</strong> <code>tether batch</code>'s end-of-run report prints <code>stage=status</code> and appends the
+  error text only for a <code>failed</code> stage. Everything else — the over-gate flag, the α-withheld
+  fallback, the deferral reason — lives in the <strong>JSONL structured log</strong>, whose path is echoed
+  to stderr on every run (<code>&lt;out-dir&gt;/batch-log.jsonl</code> by default, or <code>--log</code>).</li>
+<li><strong>Basename collisions.</strong> Two input movies with the same stem are refused <strong>up front</strong>, exit
+  <code>2</code>, before any work: <code>movies '…/flat.tif' and '…/sub2/flat.tif' both map to
+  '…/bout/flat.tether'; rename one or use a separate --out-dir</code>. This is the classic
+  <code>movie_010.tif</code> in two condition folders; the checkpoint would otherwise treat the second
+  movie as already done using the first's data.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

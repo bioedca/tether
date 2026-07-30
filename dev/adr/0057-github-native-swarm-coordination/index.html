@@ -1,0 +1,1486 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/adr/0057-github-native-swarm-coordination/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>0057 github native swarm coordination - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#0057-github-native-swarm-coordination" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              0057 github native swarm coordination
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../io/legacy-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analysis/parity-gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/tether-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context-and-problem-statement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context and problem statement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision-drivers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision drivers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#considered-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Considered options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision-outcome" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision outcome
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision outcome">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adoption-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adoption status
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Adoption status">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-two-round-cap-needs-both-halves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The two-round cap needs both halves
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#more-information" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        More information
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!--
+SPDX-FileCopyrightText: 2026 The Tether Authors
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+
+<h1 id="0057-github-native-swarm-coordination">0057 — GitHub-native swarm coordination</h1>
+<ul>
+<li><strong>Status:</strong> accepted (supersedes <a href="../0052-concurrent-agent-swarm-coordination/">ADR-0052</a> and
+  <a href="../0053-structured-backlog-intake-gates-swarm-admission/">ADR-0053</a>; adopted in phases — see
+  <a href="#adoption-status">Adoption status</a>)</li>
+<li><strong>Date:</strong> 2026-07-28</li>
+<li><strong>Deciders:</strong> bioedca</li>
+<li><strong>PRD anchor:</strong> §12.2–§12.5 (GitHub Flow, reviews, pull requests, issue planning)</li>
+<li><strong>Milestone:</strong> Cross-cutting repository governance</li>
+</ul>
+<h2 id="context-and-problem-statement">Context and problem statement</h2>
+<p>ADR-0052 specified a coordinator-led swarm: marker-comment leases with four-hour TTLs and hourly
+renewal, a lowest-comment-ID election, and a hash-chained run-lineage state machine, implemented in a
+1,504-line helper with a 1,090-line test.</p>
+<p>It ran 2026-07-26 → 07-28 and was measured from the session logs. <strong>~3.48 billion input tokens, 83
+points of a weekly quota, 44 hours, two merged PRs</strong>, four abandoned worktrees holding uncommitted
+work, and three freezes. The protocol was not merely expensive; several of its central mechanisms were
+the direct cause of the failures.</p>
+<ul>
+<li><strong>The review rule livelocked.</strong> "Any head change invalidates final-head review evidence", combined
+  with a reviewer that fired automatically on every push, meant every fix invalidated the approval that
+  had asked for it. PR #238 reached 16 heads in 12h45m and never merged.</li>
+<li><strong>The protocol was the bill.</strong> ~132k tokens of resident contract on every model call: 4,885 calls ×
+  132k ≈ 645M for the coordinator alone.</li>
+<li><strong>Approval-judging subagents cost 619M tokens (17.8% of the run) and produced no output.</strong></li>
+<li><strong>Polling replaced eventing</strong>: 977 <code>wait_*</code> calls, one unbroken run of 162.</li>
+<li><strong>Fail-closed with only human escapes.</strong> Leases expired at 08:03Z; only the coordinator could renew;
+  its own contract forbade renewing an expired lease without a typed human approval. Nobody was awake,
+  and the run never resumed.</li>
+<li><strong>A single coordinator serialized everything</strong> — sole writer, sole review router, sole merger — in
+  one 24.6-hour turn with 26 context compactions, so four workers ran as a one-deep queue.</li>
+</ul>
+<h2 id="decision-drivers">Decision drivers</h2>
+<ul>
+<li><code>main</code> must stay releasable, and no step may deadlock waiting on a human who is asleep.</li>
+<li>Coordination state must survive a restart; the in-memory ledger did not.</li>
+<li>Contract text is resident context, so its size is a running cost, not a one-off.</li>
+<li>Two vendors (Codex and Claude) must share one backlog without a vendor-specific protocol.</li>
+</ul>
+<h2 id="considered-options">Considered options</h2>
+<ol>
+<li><strong>Patch ADR-0052 in place</strong> — keep leases and the coordinator, fix the review rule and the deadlock.
+   Rejected: the resident-context cost and the freeze-on-any-ambiguity posture are properties of the
+   design, not of its bugs.</li>
+<li><strong>GitHub-native rebuild</strong> — replace bespoke coordination with primitives GitHub already provides.
+   <strong>Chosen.</strong></li>
+<li><strong>Clean slate</strong> — discard §12 governance and start over. Rejected: the parts that worked (one issue
+   ↔ one PR, approval before work, never merge red) had no defects to answer for.</li>
+</ol>
+<h2 id="decision-outcome">Decision outcome</h2>
+<p><strong>GitHub is the coordinator; there is no coordinator agent.</strong> Every agent is a peer that claims an
+issue, does the work, opens a PR, arms auto-merge, and exits.</p>
+<ul>
+<li><strong>Eligibility is a precondition of the claim, not a consequence of it.</strong> The mutex decides <em>who</em>
+  works an issue; it never decides <em>whether</em> the issue may be worked. Before creating the ref an agent
+  must confirm the ADR-0053 intake gates on the authenticated issue: open, <code>status:ready</code>, no competing
+  assignee, and a maintainer approval bound to the exact scope snapshot it is about to act on. A claim
+  taken on unapproved or since-edited work is invalid regardless of who won the race, and the ref must
+  be released rather than worked.</li>
+<li><strong>Claim by atomic ref creation.</strong> <code>POST /git/refs</code> returns <code>201</code> to the first writer and <code>422
+  Reference already exists</code> to every other — verified live against this repository. That is a genuine
+  compare-and-swap: one call, no election, no singleton writer, identical for both vendors. The branch
+  is <code>agent/issue-&lt;N&gt;</code> with <strong>no title slug</strong>, because a slug derived from the title is not
+  deterministic across agents; two agents could otherwise create two different refs for one issue and
+  both succeed, silently voiding the mutex.</li>
+<li><strong>No lease, no TTL, no heartbeat — but liveness must be server-observed, and the claim must be
+  fenced.</strong> Commit metadata such as <code>committedDate</code> is written by the client and cannot carry this:
+  an agent may stamp any value, so a reaper keying on it can reclaim a live claim or preserve a dead
+  one. Staleness must therefore be judged from a timestamp GitHub itself records, and the implementing
+  change must name that source and demonstrate it is not client-settable.
+  Reclamation alone is also not sufficient. Deleting a ref does not stop the worker that held it, so
+  once a successor recreates <code>agent/issue-&lt;N&gt;</code> two workers can believe they own it. Each claim
+  therefore carries a <strong>monotonically increasing generation</strong>, revalidated immediately before every
+  authoritative write, so a superseded worker's late write is refused rather than silently applied.
+  This is the same discipline the project store already uses for long writes, where
+  <code>_assert_held_lock(expected_nonce=…)</code> binds each persistence point to the ownership epoch validated
+  before the work began.</li>
+<li>A scheduled CI reaper reclaims dead claims — it runs while every human and agent is asleep, which is
+  precisely what the terminal freeze needed and what a coordinator-only renewal monopoly could not
+  provide.</li>
+<li><strong>No waiting.</strong> Arm auto-merge and exit; an event-driven workflow turns check and review events into
+  a single label the launcher reads in one call.</li>
+<li><strong>Review turns on materiality, not head identity</strong>, with a severity floor and a two-round cap.</li>
+<li><strong>Merge queue is not available</strong> and is not part of this design: it requires an organization-owned
+  repository, and <code>bioedca/tether</code> is user-owned. <code>main</code> therefore carries no strict up-to-date rule,
+  and merges bind with an expected-head guard instead.</li>
+</ul>
+<h3 id="consequences">Consequences</h3>
+<ul>
+<li>Coordination state becomes queryable GitHub state rather than agent memory, so a restart reconstructs
+  it instead of rebuilding a ledger.</li>
+<li>Losing a claim costs one wasted API call rather than an election.</li>
+<li>Dropping the strict up-to-date rule means a semantic conflict can land green; post-merge <code>ci</code>,
+  <code>schema-guard</code> and <code>sidecar / parity</code> runs on <code>main</code> are the compensating detection, which is why
+  <code>sidecar.yml</code> gained a <code>push</code> trigger.</li>
+<li>Gaps in ADR numbering are legal and expected: numbers are reserved atomically as
+  <code>refs/adr-reservations/NNNN</code> and never reused, so a collision can never force the renumbering that
+  previously invalidated reviews across three PRs at once. The namespace is deliberately <strong>not</strong> under
+  <code>refs/tags/</code>. <code>hatch-vcs</code> derives the package version from tags, so a non-version tag makes
+  <code>pip install -e .</code> fail with <em>"Can't parse version from tag"</em> — which broke the post-merge
+  <code>sidecar / parity</code> on this ADR's own merge commit. A custom ref namespace is a compare-and-swap on
+  creation exactly as a tag is, but is invisible to every tag consumer.</li>
+<li>Two vendors sharing one backlog need no vendor-specific protocol, but they also gain no mutual
+  review guarantee from this record; cross-vendor peer review is deliberately left to the change that
+  introduces a second lane, rather than written as policy for something that cannot yet happen.</li>
+</ul>
+<h2 id="adoption-status">Adoption status</h2>
+<p>This record documents one decision and it lands in phases, so this section is the authority on which
+parts are live. <strong>ADR-0052 is fully switched off</strong> as of 2026-07-30 — nothing in it is operative any
+longer. <strong>ADR-0053's intake gates remain in force</strong>: what is not yet replaced still governs, and
+superseded means <em>decided</em>, not automatically <em>already switched off</em>.</p>
+<p><strong>In force now:</strong> the review gate (material-change rule, severity floor, two-round cap,
+capability-vs-quota) in <code>docs/agents/review.md</code>, which <code>AGENTS.md</code> points to as a bar to acting;
+<code>main</code> without the strict up-to-date rule; <code>sidecar / parity</code>
+reporting post-merge; the prose-drift guard retired. Since 2026-07-30: <strong>the claim mutex</strong>
+(<code>.agents/bin/claim.py</code>) and <code>agent/issue-&lt;N&gt;</code> branches, including generation fencing and atomic ADR
+number reservation; <strong>the scheduled reaper</strong> (<code>.agents/bin/reaper.py</code>, <code>agent-reaper.yml</code>); the
+<strong>vendor label mirror</strong> — and, with them, the removal of the coordinator, the leases and the run
+records from the contract. ADR-0052 no longer governs anything.</p>
+<p>Also in force since 2026-07-30: <strong>event-driven triage and the review-round counter</strong>
+(<code>.agents/bin/triage.py</code>, <code>agent-triage.yml</code>) and <strong>the slot launcher</strong> (<code>.agents/bin/swarm_slots.py</code>,
+<code>.agents/bin/gate.ps1</code>). Those two are one control and are recorded together deliberately — see
+<a href="#the-two-round-cap-needs-both-halves">The two-round cap needs both halves</a>.</p>
+<p>Also in force since 2026-07-30: <strong>the advisory scope guard</strong> (<code>.agents/bin/scope_guard.py</code>,
+<code>scope-guard.yml</code>), which measures the <code>size:*</code> diff budget and classifies a push as material or
+not — the two computations the review gate above already turns on and which were previously applied
+by judgement alone. It is <strong>deliberately not a required context</strong>: replayed over every merged PR of
+this rebuild the thresholds are miscalibrated for new-executable work, and promoting an untested
+threshold would make the ladder impossible to fix without a red <code>main</code>.</p>
+<p><strong>Not yet implemented:</strong> Projects/Discussions as coordination surfaces.</p>
+<p>Be precise about what "the label model" means, because parts of it still have no writer. Written by
+code: <code>agent:claude|codex|copilot</code> (<code>claim.py</code>), <code>agent:conflicted</code> and <code>agent:needs-amend</code>
+(<code>reaper.py</code> and <code>triage.py</code>), and <code>agent:round-1</code> / <code>agent:review-capped</code> (<code>triage.py</code>).
+<code>agent:round-2</code> is <strong>provisioned but unreachable by code</strong> — under a two-round cap <code>_round_label</code>
+publishes <code>agent:round-1</code> at one round and <code>agent:review-capped</code> at two, so nothing ever writes the
+middle value. The launcher still honours it if a maintainer applies it by hand, reading it as <em>both
+rounds spent</em>. The remaining labels — <code>agent:human</code>, <code>preauth</code>, <code>size:*</code>, <code>risk:*</code>, <code>blocked-by:*</code>,
+<code>needs:*</code> — are provisioned and applied at grooming; nothing reads or writes them.</p>
+<h3 id="the-two-round-cap-needs-both-halves">The two-round cap needs both halves</h3>
+<p>The cap failed on #276 at <strong>9 rounds against a limit of 2</strong> because a prose rule was the only thing
+holding it. It is now two independent refusals, and neither is redundant:</p>
+<ul>
+<li><strong><code>triage.py</code> withholds <code>agent:needs-amend</code> at the cap</strong>, so the authority to start an AMEND session
+  is never <em>published</em>.</li>
+<li><strong><code>swarm_slots.py</code> refuses to inject an AMEND block past the cap</strong>, so it is never <em>acted on</em> even
+  when the label is wrong.</li>
+</ul>
+<p>The second is not belt-and-braces. That counter only sees head-bound review evidence — submitted
+reviews and inline comments, which carry <code>commit_id</code> — so a provider answering in a plain issue comment
+is invisible to it and the count can <strong>undercount</strong>. That is the fail-open direction, which is why the
+launcher re-decides from the published round labels rather than trusting the amend flag alone.</p>
+<p>What makes either enforceable is that <strong>a worker is short-lived</strong>. It claims, works, pushes, arms
+auto-merge and exits, so every subsequent AMEND is a new session whose entire task text the launcher
+writes. On #276 the loop ran inside one long session that kept deciding to ask again; there was nothing
+between the agent and a tenth round.</p>
+<p>One thing this does <strong>not</strong> yet rest on: whether a review request posted by <code>github-actions[bot]</code>
+actually triggers either provider. If it does, the trigger can move into the workflow and
+agent-authored triggers can be forbidden outright — a platform boundary rather than a convention.
+That probe is unanswered and tracked; until then the cap rests on these two refusals plus a post-merge
+audit, and this record does not claim otherwise.</p>
+<h2 id="more-information">More information</h2>
+<ul>
+<li>ADR-0052 keeps its history and nothing more. Its review-evidence clause, its worker/coordinator
+  separation and its guarded merge are all retired; a peer claims by atomic ref, arms auto-merge and
+  exits, so no agent gates another. Read that record for why the replacement happened, never for what
+  to do.</li>
+<li>ADR-0053's intake gates (issue forms, <code>status:ready</code>, maintainer approval of a scope hash) remain in
+  force; this decision changes who may admit work, not that admission is gated.</li>
+<li>The measurements quoted above come from the 2026-07-26 → 07-28 session logs.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

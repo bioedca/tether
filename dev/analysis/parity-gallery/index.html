@@ -1,0 +1,1851 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/analysis/parity-gallery/">
+      
+      
+        <link rel="prev" href="../../idealize/standalone-tmaven-handoff/">
+      
+      
+        <link rel="next" href="../../validation/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Seven-plot parity gallery - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#seven-plot-parity-gallery" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Seven-plot parity gallery
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../io/legacy-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        At a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a1-1-d-population-histogram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A1 — 1-D population histogram
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a2-2-d-time-vs-signal-histogram-synchronized-fret-heatmap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A2 — 2-D time-vs-signal histogram (synchronized FRET heatmap)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b1-transition-density-plot-tdp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B1 — Transition density plot (TDP)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b2-survival-dwell-time-distribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B2 — Survival / dwell-time distribution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b3-transition-probability-histogram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B3 — Transition-probability histogram
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#c1-vbfret-state-number-distribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C1 — vbFRET state-number distribution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d1-per-trace-viewer-tether-curation-trace-dock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D1 — Per-trace viewer (Tether curation trace dock)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/tether-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        At a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a1-1-d-population-histogram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A1 — 1-D population histogram
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a2-2-d-time-vs-signal-histogram-synchronized-fret-heatmap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A2 — 2-D time-vs-signal histogram (synchronized FRET heatmap)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b1-transition-density-plot-tdp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B1 — Transition density plot (TDP)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b2-survival-dwell-time-distribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B2 — Survival / dwell-time distribution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b3-transition-probability-histogram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B3 — Transition-probability histogram
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#c1-vbfret-state-number-distribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C1 — vbFRET state-number distribution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d1-per-trace-viewer-tether-curation-trace-dock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D1 — Per-trace viewer (Tether curation trace dock)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="seven-plot-parity-gallery">Seven-plot parity gallery</h1>
+<p>This page documents <strong>plot and feature parity</strong> with tMAVEN — which plots exist and how
+they correspond — <strong>not</strong> numerical accuracy. For the accuracy evidence (the seven
+NFR-VALID oracles, the frozen tolerances and the external benchmark) see
+<a href="../../validation/">Validation &amp; benchmarks</a>.</p>
+<p>Tether reproduces <strong>exactly seven tMAVEN plot types</strong> natively (PRD Appendix C; the
+<em>bounded plot parity</em> non-goal, N3). Any other tMAVEN plot stays reachable through the
+standalone-tMAVEN hand-off — it is <strong>not</strong> reimplemented. This gallery is the single
+cross-reference that ties each native plot to its tMAVEN counterpart, its Tether
+implementation, and the committed test that establishes the correspondence.</p>
+<p>The seven types are enumerated from tMAVEN source at its pinned commit: six
+<code>controller_base_analysisplot</code> subclasses registered in
+<code>tmaven/tmaven/controllers/analysis_plots/analysisplots.py</code>, plus the per-trace viewer in
+<code>tmaven/tmaven/trace_plot/</code>. The smFRET /
+<a href="../../glossary/#nd-normalized-nd-raw">ND-Normalized / ND-Raw</a> signal modes and
+<a href="../../glossary/#post-synchronization">post-synchronization</a> are <em>variants</em> of a type, not
+separate types. Groups <strong>B</strong> and <strong>C</strong> are idealization-gated, as is A2's post-synchronized
+variant (<strong>A2b</strong>, which needs a model's
+<a href="../../glossary/#viterbi-path-state-path">Viterbi paths</a>); <strong>A1</strong>, <strong>raw A2</strong>, and <strong>D1</strong>
+render without a model. Terms used throughout this page are defined in the
+<a href="../../glossary/">Glossary</a>.</p>
+<blockquote>
+<p><strong>Where parity actually lives.</strong> The <strong>numeric and visual parity is asserted by each
+plot's own committed tests</strong> (the "Parity evidence" rows below), which the 3-OS CI <code>test</code>
+matrix runs headlessly. Several of those tests embed the tMAVEN reference routine
+<em>verbatim</em> as an in-test oracle and assert array-equality against it. This page
+<strong>consolidates</strong> those correspondences into one reference; it does not replace the tests.
+Where Tether persists a single shared consensus model instead of tMAVEN's independent
+per-trace fits, the plot is re-derived from the stored Viterbi paths rather than ported
+line-for-line — those cases are called out per plot as <em>re-derivations</em>, not <em>ports</em>.</p>
+</blockquote>
+<h2 id="at-a-glance">At a glance</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Plot</th>
+<th>tMAVEN source (<code>tmaven/tmaven/…</code>)</th>
+<th>Tether implementation</th>
+<th>Parity evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A1</strong></td>
+<td>1-D population histogram (+ model Gaussian/GMM overlay)</td>
+<td><code>controllers/analysis_plots/data_hist1d.py</code></td>
+<td><code>tether.analysis.histogram</code></td>
+<td><code>tests/test_analysis_histogram.py</code>, <code>tests/test_analysis_histogram_overlay.py</code></td>
+</tr>
+<tr>
+<td><strong>A2</strong></td>
+<td>2-D time-vs-signal histogram (raw + post-sync heatmap)</td>
+<td><code>controllers/analysis_plots/data_hist2d.py</code></td>
+<td><code>tether.analysis.histogram</code></td>
+<td><code>tests/test_analysis_histogram2d.py</code>, <code>tests/test_analysis_histogram_postsync.py</code></td>
+</tr>
+<tr>
+<td><strong>B1</strong></td>
+<td>Transition density plot (TDP)</td>
+<td><code>controllers/analysis_plots/data_tdp.py</code></td>
+<td><code>tether.analysis.tdp</code></td>
+<td><code>tests/test_analysis_tdp.py</code></td>
+</tr>
+<tr>
+<td><strong>B2</strong></td>
+<td>Survival / dwell-time distribution (+ fits, residuals)</td>
+<td><code>controllers/analysis_plots/survival_dwell.py</code></td>
+<td><code>tether.analysis.dwell</code></td>
+<td><code>tests/test_analysis_dwell.py</code></td>
+</tr>
+<tr>
+<td><strong>B3</strong></td>
+<td>Transition-probability histogram (+ KDE)</td>
+<td><code>controllers/analysis_plots/tm_hist.py</code></td>
+<td><code>tether.analysis.transition_prob</code></td>
+<td><code>tests/test_analysis_transition_prob.py</code></td>
+</tr>
+<tr>
+<td><strong>C1</strong></td>
+<td>vbFRET state-number distribution</td>
+<td><code>controllers/analysis_plots/model_vbstates.py</code></td>
+<td><code>tether.analysis.state_number</code></td>
+<td><code>tests/test_analysis_state_number.py</code></td>
+</tr>
+<tr>
+<td><strong>D1</strong></td>
+<td>Per-trace viewer (Tether curation trace dock)</td>
+<td><code>trace_plot/multi_plot.py</code></td>
+<td><code>tether.gui.trace_dock</code></td>
+<td><code>tests/test_trace_dock.py</code></td>
+</tr>
+</tbody>
+</table>
+<p>Every native analysis carries provenance and parameters into the <code>.tether</code> store
+(NFR-REPRO), and every plot exports as vector PDF/SVG <strong>and</strong> PNG via
+<code>tether.analysis.plot_export</code> (FR-EXPORT), stamped with those parameters.</p>
+<p>Two invariants recur on the group-B/C <strong>store-level</strong> entry points and have <strong>no tMAVEN
+analogue</strong> — they are Tether additions, toggleable but on by default:</p>
+<ul>
+<li><strong>Fresh-idealization gating</strong> — molecules whose idealization is <em>stale</em> relative to the
+  current trace are excluded (PRD §5.1) unless <code>include_stale=True</code>.</li>
+<li><strong>Curation filter</strong> — rejected molecules are excluded (PRD §7.5) unless
+  <code>include_rejected=True</code>.</li>
+</ul>
+<hr />
+<h2 id="a1-1-d-population-histogram">A1 — 1-D population histogram</h2>
+<p><strong>What it is.</strong> The population histogram of per-frame apparent FRET efficiency (the
+proximity ratio <code>A/(D+A)</code>) pooled over each selected molecule's analysis window and
+density-normalized in 151 bins over <code>[-0.25, 1.25]</code>, optionally overlaid with the idealized
+state model drawn as a sum of per-state Gaussians (dashed components + solid combined
+mixture) and annotated with the molecule count <em>N</em> (<a href="#mccann2010">McCann 2010</a>;
+<a href="#verma2024">Verma 2024</a>).</p>
+<p><strong>tMAVEN counterpart.</strong> <code>controller_data_hist1d</code> — <code>ax.hist(bins=signal_nbins,
+range=(signal_min, signal_max), density=True, log=hist_log)</code> with <code>signal_nbins=151</code>,
+<code>signal_min=-0.25</code>, <code>signal_max=1.25</code>; the <code>model_on</code> overlay loop
+<code>yi = frac[i]·(1/√(2π·var[i]))·exp(-½·(x-mean[i])²/var[i])</code> on <code>linspace(min, max, 1001)</code>;
+and <code>garnish</code> for the <code>N = %d</code> annotation.</p>
+<p><strong>Tether reimplementation</strong> — <code>tether.analysis.histogram</code>:</p>
+<ul>
+<li><code>apparent_e_histogram(values, *, bins=DEFAULT_NBINS, value_range=DEFAULT_RANGE, density=True, weights=None) -&gt; Histogram1D</code> — the pure-array core. <code>DEFAULT_NBINS = 151</code> and <code>DEFAULT_RANGE = (-0.25, 1.25)</code> are named constants copied from <code>data_hist1d.py</code>. Density over a <strong>fixed</strong> range keeps uncorrected proximity-ratio excursions beyond <code>[0, 1]</code> visible; non-finite (<code>D+A == 0</code>) samples are dropped, never fabricated or clipped.</li>
+<li><code>population_apparent_e_histogram(project, *, molecule_keys=None, intensity_quantity="corrected", …) -&gt; Histogram1D</code> — the <code>.tether</code>-store entry point: pool each accepted molecule's windowed apparent E and bin it. This is the headless source of truth the GUI renders (PRD §9 M2 "reproduce the MVP histogram from the API").</li>
+<li><code>model_gaussian_overlay(means, variances, frac, *, value_range=DEFAULT_RANGE, n_points=DEFAULT_OVERLAY_POINTS) -&gt; ModelGaussianOverlay</code> — a <strong>verbatim port</strong> of the tMAVEN <code>model_on</code> loop (<code>DEFAULT_OVERLAY_POINTS = 1001</code>): dashed per-state components + a solid summed mixture, drawn from the <em>idealized model's own</em> persisted emissions, <strong>not</strong> a fresh GMM re-fit of the pooled E. <code>population_model_gaussian_overlay(project, model_name, …)</code> reads a persisted <code>/idealization</code> model; a threshold/k-means model that carries no per-state spread <strong>raises</strong> rather than fabricating an overlay.</li>
+</ul>
+<p><strong>Tether extensions beyond tMAVEN.</strong> Molecule-level (BOBA-FRET) bootstrap confidence band
+on the same pooled histogram (<code>population_apparent_e_histogram_ci</code>, PRD §7.7,
+<a href="#konig2013">König 2013</a>); a per-condition shared-axis overlay
+(<code>per_condition_apparent_e_histograms</code>, the M6 FR-ANALYZE §7.7 clause); and a per-molecule
+equal-weight toggle over tMAVEN's frame-weighted default.</p>
+<p><strong>Variants.</strong> tMAVEN's three signal modes (<code>E_FRET</code> vs ND-Normalized vs ND-Raw intensity,
+each with distinct <code>signal_min/max</code>); linear vs <code>log10</code> y-axis; density vs raw counts.</p>
+<pre><code class="language-python">from tether.analysis.histogram import (
+    population_apparent_e_histogram,
+    population_model_gaussian_overlay,
+)
+
+hist = population_apparent_e_histogram(project)          # 151 bins over [-0.25, 1.25]
+overlay = population_model_gaussian_overlay(project, &quot;vbconhmm&quot;)   # dashed states + solid total
+</code></pre>
+<p><strong>Parity evidence.</strong></p>
+<ul>
+<li><code>tests/test_analysis_histogram.py</code> — <code>test_default_binning_matches_tmaven_a1</code> asserts <code>nbins == 151</code>, 152 edges, range <code>(-0.25, 1.25)</code>, density integrates to 1; <code>test_population_reproduces_mvp_histogram</code> checks the store-level result equals an independent <code>np.histogram(…, bins=151, range=(-0.25, 1.25), density=True)</code> oracle over the pooled windowed E.</li>
+<li><code>tests/test_analysis_histogram_overlay.py</code> — <code>test_overlay_matches_tmaven_formula_exactly</code> reproduces the <code>data_hist1d.py</code> <code>model_on</code> per-state Gaussian loop <strong>bit-for-bit</strong> (the file's <code>_tmaven_reference()</code> is the tMAVEN loop copied verbatim as the oracle); <code>test_overlay_component_is_scaled_gaussian</code> cross-checks each component against <code>frac[i] · scipy.stats.norm.pdf</code>; <code>test_population_overlay_reads_persisted_model</code> reads a persisted model, and <code>test_model_without_population_members_is_withheld</code> / <code>test_model_missing_only_frac_is_withheld</code> lock the withhold-not-fabricate behavior.</li>
+</ul>
+<hr />
+<h2 id="a2-2-d-time-vs-signal-histogram-synchronized-fret-heatmap">A2 — 2-D time-vs-signal histogram (synchronized FRET heatmap)</h2>
+<p><strong>What it is.</strong> A 2-D occupancy heatmap of per-frame apparent FRET efficiency (<em>y</em>) versus
+time (<em>x</em>, colour = frame density) showing how a population's FRET distribution evolves over
+the analysis window — either <strong>raw / start-synchronized</strong> or <strong>transition-synchronized</strong>
+(post-sync, "A2b"), where every selected state jump is aligned to a common column so
+asynchronous stochastic transitions add coherently and reveal the population's average
+approach-to and departure-from a transition (<a href="#verma2024">Verma 2024</a>; <a href="#mccann2010">McCann 2010</a>).</p>
+<p><strong>tMAVEN counterpart.</strong> <code>controller_data_hist2d</code> — <code>get_data</code>, <code>interpolate_histogram</code>,
+<code>histogram_raw</code>, <code>sync_start</code>, <code>histogram_sync_list</code>, <code>gen_sync_list_single</code>,
+<code>gen_sync_list_fixed</code>, <code>gen_jumplist</code>.</p>
+<p><strong>Tether reimplementation</strong> — <code>tether.analysis.histogram</code> (two pure cores + two store
+wrappers):</p>
+<ul>
+<li><strong>Raw / start-sync.</strong> <code>time_signal_histogram2d(signal_chunks, *, time_bins=DEFAULT_TIME_BINS, signal_bins=DEFAULT_SIGNAL_BINS, signal_range=DEFAULT_SIGNAL_RANGE, time_dt=DEFAULT_TIME_DT, …) -&gt; Histogram2D</code>, and its store entry <code>population_time_signal_histogram2d(project, …)</code>. Faithful to <code>histogram_raw</code> after <code>sync_start</code>: the frame index drives the time column, and NaN / out-of-range / beyond-<code>time_bins</code> frames <strong>drop without shifting</strong> later frames.</li>
+<li><strong>Post-sync / A2b.</strong> <code>transition_sync_histogram2d(trace_pairs, *, from_state=-1, to_state=-1, single_dwell=True, sync_preframe=DEFAULT_SYNC_PREFRAME, …) -&gt; TransitionSyncHistogram2D</code>, and its store entry <code>population_transition_sync_histogram2d(project, model_name, …)</code>. Faithful to <code>gen_sync_list_single</code> / <code>gen_sync_list_fixed</code> + <code>histogram_sync_list</code>, adapted from tMAVEN's rectangular NaN-padded arrays to Tether's ragged per-molecule <code>(state_path, signal)</code> pairs. The heatmap has <code>time_bins + 1</code> columns with the jump at column <code>sync_preframe</code> (relative-time zero); <code>time_edges</code> run negative before the transition.</li>
+</ul>
+<p>Constants ported verbatim: <code>DEFAULT_TIME_BINS = 100</code>, <code>DEFAULT_SIGNAL_BINS = 61</code> over
+<code>[-0.2, 1.2]</code>, <code>DEFAULT_TIME_DT = 1</code>, <code>DEFAULT_SYNC_PREFRAME = 50</code>. Note A2's <strong>61</strong> signal
+bins deliberately differ from A1's 151.</p>
+<p><strong>Deliberate departure.</strong> Tether's <em>y</em>-axis is always apparent E (unclipped); tMAVEN's
+<code>plot_mode</code> raw/normalized-intensity <em>y</em>-axis presets are not ported —
+<code>intensity_quantity</code> only selects which <code>/traces</code> layer (<code>"corrected"</code> vs <code>"raw"</code>) feeds
+apparent E. Out-of-trace frame indices are dropped, never wrapped.</p>
+<p><strong>Variants.</strong> Raw/start-sync vs post-sync; within post-sync, <code>single_dwell=True</code>
+(single dwell before/after) vs <code>False</code> (fixed ± window), and <code>from_state</code>/<code>to_state</code>
+transition selection (<code>-1</code> = any).</p>
+<pre><code class="language-python">from tether.analysis.histogram import (
+    population_time_signal_histogram2d,
+    population_transition_sync_histogram2d,
+)
+
+raw = population_time_signal_histogram2d(project)                       # 100 × 61 over [-0.2, 1.2]
+sync = population_transition_sync_histogram2d(project, &quot;vbconhmm&quot;,      # any → any transition
+                                              from_state=-1, to_state=-1)
+</code></pre>
+<p><strong>Parity evidence.</strong></p>
+<ul>
+<li><code>tests/test_analysis_histogram_postsync.py</code> — the definitive A2b parity test embeds <code>_tmaven_postsync</code> (<code>gen_sync_list_single</code> / <code>gen_sync_list_fixed</code> + <code>histogram_sync_list</code> ported verbatim) and asserts <code>np.testing.assert_array_equal(h.counts, ref)</code> plus <code>n_molecules == nmol</code> and <code>n_transitions == npoints</code> across <code>single_dwell ∈ {True, False}</code> and five <code>(from, to)</code> state pairs; also checks <code>xbins+1</code> columns with the transition at <code>sync_preframe</code>, right-open signal interval, out-of-range-still-counts, <code>NO_STATE</code> borders are not jumps, and density integrates to 1.</li>
+<li><code>tests/test_analysis_histogram2d.py</code> — A2 raw-mode faithfulness to <code>histogram_raw</code>-after-<code>sync_start</code>; <code>test_population_defaults_match_tmaven_a2</code> pins the 100×61 grid over <code>[-0.2, 1.2]</code> with <code>time_dt=1</code>, and <code>test_population_start_synchronization_via_analysis_window</code> confirms per-molecule start-synchronization.</li>
+</ul>
+<hr />
+<h2 id="b1-transition-density-plot-tdp">B1 — Transition density plot (TDP)</h2>
+<p><strong>What it is.</strong> A 2-D histogram of <strong>initial vs final</strong> idealized FRET efficiency over every
+state-change frame of a molecule population, showing which conformational transitions the
+system makes and how frequently — off-diagonal mass is transitions, the diagonal is no net
+change (<a href="#mckinney2006">McKinney 2006</a>).</p>
+<p><strong>tMAVEN counterpart.</strong> <code>controller_data_tdp</code> — <code>get_neighbor_data</code>, <code>gen_histogram</code>,
+<code>plot</code>.</p>
+<p><strong>Tether reimplementation</strong> — <code>tether.analysis.tdp</code>:</p>
+<ul>
+<li><code>transition_density(idealized_chunks, *, nskip=DEFAULT_TDP_NSKIP, signal_bins=DEFAULT_TDP_SIGNAL_BINS, signal_range=DEFAULT_TDP_SIGNAL_RANGE, density=False) -&gt; TransitionDensityPlot</code> — a <strong>verbatim port</strong> of <code>get_neighbor_data</code>'s idealized-levels sub-branch (<code>hist_rawsignal=False</code>) followed by <code>gen_histogram</code>'s <code>histogram2d</code> step: per-molecule neighbour pairs <code>d1 = v[:-nskip]</code>, <code>d2 = v[nskip:]</code>, restricted to state-change frames (<code>|v[t+1]-v[t]| &gt; 0</code>), finite-only, then <code>np.histogram2d</code> over a square E×E grid. Tether feeds the idealized levels <code>v</code> (<code>levels = means[state]</code>), so it reproduces the <em>idealized-vs-idealized</em> TDP; note tMAVEN's shipped default is <code>hist_rawsignal=True</code>, which instead plots the <strong>raw</strong> signal at the transition frames located from <code>v</code>.</li>
+<li><code>population_transition_density(project, model_name, *, nskip=2, signal_bins=101, signal_range=(-0.25, 1.25), …) -&gt; TransitionDensityPlot</code> — the store entry: reconstructs each accepted <strong>and fresh</strong> molecule's idealized-level trace from <code>/idealization/{model_name}</code> Viterbi paths (<code>levels = means[state]</code>).</li>
+</ul>
+<p>Rendering constants reproduced exactly as module defaults: <code>DEFAULT_TDP_NSKIP = 2</code>,
+<code>DEFAULT_TDP_SIGNAL_BINS = 101</code>, <code>DEFAULT_TDP_SIGNAL_RANGE = (-0.25, 1.25)</code>. The module
+stores the <strong>raw, unsmoothed</strong> histogram — tMAVEN's <code>gaussian_filter</code> smoothing and
+<code>LogNorm</code> log-normalization are display-only, applied at render time.</p>
+<p><strong>Variants.</strong> <code>density=True</code> (guarded against divide-by-zero all-NaN when no in-range mass)
+vs raw counts; <code>include_stale</code> / <code>include_rejected</code> on the store path.</p>
+<pre><code class="language-python">from tether.analysis.tdp import population_transition_density
+
+tdp = population_transition_density(project, &quot;vbconhmm&quot;)   # fresh idealizations only, nskip=2
+</code></pre>
+<p><strong>Parity evidence.</strong> <code>tests/test_analysis_tdp.py</code> — <code>test_parity_with_tmaven_oracle</code>
+(parametrized <code>nskip = 1, 2, 3</code>) asserts <code>transition_density(...).counts</code> is
+<code>assert_array_equal</code> to the in-test <strong>verbatim tMAVEN oracle</strong> <code>_tmaven_tdp</code>
+(<code>get_neighbor_data</code> + <code>gen_histogram</code>); <code>test_population_matches_tmaven_oracle_via_store</code>
+runs the full store path and asserts the same; <code>test_defaults_match_tmaven</code> pins the three
+ported constants; plus hand-checked semantics (off-diagonal landing, only-state-change
+frames contribute, histogram2d edge/range behaviour, NaN gaps are not transitions,
+ragged↔padded equivalence).</p>
+<hr />
+<h2 id="b2-survival-dwell-time-distribution">B2 — Survival / dwell-time distribution</h2>
+<p><strong>What it is.</strong> For each idealized FRET state, the dwell-time survival function
+<code>S(τ) = P(dwell &gt; τ)</code> — the fraction of visits to that state lasting longer than τ — whose
+exponential decay constants <em>k</em> are the state's exit (transition) rates, the kinetic
+fingerprint of the Markov model. Dwell-time distributions routinely require single- or
+multi-exponential (and stretched) forms (<a href="#lee2012">Lee 2012</a>), and survival analysis yields
+the exponentially-distributed lifetimes directly (<a href="#schrangl2024">Schrangl 2024</a>).</p>
+<p><strong>tMAVEN counterpart.</strong> <code>controller_survival_dwell</code> (the matplotlib plotter — survival
+markers OR density histogram, model overlay, residual subplot via <code>make_axes_locatable</code>,
+<code>N</code>/<code>A</code>/<code>k</code>/<code>β</code> textbox); <code>generate_dwells</code>, <code>calculate_dwells</code>, <code>survival</code> in
+<code>modeler/dwells.py</code>; <code>optimize_{single,double,triple,stretch}_surv</code>; and the survival forms
+<code>{single,double,triple,stretched}_exp_surv</code> in <code>modeler/fxns/exponentials.py</code>.</p>
+<p><strong>Tether reimplementation</strong> — <code>tether.analysis.dwell</code> (the three-stage pipeline ported as
+headless array code):</p>
+<ul>
+<li><code>state_dwells(state_chunks, *, no_state=None, include_first=False) -&gt; StateDwells</code> — reimplements <code>generate_dwells</code> (<code>np.split</code> on <code>np.diff != 0</code>; drop the last run always as right-censored, and the first unless <code>include_first</code>).</li>
+<li><code>survival_curve(dwell_lengths) -&gt; (tau, survival)</code> — reimplements <code>survival()</code> with the same <code>S(0)=1</code> normalization and identical degenerate empty return.</li>
+<li><code>fit_survival(tau, survival, *, model="single", ci_level=…) -&gt; DwellFit</code> — reimplements <code>optimize_*_surv</code>'s fit: the same <code>scipy.optimize.curve_fit</code> (<code>trf</code>, bounded), <code>sqrt(diag(pcov))</code> standard errors, and R². On top of the ported SE it adds two-sided Student-<em>t</em> CIs and a residual array (tMAVEN forms residuals later, in the plotter, not in <code>optimize_*_surv</code>). It <strong>grace-fails</strong> (<code>success=False</code>, NaN params) instead of raising.</li>
+<li><code>single_exp_survival</code> / <code>double_exp_survival</code> / <code>triple_exp_survival</code> / <code>stretched_exp_survival</code> — <strong>verbatim copies</strong> of <code>exponentials.py</code>.</li>
+</ul>
+<p>Constants carried over verbatim: <code>DEFAULT_DWELL_NBINS = 51</code>, <code>DEFAULT_DWELL_DT = 1.0</code>,
+<code>DWELL_MODEL_NPARAMS = {single: 2, double: 4, triple: 6, stretched: 3}</code>.</p>
+<p><strong>Variants.</strong> Empirical survival curve (default) OR density-normalized dwell-time histogram,
+each with a residuals subplot; single/double/triple/stretched fits (tMAVEN also overlays a
+transition-matrix-derived decay in the plotter); first-dwell censoring toggle
+(<code>include_first</code>); the last dwell is always censored.</p>
+<pre><code class="language-python">from tether.analysis.dwell import population_dwell_times
+
+fits = population_dwell_times(project, &quot;vbconhmm&quot;, model=&quot;double&quot;)   # per-state DwellTimeAnalysis
+</code></pre>
+<p><strong>Parity evidence.</strong> <code>tests/test_analysis_dwell.py</code> — <code>test_state_dwells_matches_tmaven_oracle</code>
+asserts <code>state_dwells</code> equals a verbatim port of <code>generate_dwells</code> (<code>_tmaven_dwells</code>);
+<code>test_survival_matches_tmaven_oracle</code> asserts <code>survival_curve</code> equals a verbatim port of
+<code>survival()</code> (<code>_tmaven_survival</code>), with the exact empty-case degenerate return locked;
+<code>test_fit_recovers_known_rate</code> / <code>_double_sorted_by_rate</code> / <code>_stretched_reports_beta</code>
+recover known synthetic <code>k</code>, <code>A</code>, <code>β</code>; <code>test_fit_ci_and_residuals</code> locks
+<code>CI == Student-t · SE</code> and <code>residuals == survival − model_survival</code>; store-level tests tie
+<code>population_dwell_times</code> to the pure core and lock the fresh + §7.5 gating.</p>
+<hr />
+<h2 id="b3-transition-probability-histogram">B3 — Transition-probability histogram</h2>
+<p><strong>What it is.</strong> A 1-D histogram (with an optional Gaussian-KDE overlay) of per-molecule HMM
+one-step transition probabilities <code>P(init → fin)</code> for a chosen ordered state pair, pooled
+across a population — exposing how the transition rate for that pair is <strong>distributed across
+molecules</strong> rather than as a single consensus number (<a href="#mckinney2006">McKinney 2006</a>;
+<a href="#vandemeent2014">van de Meent 2014</a>).</p>
+<p><strong>tMAVEN counterpart.</strong> <code>controller_tm_hist</code> — <code>get_composite_tm</code>, <code>plot</code>, <code>garnish</code>;
+reads each trace-level VB model's own <code>norm_tmatrix[init_vb, fin_vb]</code> (row/col matched to the
+composite model by Gaussian nearest-mean) and overlays <code>scipy.stats.gaussian_kde</code>.</p>
+<p><strong>Tether reimplementation</strong> — <code>tether.analysis.transition_prob</code>. This is a <strong>re-derivation,
+not a verbatim port</strong>: Tether persists a single shared consensus <code>norm_tmatrix</code>, not
+tMAVEN's independent per-trace fits, so B3 becomes the empirical analogue (mirroring how B1's
+real TDP rebuilds from Viterbi paths):</p>
+<ul>
+<li><code>empirical_transition_probability(state_path, init_state, final_state) -&gt; float | None</code> — the per-molecule maximum-likelihood one-step <code>P(init → fin)</code> from a Viterbi path: numerator = frames in <code>init_state</code> whose successor is <code>final_state</code>; denominator = frames in <code>init_state</code> with an <em>observed</em> successor (gap successors <code>NO_STATE</code> excluded). Returns <code>None</code> when <code>init_state</code> is never occupied with an observed successor — the analogue of tMAVEN's <code>isfinite</code> filter, never <code>0/0</code>.</li>
+<li><code>transition_prob_histogram(state_chunks, *, init_state, final_state, prob_bins=DEFAULT_TPROB_NBINS, prob_range=DEFAULT_TPROB_RANGE, density=True, kde=True, …) -&gt; TransitionProbHistogram</code> — pools defined per-molecule probabilities, histograms them, and attaches a Gaussian-KDE curve when ≥ 2 probabilities are available (the KDE <code>try/except</code> returns <code>None</code> on singular covariance rather than crashing).</li>
+<li><code>population_transition_prob_histogram(project, model_name, init_state, final_state, …)</code> — the store entry, validating the pair against the model's <code>nstates</code> and applying the shared fresh + curation contract.</li>
+</ul>
+<p>Rendering constants ported verbatim: <code>DEFAULT_TPROB_NBINS = 25</code>,
+<code>DEFAULT_TPROB_RANGE = (-0.05, 1.05)</code>, <code>DEFAULT_TPROB_KDE_BANDWIDTH = 0.25</code>,
+<code>DEFAULT_TPROB_KDE_POINTS = 100</code>.</p>
+<p><strong>Variants.</strong> Density vs raw counts; KDE overlay on/off (also absent when &lt; 2 or all-identical
+probabilities); any ordered state pair including self-pairs (the diagonal).</p>
+<pre><code class="language-python">from tether.analysis.transition_prob import population_transition_prob_histogram
+
+tph = population_transition_prob_histogram(project, &quot;vbconhmm&quot;, init_state=0, final_state=1)
+</code></pre>
+<p><strong>Parity evidence.</strong> <code>tests/test_analysis_transition_prob.py</code> — <code>test_defaults_match_tmaven</code>
+pins the four ported constants; hand-checked <code>empirical_transition_probability</code> cases
+(<code>P(0→1) = 1/3</code>, self-pair <code>2/3</code>, gap-successor exclusion, undefined → <code>None</code>); density
+integrates to 1 and empty/out-of-range paths stay all-zeros, never NaN; KDE present with
+≥ 2 distinct probabilities and <code>None</code> on identical values; the store path enforces fresh-only
++ rejected-exclusion + <code>molecule_keys ∩ fresh</code> and reproduces the pure-core counts.
+<code>tests/test_plot_export.py::test_render_transition_prob</code> exercises the render + vector/PNG
+export round-trip.</p>
+<hr />
+<h2 id="c1-vbfret-state-number-distribution">C1 — vbFRET state-number distribution</h2>
+<p><strong>What it is.</strong> Over the curated population, how many <strong>distinct</strong> conformational (FRET)
+states each molecule occupies — a bar chart with <em>x</em> = number of states and <em>y</em> = number of
+trajectories — answering how heterogeneous the population is in state count
+(<a href="#bronson2009">Bronson 2009</a>, the vbFRET variational-Bayes model-selection method;
+<a href="#vandemeent2014">van de Meent 2014</a>).</p>
+<p><strong>tMAVEN counterpart.</strong> <code>controller_model_vbstates</code> — <code>plot</code> histograms an <em>independent
+per-trace</em> vbFRET fit: <code>nstates = [r.mu.size for r in maven.modeler.model.hmms]</code>, then
+<code>y = [sum(nstates == i) for i in arange(states_low=1, states_high=10)]</code>, gated on a <code>vb</code>
+model type.</p>
+<p><strong>Tether reimplementation</strong> — <code>tether.analysis.state_number</code>. A <strong>re-derivation</strong>: Tether
+fits one consensus/global model and stores each molecule's Viterbi path, so C1 counts the
+distinct states a path actually visits:</p>
+<ul>
+<li><code>occupied_state_count(state_path) -&gt; int</code> — the number of distinct non-<code>NO_STATE</code> states one molecule's Viterbi path visits (0 for an all-gap path) — the per-molecule analogue of tMAVEN's <code>hmm.mu.size</code>.</li>
+<li><code>state_number_counts(state_chunks, *, states_low=DEFAULT_STATE_NUMBER_LOW, states_high=None) -&gt; StateNumberCounts</code> — histograms per-molecule distinct-state counts into bars <code>[states_low, states_high]</code>; drops all-gap (zero-state) molecules (the analogue of tMAVEN counting only traces that carry a model).</li>
+<li><code>population_state_number(project, model_name, …) -&gt; StateNumberCounts</code> — the store entry, with honest <code>n_out_of_range</code> accounting so a clipped axis never silently hides molecules.</li>
+</ul>
+<p>tMAVEN's <code>states_low = 1</code> survives as <code>DEFAULT_STATE_NUMBER_LOW = 1</code>; its fixed
+<code>states_high = 10</code> becomes an auto-derived top bar (<code>states_high=None</code>).</p>
+<pre><code class="language-python">from tether.analysis.state_number import population_state_number
+
+counts = population_state_number(project, &quot;vbconhmm&quot;)   # bars over occupied-state counts
+</code></pre>
+<p><strong>Parity evidence.</strong> <code>tests/test_analysis_state_number.py</code> — the pure core matches the
+tMAVEN counting semantics (distinct non-<code>NO_STATE</code> states; revisits don't double-count;
+all-gap → 0), and <code>state_number_counts</code> histograms per-molecule distinct-state counts,
+dropping zero-state molecules; <code>test_population_matches_core</code> reproduces the pure core over a
+seeded store; the Tether-specific fresh/curation selection, honest out-of-range accounting,
+and misuse guards are locked.</p>
+<hr />
+<h2 id="d1-per-trace-viewer-tether-curation-trace-dock">D1 — Per-trace viewer (Tether curation trace dock)</h2>
+<p><strong>What it is.</strong> One molecule's donor/acceptor (and total) intensity plus its per-frame FRET
+efficiency time-series, with right-column marginal probability histograms and the
+idealized/Viterbi state path overlaid on the FRET panel — Tether's per-trace <strong>curation
+surface</strong> (FR-ROUNDTRIP). At the MVP the FRET axis reads <em>apparent E</em> (the uncorrected
+proximity ratio <code>A/(D+A)</code>), switching to corrected E at M3
+(<a href="#mccann2010">McCann 2010</a>; <a href="#hellenkamp2018">Hellenkamp 2018</a>).</p>
+<blockquote>
+<p><strong>D1 closes the §9 M6 "seven plots" clause across M2 + M6.</strong> Unlike A1–C1, D1 is not a
+population aggregate and has no dedicated numeric tMAVEN oracle — it <em>is</em> the curation
+trace dock built at M2 S1, whose tests assert axis/label <strong>conventions</strong> rather than
+tMAVEN visual parity. Its correspondence to tMAVEN's per-trace viewer is therefore
+<strong>structural and conventional</strong> — the shared 2×2 layout, the donor/acceptor/FRET channel
+and colour conventions, and the idealization-path overlay — <strong>not</strong> pixel-identical: the
+<strong>Deliberate MVP divergences</strong> listed below (apparent-vs-corrected E, marginal binning,
+the alpha-graded photobleach segments, the signal-mode switch) are tracked and converge in
+later milestones (photobleach segmentation at M3). Recording that convention-level
+correspondence <strong>here</strong>, alongside A1/A2/B1/B2/B3/C1, is what closes the acceptance clause
+for the seventh plot type across the two milestones — in the sense the plan designates for
+D1, whose parity is conventional by construction rather than a numeric-oracle match.</p>
+</blockquote>
+<p><strong>tMAVEN counterpart.</strong> <code>multi_canvas</code> (a 2×2 matplotlib grid, <code>width_ratios=[6,1]</code>);
+<code>calc_trajectory</code>, <code>calc_histograms</code>, <code>calc_model_traj</code> / <code>draw_model</code>, <code>draw_traj</code> (three
+segments per channel split at pre-truncation + photobleach), <code>set_linestyles</code> (alpha-graded
+<code>[0.25, 0.9, 0.25]</code>), <code>draw_hist</code> / <code>draw_fret_hist</code>; donor-green / acceptor-red / FRET-blue
+colour convention.</p>
+<p><strong>Tether reimplementation</strong> — <code>tether.gui.trace_dock</code> (a <strong>reimplementation</strong>, not a port:
+matplotlib/PyQt5 → pyqtgraph):</p>
+<ul>
+<li><code>TraceView(donor, acceptor, frame_time=None, name=None, molecule_key=None)</code> — a Qt-free immutable value object that derives <code>.total</code> (<code>D+A</code>), <code>.apparent_e</code> (<code>A/(D+A)</code> via <code>tether.fret.efficiency.apparent_fret</code>, NaN where <code>total == 0</code>), and <code>.time_axis(mode)</code> (frames or seconds).</li>
+<li><code>TraceDock(*, seconds_by_default=True)</code> — the pyqtgraph 2×2 viewer widget: intensity time-series (top-left) over apparent-E FRET (bottom-left, x-linked), each with its marginal histogram in the y-linked right column, plus the idealization step overlay; driven by <code>set_trace</code> / <code>set_idealization</code> / <code>set_time_mode</code> / <code>clear</code>.</li>
+<li><code>set_idealization(idealized)</code> draws the per-frame Viterbi level as a <code>stepMode="center"</code> overlay (the analogue of tMAVEN <code>draw_model</code>), reset to <code>None</code> on every <code>set_trace</code> so a stale path never bleeds to the next molecule.</li>
+<li><code>trace_from_smd(raw, index, …) -&gt; TraceView</code> — the store/hand-off → dock bridge.</li>
+</ul>
+<p><strong>Deliberate MVP divergences.</strong> The FRET panel plots apparent E instead of tMAVEN's
+<code>calc_relative</code>; marginals use a fixed 40-bin count instead of <code>int(√(pbtime−pretime))</code>;
+tMAVEN's three alpha-graded pre/window/post segments and its Relative/Normalized/ND-Raw mode
+switch are <strong>not yet</strong> in the M2 dock (photobleach segmentation lands at M3). Tether adds a
+total-intensity curve and a seconds/frames x-axis toggle.</p>
+<p><strong>Parity evidence.</strong> <code>tests/test_trace_dock.py</code> — the D1 display <strong>contract</strong> that mirrors
+<code>multi_plot</code> conventions (not a numeric oracle): 2×2 grid with intensity + FRET time-series
+left and marginals right; donor green, acceptor red, FRET blue, total neutral grey; the FRET
+axis labelled "apparent E" and pinned to 0–1; the FRET curve <code>== A/(D+A)</code> on finite frames
+with a <code>connect="finite"</code> gap at zero-total frames; the idealization overlay is
+<code>stepMode="center"</code>, drawn only over the finite window, re-laid on the seconds/frames toggle,
+hidden before <code>set_idealization</code>, and cleared when the trace changes.
+<code>tests/test_fret_efficiency.py</code> locks the FRET-panel value function
+(<code>apparent_fret == corrected_fret</code> at <code>α=0, γ=1</code>).</p>
+<hr />
+<h2 id="references">References</h2>
+<p>Verified via <a href="https://consensus.app">Consensus</a> during authoring:</p>
+<ul>
+<li><a id="mckinney2006"></a><strong>[McKinney 2006]</strong> McKinney, Joo &amp; Ha. <a href="https://consensus.app/papers/details/3b073d160e935835b598eb6ac72bda7b/?utm_source=claude_code"><em>Analysis of single-molecule FRET trajectories using hidden Markov modeling.</em></a> Biophysical Journal. The paper that introduced the transition density plot (B1) alongside HMM idealization and BIC state counting.</li>
+<li><a id="bronson2009"></a><strong>[Bronson 2009]</strong> Bronson, Fei, Hofman, Gonzalez &amp; Wiggins. <a href="https://consensus.app/papers/details/677d6975832a53f79a756d5511808c50/?utm_source=claude_code"><em>Learning rates and states from biophysical time series: a Bayesian approach to model selection and single-molecule FRET data.</em></a> Biophysical Journal. vbFRET — variational-Bayes model selection for the number of conformational states (C1).</li>
+<li><a id="vandemeent2014"></a><strong>[van de Meent 2014]</strong> van de Meent, Bronson, Wiggins &amp; Gonzalez. <a href="https://consensus.app/papers/details/94863e6d77fa5458a6c4d0f9b231781f/?utm_source=claude_code"><em>Empirical Bayes methods enable advanced population-level analyses of single-molecule FRET experiments.</em></a> Biophysical Journal. ebFRET — the empirical-Bayes consensus population model underlying the shared transition matrix (B3, C1).</li>
+<li><a id="lee2012"></a><strong>[Lee 2012]</strong> Lee et al. <a href="https://consensus.app/papers/details/a63aced3819b56c9a1a94b7a537deee5/?utm_source=claude_code"><em>Kinetics of the triplex-duplex transition in DNA.</em></a> Biophysical Journal. smFRET dwell-time distributions fit with single- and double-exponential functions (B2).</li>
+<li>
+<p><a id="schrangl2024"></a><strong>[Schrangl 2024]</strong> Schrangl et al. <a href="https://consensus.app/papers/details/8e9bd690a9c85179b36f4936cd631a13/?utm_source=claude_code"><em>Advanced Quantification of Receptor–Ligand Interaction Lifetimes via Single-Molecule FRET Microscopy.</em></a> Biomolecules. Survival analysis for exponentially-distributed interaction lifetimes (B2).</p>
+</li>
+<li>
+<p><a id="mccann2010"></a><strong>[McCann 2010]</strong> McCann JJ, Choi UB, Zheng L, Weninger K, Bowen ME. <a href="https://doi.org/10.1016/j.bpj.2010.04.063"><em>Optimizing methods to recover absolute FRET efficiency from immobilized single molecules.</em></a> <em>Biophysical Journal</em> 99(3):961–970 (2010). The accurate-FRET reference for the apparent-FRET / proximity-ratio distinction (A1, D1) and for the population-median γ aggregation window.</p>
+</li>
+<li><a id="verma2024"></a><strong>[Verma 2024]</strong> Verma AR, Ray KK, Bodick M, Kinz-Thompson CD, Gonzalez RL Jr. <a href="https://doi.org/10.1016/j.bpj.2024.01.022"><em>Increasing the accuracy of single-molecule data analysis using tMAVEN.</em></a> <em>Biophysical Journal</em> 123(17):2765–2780 (2024). tMAVEN — the embedded idealization sidecar whose plot definitions this gallery is asserted against.</li>
+<li><a id="konig2013"></a><strong>[König 2013]</strong> König SLB, Hadzic MCAS, Fiorini E, Börner R, Kowerko D, Blanckenhorn WU, Sigel RKO. <a href="https://doi.org/10.1371/journal.pone.0084157"><em>BOBA FRET: bootstrap-based analysis of single-molecule FRET data.</em></a> <em>PLoS ONE</em> 8(12):e84157 (2013). BOBA-FRET — the molecule-level bootstrap confidence band on the pooled histogram (A1, PRD §7.7).</li>
+<li><a id="hellenkamp2018"></a><strong>[Hellenkamp 2018]</strong> Hellenkamp B, Schmid S, Doroshenko O, et al. <a href="https://doi.org/10.1038/s41592-018-0085-0"><em>Precision and accuracy of single-molecule FRET measurements — a multi-laboratory benchmark study.</em></a> <em>Nature Methods</em> 15(9):669–676 (2018). The multi-laboratory accurate-FRET benchmark behind the α/δ/γ correction convention (D1, M3).</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,3094 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/glossary/">
+      
+      
+        <link rel="prev" href="../reference/tether-format/">
+      
+      
+        <link rel="next" href="../troubleshooting/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Glossary - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#glossary" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Glossary
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../io/legacy-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/parity-gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/tether-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#fret-efficiency-and-the-correction-factors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FRET efficiency and the correction factors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FRET efficiency and the correction factors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#proximity-ratio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        proximity ratio
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#apparent-e" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        apparent E
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#corrected-e-accurate-fret" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        corrected E (accurate FRET)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#correction-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        correction order
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#leakage-bleedthrough" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        α (leakage, bleedthrough)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gamma-detection-correction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        γ (gamma, detection-correction)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#delta-direct-excitation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        δ (delta, direct excitation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#correction_method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        correction_method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#withheld-factor-nan-sentinel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        withheld factor / NaN sentinel
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#photobleaching-windows-and-curation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Photobleaching, windows and curation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Photobleaching, windows and curation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#photobleach-frames-first-bleach-frame" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        photobleach frames (first-bleach frame)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analysis-window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        analysis window
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#window-overloaded-four-meanings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        window (overloaded — four meanings)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#curation-label-category-quality-class" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        curation label / category / quality class
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#imaging-extraction-and-registration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Imaging, extraction and registration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Imaging, extraction and registration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tirf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIRF
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#alex-pie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ALEX / PIE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dual-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dual-view
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#aperture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        aperture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#donor-anchored-colocalization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        donor-anchored colocalization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#registration-tmap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registration / .tmap
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rms-gate-low-confidence-registration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RMS gate / low-confidence-registration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-trous-starlet-wavelet-mad" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        à trous / starlet wavelet, MAD
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#idealization-and-kinetics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idealization and kinetics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Idealization and kinetics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#idealization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        idealization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vbfret-ebfret-consensus-vb-hmm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        vbFRET / ebFRET / consensus VB-HMM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#elbo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ELBO
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#viterbi-path-state-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Viterbi path / state path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NO_STATE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dwell-time-dwell-time-survival" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dwell time / dwell-time survival
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tdp-transition-density-plot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TDP (transition density plot)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-synchronization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        post-synchronization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#staleness-stale-fresh-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        staleness (stale / fresh / live)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fresh-idealization-gating-curation-filter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fresh-idealization gating / curation filter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#precisionk-never-auto-drop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        precision@k / never-auto-drop
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kinsoftchallenge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        kinSoftChallenge
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plot-vocabulary-carried-over-from-tmaven" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plot vocabulary carried over from tMAVEN
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plot vocabulary carried over from tMAVEN">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#nd-normalized-nd-raw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ND-Normalized / ND-Raw
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-and-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files and formats
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Files and formats">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#molecule-vs-trace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        molecule vs trace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#condition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        condition
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tirfdata-mcos-refs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIRFdata / MCOS / #refs#
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tmap-tdat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        .tmap / .tdat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#smd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SMD
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tether-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        .tether project
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analysis-only-import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        analysis-only import
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-tether" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Tether
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running Tether">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sidecar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sidecar
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transient-vs-deterministic-sidecar-failure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        transient vs deterministic sidecar failure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-status-batch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stage status (batch)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#write-lock-stale-lock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        write lock / stale lock
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schema_version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        schema_version
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#fret-efficiency-and-the-correction-factors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FRET efficiency and the correction factors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FRET efficiency and the correction factors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#proximity-ratio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        proximity ratio
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#apparent-e" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        apparent E
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#corrected-e-accurate-fret" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        corrected E (accurate FRET)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#correction-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        correction order
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#leakage-bleedthrough" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        α (leakage, bleedthrough)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gamma-detection-correction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        γ (gamma, detection-correction)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#delta-direct-excitation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        δ (delta, direct excitation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#correction_method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        correction_method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#withheld-factor-nan-sentinel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        withheld factor / NaN sentinel
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#photobleaching-windows-and-curation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Photobleaching, windows and curation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Photobleaching, windows and curation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#photobleach-frames-first-bleach-frame" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        photobleach frames (first-bleach frame)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analysis-window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        analysis window
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#window-overloaded-four-meanings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        window (overloaded — four meanings)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#curation-label-category-quality-class" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        curation label / category / quality class
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#imaging-extraction-and-registration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Imaging, extraction and registration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Imaging, extraction and registration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tirf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIRF
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#alex-pie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ALEX / PIE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dual-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dual-view
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#aperture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        aperture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#donor-anchored-colocalization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        donor-anchored colocalization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#registration-tmap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registration / .tmap
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rms-gate-low-confidence-registration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RMS gate / low-confidence-registration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-trous-starlet-wavelet-mad" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        à trous / starlet wavelet, MAD
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#idealization-and-kinetics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idealization and kinetics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Idealization and kinetics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#idealization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        idealization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vbfret-ebfret-consensus-vb-hmm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        vbFRET / ebFRET / consensus VB-HMM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#elbo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ELBO
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#viterbi-path-state-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Viterbi path / state path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NO_STATE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dwell-time-dwell-time-survival" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dwell time / dwell-time survival
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tdp-transition-density-plot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TDP (transition density plot)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-synchronization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        post-synchronization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#staleness-stale-fresh-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        staleness (stale / fresh / live)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fresh-idealization-gating-curation-filter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fresh-idealization gating / curation filter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#precisionk-never-auto-drop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        precision@k / never-auto-drop
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kinsoftchallenge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        kinSoftChallenge
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plot-vocabulary-carried-over-from-tmaven" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plot vocabulary carried over from tMAVEN
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plot vocabulary carried over from tMAVEN">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#nd-normalized-nd-raw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ND-Normalized / ND-Raw
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-and-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files and formats
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Files and formats">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#molecule-vs-trace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        molecule vs trace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#condition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        condition
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tirfdata-mcos-refs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIRFdata / MCOS / #refs#
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tmap-tdat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        .tmap / .tdat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#smd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SMD
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tether-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        .tether project
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analysis-only-import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        analysis-only import
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-tether" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Tether
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running Tether">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sidecar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sidecar
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transient-vs-deterministic-sidecar-failure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        transient vs deterministic sidecar failure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-status-batch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stage status (batch)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#write-lock-stale-lock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        write lock / stale lock
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schema_version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        schema_version
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="glossary">Glossary</h1>
+<p><strong>Who this page is for.</strong> A bench scientist or new contributor reading the rest of this
+site and hitting a term — <code>apparent E</code>, <code>NO_STATE</code>, <code>ND-Normalized</code>, a Viterbi path, α/γ/δ,
+<code>TIRFdata</code> — that the surrounding page assumes you already know. Every entry below defines
+the term <strong>as this codebase uses it</strong>, names the module or constant that pins it, and links
+to the page that goes deeper. Where Tether's usage differs from generic smFRET usage, the
+entry says so explicitly — those divergences are the ones that cost you a dataset.</p>
+<p>Terms are grouped by the stage of the pipeline they belong to. If something went wrong
+rather than merely reading oddly, start at <a href="../troubleshooting/">Troubleshooting</a>.</p>
+<hr />
+<h2 id="fret-efficiency-and-the-correction-factors">FRET efficiency and the correction factors</h2>
+<h3 id="proximity-ratio">proximity ratio</h3>
+<p><code>A / (D + A)</code> — acceptor intensity over total intensity, computed frame by frame with no
+photophysical correction applied. In Tether this is a synonym for <a href="#apparent-e">apparent E</a>;
+there is exactly one implementation
+(<a href="https://doi.org/10.1016/j.bpj.2010.04.063">McCann 2010</a>).</p>
+<h3 id="apparent-e">apparent E</h3>
+<p><code>tether.fret.efficiency.apparent_fret(donor, acceptor)</code>. Defined <em>literally</em> as
+<code>corrected_fret(..., alpha=0.0, gamma=1.0)</code> so the two cannot drift apart. Three Tether
+specifics worth knowing:</p>
+<ul>
+<li>It is <strong>not clipped to <code>[0, 1]</code></strong> — a corrected value slightly outside that range on a
+  noisy frame is a real fluctuation, and hiding it would be a silent distortion.</li>
+<li>A zero denominator yields <strong>NaN</strong>, drawn as a gap, never <code>0</code>.</li>
+<li><strong>Every population plot is always apparent E</strong>, even after a successful correction:
+  <code>tether.analysis.histogram</code> and <code>tether.analysis.cloud</code> call <code>apparent_fret</code>
+  unconditionally, and the GUI axis label is the literal string <code>"apparent E"</code>
+  (<code>tether.gui.histogram_dock</code>, <code>tether.gui.trace_dock</code>). To find out whether corrections
+  actually succeeded you must read <code>/settings/correction</code>, not the plot — see
+  <a href="#correction_method">correction_method</a>.</li>
+</ul>
+<h3 id="corrected-e-accurate-fret">corrected E (accurate FRET)</h3>
+<p><code>tether.fret.efficiency.corrected_fret(donor, acceptor, *, alpha, gamma)</code>, applying
+<code>I_A,corr = I_A − α·I_D</code>, a <strong>bare</strong> <code>I_D,corr = I_D</code>, and
+<code>E = I_A,corr / (I_A,corr + γ·I_D,corr)</code>
+(<a href="https://doi.org/10.1038/s41592-018-0085-0">Hellenkamp 2018</a>).</p>
+<blockquote>
+<p><strong>Tether does not scale the donor by <code>(1 + α)</code> the way Deep-LASI does.</strong> γ is defined
+consistently with the bare <code>I_D</code>, so Tether's γ is systematically ≈<code>(1 + α)</code>× Deep-LASI's
+on the same bleach step (≈9 % at α ≈ 0.09). A cross-tool γ comparison must control for
+that (<code>tether.fret.gamma</code>; ADR-0028).</p>
+</blockquote>
+<h3 id="correction-order">correction order</h3>
+<p>The fixed chain, repeated verbatim in three modules
+(<code>tether.fret.efficiency</code>, <code>.leakage</code>, <code>.gamma</code>):
+<strong>background → leakage α → direct excitation δ (= 0) → γ</strong>. At the store level the chain is
+<strong>photobleach → leakage α → γ → corrected FRET</strong> (<code>tether.project.correct</code>) and it is
+enforced at runtime — calling the steps out of order raises with the next command named in
+the message (see
+<a href="../troubleshooting/#a-correction-step-refuses-run-something-else-first">a correction step says to run something first</a>).</p>
+<h3 id="leakage-bleedthrough">α (leakage, bleedthrough)</h3>
+<p>Donor emission detected in the acceptor channel, applied <strong>additively to the acceptor only</strong>
+(<code>tether.fret.leakage</code>). Tether estimates it from each trace's own <strong>post-acceptor-bleach
+tail</strong> as <code>mean(I_DA) / mean(I_DD)</code> — a ratio of window means, not a mean of per-frame
+ratios. Gates: tail ≥ <code>DEFAULT_MIN_WINDOW_FRAMES = 20</code> frames; per-trace α outside
+<code>[0, LEAKAGE_CEILING = 0.3]</code> dropped; the dataset value is the <strong>median</strong> of qualifying
+traces and is <strong>withheld</strong> below <code>DEFAULT_MIN_QUALIFYING_TRACES = 10</code> rather than fabricated
+(ADR-0027).</p>
+<p><strong>Scope:</strong> α is <strong>store-wide</strong> in Tether. <code>compute_leakage_alpha</code> fits one dataset median over
+every analysable molecule in the <code>.tether</code> — it does <strong>not</strong> partition by
+<a href="#condition">condition</a> — and writes that single value into every one of their
+<code>/molecules.alpha</code> cells, which is the field <code>tether.project.correct</code> reads back as the
+applied factor. The estimator's provenance lands on <code>/settings/leakage</code>.
+<code>/conditions.leakage_alpha</code> also exists in the schema (<code>tether.io.schema</code>), but it is a
+<strong>curator-editable field</strong> whose only writer is <code>register_condition(..., leakage_alpha=...)</code>
+(the idempotent upsert in <code>tether.project.conditions</code> — there is no separate
+<code>update_condition</code>; the same call inserts a missing row and updates the provided fields of an
+existing one). Nothing in the correction chain reads it and the estimator never writes it.
+ADR-0027 describes moving the applied α there per condition, but files that under <em>Deferred</em>
+— it has not happened, so read that ADR's "α is per-condition" as intent, not as current
+behaviour.</p>
+<h3 id="gamma-detection-correction">γ (gamma, detection-correction)</h3>
+<p>The detection-efficiency / quantum-yield ratio between the channels
+(<code>tether.fret.gamma</code>). Estimated across the <strong>acceptor-bleach step</strong> as <code>ΔI_A / ΔI_D</code> on
+leakage-corrected intensities, with levels averaged over a 3-frame half-window each side.
+Same <code>DEFAULT_MIN_WINDOW_FRAMES = 20</code> / 10-trace parameters as α, but the frame gate is
+<strong>stricter and two-sided</strong>: both the pre-step FRET segment <code>[0, step)</code> and the post-step
+donor-only segment <code>[step, donor_bleach)</code> must be <strong>strictly longer than</strong> 20 frames (<code>&gt; 20</code>,
+where the α tail only needs <code>≥ 20</code>), or the trace is dropped as <code>short-pre</code> / <code>short-post</code>.
+Per-trace γ outside <code>(0, GAMMA_CEILING = 5.0]</code> is dropped
+(ADR-0028).</p>
+<p><strong>Scope:</strong> γ is <strong>per-molecule with a population-median fallback</strong> — a qualifying molecule
+keeps its own γ, a non-qualifying one silently takes the dataset median and is counted in
+<code>/settings/gamma.attrs["n_fallback"]</code>. There is no per-row marker distinguishing the two.</p>
+<h3 id="delta-direct-excitation">δ (delta, direct excitation)</h3>
+<p>Direct excitation of the acceptor by the donor laser. Measuring it requires the
+acceptor-under-acceptor-excitation channel that only <a href="#alex-pie">ALEX/PIE</a> provides, and
+Tether is single-laser two-colour by design (non-goal N1) — so δ is carried as an <strong>inert
+<code>0.0</code></strong>, not "unset" (<code>rows["delta"] = 0.0</code> in <code>tether.imaging.extract</code>;
+ADR-0008).</p>
+<blockquote>
+<p><strong>The naming inversion trap.</strong> Deep-LASI's stored <code>Beta</code> is what Tether calls <strong>α</strong>
+(leakage), and Deep-LASI's stored <code>Alpha</code> is direct excitation, which Tether calls <strong>δ</strong>
+and forces to <code>0</code>. Reading Deep-LASI <code>Alpha</code> as Tether α drops a real leakage correction
+and shifts every efficiency. See
+<a href="../io/legacy-import/#correction-factor-remap">Correction-factor remap</a>.</p>
+</blockquote>
+<h3 id="correction_method">correction_method</h3>
+<p>The per-molecule provenance stamp on <code>/molecules</code> telling every reader <em>how</em> E was
+computed (<code>tether.project.correct</code>). Exactly four literal values:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>corrected</code></td>
+<td>estimated α <strong>and</strong> γ were applied</td>
+</tr>
+<tr>
+<td><code>manual</code></td>
+<td>hand-entered factors were applied</td>
+</tr>
+<tr>
+<td><code>apparent-E (corrections unavailable)</code></td>
+<td>total correction failure — the <em>expected</em> case for a pure-FRET acquisition with no clean acceptor-bleach step</td>
+</tr>
+<tr>
+<td><code>apparent-E (user toggle)</code></td>
+<td>valid factors exist; the user deliberately chose the apparent-E view</td>
+</tr>
+</tbody>
+</table>
+<p>Paired with <code>correction_confidence</code> — <code>1.0</code> or <code>0.0</code>, explicitly <strong>a provenance flag, not a
+statistical interval</strong>.</p>
+<h3 id="withheld-factor-nan-sentinel">withheld factor / NaN sentinel</h3>
+<p>α or γ arriving as <strong>NaN</strong> means the min-qualifying-traces gate withheld it. The NaN <strong>stays
+in <code>/molecules.alpha</code> / <code>.gamma</code></strong> — absent a manual override <code>compute_corrected_fret</code> only
+stamps <code>correction_method</code> / <code>correction_confidence</code> — so NaN factors sitting next to
+<code>apparent-E (corrections unavailable)</code> are the <em>expected</em> signature of a withhold, not
+corruption (see
+<a href="../troubleshooting/#the-batch-says-correctdone-but-no-corrections-were-applied">the batch says <code>correct=done</code> but no corrections were applied</a>).
+What the writer never emits is a NaN <strong>corrected E</strong>: a non-finite factor routes the molecule
+to apparent E instead (ADR-0003). This NaN is distinct
+from the <code>-1</code> <a href="#photobleach-frames-first-bleach-frame">undetected sentinel</a> and from
+<a href="#no_state"><code>NO_STATE</code></a>.</p>
+<hr />
+<h2 id="photobleaching-windows-and-curation">Photobleaching, windows and curation</h2>
+<h3 id="photobleach-frames-first-bleach-frame">photobleach frames (first-bleach frame)</h3>
+<p><code>/molecules.bleach_frames</code> — a <code>(donor, acceptor)</code> pair of <strong>absolute</strong> frame indices.
+Tether's detector is a headless reimplementation of tMAVEN's Bayesian <strong>single-step
+change-point</strong> model (<code>tether.fret.photobleach</code>), run <strong>independently per channel</strong> so α
+and γ each get the bleach frame they need
+(ADR-0026).</p>
+<p>Two values must not be confused:</p>
+<ul>
+<li><code>(-1, -1)</code> — the <strong>undetected sentinel</strong>: the detector has not run. Downstream steps
+  refuse loudly rather than guess.</li>
+<li><code>== frame_range[1]</code> — the detector ran and that channel does not bleach within the trace.</li>
+</ul>
+<p>Detection runs on <strong>background-subtracted (<code>corrected</code>)</strong> traces by default, because the
+model detects a decay to <code>N(0)</code>; raw traces keep a large offset and never look bleached.</p>
+<h3 id="analysis-window">analysis window</h3>
+<p><code>/molecules.analysis_window</code> — an <code>(start, end)</code> frame pair, the universal slicing contract
+every downstream reader honours (histograms, cross-correlation, features, idealization),
+each falling back to <code>frame_range</code> when it is unset.</p>
+<p>The <strong>auto</strong> default is trace start → first bleach of the <strong>summed</strong> donor+acceptor
+intensity — not per-channel (ADR-0026).
+<strong>Manual wins</strong>: the auto value is written only where the window still equals the extraction
+default, so a curator-narrowed window is never overwritten.</p>
+<h3 id="window-overloaded-four-meanings">window (overloaded — four meanings)</h3>
+<ol>
+<li><strong>analysis window</strong> — frames, above.</li>
+<li><strong>aperture window</strong> — the <code>21 × 21</code> <strong>pixel</strong> crop side length (<code>tether.imaging.aperture</code>,
+   <code>tether.project.extract</code>); must be a positive <strong>odd</strong> integer.</li>
+<li><strong>estimator windows</strong> — the leakage tail window and γ's 3-frame half-window, in frames.</li>
+<li><strong>deep-model <code>window_length</code></strong> — 500 frames, the ML classifier's input length
+   (<a href="../ml/deep-classifier/">Deep trace classifier</a>).</li>
+</ol>
+<h3 id="curation-label-category-quality-class">curation label / category / quality class</h3>
+<p>Three <strong>independent</strong> fields on <code>/molecules</code> (PRD §5.1):</p>
+<ul>
+<li><code>curation_label</code> — the accept/reject state. Codec <code>CurationLabel</code> in
+  <code>tether.project.labels</code>: <code>UNCURATED = 0</code>, <code>ACCEPT = +1</code>, <code>REJECT = -1</code>
+  (ADR-0023).</li>
+<li><code>category</code> — an optional value from the editable per-condition list. Assigning one does
+  <strong>not</strong> imply accept.</li>
+<li><code>quality_class</code> — read-only ML ranker output, never a user input.</li>
+</ul>
+<p>A <strong>reject is a reversible sticky tag, never a deletion</strong>: it persists, carries across files
+on <a href="#molecule-vs-trace">molecule_key</a>, is reversible in one call
+(<code>tether.project.labels.unreject</code>), and is excluded by the <strong>toggleable</strong> curation filter
+(<code>include_rejected=False</code> by default). <code>tether.project.labels.accept</code> / <code>reject</code> / <code>unreject</code>
+each append one provenance-stamped row to <code>/labels/table</code> — <code>unreject</code> only when the molecule
+really is rejected, since on any other state it is a documented no-op that writes nothing.
+The GUI exposes that reversal as <strong>Un-reject selected</strong> in the Browser dock; it is intentionally
+a visible control rather than a hidden global shortcut.
+Nothing appends a row for a category assignment; <code>category</code> lives only on <code>/molecules</code>. No row
+is ever deleted (a reversal is logged as its own row), but those three wrappers are not the
+log's only appenders: <code>tether.project.reconstruct</code> records provisional Deep-LASI accept priors
+through <code>set_curation_label</code>, and <code>tether.project.merge</code> appends a contributor's human rows
+when two projects are merged — matched and de-duplicated, with each appended row's
+<code>condition_id</code> rewritten to the owner project's value. Append-only does not mean immutable
+either: retraining the ranker rewrites the <code>weight</code> column of every existing row in place
+(<code>tether.project.weighting.recompute_label_weights</code>).</p>
+<hr />
+<h2 id="imaging-extraction-and-registration">Imaging, extraction and registration</h2>
+<h3 id="tirf">TIRF</h3>
+<p>Total internal reflection fluorescence microscopy — the illumination geometry that confines
+excitation to an evanescent field ≈100 nm above the coverslip, giving the
+signal-to-background needed for surface-immobilized single molecules
+(<a href="https://doi.org/10.1016/S0076-6879(03)61003-7">Axelrod 2003</a>). Tether's input is a
+dual-view TIRF movie; it does not itself model the optics.</p>
+<h3 id="alex-pie">ALEX / PIE</h3>
+<p>Alternating-laser excitation / pulsed interleaved excitation — acquisition schemes that add
+an acceptor-under-acceptor-excitation channel, enabling direct-excitation (δ) and
+stoichiometry correction (<a href="https://doi.org/10.1529/biophysj.104.054114">Lee 2005</a>).
+<strong>Out of scope for Tether</strong> (non-goal N1): single-laser, two-colour only. This is why
+<a href="#delta-direct-excitation">δ</a> is structurally zero.</p>
+<h3 id="dual-view">dual-view</h3>
+<p>Donor and acceptor imaged side by side on one chip through a splitter, so each frame is two
+half-width channels that must be registered to each other. <code>--donor-side</code> names which
+horizontal half is the donor; the <a href="#registration-tmap">registration</a> map relates the two.</p>
+<blockquote>
+<p>Getting <code>--donor-side</code> wrong is silent and produces a complete, plausible, inverted
+dataset — see
+<a href="../troubleshooting/#every-efficiency-is-mirrored-when-donor-side-is-backwards">every efficiency is mirrored</a>.</p>
+</blockquote>
+<h3 id="aperture">aperture</h3>
+<p>The <code>21 × 21</code> pixel crop holding a central <strong>PSF disk</strong> (radius 3 px) and a concentric
+<strong>background ring</strong> (inner 6, outer 8), with a deliberate dead zone between them so the ring
+samples background uncontaminated by the PSF tail (<code>tether.imaging.aperture</code>). Integration
+is a sum (top-hat): <code>I = sum(crop · disk) − ring_background · N_psf</code>.</p>
+<p>This is what <code>corrected</code> means in <code>/traces</code> at extraction time — <strong>background-subtracted,
+not photophysically corrected</strong> (<code>tether.project.trace_layers</code>).</p>
+<h3 id="donor-anchored-colocalization">donor-anchored colocalization</h3>
+<p>Tether <strong>deliberately breaks</strong> Deep-LASI's rule here. Deep-LASI's <code>findColoc</code> keeps a
+molecule only if an independently-detected partner exists within 3 px in <em>every</em> channel,
+which silently discards the low-FRET and acceptor-dark population — exactly the molecules a
+FRET histogram must keep. Tether instead anchors on the donor: <strong>every in-frame donor spot
+becomes a molecule</strong>, and acceptor intensity is read at the <em>mapped</em> position whether or not
+an acceptor was independently detected. The independent-detection test survives only as the
+informational <code>ColocalizedMolecules.acceptor_detected</code> flag and <strong>never drops a molecule</strong>
+(<code>tether.imaging.coloc</code>; ADR-0015).</p>
+<p>Two adjacent facts: <strong>the movie is never resampled</strong> — the map is applied to <em>coordinates</em>,
+never pixels, to avoid interpolation bias in integrated intensities; and a molecule is
+extractable only if its full aperture lies inside the frame <strong>in both channels</strong>, so
+out-of-frame spots are dropped rather than zero-filled.</p>
+<h3 id="registration-tmap">registration / <code>.tmap</code></h3>
+<p>The donor↔acceptor <strong>coordinate</strong> map for the dual-view split. Two sources, one type
+(<code>RegistrationMap</code> in <code>tether.imaging.calibrate</code>), stamped <code>source</code>:</p>
+<ul>
+<li><strong>native</strong> — a fit from control points paired out of the movie's own detections
+  (degree-2 polynomial at ≥ 6 pairs, a 4-DOF similarity below that).</li>
+<li><strong>imported</strong> — a Deep-LASI <a href="#tmap-tdat"><code>.tmap</code></a> applied as-is. Its residual is left
+  NaN, so an imported map can never trip the RMS gate, and <code>--donor-side</code> is <strong>ignored</strong>
+  (the split comes from the <code>.tmap</code>'s own crop geometry).</li>
+</ul>
+<h3 id="rms-gate-low-confidence-registration">RMS gate / low-confidence-registration</h3>
+<p>The registration quality number is the <strong>RMS residual in pixels</strong>, gated at
+<code>DEFAULT_RMS_GATE_PX = 0.5</code> (<code>tether.imaging.calibrate</code>; <code>--rms-gate</code>). This numeric gate is
+Tether's improvement over Deep-LASI's visual-only QA.</p>
+<p>Over-gate is <strong>never a silent drop</strong>: the calibration is marked <code>low_confidence</code> and every
+molecule it produces is tagged <code>low-confidence-registration</code> (<code>LOW_CONFIDENCE_TAG</code>), then
+kept (ADR-0014). Batch policy is
+<code>warn</code> (accept-with-flag) by default, <code>fail</code> on request.</p>
+<blockquote>
+<p>The residual only <em>measures</em> something when the control points over-determine the fit —
+2 pairs for the similarity and 6 for the degree-2 polynomial make it exactly zero by
+construction, and an imported <code>.tmap</code> leaves it NaN. See
+<a href="../troubleshooting/#registration-passed-the-gate-with-a-suspiciously-perfect-residual">a suspiciously perfect residual</a>.</p>
+</blockquote>
+<p>Nothing downstream currently filters on the tag — see
+<a href="../troubleshooting/#registration-was-flagged-low-confidence">registration was flagged low-confidence</a>.</p>
+<h3 id="a-trous-starlet-wavelet-mad">à trous / starlet wavelet, MAD</h3>
+<p>The undecimated wavelet transform whose multiscale product is Tether's default spot detector
+(<a href="https://doi.org/10.1016/S0031-3203%2801%2900127-3">Olivo-Marin 2002</a>); <strong>MAD</strong> (median
+absolute deviation) is its per-scale noise estimate. The alternatives are the <code>intensity</code> and
+<code>bandpass</code> modes ported from Deep-LASI's <code>findPart</code>
+(ADR-0021).</p>
+<hr />
+<h2 id="idealization-and-kinetics">Idealization and kinetics</h2>
+<h3 id="idealization">idealization</h3>
+<p>In Tether this means specifically <strong>a fitted HMM persisted as additive data under
+<code>/idealization/{model_name}</code></strong> (<code>tether.project.idealize</code>), not merely "fitting an HMM". The
+fit itself runs in an isolated <a href="#sidecar">sidecar</a> interpreter driving tMAVEN headlessly
+(<a href="https://doi.org/10.1016/j.bpj.2024.01.022">Verma 2024</a>).</p>
+<h3 id="vbfret-ebfret-consensus-vb-hmm">vbFRET / ebFRET / consensus VB-HMM</h3>
+<p>The three model families reachable through tMAVEN:</p>
+<ul>
+<li><strong>vbFRET</strong> — variational-Bayes <strong>per-trace</strong> HMM
+  (<a href="https://doi.org/10.1016/j.bpj.2009.09.031">Bronson 2009</a>).</li>
+<li><strong>ebFRET</strong> — empirical-Bayes <strong>population</strong> HMM
+  (<a href="https://doi.org/10.1016/j.bpj.2013.12.055">van de Meent 2014</a>).</li>
+<li><strong>consensus VB-HMM</strong> (<code>vbconhmm</code>) — one shared model fitted across the population.
+  This is <code>MODEL_TYPE_DEFAULT</code> in Tether.</li>
+</ul>
+<blockquote>
+<p><strong>Tether always persists a consensus model</strong> — one shared state count, one shared
+transition matrix, one <code>/idealization/{model}</code> for the whole population, plus each
+molecule's Viterbi path. It does <strong>not</strong> persist independent per-trace HMMs. Two tMAVEN
+plots that read per-trace fits are therefore <em>re-derivations, not ports</em>: B3 becomes the
+empirical per-molecule transition frequency, and C1 becomes the count of distinct states
+each Viterbi path actually occupies — a 3-state consensus model still yields "1 state" for
+a trace that never leaves one level. See the
+<a href="../analysis/parity-gallery/#c1-vbfret-state-number-distribution">parity gallery</a>.</p>
+</blockquote>
+<h3 id="elbo">ELBO</h3>
+<p>Evidence Lower BOund — the variational objective. Tether uses it for <strong>state-count
+selection</strong>: <code>nstates</code> is either fixed, or auto-selected as the maximum ELBO over
+<code>NSTATES_GRID_DEFAULT = (1, 2, 3, 4)</code>, recorded as
+<code>nstates_selected_by ∈ {"max-elbo", "fixed"}</code>
+(ADR-0024).</p>
+<h3 id="state">state</h3>
+<p>An index into the model's shared <code>means</code> vector — that state's FRET level. Not a label a
+human assigns.</p>
+<h3 id="viterbi-path-state-path">Viterbi path / state path</h3>
+<p><code>state_paths</code> — an <code>int64 (n_molecules, n_frames)</code> array of state indices, the persisted
+primitive every group-B/C analysis re-derives from. Tether obtains it by <strong>nearest-mean
+assignment</strong> of the float idealized level (<code>states_from_idealized</code> in
+<code>tether.idealize.driver</code>).</p>
+<h3 id="no_state"><code>NO_STATE</code></h3>
+<p><code>NO_STATE = -1</code> (<code>tether.idealize.driver</code>) — the sentinel filling a Viterbi path outside the
+analysis window, in interior gaps, and wherever the idealized level is non-finite. A
+<code>NO_STATE</code> frame is <strong>never itself a dwell and never a transition</strong> — but it does <strong>not split
+a run either</strong>. <code>tether.analysis.dwell.state_dwells</code> <em>strips</em> the <code>NO_STATE</code> frames before
+splitting on state change (tMAVEN's NaN strip), so an interior gap between two frames of the
+same state is stitched over: <code>0,0,NO_STATE,0,0</code> is <strong>one 4-frame dwell</strong> of state 0, not two
+2-frame dwells. On the <a href="#tdp-transition-density-plot">TDP</a> side the gap becomes <code>NaN</code> and the
+non-finite pair is dropped, so a <code>NO_STATE</code> border never emits a transition point.</p>
+<h3 id="dwell-time-dwell-time-survival">dwell time / dwell-time survival</h3>
+<p>A <strong>dwell</strong> is a run of constant state in a Viterbi path (<code>tether.analysis.dwell</code>). Faithful
+to tMAVEN's <code>generate_dwells</code>, the <strong>first and last dwell of every molecule are censored</strong>
+(the last always; the first unless <code>include_first</code>) — standard right-censoring for a finite
+observation window.</p>
+<p><strong>Survival</strong> is the empirical <code>S(τ) = P(dwell &gt; τ)</code>, fitted with single / double / triple /
+stretched exponentials plus covariance standard errors and Student-<em>t</em> confidence intervals.</p>
+<blockquote>
+<p><strong>Units caveat.</strong> <code>DEFAULT_DWELL_DT = 1.0</code>, so fitted rates are <strong>per frame</strong> unless you
+pass the movie's frame time as <code>dt</code>.</p>
+</blockquote>
+<h3 id="tdp-transition-density-plot">TDP (transition density plot)</h3>
+<p>A 2-D histogram of <strong>initial vs final</strong> idealized FRET level over every state-change frame
+of a population (<a href="https://doi.org/10.1529/biophysj.106.082487">McKinney 2006</a>). Tether's is
+the "real" TDP: built from a persisted model's Viterbi paths, with a point emitted <strong>only at
+state-change frames</strong>, initial and final read <code>DEFAULT_TDP_NSKIP = 2</code> frames apart
+(<code>tether.analysis.tdp</code>). The stored array is the exact unsmoothed histogram in raw counts;
+log-normalization and smoothing are display-only.</p>
+<h3 id="post-synchronization">post-synchronization</h3>
+<p>The A2b heatmap variant: every selected state jump is aligned to a common column so
+asynchronous stochastic transitions add coherently, revealing the population's average
+approach to and departure from a transition. Relative time zero sits at
+<code>DEFAULT_SYNC_PREFRAME = 50</code> and the time edges run negative before it
+(<code>tether.analysis.histogram</code>; see
+<a href="../analysis/parity-gallery/#a2-2-d-time-vs-signal-histogram-synchronized-fret-heatmap">A2</a>).</p>
+<h3 id="staleness-stale-fresh-live">staleness (stale / fresh / live)</h3>
+<p>A Tether-only concept with no tMAVEN analogue, and it gates most analyses. Every molecule in
+a persisted model carries a <strong>composite input-provenance hash</strong> folding the windowed input
+trace, the analysis-window bounds, and the molecule's <strong>effective applied α and γ</strong>. If any
+of those change, the recomputed hash diverges and the molecule is <strong>stale</strong>;
+<code>live_molecule_keys()</code> is the complement that TDP / dwell / state-number /
+transition-probability keep by default
+(ADR-0029).</p>
+<p>Consequence: re-estimating <strong>α</strong> re-stales <strong>every molecule in the project</strong>, because the α
+estimator is <strong>store-wide</strong> — one median written to every analysable
+molecule's <code>/molecules.alpha</code>. A γ-median shift re-stales only the molecules that took the
+fallback.</p>
+<h3 id="fresh-idealization-gating-curation-filter">fresh-idealization gating / curation filter</h3>
+<p>The two Tether-added, on-by-default invariants on every store-level group-B/C entry point:
+stale molecules are excluded unless <code>include_stale=True</code>, and rejected molecules are excluded
+unless <code>include_rejected=True</code>. Both are toggles, not deletions.</p>
+<h3 id="precisionk-never-auto-drop">precision@k / never-auto-drop</h3>
+<p>The quality ranker's metric and its contract: the model <strong>shall only re-order — never
+auto-drop</strong> (<code>tether.ml.ranking</code>). A ranking is a permutation; a molecule that cannot be
+scored gets a NaN score (never a fabricated <code>0</code>), is ranked <strong>last</strong>, and is kept.</p>
+<h3 id="kinsoftchallenge">kinSoftChallenge</h3>
+<p>A blind community benchmark of single-molecule kinetics analysis tools
+(<a href="https://doi.org/10.1038/s41467-022-33023-3">Götz 2022</a>), used as Tether's advisory kinetics
+oracle (ADR-0048).</p>
+<hr />
+<h2 id="plot-vocabulary-carried-over-from-tmaven">Plot vocabulary carried over from tMAVEN</h2>
+<h3 id="nd-normalized-nd-raw">ND-Normalized / ND-Raw</h3>
+<p>tMAVEN <code>plot_mode</code> presets that switch the <strong>signal axis away from FRET</strong>
+(<code>tmaven/tmaven/controllers/analysis_plots/data_hist1d.py</code>, <code>normalized_defaults</code> /
+<code>raw_defaults</code>): <code>ND Normalized</code> labels the axis <em>Normalized Intensity</em> over
+<code>[-0.25, 1.25]</code>, <code>ND Raw</code> labels it <em>Intensity (A.U.)</em> over <code>[-500, 10000]</code>, against
+<code>smFRET</code>'s <em>E_FRET</em> over <code>[-0.25, 1.25]</code>.</p>
+<p><strong>Tether does not port them.</strong> Its signal axis is always <a href="#apparent-e">apparent E</a>;
+<code>intensity_quantity</code> only selects which <code>/traces</code> layer (<code>corrected</code> vs <code>raw</code>) feeds it.
+The terms appear on this site only because the
+<a href="../analysis/parity-gallery/">parity gallery</a> enumerates tMAVEN's variants.</p>
+<hr />
+<h2 id="files-and-formats">Files and formats</h2>
+<h3 id="molecule-vs-trace">molecule vs trace</h3>
+<p>A <strong>molecule</strong> is one row in <code>/molecules</code> — one donor spot in one movie — carrying two
+identities:</p>
+<ul>
+<li><code>molecule_id</code> — a globally stable UUID, inherited unchanged by any split or subset file.</li>
+<li><code>molecule_key</code> — cross-file <em>content</em> identity, <code>sha256(movie_sha256 | quantized donor_xy)</code>
+  at <code>MOLECULE_KEY_QUANTUM_PX = 0.1</code> px. It is the join key for split-file merge-back and is
+  <strong>not unique</strong> (quantized coordinates can collide) — use <code>molecule_id</code> when uniqueness
+  matters.</li>
+</ul>
+<p>A <strong>trace</strong> is that molecule's row <em>slice</em> in the rectangular <code>/traces/*</code> arrays, zero-padded
+to the experiment-max frame count because one experiment spans movies of differing length;
+<code>frame_range</code> delimits the valid native extent inside the pad.</p>
+<h3 id="condition">condition</h3>
+<p>Not free text. A condition is identified by a <strong>chemistry/optics key</strong> — construct/variant,
+dye, ligand + concentration, buffer, temperature, laser power (<code>tether.io.filename</code>,
+<code>tether.project.conditions</code>). <code>date</code>, replicate and source file deliberately <strong>vary within</strong>
+a condition and are not part of its identity. <code>condition_id</code> is a content hash of that exact
+key, and validation is <strong>referential</strong>: an id is valid only if it resolves to a
+<code>/conditions</code> row whose stored fields hash back to it.</p>
+<p><strong>Keep-separate by default</strong> — two near-miss filename parses yield different ids and stay
+separate; collapsing them requires an explicit confirmed re-key
+(ADR-0033). At extraction the id is
+<em>provisional-from-filename</em> and is retained forever in <code>condition_id_provisional</code>.</p>
+<h3 id="tirfdata-mcos-refs"><code>TIRFdata</code> / MCOS / <code>#refs#</code></h3>
+<p>Deep-LASI's custom MATLAB class, stored as MATLAB-Class-Object-System (MCOS) objects inside a
+v7.3 (HDF5) <code>.tdat</code>. Decoding it requires resolving the <code>#refs#</code> / <code>#subsystem#</code> blobs —
+which is what <code>tether.io.mcos</code> does. See
+<a href="../io/legacy-import/#tirfdata-decode">TIRFdata decode</a>.</p>
+<h3 id="tmap-tdat"><code>.tmap</code> / <code>.tdat</code></h3>
+<p>Deep-LASI's registration-<strong>map</strong> file (<code>.tmap</code>) versus its full-session <strong>project</strong> file
+(<code>.tdat</code>). The <code>.tmap</code> is a classic MATLAB v5 MAT-file whose transform coefficients live in
+the MCOS <code>__function_workspace__</code> blob, in MATLAB <strong>1-based</strong> pixel coordinates
+(<code>tether.imaging.register.read_tmap</code>). The <code>.tdat</code> is MATLAB v7.3 and carries coordinates,
+correction factors and the particle-detection mode.</p>
+<h3 id="smd">SMD</h3>
+<p>Single-Molecule Dataset — a generalized HDF5 storage format for single-molecule data
+(<a href="https://doi.org/10.1186/s12859-014-0429-4">Greenfeld 2015</a>), and tMAVEN's interchange
+container. Tether writes a <strong>superset</strong> SMD carrying coordinates
+(ADR-0002), because a tMAVEN-written SMD has no
+per-molecule metadata slot — so after a standalone-tMAVEN round trip the trace↔movie link
+survives only by exact intensity-trace matching. See the
+<a href="../idealize/standalone-tmaven-handoff/">hand-off page</a>.</p>
+<h3 id="tether-project"><code>.tether</code> project</h3>
+<p>One HDF5 file per experiment, with root attribute <code>format = "tether-project"</code> and a
+monotonic <code>schema_version</code> (currently <code>1</code>). The <strong>entire group skeleton was forward-declared
+at M0</strong>, so later milestones add <em>data</em>, never <em>structure</em>
+(ADR-0005); a <code>schema-guard</code> CI gate enforces it.</p>
+<p>A file stamped with a <strong>higher</strong> <code>schema_version</code> than the running app is refused outright
+rather than partially read.</p>
+<h3 id="analysis-only-import">analysis-only import</h3>
+<p>A coordinate-less import — traces without a movie. Every molecule is tagged
+<code>round-trip-unavailable</code>, <code>/settings/analysis_only</code> records the banner
+<code>coordinates and patches absent; movie round-trip and spot/overlap views unavailable</code>, and
+the shell leaves the spot/overlap seam unwired
+(ADR-0046). Idealization, histograms, TDP and
+kinetics all still work. See
+<a href="../io/legacy-import/#round-trip-vs-analysis-only">Round-trip vs analysis-only</a>.</p>
+<hr />
+<h2 id="running-tether">Running Tether</h2>
+<h3 id="sidecar">sidecar</h3>
+<p>The isolated conda environment (<code>numpy&lt;2</code> + PyQt5 + tMAVEN) in which idealization runs,
+because tMAVEN's pins cannot share a process with Tether's PySide6 / current-numpy base
+stack (ADR-0004). Resolution order for the
+interpreter is: explicit argument → <code>TETHER_SIDECAR_PYTHON</code> → the installer's sibling
+<code>envs/sidecar</code> derived from <code>sys.prefix</code>
+(ADR-0051). That last fallback exists because a
+menu shortcut, <code>PATH</code> shim or <code>.desktop</code> launch never runs the conda <code>activate.d</code> hook that
+would have set the variable.</p>
+<h3 id="transient-vs-deterministic-sidecar-failure">transient vs deterministic sidecar failure</h3>
+<p><code>SidecarError.transient</code> (<code>tether.idealize.driver</code>) decides whether the supervisor retries:</p>
+<ul>
+<li><strong>transient</strong> — a crash or a timeout. Auto-restarted, up to <code>--max-restarts</code> (default 3).</li>
+<li><strong>deterministic</strong> — a fit error the sidecar itself reported, or a missing interpreter.
+  Never retried; restarting cannot change the outcome.</li>
+</ul>
+<h3 id="stage-status-batch">stage status (batch)</h3>
+<p>The vocabulary <code>tether batch</code> prints per movie (<code>tether.project.batch</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Meaning</th>
+<th>Counts as failure?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>done</code></td>
+<td>the stage ran and succeeded</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>skipped</code></td>
+<td>a checkpoint found the stage already complete</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>failed</code></td>
+<td>the stage raised (or an over-gate movie under <code>--policy fail</code>)</td>
+<td><strong>yes</strong></td>
+</tr>
+<tr>
+<td><code>blocked</code></td>
+<td>an upstream stage failed</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>deferred</code></td>
+<td>the sidecar was unavailable at startup</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>not-requested</code></td>
+<td><code>--no-idealize</code></td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>warning</code></td>
+<td>non-fatal, e.g. provenance stamping failed</td>
+<td>no</td>
+</tr>
+</tbody>
+</table>
+<p>Only <code>failed</code> makes the run exit non-zero — which is why
+<a href="../troubleshooting/#the-batch-finished-ok-but-nothing-was-idealized">a deferred idealization exits 0</a>.</p>
+<p><code>blocked</code> is the one row that never shows up on an exit-<code>0</code> run in practice: a stage is
+blocked only when its upstream stage was not <code>done</code>/<code>skipped</code>, so a <code>blocked</code> always travels
+with a <code>failed</code> in the same movie and the run exits <code>1</code> anyway.</p>
+<h3 id="write-lock-stale-lock">write lock / stale lock</h3>
+<p>Single-writer ownership is held by a <code>&lt;project&gt;.tether.lock</code> JSON sidecar carrying
+<code>host / user / pid / timestamp</code> plus a per-acquisition nonce (<code>tether.project.lock</code>).
+Ownership is the full <code>(host, user, pid)</code> triple — <code>user</code> is included deliberately so a
+recycled PID under a different login is never silently granted write access.</p>
+<p>Liveness is judged by a <strong>wall-clock staleness timeout of ≈30 min</strong>, not by probing the PID
+(a remote PID cannot be probed and cloud sync is eventually consistent). A stale lock is
+reclaimable only by an <strong>explicit steal</strong>, never automatically. The <code>.lock</code> sidecar is not
+part of the schema.</p>
+<h3 id="schema_version">schema_version</h3>
+<p>The monotonic on-disk stamp on a <code>.tether</code> file's root, currently <code>1</code>
+(<code>tether.io.schema</code>). A file whose stamp is <strong>higher</strong> than the running app's is refused —
+the app upgrades, the file is never downgraded.</p>
+<hr />
+<h2 id="related-pages">Related pages</h2>
+<ul>
+<li><a href="../troubleshooting/">Troubleshooting</a> — symptom-keyed failure modes, including the silent ones.</li>
+<li><a href="../analysis/parity-gallery/">Seven-plot parity gallery</a> — where the plot vocabulary is asserted against tMAVEN.</li>
+<li><a href="../io/legacy-import/">Legacy Deep-LASI import</a> — <code>.tdat</code> / <code>.tmap</code> / <code>.mat</code> formats and the correction-factor remap.</li>
+<li><a href="../idealize/standalone-tmaven-handoff/">Standalone-tMAVEN hand-off</a> — the sidecar and the SMD round trip.</li>
+<li><a href="../ml/deep-classifier/">Deep trace classifier</a> — the optional GPU add-on.</li>
+<li><a href="../adr/">Architecture decisions</a> — the rationale behind most entries above.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

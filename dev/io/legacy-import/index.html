@@ -1,0 +1,1882 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/io/legacy-import/">
+      
+      
+        <link rel="prev" href="../../roadmap/">
+      
+      
+        <link rel="next" href="../../idealize/standalone-tmaven-handoff/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Legacy Deep-LASI import - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#legacy-deep-lasi-import" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Legacy Deep-LASI import
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#coordinate-availability-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coordinate-availability matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#correction-factor-remap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Correction-factor remap
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-import-pipeline-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The import pipeline at a glance
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The import pipeline at a glance">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#intake-pairing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Intake + pairing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tirfdata-decode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIRFdata decode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coordinate-recovery-smd-cross-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coordinate recovery + SMD cross-check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#round-trip-reconstruction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Round-trip reconstruction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analysis-only-import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysis-only import
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-wizard-and-opening-a-project-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The wizard, and opening a project live
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#round-trip-vs-analysis-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Round-trip vs analysis-only
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analysis/parity-gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/tether-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#coordinate-availability-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coordinate-availability matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#correction-factor-remap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Correction-factor remap
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-import-pipeline-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The import pipeline at a glance
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The import pipeline at a glance">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#intake-pairing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Intake + pairing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tirfdata-decode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIRFdata decode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coordinate-recovery-smd-cross-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coordinate recovery + SMD cross-check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#round-trip-reconstruction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Round-trip reconstruction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analysis-only-import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysis-only import
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-wizard-and-opening-a-project-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The wizard, and opening a project live
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#round-trip-vs-analysis-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Round-trip vs analysis-only
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="legacy-deep-lasi-import">Legacy Deep-LASI import</h1>
+<p>Tether re-analyses an existing <strong>Deep-LASI</strong> acquisition <em>without re-extracting the movie</em>
+(PRD §7.8). The import path reads the legacy file set — the raw movie, the
+<a href="../../glossary/#tirfdata-mcos-refs"><code>TIRFdata</code></a>
+<a href="../../glossary/#tmap-tdat"><code>.tdat</code></a>, the <code>DeepLASI_MAT_export_*.mat</code>, the
+<code>…-donc-accc-w.txt</code>, and the tMAVEN <a href="../../glossary/#smd">SMD</a> —
+recovers the per-molecule coordinates and pre-integrated traces, applies the Deep-LASI →
+Tether correction-factor remap, and writes a <code>.tether</code> project store.</p>
+<p>Whether that project is <strong>round-trip-ready</strong> (linked to a movie, browsable/curatable with
+spot &amp; overlap views) or <strong>analysis-only</strong> (idealization, histograms, TDP, kinetics — but
+no movie round-trip) is decided by <em>which files are present</em>, and above all by whether any
+of them carries pixel coordinates. This page is the single reference that ties that decision
+to the on-disk formats (the <strong>coordinate-availability matrix</strong>, PRD Appendix A), the
+<strong>correction-factor remap</strong> (PRD Appendix B.1), and the shipped module behind each stage.</p>
+<blockquote>
+<p><strong>Where the behavior actually lives.</strong> Every claim below is asserted by a committed test
+(the "Evidence" column), which the 3-OS CI <code>test</code> matrix runs headlessly. This page
+<strong>consolidates</strong> those behaviors into one reference; it does not replace the tests. Import
+is deliberately layered: <code>tether.io.*</code> readers never write a store, <code>tether.project.*</code>
+writers never touch HDF5 directly (they drive the M0-frozen schema writers), and the
+<code>tether.gui.*</code> wizard only orchestrates — so <code>schema-guard</code> stays green across the whole
+path.</p>
+</blockquote>
+<p>This page is the <strong>input</strong> half of the story. Its counterpart,
+<a href="../../reference/exports/">Exports — what Tether writes out</a>, documents everything Tether
+writes <em>back</em> out: the molecule-table CSV column-by-column, the Deep-LASI <code>…-donc-accc-w.txt</code>
+matrix on the write side, the subset <code>.tether</code>, the plot exports, and the provenance
+sidecar every one of them carries.</p>
+<h2 id="coordinate-availability-matrix">Coordinate-availability matrix</h2>
+<p>Of the five legacy artifacts, <strong>only the <code>.tdat</code> (<code>ParticlesColocalized</code>) and the <code>.mat</code>
+(<code>fret_pairs</code>) carry pixel coordinates</strong>; the <code>.txt</code> and the tMAVEN SMD carry intensities
+only (PRD Appendix A). Full round-trip re-analysis therefore requires the <code>.tdat</code> <em>or</em> the
+<code>.mat</code> for coordinates — plus, in the shipped pipeline, the <code>.mat</code> as the trace source and
+the movie to link molecules to pixels.</p>
+<table>
+<thead>
+<tr>
+<th>Legacy file</th>
+<th>Format</th>
+<th>Pixel coordinates</th>
+<th>Intensity traces</th>
+<th>Role in reconstruction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Movie <code>*.tif</code></td>
+<td>big-endian multi-page TIFF</td>
+<td>— (pixels only)</td>
+<td>— (raw movie)</td>
+<td>Links molecules to pixels; SHA-256 seeds every <code>molecule_key</code>; makes crops re-cacheable</td>
+</tr>
+<tr>
+<td><code>*.tdat</code></td>
+<td>MATLAB v7.3 (HDF5, MCOS)</td>
+<td><strong>✓</strong> <code>ParticlesColocalized</code> (donor = reference channel, acceptor = the one other colocalized channel)</td>
+<td>not read by the shipped decode</td>
+<td>Preferred <em>native</em> coordinates + remapped α/γ + detection mode + embedded movie reference</td>
+</tr>
+<tr>
+<td><code>DeepLASI_MAT_export_*.mat</code></td>
+<td>MATLAB v5</td>
+<td><strong>✓</strong> <code>fret_pairs</code> → <code>donor_xy</code> / <code>acceptor_xy</code></td>
+<td><strong>✓</strong> raw / corrected / background, donor + acceptor</td>
+<td><strong>Mandatory trace source</strong>; baseline coordinates when no <code>.tdat</code></td>
+</tr>
+<tr>
+<td><code>…-donc-accc-w.txt</code></td>
+<td>whitespace text</td>
+<td>—</td>
+<td><strong>✓</strong> corrected only</td>
+<td>Analysis-only trace source</td>
+</tr>
+<tr>
+<td>tMAVEN SMD <code>*.hdf5</code></td>
+<td>SMD-HDF5 (Appendix D)</td>
+<td>— (Tether's coordinate superset is dropped on a standalone-tMAVEN round-trip)</td>
+<td><strong>✓</strong> corrected + curated subset</td>
+<td>Analysis-only source; intensity-matched back to coordinates when a coordinate source is present</td>
+</tr>
+</tbody>
+</table>
+<p>Coordinates are always <strong>recovered, never re-detected</strong> — but the two sources store them
+differently. The <code>.mat</code> <code>fret_pairs</code> is MATLAB 1-based <code>[x = col, y = row]</code>, so
+<code>read_deeplasi_mat</code> simply subtracts 1 to reach Tether's 0-based <code>[x, y]</code>. The <code>.tdat</code>
+<code>ParticlesColocalized</code> (findColoc) is MATLAB 1-based <code>[row, col] = [y, x]</code> (inherited from
+<code>findPart.m</code>, <code>XY = [ty, tx]</code>), so <code>read_tdat</code> <em>flips</em> the axes to <code>[x = col, y = row]</code> and
+<em>then</em> subtracts 1 — that axis flip was a real correctness fix caught by the M0.5
+registration validation (the earlier no-flip assumption put row into x). Forgetting the <code>-1</code>,
+or the flip, misplaces every molecule.</p>
+<h2 id="correction-factor-remap">Correction-factor remap</h2>
+<p>Deep-LASI stores the leakage and direct-excitation factors under the <em>opposite</em> Greek
+letters from Tether's field-standard convention. The importer remaps them on the way in
+(<code>tether.io.tdat.remap_correction_factors</code>), applying the accurate-FRET correction order
+<strong>background → α → δ (= 0) → γ</strong> (PRD Appendix B).</p>
+<table>
+<thead>
+<tr>
+<th>Physical factor</th>
+<th>Tether</th>
+<th>Deep-LASI field</th>
+<th>On import</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Donor→acceptor <strong>leakage</strong> (additive)</td>
+<td><strong>α</strong></td>
+<td><code>Beta</code></td>
+<td>applied — <code>I_A,corr = I_A − α·I_D</code></td>
+</tr>
+<tr>
+<td><strong>Direct excitation</strong> of acceptor (additive)</td>
+<td><strong>δ</strong></td>
+<td><code>Alpha</code></td>
+<td>forced inert <strong>0</strong> (its estimator needs the ALEX acceptor-under-acceptor channel)</td>
+</tr>
+<tr>
+<td><strong>Detection / QY ratio</strong> (multiplicative)</td>
+<td><strong>γ</strong></td>
+<td><code>Gamma</code></td>
+<td>applied</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>The naming is inverted — this is the load-bearing trap.</strong> Deep-LASI's stored <code>Beta</code> is
+the leakage that Tether calls <strong>α</strong>, and Deep-LASI's stored <code>Alpha</code> is direct excitation,
+which Tether calls <strong>δ</strong> and forces to 0 in the single-laser 2-color scheme. The remap must
+never pass Deep-LASI <code>Alpha</code> through as Tether α, and never fold <code>Beta</code> into γ — either
+mistake silently drops a real leakage correction and shifts every imported FRET efficiency
+(PRD Appendix B.1; ADR-0008). The raw Deep-LASI values survive on
+<code>TdatCorrections.deeplasi_alpha</code> / <code>deeplasi_beta</code> / <code>deeplasi_gamma</code> so the remap stays
+auditable. When γ is unavailable or ≤ 0 (e.g. the Cy3-only calibration sample, whose
+<code>DefaultGamma = 0</code>), the project falls back to the <strong>apparent-E substrate</strong> rather than a
+fabricated factor or a NaN efficiency (ADR-0003).</p>
+</blockquote>
+<h2 id="the-import-pipeline-at-a-glance">The import pipeline at a glance</h2>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Tether module / entry point</th>
+<th>Produces</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Intake + pairing</strong></td>
+<td><code>tether.io.intake.discover_acquisitions</code></td>
+<td><code>DiscoveryResult</code> of grouped <code>AcquisitionFileSet</code>s</td>
+<td><code>tests/test_intake.py</code>, <code>tests/test_filename.py</code></td>
+</tr>
+<tr>
+<td><strong>TIRFdata decode</strong></td>
+<td><code>tether.io.tdat.read_tdat</code> (+ <code>tether.io.mcos</code>)</td>
+<td><code>Tdat</code>: coordinates + remapped α/γ + detection mode + movie reference</td>
+<td><code>tests/test_tdat.py</code>, <code>tests/test_mcos.py</code></td>
+</tr>
+<tr>
+<td><strong>Coordinate recovery + SMD cross-check</strong></td>
+<td><code>tether.io.recover.recover_coordinates</code> / <code>match_smd_to_coordinates</code> (+ <code>tether.io.deeplasi</code>)</td>
+<td><code>RecoveredCoordinates</code>, <code>SmdCoordinateMatch</code></td>
+<td><code>tests/test_recover.py</code>, <code>tests/test_deeplasi.py</code></td>
+</tr>
+<tr>
+<td><strong>Round-trip reconstruction</strong></td>
+<td><code>tether.project.reconstruct.reconstruct_project</code></td>
+<td>round-trip-ready <code>.tether</code></td>
+<td><code>tests/test_reconstruct.py</code></td>
+</tr>
+<tr>
+<td><strong>Analysis-only import</strong></td>
+<td><code>tether.project.analysis_import.import_analysis_only_project</code></td>
+<td>movie-less analysis-only <code>.tether</code></td>
+<td><code>tests/test_analysis_import.py</code></td>
+</tr>
+<tr>
+<td><strong>Wizard (controller / executor / UI)</strong></td>
+<td><code>tether.gui.deeplasi_wizard</code>, <code>.deeplasi_executor</code>, <code>.deeplasi_wizard_ui</code></td>
+<td><code>WizardPlan</code> → <code>ExecutionReport</code></td>
+<td><code>tests/test_deeplasi_wizard.py</code>, <code>tests/test_deeplasi_executor.py</code>, <code>tests/test_deeplasi_wizard_ui.py</code></td>
+</tr>
+<tr>
+<td><strong>Open live in the shell</strong></td>
+<td><code>tether.gui.shell.TetherShell.import_deeplasi_bundle</code> / <code>load_project</code></td>
+<td>live round-trip or analysis-only project</td>
+<td><code>tests/test_shell_load_project.py</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="intake-pairing">Intake + pairing</h3>
+<p><code>discover_acquisitions(directory)</code> scans a folder <strong>by filename only</strong> (no contents are
+read), classifies each file by its <em>final</em> suffix, and groups the <code>.tif</code> / <code>.tdat</code> / <code>.mat</code>
+/ <code>.txt</code> of one acquisition under their shared <code>parse_filename(...).stem</code> — the parser
+strips the Deep-LASI prefixes, the glued mid-name source <code>.tif&lt;timestamp&gt;</code>, and the
+<code>-donc-accc-w</code> suffix so all four canonicalize to the same key. <code>.tmap</code> maps attach as
+<code>shared_maps</code> to every acquisition of the matching condition; an SMD <code>.hdf5</code> attaches by
+exact stem, else by an <em>unambiguous</em> video index, otherwise it lands in
+<code>DiscoveryResult.unpaired</code>. Each <code>AcquisitionFileSet</code> exposes <code>has_coordinate_source</code>
+(<code>.tdat</code> or <code>.mat</code>), <code>round_trip_available</code> (movie <strong>and</strong> a coordinate source), and
+<code>analysis_only</code>.</p>
+<p>The <code>.mat</code> <code>movie_name</code> and the <code>.tdat</code> <code>Channel.FilePath</code> supply an <em>embedded</em> movie
+reference; <code>verify_movie_reference</code> cross-checks it against the grouped movie <strong>by basename,
+case-insensitively</strong> (a Windows path recorded in a <code>.mat</code> still matches on a POSIX CI
+runner). The reference readers are best-effort — a missing or unreadable export degrades to
+"no reference" and pairing rests on the stem alone, so intake never fails the whole scan on
+one bad file.</p>
+<h3 id="tirfdata-decode">TIRFdata decode</h3>
+<p>A <code>.tdat</code> is a MATLAB v7.3 (HDF5) file whose <code>TIRFdata</code> class instances live in the opaque
+<code>#subsystem#/MCOS</code> blob. <code>read_tdat</code> recovers exactly what import needs: the
+<code>ParticlesColocalized</code> coordinates (rows kept only where a molecule is colocalized in every
+participating channel, so donor and acceptor rows stay index-aligned), the
+<code>DefaultAlpha/Beta/Gamma</code> scalars <strong>remapped</strong> to Tether naming, the particle-detection mode
+(<code>wavelet</code> / <code>intensity</code> / <code>bandpass</code>; local-variance and ZMW modes are <em>refused</em> with a
+<code>ValueError</code> rather than silently mis-detected), and the embedded movie reference. Coordinate
+and correction decoding are MCOS-independent; only the detection threshold and movie
+reference need the MCOS graph and are decoded best-effort (a <code>None</code> there is normal, not an
+error). The shipped decode deliberately does <strong>not</strong> read the <code>.tdat</code>'s per-molecule series,
+image patches, masks, <code>FrameTime</code>, HMM states, or categories.</p>
+<h3 id="coordinate-recovery-smd-cross-check">Coordinate recovery + SMD cross-check</h3>
+<p><code>recover_coordinates(tdat=…, mat=…, prefer=…)</code> unifies the two coordinate sources into one
+<code>RecoveredCoordinates</code> model (donor/acceptor <code>(N, 2)</code> in acquisition-molecule order), tagged
+with the source actually used. From a <code>.tdat</code> it takes donor = the reference channel and
+acceptor = the single other colocalized channel (two-colour only — one or three-plus
+channels raise). From a <code>.mat</code> it uses <code>donor_xy</code> / <code>acceptor_xy</code> directly. The two sources
+are <strong>not</strong> cross-validated (the <code>.mat</code> is often a curated slice with a different molecule
+count).</p>
+<p>Because tMAVEN may subset or reorder molecules by its selection mask, an SMD's row order is
+not trusted: <code>match_smd_to_coordinates</code> re-resolves each SMD trace to its acquisition
+molecule by <strong>exact intensity matching</strong> against index-aligned reference traces, then attaches
+the recovered coordinates; unmatched rows are reported (<code>mapping = -1</code>, <code>[nan, nan]</code>), never
+guessed. The reference traces and the SMD must be the <em>same kind</em> of series — a Deep-LASI SMD
+stores the <strong>corrected</strong> <code>-donc-accc-w</code> intensities, so the cross-check uses the corrected
+<code>.mat</code> <code>donc</code>/<code>accc</code> (or the <code>.txt</code>), never the raw <code>don</code>/<code>acc</code>.</p>
+<h3 id="round-trip-reconstruction">Round-trip reconstruction</h3>
+<p><code>reconstruct_project(output_path, *, export, movie, coordinates=…, corrections=…, …)</code> builds
+a round-trip-ready store by <strong>reusing the existing extraction writers</strong> — it never writes
+HDF5 directly, so the M0 schema freeze holds (ADR-0045). It maps the legacy pre-integrated
+series into layers without re-integrating (corrected → <code>intensity</code>, raw → <code>total</code>,
+background → <code>background</code>), writes the linked <code>/movies</code> row, the <code>/molecules</code> rows keyed by
+the stable <code>molecule_key = SHA-256(movie.sha256 + quantized donor_xy)</code> (§7.10), the six
+<code>/traces</code> arrays, <code>/patches</code>, the remapped α/γ and corrected FRET (<code>METHOD_MANUAL</code> when
+γ &gt; 0, else the apparent-E substrate), per-channel photobleach frames and the auto analysis
+window, and the seeded condition category vocabulary. The whole build is atomic (written at
+a temp sibling, <code>os.replace</code> only on success); when <code>overwrite</code> replaces an existing project
+it re-asserts the single-writer lock (a fresh output writes to a temp sibling and needs no
+lock re-assertion).</p>
+<p>The Deep-LASI accept/reject selection is written as a <strong>provisional curation prior</strong>:
+<code>/labels</code> events with <code>source = "deeplasi-provisional"</code> at a decaying weight <code>w₀/(1 + n_human)</code>
+(§7.5) — it lives only in <code>/labels</code> and never sets <code>/molecules.curation_label</code>, so a human's
+own curation always supersedes it. Two things are honest <strong>documented data gaps</strong> (deferred,
+never fabricated, ADR-0045): the Deep-LASI per-molecule NN/HMM category <em>assignments</em> (only
+the category vocabulary is seeded) and the real 21×21 image patches (patch arrays are
+zero-filled unless supplied; because the movie is linked, spot/overlap crops are re-cached
+from it instead).</p>
+<h3 id="analysis-only-import">Analysis-only import</h3>
+<p><code>import_analysis_only_project(output_path, *, source, …)</code> handles the degraded branch — a
+bare <code>.txt</code> or a coordinate-less SMD with no <code>.tdat</code>, <code>.mat</code>, or movie (ADR-0046). It writes
+a <strong>movie-less</strong> store: only the corrected trace layer, <code>donor_xy</code> / <code>acceptor_xy</code> as NaN
+sentinels (genuinely absent, never a fake <code>[0, 0]</code>), a synthesized per-molecule
+<code>molecule_key</code> (a content hash over source id + row index + trace bytes, so keys stay unique
+and stable without coordinates), and every molecule tagged
+<code>tags = "round-trip-unavailable"</code>. An additive <code>/settings/analysis_only</code> group records a
+one-time banner. Idealization, FRET histograms, TDP, and kinetics are fully usable; the
+movie round-trip browser and patch/overlap views are structurally impossible and disabled.</p>
+<p><code>read_analysis_only_marker(path)</code> is the O(1) gate the GUI reads. <strong>Mind the polarity:</strong> it
+returns the marker for an analysis-only project and <strong><code>None</code> for a normal, round-trip-capable
+one</strong>; a missing/partial marker defaults <code>round_trip_available</code> to <code>False</code>, so a truncated
+store never re-enables round-trip over coordinate-less data.</p>
+<h3 id="the-wizard-and-opening-a-project-live">The wizard, and opening a project live</h3>
+<p>The Deep-LASI re-analysis wizard is a Qt-free controller (<code>DeepLasiWizard</code>) + executor
+(<code>execute_plan</code>) with a thin <code>QDialog</code> renderer. <code>plan_discovery</code> proposes a default per
+acquisition — <strong>reconstruct</strong> (needs a movie <strong>and</strong> a <code>.mat</code> trace source), else
+<strong>analysis-only</strong> (needs an SMD or <code>.txt</code>), else <strong>skip</strong> — and every edit routes through
+validated mutators that raise <code>WizardError</code> on an unsupported change. <code>finalize()</code> freezes a
+<code>WizardPlan</code> once at least one acquisition is runnable with no output-name collision, and
+<code>execute_plan</code> writes one <code>.tether</code> per acquisition (fail-soft by default, continuing past a
+bad file). The <code>&amp;Legacy → Import Deep-LASI bundle…</code> shell action runs the dialog, reports the
+written paths, and — when exactly one project was produced — opens it live via
+<code>TetherShell.load_project</code> for browse / curate / idealize; <code>load_project</code> does every fallible
+read before mutating shell state, so a bad open leaves the prior project in place.</p>
+<blockquote>
+<p><strong>Reconstruct capability is stricter than coordinate availability.</strong> A movie plus a
+<code>.tdat</code>-only set <em>has</em> coordinates but no trace source, so it cannot reconstruct — the
+<code>.tdat</code> only upgrades the coordinate source (to native <code>ParticlesColocalized</code>) and supplies
+correction factors. When a requested <code>.tdat</code> coordinate set does not align 1-to-1 with the
+<code>.mat</code> export's molecules, the executor falls back to the export-aligned <code>.mat</code> coordinates
+and surfaces a warning rather than fabricating a join.</p>
+</blockquote>
+<h2 id="round-trip-vs-analysis-only">Round-trip vs analysis-only</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Round-trip (<code>reconstruct_project</code>)</th>
+<th>Analysis-only (<code>import_analysis_only_project</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Requires</td>
+<td>movie + <code>.mat</code> (+ optional <code>.tdat</code>)</td>
+<td><code>.txt</code> or coordinate-less SMD</td>
+</tr>
+<tr>
+<td>Coordinates</td>
+<td>recovered from <code>.tdat</code>/<code>.mat</code></td>
+<td>NaN (genuinely absent)</td>
+</tr>
+<tr>
+<td>Movie link</td>
+<td>yes (<code>/movies</code> row, <code>molecule_key</code> from movie hash)</td>
+<td>none (<code>movie_id = ""</code>)</td>
+</tr>
+<tr>
+<td>Trace layers</td>
+<td>corrected + raw + background</td>
+<td>corrected only</td>
+</tr>
+<tr>
+<td>Patches</td>
+<td>written (real if supplied, else zero-filled; crops re-cache from movie)</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Curation prior</td>
+<td>Deep-LASI mask → <code>deeplasi-provisional</code> <code>/labels</code></td>
+<td>none (SMD <em>is</em> the curated subset; all import uncurated)</td>
+</tr>
+<tr>
+<td>Per-molecule marker</td>
+<td>—</td>
+<td><code>tags = "round-trip-unavailable"</code></td>
+</tr>
+<tr>
+<td>Project marker</td>
+<td>—</td>
+<td><code>/settings/analysis_only</code> + one-time banner</td>
+</tr>
+<tr>
+<td>Enabled</td>
+<td>idealization, histograms, TDP, kinetics, <strong>movie round-trip, spot/overlap curation</strong></td>
+<td>idealization, histograms, TDP, kinetics</td>
+</tr>
+<tr>
+<td>Disabled</td>
+<td>—</td>
+<td>movie round-trip, patch/overlap views</td>
+</tr>
+</tbody>
+</table>
+<h2 id="references">References</h2>
+<ul>
+<li><strong>PRD Appendix A</strong> — input formats + the coordinate-availability matrix.</li>
+<li><strong>PRD Appendix B (B.1)</strong> — the correction-factor scheme and the Deep-LASI naming map.</li>
+<li><strong>PRD §7.8</strong> — the polished Deep-LASI re-analysis workflow; <strong>§5.3</strong> — analysis-only projects.</li>
+<li><strong>ADR-0008</strong> — Deep-LASI → Tether correction-factor naming remap (β→α, α→δ, γ→γ).</li>
+<li><strong>ADR-0045</strong> — reconstruct a round-trip-ready <code>.tether</code> from Deep-LASI legacy data.</li>
+<li><strong>ADR-0046</strong> — analysis-only import of a coordinate-less SMD / <code>.txt</code> source.</li>
+<li><strong>ADR-0002</strong> — the <code>.tether</code> store is an SMD superset; round-trip is a data-model property.</li>
+<li><strong>ADR-0017</strong> — the minimal Deep-LASI <code>.mat</code> / <code>.txt</code> validation reader and coordinate convention.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

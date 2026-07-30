@@ -1,0 +1,1745 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/adr/">
+      
+      
+        <link rel="prev" href="../release/">
+      
+      
+        <link rel="next" href="../stability/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Architecture decisions - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture-decision-records-adrs" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture decisions
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../io/legacy-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/parity-gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/tether-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-adrs-are-created" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How ADRs are created
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Index
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Index">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#foundational-cross-cutting-m0-seed-plan-m0-s1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Foundational, cross-cutting (M0 seed — PLAN M0 S1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#homed-incrementally-by-implementing-prs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Homed incrementally by implementing PRs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-adrs-are-created" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How ADRs are created
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Index
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Index">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#foundational-cross-cutting-m0-seed-plan-m0-s1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Foundational, cross-cutting (M0 seed — PLAN M0 S1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#homed-incrementally-by-implementing-prs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Homed incrementally by implementing PRs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="architecture-decision-records-adrs">Architecture Decision Records (ADRs)</h1>
+<p>This directory records Tether's architecture decisions in
+<a href="https://adr.github.io/madr/">MADR</a> format. Each ADR captures one decision, its
+context, the options weighed, and the consequences, so the <em>rationale</em> survives
+prose harmonization of the PRD (PRD §12.7).</p>
+<h2 id="how-adrs-are-created">How ADRs are created</h2>
+<ul>
+<li>New file: <code>NNNN-kebab-title.md</code>, copied from <a href="0000-template/"><code>0000-template.md</code></a>,
+  <code>NNNN</code> = the next zero-padded integer.</li>
+<li><strong>Incremental rule (PLAN §0.4 DoD).</strong> A PR that <em>implements</em> a still-unhomed
+  resolved PRD decision lands that decision's ADR <strong>in the same PR</strong>.</li>
+<li><strong>M9 gate.</strong> The M9 docs PR fails unless this index is complete (no placeholder
+  gaps) — closing PRD §12.7's "home the resolved decisions" deliverable.</li>
+</ul>
+<h2 id="index">Index</h2>
+<!-- gen:adr-index start (scripts/gen_adr_index.py --write) -->
+
+<h3 id="foundational-cross-cutting-m0-seed-plan-m0-s1">Foundational, cross-cutting (M0 seed — PLAN M0 S1)</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">ADR</th>
+<th>Title</th>
+<th>Status</th>
+<th>PRD anchor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;"><a href="0001-provenance-first-data-model/">0001</a></td>
+<td>Provenance-first project store</td>
+<td>accepted</td>
+<td>§3, §5</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0002-smd-superset-round-trip/">0002</a></td>
+<td>The <code>.tether</code> store is an SMD superset; round-trip is a data-model property</td>
+<td>accepted</td>
+<td>§5.3, §7.3</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0003-apparent-e-never-nan/">0003</a></td>
+<td>Total-correction-failure falls back to apparent-E, never NaN</td>
+<td>accepted</td>
+<td>§7.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0004-pin-and-hold-dual-lock-isolation/">0004</a></td>
+<td>Pin-and-hold conda-lock with an isolated tMAVEN sidecar lock</td>
+<td>accepted</td>
+<td>§4.1, §4.3</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0005-m0-schema-freeze/">0005</a></td>
+<td>Freeze the HDF5 schema skeleton at M0 (additive-only thereafter)</td>
+<td>accepted</td>
+<td>§5, §9 M0</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0006-sidecar-ipc-escalation/">0006</a></td>
+<td>Pre-committed sidecar escalation: headless <code>maven_class</code>, else bundled IPC</td>
+<td>accepted (resolved: headless, IPC not built)</td>
+<td>§4.3, §9 M0.5</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0007-parity-is-statistical/">0007</a></td>
+<td>Idealization parity is statistical, asserted against a frozen tolerance</td>
+<td>accepted</td>
+<td>§7.4, §11.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0008-correction-factor-remap/">0008</a></td>
+<td>Deep-LASI → Tether correction-factor naming remap (β→α, α→δ, γ→γ)</td>
+<td>accepted</td>
+<td>Appendix B.1</td>
+</tr>
+</tbody>
+</table>
+<h3 id="homed-incrementally-by-implementing-prs">Homed incrementally by implementing PRs</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">ADR</th>
+<th>Title</th>
+<th>Status</th>
+<th>PRD anchor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;"><a href="0009-parity-metrics-and-freeze/">0009</a></td>
+<td>Idealization-parity metric definitions and the M0.5 freeze</td>
+<td>accepted</td>
+<td>§7.4, §11.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0010-defer-cross-os-gui-handoff/">0010</a></td>
+<td>Defer the 2-OS standalone-tMAVEN GUI hand-off check to M9</td>
+<td>accepted</td>
+<td>§9 M0.5(a), §9 M9</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0011-home-extraction-recall-at-m1/">0011</a></td>
+<td>Home the M0.5 ≥95% extraction-recall acceptance at M1</td>
+<td>accepted</td>
+<td>§9 M0.5(b), §9 M1</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0012-registration-pairing-mutual-nn/">0012</a></td>
+<td>Registration pairing: mutual NN, fit on original coords; translation prealign first</td>
+<td>accepted</td>
+<td>App E §7–8, §11.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0013-fourier-mellin-similarity-prealign/">0013</a></td>
+<td>4-DOF Fourier-Mellin similarity prealign: log-polar recovery, masked-NCC disambiguation, real-data oracle</td>
+<td>accepted</td>
+<td>App E §7, §11.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0014-registration-map-rms-gate-and-over-gate/">0014</a></td>
+<td>Registration map: numeric RMS gate, over-gate flag-don't-drop, and a unified native/imported calibration</td>
+<td>accepted</td>
+<td>§7.1, App E §9–10, §11.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0015-donor-anchored-colocalization/">0015</a></td>
+<td>Donor-anchored colocalization: keep dark/low-FRET acceptors, apply the map in the coordinate domain</td>
+<td>accepted</td>
+<td>§7.1, App E §11–13, §11.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0016-extraction-trace-store-layout/">0016</a></td>
+<td>Extraction trace-store layout: zero-pad-to-max-T traces, cached patches, and the molecule_key content hash</td>
+<td>accepted</td>
+<td>§5.1, §7.10, App E §14–15, §11.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0017-deeplasi-validation-reader/">0017</a></td>
+<td>Minimal Deep-LASI <code>.mat</code> / <code>.txt</code> validation reader: M1-scoped fields, coordinate convention, and lazy scipy</td>
+<td>accepted</td>
+<td>§9 M1, §8 NFR-VALID (a), App A</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0018-extract-cli-native-pipeline/">0018</a></td>
+<td><code>tether extract</code> CLI: a native auto-registration pipeline; imported <code>.tmap</code> + the Deep-LASI oracle deferred to the S9 follow-up</td>
+<td>accepted</td>
+<td>§7.11, §9 M1, App E, §11.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0019-extract-cli-imported-tmap/">0019</a></td>
+<td><code>tether extract --tmap</code>: the imported registration path; trust the bead map (residual unknown), refuse a non-identity rotation/flip, defer the apply + the oracle</td>
+<td>accepted</td>
+<td>§7.1, §7.11, §9 M1, App E §6–10</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0020-extraction-oracle-and-deferred-m1-close/">0020</a></td>
+<td>The extraction-vs-Deep-LASI acceptance oracle; M1 close deferred (detection-faithfulness gap surfaced)</td>
+<td>accepted</td>
+<td>§9 M1, §8 NFR-VALID (a), §7.11, §2.2, App A</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0021-particle-detection-modes/">0021</a></td>
+<td>Selectable particle-detection methods (match Deep-LASI's <code>findPart</code> modes)</td>
+<td>accepted</td>
+<td>§7.1, §9 M1, §11.2, App E</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0022-m1-acceptance-reframe-and-close/">0022</a></td>
+<td>M1 acceptance reframe: 2 px recall, donor-only Pearson, faithful separation, donor-anchored close</td>
+<td>accepted</td>
+<td>§7.1, §9 M1, §8 NFR-VALID (a), §11.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0023-curation-label-codec-and-labels-log/">0023</a></td>
+<td>Curation-label codec + append-only <code>/labels</code> provenance log; category logging deferred to M4</td>
+<td>accepted</td>
+<td>§5.1, §7.5, §7.3</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0024-idealization-store-layout-staleness-and-nstates/">0024</a></td>
+<td><code>/idealization/{model}</code> store layout, per-molecule input-provenance hash (staleness), and auto state-count by max-ELBO</td>
+<td>accepted</td>
+<td>§5, §7.4, §4.2/§4.3, §11.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0025-tmaven-handoff-and-return-leg-reconcile/">0025</a></td>
+<td>Bidirectional tMAVEN hand-off + non-destructive return-leg re-import with a per-trace reconcile</td>
+<td>accepted</td>
+<td>§7.4, §5.3, App D.1</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0026-photobleach-detection-and-window-default/">0026</a></td>
+<td>Native single-step photobleach detection, summed-intensity analysis-window default, and the <code>pacc</code>/<code>pdon</code> oracle reframe</td>
+<td>accepted</td>
+<td>§7.2, §11.2, App B step 6, App E Stage 16, §9 M3</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0027-leakage-alpha-tail-estimator/">0027</a></td>
+<td>Leakage α from the post-acceptor-bleach tail; donor-only-sample cross-check deferred</td>
+<td>accepted</td>
+<td>§7.2, §7.4, §11.2, App B.2 step 2, App E Stages 17–18, §9 M3</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0028-gamma-acceptor-bleach-step-estimator/">0028</a></td>
+<td>γ from the acceptor-bleach step (bare-<code>I_D</code> convention); Deep-LASI-median oracle deferred</td>
+<td>accepted</td>
+<td>§7.2, §7.4, §11.2, App B.2 step 4, App E Stages 17–18, §9 M3</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0029-idealization-correction-provenance-hash-and-per-factor-staleness/">0029</a></td>
+<td>Composite corrected-FRET provenance hash + per-factor idealization staleness scope</td>
+<td>accepted</td>
+<td>§5.1, §7.2, §7.4, §9 M3</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0030-headless-batch-runner-isolation-and-checkpoint/">0030</a></td>
+<td>Headless batch runner: per-movie isolation + provenance-derived per-stage checkpoint</td>
+<td>accepted</td>
+<td>§6, §7.11, §7.2, §11.2, §9 M3</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0031-batch-sidecar-supervision/">0031</a></td>
+<td>Batch sidecar supervision: liveness-deferred startup + transient auto-restart</td>
+<td>accepted</td>
+<td>§7.11, §11.2, §4.3, §9 M3</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0032-nfr-perf-budget-verification/">0032</a></td>
+<td>NFR-PERF budget verification: a light M3 gate over slice-scaled envelopes</td>
+<td>accepted</td>
+<td>§8 NFR-PERF, §11.2, §12.10, §9 M3</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0033-condition-identity-and-rekey/">0033</a></td>
+<td>Condition identity (content-hash, keep-separate) + transactional re-key with human-confirmed merge</td>
+<td>accepted</td>
+<td>§5.1, §7.6, §9 M4</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0034-gradient-boosting-quality-ranker/">0034</a></td>
+<td>Gradient-boosting quality ranker: HistGradientBoosting on <code>P(good)</code>, precision@k objective</td>
+<td>accepted</td>
+<td>§7.5, §11.2, §9 M5</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0035-portable-model-persistence/">0035</a></td>
+<td>Portable per-condition model artifact: zip + manifest + pickle, format-versioned, warm-start = refit on accumulated labels</td>
+<td>accepted</td>
+<td>§7.5, §5.1, §9 M5</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0036-label-weighting-cold-start-decay/">0036</a></td>
+<td>Cold-start label weighting: the decay law, what <code>n_human</code> counts, and where it lives</td>
+<td>accepted</td>
+<td>§7.5, §5.1, §11.2, §9 M5</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0037-cross-condition-drift-advisory-flag/">0037</a></td>
+<td>Cross-condition drift advisory: the drift statistic, how per-feature tests combine, and its semantics</td>
+<td>accepted</td>
+<td>§7.5, §11.2, §9 M5</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0038-provisional-prior-training-fold/">0038</a></td>
+<td>Fold weighted provisional <code>/labels</code> priors into the ranker's training set (human-supersedes, eval-on-truth)</td>
+<td>accepted</td>
+<td>§7.5, §11.2, §9 M5</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0039-multi-curator-split-file-merge-back/">0039</a></td>
+<td>Multi-curator split-file label merge-back (append-only owner-pull, adopt-or-surface)</td>
+<td>accepted</td>
+<td>§5.1, §7.5, §7.10, §7.4, §9 M5</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0040-active-learning-non-reordering-badge/">0040</a></td>
+<td>Active-learning "recommended next" non-reordering badge (uncertainty sampling)</td>
+<td>accepted</td>
+<td>§7.5, §4.2, §9 M5</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0041-population-model-and-ebfret/">0041</a></td>
+<td>Persist the full Appendix-D.2 population model; add ebFRET as a second global idealizer</td>
+<td>accepted</td>
+<td>§4.2, §10, App D.2, §9 M6</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0042-a1-model-gaussian-overlay/">0042</a></td>
+<td>A1 histogram model overlay: the idealized model's per-state Gaussians, not a fresh GMM fit</td>
+<td>accepted</td>
+<td>§7.7, §10, App C A1, §9 M6</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0043-per-method-parity-tolerance/">0043</a></td>
+<td>Per-method idealization-parity tolerance (ebFRET frozen separately)</td>
+<td>accepted</td>
+<td>§7.4, §11.2, §12.6, §9 M6</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0044-matplotlib-base-plot-export-backend/">0044</a></td>
+<td>matplotlib-base as the static vector plot-export backend</td>
+<td>accepted</td>
+<td>§7.9, §4.1, §9 M6</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0045-deeplasi-round-trip-reconstruction/">0045</a></td>
+<td>Reconstruct a round-trip-ready <code>.tether</code> from Deep-LASI legacy data</td>
+<td>accepted</td>
+<td>§7.8, §5.3, §5.1, §9 M7</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0046-analysis-only-smd-import/">0046</a></td>
+<td>Analysis-only import of a coordinate-less SMD / <code>.txt</code> source</td>
+<td>accepted</td>
+<td>§7.8, §5.3, §9 M7</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0047-deep-model-optional-stack-and-dataset/">0047</a></td>
+<td>Deep-model optional stack (Option A) + torch-free training-dataset substrate</td>
+<td>accepted</td>
+<td>§4.1, §7.5, §9 M8</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0048-kinsoft-kinetics-oracle/">0048</a></td>
+<td>kinSoftChallenge kinetics oracle: base-env HMM, 2-state scope, within-spread band</td>
+<td>accepted</td>
+<td>§8, §9 M8, §11.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0049-m9-packaging-constructor-architecture/">0049</a></td>
+<td>M9 packaging: constructor installer architecture (offline base env + isolated sidecar)</td>
+<td>accepted</td>
+<td>§4.1, §9 M9, §12.7</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0050-release-pipeline-and-code-signing/">0050</a></td>
+<td>Release pipeline + code-signing (tag-driven, SignPath for Windows, gated Apple)</td>
+<td>accepted</td>
+<td>§9 M9, §12.7, §4.1</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0051-installed-app-launch-surface/">0051</a></td>
+<td>The installed app's launch surface: a real GUI entry point, prefix shims, and a menu shortcut</td>
+<td>accepted</td>
+<td>§7.8, §4.1, §9 M9</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0052-concurrent-agent-swarm-coordination/">0052</a></td>
+<td>Concurrent issue-swarm coordination</td>
+<td>superseded by 0057 (fully retired)</td>
+<td>§12.2–§12.5</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0053-structured-backlog-intake-gates-swarm-admission/">0053</a></td>
+<td>Structured backlog intake gates swarm admission</td>
+<td>superseded by 0057 (admitting authority)</td>
+<td>§12.5</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0055-gui-session-writer-ownership/">0055</a></td>
+<td>GUI session writer ownership</td>
+<td>accepted</td>
+<td>§5.4, §7.3, §7.5, §7.10</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0056-policy-fail-rejected-extraction-checkpoint/">0056</a></td>
+<td>Preserve policy-fail rejection across batch resume</td>
+<td>accepted</td>
+<td>§6, §7.11, §11.2</td>
+</tr>
+<tr>
+<td style="text-align: right;"><a href="0057-github-native-swarm-coordination/">0057</a></td>
+<td>GitHub-native swarm coordination</td>
+<td>accepted</td>
+<td>§12.2–§12.5</td>
+</tr>
+</tbody>
+</table>
+<!-- gen:adr-index end -->
+
+<p><em>Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
+by the PRs that implement them.</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

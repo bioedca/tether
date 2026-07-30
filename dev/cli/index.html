@@ -1,0 +1,1877 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/cli/">
+      
+      
+        <link rel="prev" href="../ml/deep-classifier/">
+      
+      
+        <link rel="next" href="../reference/exports/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Command line - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#command-line" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Command line
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../io/legacy-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/parity-gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#launching-tether-after-an-installer-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Launching Tether after an installer install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tether-extract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tether extract
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="tether extract">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#get-donor-side-right-because-nothing-will-tell-you-it-is-wrong" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Get --donor-side right, because nothing will tell you it is wrong
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detection-settings-pick-one-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection settings: pick one source
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-one-movie-to-one-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example — one movie to one project
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tether-batch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tether batch
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="tether batch">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-policy-fail-behaves-on-resume" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How policy fail behaves on resume
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-a-folder-of-movies-extraction-and-correction-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example — a folder of movies, extraction and correction only
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exit codes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/tether-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#launching-tether-after-an-installer-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Launching Tether after an installer install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tether-extract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tether extract
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="tether extract">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#get-donor-side-right-because-nothing-will-tell-you-it-is-wrong" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Get --donor-side right, because nothing will tell you it is wrong
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detection-settings-pick-one-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection settings: pick one source
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-one-movie-to-one-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example — one movie to one project
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tether-batch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tether batch
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="tether batch">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-policy-fail-behaves-on-resume" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How policy fail behaves on resume
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-a-folder-of-movies-extraction-and-correction-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example — a folder of movies, extraction and correction only
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exit codes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="command-line">Command line</h1>
+<p><strong>Who this page is for.</strong> Anyone driving Tether without the window: scripting the
+pipeline, processing a night's worth of movies unattended, or reproducing an
+extraction from recorded settings. <code>tether extract</code> and <code>tether batch</code> are the whole
+headless surface — there is no third subcommand. If you are curating traces by hand,
+picking states by eye, or reading plots, you want the desktop application instead; this
+page only tells you how to start it.</p>
+<p>Everything below was transcribed from the live argparse parser in <code>src/tether/cli.py</code> —
+the same parser <code>--help</code> prints from — and a guard test (<code>tests/test_cli_reference.py</code>)
+fails if that parser gains, loses or renames an option without a matching edit here. Where
+a default is quoted, it is the string argparse prints, not a value read out of the source.</p>
+<p>The flags on this page are only the part of the pipeline the command line exposes. Most of
+what Tether applies to your data — the correction, idealization, analysis and rendering
+defaults — has no CLI flag and is reached from Python or the desktop application. Those are
+tabled in <a href="../reference/parameters/">Analysis parameters</a>, which also records, for each one,
+whether the value you used is written into the <code>.tether</code> project.</p>
+<h2 id="launching-tether-after-an-installer-install">Launching Tether after an installer install</h2>
+<p>The installer deliberately does <strong>not</strong> edit your <code>PATH</code> (see
+<a href="../adr/0051-installed-app-launch-surface/">ADR-0051</a>), so out of the box neither command
+is a bare word you can type. It writes both launchers into one directory — <code>bin/</code> under
+the install root you chose during installation:</p>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Command-line launcher</th>
+<th>Window launcher</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Windows</td>
+<td><code>&lt;install-root&gt;\bin\tether.bat</code></td>
+<td>Start Menu → <strong>Tether</strong>, or <code>&lt;install-root&gt;\bin\tether-gui.bat</code></td>
+</tr>
+<tr>
+<td>Linux</td>
+<td><code>&lt;install-root&gt;/bin/tether</code></td>
+<td>Applications menu → <strong>Tether</strong>, or <code>&lt;install-root&gt;/bin/tether-gui</code></td>
+</tr>
+<tr>
+<td>macOS</td>
+<td><code>&lt;install-root&gt;/bin/tether</code></td>
+<td><code>&lt;install-root&gt;/bin/tether-gui</code></td>
+</tr>
+</tbody>
+</table>
+<p>Add that one directory to your <code>PATH</code> and every example on this page becomes literally
+copy-pasteable:</p>
+<pre><code class="language-bash"># macOS / Linux — append to ~/.zshrc or ~/.bashrc to make it permanent
+export PATH=&quot;&lt;install-root&gt;/bin:$PATH&quot;
+</code></pre>
+<pre><code class="language-powershell"># Windows PowerShell — current session only
+$env:PATH = &quot;&lt;install-root&gt;\bin;$env:PATH&quot;
+
+# Windows PowerShell — persists for your user account (new sessions only;
+# it does not affect the session you run it in)
+[Environment]::SetEnvironmentVariable(
+    &quot;PATH&quot;, &quot;&lt;install-root&gt;\bin;&quot; + [Environment]::GetEnvironmentVariable(&quot;PATH&quot;, &quot;User&quot;), &quot;User&quot;)
+</code></pre>
+<p>Without that step, substitute the full launcher path from the table for <code>tether</code> in
+every command below; nothing else changes. Verify the install with:</p>
+<pre><code class="language-console">$ tether --version
+tether &lt;version&gt;
+</code></pre>
+<p><code>--version</code> is the one flag that never touches your data, so it is the right smoke test.
+The version string is generated from git at build time, so an installer or CI build — built
+from the git checkout — prints a version that identifies the build you installed rather than
+a fixed number. Two other outputs are not signs of a broken install: running straight out of
+a source tree that was never built prints <code>tether 0.0.0+unknown</code>, meaning no build-time
+version file was generated; and a build made from a tree with no git metadata, such as a
+downloaded source zip, falls back to the fixed <code>tether 0.0.0</code>.</p>
+<p>Running <code>tether</code> with no subcommand prints the top-level help and exits 0.</p>
+<h2 id="tether-extract"><code>tether extract</code></h2>
+<p>Run the native extraction pipeline — split → detect → register → colocalize → integrate —
+on one dual-channel TIFF movie and write a new <code>.tether</code> project.</p>
+<pre><code class="language-text">tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
+               [--detection-mode {wavelet,intensity,bandpass}]
+               [--detection-threshold FRAC] [--window WINDOW]
+               [--min-separation MIN_SEPARATION]
+               [--detection-block DETECTION_BLOCK]
+               [--prealign {translation,similarity}] [--pair-tol PAIR_TOL]
+               [--coloc-distance COLOC_DISTANCE] [--rms-gate RMS_GATE]
+               [--tmap PATH] [--tdat PATH]
+               movie
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>movie</code></td>
+<td><em>(required)</em></td>
+<td>path to the dual-channel TIFF movie</td>
+</tr>
+<tr>
+<td><code>-o OUTPUT</code>, <code>--output OUTPUT</code></td>
+<td><em>(required)</em></td>
+<td>path to the <code>.tether</code> project to create</td>
+</tr>
+<tr>
+<td><code>--overwrite</code></td>
+<td>off</td>
+<td>overwrite an existing output project</td>
+</tr>
+<tr>
+<td><code>--donor-side {left,right}</code></td>
+<td><code>left</code></td>
+<td>which horizontal half is the donor channel</td>
+</tr>
+<tr>
+<td><code>--detection-mode {wavelet,intensity,bandpass}</code></td>
+<td><code>wavelet</code></td>
+<td>particle-detection method (Deep-LASI <code>findPart</code> mode). <code>intensity</code>/<code>bandpass</code> also honor <code>--detection-threshold</code>. Mutually exclusive with <code>--tdat</code>, which supplies the mode</td>
+</tr>
+<tr>
+<td><code>--detection-threshold FRAC</code></td>
+<td>each mode's own — intensity <code>0.5</code>, bandpass <code>0.98</code></td>
+<td>detection threshold as a fraction of the detection-image max, in <code>[0, 1)</code> (intensity/bandpass modes only; ignored by wavelet). Mutually exclusive with <code>--tdat</code></td>
+</tr>
+<tr>
+<td><code>--window WINDOW</code></td>
+<td><code>21</code></td>
+<td>aperture / crop-box side length in px, odd</td>
+</tr>
+<tr>
+<td><code>--min-separation MIN_SEPARATION</code></td>
+<td>unset uses each detection mode's faithful default (wavelet 8, intensity/bandpass 3)</td>
+<td>minimum spot separation in px</td>
+</tr>
+<tr>
+<td><code>--detection-block DETECTION_BLOCK</code></td>
+<td><code>50</code></td>
+<td>moving-average block size for the detection image</td>
+</tr>
+<tr>
+<td><code>--prealign {translation,similarity}</code></td>
+<td><code>translation</code></td>
+<td>registration prealign degrees of freedom</td>
+</tr>
+<tr>
+<td><code>--pair-tol PAIR_TOL</code></td>
+<td><code>2</code></td>
+<td>control-point pairing tolerance in px</td>
+</tr>
+<tr>
+<td><code>--coloc-distance COLOC_DISTANCE</code></td>
+<td><code>3</code></td>
+<td>acceptor colocalization distance in px</td>
+</tr>
+<tr>
+<td><code>--rms-gate RMS_GATE</code></td>
+<td><code>0.5</code></td>
+<td>registration RMS-residual gate in px</td>
+</tr>
+<tr>
+<td><code>--tmap PATH</code></td>
+<td>none</td>
+<td>apply an imported Deep-LASI <code>.tmap</code> instead of a native fit; splits at the <code>.tmap</code>'s own channel geometry (<code>--donor-side</code> is then ignored)</td>
+</tr>
+<tr>
+<td><code>--tdat PATH</code></td>
+<td>none</td>
+<td>auto-apply the particle-detection mode decoded from a Deep-LASI <code>.tdat</code> (<code>temp/ParticleDetectionMode</code>), so extraction matches the method the movie was detected with; mutually exclusive with <code>--detection-mode</code>/<code>--detection-threshold</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="get-donor-side-right-because-nothing-will-tell-you-it-is-wrong">Get <code>--donor-side</code> right, because nothing will tell you it is wrong</h3>
+<blockquote>
+<p><strong>This is the one flag that can silently invert your results.</strong> <code>left</code> and <code>right</code> name
+which <em>horizontal half</em> of the dual-channel frame carries donor emission. The two halves
+are simply swapped, so a backwards value produces a project in which every FRET
+efficiency is inverted — and it raises no error, because both values are perfectly
+legal. <code>{left,right}</code> in the help text above is a <em>metavar</em>, not an argparse <code>choices</code>
+list: a value that is neither, such as <code>--donor-side sideways</code>, is not rejected at parse
+time either. It is caught downstream by <code>ExtractOptions</code> and reported as a clean error
+with exit code 1, but a valid-but-wrong value is caught by nothing.</p>
+<p><strong>How to check.</strong> Look at a molecule whose acceptor photobleaches mid-trace. When the
+acceptor dies the donor stops transferring energy, so the <em>donor</em> trace steps <strong>up</strong> at
+that moment. If instead the trace you have labelled "donor" steps <em>down</em> while the other
+steps up, your halves are swapped — re-extract with the other value.</p>
+<p><strong>How to audit it afterward.</strong> Every <code>ExtractOptions</code> field is written verbatim into
+<code>/settings/extraction</code> in the project file, so for a <strong>natively registered</strong> project the
+<code>donor_side</code> recorded there is the one that was actually applied — recoverable from any
+<code>.tether</code> without re-running anything.</p>
+<p><code>--tmap</code> overrides this entirely: an imported Deep-LASI map carries its own channel
+geometry, and <code>--donor-side</code> is ignored when one is supplied. Note that it is still
+recorded, so on a <code>--tmap</code> run <code>/settings/extraction</code> preserves the value you <em>requested</em>
+and not the effective geometry. Audit the imported map itself in that case; the map's
+filename is recorded alongside it as <code>tmap_source</code>.</p>
+</blockquote>
+<p><code>--detection-mode</code> and <code>--prealign</code> are metavars in the same way — an unrecognised value
+reaches <code>ExtractOptions</code> rather than argparse, and comes back as an error message on
+stderr with exit code 1, never a traceback. <code>--policy</code> on <code>tether batch</code> is the one flag
+in either subcommand with a real argparse <code>choices</code> list.</p>
+<h3 id="detection-settings-pick-one-source">Detection settings: pick one source</h3>
+<p><code>--tdat</code> and <code>--detection-mode</code>/<code>--detection-threshold</code> are two ways to set the same
+thing, so combining them is refused up front — before any movie is read — rather than
+letting one silently win:</p>
+<pre><code class="language-console">$ tether extract movie.tif -o movie.tether --tdat run.tdat --detection-mode wavelet
+tether extract: --detection-mode/--detection-threshold cannot be combined with --tdat (the .tdat supplies the detection mode); pass one or the other
+</code></pre>
+<h3 id="example-one-movie-to-one-project">Example — one movie to one project</h3>
+<pre><code class="language-bash">tether extract movie.tif -o movie.tether
+</code></pre>
+<pre><code class="language-console">Extracted 412 molecule(s) -&gt; movie.tether
+</code></pre>
+<p>If the registration RMS residual exceeds <code>--rms-gate</code>, extraction still succeeds and
+still exits 0, but a warning goes to stderr and the affected molecules are tagged
+<code>low-confidence-registration</code> in the project — a flag you can filter on later rather
+than a silent pass.</p>
+<h2 id="tether-batch"><code>tether batch</code></h2>
+<p>Process many movies unattended (FR-BATCH). Each movie becomes its own
+<code>&lt;out-dir&gt;/&lt;stem&gt;.tether</code>. Failures are isolated — one bad movie does not stop the run —
+and each stage is checkpointed, so re-running the same command resumes only the
+incomplete stages instead of redoing finished work.</p>
+<pre><code class="language-text">tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]
+             [--no-idealize] [--overwrite] [--log PATH] [--max-restarts N]
+             [--sidecar-timeout SECONDS] [--sidecar-python PATH] [--no-defer]
+             movies [movies ...]
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>movies</code></td>
+<td><em>(required, one or more)</em></td>
+<td>one or more dual-channel TIFF movies</td>
+</tr>
+<tr>
+<td><code>-d OUT_DIR</code>, <code>--out-dir OUT_DIR</code></td>
+<td><em>(required)</em></td>
+<td>directory for the per-movie <code>.tether</code> projects (created if absent)</td>
+</tr>
+<tr>
+<td><code>--tmap PATH</code></td>
+<td>none</td>
+<td>a shared imported Deep-LASI <code>.tmap</code> applied to every movie</td>
+</tr>
+<tr>
+<td><code>--tdat PATH</code></td>
+<td>none</td>
+<td>a shared Deep-LASI <code>.tdat</code> detection config applied to every movie</td>
+</tr>
+<tr>
+<td><code>--policy {warn,fail}</code></td>
+<td><code>warn</code></td>
+<td>over-gate registration policy: <code>warn</code> keeps an over-gate movie with a flag; <code>fail</code> records that movie's extract stage as failed — the inspectable project file is still written, and the saved residual is re-evaluated on resume (<a href="#how-policy-fail-behaves-on-resume">see below</a>)</td>
+</tr>
+<tr>
+<td><code>--no-idealize</code></td>
+<td>off</td>
+<td>skip the idealization stage (extract + correct only)</td>
+</tr>
+<tr>
+<td><code>--overwrite</code></td>
+<td>off</td>
+<td>re-extract an incomplete output, or a completed extraction that the current <code>fail</code> policy rejects; accepted completed checkpoints still skip</td>
+</tr>
+<tr>
+<td><code>--log PATH</code></td>
+<td><code>&lt;out-dir&gt;/batch-log.jsonl</code></td>
+<td>write a JSONL structured log here</td>
+</tr>
+<tr>
+<td><code>--max-restarts N</code></td>
+<td><code>3</code></td>
+<td>auto-restart a movie's idealization up to N times on a transient sidecar failure (crash/timeout). <code>0</code> disables restarts</td>
+</tr>
+<tr>
+<td><code>--sidecar-timeout SECONDS</code></td>
+<td><code>1800</code></td>
+<td>per-idealization-call sidecar timeout in seconds</td>
+</tr>
+<tr>
+<td><code>--sidecar-python PATH</code></td>
+<td><code>$TETHER_SIDECAR_PYTHON</code></td>
+<td>sidecar interpreter for idealization</td>
+</tr>
+<tr>
+<td><code>--no-defer</code></td>
+<td>off</td>
+<td>do not defer idealization when the sidecar is unavailable at startup; let each movie's idealize stage fail in isolation instead</td>
+</tr>
+</tbody>
+</table>
+<p>Idealization runs in the isolated tMAVEN sidecar, not in the application environment. If
+<code>--sidecar-python</code> is not given, Tether uses <code>$TETHER_SIDECAR_PYTHON</code>; an installed build
+also falls back to the <code>envs/sidecar</code> interpreter shipped beside the application, so a
+normal install needs neither. When no sidecar can be found at startup the run <em>defers</em>
+idealization — extraction and correction still happen for every movie — unless you pass
+<code>--no-defer</code>, which instead lets each movie's idealize stage fail on its own.</p>
+<p>Two movies whose filenames share a basename would both map to the same output project,
+and the checkpoint would treat the second as already done using the first's data. That is
+rejected before any work starts:</p>
+<pre><code class="language-console">$ tether batch a/movie_010.tif b/movie_010.tif -d out
+tether batch: movies 'a/movie_010.tif' and 'b/movie_010.tif' both map to 'out/movie_010.tether'; rename one or use a separate --out-dir
+</code></pre>
+<h3 id="how-policy-fail-behaves-on-resume">How policy <code>fail</code> behaves on resume</h3>
+<p><code>fail</code> is a verdict recorded about a movie, not a veto on its output. Extraction writes
+the <code>.tether</code> first and the gate is applied afterwards, to the summary that write
+returns — so an over-gate movie under <code>--policy fail</code> leaves a <strong>complete, checkpointed</strong>
+project in <code>&lt;out-dir&gt;</code>, with its extract stage recorded <code>failed</code> and correct/idealize
+<code>blocked</code>. That run exits <code>1</code>, as documented.</p>
+<p>On a later run with <code>--policy fail</code>, Tether re-reads the saved
+<code>registration_rms_px</code> and effective <code>rms_gate</code> before accepting that extraction
+checkpoint. If the residual is still over the saved gate, extraction remains <code>failed</code>,
+the downstream stages remain <code>blocked</code>, and the command exits <code>1</code> again. The project
+stays available for inspection.</p>
+<p>Switching that rerun to <code>--policy warn</code> accepts the flagged extraction checkpoint, so
+extraction is <code>skipped</code> and the incomplete downstream stages may continue.
+<code>--overwrite --policy fail</code> instead re-extracts only a rejected checkpoint and applies
+the gate to the new result. An already completed, in-gate extraction remains
+checkpointed and is still skipped. Batch claims every <code>--overwrite --policy fail</code>
+destination lock before testing whether its project file exists or reading a checkpoint;
+any existing writer lock, including one held by another thread in this process, fails
+that movie as locked without refreshing or releasing the caller's lock. A process-local
+per-destination reservation also prevents another local thread from refreshing that
+same-identity sidecar or writing through it. Both claims remain held while batch creates,
+skips, or re-extracts the destination.</p>
+<h3 id="example-a-folder-of-movies-extraction-and-correction-only">Example — a folder of movies, extraction and correction only</h3>
+<pre><code class="language-bash">tether batch data/*.tif -d projects --no-idealize
+</code></pre>
+<pre><code class="language-powershell"># Windows PowerShell has no shell glob expansion for native commands
+tether batch (Get-ChildItem data\*.tif) -d projects --no-idealize
+</code></pre>
+<p>The end-of-run summary goes to stdout; the machine-readable JSONL log lands at
+<code>projects/batch-log.jsonl</code> unless you moved it with <code>--log</code>. Re-run the identical command
+later without <code>--no-idealize</code> and only the idealization stage executes — everything
+already checkpointed is skipped.</p>
+<h2 id="exit-codes">Exit codes</h2>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th><code>tether extract</code></th>
+<th><code>tether batch</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td>extraction completed</td>
+<td>no stage failed — <strong>but this does not guarantee idealization ran</strong>; see below</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td>extraction failed (<code>ExtractionError</code>)</td>
+<td>at least one movie had a failed stage</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td>bad command-line arguments (argparse)</td>
+<td>bad command-line arguments (argparse), <strong>or</strong> a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output <code>.tether</code></td>
+</tr>
+</tbody>
+</table>
+<p>Exit code <code>2</code> means no movie was processed: either argparse rejected the command line
+before any subcommand handler ran, or <code>tether batch</code> refused to start. Nothing is read and no project is
+written on either path, so it is safe to fix the arguments and re-run — with one wrinkle,
+<code>tether batch</code> creates <code>--out-dir</code> before it checks for colliding basenames, so that
+particular refusal can leave an empty output directory behind.</p>
+<p>Exit code <code>1</code> means the command <em>ran</em>. From <code>tether extract</code> it is a clean one-line error
+on stderr, never a traceback — an unhandled traceback from either subcommand is a bug
+worth reporting. From <code>tether batch</code> it means the run finished with at least one movie
+having a failed stage; fix those and re-run the same command to resume the rest.</p>
+<blockquote>
+<p><strong><code>0</code> from <code>tether batch</code> does not mean every stage ran.</strong> If the sidecar is unavailable
+when the run starts, the default behaviour is to <em>defer</em> idealization: the stage is
+recorded as <code>deferred</code>, which is not <code>failed</code>, so the run exits <code>0</code> having done
+extraction and correction only. A script that treats <code>0</code> as "these projects are fully
+idealized" will consume them too early. Re-run the same command once the sidecar is
+available and the per-stage checkpoint resumes just the idealization, or pass
+<code>--no-defer</code> to make an unavailable sidecar a per-movie failure (exit <code>1</code>) instead.</p>
+</blockquote>
+<p><strong>Where to look for what failed.</strong> <code>tether batch</code> prints its end-of-run summary — the
+per-movie, per-stage detail — to <strong>stdout</strong>, together with the JSONL structured log it
+writes to <code>&lt;out-dir&gt;/batch-log.jsonl</code>. Only the log's path, and startup refusals, go to
+stderr. If you are capturing streams separately, per-movie failure detail is in stdout and
+the log, not in stderr.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2025 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/stability/">
+      
+      
+        <link rel="prev" href="../adr/">
+      
+      
+        <link rel="next" href="../privacy/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Stability policy - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#stability-policy" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Stability policy
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../io/legacy-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/parity-gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/tether-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-each-release-may-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What each release may change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-semver-covers-in-tether-1x" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What SemVer covers in Tether 1.x
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What SemVer covers in Tether 1.x">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-the-command-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. The command line
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-the-tether-on-disk-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. The .tether on-disk format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-the-python-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. The Python API
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#not-covered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not covered
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#project-file-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project file compatibility
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Project file compatibility">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#older-files-in-newer-apps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Older files in newer apps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#newer-files-in-older-apps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Newer files in older apps
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deprecation-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecation policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#if-a-covered-surface-breaks-anyway" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If a covered surface breaks anyway
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-each-release-may-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What each release may change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-semver-covers-in-tether-1x" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What SemVer covers in Tether 1.x
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What SemVer covers in Tether 1.x">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-the-command-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. The command line
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-the-tether-on-disk-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. The .tether on-disk format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-the-python-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. The Python API
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#not-covered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not covered
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#project-file-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project file compatibility
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Project file compatibility">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#older-files-in-newer-apps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Older files in newer apps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#newer-files-in-older-apps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Newer files in older apps
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deprecation-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecation policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#if-a-covered-surface-breaks-anyway" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If a covered surface breaks anyway
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="stability-policy">Stability policy</h1>
+<p><strong>Who this page is for.</strong> Anyone who is about to depend on Tether not changing under them:
+a lab standardising on one version, someone scripting <code>tether batch</code> into a pipeline, or
+another group writing a tool that reads <code>.tether</code> files. It says exactly which surfaces
+carry a compatibility promise in the <code>1.x</code> line, which deliberately do not, what happens
+when two people in the same lab run different versions, and how a name is retired.</p>
+<p>Tether follows <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>. The version is
+derived from the git tag at build time (<code>hatch-vcs</code>, <code>[tool.hatch.version]</code> in
+<code>pyproject.toml</code>) and is readable at runtime as <code>tether.__version__</code> or <code>tether --version</code>.</p>
+<h2 id="what-each-release-may-change">What each release may change</h2>
+<table>
+<thead>
+<tr>
+<th>Release</th>
+<th>May do</th>
+<th>May not do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Patch (<code>1.2.0</code> → <code>1.2.1</code>)</td>
+<td>fix bugs; change anything in the <a href="#not-covered">Not covered</a> list</td>
+<td>change a covered surface</td>
+</tr>
+<tr>
+<td>Minor (<code>1.2.1</code> → <code>1.3.0</code>)</td>
+<td>add a CLI subcommand or optional flag; add a name, a group, a dataset or a struct field; widen a promise; deprecate a covered name</td>
+<td>remove or rename a covered name; change a documented default; break a <code>.tether</code> reader</td>
+</tr>
+<tr>
+<td>Major (<code>1.x</code> → <code>2.0.0</code>)</td>
+<td>remove deprecated names; make breaking changes to any covered surface</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>Widening a promise (adding something to the stable list below) is a minor release.
+Retracting one is a major release. That asymmetry is why the stable list is short.</p>
+<h2 id="what-semver-covers-in-tether-1x">What SemVer covers in Tether 1.x</h2>
+<p>Three surfaces carry the promise, and nothing else does. Every other user-facing surface —
+including environment variables — falls under <a href="#not-covered">Not covered</a> below.</p>
+<h3 id="1-the-command-line">1. The command line</h3>
+<p>The <code>tether</code> console script (<code>[project.scripts]</code> → <code>tether.cli:main</code>) and the <code>tether-gui</code>
+launcher (<code>[project.gui-scripts]</code> → <code>tether.gui.app:main</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Covered</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Subcommand names</td>
+<td><code>tether extract</code> and <code>tether batch</code> — the only two (<code>tether.cli</code>). No others exist to promise.</td>
+</tr>
+<tr>
+<td><code>tether --version</code></td>
+<td>Prints the version and exits <code>0</code>.</td>
+</tr>
+<tr>
+<td><code>tether-gui</code></td>
+<td>Exists as a launcher and starts the application. Nothing about the window layout or its behaviour is covered.</td>
+</tr>
+<tr>
+<td>Flag names and meanings</td>
+<td>Every option listed by <code>tether extract --help</code> and <code>tether batch --help</code> keeps its name and its meaning for the whole <code>1.x</code> line. See the sidecar carve-out below.</td>
+</tr>
+<tr>
+<td>Documented defaults</td>
+<td>The default values printed in <code>--help</code> — e.g. <code>--donor-side left</code>, <code>--window 21</code>, <code>--coloc-distance 3</code>, <code>--rms-gate 0.5</code> — do not change within <code>1.x</code>. A default that changes silently changes a scientific result, so it is treated as a breaking change, not a tweak.</td>
+</tr>
+<tr>
+<td>Exit status</td>
+<td><code>0</code> on success, non-zero on failure.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Sidecar carve-out.</strong> Four <code>tether batch</code> options — <code>--sidecar-python</code>, <code>--sidecar-timeout</code>,
+<code>--max-restarts</code> and <code>--no-defer</code> — describe the <a href="#not-covered">sidecar interface</a>, which is
+explicitly <em>not</em> covered. Their <strong>names</strong> are covered like any other flag; their semantics
+and their defaults follow the sidecar and may change. Concretely, <code>--max-restarts</code> and
+<code>--sidecar-timeout</code> are both <code>default=None</code> in <code>tether.cli</code>; the values <code>3</code> and <code>1800</code>
+printed in <code>--help</code> come from <code>DEFAULT_MAX_RESTARTS</code> and <code>DEFAULT_SIDECAR_TIMEOUT</code> in
+<code>tether.idealize.supervisor</code>, an uncovered module. Do not treat those two numbers as frozen.</p>
+<p>Not covered on this surface: the wording and layout of anything printed to stdout or
+stderr, the field set of the <code>batch</code> JSONL structured log, and the <em>specific</em> non-zero exit
+values. For the record, <code>tether.cli</code> currently returns <code>1</code> when the work itself failed
+(an <code>ExtractionError</code>, or at least one movie failed in a batch) and <code>2</code> for a usage or
+configuration error — but only "non-zero" is promised. Do not branch on <code>1</code> vs <code>2</code>.</p>
+<p>New optional flags and new subcommands may appear in a minor release. Nothing that exists
+today disappears before <code>2.0.0</code>.</p>
+<h3 id="2-the-tether-on-disk-format">2. The <code>.tether</code> on-disk format</h3>
+<p>The project store is HDF5. Covered for <code>1.x</code>: the root <code>format</code> attribute value
+<code>tether-project</code> (<code>FORMAT_TAG</code>), the <code>schema_version</code> attribute and its rules, the
+top-level group skeleton, and the compound-dtype field sets of the four entity tables.</p>
+<table>
+<thead>
+<tr>
+<th>Covered</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Format marker</td>
+<td>Root attribute <code>format == "tether-project"</code>.</td>
+</tr>
+<tr>
+<td>Entity groups</td>
+<td><code>/molecules</code>, <code>/movies</code>, <code>/labels</code>, <code>/conditions</code> — each a group holding a compound dataset named <code>table</code>.</td>
+</tr>
+<tr>
+<td>Container groups</td>
+<td><code>/calibration</code>, <code>/traces</code>, <code>/patches</code>, <code>/idealization</code>, <code>/settings</code>, <code>/features</code>, <code>/models</code>.</td>
+</tr>
+<tr>
+<td>Existing fields</td>
+<td>A field in a frozen compound dtype is never removed, renamed, retyped, or reordered. New fields are appended <em>after</em> the existing ones, so the on-disk byte layout of the existing prefix is stable — a binary reader can index the old fields positionally.</td>
+</tr>
+<tr>
+<td><code>schema_version</code></td>
+<td>Monotonic; never decremented.</td>
+</tr>
+</tbody>
+</table>
+<p>The rules are enforced mechanically, not by review: the <code>schema-guard</code> CI job runs
+<code>scripts/dump_schema.py --check</code>, which dumps the structure <code>tether.io.schema</code> declares and
+diffs it against the committed golden manifest <code>schema/schema_frozen.json</code>. Adding a group,
+a dataset, or a field <em>appended after the existing fields</em> passes. Removing, renaming or
+retyping a frozen field fails, naming the field; so does inserting a field mid-list or
+reordering one, because a compound dtype's layout is positional (<code>_diff_compound</code> requires
+the golden field sequence to stay an exact prefix of the current one). A decremented
+<code>schema_version</code> fails. The freeze itself is <a href="../adr/">ADR-0005</a>.</p>
+<p>The root <code>app_version</code> attribute is stamped for provenance. Its <strong>value</strong> is deliberately
+excluded from the freeze — only <code>format</code> and <code>schema_version</code> have their values pinned
+(<code>_VALUE_ATTRS</code> in <code>tether.io.schema</code>), so the stamp changes every release without failing
+<code>schema-guard</code>. The attribute itself is in the manifest as <code>{"dtype": "str"}</code>: removing it
+fails with <code>frozen attribute removed: /@app_version</code>, and retyping it fails naming the
+dtype change.</p>
+<p>What that freezes is the <strong>writer</strong>, not every file. <code>create_project(path,
+stamp_app_version=False)</code> is on the covered list and deliberately omits the attribute,
+and <code>assert_is_compatible_project</code> does not look for it — a project written that way is
+a complete, valid <code>.tether</code>. So read the stamp as <em>optional, string-typed when present</em>
+(<code>f.attrs.get("app_version")</code>), not as guaranteed; rejecting a file for its absence
+would reject output the stable API is documented to produce. What is frozen is that a
+build which stamps it writes a string under that name, and that the name is never
+removed or retyped. The version it carries is not a covered value.</p>
+<p>See <a href="#project-file-compatibility">Project file compatibility</a> below for what happens across
+versions.</p>
+<h3 id="3-the-python-api">3. The Python API</h3>
+<p><strong>The rule is the table. If a name is not in it, it is not covered.</strong> There is no blanket
+"the public API is stable" promise — at the time of writing the <code>__all__</code> lists under
+<code>src/tether/</code> name 862 objects across 92 modules, and freezing all of them until <code>2.0.0</code> is
+not a promise this project could keep.</p>
+<table>
+<thead>
+<tr>
+<th>Covered name</th>
+<th>Kind</th>
+<th>Promise</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tether.__version__</code></td>
+<td><code>str</code></td>
+<td>Present and importable.</td>
+</tr>
+<tr>
+<td><code>tether.io.schema.SCHEMA_VERSION</code></td>
+<td><code>int</code></td>
+<td>Present; monotonic.</td>
+</tr>
+<tr>
+<td><code>tether.io.schema.FORMAT_TAG</code></td>
+<td><code>str</code></td>
+<td>Present; value stays <code>"tether-project"</code>.</td>
+</tr>
+<tr>
+<td><code>tether.io.schema.TABLE</code></td>
+<td><code>str</code></td>
+<td>Present; value stays <code>"table"</code> (the dataset name inside each entity group).</td>
+</tr>
+<tr>
+<td><code>tether.io.schema.MOLECULES_DTYPE</code></td>
+<td><code>numpy.dtype</code></td>
+<td>Present; fields additive-only.</td>
+</tr>
+<tr>
+<td><code>tether.io.schema.MOVIES_DTYPE</code></td>
+<td><code>numpy.dtype</code></td>
+<td>Present; fields additive-only.</td>
+</tr>
+<tr>
+<td><code>tether.io.schema.LABELS_DTYPE</code></td>
+<td><code>numpy.dtype</code></td>
+<td>Present; fields additive-only.</td>
+</tr>
+<tr>
+<td><code>tether.io.schema.CONDITIONS_DTYPE</code></td>
+<td><code>numpy.dtype</code></td>
+<td>Present; fields additive-only.</td>
+</tr>
+<tr>
+<td><code>tether.io.schema.create_project(path, *, overwrite=..., stamp_app_version=...)</code></td>
+<td>function</td>
+<td>Signature and behaviour.</td>
+</tr>
+<tr>
+<td><code>tether.io.schema.read_schema_version(path)</code></td>
+<td>function</td>
+<td>Signature and behaviour.</td>
+</tr>
+<tr>
+<td><code>tether.io.schema.assert_compatible(file_version)</code></td>
+<td>function</td>
+<td>Signature; raises <code>ValueError</code> on a newer file.</td>
+</tr>
+<tr>
+<td><code>tether.io.schema.assert_is_compatible_project(path)</code></td>
+<td>function</td>
+<td>Signature; raises <code>ValueError</code> on a non-project, an incomplete skeleton, or a newer file; returns the on-disk <code>schema_version</code>.</td>
+</tr>
+<tr>
+<td><code>tether.project.Project</code></td>
+<td>class</td>
+<td>The class exists and is importable from <code>tether.project</code>.</td>
+</tr>
+<tr>
+<td><code>Project.create(path, *, overwrite=..., identity=...)</code></td>
+<td>classmethod</td>
+<td>Signature and behaviour.</td>
+</tr>
+<tr>
+<td><code>Project.open(path, *, identity=...)</code></td>
+<td>classmethod</td>
+<td>Signature and behaviour.</td>
+</tr>
+<tr>
+<td><code>Project.path</code></td>
+<td>attribute</td>
+<td>A <code>pathlib.Path</code>.</td>
+</tr>
+<tr>
+<td><code>Project.schema_version</code></td>
+<td>property</td>
+<td>The on-disk version.</td>
+</tr>
+<tr>
+<td><code>Project.app_schema_version</code></td>
+<td>property</td>
+<td>The version this build writes.</td>
+</tr>
+</tbody>
+</table>
+<p>That is the whole list. <code>Project</code> appears in it as a <strong>class with five named members</strong> —
+the other methods on <code>Project</code> are not covered, and neither is the identity/locking model
+they use.</p>
+<p>The exception classes those functions raise are covered to the extent stated above:
+<code>assert_compatible</code> and <code>assert_is_compatible_project</code> raise <code>ValueError</code>. The <em>text</em> of
+any exception message is not covered, with one exception — the schema refusal quoted
+verbatim below, which is quoted because users paste it into bug reports.</p>
+<h2 id="not-covered">Not covered</h2>
+<p>Everything below may change in any release, including a patch release, without notice.</p>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Any name not in the table above</td>
+<td>The default. <code>tether.analysis</code>, <code>tether.imaging</code>, <code>tether.fret</code>, <code>tether.ml</code>, <code>tether.idealize</code>, and every module of <code>tether.project</code> other than the five <code>Project</code> members named above are <strong>not covered</strong>.</td>
+</tr>
+<tr>
+<td>Everything under <code>tether.gui.*</code></td>
+<td>Every module, class, dock, dialog and function. The GUI is a layer over the headless core; it is meant to be used, not imported. <code>tether-gui</code> starting is covered; nothing inside it is.</td>
+</tr>
+<tr>
+<td>Underscore names</td>
+<td>Any module, attribute, function or method whose name begins with <code>_</code> — for example <code>tether.analysis._store</code>, <code>tether.project.extract._half_split_geometry</code>, <code>tether.io.schema._RICH_TABLES</code>. A leading underscore means internal, in every case, without further qualification.</td>
+</tr>
+<tr>
+<td>The sidecar interface</td>
+<td>The isolated tMAVEN idealization backend and everything that talks to it: <code>tether.idealize._sidecar_runner</code> and its argv contract, the <code>TETHER_SIDECAR_STATUS</code> stdout protocol, and the pinned <code>sidecar/conda-lock.yml</code> environment. It is an implementation detail of idealization, pinned to an old numeric stack we do not control. See the <a href="../idealize/standalone-tmaven-handoff/">standalone-tMAVEN hand-off page</a>.</td>
+</tr>
+<tr>
+<td>Environment variables</td>
+<td><code>TETHER_SIDECAR_PYTHON</code> (<code>SIDECAR_ENV_VAR</code> in <code>tether.idealize.driver</code>) is the only Tether-namespaced environment variable the application reads. The <a href="../idealize/standalone-tmaven-handoff/">standalone-tMAVEN hand-off page</a> documents exporting it as the supported way to point at a sidecar interpreter, and it will not be removed casually — but it belongs to the uncovered sidecar interface, so it is not frozen for <code>1.x</code>. (<code>TETHER_SIDECAR_STATUS</code> is not a variable at all: it is the stdout line prefix of the sidecar protocol, listed above.)</td>
+</tr>
+<tr>
+<td>Console output and log formats</td>
+<td>Progress text, warning wording, report layout, and the <code>batch</code> JSONL log schema.</td>
+</tr>
+<tr>
+<td>Exception message text</td>
+<td>Except the schema refusal quoted below.</td>
+</tr>
+<tr>
+<td>Everything else in the repository</td>
+<td>Test helpers, <code>scripts/</code>, <code>packaging/</code>, fixtures, CI workflow names, and the golden manifest's serialised form.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Worked example.</strong> Is <code>tether.analysis.histogram.Histogram1D</code> covered by the <code>1.x</code>
+promise? <strong>No.</strong> It is not in the stable table, so it may change in any release. It is a
+perfectly good thing to use — just pin your Tether version if you do, and read the
+release notes (once there are any — see the <a href="#deprecation-policy">deprecation policy</a>)
+before upgrading.</p>
+</blockquote>
+<p>If you depend on something in the "not covered" column and want it promoted, open an issue
+naming the exact symbol and what you use it for. Widening the list is a minor release, so
+it is cheap to say yes to a concrete request and expensive to say yes to a blanket one.</p>
+<h2 id="project-file-compatibility">Project file compatibility</h2>
+<p>The on-disk contract in one line: <strong><code>schema_version</code> is monotonic and additive-only; older
+files open in newer apps; a file stamped with a newer <code>schema_version</code> never opens in an
+older app.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Monotonic</td>
+<td><code>schema_version</code> only ever increases. <code>SCHEMA_VERSION</code> is currently <strong>1</strong> (<code>tether.io.schema</code>).</td>
+</tr>
+<tr>
+<td>Additive-only</td>
+<td>A new release may add a group, a dataset, or a field <em>appended to the end of</em> a compound dtype. It may not remove, rename, retype or reorder one. Whatever is added has to be <strong>optional on read</strong>: a project written by an earlier <code>1.x</code> will not contain it, so a newer app must treat it as absent-or-defaulted rather than assume it.</td>
+</tr>
+<tr>
+<td>Structural changes are deliberate</td>
+<td>A change that is not purely additive requires an ADR, a <code>schema_version</code> bump, and a regenerated <code>schema/schema_frozen.json</code> in the same pull request. <code>schema-guard</code> fails the PR otherwise.</td>
+</tr>
+<tr>
+<td>Forward-only</td>
+<td>A file stamped with a <code>schema_version</code> newer than the running app's is refused, loudly. There is no downgrade path and no partial read.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>What "forward-only" does and does not promise.</strong> The check is <code>schema_version</code>, and
+only <code>schema_version</code>: <code>assert_compatible</code> compares the file's stamp against the running
+app's <code>SCHEMA_VERSION</code> and never reads <code>app_version</code> (whose value is deliberately
+unfrozen). So the promise is "a file stamped newer never opens in an older app" — not
+"an older app never sees bytes a newer app wrote". A purely additive release that adds a
+group, a dataset or an appended field <em>without</em> bumping the stamp is deliberately not
+refused, and that is the point of additive-only: the older app still finds the whole
+skeleton it declares, ignores the structure it does not know about, and the new data sits
+out of its way rather than being misread. Anything an older app could <strong>not</strong> safely
+ignore is by definition not additive, and a non-additive change carries a <code>schema_version</code>
+bump under the rule above — which is what puts it back behind the refusal.</p>
+</blockquote>
+<h3 id="older-files-in-newer-apps">Older files in newer apps</h3>
+<p>A project written by an earlier <code>1.x</code> opens in a later <code>1.x</code>. This is a commitment about
+how we are allowed to add, and it constrains the additive rule rather than following from
+it for free: <code>assert_is_compatible_project</code> validates that the file carries the whole
+top-level skeleton <em>the running app declares</em> (<code>_RICH_TABLES</code> and <code>_CONTAINER_GROUPS</code> in
+<code>tether.io.schema</code>), so a release that introduced a new top-level group would make every
+older file fail that presence check. Any such bump must therefore also make the new
+structure optional for files stamped at the older version. It has not come up —
+<code>SCHEMA_VERSION</code> is still 1 and every group in the skeleton was forward-declared empty at
+M0 precisely so that later milestones add <em>data</em>, not structure.</p>
+<p>The same constraint applies one level down, where no guard can see it.
+<code>assert_is_compatible_project</code> validates the <em>top-level</em> skeleton only (<code>_missing_skeleton</code>),
+so a dataset added inside <code>/traces</code> or <code>/models</code>, or a field appended to a frozen compound
+dtype, is invisible to it: an older file passes validation cleanly and then a reader that
+assumed the new thing is there fails on real data. Additive <strong>data</strong> therefore carries the
+same obligation as additive structure — read it defensively (<code>group.get(name)</code>,
+<code>name in table.dtype.names</code>), or backfill a default, or bump <code>schema_version</code> and migrate.
+Making newly added data <em>required</em> is a break of the older-files promise, not an addition,
+and is not permitted inside <code>1.x</code> without the bump.</p>
+<h3 id="newer-files-in-older-apps">Newer files in older apps</h3>
+<p>This is the failure two people in the same lab actually hit: one of them upgrades, saves a
+project, and the other cannot open it. <code>assert_compatible</code> raises <code>ValueError</code>, and the
+guarded entry points reach it via <code>assert_is_compatible_project</code>. With <code>SCHEMA_VERSION = 1</code>,
+a file stamped version 2 produces exactly this:</p>
+<pre><code class="language-text">file schema_version 2 is newer than this app's 1; refusing to open (PRD section 5.4).
+</code></pre>
+<p>Four call sites in <code>src/tether/</code> invoke that guard, and they are the ones a person goes
+through:</p>
+<table>
+<thead>
+<tr>
+<th>Guarded entry point</th>
+<th>Reached by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Project.open</code> (<code>tether.project.core</code>)</td>
+<td>the GUI's <strong>Open project</strong> dialog (<code>tether.gui.shell</code>) and any script that opens a project the covered way</td>
+</tr>
+<tr>
+<td><code>extract_movie</code> (<code>tether.imaging.extract</code>)</td>
+<td><code>tether extract</code>, and the extract stage of <code>tether batch</code></td>
+</tr>
+<tr>
+<td><code>write_calibration</code> (<code>tether.imaging.calibrate</code>)</td>
+<td>writing a registration map into a project</td>
+</tr>
+<tr>
+<td><code>export_subset_tether</code> (<code>tether.project.export</code>)</td>
+<td>subset export</td>
+</tr>
+</tbody>
+</table>
+<p>A <code>tether batch</code> <strong>resume</strong> reaches none of those four: the checkpoint probes read the output
+project directly to decide what to skip, so with extraction already complete the guard inside
+<code>write_extraction</code> never runs. That path has its own check (<code>tether.project.batch</code>), added
+deliberately narrower than <code>assert_is_compatible_project</code> — it refuses only a file that
+carries the <code>format</code> marker <em>and</em> declares a newer <code>schema_version</code>. A missing, unreadable,
+foreign or half-written project still falls through, because a crashed run must stay
+resumable and an incomplete store is a stage to redo rather than a movie to fail.</p>
+<p>One route is <strong>not</strong> guarded, and you should know about it rather than be surprised:</p>
+<ul>
+<li>Constructing <code>Project(path)</code> directly does no validation — the constructor deliberately
+  owns the path, not an open HDF5 handle, and each read method opens the file for its own
+  scope. <code>Project(path).schema_version</code> on a version-2 file returns <code>2</code> instead of raising.
+  Use <code>Project.open</code> (which <em>is</em> on the covered list) whenever the file came from elsewhere.</li>
+</ul>
+<p>That gap is not a licence to rely on reading a future file: the forward-only rule is the
+policy, and a route that skips the check is a bug to report under
+<a href="#if-a-covered-surface-breaks-anyway">If a covered surface breaks anyway</a>, not an
+alternative supported path.</p>
+<p><strong>The remedy is to upgrade Tether</strong> to at least the version that wrote the file — see the
+<a href="../packaging/">installers page</a>. There is no downgrade path: the older application cannot
+read the file partially, cannot strip the newer fields, and will not guess. Refusing is the
+point. Quietly reading a file whose structure you do not fully understand is how analysis
+silently loses a correction factor.</p>
+<blockquote>
+<p><strong>About that "PRD section 5.4" pointer.</strong> The message names an internal document that is
+deliberately not published on this site, so it is not something you can go and read. Do
+not go looking for it. §5.4 is a broader section — it also covers single-writer locking,
+stale-lock recovery, and movie relink — but the part of it this message points at is
+stated on this page: newer files never open in older apps, and the fix is to upgrade. If
+you are filing a bug report, paste the message as-is anyway — the version numbers in it
+are the useful part.</p>
+</blockquote>
+<p>To find out what wrote a file before you try to open it, read the stamp directly:</p>
+<pre><code class="language-python">from tether.io.schema import SCHEMA_VERSION, read_schema_version
+
+print(read_schema_version(&quot;experiment.tether&quot;), &quot;vs&quot;, SCHEMA_VERSION)
+</code></pre>
+<p>Both names are on the stable list, so that snippet keeps working for the whole <code>1.x</code> line.</p>
+<h2 id="deprecation-policy">Deprecation policy</h2>
+<p>This is a forward-looking policy the project is adopting for <code>1.x</code>, not a description of
+existing machinery. <strong>Nothing has been deprecated yet</strong>: <code>grep -rn deprecat src/</code> returns
+no matches, because no name on the stable list has needed retiring. The policy exists so
+that the first one is handled predictably.</p>
+<p>It applies only to the covered surfaces above. Names in the "not covered" column can change
+at any time and are owed no deprecation period at all — that is what "not covered" means.</p>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Answer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>How long does a deprecated name survive?</td>
+<td><strong>At least two further minor releases, and in practice the rest of the <code>1.x</code> line.</strong> A covered name deprecated in <code>1.4.0</code> still works in <code>1.5.0</code>, <code>1.6.0</code> and every later <code>1.x</code>. It is removed only in <code>2.0.0</code>, and <code>2.0.0</code> will not be tagged sooner than two minor releases after the deprecation is announced. Removing a covered name inside <code>1.x</code> is not permitted, whatever notice was given.</td>
+</tr>
+<tr>
+<td>Is a <code>DeprecationWarning</code> emitted?</td>
+<td><strong>Yes, and at call time rather than import time</strong> — but note that none of this machinery exists yet. A deprecated function or method <strong>emits</strong> a <code>DeprecationWarning</code> through <code>warnings.warn</code> and then does what it always did; a deprecated constant or module attribute emits one on attribute access, via a module-level <code>__getattr__</code> (<a href="https://peps.python.org/pep-0562/">PEP 562</a>), and still returns its value. The warning is emitted, never raised: a deprecated name keeps working for the rest of <code>1.x</code>, so a caller who ignores the warning is not broken by it. Importing an unrelated part of <code>tether</code> will never emit one. The message will name the release that deprecated the name and the replacement to use, or say plainly that there is no replacement. There is no deprecation helper, decorator or <code>__getattr__</code> in <code>src/</code> today; it will be written with the first deprecation.</td>
+</tr>
+<tr>
+<td>Where is it announced?</td>
+<td><strong>The GitHub release notes</strong> for the release that introduces the deprecation, at <a href="https://github.com/bioedca/tether/releases">github.com/bioedca/tether/releases</a>. There is no <code>CHANGELOG.md</code> in this repository, so do not go looking for one. Note the current state: the only Release published so far is the retained <a href="https://github.com/bioedca/tether/releases/tag/v1.0.0-rc1"><code>v1.0.0-rc1</code> prerelease</a>, which the <a href="../release/">release pipeline</a> keeps as its documented evidence set. <strong>The stable <code>v1.0.0</code> Release has not been published</strong>, so no release note yet announces a deprecation under this policy.</td>
+</tr>
+<tr>
+<td>Does the <code>2.0.0</code> release note list the removals?</td>
+<td>The notes are generated mechanically from Conventional-Commit subjects (<code>release.yml</code>), and the generator emits seven fixed groups — Features, Bug fixes, Performance, Documentation, Refactoring, Build &amp; packaging, CI. There is no breaking-changes group, and a <code>feat!:</code> subject is folded into <strong>Features</strong>. So a removal appears in the notes, but not under a heading that sets it apart. <code>feat!:</code> marks the break itself — the <code>2.0.0</code> commit that actually removes a covered name; the <a href="https://github.com/bioedca/tether/blob/main/.github/pull_request_template.md">pull-request template</a> likewise reserves <code>!</code> / <code>BREAKING CHANGE:</code> for a deliberate breaking change, and a deprecated name that still works is not one. A deprecation ships as an ordinary <code>feat:</code> or <code>docs:</code> commit whose subject names the deprecated symbol, so search the notes for the symbol rather than for a <code>!</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>Python hides <code>DeprecationWarning</code> by default outside <code>__main__</code>. To see them in a script or
+a batch job, run with <code>python -W default::DeprecationWarning</code>; <code>pytest</code> shows them by
+default.</p>
+<p>A deprecated CLI flag follows the same clock: it keeps working, keeps its meaning, and
+prints a one-line notice to stderr naming its replacement.</p>
+<h2 id="if-a-covered-surface-breaks-anyway">If a covered surface breaks anyway</h2>
+<p>That is a bug, not a policy change. Open an issue at
+<a href="https://github.com/bioedca/tether/issues">github.com/bioedca/tether/issues</a> naming the
+covered surface, the version that changed it, and the version you upgraded from. If the
+break has a security dimension, follow
+<a href="https://github.com/bioedca/tether/blob/main/SECURITY.md">SECURITY.md</a> and report it
+privately instead.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

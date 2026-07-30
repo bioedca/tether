@@ -1,0 +1,1444 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/adr/0021-particle-detection-modes/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>0021 — Selectable particle-detection methods (match Deep-LASI's findPart modes) - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#0021-selectable-particle-detection-methods-match-deep-lasis-findpart-modes" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              0021 — Selectable particle-detection methods (match Deep-LASI's findPart modes)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../io/legacy-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analysis/parity-gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/tether-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context-and-problem-statement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context and problem statement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision-drivers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision drivers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#considered-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Considered options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision-outcome" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision outcome
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision outcome">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#more-information" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        More information
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="0021-selectable-particle-detection-methods-match-deep-lasis-findpart-modes">0021 — Selectable particle-detection methods (match Deep-LASI's <code>findPart</code> modes)</h1>
+<ul>
+<li><strong>Status:</strong> accepted (modes 2 &amp; 3 + the CLI/pipeline selector + the <code>.tdat</code> detection-<em>mode</em> and per-channel <code>DetectionThreshold</code> MCOS decode auto-apply landed). The deferred PR-C3d item (its "score the colocalized set" / "last-resort 2 px" framing) is <strong>superseded by <a href="../0022-m1-acceptance-reframe-and-close/">ADR-0022</a></strong>, which reframed the M1 gate and closed M1 with a donor-anchored pipeline.</li>
+<li><strong>Date:</strong> 2026-06-30</li>
+<li><strong>Deciders:</strong> bioedca</li>
+<li><strong>PRD anchor:</strong> §7.1, §9 M1, §11.2, Appendix E Stage 3 (FR-EXTRACT)</li>
+<li><strong>Milestone:</strong> M1</li>
+</ul>
+<h2 id="context-and-problem-statement">Context and problem statement</h2>
+<p>The M1 extraction-vs-Deep-LASI oracle (ADR-0020) revealed native extraction
+recalls only ~20 % @1px of Deep-LASI's 250 colocalized <code>fret_pairs</code> on the real
+UCKOPSB pair, traced to the <strong>detector</strong>, not the oracle or coordinate frames.
+The only detector Tether had ported is Deep-LASI mode 1 (à trous wavelet,
+<code>Wave_Partfind.m</code>), whose detection mask is the <code>AND</code> of wavelet scales 1 &amp; 4
+(<code>P=cumprod(w,3)</code> makes scale-4 significance mandatory). The UCKOPSB molecules
+are <strong>tight PSFs with almost no scale-4 energy</strong> (per-scale truth coverage
+scale4 = 76/250), so faithful mode 1 structurally caps at ~52/250 @1px at <em>any</em>
+threshold. But Deep-LASI exposes <strong>three</strong> detection methods behind its GUI
+<code>Rbg_Detection</code> radio group (<code>findPart.m</code> <code>method</code>: 1 wavelet, 2
+intensity-threshold, 3 bandpass), and its 250 pairs are
+detected → bidirectionally colocalized → <strong>human-curated</strong> (<code>select</code>/<code>tags</code>).
+So: which faithful detector reproduces Deep-LASI's spots, and how do we match the
+method/threshold a given movie was <em>actually</em> detected with — rather than
+assuming mode 1?</p>
+<h2 id="decision-drivers">Decision drivers</h2>
+<ul>
+<li><strong>Faithfulness over gate-gaming</strong> (PLAN §1.3 #7–#8): port Deep-LASI's real
+  methods; never ship a high-false-positive detector that games recall, nor
+  weaken a frozen acceptance gate to hide the gap.</li>
+<li><strong>The frozen §9 M1 gate</strong> (recall ≥ 95 % @1px, Pearson r ≥ 0.99, RMS ≤ 0.5 px)
+  is the substrate M2+ trusts; closing M1 must be earned by a real detector.</li>
+<li><strong>Schema freeze</strong> (ADR-0005): keep this PR additive at the imaging layer (no
+  <code>.tether</code>/<code>/settings</code> change) so <code>schema-guard</code> stays trivially green.</li>
+<li><strong>Session/PR budget</strong> (PLAN §0.1): one reviewable concern per PR.</li>
+</ul>
+<h2 id="considered-options">Considered options</h2>
+<ul>
+<li><strong>A — Relax the M1 recall match-tolerance 1px → 2px</strong> (maintainer-approved
+  2026-06-30) + land a principled detector. Justified by localization precision
+  (two valid sub-pixel localizers legitimately differ ~0.3–0.5 px), but demoted
+  by the maintainer to a <strong>last-resort fallback</strong> after the framing corrections
+  below.</li>
+<li><strong>B — Implement &amp; match Deep-LASI's three <code>findPart</code> methods</strong> (selectable),
+  decode the mode/threshold the data was detected with from the <code>.tdat</code> MCOS
+  blob, validate <strong>per-channel</strong> vs DL <code>donor_xy</code>/<code>acceptor_xy</code>, then re-measure
+  @1px on the faithfully-matched pipeline. The 2px relaxation is used only if
+  faithful matching still can't hit 1px.</li>
+<li><strong>C — Port only mode 3 (bandpass)</strong> as the single replacement detector.</li>
+<li><strong>D — Re-derive the oracle ground truth from DL's raw per-channel detections</strong>
+  (pre-coloc, pre-curation) instead of the curated 250 pairs.</li>
+</ul>
+<h2 id="decision-outcome">Decision outcome</h2>
+<p>Chosen option: <strong>"B"</strong>, implemented incrementally. This PR (M1 S9 <strong>PR-C3a</strong>)
+lands the <strong>selector</strong> (<code>ParticleDetectionMode</code>) and a <strong>faithful mode-2
+intensity-threshold detector</strong> (<code>detect_spots_intensity</code>): threshold at
+<code>t·max</code> → Crocker-Grier band-pass (<code>bpass.m</code>; [Crocker1996]) → 3 %-of-max
+binarize → 3×3 erode (<code>bwmorph 'erode'</code>) → 8-connected centroids
+(<code>regionprops 'Centroid'</code>), then the <strong>shared Stage-4 tail</strong>
+(<code>_finalize_candidates</code>: snap → border → min-separation NMS → <code>[x, y]</code>),
+mirroring <code>findPart.m</code>'s post-switch block (lines 63–103). Mode-1 was refactored
+onto the same tail with no behavioural change (existing tests pin it).</p>
+<p>Centroid + intensity-weighted localization is the standard sub-pixel approach
+([Lelek2021], [Cnossen2019]); the Crocker-Grier band-pass localizes
+sub-diffraction spheres "to within 10 nm in the focal plane" ([Crocker1996]).</p>
+<p><strong>PR-C3b (landed, this PR)</strong> — the faithful <strong>mode-3 band-pass detector</strong>
+(<code>detect_spots_bandpass</code>, port of <code>find_part_bpass_sort.m</code>) + <code>BANDPASS</code> enum
+member, wired into <code>detect_spots_by_mode</code>: threshold at <code>t·max</code> → Crocker-Grier
+band-pass (<code>bpass(I, 1, 9)</code>; <code>lobject = 9</code>, vs mode 2's 7) → keep the top <code>1 − t</code>
+band-pass values (percentile sort) → regional maxima
+(<code>skimage.morphology.local_maxima</code> = <code>imregionalmax</code>, 8-conn) → 8-connected
+centroids, then the shared Stage-4 tail. The <code>t</code> is <strong>dual-use</strong> (intensity floor
++ percentile cut), faithful to the reference; default <code>t = 0.98</code> (the standalone
+<code>.m</code> default). Mode 3 localizes with the centroid, not <code>radialcenter</code> (the
+<code>findPart.m:30</code> comment naming <code>radialcenter</code> is aspirational; the actual <code>.m</code>
+uses <code>regionprops 'Centroid'</code>). Still additive at the imaging layer
+(<code>schema-guard</code> green; no lock change).</p>
+<p><strong>PR-C3c (landed, this PR) — the CLI/pipeline selector.</strong> <code>ExtractOptions</code> gains
+<code>detection_mode ∈ {wavelet, intensity, bandpass}</code> + an optional
+<code>detection_threshold</code> (<code>[0, 1)</code>, a fraction of the detection-image max); the
+native pipeline routes both halves through <code>detect_spots_by_mode</code>, and the choice
+is recorded verbatim into <code>/settings/extraction</code> (NFR-REPRO). The default
+<code>wavelet</code> + <code>None</code> reproduces the prior à trous detection exactly. <code>tether extract</code>
+exposes <code>--detection-mode</code> / <code>--detection-threshold</code>. <strong>Additive at <code>/settings</code>
+(an empty container group), so <code>schema-guard</code> stays green with no version bump</strong>;
+no lock change. This resolves the "not reachable from the CLI" trade-off below.</p>
+<p><strong>PR-C3c-decode-A (landed, this PR) — the <code>.tdat</code> detection-<em>mode</em> auto-apply.</strong>
+<code>read_tdat</code> now decodes <code>temp/ParticleDetectionMode</code> (a plain <code>double</code> leaf:
+<code>findPart</code> method 1 wavelet / 2 intensity / 3 bandpass; <code>TRACERdata.m:62</code> class
+default 1) into <code>Tdat.detection</code> (<code>TdatDetectionSettings</code>), with a lightweight
+<code>read_detection_settings</code> companion. <code>extract_movie</code> gains <code>tdat=&lt;path&gt;</code> and the
+CLI a <code>--tdat</code> flag that auto-applies the decoded mode (overriding
+<code>options.detection_mode</code>, recorded as <code>tdat_source</code> in <code>/settings/extraction</code>),
+so a re-extraction matches the method the movie was detected with (NFR-REPRO).
+<code>--tdat</code> is mutually exclusive with <code>--detection-mode</code>/<code>--detection-threshold</code>;
+unported modes (4 local-variance / 5 ZMW) are refused. Still additive at
+<code>/settings</code> (<code>schema-guard</code> green, no version/lock change). The committed
+<code>tdat_coloc_slice.tdat</code> fixture now carries the <code>ParticleDetectionMode</code> leaf.</p>
+<p><strong>PR-C3c-decode-B (landed, this PR) — the per-channel <code>DetectionThreshold</code> MCOS
+decode.</strong> New <code>tether.io.mcos</code> (<code>McosDecoder</code> + <code>object_reference_id</code>) decodes the
+MATLAB v7.3 <code>#subsystem#/MCOS FileWrapper__</code> blob — its metadata header, name
+table, class/object tables, and type-2 property segments — enough to resolve a
+named property of a given object to its heap value cell (<code>value + 2</code>). This is the
+genuine MCOS decoder the <code>TIRFdata.DetectionThreshold</code> property (<code>temp/Channel[i]</code>
+→ <code>0xDD000000</code> object-reference markers, class_id 4) requires. <code>read_tdat</code> /
+<code>read_detection_settings</code> now populate <code>TdatDetectionSettings.threshold</code> with the
+<strong>mapping-reference</strong> channel's <code>DetectionThreshold</code> (the channel spots are
+detected on; matched by its own <code>ChannelID</code> == <code>temp/MappingReferenceChannel</code>),
+validated into the detector <code>[0, 1)</code> contract. On the UCKOPSB slice that is the
+donor's <code>0.330097</code> (mode 2 intensity); the acceptor's is <code>0.0</code>. The threshold
+flows through the existing <code>--tdat</code> auto-apply (<code>_apply_tdat_detection</code>) untouched.
+<code>make_tdat_fixture.py</code> regenerates <code>tdat_coloc_slice.tdat</code> retaining the real MCOS
+<code>FileWrapper__</code> metadata + <code>Channel</code> markers + small heap cells verbatim (dropping
+bulk images/traces as null cells, preserving indices), so the committed test
+decodes through the identical path; a data-present test additionally locks the
+decode against the unmodified 37 MB source. A plain-leaf <code>.tdat</code> (no MCOS blob)
+decodes <code>threshold=None</code>, so each detector keeps its faithful default
+(backward-compatible). Still additive at <code>/settings</code> (<code>schema-guard</code> green, no
+version/lock change).</p>
+<p><strong>Deferred to a follow-up PR:</strong>
+- <strong>PR-C3d</strong> — per-channel detect + bidirectional colocalization, oracle
+  re-framed to evaluate the <strong>colocalized</strong> set apples-to-apples (USER
+  CORRECTION #1), re-measure @1px; <strong>only then</strong> invoke the maintainer-approved
+  1px → 2px relaxation if faithful matching still falls short → close M1 / tag
+  <code>v0.1.0</code>.</p>
+<h3 id="consequences">Consequences</h3>
+<ul>
+<li>Good: Tether now has a selectable, faithful detector surface; the structural
+  mode-1 limitation is no longer the only option; the path to a legitimate M1
+  close is unblocked without gaming or weakening the gate.</li>
+<li>Good: additive at the imaging layer — <code>schema-guard</code> green, no lock change.</li>
+<li>Resolved (PR-C3c): the selector is now reachable from <code>ExtractOptions</code> and the
+  <code>tether extract</code> CLI, recorded into <code>/settings/extraction</code>; still additive
+  (<code>schema-guard</code> green, no lock change) because <code>/settings</code> is a container group.</li>
+<li><strong>Risk (carried to PR-C3d): detector precision.</strong> The §9 gate checks recall +
+  Pearson + RMS, <em>not</em> precision; intensity/bandpass detectors emit many spurious
+  local maxima on textured backgrounds. Control it with native bidirectional
+  colocalization (donor must pair with an independently-detected acceptor), not a
+  recall-gaming flood — review will (correctly) flag a detector that finds 5–8×
+  too many molecules even when the gate passes.</li>
+<li>Follow-up: per-channel synthetic-truth tests lock mode 2 now; the full-scale
+  per-channel + colocalized @1px re-measurement is the gated <code>large-fixtures</code>
+  leg added in PR-C3d.</li>
+</ul>
+<h2 id="more-information">More information</h2>
+<ul>
+<li>Reference: <code>deeplasi/functions/mapping/findPart.m:1,18-62</code> (<code>method</code> dispatch),
+  <code>:21-28,107-115</code> (mode 2), <code>external/bpass.m</code> (Crocker-Grier band-pass),
+  <code>mapping/find_part_bpass_sort.m</code> (mode 3).</li>
+<li>PRD §11.2 rows "Particle detection mode" / "Detection threshold (intensity
+  mode)"; supersedes the implicit mode-1-only assumption in ADR-0020.</li>
+<li>Related: <a href="../0020-extraction-oracle-and-deferred-m1-close/">ADR-0020</a> (the gap),
+  <a href="../0011-home-extraction-recall-at-m1/">ADR-0011</a> (the M1 recall acceptance),
+  <a href="../0015-donor-anchored-colocalization/">ADR-0015</a> (dark-acceptor read).</li>
+<li>Citations:</li>
+<li>[Crocker1996] J. C. Crocker &amp; D. G. Grier (1996), <em>Methods of Digital Video
+    Microscopy for Colloidal Studies</em>, J. Colloid Interface Sci. 179:298.</li>
+<li>[Lelek2021] M. Lelek et al. (2021), <em>Single-molecule localization
+    microscopy</em>, Nat. Rev. Methods Primers.</li>
+<li>[Cnossen2019] J. Cnossen et al. (2019), <em>Localization microscopy at doubled
+    precision with patterned illumination</em>, Nat. Methods.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

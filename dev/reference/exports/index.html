@@ -1,0 +1,2762 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A cross-platform single-molecule FRET desktop suite (Mondragón Lab, Northwestern).">
+      
+      
+      
+        <link rel="canonical" href="https://bioedca.github.io/tether/dev/reference/exports/">
+      
+      
+        <link rel="prev" href="../../cli/">
+      
+      
+        <link rel="next" href="../parameters/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Exports (files, columns, units) - Tether</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#exports-what-tether-writes-out" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Tether" class="md-header__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Tether
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Exports (files, columns, units)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Tether" class="md-nav__button md-logo" aria-label="Tether" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Tether
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/bioedca/tether" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    bioedca/tether
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Does Tether fit my data?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Import
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../io/legacy-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Legacy Deep-LASI import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Idealization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Idealization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../idealize/standalone-tmaven-handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone-tMAVEN hand-off
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analysis/parity-gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seven-plot parity gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation &amp; benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Machine learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Machine learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ml/deep-classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep trace classifier (GPU add-on)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exports (files, columns, units)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        At a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-all-three-store-exports-share" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What all three store exports share
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What all three store exports share">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Selection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#intensity_quantity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        intensity_quantity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#return-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Return value
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#intensity-units" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Intensity units
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-molecule-table-csv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Molecule-table CSV
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Molecule-table CSV">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#molecule-table-columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Molecule-table columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-deep-lasi-trace-matrix-txt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Deep-LASI trace matrix (.txt)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-subset-tether" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Subset .tether
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-plot-export-pdf-svg-png" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Plot export (PDF + SVG + PNG)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provenance-sidecar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provenance sidecar
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-the-exports-elsewhere" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading the exports elsewhere
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reading the exports elsewhere">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pandas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pandas
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matlab-prism-origin-excel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MATLAB, Prism, Origin, Excel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#frames-to-seconds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frames to seconds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#idealization-state-paths-in-a-subset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idealization state paths in a subset
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-a-subset-tether-is-readable-at-all" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why a subset .tether is readable at all
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tether-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project store (.tether HDF5 schema)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installers &amp; offline bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing (signed installers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stability policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        At a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-all-three-store-exports-share" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What all three store exports share
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What all three store exports share">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Selection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#intensity_quantity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        intensity_quantity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#return-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Return value
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#intensity-units" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Intensity units
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-molecule-table-csv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Molecule-table CSV
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Molecule-table CSV">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#molecule-table-columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Molecule-table columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-deep-lasi-trace-matrix-txt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Deep-LASI trace matrix (.txt)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-subset-tether" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Subset .tether
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-plot-export-pdf-svg-png" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Plot export (PDF + SVG + PNG)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provenance-sidecar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provenance sidecar
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-the-exports-elsewhere" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading the exports elsewhere
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reading the exports elsewhere">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pandas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pandas
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matlab-prism-origin-excel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MATLAB, Prism, Origin, Excel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#frames-to-seconds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frames to seconds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#idealization-state-paths-in-a-subset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idealization state paths in a subset
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-a-subset-tether-is-readable-at-all" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why a subset .tether is readable at all
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="exports-what-tether-writes-out">Exports — what Tether writes out</h1>
+<p><strong>Who this page is for.</strong> Anyone who has a file Tether produced — a molecule-table CSV
+about to become a figure, a <code>…-donc-accc-w.txt</code> handed to a collaborator, a subset
+<code>.tether</code> mailed to a reviewer, a PDF pasted into a manuscript — and needs to know
+exactly what is in it: which columns, in which order, in which units, and what a blank
+cell means. It is a reference, not a tutorial. Every claim below names the module,
+function or constant that makes it true, so you can grep the source rather than trust
+the prose.</p>
+<p>Two facts frame everything else:</p>
+<ul>
+<li><strong>Every temporal number in the three <em>store</em> exports (CSV, <code>.txt</code>, subset <code>.tether</code>) is
+  in <em>frames</em>, zero-based, never seconds</strong>, and none of the three carries the frame
+  duration. The store keeps it (<code>/movies.frame_time</code>, <code>tether.io.schema.MOVIES_DTYPE</code>),
+  but the molecule-table CSV has no such column, the Deep-LASI <code>.txt</code> has no metadata at
+  all, and a subset <code>.tether</code> carries <strong>zero</strong> <code>/movies</code> rows by construction. Converting
+  to seconds is the reader's own job — see
+  <a href="#reading-the-exports-elsewhere">Reading the exports elsewhere</a>. The fourth export is
+  the exception: a plot renderer handed <code>dt</code> / <code>time_dt</code> ≠ <code>1.0</code> draws a <em>seconds</em> axis
+  (<code>tether.analysis.plot_export</code>; see <a href="#4-plot-export-pdf-svg-png">Plot export</a>).</li>
+<li><strong>The E summary in the CSV is <em>apparent</em> E, not γ-corrected E.</strong> <code>export_molecule_table_csv</code>
+  computes it with <code>tether.fret.efficiency.apparent_fret</code>, i.e. <code>A / (D + A)</code>
+  (<code>corrected_fret</code> at the identity factors <code>alpha=0, gamma=1</code>). The stored α/γ/δ are
+  <strong>not</strong> applied; they ride as their own columns precisely so a consumer can recompute
+  the corrected value. The docstring at <code>tether.project.export.export_molecule_table_csv</code>
+  states the reason: apparent E is always well-defined.</li>
+</ul>
+<h2 id="at-a-glance">At a glance</h2>
+<p>Four export entry points are public. The first three live in <code>tether.project.export</code>
+(<code>__all__</code> also lists <code>ExportResult</code> and <code>write_provenance_sidecar</code>); the fourth lives in
+<code>tether.analysis.plot_export</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Entry point</th>
+<th>Writes</th>
+<th>Choose it when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tether.project.export.export_molecule_table_csv</code></td>
+<td><code>&lt;name&gt;.csv</code> + <code>&lt;name&gt;.csv.provenance.json</code></td>
+<td>You want one row per molecule for a spreadsheet, R/pandas, Prism or Origin — the per-molecule inventory and its apparent-E summary</td>
+</tr>
+<tr>
+<td><code>tether.project.export.export_deeplasi_txt</code></td>
+<td><code>&lt;name&gt;.txt</code> + <code>&lt;name&gt;.txt.provenance.json</code></td>
+<td>You want the per-frame intensity traces themselves, in the Deep-LASI <code>…-donc-accc-w.txt</code> matrix a downstream Deep-LASI-compatible tool reads</td>
+</tr>
+<tr>
+<td><code>tether.project.export.export_subset_tether</code></td>
+<td><code>&lt;name&gt;.tether</code> (HDF5) + <code>&lt;name&gt;.tether.provenance.json</code></td>
+<td>You want a portable, self-contained re-analysis of a <em>selection</em> — coordinates, patches, corrected traces, idealization models — without shipping the movie</td>
+</tr>
+<tr>
+<td><code>tether.analysis.plot_export.export_figure</code></td>
+<td><code>&lt;stem&gt;.pdf</code>, <code>&lt;stem&gt;.svg</code>, <code>&lt;stem&gt;.png</code> + <code>&lt;stem&gt;.provenance.json</code></td>
+<td>You want a publication figure of an analysis plot: vector PDF <strong>and</strong> vector SVG <strong>and</strong> raster PNG, all stamped</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>There is no CLI or GUI export command, and this page will not invent one.</strong>
+<code>tether.cli</code> registers exactly two subcommands, <code>extract</code> and <code>batch</code>, and no module
+under <code>src/tether/gui/</code> references any of the four functions above. They are a Python
+API today. Every snippet on this page is therefore the call you actually run.</p>
+</blockquote>
+<p>The tMAVEN hand-off (<code>tether.project.handoff.hand_off_to_tmaven</code>, reachable from the GUI)
+also writes a file — an SMD-HDF5 — but it is an <em>interchange</em> leg with a return path, not
+an export, and it does <strong>not</strong> write a provenance sidecar. It is documented on
+<a href="../../idealize/standalone-tmaven-handoff/">Standalone-tMAVEN hand-off</a>.</p>
+<h2 id="what-all-three-store-exports-share">What all three store exports share</h2>
+<h3 id="selection">Selection</h3>
+<p>All three take their rows from <code>_selected_rows</code> in <code>tether.project.export</code>, which means:</p>
+<table>
+<thead>
+<tr>
+<th>Behavior</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Order</td>
+<td><strong>Store order</strong> (ascending row index). A <code>molecule_keys</code> request does <em>not</em> reorder the output</td>
+</tr>
+<tr>
+<td>Curation filter</td>
+<td>Rows whose <code>curation_label</code> is <code>CurationLabel.REJECT</code> (<code>-1</code>, <code>tether.project.labels</code>) are dropped unless <code>include_rejected=True</code></td>
+</tr>
+<tr>
+<td><code>molecule_keys</code></td>
+<td>A membership subselect, not a lookup. <code>molecule_key</code> is <strong>not unique</strong>, so one requested key matches <em>every</em> store row carrying it</td>
+</tr>
+<tr>
+<td>Unknown key</td>
+<td>A requested key matching no store row raises <code>KeyError</code> — a typo fails loudly rather than silently under-exporting</td>
+</tr>
+<tr>
+<td>Empty selection</td>
+<td><code>export_deeplasi_txt</code> and <code>export_subset_tether</code> raise <code>ValueError</code></td>
+</tr>
+</tbody>
+</table>
+<p>The <code>include_rejected</code> default is <strong>not</strong> the same across the three, and the difference is
+deliberate:</p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th><code>include_rejected</code> default</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>export_molecule_table_csv</code></td>
+<td><code>True</code></td>
+<td>The CSV is a full inventory; the <code>curation_label</code> column tells you which rows were rejected</td>
+</tr>
+<tr>
+<td><code>export_deeplasi_txt</code></td>
+<td><code>False</code></td>
+<td>A trace matrix has no per-column label slot, so a rejected trace would be indistinguishable</td>
+</tr>
+<tr>
+<td><code>export_subset_tether</code></td>
+<td><code>False</code></td>
+<td>A subset is a curated selection by intent</td>
+</tr>
+</tbody>
+</table>
+<p>Only <code>export_deeplasi_txt</code> and <code>export_subset_tether</code> accept <code>molecule_keys</code>.
+<code>export_molecule_table_csv</code> has no such parameter — it always passes <code>molecule_keys=None</code>.</p>
+<h3 id="intensity_quantity"><code>intensity_quantity</code></h3>
+<p>The two table exports read one <code>/traces</code> layer pair, chosen by <code>intensity_quantity</code> through
+<code>tether.project.trace_layers.INTENSITY_QUANTITY_LAYERS</code>. Exactly two values are legal:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Layers read</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>"corrected"</code> (default)</td>
+<td><code>donor_corrected</code>, <code>acceptor_corrected</code> — background-subtracted</td>
+</tr>
+<tr>
+<td><code>"raw"</code></td>
+<td><code>donor_raw</code>, <code>acceptor_raw</code></td>
+</tr>
+</tbody>
+</table>
+<p>Anything else raises <code>ValueError: unknown intensity_quantity 'total'; expected one of
+['corrected', 'raw']</code> (the message is built in <code>_layers</code>).</p>
+<h3 id="return-value">Return value</h3>
+<p>All three return a frozen <code>ExportResult</code> with three fields in this order: <code>path</code>,
+<code>provenance_path</code>, <code>n_molecules</code> — the count <strong>after</strong> the curation and selection filters.</p>
+<h3 id="intensity-units">Intensity units</h3>
+<p>Wherever an export carries an intensity (the <code>.txt</code> matrix, a subset's <code>/traces</code>), the
+number is <strong>uncalibrated</strong>: there is no gain, offset or quantum-efficiency conversion
+anywhere in <code>tether.imaging</code>, so nothing any export writes is in photons. What the number
+<em>is</em>, though, depends on how the store was built — and no export records that:</p>
+<table>
+<thead>
+<tr>
+<th>Store built by</th>
+<th>What an exported intensity is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Native extraction</strong> — <code>tether.project.extract.extract_movie</code> → <code>tether.imaging.extract.write_extraction</code></td>
+<td>An <strong>integrated camera value in the movie's own pixel units</strong>, produced here by <code>tether.imaging.aperture.integrate_traces</code> over the aperture below: counts/ADU, tied to Tether's own extraction settings</td>
+</tr>
+<tr>
+<td><strong>Deep-LASI reconstruction</strong> — <code>tether.project.reconstruct.reconstruct_project</code></td>
+<td>The <strong>pre-integrated Deep-LASI <code>.mat</code> series, carried through without re-integration</strong>. <code>_traces_from_export</code> maps <code>donc</code>/<code>accc</code> → the corrected layer, <code>don</code>/<code>acc</code> → raw, <code>bdon</code>/<code>bacc</code> → background; its docstring states that "the aperture integration <code>extract_molecules</code> would run is skipped". The units are whatever Deep-LASI's own integration produced</td>
+</tr>
+<tr>
+<td><strong>Analysis-only import</strong> — <code>tether.project.analysis_import.import_analysis_only_project</code></td>
+<td>The <strong>SMD / <code>.txt</code> intensity series, carried through without re-integration</strong> as the corrected pair (<code>_write_corrected_traces</code>), the module's "apparent-E analysis substrate". No <code>raw</code> or <code>background</code> layers are synthesized — there is "no movie to decompose the intensities against"</td>
+</tr>
+</tbody>
+</table>
+<p>Only the first row is a number Tether itself measured. For the other two the units are the
+upstream tool's, and the aperture parameters below describe the <em>provenance</em> of the
+imported layers rather than an integration Tether performed. Carried through is not
+bit-preserved, though: every reader parses the upstream numbers as <code>float64</code>
+(<code>tether.io.deeplasi</code> for the <code>.mat</code> and the <code>.txt</code>, <code>tether.idealize.read_smd</code> for the
+SMD), while every <code>/traces</code> layer is stored as <code>float32</code>
+(<code>_TRACE_DTYPE = "&lt;f4"</code>, in both <code>tether.imaging.extract._append_padded_2d</code> and
+<code>tether.project.analysis_import._write_corrected_traces</code>). An export compared back
+against a double-precision <code>.mat</code> or SMD input therefore differs by single-precision
+rounding.</p>
+<p>Which of the three layers you get is not the same number:</p>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>What the value is</th>
+<th>Sign</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>*_corrected</code> (<code>intensity</code>)</td>
+<td>The top-hat: the disk sum minus the scaled ring background, <code>intensity = tot - bg</code></td>
+<td><strong>May be negative</strong> — a background is subtracted</td>
+</tr>
+<tr>
+<td><code>*_raw</code> (<code>total</code>)</td>
+<td>The bare disk sum <code>tot</code> over the PSF disk, nothing subtracted</td>
+<td>Non-negative for a non-negative movie</td>
+</tr>
+<tr>
+<td><code>*_background</code> (<code>background</code>)</td>
+<td>The subtracted term <code>bg</code> alone — carried only by a subset with <code>include_raw=True</code></td>
+<td>Non-negative for a non-negative movie</td>
+</tr>
+</tbody>
+</table>
+<p>The mapping is the frozen <code>_QUANTITIES</code> tuple in <code>tether.imaging.extract</code>, annotated
+there as <em>"<code>raw</code> = uncorrected <code>total</code>, <code>corrected</code> = <code>intensity</code>"</em>. So an
+<code>intensity_quantity="raw"</code> export is <strong>not</strong> the top-hat, and the "may be negative"
+caveat does not apply to it.</p>
+<p><code>bg</code> itself is not a bare per-frame ring mean: <code>integrate_traces</code> first runs a uniform
+temporal moving average over the crop (<code>bg_window</code>, default <code>10</code> frames,
+<code>mode="nearest"</code>), then averages the <strong>positive</strong> in-ring pixels of the smoothed crop
+(<code>ring_vals &gt; 0</code>, faithful to Deep-LASI's <code>mean(bg(bg&gt;0))</code>), then scales that mean by the
+disk's pixel count <code>n_psf = int(disk.sum())</code>.</p>
+<blockquote>
+<p><strong>The aperture geometry is an extraction option, not a property of the export.</strong> At the
+defaults (<code>window=21</code>, <code>disk_radius=3.0</code>, <code>ring_inner=6.0</code>, <code>ring_outer=8.0</code>,
+<code>bg_window=10</code> — <code>tether.project.extract.ExtractOptions</code>, mirrored by
+<code>tether.imaging.aperture.integrate_traces</code>) the disk is <strong>29 px</strong>, and that count is set
+by <strong><code>disk_radius</code> alone</strong>. <code>aperture_masks</code> builds the disk as <code>dist &lt;= disk_radius</code>
+about the window centre, so <code>n_psf</code> is 29 for <em>every</em> legal <code>window</code> — the window only
+has to be odd and wide enough for the ring (<code>2 * ring_outer &lt;= window</code>). Changing
+<code>disk_radius</code> is what re-scales an intensity: <code>3.0 → 29 px</code>, <code>4.0 → 49 px</code>, <code>5.0 → 81 px</code>.
+The <code>tether extract --window</code> flag changes the crop-box side length and leaves <code>n_psf</code>
+at 29; <code>disk_radius</code>, the ring radii and <code>bg_window</code> have <strong>no CLI flag</strong> and are
+reachable only through the Python API (<code>ExtractOptions</code>,
+<code>integrate_traces(disk_radius=…)</code>). The effective geometry is stamped into
+<code>/settings/extraction</code> (<code>window</code>, <code>disk_radius</code>, <code>ring_inner</code>, <code>ring_outer</code>,
+<code>bg_window</code>, <code>n_psf</code> — <code>tether.imaging.extract._write_settings_once</code>), which travels in
+a subset <code>.tether</code> but is carried by <strong>neither</strong> the <code>.txt</code> nor its sidecar.</p>
+<p><strong>An imported store's <code>/settings/extraction</code> is provenance, not a measurement.</strong>
+<code>reconstruct_project</code> hands <code>write_extraction</code> the standard constants
+(<code>_APERTURE_WINDOW = 21</code>, <code>_APERTURE_DISK_RADIUS = 3.0</code>, <code>_APERTURE_RING_INNER = 6.0</code>,
+<code>_APERTURE_RING_OUTER = 8.0</code>, <code>_APERTURE_BG_WINDOW = 10</code>), annotated in the source as
+describing "the <em>provenance</em> of the layers, not a fresh integration this module
+performed". An analysis-only import writes <strong>no</strong> <code>/settings/extraction</code> at all — its
+<code>/settings</code> children are <code>analysis_only</code> and <code>correction</code> — and, carrying neither
+<code>raw</code>/<code>background</code> layers nor <code>/patches</code>, it can leave only as the CSV or the corrected
+<code>.txt</code>: <code>intensity_quantity="raw"</code> raises <code>KeyError: 'donor_raw'</code>, and <code>export_subset_tether</code>
+refuses with <code>ValueError: source /patches is missing the 'donor' channel; cannot export
+a curatable movie-less subset</code>.</p>
+</blockquote>
+<h2 id="1-molecule-table-csv">1. Molecule-table CSV</h2>
+<pre><code class="language-python">from tether.project.export import export_molecule_table_csv
+
+result = export_molecule_table_csv(
+    &quot;experiment.tether&quot;,
+    &quot;molecules.csv&quot;,
+    intensity_quantity=&quot;corrected&quot;,  # or &quot;raw&quot;
+    include_rejected=True,           # default: the CSV is a full inventory
+)
+print(result.path, result.provenance_path, result.n_molecules)
+</code></pre>
+<p><strong>File format.</strong> Written with the stdlib <code>csv.writer</code> on a handle opened
+<code>open("w", newline="", encoding="utf-8")</code>, so:</p>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Encoding</td>
+<td>UTF-8, no BOM</td>
+</tr>
+<tr>
+<td>Delimiter</td>
+<td><code>,</code></td>
+</tr>
+<tr>
+<td>Quoting</td>
+<td><code>csv.QUOTE_MINIMAL</code> with <code>"</code> — a cell containing a comma (a multi-tag <code>tags</code>, a <code>category</code> like <code>dynamic, folded</code>) is quoted</td>
+</tr>
+<tr>
+<td>Line terminator</td>
+<td><code>\r\n</code> on <strong>every</strong> platform (the <code>csv</code> module default, not the OS)</td>
+</tr>
+<tr>
+<td>Header</td>
+<td>Exactly one row, the 25 names below</td>
+</tr>
+<tr>
+<td>Rows</td>
+<td>One per exported molecule, in store order — one <code>/molecules</code> row = one detected donor spot in one movie, or, in an analysis-only import, one imported SMD / <code>.txt</code> trace</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Numbers.</strong> Integer columns go through <code>int()</code> and print with no decimal point. Float
+columns go through <code>_fmt_float</code>, which returns <code>""</code> for <code>None</code> or any non-finite value and
+otherwise <code>repr(float)</code> — Python's shortest round-tripping representation, full precision
+and no fixed decimal count. That is why a real exported cell carries all its significant
+digits: the row-0 <code>mean_apparent_e</code> of the three-molecule store used for the <code>.txt</code>
+sample below (<code>tests/_analysis_store.build_store_with_channels</code> over the <code>_asym_channels</code>
+values of <code>tests/test_export_tables.py</code>) reads <code>0.3715803781168891</code>, not <code>0.372</code>.</p>
+<blockquote>
+<p><strong>A blank cell means "not finite / not set", never zero.</strong> <code>_fmt_float</code> maps both <code>None</code>
+and <code>NaN</code> to the empty string. Reading the CSV with a tool that coerces blanks to <code>0</code>
+will silently turn "no γ was ever estimated" into "γ = 0".</p>
+</blockquote>
+<h3 id="molecule-table-columns">Molecule-table columns</h3>
+<p>The order is frozen in <code>tether.project.export.MOLECULE_TABLE_COLUMNS</code>, annotated in the
+source as <em>"the per-molecule CSV column order (frozen; a reader may key on these names)"</em>.
+<code>tests/test_docs_export_columns.py</code> fails if this table and that tuple ever disagree. The
+underlying field types are the frozen <code>tether.io.schema.MOLECULES_DTYPE</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>CSV type</th>
+<th>Unit / domain</th>
+<th>Blank when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>molecule_id</code></td>
+<td>string</td>
+<td>Unitless identity — a stable per-row UUID, <code>mol-</code> + 32 hex chars. Unique within a store</td>
+<td>The stored string is empty</td>
+</tr>
+<tr>
+<td><code>molecule_key</code></td>
+<td>string</td>
+<td>Unitless identity — 64-char lowercase hex SHA-256. For a store built from a movie: of <code>"{movie_sha256}\|{qx}\|{qy}"</code> with <code>donor_xy</code> quantized (<code>tether.imaging.extract.molecule_key</code>). For an analysis-only import there is no movie and no coordinate, so <code>tether.project.analysis_import._analysis_only_molecule_key</code> hashes the source id, the row index and the trace bytes instead — same shape, different inputs (callout below). The cross-file join key; <strong>not unique</strong> (§7.10)</td>
+<td>The stored string is empty</td>
+</tr>
+<tr>
+<td><code>movie_id</code></td>
+<td>string</td>
+<td>Unitless identity of the source <code>/movies</code> row (e.g. <code>mov-1</code>). <code>""</code> in an analysis-only project, which has no linked movie — <code>tether.project.analysis_import</code> writes the empty string explicitly</td>
+<td>No movie is linked</td>
+</tr>
+<tr>
+<td><code>source_filename</code></td>
+<td>string</td>
+<td>The filename the row's provenance was parsed from (<code>tether.io.filename.parse_filename</code>): the source <strong>movie</strong> for a native extraction or a Deep-LASI reconstruction, the imported <strong>SMD / <code>.txt</code></strong> for an analysis-only import</td>
+<td>The stored string is empty</td>
+</tr>
+<tr>
+<td><code>condition_id</code></td>
+<td>string</td>
+<td>Unitless condition key (e.g. <code>cond-353fd5a76531</code>)</td>
+<td>The stored string is empty</td>
+</tr>
+<tr>
+<td><code>condition_id_provisional</code></td>
+<td>string</td>
+<td>Unitless — the provisional key parsed from the filename at extraction, retained verbatim across any later re-key</td>
+<td>The stored string is empty</td>
+</tr>
+<tr>
+<td><code>curation_label</code></td>
+<td>string</td>
+<td><strong>Text, not the stored integer</strong>: <code>accept</code>, <code>uncurated</code>, <code>reject</code> (<code>_CURATION_TEXT</code> over <code>tether.project.labels.CurationLabel</code> = <code>1 / 0 / -1</code>). An unrecognized integer falls through to its decimal string</td>
+<td>Never — one of the values above is always written</td>
+</tr>
+<tr>
+<td><code>category</code></td>
+<td>string</td>
+<td>Free text, editable per condition. Emitted verbatim, so a comma inside it is CSV-quoted</td>
+<td>The stored string is empty (the extraction default <code>""</code>)</td>
+</tr>
+<tr>
+<td><code>quality_class</code></td>
+<td>float</td>
+<td>The read-only ML quality score. Its numeric range is <strong>not</strong> defined by the export or the schema, which call it only a "read-only ML output"</td>
+<td>The value is <code>NaN</code>. Extraction and analysis-only import both initialize it to <code>NaN</code> (<code>tether.imaging.extract</code>, <code>tether.project.analysis_import</code>) and no shipped code path writes anything else, so this column is blank in every export the current build can produce</td>
+</tr>
+<tr>
+<td><code>aperture_id</code></td>
+<td>integer</td>
+<td>Unitless index into the aperture registry. Extraction always writes <code>0</code> (<code>tether.imaging.extract</code>) — a <strong>placeholder</strong>, because there is no per-aperture registry yet. It does <strong>not</strong> encode the aperture geometry: <code>tether extract --window</code> is settable and still writes <code>0</code>; the effective geometry lives in <code>/settings/extraction</code>, which the CSV does not carry (see <a href="#intensity-units">Intensity units</a>)</td>
+<td>Never — an integer is always written</td>
+</tr>
+<tr>
+<td><code>alpha</code></td>
+<td>float</td>
+<td><strong>Dimensionless.</strong> Donor→acceptor leakage α, applied as <code>I_A,corr = I_A − α·I_D</code> (<code>tether.fret.efficiency</code>)</td>
+<td>α is unset. Extraction writes <code>NaN</code> until M3 estimates it</td>
+</tr>
+<tr>
+<td><code>gamma</code></td>
+<td>float</td>
+<td><strong>Dimensionless.</strong> Detection-correction factor γ, the denominator weight in <code>E = I_A,corr / (I_A,corr + γ·I_D,corr)</code></td>
+<td>γ is unset (<code>NaN</code> at extraction)</td>
+</tr>
+<tr>
+<td><code>delta</code></td>
+<td>float</td>
+<td><strong>Dimensionless.</strong> Direct-excitation δ. Initialized to <code>0.0</code> and inert in 2-colour (no ALEX; ADR-0008), so it exports as <code>0.0</code>, not blank</td>
+<td>The stored value is non-finite</td>
+</tr>
+<tr>
+<td><code>correction_method</code></td>
+<td>string</td>
+<td>Vocabulary from <code>tether.project.correct</code>: <code>""</code> (extraction default, nothing applied), <code>corrected</code>, <code>manual</code>, <code>apparent-E (corrections unavailable)</code>, <code>apparent-E (user toggle)</code></td>
+<td>Nothing has been applied yet (the <code>""</code> default)</td>
+</tr>
+<tr>
+<td><code>correction_confidence</code></td>
+<td>float</td>
+<td><strong>Unitless provenance flag, not a statistical CI</strong>: <code>1.0</code> when a real photophysical correction was applied, <code>0.0</code> when the molecule fell back to apparent E (<code>_CONFIDENCE_CORRECTED</code> / <code>_CONFIDENCE_APPARENT</code> in <code>tether.project.correct</code>)</td>
+<td>No correction pass has run (<code>NaN</code> at extraction)</td>
+</tr>
+<tr>
+<td><code>donor_bleach_frame</code></td>
+<td>integer</td>
+<td><strong>Frames</strong>, zero-based, absolute. <code>bleach_frames[0]</code>. Sentinel <code>-1</code> = not detected (<code>_UNDETECTED_FRAME</code>, <code>tether.imaging.extract</code>); a value equal to <code>frame_end</code> means the channel does not bleach within the trace (<code>tether.project.photobleach</code>)</td>
+<td>Never — an integer is always written</td>
+</tr>
+<tr>
+<td><code>acceptor_bleach_frame</code></td>
+<td>integer</td>
+<td><strong>Frames</strong>, zero-based, absolute. <code>bleach_frames[1]</code>; same <code>-1</code> and <code>== frame_end</code> conventions</td>
+<td>Never</td>
+</tr>
+<tr>
+<td><code>frame_start</code></td>
+<td>integer</td>
+<td><strong>Frames</strong>, zero-based, <strong>inclusive</strong> — <code>frame_range[0]</code>, the start of the molecule's valid native extent inside the store's zero-pad (ADR-0016). Extraction writes <code>0</code></td>
+<td>Never</td>
+</tr>
+<tr>
+<td><code>frame_end</code></td>
+<td>integer</td>
+<td><strong>Frames</strong>, zero-based, <strong>exclusive</strong> (half-open) — <code>frame_range[1]</code>. Extraction writes <code>n_frames</code></td>
+<td>Never</td>
+</tr>
+<tr>
+<td><code>window_start</code></td>
+<td>integer</td>
+<td><strong>Frames</strong>, zero-based, <strong>inclusive</strong> — the <em>resolved</em> analysis window actually used for <code>n_finite_frames</code>, <code>mean_apparent_e</code> and <code>median_apparent_e</code>: <code>analysis_window[0]</code>, falling back to <code>frame_range[0]</code> when the window is unset (<code>hi &lt;= lo</code>), per <code>_window</code></td>
+<td>Never</td>
+</tr>
+<tr>
+<td><code>window_end</code></td>
+<td>integer</td>
+<td><strong>Frames</strong>, zero-based, <strong>exclusive</strong> — the resolved upper bound, with the same fallback</td>
+<td>Never</td>
+</tr>
+<tr>
+<td><code>tags</code></td>
+<td>string</td>
+<td>Free text, <strong>comma-joined</strong> in the store (<code>tether.analysis.query</code> splits on <code>,</code>). Emitted verbatim, so a multi-tag cell is CSV-quoted. Analysis-only imports carry <code>round-trip-unavailable</code></td>
+<td>The molecule has no tags</td>
+</tr>
+<tr>
+<td><code>n_finite_frames</code></td>
+<td>integer</td>
+<td><strong>Frames</strong> — how many frames inside the resolved window have a finite apparent E. <code>0</code> when every frame in the window has <code>D + A == 0</code> exactly</td>
+<td>Never</td>
+</tr>
+<tr>
+<td><code>mean_apparent_e</code></td>
+<td>float</td>
+<td><strong>Dimensionless — apparent E</strong> (the proximity ratio <code>A/(D+A)</code>), arithmetic mean over the finite frames of the resolved window. <strong>Not</strong> γ-corrected. <strong>Not</strong> clipped to <code>[0, 1]</code>: <code>apparent_fret</code> deliberately leaves a noisy out-of-range value alone</td>
+<td><code>n_finite_frames == 0</code></td>
+</tr>
+<tr>
+<td><code>median_apparent_e</code></td>
+<td>float</td>
+<td><strong>Dimensionless — apparent E</strong>, <code>numpy.median</code> of the same finite values. Same no-clipping rule</td>
+<td><code>n_finite_frames == 0</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Three kinds of store write these columns, and only one of them came from a movie.</strong>
+A native extraction and a Deep-LASI reconstruction (<code>tether.project.reconstruct</code>, which
+calls the same <code>tether.imaging.extract.write_extraction</code>) both link a <code>/movies</code> row:
+<code>movie_id</code> is that row's id, <code>molecule_key</code> is the movie <code>sha256</code> + quantized
+<code>donor_xy</code>, and <code>source_filename</code> is the movie's name. An <strong>analysis-only import</strong>
+(<code>tether.project.analysis_import.import_analysis_only_project</code>, the coordinate-less
+SMD / <code>.txt</code> branch) writes <code>movie_id = ""</code>, <code>donor_xy</code>/<code>acceptor_xy</code> = <code>NaN</code>,
+<code>source_filename</code> = the SMD/<code>.txt</code> name, <code>tags = "round-trip-unavailable"</code>
+(<code>ANALYSIS_ONLY_TAG</code>), and a <code>molecule_key</code> from <code>_analysis_only_molecule_key</code> — the
+SHA-256 of the constant <code>"tether-analysis-only"</code>, the source id, the molecule's <strong>row
+index</strong>, and that molecule's raw donor and acceptor <strong>trace bytes</strong> (little-endian
+<code>float64</code>). The source calls it "an identity, not fabricated coordinate data". It is
+unique per row and stable across a re-import of the same source, but <strong>nothing in it is
+movie-derived</strong>: it cannot be re-derived from a movie hash or from coordinates, and it
+will not match the key the same molecule would carry in a movie-linked store. A blank
+<code>movie_id</code> is the flag that says so; <code>tether.project.analysis_import.read_analysis_only_marker</code>
+is the O(1) check on the store itself.</p>
+<p><strong><code>window_start</code>/<code>window_end</code> may equal <code>frame_start</code>/<code>frame_end</code> by <em>fallback</em>, not by
+curation.</strong> <code>_window</code> substitutes the frame range whenever <code>analysis_window</code> is unset
+(<code>hi &lt;= lo</code>), and extraction also <em>initializes</em> <code>analysis_window</code> to <code>[0, n_frames]</code>. So
+"window == frame range" tells you nothing about whether a curator ever looked at the
+molecule. The columns exist so the reported window always matches the range the
+three trailing summary columns actually cover.</p>
+</blockquote>
+<p><strong>How the E summary is computed.</strong> For each row, <code>apparent_fret(donor[i, lo:hi],
+acceptor[i, lo:hi])</code> over the resolved window <code>[lo, hi)</code>, on the layer chosen by
+<code>intensity_quantity</code>; frames where <code>D + A == 0</code> exactly are <code>NaN</code> and are excluded from
+the mean, the median and <code>n_finite_frames</code>.</p>
+<h2 id="2-deep-lasi-trace-matrix-txt">2. Deep-LASI trace matrix (<code>.txt</code>)</h2>
+<pre><code class="language-python">from tether.project.export import export_deeplasi_txt
+
+result = export_deeplasi_txt(
+    &quot;experiment.tether&quot;,
+    &quot;traces-donc-accc-w.txt&quot;,
+    molecule_keys=None,              # or a list of molecule_key strings
+    intensity_quantity=&quot;corrected&quot;,
+    include_rejected=False,
+)
+</code></pre>
+<p>The serializer is <code>tether.io.deeplasi.write_deeplasi_txt</code>; its read-side mirror is
+<code>read_deeplasi_txt</code>, which de-interleaves the same file back into two <code>(N, T)</code> arrays.</p>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Header</td>
+<td><strong>None.</strong> No header line, no index column, no molecule ids — the file must stay Deep-LASI-faithful</td>
+</tr>
+<tr>
+<td>Shape</td>
+<td><code>T</code> rows × <code>2N</code> columns: one row per <strong>frame</strong>, one column <em>pair</em> per <strong>molecule</strong></td>
+</tr>
+<tr>
+<td>Column order</td>
+<td><strong>Interleaved, donor first</strong>: <code>donor₀ acceptor₀ donor₁ acceptor₁ …</code> (<code>interleaved[:, 0::2] = donor.T</code>)</td>
+</tr>
+<tr>
+<td>Number format</td>
+<td><code>numpy.savetxt(..., fmt="%.5f")</code> — fixed-point, exactly 5 decimals (<code>_TXT_DECIMALS = 5</code>). A round trip is therefore lossy to that rounding</td>
+</tr>
+<tr>
+<td>Delimiter</td>
+<td>A single space</td>
+</tr>
+<tr>
+<td>Line ending</td>
+<td>OS-translated (<code>savetxt</code> opens in text mode; no <code>newline=</code> is passed) — CRLF on Windows, LF elsewhere. Unlike the CSV, this is <em>not</em> fixed</td>
+</tr>
+<tr>
+<td>Values</td>
+<td>Uncalibrated intensities — never photons, and <strong>not necessarily movie pixel units</strong>: what the number is depends on how the <em>source store</em> was built (integrated camera counts for a native extraction; the upstream tool's pre-integrated series, not re-integrated, for a Deep-LASI reconstruction or an analysis-only import). See <a href="#intensity-units">Intensity units</a>. Signed either way, so background-subtracted values may be negative</td>
+</tr>
+</tbody>
+</table>
+<p>A real first line, from a three-molecule store:</p>
+<pre><code class="language-text">100.00000 53.00000 200.00000 56.00000 300.00000 59.00000
+</code></pre>
+<p><strong>Frame trimming — the one place a row index is not an absolute frame.</strong> The store's
+<code>/traces</code> arrays are zero-padded to the experiment-max frame count as movies of differing
+length are appended (ADR-0016), so <code>export_deeplasi_txt</code> trims to the selection's shared
+<code>frame_range</code>: the written matrix is <code>donor_all[rows][:, lo:hi]</code>. Row 0 of the file is
+therefore absolute frame <strong><code>lo</code></strong>, which need not be 0, and <code>lo</code> is recorded <strong>only</strong> in
+the provenance sidecar (<code>frame_range</code>). A selection spanning more than one <code>frame_range</code>
+has no honest common axis and raises <code>ValueError</code> rather than padding or truncating.</p>
+<p>Sidecar <code>parameters</code> for this export: <code>intensity_quantity</code>, <code>include_rejected</code>,
+<code>n_molecules</code>, <code>n_frames</code> (<code>= hi - lo</code>), <code>frame_range</code> (<code>[lo, hi]</code>, half-open),
+<code>molecule_keys</code> (<code>null</code> or a list).</p>
+<h2 id="3-subset-tether">3. Subset <code>.tether</code></h2>
+<pre><code class="language-python">from tether.project.export import export_subset_tether
+
+result = export_subset_tether(
+    &quot;experiment.tether&quot;,
+    &quot;subset.tether&quot;,
+    molecule_keys=None,        # or a list of molecule_key strings
+    include_rejected=False,
+    include_raw=False,
+    overwrite=False,
+)
+</code></pre>
+<p>A new, self-contained HDF5 project built by <code>tether.io.schema.create_project</code> and then
+populated with additive data only — it adds no structure to the M0-frozen skeleton
+(ADR-0005). It is written <strong>atomically</strong>: staged to a <code>tempfile.mkstemp</code> sibling in the
+destination directory and moved into place with <code>os.replace</code>, and the staged file is
+unlinked on any failure. <code>_preflight_source</code> validates the source (layers present,
+row counts consistent, both patch channels present) <strong>before</strong> anything is written.</p>
+<p><strong>What travels:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/molecules</code></td>
+<td>The selected rows only</td>
+</tr>
+<tr>
+<td><code>/traces</code></td>
+<td><code>donor_corrected</code>, <code>acceptor_corrected</code> always; <code>donor_raw</code>, <code>acceptor_raw</code>, <code>donor_background</code>, <code>acceptor_background</code> only when <code>include_raw=True</code></td>
+</tr>
+<tr>
+<td><code>/patches</code></td>
+<td>Every channel (<code>donor</code>, <code>acceptor</code>), row-subset, patch window unchanged</td>
+</tr>
+<tr>
+<td><code>/idealization/{model}</code></td>
+<td>Per-model, filtered on <strong><code>molecule_id</code></strong> (the unique UUID, not the non-unique <code>molecule_key</code>). The row-aligned members <code>idealized</code>, <code>state_path</code>, <code>molecule_key</code>, <code>molecule_id</code>, <code>input_hash</code> are subset; every other member (<code>mean</code>, <code>var</code>, <code>frac</code>, <code>tmatrix</code>, <code>norm_tmatrix</code>, <code>rates</code>, <code>pi</code>, the <code>priors</code> group) is a global consensus array and is copied verbatim. The group's <code>n_molecules</code> attribute is rewritten to the kept count</td>
+</tr>
+<tr>
+<td><code>/labels</code></td>
+<td>Rows whose <code>molecule_key</code> is in the selection</td>
+</tr>
+<tr>
+<td><code>/conditions</code>, <code>/settings</code>, <code>/calibration</code>, <code>/models</code></td>
+<td>Copied verbatim</td>
+</tr>
+</tbody>
+</table>
+<p><strong>What does not travel:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Dropped</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/movies</code> <strong>rows</strong></td>
+<td>The subset is definitionally movie-less. The group exists (the skeleton is frozen) but has <strong>zero rows</strong>, so nothing the row itself held comes with it: <code>uri</code>, <code>sha256</code>, <code>file_size</code>, <code>mtime</code>, <code>n_frames</code> / <code>height</code> / <code>width</code>, <code>pixel_dtype</code>, <code>frame_time</code>, <code>head_tail_hash</code>, the per-channel crop/rotation/flip, and the row's <code>calibration_id</code> cell (<code>tether.io.schema.MOVIES_DTYPE</code>). <strong>The calibration itself does travel</strong> — <code>/calibration</code> is in <code>_SUBSET_VERBATIM_GROUPS</code> and is copied whole, so <code>/calibration/&lt;calibration_id&gt;</code> keeps the id (it <em>is</em> the group name), the two polynomial transforms and the registration geometry attrs; only the movie row is gone</td>
+</tr>
+<tr>
+<td><code>/features</code></td>
+<td>Present but empty — per-molecule ML features are outside the subset embed set (<code>_SUBSET_VERBATIM_GROUPS</code> deliberately omits it)</td>
+</tr>
+<tr>
+<td>Raw <strong>and</strong> background traces, when <code>include_raw=False</code></td>
+<td>They ride as a set of four. Because <code>corrected = raw − background</code> exactly, keeping background alone would make raw reconstructable — omitting raw must omit background too</td>
+</tr>
+<tr>
+<td>Idealization models whose input layers are absent, or none of whose molecules were selected</td>
+<td>Listed in the sidecar's <code>skipped_idealization_models</code>. A <code>raw</code>-fitted model is skipped when <code>include_raw=False</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Embedded provenance.</strong> Besides the sidecar, the subset stamps four root attributes
+(readable with <code>h5py</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Attribute</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tether_subset_of</code></td>
+<td>The <strong>source filename only</strong> (<code>path.name</code>), never a full path</td>
+</tr>
+<tr>
+<td><code>tether_subset_created_utc</code></td>
+<td>Offset-aware ISO-8601 UTC — byte-identical to the sidecar's <code>created_utc</code></td>
+</tr>
+<tr>
+<td><code>tether_subset_include_raw</code></td>
+<td><code>0</code> or <code>1</code> — an integer, not a bool</td>
+</tr>
+<tr>
+<td><code>tether_subset_n_molecules</code></td>
+<td>The exported count</td>
+</tr>
+</tbody>
+</table>
+<p>The root also carries <code>create_project</code>'s own <code>format="tether-project"</code>, <code>schema_version</code>
+and <code>app_version</code>; the last is the version of the build that performed the <em>export</em>, not
+the source's.</p>
+<p><strong>Refusals.</strong> <code>FileExistsError</code> when <code>out_path</code> exists and <code>overwrite=False</code>; <code>ValueError</code>
+when the output resolves to (or is a hard link of) the source, when the selection is
+empty, or when the preflight fails.</p>
+<p>Sidecar <code>parameters</code> for this export: <code>include_raw</code>, <code>include_rejected</code>, <code>molecule_keys</code>,
+<code>n_molecules</code>, <code>trace_layers</code> and <code>n_trace_layers</code>, <code>idealization_models</code> and
+<code>n_idealization_models</code>, <code>skipped_idealization_models</code>, <code>n_label_rows</code>.</p>
+<h2 id="4-plot-export-pdf-svg-png">4. Plot export (PDF + SVG + PNG)</h2>
+<p><code>tether.analysis.plot_export</code> splits rendering from writing: each <code>render_*</code> helper returns
+a bare <code>matplotlib.figure.Figure</code> and writes nothing; <code>export_figure</code> is the only function
+that touches disk. Figures are built with the object-oriented <code>Figure</code> API rather than
+<code>pyplot</code>, so no GUI backend is selected and the base environment stays <code>matplotlib-base</code>
+(ADR-0044). The module is deliberately <strong>not</strong> re-exported from <code>tether.analysis</code>, so
+importing the package does not pull in Matplotlib.</p>
+<pre><code class="language-python">from tether.analysis.histogram import population_apparent_e_histogram
+from tether.analysis.plot_export import export_figure, render_histogram1d
+
+hist = population_apparent_e_histogram(&quot;experiment.tether&quot;, bins=151)
+figure = render_histogram1d(hist)
+result = export_figure(
+    figure,
+    &quot;figures/a1-histogram&quot;,      # a stem: no extension
+    tether_export=&quot;plot:a1&quot;,     # free-form kind string, recorded in the stamp
+    source=&quot;experiment.tether&quot;,
+    parameters={&quot;bins&quot;: 151},    # whatever you want stamped
+)
+print(result.paths)              # {'pdf': ..., 'svg': ..., 'png': ...}
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Formats</td>
+<td><code>DEFAULT_PLOT_FORMATS = ("pdf", "svg", "png")</code> — all three by default. <code>formats=</code> may select a subset; any other value raises <code>ValueError</code>, and an empty tuple raises <code>ValueError("at least one export format is required")</code></td>
+</tr>
+<tr>
+<td>Write order</td>
+<td>Always canonical <code>pdf, svg, png</code>, regardless of the order passed — the loop iterates <code>DEFAULT_PLOT_FORMATS</code> and skips</td>
+</tr>
+<tr>
+<td>Filenames</td>
+<td>The extension is <strong>appended</strong> to <code>out_stem</code>, never substituted: a stem <code>my.plot.v2</code> yields <code>my.plot.v2.pdf</code>. Nothing is derived from the plot kind, the title or the timestamp</td>
+</tr>
+<tr>
+<td>Figure size</td>
+<td><code>DEFAULT_FIGSIZE = (6.4, 4.8)</code> <strong>inches</strong></td>
+</tr>
+<tr>
+<td>Raster resolution</td>
+<td><code>DEFAULT_EXPORT_DPI = 200</code>, PNG only — at the default figure size that is a 1280 × 960 px PNG. The vector formats are resolution-independent and ignore it</td>
+</tr>
+<tr>
+<td>Background</td>
+<td>Matplotlib's opaque white; <code>transparent=</code> is never passed</td>
+</tr>
+<tr>
+<td>Determinism</td>
+<td><code>savefig</code> runs inside <code>rc_context({"svg.hashsalt": _SVG_HASHSALT})</code>, so SVG element ids are stable across processes and re-exporting a <strong>freshly re-rendered</strong> figure at the same pinned <code>created_utc</code> is byte-identical in all three formats. Re-exporting the <em>same</em> <code>Figure</code> object is <strong>not</strong>, because <code>stamp=True</code> draws another footer onto it — see the mutation callout below</td>
+</tr>
+<tr>
+<td>Return value</td>
+<td><code>PlotExportResult(stem, paths, provenance_path, formats)</code></td>
+</tr>
+</tbody>
+</table>
+<p>A plot export is stamped <strong>three</strong> ways:</p>
+<ol>
+<li><strong>The sidecar</strong> <code>&lt;stem&gt;.provenance.json</code>, written by the same
+   <code>write_provenance_sidecar</code>. <code>export_figure</code> merges three keys of its own into your
+   <code>parameters</code>: <code>formats</code> (canonical order), <code>dpi</code>, and <code>outputs</code> (<code>{format: basename}</code> —
+   basenames, not paths). The sidecar is written even when <code>stamp=False</code>.</li>
+<li><strong>A visible on-figure footer</strong>, when <code>stamp=True</code> (the default): two 6-point,
+   55 %-opacity texts at the bottom of the figure — <code>Tether &lt;version&gt; · &lt;kind&gt;</code> on the
+   left and the ISO timestamp on the right.</li>
+<li><strong>Embedded document metadata</strong>, per backend: PDF <code>Title</code>/<code>Author</code>/<code>Subject</code>/<code>Creator</code>/
+   <code>CreationDate</code>; SVG Dublin-Core <code>Title</code>/<code>Description</code>/<code>Date</code>; PNG <code>tEXt</code> chunks
+   <code>Software</code>/<code>Title</code>/<code>Description</code>/<code>Creation Time</code>. The <code>title=</code> argument fills only the
+   document <code>Title</code> (defaulting to the <code>tether_export</code> kind) — it does not change the
+   on-figure title or the filename.</li>
+</ol>
+<blockquote>
+<p><strong><code>export_figure</code> mutates the figure you pass.</strong> The footer is drawn onto the <code>Figure</code>
+object, so exporting the <em>same</em> figure twice with <code>stamp=True</code> leaves two overlapping
+footers with two different timestamps. Re-render before re-exporting.</p>
+</blockquote>
+<p>The eight renderers, and the plot each produces (Appendix-C ids as used in the
+<a href="../../analysis/parity-gallery/">seven-plot parity gallery</a>):</p>
+<table>
+<thead>
+<tr>
+<th>Renderer</th>
+<th>Input dataclass</th>
+<th>Plot</th>
+<th>x-axis unit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>render_histogram1d</code></td>
+<td><code>Histogram1D</code> or <code>HistogramBootstrapCI</code> (+ optional <code>ModelGaussianOverlay</code>)</td>
+<td>A1 population histogram</td>
+<td>Apparent FRET efficiency <em>E</em> (dimensionless)</td>
+</tr>
+<tr>
+<td><code>render_histogram2d</code></td>
+<td><code>Histogram2D</code></td>
+<td>A2 time-vs-signal heatmap</td>
+<td><code>Time (s)</code> when <code>time_dt != 1.0</code>, otherwise <code>Frame</code></td>
+</tr>
+<tr>
+<td><code>render_transition_density</code></td>
+<td><code>TransitionDensityPlot</code></td>
+<td>B1 transition-density plot</td>
+<td>Initial <em>E</em> (dimensionless)</td>
+</tr>
+<tr>
+<td><code>render_dwell_survival</code></td>
+<td><code>DwellTimeAnalysis</code></td>
+<td>B2 survival curve (+ residual panel when a fit succeeded)</td>
+<td><code>Dwell time (s)</code> when <code>dt != 1.0</code>, otherwise <code>Dwell time (frames)</code></td>
+</tr>
+<tr>
+<td><code>render_transition_prob</code></td>
+<td><code>TransitionProbHistogram</code></td>
+<td>B3 transition-probability histogram</td>
+<td>Probability per molecule (dimensionless)</td>
+</tr>
+<tr>
+<td><code>render_state_number</code></td>
+<td><code>StateNumberCounts</code></td>
+<td>C1 state-number distribution</td>
+<td>Number of occupied states (a count)</td>
+</tr>
+<tr>
+<td><code>render_raw_fret_cloud</code></td>
+<td><code>RawFretCloud</code></td>
+<td>QC raw FRET cloud</td>
+<td><code>Time (s)</code> when <code>time_dt != 1.0</code>, otherwise <code>Frame</code></td>
+</tr>
+<tr>
+<td><code>render_cross_correlation</code></td>
+<td><code>CrossCorrelation</code></td>
+<td>Donor–acceptor cross-correlation</td>
+<td><code>Lag (frames)</code> — always frames; there is no seconds variant</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>A time axis says seconds only if you supplied a frame duration.</strong> <code>dt</code> / <code>time_dt</code>
+default to <code>1.0</code>, and at that default the renderer labels the axis in frames. The same
+applies to rates read off a B2 survival fit: <code>tether.analysis.dwell</code> reports them in
+<code>1 / (frames · dt)</code>, i.e. <strong>per frame</strong> at the default.</p>
+</blockquote>
+<p><code>render_raw_fret_cloud</code> decimates its scatter overlay when the population exceeds
+<code>max_points</code> (default 20 000) to keep the vector file manageable; the density surface
+underneath is untouched by that decimation. It is not, however, fit on every point:
+<code>raw_fret_cloud</code> keeps all finite samples in <code>points</code>, but fits the KDE — and the HDR
+levels derived from it — on the samples inside <code>time_range</code> × <code>signal_range</code> only, so
+un-clipped apparent-E outliers cannot inflate the bandwidth. The excluded count is
+<code>n_out_of_range</code>; the on-figure annotation reports only <code>n_samples</code> and <code>n_molecules</code>,
+so read it off the dataclass.</p>
+<h2 id="provenance-sidecar">Provenance sidecar</h2>
+<p>Every one of the four exports writes <code>&lt;file&gt;.provenance.json</code> beside its output, via
+<code>tether.project.export.write_provenance_sidecar</code>. The name is formed by <em>appending</em> to the
+full filename, so the original extension survives: <code>molecules.csv.provenance.json</code>,
+<code>traces.txt.provenance.json</code>, <code>subset.tether.provenance.json</code>. Plot exports pass the
+extension-less stem, so theirs is <code>&lt;stem&gt;.provenance.json</code>.</p>
+<p>The payload is <code>json.dumps(payload, indent=2, sort_keys=True) + "\n"</code>, UTF-8 — which is
+why the keys read alphabetically:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>app_version</code></td>
+<td>The git-derived <code>tether.__version__</code>, falling back to <code>"0.0.0+unknown"</code>. A provenance stamp never raises</td>
+</tr>
+<tr>
+<td><code>created_utc</code></td>
+<td>Offset-aware ISO-8601 UTC with microseconds (<code>datetime.now(UTC).isoformat()</code>), e.g. <code>2026-07-20T22:14:26.314669+00:00</code>. A caller may pin it, which is how a subset's in-file attribute and its sidecar agree exactly</td>
+</tr>
+<tr>
+<td><code>parameters</code></td>
+<td>The export's own parameters — different per export; the per-export lists are given above</td>
+</tr>
+<tr>
+<td><code>source_project</code></td>
+<td>For the three store exports, the source <code>.tether</code> <strong>basename only</strong> — they call <code>write_provenance_sidecar(source=path.name)</code>. For <code>export_figure</code> it is <strong>caller-supplied and unnormalized</strong>: the <code>source=</code> argument is forwarded verbatim, and <code>write_provenance_sidecar</code> does no <code>.name</code> reduction of its own, so an absolute path you pass is an absolute path in the JSON. Pass a basename yourself</td>
+</tr>
+<tr>
+<td><code>tether_export</code></td>
+<td>The export-kind discriminator</td>
+</tr>
+</tbody>
+</table>
+<p><code>tether_export</code> takes exactly three fixed values from the store exports —
+<code>"deeplasi-txt"</code>, <code>"molecule-table-csv"</code>, <code>"subset-tether"</code>. For plots it is <strong>caller-supplied
+and unvalidated</strong>: nothing in <code>src/</code> defines or checks a plot kind vocabulary.</p>
+<p>A real sidecar, verbatim:</p>
+<pre><code class="language-json">{
+  &quot;app_version&quot;: &quot;0.0.0+unknown&quot;,
+  &quot;created_utc&quot;: &quot;2026-07-20T22:14:26.314669+00:00&quot;,
+  &quot;parameters&quot;: {
+    &quot;include_rejected&quot;: true,
+    &quot;intensity_quantity&quot;: &quot;corrected&quot;,
+    &quot;n_molecules&quot;: 3
+  },
+  &quot;source_project&quot;: &quot;chan.tether&quot;,
+  &quot;tether_export&quot;: &quot;molecule-table-csv&quot;
+}
+</code></pre>
+<p>The sidecar exists because flat text has no metadata slot and the Deep-LASI <code>.txt</code> must
+stay header-free — so the stamp travels beside the file rather than inside it (PRD §8
+NFR-REPRO; ADR-0001). Keep it with the data file when you move or share the export. For
+the CSV and the <code>.txt</code> it is the <strong>only</strong> record of which build, which project and which
+parameters produced those numbers. A subset <code>.tether</code> and a plot export also carry a stamp
+<em>inside</em> the file — the subset's four <code>tether_subset_*</code> root attributes plus
+<code>create_project</code>'s <code>app_version</code>, and a plot's on-figure footer plus its embedded document
+metadata (both above) — but only the sidecar carries the full parameter set.</p>
+<h2 id="reading-the-exports-elsewhere">Reading the exports elsewhere</h2>
+<h3 id="pandas">pandas</h3>
+<pre><code class="language-python">import pandas as pd
+
+table = pd.read_csv(&quot;molecules.csv&quot;)  # UTF-8, one header row, comma-delimited
+
+# Blank cells are &quot;not finite&quot;, not zero — keep them as NaN, do not fillna(0).
+uncorrected = table[&quot;gamma&quot;].isna().sum()
+
+# Recompute corrected E from the shipped factors where they exist:
+#   E = (A - alpha*D) / ((A - alpha*D) + gamma*D)
+# The CSV carries only the per-molecule apparent-E summary, so the per-frame D and A
+# must come from the .txt export or the store itself.
+</code></pre>
+<p>Eight columns are integers and never blank: <code>aperture_id</code>, <code>donor_bleach_frame</code>,
+<code>acceptor_bleach_frame</code>, <code>frame_start</code>, <code>frame_end</code>, <code>window_start</code>, <code>window_end</code>,
+<code>n_finite_frames</code>. The other five numeric columns — <code>quality_class</code>, <code>alpha</code>, <code>gamma</code>,
+<code>delta</code>, <code>correction_confidence</code> — plus <code>mean_apparent_e</code> and <code>median_apparent_e</code> are
+floats that may be blank. Everything else is a string, including <code>curation_label</code>, and
+<code>tags</code> arrives as a single comma-joined cell you must split yourself.</p>
+<h3 id="matlab-prism-origin-excel">MATLAB, Prism, Origin, Excel</h3>
+<p>The CSV is plain UTF-8 with exactly one header row, a comma delimiter and standard <code>"</code>
+quoting, so <code>readtable</code> and every spreadsheet importer handle it directly. Two things to
+set on import: keep blank cells as missing rather than <code>0</code>, and treat <code>molecule_id</code> /
+<code>molecule_key</code> as text — <code>molecule_key</code> is a 64-character hex digest and will be mangled
+by a numeric or scientific-notation guess.</p>
+<p>The Deep-LASI <code>.txt</code> is whitespace-delimited with <strong>no header</strong>, so <code>readmatrix</code> /
+<code>numpy.loadtxt</code> read it as a plain <code>T × 2N</code> numeric matrix. Pass <code>ndmin=2</code> to
+<code>numpy.loadtxt</code> — a single-frame export is a one-row file, which plain <code>loadtxt</code>
+collapses to a 1-D array; Tether's own <code>read_deeplasi_txt</code> reads it as
+<code>np.loadtxt(path, dtype=np.float64, ndmin=2)</code> for exactly that reason. <code>readmatrix</code>
+needs no equivalent flag. Counting molecules from zero, molecule <em>k</em>'s donor is
+0-based column <code>2k</code> and its acceptor <code>2k + 1</code> — in MATLAB's 1-based indexing, columns
+<code>2k + 1</code> and <code>2k + 2</code>.</p>
+<h3 id="frames-to-seconds">Frames to seconds</h3>
+<p>No <em>store</em> export carries the frame duration — only a plot export can, and only as a
+rendered seconds axis you cannot read a number back out of. The duration lives in the
+source project, <strong>per movie</strong> (<code>/movies.frame_time</code>, <code>tether.io.schema.MOVIES_DTYPE</code>), and
+every CSV row names its movie in <code>movie_id</code>. So the conversion is a per-row join, not one
+global constant:</p>
+<pre><code class="language-python">import csv
+
+import h5py
+
+
+def frame_times_by_movie(project_path):
+    &quot;&quot;&quot;Map each ``movie_id`` to its own seconds per frame, from the source project.&quot;&quot;&quot;
+    with h5py.File(project_path, &quot;r&quot;) as store:
+        movies = store[&quot;movies&quot;][&quot;table&quot;][:]
+    times = {}
+    for movie in movies:
+        movie_id = movie[&quot;movie_id&quot;]
+        if isinstance(movie_id, bytes):  # h5py hands vlen UTF-8 back as bytes
+            movie_id = movie_id.decode(&quot;utf-8&quot;)
+        times[movie_id] = float(movie[&quot;frame_time&quot;])
+    return times
+
+
+def frames_to_seconds(frames, movie_id, frame_times):
+    &quot;&quot;&quot;Convert one exported frame number. A stored 0.0 means *unknown*, never zero.&quot;&quot;&quot;
+    frame_time = frame_times.get(movie_id)
+    if frame_time is None:
+        raise KeyError(f&quot;no /movies row for movie_id {movie_id!r}&quot;)
+    if frame_time &lt;= 0.0:
+        raise ValueError(f&quot;movie {movie_id!r} carries no frame duration&quot;)
+    return frames * frame_time
+
+
+frame_times = frame_times_by_movie(&quot;experiment.tether&quot;)
+
+with open(&quot;molecules.csv&quot;, newline=&quot;&quot;, encoding=&quot;utf-8&quot;) as handle:
+    for row in csv.DictReader(handle):
+        seconds = frames_to_seconds(int(row[&quot;window_end&quot;]), row[&quot;movie_id&quot;], frame_times)
+</code></pre>
+<p>Three caveats — the two functions raise on each of them rather than return a plausible
+wrong number:</p>
+<ul>
+<li><strong>A project may hold more than one movie, each with its own <code>frame_time</code>.</strong> Extraction
+  appends one <code>/movies</code> row per movie, so reading <code>movies["frame_time"][0]</code> and applying
+  it to every exported row silently mis-scales every molecule that came from a later
+  movie. Key by <code>movie_id</code>, as above. On a two-movie store at <code>0.1</code> and <code>0.25</code> s/frame,
+  frame 8 is <code>0.8 s</code> and <code>2.0 s</code> respectively; the first-row shortcut reports <code>0.8 s</code> for
+  both.</li>
+<li><strong>A stored <code>0.0</code> means <em>unknown</em>, not "instantaneous".</strong> The GUI treats a non-positive
+  <code>frame_time</code> as absent and falls back to a frame axis (<code>tether.gui.shell</code>), and
+  <code>frames_to_seconds</code> above refuses rather than handing back a column of zeros labelled
+  seconds.</li>
+<li><strong>Some rows have no movie to key on at all.</strong> A <strong>subset <code>.tether</code> has zero <code>/movies</code>
+  rows</strong> by construction, and an <strong>analysis-only import</strong> has none either and writes
+  <code>movie_id = ""</code> (see the callout under
+  <a href="#molecule-table-columns">Molecule-table columns</a>). Both land in the <code>KeyError</code>: the
+  factor has to come from the parent project or from the acquisition metadata, because
+  Tether never stored one.</li>
+</ul>
+<h3 id="idealization-state-paths-in-a-subset">Idealization state paths in a subset</h3>
+<p>A subset carries whole <code>/idealization/{model}</code> groups. In <code>state_path</code>, the sentinel
+<strong><code>-1</code></strong> (<code>tether.idealize.NO_STATE</code>) marks a frame with <strong>no assigned state</strong> — outside
+the analysis window, or an interior gap — and the matching <code>idealized</code> cell is <code>NaN</code>. It
+is a sentinel, not state number −1: exclude those frames rather than treating them as an
+extra state. Tether's own analyses do exactly that (<code>tether.analysis.tdp</code>,
+<code>tether.analysis.state_number</code>, <code>tether.analysis.transition_prob</code>).</p>
+<h3 id="why-a-subset-tether-is-readable-at-all">Why a subset <code>.tether</code> is readable at all</h3>
+<p>The <code>.tether</code> store is a <strong>superset of the tMAVEN SMD layout</strong>, not a private format
+(ADR-0002, <a href="../../adr/0002-smd-superset-round-trip/">The <code>.tether</code> store is an SMD superset</a>).
+It is HDF5: <code>h5py</code>, MATLAB <code>h5read</code> and <code>rhdf5</code> all open it without Tether installed. The
+same property is what makes the tMAVEN round trip a data-model consequence rather than a
+conversion step.</p>
+<h2 id="references">References</h2>
+<ul>
+<li><strong>PRD §7.9 FR-EXPORT</strong> — the export surface; <strong>§8 NFR-REPRO</strong> — "all exports are stamped
+  with provenance and parameters"; <strong>§5.4</strong> — the subset invariant; <strong>§7.5</strong> — the curation
+  filter; <strong>§7.10</strong> — <code>molecule_key</code> non-uniqueness.</li>
+<li><strong>ADR-0001</strong> — provenance-first project store.</li>
+<li><strong>ADR-0002</strong> — the <code>.tether</code> store is an SMD superset; round-trip is a data-model property.</li>
+<li><strong>ADR-0005</strong> — the M0 schema freeze (additive-only), which the subset export honours.</li>
+<li><strong>ADR-0008</strong> — the Deep-LASI → Tether correction-factor remap (β→α, α→δ, γ→γ).</li>
+<li><strong>ADR-0016</strong> — the extraction trace-store layout: zero-pad-to-max-<code>T</code> traces and the
+  <code>molecule_key</code> content hash.</li>
+<li><strong>ADR-0024</strong> — the <code>/idealization/{model}</code> store layout a subset carries.</li>
+<li><strong>ADR-0044</strong> — <code>matplotlib-base</code> as the static vector plot-export backend.</li>
+<li><a href="../../io/legacy-import/">Legacy Deep-LASI import</a> — the input side of the same story.</li>
+<li><a href="../../idealize/standalone-tmaven-handoff/">Standalone-tMAVEN hand-off</a> — the SMD
+  interchange leg, which is not an export.</li>
+<li><a href="../../analysis/parity-gallery/">Seven-plot parity gallery</a> — what each renderer plots and
+  the test that pins its parity.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.top", "content.code.copy", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
