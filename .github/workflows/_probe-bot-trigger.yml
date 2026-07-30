@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TEMPORARY. This file exists to answer one question (#284) and is deleted in this same pull request
+# before it merges. It must never reach the default branch: a standing workflow that can post
+# `@codex review` on behalf of `github-actions[bot]` is exactly the capability the answer decides
+# whether to grant, so granting it in order to find out would prejudge the question.
+#
+#   Does `@codex review` / `@coderabbitai review` posted by `github-actions[bot]` actually trigger
+#   either provider?
+#
+# Neither provider auto-reviews this repository, so ASKING is the only way a review round can begin -
+# which makes "who may ask" the whole of the review cap. If a bot-posted trigger works, the trigger
+# belongs in `agent-triage.yml` and agent-authored triggers can be forbidden outright, making the cap
+# a platform boundary rather than a convention.
+#
+# Why it has to run from a pull-request head: `check_suite`, `schedule` and `workflow_dispatch` all
+# fire only from the workflow file on the DEFAULT branch, so none of them can be exercised by the
+# branch that introduces them. `pull_request` events do fire from the head - measured on #285.
+#
+# The pull request stays a DRAFT while this runs. That is not caution, it is the experiment's
+# control: Codex fires on open-for-review and on draft-ready as well as on an `@codex review`
+# comment, so a non-draft PR would make any Codex response unattributable.
+name: _probe-bot-trigger
+
+on:
+  pull_request:
+    types: [opened, reopened, labeled]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Belt and braces on a workflow that can speak as `github-actions[bot]`: it fires only on the one
+    # branch it was written for, so it cannot act on any other pull request even while it exists.
+    if: github.event.pull_request.head.ref == 'ci/issue-284-bot-trigger-probe'
+    steps:
+      - name: Post both provider triggers as github-actions[bot]
+        shell: bash -el {0}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          # `secrets.GITHUB_TOKEN` is what makes the comment author `github-actions[bot]`, which is
+          # the entire point - a PAT would author it as bioedca and answer a different question.
+          {
+            printf 'Bot-trigger probe for #284, authored by `github-actions[bot]`.\n\n'
+            printf '@coderabbitai review\n'
+            printf '@codex review\n\n'
+            printf 'If either provider answers this, a workflow can start a review round and the '
+            printf 'cap is a platform boundary. If neither does, it rests on the launcher.\n'
+          } > /tmp/probe.txt
+          # Build the request body as JSON rather than passing the text as a flag: a multi-line
+          # string through `-f`/`-F` is where quoting goes wrong, and a mangled probe would answer
+          # the wrong question.
+          jq -Rs '{body: .}' /tmp/probe.txt > /tmp/probe.json
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --input /tmp/probe.json > /dev/null
+          echo "probe comment posted on #${PR_NUMBER} as github-actions[bot]"
