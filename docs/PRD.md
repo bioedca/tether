@@ -670,9 +670,11 @@ The installed application **shall** be able to detect a newer **stable** release
 running platform, **verify it against the GitHub build-provenance attestation**, and hand off to the OS installer.
 It **shall not** apply an in-place environment update and **shall not** update silently. Prereleases **shall never**
 be offered: a prerelease is not a supported target and this mechanism provides no way back, so moving a user onto one
-could be undone only by a manual reinstall. An offered release **shall** additionally be **strictly newer than the
-installed version**, compared on the client — an attacker who controls the release query can otherwise replay a
-genuine, genuinely-attested *older* installer, which every signature-style check passes.
+could be undone only by a manual reinstall. "Stable" **shall** be derived from the **verified** source tag, never
+from the releases API's `prerelease` flag — an attacker who controls the release query controls that flag too, and
+can relabel a genuine, attested release candidate as stable. An offered release **shall** additionally be **strictly
+newer than the installed version**, compared on the client, since the same attacker can otherwise replay a genuine,
+genuinely-attested *older* installer, which every signature-style check passes.
 
 **The verification is the entire trust boundary.** 1.0 installers carry no OS code signature
 ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)), so nothing stands behind this
@@ -681,17 +683,25 @@ serve a tampered asset can serve a matching manifest — so the attestation, whi
 repository and commit, is what is verified. The update **shall not** proceed unless verification succeeds, and there
 **shall be no** "install anyway" affordance — not behind a confirmation, not behind a setting.
 
-How the refusal surfaces depends on *why*, and the two **shall** be distinguished: verification that **ran and
-failed** is reported to the user; verification that **could not run** (no network, blocked proxy, rate-limited) is a
-**silent no-op** — no dialog, no error — because an air-gapped machine must not be able to tell the feature exists.
-Note the verifier cannot say *which* failure occurred: `gh attestation verify` collapses every outcome to one exit
-code, so "tell the user why" is bounded by what the tool reports (ADR-0060).
+How the refusal surfaces depends on *why*: verification that **ran and failed** is reported to the user;
+verification that **could not run** (no network, blocked proxy, rate-limited) is a **silent no-op** — no dialog, no
+error — because an air-gapped machine must not be able to tell the feature exists.
+
+That distinction is only implementable because **Tether performs every network fetch itself** — the release list,
+the attestation bundle, and the Sigstore trusted root — and then runs the verifier **fully offline** against them
+(ADR-0060). A network failure is therefore always Tether's own, and any verifier failure is always a real
+verification failure; the verifier could not tell the two apart on its own, since it collapses every outcome to one
+exit code. A failure that still cannot be classified **shall** be treated as *ran and failed* — refusing loudly when
+unsure is the safe error.
 
 **This is the only sanctioned exception to "no outbound network".** Today the application makes none — the promise
 lives on the published privacy policy (`docs/privacy.md`), not in this document, and the sole `socket` call in
 `src/tether/` is `gethostname()` in `project/lock.py`, which sends nothing. The exception is
-bounded: the requests go to the GitHub **releases** and **attestations** APIs — both unauthenticated, both public —
-and carry no identifier and no telemetry; they are made **only
+bounded: the requests go to **three** endpoints and no others — the GitHub **releases** and **attestations** APIs,
+and the **Sigstore TUF** trusted-root service — all unauthenticated, all public, carrying no identifier and no
+telemetry. All three **shall** be named in the privacy disclosure and in the administrator documentation: a site
+that allow-lists only the GitHub endpoints silently disables verification, which is correct behaviour but an
+operational trap if undocumented. They are made **only
 after** an explicit first-run consent prompt is answered, so a machine that is never asked never asks; and an
 air-gapped machine **shall** see no error, no dialog and no startup delay. The consent answer **shall** survive an
 update — a flag that resets on upgrade would silently re-enable checking for a user who declined — and a site

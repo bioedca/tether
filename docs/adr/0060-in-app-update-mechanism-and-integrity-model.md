@@ -94,9 +94,15 @@ A SHA-256 match against `SHA256SUMS.txt` is **necessary but not sufficient**: wh
 tampered asset can serve a matching manifest, because both come from the same place. The attestation
 is what proves *which workflow, from which repository, at which commit* produced the artifact.
 
-**Failure is refuse-and-report, never warn-and-continue.** If verification fails, or cannot be
-performed at all, the update does not proceed and the user is told why. There is no "install anyway"
-affordance — not behind a confirmation, not behind a setting.
+**Failure is refuse, never warn-and-continue.** If verification fails, or cannot be performed at all,
+the update does not proceed. There is no "install anyway" affordance — not behind a confirmation, not
+behind a setting.
+
+Whether the refusal is *reported* depends on which of the two it was, and the distinction is drawn in
+§"Refuse-and-report has a limit worth stating plainly" — a verification that ran and failed is told to
+the user; one that could not run is silent. Do not read the maintainer's "the user is told why" as
+covering both: it cannot, and pretending otherwise would put an unimplementable requirement in an
+accepted record.
 
 #### Threat model
 
@@ -107,6 +113,7 @@ What an attacker must control to get code executed, and what stops them:
 | DNS/TLS interception between the user and GitHub | Serves any binary; the app runs it | Attestation does not verify against the expected repository/workflow → refuse |
 | Compromise of the release assets, manifest included | SHA-256 matches; the app runs it | Attestation is bound to a Sigstore-issued certificate for `bioedca/tether`'s release workflow → refuse |
 | **The same interceptor, replaying a genuine older release** | Serves an old Tether; the app runs it | **Not stopped by the attestation.** A previously published installer carries a real, verifying attestation, so an attacker who also controls the release *query* can answer "what is newest" with a genuine old artifact and roll a user back onto known-vulnerable code. See the rollback requirement below. |
+| **The same interceptor, relabelling a genuine prerelease as stable** | Serves an RC as if stable | **Not stopped by the attestation, and not stopped by the API's `prerelease` flag either** — the attacker controls that flag. A newer RC passes both provenance and the strictly-newer check. Stopped only by deriving "stable" from the **verified** `sourceRepositoryRef` tag (§4). |
 | Compromise of a maintainer's GitHub credentials | — | **Not stopped.** An attacker who can push a tag and run the release workflow produces a genuine attestation. This is the residual risk, and it is the same one the release pipeline already carries. |
 | Replacing the downloaded file between verification and execution | Runs the substituted file | **Not stopped by the attestation**, which proves a property of bytes at one instant. Closing the verify-to-execute window is [#331](https://github.com/bioedca/tether/issues/331)'s problem, not the verifier's. |
 | Local attacker with write access to the install prefix | Already game over | Already game over — out of scope |
@@ -153,6 +160,17 @@ because a prerelease is not a supported target and this mechanism provides no wa
 scientist onto an RC could only be undone by a manual reinstall, which is the opposite of what an
 updater is for. A yanked or deleted release is treated as "no update available", never as
 a reason to offer the next-newest.
+
+**"Stable" must be derived from the verified tag, not from the API's `prerelease` flag.** The threat
+model already assumes an attacker who controls the release query; that same attacker controls the
+flag. They can relabel a genuine, genuinely-attested release candidate as stable, and a *newer* RC
+then passes both the strictly-newer check and provenance verification, because the artifact really is
+ours. The server-side filter is a convenience, not a control.
+
+The trustworthy signal is the one the attestation binds: the certificate's `sourceRepositoryRef`
+(`refs/tags/v1.0.0-rc1` on the published RC). So the client parses the tag **out of the verified
+statement, after verification succeeds**, and refuses anything carrying a SemVer prerelease component.
+Ordering matters — this check is worthless if it runs on unverified metadata.
 
 ### 5. Privacy disclosure — amended in the PR that adds the network call
 
@@ -314,11 +332,52 @@ without a successful check, would fire on exactly the air-gapped machines decisi
 alone. If that trade is ever revisited, it belongs with the release query
 ([#248](https://github.com/bioedca/tether/issues/248)), which is what knows how long it has been.
 
-**Do not pin the Sigstore trusted root.** Fetch it. A pinned root goes stale — Sigstore rotates Rekor
-log shards yearly, distributes the keys only via TUF, and explicitly tells clients not to hardcode —
-and under refuse-and-report a stale root becomes a permanently dead updater that refuses every
-genuine release. Fetching makes the failure mode "no update" instead of "wrong update". The
-alternative is owning a trust-root refresh channel, which is a second updater.
+**Do not pin the Sigstore trusted root.** Fetch it, per check. A pinned root goes stale — Sigstore
+rotates Rekor log shards yearly, distributes the keys only via TUF, and explicitly tells clients not
+to hardcode — and under refuse-and-report a stale root becomes a permanently dead updater that
+refuses every genuine release. Fetching makes the failure mode "no update" instead of "wrong update".
+The alternative is owning a trust-root refresh channel, which is a second updater.
+
+### Tether owns every network step; `gh` runs fully offline
+
+This is not an implementation preference. It is what makes the two paragraphs above *true*, and both
+`P1`s on round 1 land here.
+
+`gh attestation verify --bundle` **still reaches the network on its own** to fetch the Sigstore
+trusted root; only `--bundle` **plus `--custom-trusted-root`** is genuinely offline, verified by
+running it with all egress blackholed. Leaving that fetch inside `gh` breaks two things at once: the
+egress boundary below becomes false, and a `gh` failure becomes ambiguous between "signature is bad"
+and "could not reach Sigstore" — which is exactly the distinction the failure taxonomy depends on and
+which `gh` cannot express, since every outcome is exit 1.
+
+So the sequence is fixed:
+
+1. Tether fetches the release list, the attestation bundle, **and** the trusted root
+   (`gh attestation trusted-root`, which works unauthenticated — verified, exit 0).
+2. Tether invokes `gh attestation verify --bundle <bundle> --custom-trusted-root <root>`, which now
+   makes **no network call at all**.
+
+That buys both properties. **Egress is exactly three enumerable endpoints**, so it can be disclosed
+truthfully and allow-listed by a site administrator. And **any non-zero exit from step 2 is a
+verification failure**, because there is no network left in it to fail — which makes the taxonomy
+implementable rather than aspirational.
+
+**The conservative default for anything still ambiguous:** a failure in step 1 is *could not run* →
+silent. A failure in step 2 is *ran and failed* → reported. Anything that cannot be classified at all
+is treated as **ran and failed** — refuse and report. Refusing loudly when we are unsure is the safe
+error; staying silent when verification actually failed is not.
+
+**Egress boundary — the complete list.** Three hosts, no others:
+
+| Endpoint | Purpose | Auth |
+| --- | --- | --- |
+| `api.github.com` — releases | what is newest | none |
+| `api.github.com` — attestations | the bundle | none |
+| Sigstore TUF (`tuf-repo-cdn.sigstore.dev`, via `gh attestation trusted-root`) | the trusted root | none |
+
+A site that allow-lists only the GitHub endpoints **silently disables verification** — correctly, by
+the rule above, but silently. That is a real operational trap, so the administrator documentation
+must list all three, not two.
 
 **Rate limit.** The unauthenticated attestations API allows **60 requests/hour per IP**. A lab behind
 one NAT can exhaust it, which lands in the silent-no-op branch above.
@@ -377,7 +436,8 @@ one NAT can exhaust it, which lands in the silent-no-op branch above.
 
 ## Follow-up implementation issues
 
-Ordered by dependency. **All six are filed and linked by number.**
+Ordered by dependency: **five filed implementation issues, linked by number, plus one documentation
+deliverable that lands inside #248 rather than as its own issue.**
 
 1. **[#330](https://github.com/bioedca/tether/issues/330) — application settings store** outside the
    install prefix, with a value that survives an update and a machine-wide administrator override.
