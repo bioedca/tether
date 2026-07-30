@@ -1,8 +1,13 @@
 # --- Local-only working docs (never committed; see CLAUDE.md / PLAN.md) ---
 CLAUDE.md
 PLAN.md
-# Claude Code working directory: worktrees under .claude/worktrees/ + local settings
-.claude/
+# Claude Code working directory. Named paths rather than a blanket `.claude/`: a directory-wide
+# ignore silently swallows anything an agent leaves there, including files that should have been
+# reviewed. Everything currently on disk stays ignored — `scheduled_tasks.lock` via `*.lock` below.
+.claude/worktrees/
+.claude/settings.local.json
+.claude/*.py
+.claude/RESUME-SWARM-REBUILD.md
 
 # --- Python / build artifacts ---
 __pycache__/

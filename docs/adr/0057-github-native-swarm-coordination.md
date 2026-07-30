@@ -114,23 +114,35 @@ issue, does the work, opens a PR, arms auto-merge, and exits.
 
 ## Adoption status
 
-This record documents one decision; it lands in phases, and the parts of ADR-0052/0053 that are not yet
-replaced **remain operative until their replacement merges**. Superseded therefore means *decided*, not
-*already switched off*.
+This record documents one decision and it lands in phases, so this section is the authority on which
+parts are live. **ADR-0052 is fully switched off** as of 2026-07-30 — nothing in it is operative any
+longer. **ADR-0053's intake gates remain in force**: what is not yet replaced still governs, and
+superseded means *decided*, not automatically *already switched off*.
 
 **In force now:** the review gate (material-change rule, severity floor, two-round cap,
 capability-vs-quota) in `AGENTS.md`; `main` without the strict up-to-date rule; `sidecar / parity`
-reporting post-merge; the prose-drift guard retired.
+reporting post-merge; the prose-drift guard retired. Since 2026-07-30: **the claim mutex**
+(`.agents/bin/claim.py`) and `agent/issue-<N>` branches, including generation fencing and atomic ADR
+number reservation; **the scheduled reaper** (`.agents/bin/reaper.py`, `agent-reaper.yml`); the
+**vendor label mirror** — and, with them, the removal of the coordinator, the leases and the run
+records from the contract. ADR-0052 no longer governs anything.
 
-**Not yet implemented, and ADR-0052/0053 still govern in the meantime:** the claim mutex and
-`agent/issue-<N>` branches; removal of the coordinator, leases and run records; the reaper and
-event-driven triage; the slot launcher; the `agent:*` label model; Projects/Discussions as coordination
-surfaces.
+**Not yet implemented:** event-driven triage and the review-round counter; the slot launcher;
+Projects/Discussions as coordination surfaces.
+
+Be precise about what "the label model" means here, because most of it has no writer yet. Only
+`agent:claude|codex|copilot` are written by code (`claim.py`), and `agent:conflicted` /
+`agent:needs-amend` by the reaper. The remaining new labels — `agent:human`, `preauth`, `size:*`,
+`risk:*`, `blocked-by:*`, `needs:*` — are *provisioned on the repository* and applied by hand at
+grooming; nothing reads or writes them yet. The round labels the cap needs
+(`agent:round-1`/`agent:round-2`/`agent:review-capped`) do not exist at all until triage lands.
 
 ## More information
 
-- ADR-0052 keeps its history. Its review-evidence clause carries a supersession note in place; the
-  worker/coordinator separation and guarded merge it specified stand until the machinery above lands.
+- ADR-0052 keeps its history and nothing more. Its review-evidence clause, its worker/coordinator
+  separation and its guarded merge are all retired; a peer claims by atomic ref, arms auto-merge and
+  exits, so no agent gates another. Read that record for why the replacement happened, never for what
+  to do.
 - ADR-0053's intake gates (issue forms, `status:ready`, maintainer approval of a scope hash) remain in
   force; this decision changes who may admit work, not that admission is gated.
 - The measurements quoted above come from the 2026-07-26 → 07-28 session logs.

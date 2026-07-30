@@ -19,21 +19,25 @@ claim forever or reclaim a live one. The repository activity API stamps ``timest
 strictly increasing ``id`` itself, and no request parameter sets either. That ``id`` is the claim's
 generation: a reclaim deletes and recreates the ref, so the successor's ``branch_creation`` carries
 a greater ``id``, and a superseded worker revalidating before a write is refused.
+
+This file is also the single home of the **frozen approval-scope normalization** (``_scope_hash``).
+It moved here from the withdrawn lease helper so that deleting that helper could not break the
+claim mutex, and so that the digest an agent recomputes and the digest a maintainer publishes come
+from one implementation rather than two.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import secrets
 import subprocess
 import sys
-import tempfile
 import urllib.error
 import urllib.request
-from pathlib import Path
 from typing import Any
 
 REPO = os.environ.get("TETHER_REPO", "bioedca/tether")
@@ -121,42 +125,42 @@ def _paginate(path: str, what: str) -> list[Any]:
 
 
 def _scope_hash(title: str, body: str) -> str:
-    """Delegate to the frozen digest in swarm_lease.py rather than reimplementing it.
+    """Digest the normalized issue snapshot a maintainer approval binds to.
 
-    Four markers published on live issues depend on that normalization; a second copy of it here
-    would be a second thing to keep in step, and the first divergence would be silent.
+    **Frozen.** CRLF and lone CR become LF, trailing newlines are stripped, and the result is hashed
+    as compact JSON with sorted keys and ``ensure_ascii=False``. The markers published on #188,
+    #189, #216 and #218 were computed by this normalization and must keep verifying, so a pinned
+    digest in ``tests/test_claim.py`` covers every clause of it.
+
+    This used to shell out to ``swarm_lease.py`` so there would be exactly one copy of the
+    normalization. Re-homing it here keeps that property and removes the reason the indirection
+    existed: no temp file, no subprocess, and no file-or-stdin read at all. The body arrives from
+    the API as ``str``, and a digest that never touches a file cannot be changed by a shell
+    round-trip that prepends a BOM - which is #272's item 2, and the only documented way a
+    round-trip could invalidate an approval.
     """
-    helper = Path(__file__).resolve().parents[1] / "skills/run-issue-swarm/scripts/swarm_lease.py"
-    # newline="" writes the body's bytes as fetched. Line endings are not the hazard - _scope_hash
-    # folds CRLF/CR to LF - but a platform rewrite that alters content (a prepended BOM, say) would
-    # change the digest, and the body came from the API rather than from a file to begin with.
-    #
-    # The same guard as _token(): TimeoutExpired is a SubprocessError, which main() does not catch,
-    # so a hung helper would escape as an uncaught traceback carrying the temp path and this file's
-    # absolute path. Every failure here becomes a ClaimError instead.
+
+    def normalize(value: str) -> str:
+        return value.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+
+    normalized = {"body": normalize(body), "title": normalize(title), "version": 1}
     try:
-        with tempfile.TemporaryDirectory() as directory:
-            target = Path(directory) / "body.md"
-            target.write_text(body, encoding="utf-8", newline="")
-            out = subprocess.run(
-                [
-                    sys.executable,
-                    str(helper),
-                    "scope-hash",
-                    "--title",
-                    title,
-                    "--body-file",
-                    str(target),
-                ],
-                capture_output=True,
-                check=False,
-                timeout=60,
-            )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise ClaimError("the approved-scope digest could not be computed") from exc
-    if out.returncode != 0:
-        raise ClaimError("could not compute the approved-scope digest")
-    return out.stdout.decode("utf-8").strip()
+        payload = json.dumps(
+            normalized, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+    except UnicodeError as exc:
+        raise ClaimError("scope title and body must be valid UTF-8 text") from exc
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _ready_marker(digest: str) -> str:
+    """Render the approval marker a maintainer posts to accept a scope snapshot.
+
+    ``version`` is emitted first to match every marker already published on a live issue. Field
+    order is not semantic - ``READY_RE`` plus ``json.loads`` are order-agnostic - but a rendered
+    marker that does not look like the existing corpus invites a needless diff.
+    """
+    return f'<!-- tether-agent-ready {{"version":1,"criteria_sha256":"{digest}"}} -->'
 
 
 def _approval_binds(issue: dict[str, Any], comments: list[dict[str, Any]], owner: str) -> bool:
@@ -178,12 +182,18 @@ def _approval_binds(issue: dict[str, Any], comments: list[dict[str, Any]], owner
     return False
 
 
-def _check_eligible(number: int, owner: str) -> dict[str, Any]:
+def _issue(number: int) -> dict[str, Any]:
+    """Fetch an issue, refusing a pull request. Both readers of a snapshot start here."""
     status, issue = _request("GET", f"/repos/{REPO}/issues/{number}")
     if status != 200 or not isinstance(issue, dict):
         raise ClaimError(f"issue #{number} could not be read")
     if issue.get("pull_request"):
         raise ClaimError(f"#{number} is a pull request, not an issue")
+    return issue
+
+
+def _check_eligible(number: int, owner: str) -> dict[str, Any]:
+    issue = _issue(number)
     if issue.get("state") != "open":
         raise ClaimError(f"#{number} is not open")
     labels = {label["name"] for label in issue.get("labels", [])}
@@ -258,6 +268,28 @@ def _default_sha() -> str:
 
 def _cmd_agent_id(args: argparse.Namespace) -> None:
     print(f"{args.vendor}-{secrets.token_hex(4)}")
+
+
+def _cmd_scope_hash(args: argparse.Namespace) -> None:
+    """Print the digest and the ready-to-paste marker for an issue's current snapshot.
+
+    The snapshot is read from the API rather than from a file the caller prepared, so the digest a
+    maintainer posts is by construction the one ``_approval_binds`` will recompute.
+    """
+    issue = _issue(args.issue)
+    digest = _scope_hash(issue["title"], issue["body"] or "")
+    print(
+        json.dumps(
+            {
+                "version": 1,
+                "issue": args.issue,
+                "criteria_sha256": digest,
+                "marker": _ready_marker(digest),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 def _cmd_claim(args: argparse.Namespace) -> None:
@@ -421,6 +453,12 @@ def _parser() -> argparse.ArgumentParser:
     agent_id = subparsers.add_parser("agent-id", help="print a public-safe worker identity")
     agent_id.add_argument("--vendor", choices=VENDORS, required=True)
     agent_id.set_defaults(func=_cmd_agent_id)
+
+    scope_hash = subparsers.add_parser(
+        "scope-hash", help="print the approval digest and marker for an issue's current snapshot"
+    )
+    scope_hash.add_argument("--issue", type=int, required=True)
+    scope_hash.set_defaults(func=_cmd_scope_hash)
 
     claim = subparsers.add_parser("claim", help="check eligibility, then take the mutex")
     claim.add_argument("--issue", type=int, required=True)

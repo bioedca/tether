@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -381,33 +380,6 @@ def test_reserve_adr_refuses_to_guess_when_discovery_fails(
     assert posted == [], "no reservation may be created when the number is a guess"
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        subprocess.TimeoutExpired(cmd=["scope-hash"], timeout=60),
-        subprocess.SubprocessError("spawn failed"),
-        OSError("no such interpreter"),
-    ],
-    ids=["timeout", "subprocess-error", "oserror"],
-)
-def test_a_failing_digest_helper_never_escapes_as_a_traceback(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], error: Exception
-) -> None:
-    """TimeoutExpired is a SubprocessError, which main() does not catch.
-
-    Unguarded, a hung helper escapes as an uncaught traceback carrying the temp-file path and this
-    file's absolute path - the no-path contract broken by the one call that shells out.
-    """
-
-    def boom(*args: Any, **kwargs: Any) -> Any:
-        raise error
-
-    monkeypatch.setattr(claim.subprocess, "run", boom)
-    with pytest.raises(claim.ClaimError, match="approved-scope digest"):
-        claim._scope_hash("feat(io): a thing", "body\n")
-    assert capsys.readouterr().err == ""
-
-
 def test_generation_never_comes_from_commit_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     """committedDate is client-settable, so the generation must come from the activity API alone."""
     fake = _install(monkeypatch, Fake(_routes()))
@@ -443,6 +415,87 @@ def test_reserve_adr_skips_taken_numbers_and_never_uses_a_tag(
     assert json.loads(capsys.readouterr().out)["adr"] == "0060"
     assert posted == ["refs/adr-reservations/0059", "refs/adr-reservations/0060"]
     assert not [ref for ref in posted if ref.startswith("refs/tags/")]
+
+
+# ------------------------------------------------------------ the frozen approval digest
+
+# A frozen snapshot and the digest it must always produce. This normalization is a **published
+# contract**: the markers on #188, #189, #216 and #218 were computed with it, and all four were
+# re-verified against this re-homed implementation and reproduced their published digests
+# byte-for-byte on 2026-07-30. Those checks need the GitHub API, so this pinned pair is what CI can
+# enforce offline. It moved here with the function it pins, from the withdrawn lease helper.
+PIN_TITLE = "build(packaging): pin the wheel"
+PIN_BODY = "Acceptance criteria\n\n- [ ] one source of truth\n"
+PIN_DIGEST = "9906a25c28495a649934b2e809e2b70c136b724b25b025db6907f1797100e0dc"
+NON_ASCII_DIGEST = "329909edc2df9090ff2861ea36485b53039d0bd28f79d91eeac2bb2a7b9cb8c8"
+
+
+def test_the_scope_digest_is_pinned_for_a_known_snapshot() -> None:
+    assert claim._scope_hash(PIN_TITLE, PIN_BODY) == PIN_DIGEST
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Acceptance criteria\r\n\r\n- [ ] one source of truth\r\n",
+        "Acceptance criteria\r\r- [ ] one source of truth\r",
+        "Acceptance criteria\n\n- [ ] one source of truth\n\n\n\n",
+    ],
+    ids=["crlf", "cr", "extra-trailing-newlines"],
+)
+def test_the_scope_digest_normalizes_line_endings_and_trailing_newlines(body: str) -> None:
+    assert claim._scope_hash(PIN_TITLE, body) == PIN_DIGEST
+
+
+def test_the_scope_digest_is_pinned_for_a_non_ascii_snapshot() -> None:
+    """Pins ensure_ascii=False: \\uXXXX-escaping before hashing changes every non-ASCII issue."""
+    body = "Rationale: the γ correction factor — see Hellenkamp 2018.\n"
+    assert claim._scope_hash("fix(fret): γ factor", body) == NON_ASCII_DIGEST
+
+
+def test_the_scope_digest_separates_title_from_body() -> None:
+    """Moving text across the title/body boundary must change the digest."""
+    assert claim._scope_hash("ab", "c") != claim._scope_hash("a", "bc")
+
+
+def test_scope_hash_reads_the_snapshot_from_the_api_and_renders_a_binding_marker(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One snapshot source for both sides of the approval.
+
+    The maintainer renders a marker and an agent later recomputes the digest; if those read the
+    snapshot differently the approval silently stops binding. Reading a body from a file the caller
+    prepared is how a prepended BOM could change the digest of an unchanged issue - there is no file
+    in this path at all - so the two cannot diverge that way.
+    """
+    routes = _routes(
+        {("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(title=PIN_TITLE, body=PIN_BODY))}
+    )
+    monkeypatch.setattr(claim, "_request", Fake(routes))
+    claim._cmd_scope_hash(_args(issue=7))
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["criteria_sha256"] == PIN_DIGEST
+    marker = '<!-- tether-agent-ready {"version":1,"criteria_sha256":"' + PIN_DIGEST + '"} -->'
+    assert printed["marker"] == marker
+    # Deliberately NOT via _install: the real _scope_hash must run on both sides, so this asserts
+    # the rendered marker is the exact form _approval_binds accepts, not merely a similar one.
+    assert claim._approval_binds(
+        {"title": PIN_TITLE, "body": PIN_BODY},
+        [{"user": {"login": "bioedca"}, "body": f"Approved as written.\n\n{marker}\n"}],
+        "bioedca",
+    )
+
+
+def test_scope_hash_refuses_a_pull_request_number(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A PR's title and body are not an approvable scope, so digesting one is a wrong answer.
+
+    `/issues/{n}` answers for pull requests too, so the refusal has to be explicit. It lives in
+    `_issue`, shared with the eligibility path, rather than being repeated in each caller.
+    """
+    routes = {("GET", "/repos/bioedca/tether/issues/7"): (200, {"pull_request": {"url": "x"}})}
+    monkeypatch.setattr(claim, "_request", Fake(routes))
+    with pytest.raises(claim.ClaimError, match="not an issue"):
+        claim._cmd_scope_hash(_args(issue=7))
 
 
 def _args(**values: Any) -> Any:

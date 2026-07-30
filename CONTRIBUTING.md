@@ -48,6 +48,12 @@ never merge, release, or declare a PR ready while required checks are red or pen
   e.g. `feat/issue-123-m1-atrous-detector`, `fix/issue-124-correct-nan-guard`. The
   slug is kebab-case, ≤ ~5 words. The branch name is not load-bearing (the PR
   title + linked issue carry authoritative metadata).
+- **One exception, and it is load-bearing:** an automated agent claims an issue by
+  atomically creating `agent/issue-N` — **no slug** — because that ref *is* the mutex
+  (`POST /git/refs` answers `201` once and `422` thereafter). A slug derived from the
+  title is not deterministic across agents, so two agents could create two different
+  refs for one issue and both succeed, silently voiding it. See
+  [ADR-0057](docs/adr/0057-github-native-swarm-coordination.md) and `AGENTS.md`.
 - **Conventional Commits** govern **both commit messages and PR titles**:
   `type(scope): summary (FR-ID when applicable)`. Types: `feat fix docs chore refactor test ci
   build perf revert`. The **scope is a §4.2 module** without the `tether.`
@@ -260,9 +266,12 @@ Merge **squash-only** (linear history, delete-branch-on-merge) once the review i
 addressed **and all required CI checks are green** — wait for in-progress checks;
 **never merge over a red or pending check**.
 
-In an issue swarm, workers stop at PR-ready and never merge. Only the coordinator with
-explicit run-scoped `merge` authority performs the exact-head/exact-base guarded squash
-merge and refills the completed slot.
+Automated agents are peers, not a hierarchy: each claims one issue, opens one PR, and
+**arms auto-merge and exits** rather than waiting or handing off to a merger. There is
+no coordinator. The merge is bound to the head the review evidence covers with
+`gh pr merge N --auto --squash --match-head-commit <SHA>` — that guard is what stands in
+for the merge queue, which needs an organization-owned repository and so is unavailable
+here.
 
 The `main-baseline` ruleset requires these **11** status checks:
 
