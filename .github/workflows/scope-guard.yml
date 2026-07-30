@@ -1,0 +1,91 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Measures a pull request against the diff budget its `size:*` label already promises, and REPORTS.
+# Nothing here blocks a merge.
+#
+# NOT REQUIRED, AND DELIBERATELY SO. The thresholds are visibly miscalibrated: measured at their merged
+# heads, every prose-only PR in the swarm rebuild passes its budget and every PR introducing a new
+# executable exceeds even `size:L`, the largest rung that exists (#275 2.30x, #276 3.62x, #285 1.30x,
+# #287 1.75x). Promoting an untested threshold to a required check would relocate the failure rather
+# than remove it, and would make the ladder impossible to fix without a red main. Do not add this to
+# the `main-baseline` required contexts until the ladder has been recalibrated as its own decision.
+#
+# The budget exists because nothing measured it: #218 ran 26x over `size:S` before becoming #239's
+# +3,754/-229, and no check noticed.
+name: scope-guard
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Least privilege, stated explicitly. With an explicit block every UNLISTED scope is `none`, so an
+# omission is a 403 rather than a default.
+#   contents: read         checkout
+#   pull-requests: read    read the PR, its file list, and its reviews. Never `write`: this workflow
+#                          reports into the run summary and has no mutation to make
+#   issues: read           read the linked issue's `size:*` label, which is applied at grooming
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: scope-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Pinned to the default branch, not the event's ref. `pull_request` gives GITHUB_REF as the PR's
+      # merge ref, so the default checkout would run the measurement code from the branch being
+      # measured - a PR could then rewrite its own budget. The same defect #285 had to fix.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Measure the diff against its budget
+        shell: bash -el {0}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          # Bootstrap guard, same shape as agent-triage.yml: the checkout is pinned to the default
+          # branch, so on the pull request that INTRODUCES this workflow the script is not there yet.
+          # The two cases are distinguished rather than both waved through - workflow present with the
+          # script missing is a real removal and must fail loudly.
+          if [ ! -f .agents/bin/scope_guard.py ]; then
+            if [ -f .github/workflows/scope-guard.yml ]; then
+              echo "::error::scope-guard.yml is on the default branch but scope_guard.py is missing"
+              exit 1
+            fi
+            echo "::notice::scope-guard is not on the default branch yet; nothing measured."
+            printf '## scope-guard\n\nNot on the default branch yet; nothing measured.\n' \
+              > "${GITHUB_STEP_SUMMARY}"
+          else
+            # `set -e` is deliberately NOT on for this call: exit 3 means "over budget", which is a
+            # RESULT and not a failure. Only exit 2 - the measurement itself broke - fails the job.
+            python .agents/bin/scope_guard.py --pr "${PR_NUMBER}" --markdown \
+              > /tmp/scope.json 2> /tmp/scope.md
+            code=$?
+            cat /tmp/scope.json
+            cat /tmp/scope.md >> "${GITHUB_STEP_SUMMARY}"
+            if [ "${code}" = "2" ]; then
+              echo "::error::the scope measurement failed"
+              exit 1
+            fi
+            if [ "${code}" = "3" ]; then
+              echo "::warning::this PR is outside one or more advisory scope guidelines"
+            fi
+            # No explicit `exit 0`: in a `bash -el {0}` step an explicit zero exit is reported as a
+            # FAILURE on the runner. Fall through to a terminal command instead.
+            echo "scope-guard finished (advisory, exit ${code})."
+          fi
