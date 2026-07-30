@@ -661,6 +661,36 @@ checkpointed). If the sidecar environment is **absent or corrupt at startup**, t
 **idealization-deferred** mode — all movies extracted + corrected, idealization queued for a later run — rather
 than aborting. The batch policy (warn-and-flag vs. fail-movie) is configurable in the settings profile (§10).
 
+### 7.12 FR-UPDATE — In-app update (post-1.0, M10)
+
+Introduced by **[ADR-0060](adr/0060-in-app-update-mechanism-and-integrity-model.md)**; not part of the 1.0 scope.
+No updater code exists at the time of writing.
+
+The installed application **shall** be able to detect a newer **stable** release, download the installer for the
+running platform, **verify it against the GitHub build-provenance attestation**, and hand off to the OS installer.
+It **shall not** apply an in-place environment update and **shall not** update silently. Prereleases **shall never**
+be offered: `docs/stability.md` states there is no downgrade path, so moving a user is a one-way door.
+
+**The verification is the entire trust boundary.** 1.0 installers carry no OS code signature
+([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)), so nothing stands behind this
+check. A SHA-256 match against the published manifest is **necessary but not sufficient** — an attacker who can
+serve a tampered asset can serve a matching manifest — so the attestation, which binds the artifact to a workflow,
+repository and commit, is what is verified. On failure, or when verification **cannot be performed**, the update
+**shall** refuse and report; there **shall be no** "install anyway" affordance.
+
+**This is the only sanctioned exception to "no outbound network".** Today the application makes none — the promise
+lives on the published privacy policy (`docs/privacy.md`), not in this document, and the sole `socket` call in
+`src/tether/` is `gethostname()` in `project/lock.py`, which sends nothing. The exception is
+bounded: the request goes to the GitHub releases API and carries no identifier and no telemetry; it is made **only
+after** an explicit first-run consent prompt is answered, so a machine that is never asked never asks; and an
+air-gapped machine **shall** see no error, no dialog and no startup delay. The consent answer **shall** survive an
+update — a flag that resets on upgrade would silently re-enable checking for a user who declined — and a site
+administrator **shall** have a documented way to disable the mechanism permanently. `docs/privacy.md` is amended in
+the PR that adds the request, never before and never after.
+
+An update **shall not** orphan the installed launch surface — the prefix shims, the Windows Start Menu entry, the
+Linux `.desktop` ([ADR-0051](adr/0051-installed-app-launch-surface.md)).
+
 ---
 
 ## 8. Non-functional requirements

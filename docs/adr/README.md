@@ -83,6 +83,7 @@ prose harmonization of the PRD (PRD §12.7).
 | [0055](0055-gui-session-writer-ownership.md) | GUI session writer ownership | accepted | §5.4, §7.3, §7.5, §7.10 |
 | [0056](0056-policy-fail-rejected-extraction-checkpoint.md) | Preserve policy-fail rejection across batch resume | accepted | §6, §7.11, §11.2 |
 | [0057](0057-github-native-swarm-coordination.md) | GitHub-native swarm coordination | accepted | §12.2–§12.5 |
+| [0060](0060-in-app-update-mechanism-and-integrity-model.md) | In-app update: download, verify against build provenance, hand off to the OS installer | accepted; one implementability conflict escalated (no conda `sigstore` exists) | §4.1, §4.3, §8 NFR-PKG, §7.12 FR-UPDATE |
 
 <!-- gen:adr-index end -->
 
