@@ -54,6 +54,10 @@ SECTIONS = (
 HEADER = ("| ADR | Title | Status | PRD anchor |", "|----:|-------|--------|------------|")
 
 _ROW_RE = re.compile(r"^\|\s*\[(\d{4})\]\(")
+# A cell boundary is an UNESCAPED pipe. `\|` is a literal pipe inside a Markdown cell, and splitting
+# on it reads `accepted \| experimental` back as `experimental` - which `--write` would then commit
+# as the curated value while `--check` went green on the corruption.
+_CELL_RE = re.compile(r"(?<!\\)\|")
 _H1_RE = re.compile(r"^#\s*\d{4}\s*[—–-]\s*(.+?)\s*$")
 _FIELD_RE = r"^-\s+\*\*{name}:\*\*\s*(.+?)\s*$"
 
@@ -65,6 +69,19 @@ _EMPHASIS_RE = re.compile(r"\*\*|\*|_(?=\S)|(?<=\S)_")
 
 class IndexError_(RuntimeError):
     """A precondition failed. The message names the files involved."""
+
+
+def _rel(path: Path) -> str:
+    """A path for a message. Falls back to the bare name rather than raising.
+
+    ``Path.relative_to`` raises when the target is outside the repository, which happens whenever
+    the module's ``INDEX`` is pointed elsewhere - so a reporting call could crash a run that had
+    otherwise succeeded.
+    """
+    try:
+        return str(path.relative_to(_REPO_ROOT))
+    except ValueError:
+        return path.name
 
 
 def _text(path: Path) -> str:
@@ -136,9 +153,36 @@ def _curated() -> dict[str, tuple[str, str]]:
     for line in _text(INDEX).split("\n"):
         match = _ROW_RE.match(line)
         if match:
-            cells = line.split("|")
+            cells = _CELL_RE.split(line)
             out[match.group(1)] = (cells[-3].strip(), cells[-2].strip())
     return out
+
+
+def _escape(cell: str) -> str:
+    """Escape a pipe so it stays table *content*.
+
+    A raw `|` in a generated cell is a delimiter, so an ADR whose H1 contains one would shift or
+    truncate the Title, Status and anchor cells - and neither `--check` nor the structural tests
+    would see it, because `_curated` reads cells from the right and `_indexed_titles` rejoins the
+    middle. The index would simply render wrong.
+    """
+    return cell.replace("|", r"\|")
+
+
+def _derived(path: Path, name: str) -> str:
+    """A curated cell's first draft for a record the index has never seen.
+
+    Refuses rather than defaulting. Publishing `accepted` for a record whose Status bullet is
+    missing or malformed FABRICATES the value, and once written it becomes curated data: later
+    correcting the record does not update the index, and `--check` keeps passing over the invention.
+    """
+    value = _field(path, name)
+    if not value:
+        raise IndexError_(
+            f"{path.name} has no `**{name}:**` bullet, so there is nothing to index it with. Add "
+            "one to the record rather than letting the index state something the record does not."
+        )
+    return value
 
 
 def _rows(
@@ -148,11 +192,13 @@ def _rows(
     for number in numbers:
         path = records[number]
         key = f"{number:04d}"
-        status, anchor = curated.get(key) or (
-            _field(path, "Status") or "accepted",
-            _field(path, "PRD anchor") or "—",
-        )
-        rows.append(f"| [{key}]({path.name}) | {_h1(path)} | {status} | {anchor} |")
+        # Curated cells are carried across as stored - they already contain whatever escaping their
+        # author wrote - while a derived cell is raw record text and has to be escaped here.
+        cells = curated.get(key)
+        if cells is None:
+            cells = (_escape(_derived(path, "Status")), _escape(_derived(path, "PRD anchor")))
+        status, anchor = cells
+        rows.append(f"| [{key}]({path.name}) | {_escape(_h1(path))} | {status} | {anchor} |")
     return rows
 
 
@@ -195,17 +241,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::error::{exc}", file=sys.stderr)
         return 1
     if _text(INDEX) == wanted:
-        print(f"{INDEX.relative_to(_REPO_ROOT)} is up to date ({len(_records())} records).")
+        print(f"{_rel(INDEX)} is up to date ({len(_records())} records).")
         return 0
     if args.check:
         print(
-            f"::error::{INDEX.relative_to(_REPO_ROOT)} does not match the records on disk; "
+            f"::error::{_rel(INDEX)} does not match the records on disk; "
             "run `python scripts/gen_adr_index.py` and commit the result",
             file=sys.stderr,
         )
         return 1
     INDEX.write_text(wanted, encoding="utf-8", newline="")
-    print(f"Wrote {INDEX.relative_to(_REPO_ROOT)} ({len(_records())} records).")
+    print(f"Wrote {_rel(INDEX)} ({len(_records())} records).")
     return 0
 
 
