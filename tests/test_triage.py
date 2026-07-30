@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -569,18 +570,95 @@ def test_the_workflow_listens_for_the_three_state_changing_events() -> None:
 
 
 def test_the_workflow_records_the_bot_trigger_probe_answer() -> None:
-    """The probe decides how strong this control is, so its state is written down, not implied.
+    """The probe decides how strong this control is, so its answer is written down, not implied.
 
-    `check_suite` and `workflow_dispatch` both need the file on the default branch, so the probe
-    cannot run from the branch that introduces the workflow. The honest record is that it is
-    unanswered, tracked, and that the workflow therefore posts no triggers at all.
+    Run on #299 on 2026-07-30. CodeRabbit starts a round from a `github-actions[bot]` comment and
+    names the author when it does; Codex both refused the mention and, two minutes later, asserted
+    the opposite, so its leg is read conservatively as no.
+
+    What this test protects is the *conclusion*, not the prose: the trigger stays out of the
+    workflow body for **both** providers. The first draft of that note justified it with a
+    round-counting argument that is false - `_review_state` groups by head SHA, so two providers at
+    one head are one round by design - so this pins the behaviour rather than any one sentence of
+    the reasoning.
     """
     header = WORKFLOW.read_text(encoding="utf-8")
     assert "BOT-TRIGGER PROBE" in header
-    assert "NOT ANSWERED" in header
+    assert "ANSWERED" in header and "NOT ANSWERED" not in header
     assert "@codex review" in header
-    # The trigger must be absent from the body, not merely discussed in the header.
-    assert "@coderabbitai review" not in header.split("permissions:")[-1]
+
+
+# A route that CREATES a pull-request or issue comment. This is the check that binds, and it is
+# deliberately not a search for the mention text: a workflow cannot post a trigger it cannot post a
+# comment with, however the mention is spelled. Fragmented string construction defeats a text search
+# and defeats nothing here.
+_COMMENT_ROUTES = (
+    re.compile(r"/(?:issues|pulls)/[^/\s\"']+/comments"),  # REST, via gh api or curl
+    re.compile(r"\bgh\s+(?:pr|issue)\s+comment\b"),
+    re.compile(r"\bcreateComment\b"),  # actions/github-script
+    re.compile(r"\bpeter-evans/create-or-update-comment\b"),
+)
+_PROVIDER_MENTION = re.compile(r"@(?:codex|coderabbitai)\b")
+
+
+def _posting_routes(text: str) -> list[str]:
+    """Which comment-creating routes appear in this text, if any."""
+    return [rx.pattern for rx in _COMMENT_ROUTES if rx.search(text)]
+
+
+def _workflow_sources() -> dict[str, str]:
+    """Every workflow and composite action, as text, keyed by path.
+
+    Repository scope rather than this one file, per CodeRabbit's finding on #299: asserting that two
+    literals are absent from `agent-triage.yml` is satisfied by moving the same capability into any
+    other workflow, a composite action, or a reusable workflow.
+    """
+    root = WORKFLOW.parents[1]
+    paths = [
+        *sorted((root / "workflows").glob("*.yml")),
+        *sorted(root.glob("actions/*/action.yml")),
+    ]
+    return {str(p.relative_to(root.parent)): p.read_text(encoding="utf-8") for p in paths}
+
+
+def test_no_workflow_can_post_a_review_trigger() -> None:
+    """The probe's conclusion, enforced where it binds rather than where it was written.
+
+    The earlier version rejected two literal strings after the first `permissions:` token in one
+    file. CodeRabbit's round-1 finding on #299: that stays green if a workflow builds the mention
+    from fragments, decodes it, delegates to a checked-in script, or calls a reusable workflow - so
+    the assertion was weaker than the conclusion it claimed to protect.
+
+    Two nets, and the first is the one that holds. **A workflow cannot post a trigger it cannot post
+    a comment with**, so the comment-creating ROUTES are what is banned - and a route survives
+    fragmentation, because `printf`-ing the mention in pieces still has to reach
+    `/issues/{n}/comments` to deliver it. The mention text is banned too, as a cheap second net that
+    catches the naive case with a clearer failure message.
+
+    What this still cannot see is stated rather than implied: a workflow that runs a checked-in
+    *script* that posts a comment, where the route lives in the script and not in the YAML. That is
+    why `.agents/bin/*.py` carry their own `permissions`-justified contracts, and why nothing here
+    grants `pull-requests: write` to a step that runs one.
+    """
+    offenders = {name: _posting_routes(text) for name, text in _workflow_sources().items()}
+    posting = {name: hits for name, hits in offenders.items() if hits}
+    assert not posting, (
+        "these workflows can create a PR/issue comment, which is the capability the #299 probe "
+        f"concluded must not exist on the default branch: {posting}"
+    )
+
+    mentions = {
+        name: _PROVIDER_MENTION.findall(text)
+        for name, text in _workflow_sources().items()
+        # The recorded ANSWER quotes the mention; only non-comment lines are candidates for a real
+        # trigger, so comment lines are excluded rather than the file being exempted wholesale.
+        if any(
+            _PROVIDER_MENTION.search(ln)
+            for ln in text.splitlines()
+            if not ln.strip().startswith("#")
+        )
+    }
+    assert not mentions, f"a provider mention appears outside a comment: {mentions}"
 
 
 def test_the_bootstrap_guard_distinguishes_missing_from_broken() -> None:
@@ -632,3 +710,46 @@ def test_the_cli_refuses_both_sources_at_once(monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(SystemExit) as exc:
         triage.main()
     assert exc.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("sample", "caught"),
+    [
+        ('gh api "repos/${R}/issues/${N}/comments" --input /tmp/x.json', True),
+        ("gh pr comment 299 --body 'hello'", True),
+        ("gh issue comment 299 --body-file x.md", True),
+        ("github.rest.issues.createComment({issue_number: n})", True),
+        ("uses: peter-evans/create-or-update-comment@v4", True),
+        # The case the literal search could not see: the mention spelled in fragments. It is caught
+        # because it still has to reach a comment route to be delivered anywhere.
+        (
+            "printf '@cod' > /tmp/c; printf 'ex review' >> /tmp/c;"
+            ' gh api "repos/o/r/issues/1/comments" -F body=@/tmp/c',
+            True,
+        ),
+        ("gh api repos/o/r/issues/1/labels -f labels[]=agent:claude", False),
+        ("echo 'no comment posted here'", False),
+        ("gh pr checks 299 --watch", False),
+    ],
+    ids=[
+        "gh-api-rest",
+        "gh-pr-comment",
+        "gh-issue-comment",
+        "github-script",
+        "third-party-action",
+        "fragmented-mention-still-needs-a-route",
+        "labels-are-not-comments",
+        "plain-echo",
+        "reading-checks",
+    ],
+)
+def test_the_posting_route_detector_catches_indirection(sample: str, caught: bool) -> None:
+    """Negative fixtures, because an absence-assertion is worthless unless presence is proven.
+
+    CodeRabbit's round-1 finding on #299 was that a two-literal search is satisfied by fragmented
+    construction or indirection. The answer is to key on the ROUTE rather than the text - so these
+    pin that the route detector fires on every realistic way of posting a comment, including one
+    where the mention itself is unfindable, and stays silent on the label writes this repository
+    legitimately makes.
+    """
+    assert bool(_posting_routes(sample)) is caught

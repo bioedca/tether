@@ -15,18 +15,48 @@
 #   trigger either provider? If yes, the trigger belongs in this workflow and agent-authored triggers
 #   can be forbidden outright, which is the strongest form of the control since asking is the only way
 #   a round can begin.
-#   Status: NOT ANSWERED (tracked as #284), and this workflow therefore does not post triggers.
-#   `check_suite` and `workflow_dispatch` require the workflow file to be on the DEFAULT branch, so
-#   neither can fire from the branch that introduces it. `pull_request_review` is different and this
-#   was measured, not assumed: on #285 a review submission DID run this workflow from the pull
-#   request's own head. That is worth knowing for two reasons - the review paths are testable before
-#   merge, and a PR can therefore run its OWN version of this file with `issues: write`. The checkout
-#   pin below removes the unreviewed-*Python* half of that; the workflow *definition* still comes from
-#   the head on review events, which is inherent to the trigger and is accepted here because the
-#   repository is user-owned with no external contributors. Do not read the pin as making a
-#   contributor-facing repository safe.
-#   Until it is: the cap rests on this counter PLUS the launcher's own refusal PLUS a post-merge
-#   audit - genuinely weaker than a platform-enforced trigger, and said plainly rather than implied.
+#   Status: ANSWERED 2026-07-30 on #299. The trigger stays OUT of this workflow, and the reasons
+#   below are the ones that survived review - an earlier draft of this note gave a round-counting
+#   reason that is simply false, and Codex said so.
+#
+#     CodeRabbit: YES, unambiguously. It named the author: "CodeRabbit received the review request
+#     from `github-actions[bot]`; starting a review round for the probe."
+#
+#     Codex: AMBIGUOUS, and read conservatively as no. Seven seconds after the bot's comment it
+#     replied "To use Codex here, create a Codex account and connect to github" - an author-identity
+#     refusal. Two minutes later it posted a task summary asserting the opposite. Both cannot be
+#     true, the trigger of the second is not attributable from outside, and a control you cannot
+#     attribute is not a control.
+#
+#   Why the trigger stays out, on grounds that hold:
+#
+#     1. A WORKFLOW CANNOT KNOW A DIFF IS DECLARED FINAL. A round is a review at a declared-final
+#        green head. Green is not final - a PR goes green repeatedly while work continues - so an
+#        event-driven request reviews heads nobody declared, and since a round is a distinct head
+#        SHA, each reply at a new head spends one. The cost is real; the mechanism is event
+#        repetition, not the split.
+#     2. THE TWO LEGS WOULD DESYNCHRONISE. On `high` they must be requested together and answered as
+#        ONE round. A workflow fires on its own events; the Codex leg is asked at the final head. Two
+#        heads, two rounds, and CodeRabbit answering a head Codex never saw.
+#     3. A BOT-AUTHORED `@codex review` CAN START AN AGENT THAT WRITES CODE. On #299 the mention was
+#        followed by Codex running an agentic task that edited files and committed `25a275d` in its
+#        own sandbox (never pushed - verified absent from this remote). A workflow able to post that
+#        mention is a workflow able to start an agent with commit authority. That alone is reason
+#        enough to keep the capability off the default branch.
+#
+#   NOT a reason, and recorded because it was written down before it was checked: "auto-requesting
+#   one provider turns one round into two" at a single head. It does not. `_review_state` groups by
+#   head SHA and `rounds = len(reviewed)`, so two providers at one head are one round by design.
+#
+#   The cap therefore rests on this counter PLUS the launcher's refusal PLUS a post-merge audit
+#   (#300) - genuinely weaker than a platform-enforced trigger, and said plainly rather than implied.
+#   `pull_request_review` is a different matter and was also measured: on #285 a review submission
+#   DID run this workflow from the pull request's own head. That is worth knowing for two reasons -
+#   the review paths are testable before merge, and a PR can therefore run its OWN version of this
+#   file with `issues: write`. The checkout pin below removes the unreviewed-*Python* half of that;
+#   the workflow *definition* still comes from the head on review events, which is inherent to the
+#   trigger and is accepted here because the repository is user-owned with no external contributors.
+#   Do not read the pin as making a contributor-facing repository safe.
 #
 # The counter can UNDERCOUNT and never overcounts: only head-bound evidence (review submissions and
 # inline review comments, which carry commit_id) is counted, so a provider answering in a plain issue
