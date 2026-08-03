@@ -88,4 +88,8 @@ it bills twice. Reconcile against Settings → Usage before treating the remaini
 authoritative. What it will not do is read *low by accident* — a repository or a pull request it
 cannot read makes the total **unknown** rather than silently small.
 
-The review lane this configuration serves is being added separately — see #384.
+The review lane this configuration serves is specified in
+[`docs/agents/review.md`](../docs/agents/review.md) and decided in
+[ADR-0062](../docs/adr/0062-draft-first-review-lane-with-metered-providers.md). In short: Greptile is
+**step 2 of 4**, asked once on a draft that is already green and has already survived free Codex
+iteration, and skipped without ceremony when the seat has no budget.
