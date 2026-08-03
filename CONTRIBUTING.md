@@ -314,6 +314,12 @@ they are **disabled** here, so it reviews nothing and replies *"CodeRabbit is an
 incremental review system and does not re-review already reviewed commits"* — which
 reads a great deal like a review that found nothing.
 
+CodeRabbit's fair-use limit is **adaptive**: several reviews in one sitting drop the
+seat to a per-interval allowance, and the refusal names when the next included review
+is due. That is a **wait**, not unavailability — wait it out and ask again. It also
+offers to proceed through usage-based billing; that is the maintainer's spending
+decision, never a worker's. Pace review requests rather than batching them.
+
 Review evidence **survives a non-material push**, so addressing findings does not
 restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
 renumbering are all non-material, while executable code, scientific claims, data,

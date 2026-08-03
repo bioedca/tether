@@ -91,6 +91,16 @@ satisfy this gate.
   that: a provider with no budget left has **not** reviewed, and saying so is the honest record.
   Greptile out of credits is expected and skippable (step 2). **CodeRabbit unavailable freezes the
   PR** — it is the last gate, and nothing merges past it. Never swap providers to evade quota.
+- **Throttled is not unavailable, and the difference is a stated retry time.** CodeRabbit's fair-use
+  limit is *adaptive*: sustained recent activity drops the seat to a per-interval allowance, and the
+  refusal names when the next included review is due — *"Your next included review will be available
+  in 10 minutes"*. That is a **wait**, not a freeze. Wait the stated interval and ask again; do not
+  record it as unavailability, and do not escalate it to the maintainer as one. A freeze is the case
+  where it cannot act **at all**, or where it goes silent with a green check.
+  The refusal also offers to proceed **through usage-based billing**. Never take it: paying to skip
+  a wait is a spending decision, and it belongs to the maintainer, not to a worker trying to finish.
+  Measured on #392, and the driver is request *cadence* — several PRs reviewed in one sitting is what
+  triggers it, so pace the asks rather than batching them.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to
   the merged head. Then **arm auto-merge and exit** — never wait, never poll. Squash with
