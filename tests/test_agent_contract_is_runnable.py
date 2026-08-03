@@ -50,8 +50,30 @@ _INVOCATION = re.compile(
 )
 
 # Fence languages that assert a shell the dispatched worker may not be in. `sh` is the honest
-# annotation for a command written to be shell-neutral.
-_SHELL_SPECIFIC = frozenset({"powershell", "pwsh", "ps1", "ps", "bat", "cmd", "batch"})
+# annotation for a command written to be shell-neutral, and is deliberately absent.
+#
+# The POSIX names are here for the same reason the Windows ones are, which is the symmetry review
+# caught: a ```bash fence is exactly as wrong for the Codex lane as ```powershell was for Claude's.
+# Guarding only the spelling that happened to cause #382 would leave the mirrored defect free to
+# land tomorrow.
+_SHELL_SPECIFIC = frozenset(
+    {
+        "powershell",
+        "pwsh",
+        "ps1",
+        "ps",
+        "bat",
+        "cmd",
+        "batch",
+        "bash",
+        "zsh",
+        "fish",
+        "csh",
+        "ksh",
+        "shell-session",
+        "console",
+    }
+)
 
 
 def _load_slots():  # noqa: ANN202 - a module object; the launcher is not importable by name
@@ -179,6 +201,23 @@ def test_no_fence_asserts_a_shell_the_worker_may_not_be_in() -> None:
         "these fences name a shell the dispatched worker may not have; the commands are "
         f"shell-neutral, so annotate them `sh`: {bad}"
     )
+
+
+def test_the_skill_resolves_the_interpreter_instead_of_naming_one() -> None:
+    """A bare `python3` in an untemplated file is the same defect mirrored, not a fix.
+
+    Codex's P1 on #386: `LANE_PYTHON` selects `python` for the native lanes, so a skill that says
+    only `python3` contradicts this very patch and strands a hand-driven claim, release, reserve or
+    scope-hash on any machine where the native `python3` alias is absent. What the shared file owes
+    the reader is a *rule*, so §Shell names both interpreters and which lane takes which.
+    """
+    text = CODEX_SKILL.read_text(encoding="utf-8")
+    shell = text.partition("## Shell")[2].partition("\n## ")[0]
+    assert shell.strip(), "the skill must carry a §Shell section"
+    slots = _load_slots()
+    for lane, interpreter in slots.LANE_PYTHON.items():
+        assert f"`{interpreter}`" in shell, f"§Shell never names {interpreter}, the {lane} name"
+        assert lane in shell, f"§Shell never names the {lane} lane"
 
 
 def test_the_launcher_injects_a_bare_name_for_every_lane() -> None:

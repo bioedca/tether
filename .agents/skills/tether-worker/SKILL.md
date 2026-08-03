@@ -16,11 +16,25 @@ push, arm auto-merge, exit.
 
 The lanes are dispatched into **different shells**: `claude` runs inside WSL bash, `codex` and
 `copilot` run in native PowerShell. This file is **not templated** — both lanes read these same
-lines — so every command below is written to be valid in either, which means a bare executable name
-followed by arguments. Never the PowerShell `&` call operator, and never an absolute path such as
-`C:\Program Files\GitHub CLI\gh.exe`, which does not exist inside WSL. `python3` and `gh` resolve
-from `PATH` on both sides; if one of them does not resolve in your lane, that is an environment
-defect to report, not a licence to paste an absolute path back in.
+lines — so every command below is written to be valid in either: a bare executable name followed by
+arguments. Never the PowerShell `&` call operator, and never an absolute path such as
+`C:\Program Files\GitHub CLI\gh.exe`, which does not exist inside WSL.
+
+**Resolve the interpreter for your lane before running anything below.** One name does not fit both,
+and pretending otherwise is the defect this section exists to prevent:
+
+| lane | shell | interpreter |
+|---|---|---|
+| `claude` | WSL bash | **`python3`** — Ubuntu provides no `python` at all |
+| `codex`, `copilot` | native PowerShell | **`python`** — the python.org installer registers that name; `python3` may be an unconfigured Store stub |
+
+The commands below are written `python3`, the dispatched `claude` lane's name. **On a native lane,
+substitute `python`.** That single substitution is the entire difference; no other token in any
+command changes between lanes. The launcher already applies it for you in injected task text —
+`{{PYTHON}}` renders from `swarm_slots.LANE_PYTHON`, which is the same table as above — so this
+matters only for hand-driven runs. If neither name resolves, report it; do not paste a path.
+
+`gh` needs no such rule: it resolves from `PATH` in both shells.
 
 Where a command takes `--vendor`, pass **your own lane** — the `Vendor lane` row of the task text
 the launcher injected, or, hand-driven, the vendor of the CLI you are running.
