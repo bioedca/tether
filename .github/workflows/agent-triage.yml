@@ -82,6 +82,13 @@ on:
     types: [submitted, dismissed]
   pull_request_review_comment:
     types: [created]
+  # The happy path, which used to clean up nothing (#308). A squash-merge deletes the branch — so
+  # the mutex releases correctly — and `Closes: #N` closes the issue, but the claim's LABEL mirror
+  # survives on a finished item, and `agent:needs-amend` is the launcher's authority to start an
+  # AMEND session. `closed` covers merged and unmerged alike; triage.py checks `merged` and refuses
+  # the unmerged case, because a PR closed without merging may still have a live claim behind it.
+  pull_request:
+    types: [closed]
   workflow_dispatch:
     inputs:
       pr:
@@ -140,6 +147,7 @@ jobs:
       github.event_name == 'workflow_dispatch'
       || github.event_name == 'pull_request_review'
       || github.event_name == 'pull_request_review_comment'
+      || github.event_name == 'pull_request'
       || startsWith(github.event.check_suite.head_branch, 'agent/issue-')
     steps:
       # PINNED TO THE DEFAULT BRANCH, NOT THE EVENT'S REF. `pull_request_review` and
@@ -166,6 +174,10 @@ jobs:
           HEAD_BRANCH: ${{ github.event.check_suite.head_branch }}
           # A manual run defaults to dry-run; a real event always acts.
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          # The merge path clears the claim's label mirror instead of publishing round state. Set
+          # from the event alone; whether the PR actually merged is re-checked in triage.py from the
+          # API, so a `closed` event that was not a merge writes nothing.
+          MERGED: ${{ github.event_name == 'pull_request' }}
         run: |
           set -euo pipefail
           # BOOTSTRAP GUARD, and deliberately a narrow one. The checkout above is pinned to the
@@ -201,12 +213,25 @@ jobs:
           if [ "${DRY_RUN}" = "true" ]; then
             args+=(--dry-run)
           fi
+          if [ "${MERGED}" = "true" ]; then
+            args+=(--merged)
+          fi
           python .agents/bin/triage.py "${args[@]}" | tee /tmp/triage.json
           python - <<'PY'
           import json, os, pathlib
           r = json.loads(pathlib.Path("/tmp/triage.json").read_text("utf-8"))
           if r["action"] == "skip":
               lines = ["## agent-triage", "", f"Skipped: **{r['reason']}**"]
+          elif r["action"] == "clear-mirror":
+              lines = [
+                  "## agent-triage",
+                  "",
+                  f"PR #{r['pr']} merged → cleared the claim mirror on issue #{r['issue']}.",
+                  "",
+                  f"Removed: {', '.join(r['removed']) or '— (nothing stale)'}",
+                  "",
+                  "`status:ready` is deliberately NOT restored: merged work is done, not requeued.",
+              ]
           else:
               lines = [
                   "## agent-triage",

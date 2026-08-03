@@ -826,3 +826,363 @@ def test_a_submitted_review_has_no_original_and_still_counts(
 
     _, result = _run(_routes(reviews=[_review(CODEX, HEAD)], suites=RED), monkeypatch)
     assert result["rounds"] == 1
+
+
+# --------------------------------------------------------------------------- the merge path (#308)
+#
+# The happy path used to clean up nothing. `claim.py release` clears the mirror and the reaper's
+# `_requeue` clears it, but a PR that merges clears neither: the squash deletes the branch, so the
+# mutex releases correctly, and `Closes: #N` closes the issue — while `status:in-progress` and
+# `agent:needs-amend` survive on finished work, and that second label is the launcher's authority to
+# start an AMEND session.
+
+
+MERGE_MIRROR = [
+    "status:in-progress",
+    "agent:claude",
+    triage.AMEND_LABEL,
+    triage.CONFLICTED_LABEL,
+    "agent:round-1",
+    "type:bug",
+    "size:S",
+]
+
+# The head the merged PR carried. The claim ref is fenced against it, so these two SHAs are what
+# distinguishes "my own branch, not yet deleted" from "a successor recreated the claim".
+MERGED_HEAD = "f" * 40
+SUCCESSOR_HEAD = "1" * 40
+
+CLAIM_REF = "/repos/bioedca/tether/git/ref/heads/agent/issue-7"
+
+
+def _merged_routes(
+    *,
+    merged: bool = True,
+    labels: list[str] | None = None,
+    head_ref: str = "agent/issue-7",
+    issue_state: str = "closed",
+    claim_ref: tuple[int, Any] = (404, None),
+) -> Routes:
+    """Routes for the merge path.
+
+    ``claim_ref`` defaults to 404 because that is the ordinary post-merge state: the squash deleted
+    the branch. A test that wants the successor race passes the ref back in.
+    """
+    return {
+        ("GET", "/repos/bioedca/tether/pulls/99"): (
+            200,
+            {
+                "number": 99,
+                "state": "closed",
+                "merged": merged,
+                "head": {"ref": head_ref, "sha": MERGED_HEAD},
+            },
+        ),
+        ("GET", "/repos/bioedca/tether/issues/7"): (
+            200,
+            {
+                "state": issue_state,
+                "labels": [{"name": n} for n in (labels if labels is not None else MERGE_MIRROR)],
+            },
+        ),
+        ("GET", CLAIM_REF): claim_ref,
+    }
+
+
+def test_a_merged_pull_request_clears_the_claim_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _install(monkeypatch, _merged_routes())
+    result = triage.clear_mirror(number=99, dry_run=False)
+
+    assert result["action"] == "clear-mirror"
+    assert result["issue"] == 7
+    assert set(result["removed"]) == {
+        "status:in-progress",
+        "agent:claude",
+        triage.AMEND_LABEL,
+        triage.CONFLICTED_LABEL,
+        "agent:round-1",
+    }
+    assert set(fake.removed) == set(result["removed"])
+
+
+def test_the_merge_path_leaves_unrelated_labels_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only the claim mirror is the merge path's business.
+
+    `type:bug` and `size:S` describe the work itself and outlive it; stripping the grooming labels
+    off every merged issue would destroy the record the backlog is built from.
+    """
+    fake = _install(monkeypatch, _merged_routes())
+    triage.clear_mirror(number=99, dry_run=False)
+    assert "type:bug" not in fake.removed
+    assert "size:S" not in fake.removed
+
+
+def test_a_merged_pull_request_never_requeues_the_issue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`status:ready` must not come back. Merged work is done, not queued.
+
+    This is the one place the merge path must differ from `reaper._requeue`, which restores the
+    label on purpose. Getting it backwards would hand finished work to the next claimant, and the
+    claim would succeed — the issue would be open, labelled ready, and already implemented.
+    """
+    fake = _install(monkeypatch, _merged_routes())
+    triage.clear_mirror(number=99, dry_run=False)
+
+    ready = triage.claim.REQUIRED_LABEL
+    assert fake.added == []
+    assert ready not in fake.added
+    assert ready not in triage.MIRROR_LABELS
+
+
+def test_a_pull_request_closed_without_merging_clears_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unmerged close may leave a live claim, so its mirror is still true.
+
+    The ref can still exist and the worker can still be holding it; only the reaper decides that a
+    claim is dead. Clearing here would erase a live claim's state from the board.
+    """
+    fake = _install(monkeypatch, _merged_routes(merged=False))
+    result = triage.clear_mirror(number=99, dry_run=False)
+
+    assert result == {"action": "skip", "reason": "closed-without-merging", "pr": 99}
+    assert fake.removed == []
+    assert fake.added == []
+
+
+def test_the_merge_path_reads_a_closed_issue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """By the time the PR has merged, `Closes: #N` has already closed the issue.
+
+    `_issue_labels` returns None for a non-open issue, which is correct for the round counter and
+    would make this path a no-op on every real merge — the defect, not the fix.
+    """
+    fake = _install(monkeypatch, _merged_routes(issue_state="closed"))
+    result = triage.clear_mirror(number=99, dry_run=False)
+    assert result["removed"]
+    assert fake.removed
+
+
+def test_the_merge_path_ignores_a_branch_that_is_not_a_claim_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A maintainer branch is not agent-claimed work and has no mirror to clear."""
+    fake = _install(monkeypatch, _merged_routes(head_ref="docs/issue-189-github-wiki-index"))
+    result = triage.clear_mirror(number=99, dry_run=False)
+
+    assert result == {"action": "skip", "reason": "not-agent-claimed", "pr": 99}
+    assert fake.removed == []
+
+
+def test_the_merge_path_writes_nothing_when_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _install(monkeypatch, _merged_routes())
+    result = triage.clear_mirror(number=99, dry_run=True)
+
+    assert result["removed"]  # still reports what it WOULD remove
+    assert fake.removed == []
+
+
+def test_the_merge_path_is_a_no_op_on_an_already_clean_issue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No DELETE is issued for a label that was never there."""
+    fake = _install(monkeypatch, _merged_routes(labels=["type:bug"]))
+    result = triage.clear_mirror(number=99, dry_run=False)
+
+    assert result["removed"] == []
+    assert fake.removed == []
+
+
+def test_the_merge_path_fails_closed_on_an_unreadable_pull_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 502 must not be read as "not merged" — that would silently skip the cleanup forever."""
+    _install(monkeypatch, {("GET", "/repos/bioedca/tether/pulls/99"): (502, None)})
+    with pytest.raises(triage.TriageError):
+        triage.clear_mirror(number=99, dry_run=False)
+
+
+def test_the_merge_path_fails_closed_on_an_unreadable_issue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    routes = _merged_routes()
+    routes[("GET", "/repos/bioedca/tether/issues/7")] = (502, None)
+    _install(monkeypatch, routes)
+    with pytest.raises(triage.TriageError):
+        triage.clear_mirror(number=99, dry_run=False)
+
+
+def test_every_vendor_marker_is_in_the_mirror() -> None:
+    """The mirror is derived from `claim.VENDORS`, so a new vendor cannot be forgotten here."""
+    for vendor in triage.claim.VENDORS:
+        assert f"agent:{vendor}" in triage._mirror_present({f"agent:{vendor}"})
+
+
+# ------------------------------------------------------------------- the successor fence (#334 R1)
+#
+# `merged` is a fact about a pull request that is over. Whether the labels on the issue still belong
+# to THAT claim is a fact about now, and the two diverge the moment an issue is reopened, re-marked
+# `status:ready` and claimed again. This run can arrive late, and - since a failed cleanup now goes
+# red on purpose - it can be re-run from the Actions UI arbitrarily long afterwards.
+
+
+def test_a_successor_claim_is_never_stripped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A live ref at a DIFFERENT head means someone else owns this issue now. Touch nothing.
+
+    Deleting here would strip `status:in-progress`, the vendor marker and the round state off a
+    live claim while leaving its mutex ref intact: a worker still holding the claim, invisible on
+    the board, and a successor whose AMEND authority silently vanished.
+    """
+    fake = _install(
+        monkeypatch,
+        _merged_routes(claim_ref=(200, {"object": {"sha": SUCCESSOR_HEAD}})),
+    )
+    result = triage.clear_mirror(number=99, dry_run=False)
+
+    assert result == {"action": "skip", "reason": "successor-claim", "pr": 99, "issue": 7}
+    assert fake.removed == []
+    assert fake.added == []
+
+
+def test_the_claim_ref_is_read_after_the_labels_and_before_any_delete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Revalidation is worth nothing if it happens early. The fence must be the LAST read.
+
+    A fence read before the issue's labels would leave a window in which the successor appears
+    between the two reads and its labels are deleted anyway.
+    """
+    fake = _install(monkeypatch, _merged_routes())
+    triage.clear_mirror(number=99, dry_run=False)
+
+    order = [path for _, path in fake.calls]
+    fence = order.index(CLAIM_REF)
+    issue_read = order.index("/repos/bioedca/tether/issues/7")
+    first_delete = next(i for i, (m, _) in enumerate(fake.calls) if m == "DELETE")
+    assert issue_read < fence < first_delete
+
+
+def test_a_ref_still_at_the_merged_head_is_this_claims_own_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fencing on mere EXISTENCE would break the ordinary path.
+
+    GitHub deletes the branch asynchronously, so the ref can outlive the merge event by the time
+    this runs. A ref still pointing at the merged head is this PR's own branch mid-deletion, and
+    skipping on it would mean the cleanup silently never happens at all — the very defect #308
+    exists to fix, moved to a new place.
+    """
+    fake = _install(monkeypatch, _merged_routes(claim_ref=(200, {"object": {"sha": MERGED_HEAD}})))
+    result = triage.clear_mirror(number=99, dry_run=False)
+
+    assert result["action"] == "clear-mirror"
+    assert "status:in-progress" in fake.removed
+
+
+def test_the_fence_fails_closed_on_an_unreadable_claim_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ "I cannot see whether a successor holds this" must never mean "no successor holds it"."""
+    fake = _install(monkeypatch, _merged_routes(claim_ref=(502, None)))
+    with pytest.raises(triage.TriageError):
+        triage.clear_mirror(number=99, dry_run=False)
+    assert fake.removed == []
+
+
+def test_the_fence_fails_closed_on_a_pull_request_with_no_head_sha(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a head to compare against there is no fence, so there is no delete either."""
+    routes = _merged_routes()
+    routes[("GET", "/repos/bioedca/tether/pulls/99")] = (
+        200,
+        {"number": 99, "state": "closed", "merged": True, "head": {"ref": "agent/issue-7"}},
+    )
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(triage.TriageError):
+        triage.clear_mirror(number=99, dry_run=False)
+    assert fake.removed == []
+
+
+def test_a_dry_run_still_reports_the_successor_skip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fence is a decision, not a write, so `--dry-run` must reach the same one."""
+    _install(monkeypatch, _merged_routes(claim_ref=(200, {"object": {"sha": SUCCESSOR_HEAD}})))
+    result = triage.clear_mirror(number=99, dry_run=True)
+    assert result["reason"] == "successor-claim"
+
+
+# ------------------------------------------------------------ deletions are not best-effort (#334)
+#
+# `_apply` may shrug off a failed removal because its state is recomputed on the next event. This
+# path has no next event: `closed` fires once, and the merge already deleted the ref that
+# `reaper.sweep` would have had to enumerate to retry. A swallowed 429 leaves exactly the stale
+# mirror this function exists to remove, and reports that it removed it.
+
+
+def test_a_failed_label_delete_is_not_reported_as_removed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    routes = _merged_routes()
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/status:in-progress")] = (429, None)
+    _install(monkeypatch, routes)
+
+    with pytest.raises(triage.TriageError) as excinfo:
+        triage.clear_mirror(number=99, dry_run=False)
+    assert "status:in-progress" in str(excinfo.value)
+    assert "429" in str(excinfo.value)
+
+
+def test_every_label_is_attempted_before_the_failure_is_raised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Partial progress beats none, and one message naming every failure beats finding them
+    one re-run at a time."""
+    routes = _merged_routes()
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/agent:claude")] = (500, None)
+    fake = _install(monkeypatch, routes)
+
+    with pytest.raises(triage.TriageError):
+        triage.clear_mirror(number=99, dry_run=False)
+    assert "status:in-progress" in fake.removed
+    assert triage.AMEND_LABEL in fake.removed
+
+
+def test_a_label_that_is_already_gone_is_not_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """404 on a DELETE is the desired end state reached by another route, not an error."""
+    routes = _merged_routes()
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/agent:round-1")] = (404, None)
+    _install(monkeypatch, routes)
+
+    result = triage.clear_mirror(number=99, dry_run=False)
+    assert result["action"] == "clear-mirror"
+
+
+# -------------------------------------------- the reaper cannot reach a merged claim (#334 R1)
+
+
+def test_the_conflict_marker_is_cleared_on_merge(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`agent:conflicted` has no other cleanup path once the claim ref is gone.
+
+    `reaper._clear_conflicted` runs only inside `reaper.sweep`'s loop over `_claim_refs()`, i.e.
+    over refs that still EXIST. A squash-merge deletes `agent/issue-N`, so a conflict that was
+    resolved and then auto-merged before the reaper's next scheduled sweep would keep a marker
+    saying it still needs a person — forever. That is the #276 failure exactly.
+    """
+    fake = _install(monkeypatch, _merged_routes())
+    triage.clear_mirror(number=99, dry_run=False)
+    assert triage.CONFLICTED_LABEL in fake.removed
+    assert triage.CONFLICTED_LABEL in triage.MIRROR_LABELS
+
+
+def test_the_workflow_listens_for_the_merge_event() -> None:
+    triggers = _workflow()[True]
+    assert triggers["pull_request"]["types"] == ["closed"]
+
+
+def test_the_workflow_passes_merged_only_on_the_pull_request_event() -> None:
+    """The flag is set from the event; whether it MERGED is re-checked from the API in triage.py."""
+    step = next(
+        s
+        for s in _workflow()["jobs"]["triage"]["steps"]
+        if s.get("name") == "Publish review-round state"
+    )
+    assert step["env"]["MERGED"] == "${{ github.event_name == 'pull_request' }}"
+    assert "--merged" in step["run"]

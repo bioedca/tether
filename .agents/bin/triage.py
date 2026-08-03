@@ -75,7 +75,40 @@ CAP = 2
 ROUND_LABELS = ("agent:round-1", "agent:round-2")
 CAPPED_LABEL = "agent:review-capped"
 AMEND_LABEL = "agent:needs-amend"
+CONFLICTED_LABEL = "agent:conflicted"
 ALL_ROUND_LABELS = (*ROUND_LABELS, CAPPED_LABEL)
+
+# The claim's label MIRROR: the labels that describe work in flight, cleared when its PR merges
+# (#308). `status:ready` is deliberately NOT in this set and is never written by the merge path —
+# see `clear_mirror`.
+#
+# `agent:conflicted` IS in the set, and the first draft of this change left it out on the grounds
+# that the reaper owns it (#276) and clears it on the first clean sweep. That reasoning does not
+# survive the merged path, and checkably so: `reaper.sweep` iterates `_claim_refs()` - the refs that
+# still EXIST - and a squash-merge deletes `agent/issue-N`. The reaper therefore never visits a
+# merged claim's issue again, so a conflict that was resolved and then merged would keep a marker
+# saying it still needs a person, forever, which is precisely the failure #276 named.
+#
+# The usual two-writers hazard does not apply here, and for two reasons that are properties of the
+# code rather than promises about it. Stated precisely, because the version of this comment that
+# said "clear_mirror refuses to write when a live ref owns the issue" was FALSE - the fence
+# deliberately proceeds when the ref survives at the merged head - and a false justification is the
+# defect this whole change is about:
+#
+# 1. GitHub will not merge a PR with conflicts. So a marker that survives to a merge is provably
+#    STALE, and the merge path can only ever delete a false one. This is the load-bearing reason.
+# 2. Both of the reaper's conflicted paths - `_mark` at reaper.py:443-445 and `_clear_conflicted` at
+#    reaper.py:464 - sit past the `pr is None or state != "open"` guard, so they need a live ref AND
+#    an OPEN pull request. A merged PR is closed, so in the one window where `clear_mirror` writes
+#    beside a surviving ref, `sweep` takes the no-PR branch and reaches neither. Pinned by
+#    `test_a_closed_pull_request_is_never_marked_conflicted` in tests/test_reaper.py, so the claim
+#    this set's safety rests on is a gate and not this paragraph.
+MIRROR_LABELS = ("status:in-progress", AMEND_LABEL, CONFLICTED_LABEL, *ALL_ROUND_LABELS)
+
+# A label DELETE that reached the desired end state. 404 counts: the label is already gone, which
+# is what the call was for. Anything else is a failure the merge path must not swallow - see
+# `clear_mirror`.
+DELETE_DONE = frozenset({200, 204, 404})
 
 # `cancelled` and `stale` are here deliberately. Neither is a live status nor a pass, so leaving
 # them out made a readable-but-not-green head report as green and CLEAR a real
@@ -146,6 +179,131 @@ def _issue_labels(number: int) -> set[str] | None:
     if issue.get("state") != "open":
         return None
     return {label["name"] for label in issue.get("labels", []) if isinstance(label, dict)}
+
+
+def _mirror_present(labels: set[str]) -> list[str]:
+    """The mirror labels actually on the issue, vendor markers included.
+
+    Returned rather than deleted blindly so the run reports what it changed, and so a DELETE is
+    not issued for a label that was never there.
+    """
+    mirror = set(MIRROR_LABELS) | {f"agent:{vendor}" for vendor in claim.VENDORS}
+    return sorted(labels & mirror)
+
+
+def _claim_ref_sha(issue: int) -> str | None:
+    """The SHA ``agent/issue-<N>`` points at *now*, or ``None`` when the ref is gone.
+
+    Fails closed on an unreadable answer, and this is the one read where that matters most: "I
+    cannot see whether a successor holds this claim" must never resolve to "no successor holds it",
+    because this is the read that authorises a delete.
+    """
+    status, ref = claim._request("GET", f"/repos/{REPO}/git/ref/heads/{BRANCH_PREFIX}{issue}")
+    if status == 404:
+        return None
+    if status != 200 or not isinstance(ref, dict):
+        raise TriageError(f"the claim ref for #{issue} could not be read (HTTP {status})")
+    sha = (ref.get("object") or {}).get("sha")
+    if not isinstance(sha, str) or not sha:
+        raise TriageError(f"the claim ref for #{issue} carries no object SHA")
+    return sha
+
+
+def clear_mirror(*, number: int, dry_run: bool) -> dict[str, Any]:
+    """Clear a merged claim's label mirror from its linked issue (#308).
+
+    The happy path is the one path with no cleanup. ``claim.py release`` clears the mirror and the
+    reaper's ``_requeue`` clears it, but a PR that simply *merges* clears nothing: the squash
+    deletes the branch (so the mutex releases correctly) and ``Closes: #N`` closes the issue, while
+    the worker exited long before, exactly as ``arm auto-merge and exit`` intends. The labels then
+    describe live work on a finished item — and `#276` already settled that a marker nothing removes
+    is indistinguishable from one nothing checks.
+
+    Four properties, each of which is a way this could go wrong:
+
+    * **Merged, not merely closed.** A PR closed *without* merging leaves the claim live and the ref
+      in place, so its mirror is still true. Only ``merged`` clears.
+    * **Fenced against a successor.** ``merged`` is a fact about a finished pull request and says
+      nothing about who owns the issue *now*. The ref is re-read immediately before the deletes and
+      compared to the merged head, so a reopened-and-reclaimed issue is left entirely alone.
+    * **Never re-queues.** ``status:ready`` is not in :data:`MIRROR_LABELS` and this function has no
+      add path at all — that is the structural guarantee, not a rule to remember. Merged work is
+      *done*, and returning it to the queue would hand a finished item to the next worker. This is
+      the one place the merge path must differ from ``reaper._requeue``, which requeues on purpose.
+    * **Reads the issue whatever its state.** ``_issue_labels`` gates on ``open`` and returns
+      ``None`` otherwise, which is right for the round counter and fatal here: by the time a PR has
+      merged, ``Closes: #N`` has already closed the issue. Reading it separately is the point of
+      this function rather than a flag threaded through :func:`triage`.
+
+    Unlike :func:`_apply`, **deletions here are not best-effort.** ``_apply`` may shrug off a failed
+    removal because its state is recomputed on the next event; this path has no next event. The
+    ``closed`` event fires once, and the reaper cannot pick up the slack because the merge already
+    deleted the ref ``reaper.sweep`` would have had to enumerate. A swallowed 429 or 502 would
+    therefore leave exactly the stale mirror this function exists to remove, while reporting that it
+    removed it. So every DELETE is checked, and a failure raises: the job goes red and re-running it
+    replays the same ``closed`` payload, which is the retry — *while no successor has claimed the
+    issue*. Once one has, the fence below correctly refuses and the residue is a maintainer's. That
+    is the right precedence: never strip a live claim to tidy a dead one.
+    """
+    status, pr = claim._request("GET", f"/repos/{REPO}/pulls/{number}")
+    if status == 404:
+        return {"action": "skip", "reason": "no-pull-request", "pr": number}
+    if status != 200 or not isinstance(pr, dict):
+        raise TriageError(f"PR #{number} could not be read (HTTP {status})")
+    if not pr.get("merged"):
+        # Fails closed on the safe side: an unmerged close means the claim may still be live.
+        return {"action": "skip", "reason": "closed-without-merging", "pr": number}
+
+    issue = _linked_issue(pr)
+    if issue is None:
+        return {"action": "skip", "reason": "not-agent-claimed", "pr": number}
+
+    merged_head = (pr.get("head") or {}).get("sha")
+    if not isinstance(merged_head, str) or not merged_head:
+        raise TriageError(f"PR #{number} reports no head SHA to fence the cleanup against")
+
+    status, payload = claim._request("GET", f"/repos/{REPO}/issues/{issue}")
+    if status != 200 or not isinstance(payload, dict):
+        raise TriageError(f"#{issue} could not be read (HTTP {status})")
+    labels = {label["name"] for label in payload.get("labels", []) if isinstance(label, dict)}
+    remove = _mirror_present(labels)
+
+    # THE SUCCESSOR FENCE, re-read immediately before the deletes rather than inferred from the
+    # merge, because those are two different questions. ``merged`` is a fact about a pull request
+    # that is over; whether the labels on the issue still describe *that* claim is a fact about now.
+    # The merge deletes `agent/issue-N`, but the issue can be reopened, re-marked `status:ready` and
+    # claimed again - and this run can arrive late, or be re-run from the Actions UI long after.
+    # Deleting then would strip `status:in-progress`, the vendor marker and the round state off a
+    # LIVE claim while leaving its mutex ref intact: a worker still holding the ref, invisible on
+    # the board, and a successor whose AMEND authority silently disappeared.
+    #
+    # Compared against the merged head, NOT mere existence. "Ref exists -> skip" would also skip the
+    # ordinary path whenever GitHub's branch deletion has not landed by the time the event is
+    # handled, and the cleanup would silently never happen at all - the same defect in a new place.
+    # A surviving ref at the merged head is this claim's own branch - normally mid-deletion, and if
+    # it persists (GitHub declines to auto-delete a branch that is another open PR's base) the
+    # reaper still enumerates it, so nothing is stranded either way.
+    live = _claim_ref_sha(issue)
+    if live is not None and live != merged_head:
+        return {"action": "skip", "reason": "successor-claim", "pr": number, "issue": issue}
+
+    failed: list[str] = []
+    if not dry_run:
+        for label in remove:
+            status, _ = claim._request(
+                "DELETE", f"/repos/{REPO}/issues/{issue}/labels/{label}", None
+            )
+            if status not in DELETE_DONE:
+                failed.append(f"{label} (HTTP {status})")
+    if failed:
+        # Every label is attempted before raising: partial progress is strictly better than none,
+        # and one message naming all of them beats discovering them one re-run at a time.
+        raise TriageError(
+            f"#{issue} still carries {', '.join(failed)} after its pull request merged; "
+            "this cleanup has no second chance of its own - the `closed` event fires once and the "
+            "reaper cannot reach a claim whose ref the merge has already deleted. Re-run this job."
+        )
+    return {"action": "clear-mirror", "pr": number, "issue": issue, "removed": remove}
 
 
 def _reviewed_head(entry: dict[str, Any]) -> str | None:
@@ -354,9 +512,20 @@ def main() -> int:
     source.add_argument("--pr", type=int, help="pull-request number")
     source.add_argument("--branch", help="head branch name, e.g. agent/issue-42")
     parser.add_argument("--dry-run", action="store_true", help="report without mutating anything")
+    parser.add_argument(
+        "--merged",
+        action="store_true",
+        help="clear a merged claim's label mirror instead of publishing round state",
+    )
     args = parser.parse_args()
+    if args.merged and args.pr is None:
+        parser.error("--merged needs --pr: a merged PR is identified by number, not by branch")
     try:
-        result = triage(number=args.pr, branch=args.branch, dry_run=args.dry_run)
+        result = (
+            clear_mirror(number=args.pr, dry_run=args.dry_run)
+            if args.merged
+            else triage(number=args.pr, branch=args.branch, dry_run=args.dry_run)
+        )
     except (TriageError, claim.ClaimError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -285,6 +285,27 @@ def test_a_resolved_conflict_loses_the_marker(monkeypatch: pytest.MonkeyPatch) -
     assert fake.labels == []
 
 
+def test_a_closed_pull_request_is_never_marked_conflicted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both conflicted paths need an OPEN pull request, and `triage.MIRROR_LABELS` relies on it.
+
+    `agent:conflicted` is cleared by the merge path in `triage.clear_mirror` (#308). That is only
+    free of the two-writers hazard because `_mark` and `_clear_conflicted` both sit past the
+    `pr is None or state != "open"` guard, so a merged - therefore closed - pull request routes to
+    the no-PR branch and reaches neither. Loosening that guard would silently re-open the window
+    with every other test still green, which is why the invariant is a gate rather than a comment.
+    """
+    routes = _routes(_pr(state="closed", mergeable_state="dirty", mergeable=False))
+    fake = _install(monkeypatch, routes)
+
+    assert reaper.sweep(dry_run=False) == [
+        {"issue": 7, "action": "keep", "reason": "recent-activity"}
+    ]
+    assert fake.labels == []
+    assert not fake.did("DELETE", "labels/agent:conflicted")
+
+
 def test_a_clean_pr_without_a_marker_reports_nothing_to_do(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
