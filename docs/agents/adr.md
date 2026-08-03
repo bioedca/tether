@@ -20,8 +20,11 @@ filenames* produce no merge conflict on either record, only on the index, where 
 resolution ships both.
 
 ```sh
-python3 .agents/bin/claim.py reserve-adr
+<py> .agents/bin/claim.py reserve-adr
 ```
+
+`<py>` is your lane's interpreter — `python3` in WSL bash, `python` in native PowerShell. Naming one
+of them here would strand the other lane on a page it is required to read before adding an ADR.
 
 It takes `max(reservations ∪ committed records) + 1` and creates `refs/adr-reservations/NNNN`.
 Creating the ref *is* the mutex, the same compare-and-swap the issue claim uses: `201` to the first

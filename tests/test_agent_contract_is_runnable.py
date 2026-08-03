@@ -210,14 +210,28 @@ def test_the_skill_resolves_the_interpreter_instead_of_naming_one() -> None:
     only `python3` contradicts this very patch and strands a hand-driven claim, release, reserve or
     scope-hash on any machine where the native `python3` alias is absent. What the shared file owes
     the reader is a *rule*, so §Shell names both interpreters and which lane takes which.
+
+    Asserted as **pairings**, not membership. Codex's follow-up P2: checking only that every lane
+    name and every interpreter name appear *somewhere* in §Shell passes just as happily when the
+    mappings are swapped, or when every lane is mapped to `python` — the section already mentions
+    all four strings. The table and the launcher could then drift in exactly the way this test
+    claims to prevent. So each row is parsed and matched against `LANE_PYTHON` directly.
     """
-    text = CODEX_SKILL.read_text(encoding="utf-8")
-    shell = text.partition("## Shell")[2].partition("\n## ")[0]
+    shell = CODEX_SKILL.read_text(encoding="utf-8").partition("## Shell")[2].partition("\n## ")[0]
     assert shell.strip(), "the skill must carry a §Shell section"
+
+    documented = {}
+    for row in re.findall(r"^\|(.+)\|\s*$", shell, flags=re.MULTILINE):
+        cells = [c.strip() for c in row.split("|")]
+        if len(cells) != 3 or not cells[0].startswith("`"):
+            continue  # the header and its separator
+        documented[cells[0].strip("`")] = cells[2].strip("`")
+
     slots = _load_slots()
-    for lane, interpreter in slots.LANE_PYTHON.items():
-        assert f"`{interpreter}`" in shell, f"§Shell never names {interpreter}, the {lane} name"
-        assert lane in shell, f"§Shell never names the {lane} lane"
+    assert documented == slots.LANE_PYTHON, (
+        f"§Shell's table says {documented}, the launcher renders {{PYTHON}} from "
+        f"{slots.LANE_PYTHON}; a worker and its task text would disagree about the interpreter"
+    )
 
 
 def test_the_launcher_injects_a_bare_name_for_every_lane() -> None:

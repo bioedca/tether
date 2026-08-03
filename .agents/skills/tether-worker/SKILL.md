@@ -25,8 +25,12 @@ and pretending otherwise is the defect this section exists to prevent:
 
 | lane | shell | interpreter |
 |---|---|---|
-| `claude` | WSL bash | **`python3`** — Ubuntu provides no `python` at all |
-| `codex`, `copilot` | native PowerShell | **`python`** — the python.org installer registers that name; `python3` may be an unconfigured Store stub |
+| `claude` | WSL bash | `python3` |
+| `codex` | native PowerShell | `python` |
+| `copilot` | native PowerShell | `python` |
+
+WSL provides no `python` at all, and on Windows the python.org installer registers `python` while
+`python3` may be an unconfigured Store stub — so neither name is safe for both.
 
 The commands below are written `python3`, the dispatched `claude` lane's name. **On a native lane,
 substitute `python`.** That single substitution is the entire difference; no other token in any
