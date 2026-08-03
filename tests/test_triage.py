@@ -247,6 +247,33 @@ def test_reaching_the_cap_replaces_the_earlier_round_label(
     assert "agent:round-1" in fake.removed
 
 
+def test_a_failed_amend_label_removal_is_reported_not_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CodeRabbit's finding on #385, and it falsified a claim this PR had just introduced.
+
+    `_apply`'s docstring said "every removal this function makes is paired with an add". Clearing
+    `agent:needs-amend` is not — it is the whole change, and it *retracts authority*. Swallowed, the
+    PR owes nothing but still advertises that it owes an AMEND, and the launcher keeps starting
+    sessions against a permanent cap. Superseded round labels stay best-effort, since an add already
+    published the truth beside them.
+    """
+    routes = _routes(labels=[triage.AMEND_LABEL], reviews=[], suites=GREEN, timeline=[])
+    routes[("DELETE", f"/repos/bioedca/tether/issues/7/labels/{triage.AMEND_LABEL}")] = (500, None)
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(triage.TriageError, match="AMEND"):
+        triage.triage(number=99, branch=None, dry_run=False)
+    assert triage.AMEND_LABEL in fake.removed, "the delete was attempted before it was reported"
+
+
+def test_an_amend_label_already_absent_is_not_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """404 is the end state asked for, reached by another route — not an error to escalate."""
+    routes = _routes(labels=[triage.AMEND_LABEL], reviews=[], suites=GREEN, timeline=[])
+    routes[("DELETE", f"/repos/bioedca/tether/issues/7/labels/{triage.AMEND_LABEL}")] = (404, None)
+    _install(monkeypatch, routes)
+    assert triage.triage(number=99, branch=None, dry_run=False)["amend"] == "cleared"
+
+
 def test_a_zero_recount_never_clears_a_round_label(monkeypatch: pytest.MonkeyPatch) -> None:
     """No automatic migration for labels written under the pre-ADR-0062 semantics, on purpose.
 
@@ -895,15 +922,21 @@ AFTER_READY = "2026-08-01T13:00:00Z"
 
 
 def test_draft_phase_reviews_do_not_consume_a_round(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Two Codex reviews on a draft, at two heads, and the PR is still on round zero.
+    """Two METERED reviews on a draft, at two heads, and the PR is still on round zero.
 
-    Before #384 this counted 2 and capped the PR — on a diff no metered provider had yet seen.
+    Before #384 this counted 2 and capped the PR before it reached the CodeRabbit gate.
+
+    The providers here must be metered, which is CodeRabbit's finding on #385: an earlier version
+    used `CODEX` twice, and Codex consumes no round in *any* phase, so the assertion held for the
+    wrong reason and the draft exemption itself went untested. Every other draft-phase test had the
+    same shape, so the load-bearing behaviour of this whole change had no coverage at all.
+    `test_codex_never_consumes_a_round_even_after_ready` covers the Codex axis separately.
     """
     _, result = _run(
         _routes(
             reviews=[
-                dict(_review(CODEX, OLDER), submitted_at=DRAFT_TIME),
-                dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME),
+                dict(_review(RABBIT, OLDER), submitted_at=DRAFT_TIME),
+                dict(_review(GREPTILE, HEAD), submitted_at=DRAFT_TIME),
             ],
             timeline=[_ready(READY_TIME)],
             suites=RED,

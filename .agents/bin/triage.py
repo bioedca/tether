@@ -506,8 +506,15 @@ def _round_label(rounds: int) -> str | None:
     return CAPPED_LABEL if rounds >= CAP else ROUND_LABELS[rounds - 1]
 
 
+#: Removals whose failure must be reported rather than swallowed, because they are the whole change
+#: rather than the tail of an add. Clearing `agent:needs-amend` is the only one: it retracts the
+#: launcher's authority to start a session, so a silently failed DELETE leaves a PR that owes
+#: nothing still advertising that it owes an AMEND, and the launcher keeps spending sessions on it.
+CHECKED_REMOVALS = frozenset({AMEND_LABEL})
+
+
 def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> None:
-    """Write the label delta. Adds are fatal on failure; removals are best-effort.
+    """Write the label delta. Adds are fatal on failure; most removals are best-effort.
 
     **ORDER IS THE SAFETY PROPERTY: add first, remove second.** Removing first meant a failed
     ``agent:review-capped`` POST left the PR with *neither* the old round label nor the cap — a
@@ -515,10 +522,17 @@ def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> 
     while this run exits non-zero and looks like it changed nothing. With additions first, the same
     failure leaves the previous round label in place and the next event simply retries.
 
-    An add that silently fails publishes state that is not true, so it raises. A removal here is
-    always a *superseded* round label, replaced by the higher one just added, so a failure leaves a
-    stale marker that is cosmetic against that standard and is recomputed next event. Every removal
-    this function makes is paired with an add; nothing here removes a label as the whole change.
+    An add that silently fails publishes state that is not true, so it raises. A *superseded* round
+    label — replaced by the higher one just added — leaves a stale marker if its removal fails,
+    which is cosmetic against that standard and is recomputed next event.
+
+    ``CHECKED_REMOVALS`` is the exception, and an earlier revision of this docstring got it wrong:
+    it claimed "every removal this function makes is paired with an add". Clearing
+    ``agent:needs-amend`` is not — it is the whole change, and it *retracts authority*. Swallowed,
+    it leaves a pull request that owes nothing still advertising that it owes an AMEND, and the
+    launcher keeps starting sessions against a permanent cap. Reported rather than assumed. Success
+    is ``DELETE_DONE``, the set the merge path already uses, ``404`` included: a label that is not
+    there is the end state asked for.
     """
     if dry_run:
         return
@@ -530,7 +544,12 @@ def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> 
                 "not reporting state that was never published"
             )
     for label in remove:
-        claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/{label}", None)
+        status, _ = claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/{label}", None)
+        if label in CHECKED_REMOVALS and status not in DELETE_DONE:
+            raise TriageError(
+                f"#{number} no longer owes an AMEND but {label} could not be removed "
+                f"(HTTP {status}); leaving it would keep issuing authority this run just retracted"
+            )
 
 
 def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str, Any]:

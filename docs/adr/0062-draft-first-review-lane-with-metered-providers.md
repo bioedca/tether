@@ -126,7 +126,9 @@ leg, and a quota refusal from it is recorded as *did not review*.
   forever because only a push clears it. The single-shot model this replaces had no such gap:
   auto-merge did the waiting. Patching the three separately would be three guesses at one missing
   concept, so `.agents/tasks/build.md` now opens the lane and hands off rather than instructing a
-  session to walk phases it cannot reach, and dispatching the lane to a worker waits for #394.
+  session to walk phases it cannot reach, and dispatching the lane to a worker waits for **both**
+  #394 and #391 — they gate it independently, one by publishing no resumption and the other by
+  refusing the resumptions that do get published.
 - **The launcher keeps a second cap, and it is not yet phase-aware.** `swarm_slots.py` records every
   AMEND in a permanent generation ref and refuses another past `CAP`, independently of the labels —
   deliberately, so either counter can bind. It has no notion of draft state, so two draft iterations

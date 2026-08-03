@@ -46,11 +46,14 @@ task text adds only what is specific to this claim.
    **write the lane state into the PR body before exiting**: which phase it is in, what was asked,
    and what is outstanding. That handoff is the only thing carrying the lane forward.
 
-   > **Autonomous dispatch is gated on [#394](https://github.com/bioedca/tether/issues/394).** A
-   > clean review currently publishes no resumption authority, so nothing reopens the claim and the
-   > draft is stranded. Until that lands the lane is completed by hand. Do not work around it by
-   > polling, by marking the PR ready before its draft phase is done, or by merging without the
-   > CodeRabbit gate.
+   > **Autonomous dispatch is gated on TWO independent blockers, and both must land.**
+   > [#394](https://github.com/bioedca/tether/issues/394): a clean review publishes no resumption
+   > authority, so nothing reopens the claim and the draft is stranded.
+   > [#391](https://github.com/bioedca/tether/issues/391): `swarm_slots.py` counts draft AMEND
+   > sessions against its permanent cap, so free draft iteration exhausts the launcher even while
+   > `triage.py` correctly reports zero rounds. Until both land the lane is completed by hand. Do
+   > not work around it by polling, by marking the PR ready before its draft phase is done, or by
+   > merging without the CodeRabbit gate.
 
 ## Do not
 

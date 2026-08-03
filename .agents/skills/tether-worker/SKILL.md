@@ -106,11 +106,14 @@ only *after* a review lands, and waiting for one is exactly what a short-lived w
 is outstanding. A later session reads that and continues. It is the only thing carrying the lane
 forward.
 
-> Dispatching this lane to a worker is gated on
-> [#394](https://github.com/bioedca/tether/issues/394): a clean review currently publishes no
-> resumption authority, so nothing reopens the claim. Until it lands the later phases are completed
-> by hand. Never work around it by polling, by marking a PR ready before its draft phase is done, or
-> by merging without the CodeRabbit gate.
+> Dispatching this lane to a worker is gated on **two** independent blockers, and both must land:
+> [#394](https://github.com/bioedca/tether/issues/394) — a clean review publishes no resumption
+> authority, so nothing reopens the claim — and
+> [#391](https://github.com/bioedca/tether/issues/391) — `swarm_slots.py` counts draft AMEND
+> sessions against its permanent cap, so free draft iteration exhausts the launcher even when
+> `triage.py` correctly reports zero rounds. Until both land the later phases are completed by hand.
+> Never work around it by polling, by marking a PR ready before its draft phase is done, or by
+> merging without the CodeRabbit gate.
 
 Auto-merge is armed at the **end** of the lane, by whoever completes it — not on the draft:
 
