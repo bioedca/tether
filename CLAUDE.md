@@ -36,7 +36,8 @@ If they conflict, stop, choose the safe option, and ask.
 ## Concurrent GitHub Flow
 
 - **GitHub is the coordinator; there is no coordinator agent.** Every agent is a peer: claim one work
-  item, do the work, open a PR, arm auto-merge, exit. Nothing serializes or renews anything for you.
+  item, do the work, open a draft PR, open the review lane, hand off, exit. Auto-merge is armed at
+  the end of that lane, never on the draft. Nothing serializes or renews anything for you.
 - One work item = one owner = one short-lived branch = one PR = one writable worktree. Use
   `agent/issue-<N>` — **no title slug**, since a slug is not deterministic across agents and two refs
   for one issue would void the mutex. Never share a branch or edit another agent's checkout.

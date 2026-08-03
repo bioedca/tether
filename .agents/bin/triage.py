@@ -506,15 +506,8 @@ def _round_label(rounds: int) -> str | None:
     return CAPPED_LABEL if rounds >= CAP else ROUND_LABELS[rounds - 1]
 
 
-def _apply(
-    number: int,
-    add: list[str],
-    remove: list[str],
-    *,
-    dry_run: bool,
-    fatal_removals: bool = False,
-) -> None:
-    """Write the label delta. Adds are fatal on failure; removals are best-effort by default.
+def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> None:
+    """Write the label delta. Adds are fatal on failure; removals are best-effort.
 
     **ORDER IS THE SAFETY PROPERTY: add first, remove second.** Removing first meant a failed
     ``agent:review-capped`` POST left the PR with *neither* the old round label nor the cap — a
@@ -522,20 +515,10 @@ def _apply(
     while this run exits non-zero and looks like it changed nothing. With additions first, the same
     failure leaves the previous round label in place and the next event simply retries.
 
-    An add that silently fails publishes state that is not true, so it raises. An ordinary removal —
-    a superseded round label, replaced by the higher one that was just added — leaves a stale marker
-    if it fails, which is cosmetic against that standard and is recomputed next event.
-
-    ``fatal_removals`` is for the case where that reasoning does not hold: **the stale-label
-    migration**, where the removal is the entire point and nothing was added alongside it. A silent
-    failure there leaves ``agent:review-capped`` on a pull request with zero counted rounds, the
-    launcher refuses further work, and the PR cannot reach the mandatory CodeRabbit gate — while
-    this run reports the migration as done. "Recomputed next event" is weaker than it sounds here,
-    since ``agent-triage.yml`` has no ``ready_for_review`` trigger and an idle PR may get no next
-    event at all. Reported rather than assumed.
-
-    Success is ``DELETE_DONE``, the same set the merge path already uses — including ``404``, since
-    a label that is not on the issue is the end state asked for, reached by another route.
+    An add that silently fails publishes state that is not true, so it raises. A removal here is
+    always a *superseded* round label, replaced by the higher one just added, so a failure leaves a
+    stale marker that is cosmetic against that standard and is recomputed next event. Every removal
+    this function makes is paired with an add; nothing here removes a label as the whole change.
     """
     if dry_run:
         return
@@ -547,13 +530,7 @@ def _apply(
                 "not reporting state that was never published"
             )
     for label in remove:
-        status, _ = claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/{label}", None)
-        if fatal_removals and status not in DELETE_DONE:
-            raise TriageError(
-                f"#{number} still carries {label}, which the round recount says is stale, and the "
-                f"delete failed (HTTP {status}); the launcher will keep refusing work on it, so "
-                "this is reported rather than recorded as migrated"
-            )
+        claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/{label}", None)
 
 
 def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str, Any]:
@@ -594,37 +571,21 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     # would ordinarily mean a read failed - and stepping a PR back from capped to round-1 would
     # re-authorise a round the contract already spent.
     #
-    # ONE exception, and it is not a read failure: **zero** counted rounds. A round label then says
-    # a metered round was spent while the recount says none was, which is stale state - written
-    # under the pre-ADR-0062 semantics, where draft-phase Codex rounds counted. Left in place it is
-    # unrecoverable rather than merely wrong: `swarm_slots` trusts the label, refuses work past the
-    # cap, and the PR can never reach the CodeRabbit stage ADR-0062 makes mandatory. Monotonicity
-    # protects a spent round; at zero there is provably none to protect.
-    #
-    # Zero here is EVIDENCE of none, not absence of evidence, which is what makes it safe: a list
-    # that cannot be read raises `TriageError` rather than counting as empty, and an unreadable
-    # timeline makes `_counted_from` return None, which counts everything. Both failure modes push
-    # the count UP.
-    #
-    # The condition is deliberately the count and not the draft state. An earlier version keyed on
-    # "has never been ready", which left the label stuck the moment such a PR was marked ready:
-    # `never_ready` went false while the count stayed zero, and `agent-triage.yml` has no
-    # `ready_for_review` trigger to catch the transition. Keying on the count is event-independent -
-    # it is right on whichever run happens next - so no new trigger is needed.
-    #
-    # Untimestamped evidence still counts (`_counts_as_round` fails toward counting), so it keeps a
-    # round label alive by making `rounds` non-zero. That is the two safety rules agreeing rather
-    # than fighting: nothing is cleared while anything at all is counted.
+    # ADR-0062 changed what these labels MEAN, and there is deliberately no automatic migration for
+    # labels written under the old semantics. Three versions of one were tried and each was worse
+    # than the last, because a recount of zero is ambiguous in a way no predicate here can resolve:
+    # it means "never spent" for a stale label, and "the evidence was deleted" for a real round that
+    # a metered provider left as wrapper-less inline comments. Clearing on zero refunds the second
+    # case - fail-OPEN on the cap, which is the one thing this module exists to hold. The migration
+    # is therefore an operational step, run once against a repository where it was verified empty;
+    # see ADR-0062. A stale label is removed by hand, which is a command, where a wrong automatic
+    # clear is silent.
     target = _round_label(rounds)
     held = [name for name in ALL_ROUND_LABELS if name in labels]
-    migrating = bool(not rounds and held)
-    if migrating:
-        remove += held
-    else:
-        highest_held = max((ALL_ROUND_LABELS.index(name) for name in held), default=-1)
-        if target is not None and ALL_ROUND_LABELS.index(target) > highest_held:
-            add.append(target)
-            remove += [n for n in held if n != target]
+    highest_held = max((ALL_ROUND_LABELS.index(name) for name in held), default=-1)
+    if target is not None and ALL_ROUND_LABELS.index(target) > highest_held:
+        add.append(target)
+        remove += [n for n in held if n != target]
 
     # The whole mechanism: past the cap no AMEND authority is issued, so no third round can start.
     # An existing marker is left alone - see the module docstring on the two writers.
@@ -639,7 +600,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     else:
         amend = "unchanged"
 
-    _apply(issue, add, remove, dry_run=dry_run, fatal_removals=migrating)
+    _apply(issue, add, remove, dry_run=dry_run)
     return {
         "action": "triage",
         "pr": pr["number"],

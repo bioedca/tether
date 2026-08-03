@@ -10,7 +10,9 @@ only what is specific to being **one peer worker among several**; it never resta
 
 **GitHub is the coordinator; there is no coordinator agent** (ADR-0057). Nothing serializes you,
 nothing renews a lease for you, and nothing merges on your behalf. You are short-lived: claim, work,
-push, arm auto-merge, exit.
+push, open the review lane, hand off, exit. Auto-merge is armed at the **end** of that lane, by
+whoever completes it — see §Finish. Arming it earlier merges the PR past the mandatory CodeRabbit
+gate, because that gate is not a required check and nothing else is holding the merge.
 
 ## Shell
 

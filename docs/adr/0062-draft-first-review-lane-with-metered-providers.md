@@ -90,18 +90,21 @@ leg, and a quota refusal from it is recorded as *did not review*.
   and stepping back from capped would re-authorise a spent round — so a pull request open at the
   changeover would keep a label the new counter contradicts, and `swarm_slots` trusts that label and
   refuses work past the cap. The PR could never reach the CodeRabbit stage this record makes
-  mandatory: unrecoverable, not merely wrong. `triage.py` therefore clears round labels whenever the
-  recomputed count is **zero** — a label claiming a spent round while the counter finds none is
-  stale by construction. The condition is the *count*, deliberately not the draft state: an earlier
-  draft of this keyed on "has never been ready" and left the label stuck the moment such a PR was
-  marked ready, with no `ready_for_review` trigger to catch the transition. Keying on the count is
-  event-independent, so it is correct on whichever run happens next. Zero is safe to act on because
-  it is *evidence* of none rather than absence of evidence: an unreadable list raises, an unreadable
-  timeline counts everything, and untimestamped evidence counts — every failure mode pushes the
-  count **up**. A PR that spent real rounds keeps them, so the toggle-to-refund loophole stays
-  closed. Unlike an ordinary label removal, the migration's deletes are **checked**: the removal is
-  the whole change, so a silent failure would report a migration that did not happen and leave the
-  PR blocked. Verified empty at merge: no open pull request carried a round label.
+  mandatory: unrecoverable, not merely wrong.
+
+  **The migration is an operational step, not code, and that is the decision rather than an
+  omission.** Three automatic versions were written and each was worse than the last: clearing for a
+  PR that had never been ready left the label stuck the moment it went ready; clearing on a zero
+  recount fixed that and introduced something worse. A recount of zero is *ambiguous*. It means
+  "never spent" for a stale label — and "the evidence was deleted" for a real round that a metered
+  provider left as wrapper-less inline comments, which `_review_state` explicitly supports. Clearing
+  on zero refunds the second case, which is **fail-open on the cap**: the single property the counter
+  exists to hold. No predicate available at that point can separate the two.
+
+  So a stale label is removed by hand — `gh issue edit <N> --remove-label agent:review-capped` —
+  which is a command somebody runs, where a wrong automatic clear is silent. Verified empty before
+  this merged: no issue in the repository carried `agent:round-*` or `agent:review-capped`. A future
+  change to what these labels mean needs the same check, and should reach for the same answer.
 - **Budget visibility, not budget enforcement.** Greptile publishes no usage API, so
   `.agents/bin/greptile_usage.py` counts completed `greptile-apps[bot]` reviews per calendar month
   across all three repositories on the seat. It is a proxy: a TREX review costs 3 and is counted as

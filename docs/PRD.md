@@ -1144,8 +1144,10 @@ set), revalidated immediately before every authoritative write so a superseded w
 rather than silently applied. A scheduled CI reaper reclaims dead claims unattended — the failure mode that froze
 the ADR-0052 run was a lease that only a sleeping human could renew.
 
-Every agent is a peer: it claims one issue, works one isolated worktree/branch/PR, arms auto-merge bound to the
-reviewed head with `--match-head-commit`, and exits. No agent waits on another, and no agent merges on another's
+Every agent is a peer: it claims one issue, works one isolated worktree/branch/PR, opens the review lane on a draft,
+and hands off. Auto-merge — bound to the reviewed head with `--match-head-commit` — is armed at the **end** of that
+lane by whoever completes it, never on the draft, since the mandatory CodeRabbit gate is not a required check and
+nothing else would hold the merge. No agent waits on another, and no agent merges on another's
 behalf. ADR-0052's coordinator, leases, run records and guarded-merge monopoly are retired, not merely superseded.
 
 **Label taxonomy** (prefixed namespaces, so labels group and filter cleanly):

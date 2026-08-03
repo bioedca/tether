@@ -271,9 +271,11 @@ Merge **squash-only** (linear history, delete-branch-on-merge) once the review i
 addressed **and all required CI checks are green** — wait for in-progress checks;
 **never merge over a red or pending check**.
 
-Automated agents are peers, not a hierarchy: each claims one issue, opens one PR, and
-**arms auto-merge and exits** rather than waiting or handing off to a merger. There is
-no coordinator. The merge is bound to the head the review evidence covers with
+Automated agents are peers, not a hierarchy: each claims one issue, opens one **draft**
+PR, opens the review lane on it, and **hands off and exits** rather than waiting on a
+reviewer. There is no coordinator. Auto-merge is armed at the **end** of the lane, by
+whoever completes it — arming it on a draft would merge the PR past the mandatory
+CodeRabbit gate, since that gate is not a required check. The merge is bound to the head the review evidence covers with
 `gh pr merge N --auto --squash --match-head-commit <SHA>` — that guard is what stands in
 for the merge queue, which needs an organization-owned repository and so is unavailable
 here.
