@@ -308,6 +308,12 @@ reviews only when you open a PR for review, mark a draft ready, or comment
 `@codex review`. A provider that was never asked has not declined — so if you are
 waiting on a review, check that a request was actually posted.
 
+One exception, and it has already cost money: `.greptile/config.json` is read from
+the pull request's **source branch**, so a branch cut before that file landed still
+auto-fires Greptile on open. Answer that review like any other and record the optional
+Greptile step as spent — the credit is gone either way. Rebasing onto a base that
+carries the config prevents the next one.
+
 Ask CodeRabbit with **`@coderabbitai full review`**. The bare `@coderabbitai review`
 is the *incremental* command and applies only where automatic reviews are **paused**;
 they are **disabled** here, so it reviews nothing and replies *"CodeRabbit is an

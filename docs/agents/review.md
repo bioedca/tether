@@ -50,6 +50,14 @@ review that found nothing, which is the failure this gate exists to catch. Measu
 was not asked **has not declined**. Author-side or local output, and a status-only result, never
 satisfy this gate.
 
+**One exception, and it has already cost money.** `.greptile/config.json` is read from the pull
+request's *source branch*, so a branch cut before that file landed still auto-fires Greptile the
+moment the PR opens (below, under the seat budget). Do not treat an unsolicited review as an
+irregularity to be undone: it is a real review and its credit is spent either way. Answer it as you
+would any other, record **step 2 as spent** with the head it read, and do not ask again. It consumes
+a round only if the PR was already ready when it arrived. Rebasing such a branch onto a base
+carrying the config prevents the *next* one.
+
 **A request that produced no review has not been spent.** The one-per-round limit counts requests
 that were *answered with a review* — so a throttle refusal, or the wrong command running nothing,
 leaves the allowance intact and you ask again. Without that, the fair-use refusal below would deadlock

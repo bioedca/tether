@@ -569,23 +569,30 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     # would ordinarily mean a read failed - and stepping a PR back from capped to round-1 would
     # re-authorise a round the contract already spent.
     #
-    # ONE exception, and it is not a read failure: a pull request that has NEVER been ready for
-    # review cannot have spent a metered round, because the counted phase begins at the first
-    # `ready_for_review` and nothing before it counts. A round label on such a PR is therefore stale
-    # by construction - it was written under the pre-ADR-0062 semantics, where draft-phase Codex
-    # rounds counted. Left in place it is unrecoverable rather than merely wrong: `swarm_slots`
-    # trusts the label, refuses work past the cap, and the PR can never reach the CodeRabbit stage
-    # that ADR-0062 makes mandatory. Monotonicity protects a spent round; there is provably none
-    # here to protect. A PR that WAS ready and later returned to draft is untouched by this - its
-    # `counted_from` is the first ready instant, not _COUNT_NOTHING - so the toggle-to-refund
-    # loophole stays closed.
-    # Guarded by `not rounds` as well, so the two safety rules do not fight. Evidence carrying no
-    # timestamp counts (see `_counts_as_round`), which can leave a never-ready PR reporting a round
-    # anyway; where the recount does not agree there is nothing to protect, monotonicity wins.
-    never_ready = counted_from == _COUNT_NOTHING
+    # ONE exception, and it is not a read failure: **zero** counted rounds. A round label then says
+    # a metered round was spent while the recount says none was, which is stale state - written
+    # under the pre-ADR-0062 semantics, where draft-phase Codex rounds counted. Left in place it is
+    # unrecoverable rather than merely wrong: `swarm_slots` trusts the label, refuses work past the
+    # cap, and the PR can never reach the CodeRabbit stage ADR-0062 makes mandatory. Monotonicity
+    # protects a spent round; at zero there is provably none to protect.
+    #
+    # Zero here is EVIDENCE of none, not absence of evidence, which is what makes it safe: a list
+    # that cannot be read raises `TriageError` rather than counting as empty, and an unreadable
+    # timeline makes `_counted_from` return None, which counts everything. Both failure modes push
+    # the count UP.
+    #
+    # The condition is deliberately the count and not the draft state. An earlier version keyed on
+    # "has never been ready", which left the label stuck the moment such a PR was marked ready:
+    # `never_ready` went false while the count stayed zero, and `agent-triage.yml` has no
+    # `ready_for_review` trigger to catch the transition. Keying on the count is event-independent -
+    # it is right on whichever run happens next - so no new trigger is needed.
+    #
+    # Untimestamped evidence still counts (`_counts_as_round` fails toward counting), so it keeps a
+    # round label alive by making `rounds` non-zero. That is the two safety rules agreeing rather
+    # than fighting: nothing is cleared while anything at all is counted.
     target = _round_label(rounds)
     held = [name for name in ALL_ROUND_LABELS if name in labels]
-    if never_ready and not rounds and held:
+    if not rounds and held:
         remove += held
     else:
         highest_held = max((ALL_ROUND_LABELS.index(name) for name in held), default=-1)

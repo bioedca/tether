@@ -301,6 +301,29 @@ def test_untimestamped_evidence_still_beats_the_stale_label_migration(
     assert triage.CAPPED_LABEL not in fake.removed
 
 
+def test_a_stale_label_is_cleared_after_the_pr_becomes_ready_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The hole in the first version of that migration. Codex raised this on #385.
+
+    Keying the clearing on "has never been ready" left the label stuck the moment such a PR was
+    marked ready: the flag went false while the count stayed zero, and `agent-triage.yml` has no
+    `ready_for_review` trigger that could have caught the transition. Keying on the **count** is
+    event-independent, so it is right on whichever run happens next.
+    """
+    fake, result = _run(
+        _routes(
+            labels=[triage.CAPPED_LABEL],
+            reviews=[dict(_review(RABBIT, HEAD), submitted_at=DRAFT_TIME)],
+            suites=GREEN,
+            timeline=[{"event": "ready_for_review", "created_at": READY_TIME}],
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0, "the only review predates the ready transition"
+    assert triage.CAPPED_LABEL in fake.removed
+
+
 def test_a_draft_excursion_after_ready_still_keeps_its_spent_rounds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

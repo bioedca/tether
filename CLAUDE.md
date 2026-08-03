@@ -98,7 +98,9 @@ If they conflict, stop, choose the safe option, and ask.
   routes providers** — every PR walks the same lane — it states how much scrutiny the change deserves
   and whether a metered credit is worth spending on it. **The
   authoring agent is never the only reviewer**, and no provider self-fires — a provider that was
-  not asked has not declined.
+  not asked has not declined. One exception: a branch cut before `.greptile/config.json` landed
+  still auto-fires Greptile, because the config is read from the PR's source branch. That review is
+  real and its credit is spent — answer it and record step 2 as spent.
 - **Open as a draft and spend the cheap provider first.** Every required check runs on a draft, so
   the diff goes green before a metered provider is asked. Codex iterates on the draft, uncapped,
   until nothing blocking is left; then **optionally one Greptile credit** (`@greptileai review this

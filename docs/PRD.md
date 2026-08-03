@@ -1067,7 +1067,10 @@ is a **wait**, not unavailability, and a request that produced no review has not
 Author-side/local review and a green or status-only
 result do not satisfy the gate. **No provider auto-reviews this repository** — CodeRabbit reports auto reviews
 disabled, Greptile is held by `.greptile/config.json`'s `skipReview: "AUTOMATIC"`, and Codex fires only on
-open-for-review, draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined.
+open-for-review, draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined. The
+one exception is a branch cut **before** that config landed: it is read from the PR's source branch, so such a branch
+still auto-fires Greptile on open. The credit is spent regardless, so the review is answered and the optional Greptile
+step recorded as spent, never discarded as unsolicited.
 
 Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
 rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
