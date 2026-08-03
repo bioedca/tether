@@ -117,3 +117,16 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   only if its tip is reachable from default, its exact head is recorded on a merged squash PR, or it
   has an archival remote; closed-unmerged work needs explicit abandonment authority. Never remove
   another active worker's state, and never normalize another worker merely to satisfy this contract.
+
+## This machine
+
+- Tooling is split across native Windows and WSL and the split is not obvious: `claude` and the
+  CodeRabbit CLI live in WSL, `codex` and `gh` are native. Check with `which`/`where` before
+  scripting one rather than assuming.
+- This machine sits behind a TLS-inspecting proxy whose CA has a non-critical Basic Constraints
+  extension, which CPython 3.13+ rejects under `ssl.VERIFY_X509_STRICT` — so the native interpreter
+  cannot reach the GitHub API while WSL's 3.12 can. `claim.py` reports it as `error:` and exit `2`,
+  never `ineligible:`, which would be a verdict about an issue nobody read. Set
+  **`TETHER_ALLOW_NONSTRICT_X509=1`** (the literal `1`; `true` and `yes` do not arm it) to relax that
+  one conformance check. Chain and hostname verification stay on, and it prints a notice whenever it
+  is in effect, so it is never applied silently. ADR-0061.
