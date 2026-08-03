@@ -97,6 +97,19 @@ WSL_REPO = "/mnt/c/Users/bioed/Documents/smfret-references/Tether"
 CODEX_CLI = r"%APPDATA%\npm\codex.ps1"
 GATE = r".agents\bin\gate.ps1"
 
+# The interpreter each lane can actually resolve, because `_inner_command` puts the lanes in
+# different shells: `claude` inside WSL bash, where Ubuntu ships `python3` and no `python` at all,
+# and every other lane in native PowerShell, where the python.org installer registers `python`. The
+# templates take this as `{{PYTHON}}` rather than naming an interpreter themselves - one template
+# reaches both shells, so the name has to come from whoever knows the lane, which is this file
+# (#382). Unknown vendors get the POSIX spelling, which is also what `.pre-commit-config.yaml` pins.
+LANE_PYTHON = {"claude": "python3", "codex": "python", "copilot": "python"}
+DEFAULT_PYTHON = "python3"
+# `gh` resolves from `PATH` in both shells, so this is one value rather than a table. It is injected
+# anyway so that no template ever spells a tool path, which is the half of #382 that stranded #327
+# and #334: a worker that cannot run `gh` cannot arm auto-merge.
+LANE_GH = "gh"
+
 # Deliberately NOT under refs/tags/: hatch-vcs derives the package version from tags, so a
 # non-version tag makes `pip install -e .` fail and turns main red - the trap ADR-0057 records for
 # the ADR reservations. A custom namespace is the same compare-and-swap and invisible to every tag
@@ -362,6 +375,8 @@ def _render(task: Path, record: dict[str, Any], item: dict[str, Any]) -> str:
         "ROUND": str(item.get("round", 0)),
         "REMAINING": str(item.get("remaining", CAP)),
         "REASON": item.get("reason", "a fresh build"),
+        "PYTHON": LANE_PYTHON.get(item["vendor"], DEFAULT_PYTHON),
+        "GH": LANE_GH,
     }
     text = _body(task)
     for key, value in values.items():

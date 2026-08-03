@@ -19,8 +19,8 @@ same answer, and the collision is invisible to git: two records numbered `0057` 
 filenames* produce no merge conflict on either record, only on the index, where a careless
 resolution ships both.
 
-```
-python .agents/bin/claim.py reserve-adr
+```sh
+python3 .agents/bin/claim.py reserve-adr
 ```
 
 It takes `max(reservations ∪ committed records) + 1` and creates `refs/adr-reservations/NNNN`.

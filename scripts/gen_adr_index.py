@@ -117,7 +117,7 @@ def _records() -> dict[int, Path]:
         raise IndexError_(
             f"two records share one ADR number: {detail}. Git reports no conflict on this - the "
             "records have different filenames - so it has to be caught here. Renumber one with "
-            "`python .agents/bin/claim.py reserve-adr` and move its inbound cross-links with it."
+            "`python3 .agents/bin/claim.py reserve-adr` and move its inbound cross-links with it."
         )
     return seen
 
