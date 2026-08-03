@@ -85,13 +85,22 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   routing, what counts as a material change, the severity floor, the round cap and the merge
   mechanics. Not having read it is itself a bar to acting.
 - Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. **The
-  authoring agent is never the only reviewer**, and neither provider self-fires — a provider that
+  authoring agent is never the only reviewer**, and no provider self-fires — a provider that
   was not asked has not declined.
-- **Two rounds, and you do not issue them.** Every AMEND is a fresh session whose task text the
-  launcher injects with an explicit `ROUND = N of 2`; past the cap it injects none, so no worker
-  ever holds authority for a third. Stop-list, not judgement: **one self-review pass at most**,
-  before the first external request, and **never a review request while `agent:review-capped` is
-  present**.
+- **Open as a draft and spend the cheap provider first.** Every required check runs on a draft, so
+  the diff goes green before a metered provider is asked. Codex iterates on the draft, uncapped,
+  until nothing blocking is left; then **optionally one Greptile credit** (`@greptileai review this
+  draft`) if the seat has budget — exhaustion never blocks; then ready-for-review; then **CodeRabbit
+  with no actionable comments is the last gate before merge**.
+- **Metered providers share one seat.** Greptile is 50 credits per seat per month across every
+  repository this account works in, one per completed review; read the balance with
+  `python3 .agents/bin/greptile_usage.py` before spending. Copilot is budgeted the same way and is
+  **advisory only** — it never satisfies a leg, and a quota refusal is *did not review*, not a pass.
+- **Two rounds after the draft, and you do not issue them.** The cap counts only rounds taken once
+  the PR is ready for review, and only against metered providers — draft-phase Codex is uncounted.
+  Every AMEND is a fresh session whose task text the launcher injects with an explicit
+  `ROUND = N of 2`; past the cap it injects none, so no worker ever holds authority for a third.
+  Stop-list, not judgement: **never a review request while `agent:review-capped` is present**.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to
   the merged head. Then **arm auto-merge and exit** — never wait, never poll.

@@ -55,5 +55,16 @@ control. Until then, leaving it at `1` costs this repository nothing.
 would be silently ignored. Dashboard settings sit below this directory; organization-enforced rules
 sit above it and cannot be overridden here.
 
-The review lane this serves, the seat-wide credit counter, and this directory's review
-`instructions` are being added separately — see #384.
+## Reading the balance before spending
+
+Greptile publishes no usage API, so the only programmatic reading is counted from the GitHub side:
+
+```
+python3 .agents/bin/greptile_usage.py
+```
+
+It reports credits used this month across **all three** repositories on the seat, because a
+per-repository number cannot tell you what is left. It errs toward reading low — a TREX review costs
+3 and is counted as 1 — so reconcile against Settings → Usage before treating it as authoritative.
+
+The review lane this serves is specified in [`docs/agents/review.md`](../docs/agents/review.md).
