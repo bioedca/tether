@@ -110,8 +110,14 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
             continue  # untouched this month, so it cannot carry a review inside it
         try:
             reviews = _gh("api", f"repos/{repo}/pulls/{pull['number']}/reviews")
-        except subprocess.CalledProcessError:
-            continue
+        except subprocess.CalledProcessError as exc:
+            # Same rule as the repository listing above, and the same reason: a PR whose reviews
+            # could not be read is not a PR with zero reviews. Skipping it silently would subtract
+            # from the spend and add to the apparent balance - the one direction that matters.
+            message = exc.stderr.decode("utf-8", "replace").strip().splitlines()
+            raise Unreadable(
+                f"{repo}#{pull['number']} reviews: {message[-1] if message else 'unreadable'}"
+            ) from exc
         hits = [
             review
             for review in reviews  # type: ignore[union-attr]

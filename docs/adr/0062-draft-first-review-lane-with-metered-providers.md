@@ -46,7 +46,15 @@ only when the previous has nothing blocking left:
 4. **Mark ready for review.** The two-round cap starts here.
 5. **CodeRabbit with no actionable comments** — the last gate before merge.
 
-**The round cap begins at ready-for-review.** Draft-phase iteration is uncounted.
+**The round cap counts metered providers only, and only after the PR first goes ready.** Codex never
+consumes a round, draft or not — counting the free lane would let it eat the rounds reserved for the
+mandatory CodeRabbit stage. Greptile does count, because a spent credit is a real round. Entering the
+counted phase is **permanent**: a PR converted back to draft keeps every round it has spent, or the
+cap would be opt-out by toggling draft.
+
+Owed-an-answer is a **separate axis** from rounds. Any external provider's finding is owed an answer
+at the head it was written against — including Greptile's, whose review was paid for, and including
+findings raised on a draft.
 
 **Exhaustion and incapacity are different.** A provider with nothing to say has reviewed; a provider
 with no budget has not. Greptile out of credits is skippable and never blocks. **CodeRabbit
@@ -81,6 +89,12 @@ leg, and a quota refusal from it is recorded as *did not review*.
   before it landed still auto-fire. There is no auto-trigger off switch; the account-level
   file-change limit is the stop-gap, and its comparison is *exceeding*, so a one-file PR still
   auto-fires.
+- **The launcher keeps a second cap, and it is not yet phase-aware.** `swarm_slots.py` records every
+  AMEND in a permanent generation ref and refuses another past `CAP`, independently of the labels —
+  deliberately, so either counter can bind. It has no notion of draft state, so two draft iterations
+  exhaust it while `triage.py` correctly reports zero rounds, and the uncapped loop stalls at the
+  launcher with nothing saying why. Tracked as **#391**, and it blocks dispatching this lane to a
+  worker. It does not affect a hand-driven PR, which is how this record's own PR was worked.
 
 ## Alternatives considered
 

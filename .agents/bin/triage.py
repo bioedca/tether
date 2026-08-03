@@ -69,7 +69,16 @@ BRANCH_RE = re.compile(r"^" + re.escape(BRANCH_PREFIX) + r"(\d+)$")
 
 # Copilot is deliberately absent: AGENTS.md makes it optional and says its absence or quota never
 # blocks, so a Copilot pass must not consume a round the contract did not grant.
-EXTERNAL_PROVIDERS = frozenset({"chatgpt-codex-connector[bot]", "coderabbitai[bot]"})
+EXTERNAL_PROVIDERS = frozenset(
+    {"chatgpt-codex-connector[bot]", "coderabbitai[bot]", "greptile-apps[bot]"}
+)
+
+#: The providers whose rounds the cap counts. **Codex is deliberately absent**: it is the unmetered
+#: lane the review lane iterates on freely, and counting it would let free iteration consume the
+#: rounds reserved for the mandatory CodeRabbit stage (ADR-0062). Greptile IS counted - a spent
+#: credit is a real round - but its findings reach `owed` through EXTERNAL_PROVIDERS either way,
+#: because a paid review that nothing answers is the worst of both.
+METERED_PROVIDERS = frozenset({"coderabbitai[bot]", "greptile-apps[bot]"})
 
 CAP = 2
 ROUND_LABELS = ("agent:round-1", "agent:round-2")
@@ -359,16 +368,18 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
     The review lane spends the free provider first, on a draft, iterating until nothing blocking is
     left — and only then marks the PR ready and starts spending metered reviews. Counting the draft
     iteration would strand a PR at ``agent:review-capped`` before it ever reached the mandatory
-    CodeRabbit gate: the documented loop would consume the cap it is explicitly exempt from. So the
-    cap begins at the **last** ``ready_for_review`` event, and a PR that is still a draft has taken
-    no counted round at all.
+    CodeRabbit gate: the documented loop would consume the cap it is explicitly exempt from.
 
-    ``ready_for_review`` rather than "first ready": a PR converted back to draft to take more free
-    iteration has re-entered the exempt phase, and the rounds before that conversion were answered
-    against a diff that no longer exists.
+    **Entering the counted phase is permanent.** The instant is the *first* ``ready_for_review``,
+    and a PR converted back to draft keeps every round it has already spent. Two earlier drafts of
+    this function each had the same loophole from a different direction — taking the *last* event,
+    and short-circuiting on the current ``draft`` flag — and both let a worker buy unlimited metered
+    rounds by toggling draft. A material push is granted **no** extra round; a draft excursion is
+    not a way around that.
+
+    So a PR that has never been ready has taken no counted round, and once it has been ready once,
+    the clock started then and never restarts.
     """
-    if pr.get("draft"):
-        return _COUNT_NOTHING
     try:
         events = claim._paginate(f"/repos/{REPO}/issues/{pr['number']}/timeline", "PR timeline")
     except (claim.ClaimError, TriageError):
@@ -383,7 +394,11 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
         and isinstance(stamp := event.get("created_at"), str)
         and stamp
     ]
-    return max(ready) if ready else None
+    if ready:
+        return min(ready)
+    # Never ready. A draft has taken no counted round; anything else was opened ready, so every
+    # round it has ever had is real.
+    return _COUNT_NOTHING if pr.get("draft") else None
 
 
 def _review_state(
@@ -430,10 +445,15 @@ def _review_state(
             sha = _reviewed_head(entry)
             if login not in EXTERNAL_PROVIDERS or not isinstance(sha, str) or not sha:
                 continue
-            # Draft-phase evidence still OWES an answer - a finding does not stop mattering because
-            # it arrived on a draft - but it does not consume one of the two rounds.
+            # Two independent axes, and conflating them is how this went wrong twice.
+            #
+            # ROUNDS: only a metered provider, and only after the PR went ready. Draft-phase
+            # evidence is free by design, and Codex never counts at all.
+            #
+            # OWED: any external provider, at any time. A finding does not stop mattering because it
+            # arrived on a draft, and a paid Greptile review that nothing answers is the worst case.
             when = entry.get("submitted_at") if is_reviews else entry.get("created_at")
-            if _counts_as_round(when, counted_from):
+            if login in METERED_PROVIDERS and _counts_as_round(when, counted_from):
                 heads.add(sha)
             if sha != head:
                 continue
