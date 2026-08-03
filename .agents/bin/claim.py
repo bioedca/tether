@@ -104,17 +104,16 @@ class TransportError(ClaimError):
 def _nonstrict_x509_allowed() -> bool:
     """Whether this machine has opted out of strict X.509 *conformance* checking.
 
-    **Only the literal ``1`` arms it** - compared exactly, with no ``strip`` and no truthiness. An
-    interlock that fires on anything truthy is not an interlock: ``0``, ``false``, ``no`` and a stray
-    ``true`` all have to mean *no*, or a typo in a shell profile relaxes a TLS check on a path that
-    carries a GitHub token.
+    **Only the literal ``1`` arms it** - compared exactly, no ``strip`` and no truthiness. An
+    interlock that fires on anything truthy is not an interlock: ``0``, ``false``, ``no`` and a
+    stray ``true`` all have to mean *no*, or a typo in a shell profile relaxes a TLS check on a
+    path that carries a GitHub token.
 
-    An earlier version stripped surrounding whitespace, on the argument that ``"1 "`` from a ``.env``
-    line is unambiguous intent and that refusing it would turn a set variable into a silent no-op.
-    Both reviewers flagged it and the argument does not survive: the contract says *literal*, and the
-    no-op is not silent - a value that does not arm the opt-out produces the ordinary strict failure,
-    which prints the cause and this variable as the remedy. A malformed setting now fails loudly
-    rather than quietly relaxing verification, which is the safer direction for the two to disagree.
+    An earlier version stripped whitespace, arguing that ``"1 "`` from a ``.env`` line is
+    unambiguous and that refusing it turns a set variable into a silent no-op. Both reviewers
+    rejected it and they were right: the contract says *literal*, and the no-op is not silent - a
+    value that does not arm produces the ordinary strict failure, which prints the cause and this
+    variable. A malformed setting failing loudly is the safer direction to err.
     """
     return os.environ.get(STRICT_OPT_OUT) == "1"
 
