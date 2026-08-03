@@ -18,9 +18,10 @@ what is left when two other repositories draw on the same 50.
 under-counting, because the expensive mistake is believing there is budget left when there is not:
 
 - A **TREX** review costs 3 credits, not 1. This counts submissions, so a TREX review is
-  under-counted by 2 - the one direction it does err, and the one the dashboard must settle.
+  under-counted by 2, and the dashboard must settle it.
 - Whether re-triggering on the same PR bills twice is **undocumented**. Every submission is counted,
-  which assumes it does.
+  which assumes it does. If it does not, that assumption reads *high* - the only way this number
+  errs on the safe side, and the reason the two cannot be netted into a single direction.
 - A review on a PR the seat did not author is invisible here, and correctly so: that credit is
   charged to whoever authored it.
 
@@ -64,11 +65,6 @@ EXIT_OVER_BUDGET = 1
 EXIT_UNKNOWN = 2
 
 
-def _gh(*args: str) -> object:
-    out = subprocess.run(["gh", *args], capture_output=True, check=True)  # noqa: S603
-    return json.loads(out.stdout.decode("utf-8"))
-
-
 class Unreadable(RuntimeError):
     """A repository on the seat could not be counted, so the seat total is unknown.
 
@@ -77,6 +73,25 @@ class Unreadable(RuntimeError):
     on the one number the review lane tells a worker to consult before spending a credit. An
     unknown total must look unknown.
     """
+
+
+def _gh(*args: str) -> object:
+    try:
+        out = subprocess.run(["gh", *args], capture_output=True, check=True)  # noqa: S603
+    except OSError as exc:
+        # `gh` missing from PATH, or not executable. This is NOT `CalledProcessError` - it never
+        # ran - so without this arm it escaped every handler and exited 1, which is the code
+        # reserved for the definite answer "the seat is over budget". A caller that stops on 1 and
+        # retries on 2 would have read a missing dependency as an exhausted budget. WSL is the
+        # ordinary way to hit it: `gh` is on PATH natively and in WSL here, but nothing guarantees
+        # both, and the documented invocation is `python3`, which is the WSL interpreter.
+        raise Unreadable(f"cannot run gh ({exc.strerror or exc})") from exc
+    try:
+        return json.loads(out.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        # A zero exit with output that is not the JSON asked for - a proxy login page, a truncated
+        # response. Unparseable is unknown, never zero.
+        raise Unreadable(f"gh returned output that is not JSON ({exc})") from exc
 
 
 def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]]]:
@@ -216,8 +231,10 @@ def main() -> int:
             print(f"    {when}  {repo}#{number}  {count} review{plural}")
 
     print(
-        "\n  A TREX review costs 3 credits and is counted here as 1, so this can only read LOW."
-        "\n  Reconcile against Settings -> Usage before relying on the remaining figure."
+        "\n  A proxy, not an invoice, and it can err BOTH ways: a TREX review costs 3 credits and"
+        "\n  is counted here as 1, while a re-triggered review is counted twice on the assumption"
+        "\n  - undocumented - that it bills twice. Reconcile against Settings -> Usage before"
+        "\n  relying on the remaining figure."
     )
     if args.fail_over_budget and left <= 0:
         print("\nerror: the seat has no included credits left this month", file=sys.stderr)

@@ -80,8 +80,12 @@ python3 .agents/bin/greptile_usage.py
 ```
 
 It reports credits used this month across **all three** repositories on the seat, because credits are
-billed per seat and a per-repository number cannot say what is left. It errs toward reading low — a
-TREX review costs 3 credits and is counted here as 1 — so reconcile against Settings → Usage before
-treating the remaining figure as authoritative.
+billed per seat and a per-repository number cannot say what is left.
+
+It is a proxy, not an invoice, and it can err in **both** directions: a TREX review costs 3 credits
+and is counted as 1, while a re-triggered review is counted twice on the undocumented assumption that
+it bills twice. Reconcile against Settings → Usage before treating the remaining figure as
+authoritative. What it will not do is read *low by accident* — a repository or a pull request it
+cannot read makes the total **unknown** rather than silently small.
 
 The review lane this configuration serves is being added separately — see #384.

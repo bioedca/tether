@@ -108,6 +108,45 @@ def test_an_unreadable_repository_makes_the_total_unknown_rather_than_low(
     assert "remaining" not in captured.out, "a balance must not be printed when it is not known"
 
 
+def test_a_missing_gh_is_unknown_not_over_budget(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`gh` absent from PATH must exit 2, never 1. Codex raised this on PR #392.
+
+    `FileNotFoundError` is not `CalledProcessError` - the process never ran - so it escaped every
+    handler and fell out as an unhandled traceback, exit 1. That is the code reserved for the
+    definite answer *the seat is over budget*, so a caller that stops on 1 and retries on 2 would
+    have read a missing dependency as an exhausted budget and skipped a review it could afford.
+    """
+
+    def _no_gh(*_args: object, **_kwargs: object) -> object:
+        raise FileNotFoundError(2, "No such file or directory", "gh")
+
+    # `subprocess.run` is patched rather than `_gh`, so the real `_gh` runs and its OSError arm is
+    # what the exit code is being read from.
+    monkeypatch.setattr(subprocess, "run", _no_gh)
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == usage.EXIT_UNKNOWN
+    assert usage.EXIT_UNKNOWN != usage.EXIT_OVER_BUDGET
+    captured = capsys.readouterr()
+    assert "gh" in captured.err
+    assert "remaining" not in captured.out, "no balance may be printed when gh never ran"
+
+
+def test_output_that_is_not_json_is_unknown_rather_than_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A zero exit carrying a proxy login page is not a repository with no pull requests."""
+
+    def _html(*_args: str, **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(["gh"], 0, b"<html>login</html>", b"")
+
+    monkeypatch.setattr(subprocess, "run", _html)
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == usage.EXIT_UNKNOWN
+    assert "remaining" not in capsys.readouterr().out
+
+
 def test_only_reviews_the_seat_is_billed_for_are_counted(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
