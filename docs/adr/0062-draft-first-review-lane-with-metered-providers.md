@@ -77,7 +77,9 @@ leg, and a quota refusal from it is recorded as *did not review*.
 - **Implementation.** `triage.py` counted every provider-reviewed head with no notion of draft state,
   so the documented loop would have consumed the cap it is exempt from and stranded the PR at
   `agent:review-capped` *before* the mandatory CodeRabbit stage. It now counts only evidence
-  submitted after the last `ready_for_review` event; draft findings still **owe an answer**, they
+  submitted after the **first** `ready_for_review` event — the first, not the last, because taking
+  the last let a worker refund a spent round by toggling back to draft, and a material push is
+  granted no extra round; draft findings still **owe an answer**, they
   just do not cost a round. An unreadable timeline counts everything — a safety control fails toward
   counting.
 - **Budget visibility, not budget enforcement.** Greptile publishes no usage API, so

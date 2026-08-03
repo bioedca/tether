@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -85,6 +86,11 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
     "could not tell".
     """
     try:
+        # Filtered SERVER-side, not by taking the newest N and hoping. `--limit` is a maximum number
+        # of items fetched, so a repository with more than the limit could silently omit an older PR
+        # that Greptile reviewed this month - and an omitted PR reads as unspent credits, the one
+        # direction that matters. `--search updated:>=` makes the month the query rather than a
+        # post-filter, and the limit then only has to cover PRs touched in one month.
         prs = _gh(
             "pr",
             "list",
@@ -93,7 +99,9 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
             "--state",
             "all",
             "--limit",
-            "100",
+            "500",
+            "--search",
+            f"updated:>={month}-01",
             "--json",
             "number,author,updatedAt",
         )
@@ -141,6 +149,20 @@ def main() -> int:
     )
     args = parser.parse_args()
     month = args.month or datetime.now(UTC).strftime("%Y-%m")
+    # Validated, because every comparison here is lexicographic on ISO-8601 text. A plausible typo
+    # like `2026-8` sorts BELOW every real `2026-08-..` timestamp, so it would skip every PR and
+    # report all 50 credits remaining - confidently, and in exactly the direction that gets a credit
+    # spent that the seat does not have.
+    # The shape is checked before the calendar, because `strptime` is LENIENT about zero-padding -
+    # it happily parses "2026-8", which is the exact typo that breaks the comparisons.
+    if not re.fullmatch(r"\d{4}-\d{2}", month):
+        print(f"error: --month must be a zero-padded YYYY-MM, not {month!r}", file=sys.stderr)
+        return EXIT_UNKNOWN
+    try:
+        datetime.strptime(month, "%Y-%m")  # noqa: DTZ007 - a calendar month, not an instant
+    except ValueError:
+        print(f"error: --month is not a real calendar month: {month!r}", file=sys.stderr)
+        return EXIT_UNKNOWN
 
     per_repo: Counter[str] = Counter()
     prs: Counter[str] = Counter()

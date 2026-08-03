@@ -62,7 +62,7 @@ SIZE_OPTIONS = {
 RISK_OPTIONS = {
     "low — the lane: Codex on the draft, then CodeRabbit",
     "standard — the lane: Codex on the draft, then CodeRabbit",
-    "high — the lane, and spend a Greptile credit before going ready",
+    "high — the lane, and a Greptile credit is worth spending if the seat has budget",
     "unsure — leave it to grooming",
 }
 ADR_NEEDED_OPTIONS = {

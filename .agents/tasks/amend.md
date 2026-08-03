@@ -34,7 +34,7 @@ The severity floor you classify against lives on `review.md`, not in the residen
 
 1. Find the open pull request for `{{BRANCH}}`. Read the failing checks and every unresolved review
    thread on it.
-2. Fix the **blocking** findings only — severity axis: CodeRabbit `Critical`/`Major`, Codex `P1`, plus
+2. Fix the **blocking** findings only — severity axis: CodeRabbit `Critical`/`Major`, Codex `P1`, Greptile `P1`, plus
    the label-independent list in `docs/agents/review.md`. Everything else is deferred to **one**
    follow-up issue
    for this PR, answered `Deferred: … Tracked in #N`, and its thread resolved.

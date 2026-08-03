@@ -1091,8 +1091,9 @@ Every other finding is deferred to one follow-up issue per PR and its thread res
 non-blocking findings in the same PR is a scope breach, and a deferral must never point at an issue that does not
 exist. When a **selected** provider reports that a change has nothing to review for that PR at the head it read —
 including Codex's 👍 reaction, its documented form of "no suggestions" — that statement satisfies its leg, quoted and
-never substituted by the author or any other commenter. On `high`, one provider that genuinely *cannot* act leaves
-the other sufficient with the reason recorded; capability, never quota. Human sign-off is required for releases,
+never substituted by the author or any other commenter. **Exhaustion is not incapacity**: a provider with no budget
+left has not reviewed. Greptile out of credits is skippable and never blocks; **CodeRabbit unavailable freezes the
+PR**, because it is the last gate and nothing merges past it. Human sign-off is required for releases,
 tags, signing changes, and any new scientific claim or citation; everything else merges without it.
 
 `.github/pull_request_template.md` carries the **self-review checklist** — the human-judgment gate in the solo model:

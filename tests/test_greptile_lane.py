@@ -154,6 +154,44 @@ def test_over_budget_and_unknown_are_different_exit_codes(monkeypatch: pytest.Mo
     assert usage.main() == usage.EXIT_OVER_BUDGET
 
 
+def test_a_malformed_month_fails_closed_rather_than_reporting_a_full_balance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every comparison here is lexicographic on ISO-8601 text.
+
+    `2026-8` sorts below every real `2026-08-..` timestamp, so it would skip every PR and report all
+    50 credits remaining - confidently, and in the direction that gets a credit spent that the seat
+    does not have.
+    """
+    monkeypatch.setattr(usage, "_gh", _fake_gh({}, {}))
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-8"])
+    assert usage.main() == usage.EXIT_UNKNOWN
+
+
+def test_the_month_is_queried_server_side_not_filtered_after_a_capped_fetch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--limit` is a maximum fetched, so post-filtering cannot detect truncation.
+
+    An older PR that Greptile reviewed this month would drop out of a capped newest-N fetch, and an
+    omitted PR reads as unspent credits.
+    """
+    seen: list[tuple[str, ...]] = []
+
+    def spy(*args: str):
+        seen.append(args)
+        return [] if args and args[0] == "pr" else []
+
+    monkeypatch.setattr(usage, "_gh", spy)
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == 0
+    listings = [a for a in seen if a and a[0] == "pr"]
+    assert listings, "the repositories must actually be listed"
+    for call in listings:
+        assert "--search" in call, "the month must be part of the query, not a post-filter"
+        assert "updated:>=2026-08-01" in call
+
+
 def test_the_configured_repositories_are_the_ones_billed_to_this_seat() -> None:
     """A repository that receives reviews and is not listed makes the remaining count read HIGH.
 

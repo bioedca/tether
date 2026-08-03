@@ -58,6 +58,8 @@ satisfy this gate.
   `main` merge/rebase, formatting, comment/docstring edits, ADR renumbering. A material push re-arms
   the review and grants **no extra round**.
 - **Severity floor — the severity axis only.** Blocking: CodeRabbit `Critical`/`Major`, Codex `P1`,
+  **Greptile `P1`** — its badges use the same P-scale as Codex, so they map straight across, and a
+  paid review whose findings could all be deferred would be a credit spent on nothing —
   and — whatever the label — a secret or private path, raw or unlicensed data, a weakened frozen
   oracle or tolerance, a §5 skeleton change without an ADR and version bump, any CodeQL or
   `secret-scan` alert, or **a finding that falsifies a claim this PR introduces**. CodeRabbit's
