@@ -93,7 +93,8 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   the diff goes green before a metered provider is asked. Codex iterates on the draft, uncapped,
   until nothing blocking is left; then **optionally one Greptile credit** (`@greptileai review this
   draft`) if the seat has budget — exhaustion never blocks; then ready-for-review; then **CodeRabbit
-  with no actionable comments is the last gate before merge**.
+  with no actionable comments is the last gate before merge** (`@coderabbitai full review` — the
+  bare `review` is incremental-only and silently reviews nothing here).
 - **Metered providers share one seat.** Greptile is 50 credits per seat per month across every
   repository this account works in, one per completed review; read the balance with
   `python3 .agents/bin/greptile_usage.py` before spending. Copilot is budgeted the same way and is

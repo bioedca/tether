@@ -308,6 +308,12 @@ reviews only when you open a PR for review, mark a draft ready, or comment
 `@codex review`. A provider that was never asked has not declined — so if you are
 waiting on a review, check that a request was actually posted.
 
+Ask CodeRabbit with **`@coderabbitai full review`**. The bare `@coderabbitai review`
+is the *incremental* command and applies only where automatic reviews are **paused**;
+they are **disabled** here, so it reviews nothing and replies *"CodeRabbit is an
+incremental review system and does not re-review already reviewed commits"* — which
+reads a great deal like a review that found nothing.
+
 Review evidence **survives a non-material push**, so addressing findings does not
 restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
 renumbering are all non-material, while executable code, scientific claims, data,

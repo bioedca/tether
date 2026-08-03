@@ -30,8 +30,14 @@ Each step begins only when the one before it has nothing blocking left.
    records *"Greptile: no credits this month"* and moves on. It is a strengthening step, not a gate.
 3. **Mark ready for review. The two-round cap starts here**, and from here it governs the metered
    providers only.
-4. **CodeRabbit is the last gate before merge**: at least one CodeRabbit review with **no actionable
-   comments**. Nothing merges without it.
+4. **CodeRabbit is the last gate before merge** — `@coderabbitai full review` — at least one
+   CodeRabbit review with **no actionable comments**. Nothing merges without it.
+
+**Ask CodeRabbit with `full review`, not `review`.** The bare `@coderabbitai review` is the
+*incremental* command, and it applies only where automatic reviews are **paused**. They are
+**disabled** here, so it does not run — it answers *"CodeRabbit is an incremental review system and
+does not re-review already reviewed commits"* and reviews nothing. That reply is easy to read as a
+review that found nothing, which is the failure this gate exists to catch. Measured on #392.
 
 **You must ask — no provider self-fires here.** One request per provider per round; a provider that
 was not asked **has not declined**. Author-side or local output, and a status-only result, never
