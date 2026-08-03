@@ -30,7 +30,7 @@ linked work maps to one. The checklist, not CI, enforces those fields.
 - Closes: #
 - Milestone: M
 - FR:
-- Review path (may only increase): low | standard | high
+- Risk (may only increase; routes no provider — every PR walks the one lane): low | standard | high
 - Risk rationale:
 - Final head SHA:
 - Review round: 0/2 (no metered round yet — a draft, or ready but not yet reviewed) | 1/2 | 2/2 (a third is a stop-list violation — the launcher issues rounds, not you)
@@ -61,7 +61,7 @@ Confirm before requesting review:
 - [ ] **Data policy respected** — no raw/private/unlicensed data or large data in ordinary Git; issue-authorized redistributable fixtures carry license and provenance in named small or LFS/gated paths.
 - [ ] **No secrets committed** — no token, key, credential, or private path in code, tests, logs, or fixtures; `secret-scan` and push protection are green.
 - [ ] **Code scanning clean** — CodeQL (GitHub code-scanning *default setup*, hence no `codeql.yml` workflow) reports no new alerts on this PR.
-- [ ] **Review path complete** — the lane was walked cheapest-first (`docs/agents/review.md`): Codex iterated on the draft until nothing blocking remained; one Greptile credit was spent or its absence recorded; and **CodeRabbit returned no actionable comments at the final head**, which is the gate nothing merges past. A provider that genuinely **cannot** act has its unavailability recorded above with the reason — capability, never quota — except CodeRabbit, whose unavailability freezes the PR rather than excusing it. Copilot is advisory and never satisfies a leg; a quota refusal from it is *did not review*. Applicable human/domain review complete; every conversation and every actionable finding resolved.
+- [ ] **Review lane complete** — the lane was walked cheapest-first (`docs/agents/review.md`): Codex iterated on the draft until nothing blocking remained; one Greptile credit was spent or its absence recorded; and **CodeRabbit returned no actionable comments at the final head**, which is the gate nothing merges past. A provider that genuinely **cannot** act has its unavailability recorded above with the reason — capability, never quota — except CodeRabbit, whose unavailability freezes the PR rather than excusing it. Copilot is advisory and never satisfies a leg; a quota refusal from it is *did not review*. Applicable human/domain review complete; every conversation and every actionable finding resolved.
 - [ ] **Provenance stamped** — coordinates / corrections / app-version / parameters written into the `.tether` for any new analysis (NFR-REPRO).
 - [ ] **New tunables registered in PRD §11.2** (single source of truth), not hardcoded.
 - [ ] **Scientific/statistical claims carry a citation**; **SPDX `GPL-3.0-or-later`** header on every new source file (`reuse lint` green).

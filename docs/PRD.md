@@ -1118,7 +1118,7 @@ tags, signing changes, and any new scientific claim or citation; everything else
 - [ ] **Docs updated** (mkdocs / docstrings); if a resolved decision changed, the PRD and/or an ADR is updated in
       the same PR (§12.7).
 - [ ] **Conventional-Commits** PR title; breaking changes carry `!` / `BREAKING CHANGE:` (§12.2).
-- [ ] CodeQL clean; the low/standard/high review path is recorded and complete for the final head SHA (§12.3).
+- [ ] CodeQL clean; the risk level is recorded and the review lane complete for the final head SHA (§12.3).
 
 ### 12.5 Issue tracking & project planning
 
@@ -1150,7 +1150,7 @@ behalf. ADR-0052's coordinator, leases, run records and guarded-merge monopoly a
 | `status:` | `backlog`, `ready`, `in-progress`, `in-review`, `blocked`, `done` (mirror the board columns) |
 | `agent:` | `claude`, `codex`, `copilot` — the claiming lane, written by `claim.py` as a **mirror** of the claim ref, never as the lock; `human` (reserved for the maintainer, not claimable); `needs-amend` (one AMEND session is owed); `conflicted` (the PR is `DIRTY` and needs a person) |
 | `size:` | `XS`, `S`, `M`, `L` — the diff budget in added lines, 50 / 150 / 400 / 900, excluding lockfiles and generated files. There is no rung above `L`; work that does not fit is `needs:split` |
-| `risk:` | `low`, `standard`, `high` — the review-gate lane (§12.4) |
+| `risk:` | `low`, `standard`, `high` — how much scrutiny the item deserves, and so whether a metered credit is worth spending on it. It **routes no provider**: every item walks the one lane (§12.4) |
 | `needs:` | `split` (over the diff budget), `adr` (an ADR is required in the implementation PR) |
 | `blocked-by:` | `issue` (another open issue here), `maintainer` (a decision), `external` (an upstream or third party) — the *reason* a `status:blocked` item is blocked |
 | standalone | `preauth` (covered by the standing pre-authorization scope), `good-first-issue`, `security`, `help-wanted`, `dependencies` (applied by Dependabot) |

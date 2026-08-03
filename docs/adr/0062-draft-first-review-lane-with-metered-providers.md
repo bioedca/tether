@@ -82,6 +82,18 @@ leg, and a quota refusal from it is recorded as *did not review*.
   granted no extra round; draft findings still **owe an answer**, they
   just do not cost a round. An unreadable timeline counts everything — a safety control fails toward
   counting.
+- **The round labels change meaning, so they need a migration.** `agent:round-N` and
+  `agent:review-capped` are persisted state written under the old semantics, where draft-phase
+  rounds counted. They are deliberately monotonic — a count that falls normally means a read failed,
+  and stepping back from capped would re-authorise a spent round — so a pull request open at the
+  changeover would keep a label the new counter contradicts, and `swarm_slots` trusts that label and
+  refuses work past the cap. The PR could never reach the CodeRabbit stage this record makes
+  mandatory: unrecoverable, not merely wrong. `triage.py` therefore clears round labels from a pull
+  request that has **never been ready for review**, where the contract proves no metered round can
+  have been spent. It is guarded on the recount agreeing, so untimestamped evidence — which counts,
+  by design — still wins; and a PR that *was* ready and returned to draft is untouched, so the
+  toggle-to-refund loophole stays closed. Verified empty at merge: no open pull request carried a
+  round label.
 - **Budget visibility, not budget enforcement.** Greptile publishes no usage API, so
   `.agents/bin/greptile_usage.py` counts completed `greptile-apps[bot]` reviews per calendar month
   across all three repositories on the seat. It is a proxy: a TREX review costs 3 and is counted as

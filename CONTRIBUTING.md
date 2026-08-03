@@ -255,7 +255,8 @@ Before requesting review / merging, confirm:
 - [ ] **No secrets committed** — no token, key, credential or private path in code,
       tests, logs or fixtures; `secret-scan` green.
 - [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
-- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; the round; and a
+- [ ] **Risk recorded, and the review lane complete** — `low`, `standard`, or `high`, which
+      routes nothing; the round; and a
       result from every provider the lane reached — **either** a substantive review **or** that
       provider's own quoted "nothing to review" for the head it read, a Codex 👍 included.
       **CodeRabbit with no actionable comments is required**; Greptile is optional, and its absence

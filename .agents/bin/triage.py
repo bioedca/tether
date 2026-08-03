@@ -553,7 +553,8 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     if not head:
         raise TriageError(f"PR #{pr['number']} has no head sha")
 
-    reviewed, review_owed = _review_state(pr["number"], head, _counted_from(pr))
+    counted_from = _counted_from(pr)
+    reviewed, review_owed = _review_state(pr["number"], head, counted_from)
     rounds = len(reviewed)
     running, failed = _suite_state(head)
     capped = rounds >= CAP
@@ -565,15 +566,32 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
 
     # Round labels are mutually exclusive and only ever escalate. Monotonic on purpose: heads cannot
     # be rewritten here (the ruleset forbids force-push and non-fast-forward), so a count that fell
-    # would mean a read failed - and stepping a PR back from capped to round-1 would re-authorise a
-    # round the contract already spent.
+    # would ordinarily mean a read failed - and stepping a PR back from capped to round-1 would
+    # re-authorise a round the contract already spent.
+    #
+    # ONE exception, and it is not a read failure: a pull request that has NEVER been ready for
+    # review cannot have spent a metered round, because the counted phase begins at the first
+    # `ready_for_review` and nothing before it counts. A round label on such a PR is therefore stale
+    # by construction - it was written under the pre-ADR-0062 semantics, where draft-phase Codex
+    # rounds counted. Left in place it is unrecoverable rather than merely wrong: `swarm_slots`
+    # trusts the label, refuses work past the cap, and the PR can never reach the CodeRabbit stage
+    # that ADR-0062 makes mandatory. Monotonicity protects a spent round; there is provably none
+    # here to protect. A PR that WAS ready and later returned to draft is untouched by this - its
+    # `counted_from` is the first ready instant, not _COUNT_NOTHING - so the toggle-to-refund
+    # loophole stays closed.
+    # Guarded by `not rounds` as well, so the two safety rules do not fight. Evidence carrying no
+    # timestamp counts (see `_counts_as_round`), which can leave a never-ready PR reporting a round
+    # anyway; where the recount does not agree there is nothing to protect, monotonicity wins.
+    never_ready = counted_from == _COUNT_NOTHING
     target = _round_label(rounds)
-    highest_held = max(
-        (ALL_ROUND_LABELS.index(name) for name in ALL_ROUND_LABELS if name in labels), default=-1
-    )
-    if target is not None and ALL_ROUND_LABELS.index(target) > highest_held:
-        add.append(target)
-        remove += [n for n in ALL_ROUND_LABELS if n in labels and n != target]
+    held = [name for name in ALL_ROUND_LABELS if name in labels]
+    if never_ready and not rounds and held:
+        remove += held
+    else:
+        highest_held = max((ALL_ROUND_LABELS.index(name) for name in held), default=-1)
+        if target is not None and ALL_ROUND_LABELS.index(target) > highest_held:
+            add.append(target)
+            remove += [n for n in held if n != target]
 
     # The whole mechanism: past the cap no AMEND authority is issued, so no third round can start.
     # An existing marker is left alone - see the module docstring on the two writers.

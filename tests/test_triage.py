@@ -247,6 +247,86 @@ def test_reaching_the_cap_replaces_the_earlier_round_label(
     assert "agent:round-1" in fake.removed
 
 
+def test_a_stale_round_label_on_a_never_ready_pr_is_cleared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The one exception to monotonicity, and it is a migration. Codex raised this on #385.
+
+    Before ADR-0062 every provider round counted, draft or not, so a PR open at the changeover can
+    carry `agent:review-capped` written under the old semantics. The new counter reports zero - the
+    counted phase begins at the first `ready_for_review` and this PR has never been ready - but
+    monotonicity would keep the higher label, `swarm_slots` trusts it and refuses work past the cap,
+    and the PR could never reach the CodeRabbit stage ADR-0062 makes mandatory. Unrecoverable
+    rather than merely wrong.
+
+    Monotonicity exists to protect a round that was genuinely spent. On a PR that has never been
+    ready there provably is none, so there is nothing to protect.
+    """
+    fake, result = _run(
+        _routes(
+            pr=_pr(draft=True),
+            labels=[triage.CAPPED_LABEL],
+            reviews=[dict(_review(RABBIT, HEAD), submitted_at="2026-07-01T10:00:00Z")],
+            suites=GREEN,
+            timeline=[],
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0
+    assert triage.CAPPED_LABEL in fake.removed
+    assert fake.added == [], "clearing a stale label must not write a new one"
+
+
+def test_untimestamped_evidence_still_beats_the_stale_label_migration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Where the two safety rules meet, monotonicity wins.
+
+    Evidence carrying no timestamp counts as a round — `_counts_as_round` fails toward counting — so
+    a never-ready PR can still report one. Clearing its label there would drop a round the counter
+    is asserting, so the migration is guarded on the recount agreeing that there is nothing to
+    protect.
+    """
+    fake, result = _run(
+        _routes(
+            pr=_pr(draft=True),
+            labels=[triage.CAPPED_LABEL],
+            reviews=[_review(RABBIT, HEAD)],  # no submitted_at
+            suites=GREEN,
+            timeline=[],
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+    assert triage.CAPPED_LABEL not in fake.removed
+
+
+def test_a_draft_excursion_after_ready_still_keeps_its_spent_rounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The boundary of that exception, in the direction that would be abusable.
+
+    A PR that HAS been ready and returned to draft is not "never ready": its `counted_from` is the
+    first ready instant, so the clearing rule does not fire and the spent round survives. Without
+    this the migration would have reopened the toggle-to-refund loophole it sits beside.
+    """
+    fake, result = _run(
+        _routes(
+            pr=_pr(draft=True),
+            labels=["agent:round-1"],
+            reviews=[dict(_review(RABBIT, HEAD), submitted_at="2026-08-02T12:00:00Z")],
+            suites=GREEN,
+            timeline=[
+                {"event": "ready_for_review", "created_at": "2026-08-02T00:00:00Z"},
+                {"event": "convert_to_draft", "created_at": "2026-08-02T18:00:00Z"},
+            ],
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+    assert "agent:round-1" not in fake.removed
+
+
 # --------------------------------------------------------------------- the amend label
 
 
