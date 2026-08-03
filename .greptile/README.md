@@ -29,11 +29,25 @@ issues; one auto-review each would consume the seat's whole month on this reposi
 ## Two things this cannot do
 
 **It does not cover branches cut before it landed.** Greptile reads configuration from the *source
-branch of the PR*, so a branch that predates this directory still auto-fires. The auto-trigger
-toggle at `app.greptile.com` is the only cover for those, and it is a maintainer action — nothing in
-this repository can set it.
+branch of the PR*, so a branch that predates this directory still auto-fires. **There is no
+auto-trigger off switch** — automatic review is suppressed by configuration, not by a toggle, which
+is why `skipReview` lives here rather than in a dashboard setting.
+
+The cover for those older branches is the account-level **file-change limit**, set to `1` on
+2026-08-03: *"Greptile skips PRs over this file count unless someone explicitly tags
+`@greptileai`."* It applies to every repository on the seat immediately, without waiting for a
+config to land in each. Note the comparison is **exceeding** — a pull request touching exactly one
+file is still reviewed automatically, so the limit is a broad net, not a seal.
 
 **It does not enforce a budget.** Nothing stops a seventeenth `@greptileai` except not typing it.
+
+## Once this has merged, this repository no longer needs the account-level limit
+
+`skipReview: "AUTOMATIC"` is strictly stronger than a file-change limit: it suppresses *every*
+automatic review here regardless of size, including the one-file PRs the limit lets through. So the
+account-wide `fileChangeLimit` can be relaxed for the other repositories' sake as soon as each of
+them carries its own `.greptile/` — it is a stop-gap for the window before that, not a permanent
+control. Until then, leaving it at `1` costs this repository nothing.
 
 ## Precedence
 
