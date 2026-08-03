@@ -194,13 +194,16 @@ def _certificate_detail(cause: str) -> str:
             "conformance check - chain and hostname verification stay on - or run this tool under "
             "an interpreter older than 3.13."
         )
+    # No remedy past this point, and deliberately none. An expired certificate and a hostname
+    # mismatch carry no strict marker but do reach here on 3.13+, and the previous version offered
+    # them the opt-out anyway - so the gate the record promises was not the gate the code applied,
+    # and the advice pointed at relaxing conformance for a certificate that stays invalid however
+    # conformance is configured (Codex P1 on #388, at the head that introduced this branch).
     if _strict_is_the_default():
         return (
-            f"{head} This interpreter verifies under ssl.VERIFY_X509_STRICT (CPython 3.13+). If "
-            "the certificate is otherwise trusted and only its CA's encoding is at fault - a "
-            f"TLS-inspecting proxy is the usual source - {STRICT_OPT_OUT}=1 relaxes that one "
-            "conformance check. Otherwise the certificate is genuinely not acceptable, and it "
-            "should not be made so."
+            f"{head} This interpreter verifies under ssl.VERIFY_X509_STRICT (CPython 3.13+), but "
+            "this is not a failure this tool recognizes as a conformance defect, so no conformance "
+            "setting will address it. Treat the certificate as genuinely unacceptable."
         )
     return (
         f"{head} Strict conformance checking is not enabled on this interpreter, so it is not "

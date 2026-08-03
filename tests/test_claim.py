@@ -832,11 +832,48 @@ def test_an_unrelated_certificate_defect_is_not_blamed_on_conformance(
     assert "certificate has expired" in message
     assert "Basic Constraints" not in message
     assert "the certificate was found" not in message
+    # On *either* interpreter. Codex's P1 at `0f14fa1`: the 3.13+ fallback still offered the opt-out
+    # to anything without a conformance signature, so the gate the ADR promised was not the gate the
+    # code applied - and the advice pointed at relaxing conformance for a certificate that stays
+    # invalid however conformance is configured.
+    assert claim.STRICT_OPT_OUT not in message, "no remedy without a recognized signature"
     if claim._strict_is_the_default():
-        assert "should not be made so" in message, "the escape hatch must stay qualified"
+        assert "genuinely unacceptable" in message
     else:
         assert "not enabled on this interpreter" in message
-        assert claim.STRICT_OPT_OUT not in message, "do not offer a remedy that cannot apply"
+
+
+@pytest.mark.parametrize(
+    ("cause", "armable"),
+    [
+        ("Basic Constraints of CA cert not marked critical", True),
+        ("invalid CA certificate", True),
+        ("certificate has expired", False),
+        ("Hostname mismatch, certificate is not valid for 'api.github.com'", False),
+        ("unable to get local issuer certificate", False),
+        ("self-signed certificate in certificate chain", False),
+    ],
+)
+def test_the_opt_out_is_advised_only_for_a_recognized_conformance_signature(
+    monkeypatch: pytest.MonkeyPatch, cause: str, armable: bool
+) -> None:
+    """The gate ADR-0061 promises, asserted rather than described.
+
+    `TETHER_ALLOW_NONSTRICT_X509=1` may be *advised* only where clearing that flag could actually
+    help. Everything else is a certificate that stays invalid however conformance is configured, and
+    pointing an operator at a TLS switch for it is worse than saying nothing. Naming the variable in
+    order to rule it out — as the missing-issuer branch does — is not advice, so the assertion is on
+    the arming form `=1`.
+    """
+    monkeypatch.delenv(claim.STRICT_OPT_OUT, raising=False)
+    _transport(monkeypatch, _cert_error(cause))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    advised = f"{claim.STRICT_OPT_OUT}=1" in str(info.value)
+    assert advised is (armable and claim._strict_is_the_default()), (
+        f"{cause!r}: advised={advised}, recognized={armable}, "
+        f"strict_default={claim._strict_is_the_default()}"
+    )
 
 
 def test_an_unreachable_host_is_still_reported_as_unreachable(

@@ -92,10 +92,19 @@ misdirected `SSL_CERT_FILE`.
 certificate failure that the CA had been found and that `SSL_CERT_FILE` could not help — including
 an expired certificate, a hostname mismatch, or a genuinely missing issuer, for which `SSL_CERT_FILE`
 is exactly the remedy — and said it on 3.11 and 3.12, where strict mode is not enabled at all. That
-is the confidently-wrong message this record exists to remove, reintroduced one branch over. The
-strict explanation is now gated on both a recognized conformance signature and strict actually being
-the interpreter's default; a missing issuer gets the trust-store remedy; anything else gets the
-observed reason and no advice.
+is the confidently-wrong message this record exists to remove, reintroduced one branch over.
+
+It took two passes to actually gate it, which is worth recording. The first attempt added the
+signature check but kept a 3.13+ fallback that still offered the opt-out to *anything* unrecognized —
+so an expired certificate and a hostname mismatch were still pointed at a TLS switch that cannot help
+them, and this record's own gating promise was false when it was written. Codex caught that too.
+
+The rule now: **`TETHER_ALLOW_NONSTRICT_X509=1` is advised only where clearing that flag could
+actually help** — a recognized conformance signature, on an interpreter where strict is the default.
+A missing issuer gets the trust-store remedy instead. Everything else gets the observed reason and
+**no remedy at all**, because a certificate that stays invalid however conformance is configured is
+one an operator should not be nudged toward loosening. `test_the_opt_out_is_advised_only_for_a_
+recognized_conformance_signature` asserts that across six real OpenSSL messages.
 
 **3. `TETHER_ALLOW_NONSTRICT_X509=1` clears `ssl.VERIFY_X509_STRICT` and nothing else.**
 `verify_mode` stays `CERT_REQUIRED` and `check_hostname` stays `True`: the chain is still verified
