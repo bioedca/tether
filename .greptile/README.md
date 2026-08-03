@@ -49,11 +49,43 @@ account-wide `fileChangeLimit` can be relaxed for the other repositories' sake a
 them carries its own `.greptile/` — it is a stop-gap for the window before that, not a permanent
 control. Until then, leaving it at `1` costs this repository nothing.
 
+## What a spent credit is asked to look for
+
+Since a review here is never free, `instructions` aims it at what this repository is least able to
+recover from — a silently wrong scientific number, a non-additive HDF5 schema change without an ADR
+and version bump, a secret or private path, unlicensed data, a defect in the single-writer project
+lock — and asks for one well-evidenced blocking finding over many stylistic ones. `strictness: 2`
+is the matching dial.
+
+One instruction earns its length. A PR usually *cites* the frozen oracles under `schema/` rather
+than editing them, and reviewing those frozen values from scratch wastes the credit — so they are to
+be taken as given. But that reverses when a PR **changes** a measured fixture, a reference value or a
+tolerance: there the value and its assertion move together, so the test proves nothing about the
+value, and the derivation is exactly what needs scrutiny. Weakening a tolerance to make an
+implementation pass is the failure this repository most needs caught, and it is invisible to CI by
+construction.
+
 ## Precedence
 
 `.greptile/` **overrides** a root `greptile.json`, which is the legacy form — do not add one, it
 would be silently ignored. Dashboard settings sit below this directory; organization-enforced rules
 sit above it and cannot be overridden here.
 
-The review lane this serves, the seat-wide credit counter, and this directory's review
-`instructions` are being added separately — see #384.
+## Reading the balance before spending
+
+Greptile publishes no usage API, so the only programmatic reading is counted from the GitHub side:
+
+```
+python3 .agents/bin/greptile_usage.py
+```
+
+It reports credits used this month across **all three** repositories on the seat, because credits are
+billed per seat and a per-repository number cannot say what is left.
+
+It is a proxy, not an invoice, and it can err in **both** directions: a TREX review costs 3 credits
+and is counted as 1, while a re-triggered review is counted twice on the undocumented assumption that
+it bills twice. Reconcile against Settings → Usage before treating the remaining figure as
+authoritative. What it will not do is read *low by accident* — a repository or a pull request it
+cannot read makes the total **unknown** rather than silently small.
+
+The review lane this configuration serves is being added separately — see #384.
