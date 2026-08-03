@@ -506,8 +506,15 @@ def _round_label(rounds: int) -> str | None:
     return CAPPED_LABEL if rounds >= CAP else ROUND_LABELS[rounds - 1]
 
 
-def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> None:
-    """Write the label delta. Adds are fatal on failure; removals are best-effort.
+def _apply(
+    number: int,
+    add: list[str],
+    remove: list[str],
+    *,
+    dry_run: bool,
+    fatal_removals: bool = False,
+) -> None:
+    """Write the label delta. Adds are fatal on failure; removals are best-effort by default.
 
     **ORDER IS THE SAFETY PROPERTY: add first, remove second.** Removing first meant a failed
     ``agent:review-capped`` POST left the PR with *neither* the old round label nor the cap — a
@@ -515,8 +522,20 @@ def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> 
     while this run exits non-zero and looks like it changed nothing. With additions first, the same
     failure leaves the previous round label in place and the next event simply retries.
 
-    An add that silently fails publishes state that is not true, so it raises. A removal that fails
-    leaves a stale marker, which is cosmetic against that standard and is recomputed next event.
+    An add that silently fails publishes state that is not true, so it raises. An ordinary removal —
+    a superseded round label, replaced by the higher one that was just added — leaves a stale marker
+    if it fails, which is cosmetic against that standard and is recomputed next event.
+
+    ``fatal_removals`` is for the case where that reasoning does not hold: **the stale-label
+    migration**, where the removal is the entire point and nothing was added alongside it. A silent
+    failure there leaves ``agent:review-capped`` on a pull request with zero counted rounds, the
+    launcher refuses further work, and the PR cannot reach the mandatory CodeRabbit gate — while
+    this run reports the migration as done. "Recomputed next event" is weaker than it sounds here,
+    since ``agent-triage.yml`` has no ``ready_for_review`` trigger and an idle PR may get no next
+    event at all. Reported rather than assumed.
+
+    Success is ``DELETE_DONE``, the same set the merge path already uses — including ``404``, since
+    a label that is not on the issue is the end state asked for, reached by another route.
     """
     if dry_run:
         return
@@ -528,7 +547,13 @@ def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> 
                 "not reporting state that was never published"
             )
     for label in remove:
-        claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/{label}", None)
+        status, _ = claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/{label}", None)
+        if fatal_removals and status not in DELETE_DONE:
+            raise TriageError(
+                f"#{number} still carries {label}, which the round recount says is stale, and the "
+                f"delete failed (HTTP {status}); the launcher will keep refusing work on it, so "
+                "this is reported rather than recorded as migrated"
+            )
 
 
 def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str, Any]:
@@ -592,7 +617,8 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     # than fighting: nothing is cleared while anything at all is counted.
     target = _round_label(rounds)
     held = [name for name in ALL_ROUND_LABELS if name in labels]
-    if not rounds and held:
+    migrating = bool(not rounds and held)
+    if migrating:
         remove += held
     else:
         highest_held = max((ALL_ROUND_LABELS.index(name) for name in held), default=-1)
@@ -613,7 +639,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     else:
         amend = "unchanged"
 
-    _apply(issue, add, remove, dry_run=dry_run)
+    _apply(issue, add, remove, dry_run=dry_run, fatal_removals=migrating)
     return {
         "action": "triage",
         "pr": pr["number"],

@@ -301,6 +301,46 @@ def test_untimestamped_evidence_still_beats_the_stale_label_migration(
     assert triage.CAPPED_LABEL not in fake.removed
 
 
+def test_a_failed_migration_delete_is_reported_not_banked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A silent failure here is the unrecoverable state again. Codex raised this on #385.
+
+    Ordinary removals are best-effort on purpose: a superseded round label is cosmetic once the
+    higher one is added, and the next event recomputes it. The migration inverts that — the removal
+    IS the change, nothing was added beside it, and a transient rejection leaves
+    `agent:review-capped` on a PR with zero counted rounds while the run reports it migrated. The
+    launcher then refuses work forever, and "recomputed next event" is thin comfort when
+    `agent-triage.yml` has no `ready_for_review` trigger and an idle PR may get no next event.
+    """
+    routes = _routes(
+        labels=[triage.CAPPED_LABEL],
+        reviews=[dict(_review(RABBIT, HEAD), submitted_at=DRAFT_TIME)],
+        suites=GREEN,
+        timeline=[{"event": "ready_for_review", "created_at": READY_TIME}],
+    )
+    routes[("DELETE", f"/repos/bioedca/tether/issues/7/labels/{triage.CAPPED_LABEL}")] = (500, None)
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(triage.TriageError, match="stale"):
+        triage.triage(number=99, branch=None, dry_run=False)
+    assert triage.CAPPED_LABEL in fake.removed, "the delete was attempted before it was reported"
+
+
+def test_a_label_already_absent_is_not_a_failed_migration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """404 is the end state asked for, reached by another route — not an error to escalate."""
+    routes = _routes(
+        labels=[triage.CAPPED_LABEL],
+        reviews=[dict(_review(RABBIT, HEAD), submitted_at=DRAFT_TIME)],
+        suites=GREEN,
+        timeline=[{"event": "ready_for_review", "created_at": READY_TIME}],
+    )
+    routes[("DELETE", f"/repos/bioedca/tether/issues/7/labels/{triage.CAPPED_LABEL}")] = (404, None)
+    _install(monkeypatch, routes)
+    assert triage.triage(number=99, branch=None, dry_run=False)["rounds"] == 0
+
+
 def test_a_stale_label_is_cleared_after_the_pr_becomes_ready_too(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
