@@ -9,8 +9,10 @@ a live repository anyway.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -628,3 +630,506 @@ def test_the_wait_is_bounded_and_does_not_poll_indefinitely() -> None:
     """
     assert claim.GENERATION_ATTEMPTS[0] == 0.0, "the first read happens immediately"
     assert sum(claim.GENERATION_ATTEMPTS) <= 20.0, "a claim must not hang on a lagging index"
+
+
+# ----------------------------------------- transport is not a verdict, and TLS is not the network
+
+
+def _cert_error(message: str) -> Any:
+    """An ``SSLCertVerificationError`` shaped like the one OpenSSL actually raises.
+
+    ``verify_message`` is the path-free field the fix reads, and it is not settable through the
+    constructor.
+    """
+    error = claim.ssl.SSLCertVerificationError(1, f"[SSL: CERTIFICATE_VERIFY_FAILED] {message}")
+    error.verify_message = message
+    return error
+
+
+def _raises(exc: BaseException) -> Any:
+    def call(*_args: Any, **_kwargs: Any) -> Any:
+        raise exc
+
+    return call
+
+
+def _transport(monkeypatch: pytest.MonkeyPatch, reason: BaseException) -> None:
+    """Make every real HTTP call fail at the socket, the way a proxy or an outage does."""
+    monkeypatch.setattr(claim, "_token", lambda: "t")
+    monkeypatch.setattr(
+        claim.urllib.request, "urlopen", _raises(claim.urllib.error.URLError(reason))
+    )
+
+
+def test_a_transport_failure_on_the_eligibility_read_is_an_error_not_a_verdict(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The defect: an approved issue reported to an agent as unapproved.
+
+    Exit 3 is ``EXIT_INELIGIBLE``, which ``AGENTS.md`` defines as *do not work it*, and a compliant
+    agent obeys it. So the blanket ``except ClaimError`` around ``_check_eligible`` turned every
+    network or TLS failure into a scope verdict about work nobody managed to read.
+    """
+    monkeypatch.setattr(claim, "_check_eligible", _raises(claim.TransportError("no answer")))
+    with pytest.raises(claim.TransportError):
+        claim._cmd_claim(_args(issue=7))
+    assert "ineligible" not in capsys.readouterr().err
+
+
+def test_that_transport_failure_reaches_the_shell_as_exit_two(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """End to end through ``main``, which is what a worker's shell actually sees."""
+    monkeypatch.setattr(claim, "_check_eligible", _raises(claim.TransportError("no answer")))
+    monkeypatch.setattr(
+        claim.sys, "argv", ["claim.py", "claim", "--issue", "7", "--vendor", "claude"]
+    )
+    assert claim.main() == 2
+    err = capsys.readouterr().err
+    assert err.startswith("error:"), err
+    assert "ineligible" not in err
+
+
+def test_a_genuine_ineligibility_still_exits_three(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The two must not collapse into one code again, in either direction.
+
+    An unapproved issue is a *decided answer* and stays exit 3; the case above is the absence of an
+    answer and is exit 2.
+    """
+    routes = _routes({("GET", "/repos/bioedca/tether/issues/7/comments"): (200, [])})
+    fake = _install(monkeypatch, Fake(routes))
+    with pytest.raises(SystemExit) as exit_info:
+        claim._cmd_claim(_args(issue=7))
+    assert exit_info.value.code == claim.EXIT_INELIGIBLE
+    assert "ineligible" in capsys.readouterr().err
+    assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
+
+
+def test_a_certificate_failure_names_the_certificate_and_the_one_remedy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ "Unreachable" was the wrong cause, and it sent readers hunting a nonexistent outage."""
+    monkeypatch.delenv(claim.STRICT_OPT_OUT, raising=False)
+    _transport(monkeypatch, _cert_error("Basic Constraints of CA cert not marked critical"))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    message = str(info.value)
+    assert "certificate failed verification" in message
+    assert "Basic Constraints of CA cert not marked critical" in message
+    if not claim._strict_is_the_default():
+        # Below 3.13 the flag is off, so strict conformance genuinely is not the cause and the
+        # remedy must not be offered. Saying otherwise is the confidently-wrong message again.
+        assert "not enabled on this interpreter" in message
+        assert claim.STRICT_OPT_OUT not in message
+        return
+    assert "VERIFY_X509_STRICT" in message, "the message must name the cause it observed"
+    assert claim.STRICT_OPT_OUT in message, "and the one supported remedy"
+    assert "host is reachable" in message, "it must not read as a network outage"
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (claim.ClaimError("no GitHub token: set GH_TOKEN or run gh auth login"), "no GitHub token"),
+        (claim.ClaimError("#7 comments could not be read"), "could not be read"),
+        (claim.TransportError("the GitHub API could not be reached (gaierror)"), "reached"),
+    ],
+    ids=["no-token", "http-error", "transport"],
+)
+def test_only_a_decided_answer_reaches_exit_three(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    failure: Exception,
+    expected: str,
+) -> None:
+    """Codex P1 on #388: subtyping the *failures* left the guarantee false.
+
+    `_token` raises a plain `ClaimError` when there is no GitHub token, and `_issue`/`_paginate`
+    raise one on any 401, 403 or 5xx. None is a verdict about the issue, and all of them slipped
+    past an `except TransportError` arm into the blanket `except ClaimError` below it. Enumerating
+    what *is* a verdict is the fix, and this is the test that would have caught the first attempt.
+    """
+    monkeypatch.setattr(claim, "_check_eligible", _raises(failure))
+    with pytest.raises(claim.ClaimError) as info:
+        claim._cmd_claim(_args(issue=7))
+    assert not isinstance(info.value, claim.IneligibleError)
+    assert expected in str(info.value)
+    assert "ineligible" not in capsys.readouterr().err
+
+
+def test_the_decided_answers_are_enumerated_and_stay_enumerated() -> None:
+    """Bind the enumeration itself, since its whole value is that it is closed.
+
+    Writing this test found the fifth: `_issue` refuses a pull-request number, which *is* a verdict
+    — the server told us what the number is — while the `status != 200` beside it is not. A later
+    edit that reaches for `IneligibleError` somewhere new shows up here rather than as a worker
+    silently skipping approved work.
+    """
+    source = (ROOT / ".agents" / "bin" / "claim.py").read_text(encoding="utf-8")
+    eligible = source.partition("def _check_eligible")[2].partition("\ndef ")[0]
+    fetch = source.partition("def _issue")[2].partition("\ndef ")[0]
+    assert source.count("raise IneligibleError") == 5, "the verdicts are exactly five"
+    assert eligible.count("raise IneligibleError") == 4
+    assert fetch.count("raise IneligibleError") == 1
+    assert "could not be read" in fetch, "a failed read sits beside it and must NOT be a verdict"
+    assert fetch.count("raise ClaimError") == 1
+
+
+def test_a_certificate_failure_with_the_opt_out_already_set_does_not_suggest_it_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The remedy branch must not fire when the remedy is already applied.
+
+    If the opt-out is on and the certificate *still* fails, the strict-conformance story is no
+    longer the explanation - the chain itself is untrusted. Telling the reader to set a variable
+    they have already set would send them in a circle, and worse, imply another notch of loosening
+    exists. There is not one.
+    """
+    monkeypatch.setenv(claim.STRICT_OPT_OUT, "1")
+    monkeypatch.setattr(claim, "_ANNOUNCED", True)
+    _transport(monkeypatch, _cert_error("some OpenSSL wording nobody here has seen"))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    message = str(info.value)
+    assert "already set" in message
+    assert f"{claim.STRICT_OPT_OUT}=1" not in message, "do not re-suggest what is already applied"
+    assert "Do not relax verification further" in message
+
+
+@pytest.mark.parametrize(
+    ("cause", "expected"),
+    [
+        ("certificate has expired", "invalid however X.509 conformance is configured"),
+        ("Hostname mismatch, certificate is not valid for 'x'", "however X.509 conformance"),
+        ("unable to get local issuer certificate", "SSL_CERT_FILE"),
+    ],
+)
+def test_the_opt_out_being_set_does_not_relabel_an_unrelated_failure(
+    monkeypatch: pytest.MonkeyPatch, cause: str, expected: str
+) -> None:
+    """Codex P1 on #388: the opt-out branch used to short-circuit ahead of classification.
+
+    It announced "the chain itself is not trusted" for whatever came through, which is wrong for an
+    expired certificate or a hostname mismatch — neither is a chain-trust failure, and both survive
+    the relaxation precisely because it leaves chain and hostname verification on. What was observed
+    is classified first now; the opt-out's state qualifies only the branches about conformance.
+    """
+    monkeypatch.setenv(claim.STRICT_OPT_OUT, "1")
+    monkeypatch.setattr(claim, "_ANNOUNCED", True)
+    _transport(monkeypatch, _cert_error(cause))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    message = str(info.value)
+    assert cause in message
+    assert expected in message
+    assert "chain itself is not trusted" not in message, "that is not what happened"
+
+
+def test_a_missing_issuer_gets_the_remedy_that_actually_applies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2 on #388: the strict story was asserted for every certificate failure.
+
+    For a genuinely missing issuer, `SSL_CERT_FILE` *is* the remedy — the first version told the
+    reader the opposite, confidently. That is the failure mode #315 exists to remove, reintroduced
+    one branch over.
+    """
+    monkeypatch.delenv(claim.STRICT_OPT_OUT, raising=False)
+    _transport(monkeypatch, _cert_error("unable to get local issuer certificate"))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    message = str(info.value)
+    assert "SSL_CERT_FILE" in message
+    assert "point SSL_CERT_FILE at that CA bundle" in message
+    assert f"{claim.STRICT_OPT_OUT} cannot address it" in message
+    assert "was found" not in message, "it was not found; that is the whole point"
+
+
+def test_an_unrelated_certificate_defect_is_not_blamed_on_conformance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An expired certificate is not a Basic Constraints quibble, and must not read as one."""
+    monkeypatch.delenv(claim.STRICT_OPT_OUT, raising=False)
+    _transport(monkeypatch, _cert_error("certificate has expired"))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    message = str(info.value)
+    assert "certificate has expired" in message
+    assert "Basic Constraints" not in message
+    assert "the certificate was found" not in message
+    # On *either* interpreter, and keyed on the arming form: naming the variable in order to say it
+    # cannot help is a refusal, not advice. Codex's P1 at `0f14fa1` was that the 3.13+ fallback
+    # offered the opt-out to anything without a conformance signature, so the gate the ADR promised
+    # was not the gate the code applied.
+    assert f"{claim.STRICT_OPT_OUT}=1" not in message, "no remedy for a certificate that is expired"
+    # Interpreter-independent, unlike the unknown-signature case: expiry is checked the same way
+    # under strict and non-strict verification, so the answer does not depend on which is running.
+    assert "should not be accepted" in message
+    assert "not a conformance defect" in message
+
+
+@pytest.mark.parametrize(
+    ("cause", "certainty"),
+    [
+        ("Basic Constraints of CA cert not marked critical", "conformance"),
+        ("invalid CA certificate", "conformance"),
+        ("Missing Authority Key Identifier", "conformance"),
+        ("CA cert does not include key usage extension", "conformance"),
+        ("certificate has expired", "not-conformance"),
+        ("certificate is not yet valid", "not-conformance"),
+        ("Hostname mismatch, certificate is not valid for 'api.github.com'", "not-conformance"),
+        ("unable to get local issuer certificate", "missing-issuer"),
+        ("self-signed certificate in certificate chain", "missing-issuer"),
+        ("some OpenSSL wording nobody here has seen", "unknown"),
+    ],
+)
+def test_the_certificate_message_claims_only_what_it_can_know(
+    monkeypatch: pytest.MonkeyPatch, cause: str, certainty: str
+) -> None:
+    """Three certainty classes, because two of them were review findings pointing opposite ways.
+
+    Codex first showed that *offering* `TETHER_ALLOW_NONSTRICT_X509=1` for anything unrecognized
+    pointed expired certificates at a TLS switch that cannot help them. Then it showed that
+    *denying* the remedy for anything unrecognized is equally unfounded — `_STRICT_MARKERS` cannot
+    be exhaustive, since OpenSSL gates a family of checks behind `X509_V_FLAG_X509_STRICT` and words
+    them per build, so a message that misses the list is genuinely **unknown**.
+
+    Both are the same defect: asserting something the tool does not know. So known-conformance gets
+    the remedy, known-not-conformance gets a definite refusal, and unknown gets neither — it names
+    both possibilities and the experiment that separates them.
+    """
+    monkeypatch.delenv(claim.STRICT_OPT_OUT, raising=False)
+    _transport(monkeypatch, _cert_error(cause))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    message = str(info.value)
+    assert cause in message, "the observed reason travels with every verdict"
+
+    if not claim._strict_is_the_default() and certainty in ("conformance", "unknown"):
+        # Below 3.13 the flag is off, so conformance cannot be the cause whatever the wording.
+        assert "not enabled on this interpreter" in message
+        assert f"{claim.STRICT_OPT_OUT}=1" not in message
+        return
+
+    if certainty == "conformance":
+        assert f"{claim.STRICT_OPT_OUT}=1" in message, "the remedy applies and must be offered"
+        assert "cannot tell" not in message
+    elif certainty == "not-conformance":
+        assert f"{claim.STRICT_OPT_OUT}=1" not in message, "the remedy cannot help; do not offer it"
+        assert "should not be accepted" in message
+    elif certainty == "missing-issuer":
+        assert "SSL_CERT_FILE" in message
+        assert f"{claim.STRICT_OPT_OUT}=1" not in message
+    else:
+        assert "cannot tell" in message, "an unknown signature must not be asserted either way"
+        assert "must not be forced" in message
+        # The experiment has to isolate the flag. "Re-run under an older interpreter" was the first
+        # suggestion and does not: a different interpreter brings a different OpenSSL build, CA path
+        # and - on this machine - a different environment, so success there proves nothing about
+        # encoding. Toggling one variable in one process does.
+        assert "same interpreter" in message
+        assert "older than 3.13" not in message
+
+
+def test_an_unreachable_host_is_still_reported_as_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other side of the distinction: a genuine outage must not mention certificates."""
+    _transport(monkeypatch, OSError(11001, "getaddrinfo failed"))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    message = str(info.value)
+    assert "could not be reached" in message
+    assert "getaddrinfo failed" in message
+    assert "certificate" not in message
+
+
+def test_a_transport_message_never_carries_a_filesystem_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``ClaimError`` promises its message carries no path, and ``OSError`` renders its filename.
+
+    A misdirected ``SSL_CERT_FILE`` is exactly how a private path would otherwise reach a log.
+    """
+    _transport(monkeypatch, FileNotFoundError(2, "No such file or directory", "/home/me/ca.pem"))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    assert "/home/me/ca.pem" not in str(info.value)
+
+
+def test_the_opt_out_relaxes_conformance_only_and_never_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole security argument of ADR-0061, asserted rather than described.
+
+    Clearing ``VERIFY_X509_STRICT`` restores pre-3.13 *conformance* checking. It must not touch
+    ``verify_mode`` or ``check_hostname``: this tool sends a GitHub token, and a context that
+    skipped either would hand it to whoever answered.
+    """
+    monkeypatch.setenv(claim.STRICT_OPT_OUT, "1")
+    monkeypatch.setattr(claim, "_ANNOUNCED", False)
+    relaxed = claim._ssl_context()
+    stock = claim.ssl.create_default_context()
+    # Exact, and independent of the interpreter: whatever the default context sets, the opt-out
+    # differs from it by that single flag and nothing else. Asserting `not flags & STRICT` alone
+    # would pass vacuously below 3.13, where the flag is off to begin with - which is the whole
+    # reason this defect is version-dependent.
+    assert relaxed.verify_flags == stock.verify_flags & ~claim.ssl.VERIFY_X509_STRICT
+    assert relaxed.verify_mode == claim.ssl.CERT_REQUIRED
+    assert relaxed.check_hostname is True
+
+
+def test_only_the_literal_one_arms_the_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ "An interlock that fires on anything truthy is not an interlock" (#315, maintainer).
+
+    `true`, `yes` and `TRUE` are the spellings a shell profile picks up by habit, and each would
+    silently relax a TLS check on a path that carries a GitHub token. Only `1` counts.
+
+    Whitespace is covered by `test_only_the_exact_string_one_arms_it`, which rejects it. An earlier
+    version of this file said whitespace was tolerated; that was true of an earlier implementation
+    and stopped being true when the comparison became exact.
+    """
+    stock = claim.ssl.create_default_context()
+    for value in ("", "0", "false", "no", "true", "yes", "TRUE", "on", "2", "-1", None):
+        monkeypatch.setattr(claim, "_ANNOUNCED", False)
+        if value is None:
+            monkeypatch.delenv(claim.STRICT_OPT_OUT, raising=False)
+        else:
+            monkeypatch.setenv(claim.STRICT_OPT_OUT, value)
+        assert not claim._nonstrict_x509_allowed(), f"{value!r} was read as an opt-in"
+        context = claim._ssl_context()
+        assert context.verify_flags == stock.verify_flags
+        assert context.verify_mode == claim.ssl.CERT_REQUIRED
+        assert context.check_hostname is True
+
+
+def test_only_the_exact_string_one_arms_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ "Literal" means literal — no `strip`, no truthiness.
+
+    An earlier version stripped whitespace, arguing that `"1 "` from a `.env` line is unambiguous
+    intent and that refusing it would make a set variable a silent no-op. Both reviewers flagged it,
+    and the argument does not survive: the contract says *literal*, and the no-op is not silent —
+    a value that does not arm produces the ordinary strict failure, which prints the cause and this
+    variable as the remedy. A malformed setting failing loudly is the safer direction to err.
+    """
+    stock = claim.ssl.create_default_context()
+    monkeypatch.setattr(claim, "_ANNOUNCED", False)
+    monkeypatch.setenv(claim.STRICT_OPT_OUT, "1")
+    # Asserted on the predicate too, not only on the flags: below 3.13 the flag is already clear, so
+    # a flags-only check would pass for every value and prove nothing.
+    assert claim._nonstrict_x509_allowed()
+    assert claim._ssl_context().verify_flags == stock.verify_flags & ~claim.ssl.VERIFY_X509_STRICT
+
+    for value in (" 1", "1 ", " 1 ", "1\n", "01", "1.0"):
+        monkeypatch.setenv(claim.STRICT_OPT_OUT, value)
+        assert not claim._nonstrict_x509_allowed(), f"{value!r} armed the opt-out"
+        assert claim._ssl_context().verify_flags == stock.verify_flags
+
+
+def test_the_relaxation_announces_itself_once_per_process(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A process that quietly stopped enforcing a check reads like one that never needed to.
+
+    Once per process rather than per request: `_paginate` can make twenty calls, and a warning
+    repeated twenty times is one nobody reads.
+    """
+    monkeypatch.setenv(claim.STRICT_OPT_OUT, "1")
+    monkeypatch.setattr(claim, "_ANNOUNCED", False)
+    for _ in range(3):
+        claim._ssl_context()
+    err = capsys.readouterr().err
+    assert err.count("notice:") == 1, err
+    assert claim.STRICT_OPT_OUT in err
+    assert "hostname verification remain enabled" in err
+
+
+def test_a_failed_announcement_does_not_latch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codex P2 on #388: latching before the write can relax a context in total silence.
+
+    If stderr is closed or its reader has exited, the print raises and no notice arrived. Latching
+    first would let a caller that catches that error and retries get a relaxed context with nothing
+    on the record — which is precisely what the interlock exists to prevent.
+    """
+    monkeypatch.setenv(claim.STRICT_OPT_OUT, "1")
+    monkeypatch.setattr(claim, "_ANNOUNCED", False)
+    monkeypatch.setattr(claim, "print", _raises(BrokenPipeError("stderr is gone")), raising=False)
+    with pytest.raises(BrokenPipeError):
+        claim._ssl_context()
+    assert claim._ANNOUNCED is False, "a notice that never arrived must not count as delivered"
+
+
+def test_the_default_says_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The announcement marks the exception, so it must not fire on the ordinary path."""
+    monkeypatch.delenv(claim.STRICT_OPT_OUT, raising=False)
+    monkeypatch.setattr(claim, "_ANNOUNCED", False)
+    claim._ssl_context()
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.skipif(sys.version_info < (3, 13), reason="VERIFY_X509_STRICT is off before 3.13")
+def test_the_default_really_is_strict_on_the_interpreters_that_have_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half: `untouched` only means `strict` where CPython makes it so.
+
+    3.13 is where `create_default_context()` turned the flag on, and 3.13/3.14 are supported
+    interpreters here - so on those, the shipped default must be the strict one.
+
+    The `delenv` is load-bearing rather than tidy: the contract tells operators on the affected
+    machines to set `TETHER_ALLOW_NONSTRICT_X509=1`, so in the very shell this fix exists to serve,
+    reading the ambient environment would fail this test for an environment reason.
+    """
+    monkeypatch.delenv(claim.STRICT_OPT_OUT, raising=False)
+    assert claim._ssl_context().verify_flags & claim.ssl.VERIFY_X509_STRICT
+
+
+def test_the_claim_tool_never_reaches_for_a_blunter_instrument() -> None:
+    """#315's non-goal, bound to the source rather than left as a promise in a docstring.
+
+    Docstrings are blanked before the check, because this file's own prose names these mechanisms
+    in order to rule them out - a plain substring search over the source flags that as a violation.
+    `ast` drops comments outright, so unparsing covers those too.
+    """
+    tree = ast.parse((ROOT / ".agents" / "bin" / "claim.py").read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if not isinstance(body, list) or not body:
+            continue
+        first = body[0]
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            first.value.value = ""
+    code = ast.unparse(tree)
+    for forbidden in ("_create_unverified_context", "PYTHONHTTPSVERIFY", "CERT_NONE"):
+        assert forbidden not in code, f"claim.py must never use {forbidden}"
+    assert "check_hostname" not in code, "the default (on) must never be assigned away"
+
+
+def test_no_other_subcommand_turns_a_transport_failure_into_a_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The audit #315 asks for: ``check``, ``release`` and ``reserve-adr`` must not share it.
+
+    They never caught ``ClaimError`` at all, so each already reached ``main``'s exit 2 - but "shown
+    not to have it" is worth binding, since the tempting fix for any of them is the same blanket
+    ``except`` that caused this.
+    """
+    boom = _raises(claim.TransportError("no answer"))
+    monkeypatch.setattr(claim, "_generation", boom)
+    monkeypatch.setattr(claim, "_ref_exists", boom)
+    monkeypatch.setattr(claim, "_default_sha", boom)
+    for call in (
+        lambda: claim._cmd_check(_args(issue=7, generation=42)),
+        lambda: claim._cmd_release(_args(issue=7, generation=42, vendor="claude")),
+        lambda: claim._cmd_reserve_adr(_args(attempts=8)),
+    ):
+        with pytest.raises(claim.TransportError):
+            call()

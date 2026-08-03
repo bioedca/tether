@@ -137,3 +137,11 @@ If they conflict, stop, choose the safe option, and ask.
 Tooling is split across native Windows and WSL and the split is not obvious: `claude` and the
 CodeRabbit CLI live in WSL, `codex` and `gh` are native. Check with `which`/`where` before scripting
 one rather than assuming.
+
+This machine is behind a TLS-inspecting proxy whose CA has a non-critical Basic Constraints
+extension. CPython 3.13+ rejects that under `ssl.VERIFY_X509_STRICT`, so the native interpreter
+(3.14) cannot reach the GitHub API while WSL's 3.12 can. `claim.py` fails with `error:` and exit `2`
+naming the cause — never `ineligible:`, which would be a verdict about an issue nobody read. Set
+**`TETHER_ALLOW_NONSTRICT_X509=1`** to relax that one conformance check; chain and hostname
+verification stay on. Only the literal `1` arms it — `true` and `yes` do not — and it prints a
+notice on stderr whenever it is in effect, so it is never applied silently (ADR-0061).
