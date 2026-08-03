@@ -160,13 +160,38 @@ def _announce_nonstrict() -> None:
     _ANNOUNCED = True
 
 
-#: OpenSSL's wording for the conformance rejections ``VERIFY_X509_STRICT`` adds. Matched on the
-#: message rather than on a numeric code because the codes are not stable across OpenSSL builds and
-#: a wrong code silently mutes the remedy; a wrong *message* match at worst offers advice that the
-#: next sentence already qualifies.
-_STRICT_MARKERS = ("not marked critical", "invalid ca certificate", "basic constraints")
+#: OpenSSL's wording for conformance rejections that ``VERIFY_X509_STRICT`` adds - the failures
+#: clearing that flag can actually fix. Matched on the message rather than on a numeric code because
+#: the codes are not stable across OpenSSL builds and a wrong code silently mutes the remedy.
+#:
+#: **This list is not assumed to be exhaustive**, and nothing downstream depends on it being so.
+#: OpenSSL gates a family of checks behind ``X509_V_FLAG_X509_STRICT`` and the wording varies by
+#: build, so an unmatched message means *unknown*, not *not-conformance*. See
+#: :func:`_certificate_detail`, which says so rather than guessing.
+_STRICT_MARKERS = (
+    "not marked critical",
+    "basic constraints",
+    "invalid ca certificate",
+    "missing authority key identifier",
+    "missing subject key identifier",
+    "key usage extension",
+    "key usage violation",
+    "authority and subject key identifier mismatch",
+    "authority and issuer serial number mismatch",
+    "certificate version",
+)
 #: The failure for which ``SSL_CERT_FILE`` genuinely is the answer: the issuer is simply not here.
-_MISSING_ISSUER_MARKERS = ("unable to get local issuer", "self-signed certificate in certificate")
+_MISSING_ISSUER_MARKERS = ("unable to get local issuer", "self-signed certificate")
+#: Failures that are certainly *not* conformance defects, so the opt-out certainly cannot help. An
+#: expired certificate is expired however X.509 conformance is configured.
+_NOT_CONFORMANCE_MARKERS = (
+    "expired",
+    "not yet valid",
+    "hostname mismatch",
+    "is not valid for",
+    "revoked",
+    "certificate signature failure",
+)
 
 
 def _certificate_detail(cause: str) -> str:
@@ -194,16 +219,27 @@ def _certificate_detail(cause: str) -> str:
             "conformance check - chain and hostname verification stay on - or run this tool under "
             "an interpreter older than 3.13."
         )
-    # No remedy past this point, and deliberately none. An expired certificate and a hostname
-    # mismatch carry no strict marker but do reach here on 3.13+, and the previous version offered
-    # them the opt-out anyway - so the gate the record promises was not the gate the code applied,
-    # and the advice pointed at relaxing conformance for a certificate that stays invalid however
-    # conformance is configured (Codex P1 on #388, at the head that introduced this branch).
-    if _strict_is_the_default():
+    if any(marker in lowered for marker in _NOT_CONFORMANCE_MARKERS):
         return (
-            f"{head} This interpreter verifies under ssl.VERIFY_X509_STRICT (CPython 3.13+), but "
-            "this is not a failure this tool recognizes as a conformance defect, so no conformance "
-            "setting will address it. Treat the certificate as genuinely unacceptable."
+            f"{head} This is not a conformance defect - the certificate is invalid however X.509 "
+            f"conformance is configured - so {STRICT_OPT_OUT} cannot address it, and the "
+            "certificate should not be accepted."
+        )
+    if _strict_is_the_default():
+        # Deliberately non-committal, and both halves of that are review findings. Offering the
+        # remedy here pointed expired certificates at a TLS switch that cannot help them; *denying*
+        # it here was equally unfounded, because `_STRICT_MARKERS` cannot be exhaustive - OpenSSL
+        # gates a family of checks behind X509_V_FLAG_X509_STRICT and words them per build, so an
+        # unmatched message is genuinely unknown. Asserting either way is the confidently-wrong
+        # message #315 exists to remove; the honest answer names both possibilities and the one
+        # cheap experiment that separates them.
+        return (
+            f"{head} This interpreter verifies under ssl.VERIFY_X509_STRICT (CPython 3.13+), and "
+            "this tool cannot tell from that message whether strict conformance is the cause or "
+            "the chain is genuinely untrusted. To distinguish them, run the same command once "
+            "under an interpreter older than 3.13: if it succeeds, the certificate is trusted and "
+            f"only its encoding is at fault, and {STRICT_OPT_OUT}=1 is the supported fix. If it "
+            "fails there too, the certificate is not acceptable and must not be forced."
         )
     return (
         f"{head} Strict conformance checking is not enabled on this interpreter, so it is not "

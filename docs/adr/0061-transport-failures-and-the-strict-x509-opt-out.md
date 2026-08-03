@@ -94,17 +94,33 @@ an expired certificate, a hostname mismatch, or a genuinely missing issuer, for 
 is exactly the remedy — and said it on 3.11 and 3.12, where strict mode is not enabled at all. That
 is the confidently-wrong message this record exists to remove, reintroduced one branch over.
 
-It took two passes to actually gate it, which is worth recording. The first attempt added the
-signature check but kept a 3.13+ fallback that still offered the opt-out to *anything* unrecognized —
-so an expired certificate and a hostname mismatch were still pointed at a TLS switch that cannot help
-them, and this record's own gating promise was false when it was written. Codex caught that too.
+It took three passes to gate it correctly, and the two wrong ones erred in *opposite* directions —
+which is what makes the final shape worth recording rather than just the answer.
 
-The rule now: **`TETHER_ALLOW_NONSTRICT_X509=1` is advised only where clearing that flag could
-actually help** — a recognized conformance signature, on an interpreter where strict is the default.
-A missing issuer gets the trust-store remedy instead. Everything else gets the observed reason and
-**no remedy at all**, because a certificate that stays invalid however conformance is configured is
-one an operator should not be nudged toward loosening. `test_the_opt_out_is_advised_only_for_a_
-recognized_conformance_signature` asserts that across six real OpenSSL messages.
+1. Offer the remedy for anything unrecognized. Wrong: an expired certificate and a hostname mismatch
+   were pointed at a TLS switch that cannot help them.
+2. Deny the remedy for anything unrecognized. Also wrong: `_STRICT_MARKERS` cannot be exhaustive.
+   OpenSSL gates a family of checks behind `X509_V_FLAG_X509_STRICT` — `Missing Authority Key
+   Identifier` and `CA cert does not include key usage extension` among them — and words them per
+   build, so a message that misses the list is genuinely **unknown**, not *known not to be
+   conformance*. Denying the remedy there would leave the tool unusable on a machine the opt-out
+   exists to serve.
+
+Both are the same defect wearing different clothes: **asserting something the tool does not know**.
+So the message now carries three certainty classes rather than two:
+
+| what was observed | what is said |
+|---|---|
+| a recognized conformance signature, strict is the default | the remedy: `TETHER_ALLOW_NONSTRICT_X509=1` |
+| expired, not-yet-valid, hostname mismatch, revoked | no remedy — invalid however conformance is configured |
+| missing issuer, self-signed in chain | point `SSL_CERT_FILE` at the CA bundle |
+| anything else, strict is the default | **neither** — both possibilities named, plus the experiment that separates them: run once under an interpreter older than 3.13 |
+| anything, strict is not the default | conformance is not enabled, so it is not the cause |
+
+`test_the_certificate_message_claims_only_what_it_can_know` asserts all five across ten real
+OpenSSL messages, on both 3.12 and 3.14. Nothing downstream depends on `_STRICT_MARKERS` being
+complete — an addition to it moves a message from *unknown* to *known*, and never from *wrong* to
+*right*.
 
 **3. `TETHER_ALLOW_NONSTRICT_X509=1` clears `ssl.VERIFY_X509_STRICT` and nothing else.**
 `verify_mode` stays `CERT_REQUIRED` and `check_hostname` stays `True`: the chain is still verified
