@@ -104,11 +104,19 @@ class TransportError(ClaimError):
 def _nonstrict_x509_allowed() -> bool:
     """Whether this machine has opted out of strict X.509 *conformance* checking.
 
-    **Only the literal ``1`` arms it.** An interlock that fires on anything truthy is not an
-    interlock: ``0``, ``false``, ``no`` and a stray ``true`` all have to mean *no*, or a typo in a
-    shell profile silently relaxes a TLS check on a path that carries a GitHub token.
+    **Only the literal ``1`` arms it** - compared exactly, with no ``strip`` and no truthiness. An
+    interlock that fires on anything truthy is not an interlock: ``0``, ``false``, ``no`` and a stray
+    ``true`` all have to mean *no*, or a typo in a shell profile relaxes a TLS check on a path that
+    carries a GitHub token.
+
+    An earlier version stripped surrounding whitespace, on the argument that ``"1 "`` from a ``.env``
+    line is unambiguous intent and that refusing it would turn a set variable into a silent no-op.
+    Both reviewers flagged it and the argument does not survive: the contract says *literal*, and the
+    no-op is not silent - a value that does not arm the opt-out produces the ordinary strict failure,
+    which prints the cause and this variable as the remedy. A malformed setting now fails loudly
+    rather than quietly relaxing verification, which is the safer direction for the two to disagree.
     """
-    return os.environ.get(STRICT_OPT_OUT, "").strip() == "1"
+    return os.environ.get(STRICT_OPT_OUT) == "1"
 
 
 def _ssl_context() -> ssl.SSLContext:
@@ -198,26 +206,18 @@ def _certificate_detail(cause: str) -> str:
     """The message for a certificate rejection, with only the remedy that fits what was seen."""
     head = f"the GitHub API's TLS certificate failed verification: {cause}."
     lowered = cause.lower()
-    if _nonstrict_x509_allowed():
-        return (
-            f"{head} {STRICT_OPT_OUT} is already set, so this is not the strict-conformance case: "
-            "the chain itself is not trusted. Do not relax verification further."
-        )
+    relaxed = _nonstrict_x509_allowed()
+
+    # Classify what was observed FIRST, and let the opt-out's state qualify only the branches that
+    # are actually about conformance. The opt-out used to short-circuit ahead of all of this and
+    # announce "the chain itself is not trusted", which is wrong for an expired certificate or a
+    # hostname mismatch - neither is a chain-trust failure, and both survive the relaxation because
+    # it deliberately leaves chain and hostname verification on (Codex P1 on #388).
     if any(marker in lowered for marker in _MISSING_ISSUER_MARKERS):
         return (
             f"{head} The issuer could not be found in this machine's trust store. If it uses a "
-            "private or corporate CA, point SSL_CERT_FILE at that CA bundle. This is not the "
-            f"strict-conformance case, and {STRICT_OPT_OUT} will not help."
-        )
-    if any(marker in lowered for marker in _STRICT_MARKERS) and _strict_is_the_default():
-        return (
-            f"{head} The host is reachable and the certificate was found - this is a local trust "
-            "decision. CPython 3.13+ verifies under ssl.VERIFY_X509_STRICT, which rejects a CA "
-            "whose Basic Constraints extension is not marked critical, and TLS-inspecting proxies "
-            "routinely issue exactly that; SSL_CERT_FILE cannot help, because the CA is not "
-            f"missing. If that describes this machine, set {STRICT_OPT_OUT}=1 to relax that one "
-            "conformance check - chain and hostname verification stay on - or run this tool under "
-            "an interpreter older than 3.13."
+            "private or corporate CA, point SSL_CERT_FILE at that CA bundle. This is not a "
+            f"conformance defect, so {STRICT_OPT_OUT} cannot address it."
         )
     if any(marker in lowered for marker in _NOT_CONFORMANCE_MARKERS):
         return (
@@ -225,21 +225,49 @@ def _certificate_detail(cause: str) -> str:
             f"conformance is configured - so {STRICT_OPT_OUT} cannot address it, and the "
             "certificate should not be accepted."
         )
+    if any(marker in lowered for marker in _STRICT_MARKERS) and _strict_is_the_default():
+        if relaxed:
+            return (
+                f"{head} That reads like a conformance signature, but {STRICT_OPT_OUT} is already "
+                "set, so strict conformance is not what rejected it: chain and hostname "
+                "verification stay on under the relaxation, and one of those refused. Do not relax "
+                "verification further."
+            )
+        return (
+            f"{head} The host is reachable and the certificate was found - this is a local trust "
+            "decision. CPython 3.13+ verifies under ssl.VERIFY_X509_STRICT, which rejects a CA "
+            "whose Basic Constraints extension is not marked critical, and TLS-inspecting proxies "
+            "routinely issue exactly that; SSL_CERT_FILE cannot help, because the CA is not "
+            f"missing. If that describes this machine, set {STRICT_OPT_OUT}=1 to relax that one "
+            "conformance check - chain and hostname verification stay on."
+        )
+    if relaxed:
+        return (
+            f"{head} {STRICT_OPT_OUT} is already set, so strict conformance is not the cause: "
+            "chain and hostname verification remain enabled under the relaxation, and this "
+            "failure came from one of them. Do not relax verification further."
+        )
     if _strict_is_the_default():
         # Deliberately non-committal, and both halves of that are review findings. Offering the
         # remedy here pointed expired certificates at a TLS switch that cannot help them; *denying*
         # it here was equally unfounded, because `_STRICT_MARKERS` cannot be exhaustive - OpenSSL
         # gates a family of checks behind X509_V_FLAG_X509_STRICT and words them per build, so an
         # unmatched message is genuinely unknown. Asserting either way is the confidently-wrong
-        # message #315 exists to remove; the honest answer names both possibilities and the one
-        # cheap experiment that separates them.
+        # message #315 exists to remove; the honest answer names both possibilities and an
+        # experiment that separates them.
+        #
+        # The experiment is the opt-out itself, on THIS interpreter. Re-running under an older one
+        # was the first suggestion and it does not isolate the flag: a different interpreter brings
+        # a different OpenSSL build, a different default CA path and - on this machine's documented
+        # split - a different environment entirely, so success there proves nothing about encoding.
+        # Toggling one variable in one process does (Codex P1 on #388).
         return (
             f"{head} This interpreter verifies under ssl.VERIFY_X509_STRICT (CPython 3.13+), and "
             "this tool cannot tell from that message whether strict conformance is the cause or "
-            "the chain is genuinely untrusted. To distinguish them, run the same command once "
-            "under an interpreter older than 3.13: if it succeeds, the certificate is trusted and "
-            f"only its encoding is at fault, and {STRICT_OPT_OUT}=1 is the supported fix. If it "
-            "fails there too, the certificate is not acceptable and must not be forced."
+            f"the chain is genuinely untrusted. To find out, set {STRICT_OPT_OUT}=1 and run the "
+            "same command again on this same interpreter: if it succeeds, only the CA's encoding "
+            "was at fault and that setting is the supported fix. If it still fails, the "
+            "certificate is not acceptable and must not be forced."
         )
     return (
         f"{head} Strict conformance checking is not enabled on this interpreter, so it is not "

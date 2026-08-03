@@ -789,15 +789,42 @@ def test_a_certificate_failure_with_the_opt_out_already_set_does_not_suggest_it_
     """
     monkeypatch.setenv(claim.STRICT_OPT_OUT, "1")
     monkeypatch.setattr(claim, "_ANNOUNCED", True)
-    _transport(monkeypatch, _cert_error("unable to get local issuer certificate"))
+    _transport(monkeypatch, _cert_error("some OpenSSL wording nobody here has seen"))
     with pytest.raises(claim.TransportError) as info:
         claim._request("GET", "/repos/bioedca/tether/issues/7")
     message = str(info.value)
-    assert "unable to get local issuer certificate" in message
     assert "already set" in message
-    assert "chain itself is not trusted" in message
-    assert "VERIFY_X509_STRICT" not in message, "the strict story does not apply here"
+    assert f"{claim.STRICT_OPT_OUT}=1" not in message, "do not re-suggest what is already applied"
     assert "Do not relax verification further" in message
+
+
+@pytest.mark.parametrize(
+    ("cause", "expected"),
+    [
+        ("certificate has expired", "invalid however X.509 conformance is configured"),
+        ("Hostname mismatch, certificate is not valid for 'x'", "however X.509 conformance"),
+        ("unable to get local issuer certificate", "SSL_CERT_FILE"),
+    ],
+)
+def test_the_opt_out_being_set_does_not_relabel_an_unrelated_failure(
+    monkeypatch: pytest.MonkeyPatch, cause: str, expected: str
+) -> None:
+    """Codex P1 on #388: the opt-out branch used to short-circuit ahead of classification.
+
+    It announced "the chain itself is not trusted" for whatever came through, which is wrong for an
+    expired certificate or a hostname mismatch — neither is a chain-trust failure, and both survive
+    the relaxation precisely because it leaves chain and hostname verification on. What was observed
+    is classified first now; the opt-out's state qualifies only the branches about conformance.
+    """
+    monkeypatch.setenv(claim.STRICT_OPT_OUT, "1")
+    monkeypatch.setattr(claim, "_ANNOUNCED", True)
+    _transport(monkeypatch, _cert_error(cause))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    message = str(info.value)
+    assert cause in message
+    assert expected in message
+    assert "chain itself is not trusted" not in message, "that is not what happened"
 
 
 def test_a_missing_issuer_gets_the_remedy_that_actually_applies(
@@ -816,7 +843,7 @@ def test_a_missing_issuer_gets_the_remedy_that_actually_applies(
     message = str(info.value)
     assert "SSL_CERT_FILE" in message
     assert "point SSL_CERT_FILE at that CA bundle" in message
-    assert f"{claim.STRICT_OPT_OUT} will not help" in message
+    assert f"{claim.STRICT_OPT_OUT} cannot address it" in message
     assert "was found" not in message, "it was not found; that is the whole point"
 
 
@@ -897,8 +924,13 @@ def test_the_certificate_message_claims_only_what_it_can_know(
         assert f"{claim.STRICT_OPT_OUT}=1" not in message
     else:
         assert "cannot tell" in message, "an unknown signature must not be asserted either way"
-        assert "older than 3.13" in message, "and must carry the experiment that resolves it"
         assert "must not be forced" in message
+        # The experiment has to isolate the flag. "Re-run under an older interpreter" was the first
+        # suggestion and does not: a different interpreter brings a different OpenSSL build, CA path
+        # and - on this machine - a different environment, so success there proves nothing about
+        # encoding. Toggling one variable in one process does.
+        assert "same interpreter" in message
+        assert "older than 3.13" not in message
 
 
 def test_an_unreachable_host_is_still_reported_as_unreachable(
@@ -973,20 +1005,27 @@ def test_only_the_literal_one_arms_the_opt_out(monkeypatch: pytest.MonkeyPatch) 
         assert context.check_hostname is True
 
 
-def test_stray_whitespace_around_the_one_still_arms_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The deliberate exception to "literal `1`", and the reason it is not a loophole.
+def test_only_the_exact_string_one_arms_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ "Literal" means literal — no `strip`, no truthiness.
 
-    `1` padded by whitespace is unambiguously the same intent; no *other* value becomes acceptable.
+    An earlier version stripped whitespace, arguing that `"1 "` from a `.env` line is unambiguous
+    intent and that refusing it would make a set variable a silent no-op. Both reviewers flagged it,
+    and the argument does not survive: the contract says *literal*, and the no-op is not silent —
+    a value that does not arm produces the ordinary strict failure, which prints the cause and this
+    variable as the remedy. A malformed setting failing loudly is the safer direction to err.
     """
     stock = claim.ssl.create_default_context()
-    for value in ("1", " 1", "1 ", " 1 "):
+    monkeypatch.setattr(claim, "_ANNOUNCED", False)
+    monkeypatch.setenv(claim.STRICT_OPT_OUT, "1")
+    # Asserted on the predicate too, not only on the flags: below 3.13 the flag is already clear, so
+    # a flags-only check would pass for every value and prove nothing.
+    assert claim._nonstrict_x509_allowed()
+    assert claim._ssl_context().verify_flags == stock.verify_flags & ~claim.ssl.VERIFY_X509_STRICT
+
+    for value in (" 1", "1 ", " 1 ", "1\n", "01", "1.0"):
         monkeypatch.setenv(claim.STRICT_OPT_OUT, value)
-        monkeypatch.setattr(claim, "_ANNOUNCED", False)
-        # Asserted on the predicate, not only on the flags: below 3.13 the flag is already clear,
-        # so a flags-only check would pass for every value and prove nothing.
-        assert claim._nonstrict_x509_allowed(), f"{value!r} did not arm the opt-out"
-        relaxed = claim._ssl_context().verify_flags
-        assert relaxed == stock.verify_flags & ~claim.ssl.VERIFY_X509_STRICT
+        assert not claim._nonstrict_x509_allowed(), f"{value!r} armed the opt-out"
+        assert claim._ssl_context().verify_flags == stock.verify_flags
 
 
 def test_the_relaxation_announces_itself_once_per_process(

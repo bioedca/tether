@@ -114,13 +114,25 @@ So the message now carries three certainty classes rather than two:
 | a recognized conformance signature, strict is the default | the remedy: `TETHER_ALLOW_NONSTRICT_X509=1` |
 | expired, not-yet-valid, hostname mismatch, revoked | no remedy — invalid however conformance is configured |
 | missing issuer, self-signed in chain | point `SSL_CERT_FILE` at the CA bundle |
-| anything else, strict is the default | **neither** — both possibilities named, plus the experiment that separates them: run once under an interpreter older than 3.13 |
+| anything else, strict is the default | **neither** — both possibilities named, plus the experiment that separates them |
 | anything, strict is not the default | conformance is not enabled, so it is not the cause |
 
-`test_the_certificate_message_claims_only_what_it_can_know` asserts all five across ten real
+**The experiment is the opt-out itself, on the same interpreter.** The first version said "run once
+under an interpreter older than 3.13", which does not isolate the flag: a different interpreter
+brings a different OpenSSL build, a different default CA path and — on this machine's documented
+WSL/native split — a different environment entirely, so success there proves nothing about encoding.
+Setting one variable in one process does, and that action already announces itself.
+
+`test_the_certificate_message_claims_only_what_it_can_know` asserts all five rows across ten real
 OpenSSL messages, on both 3.12 and 3.14. Nothing downstream depends on `_STRICT_MARKERS` being
 complete — an addition to it moves a message from *unknown* to *known*, and never from *wrong* to
 *right*.
+
+**Classification comes before the opt-out's state.** The relaxed branch used to short-circuit ahead
+of everything and report "the chain itself is not trusted", which is wrong for an expired
+certificate or a hostname mismatch: neither is a chain-trust failure, and both survive the
+relaxation precisely because it leaves chain and hostname verification on. What was observed is
+classified first; whether the opt-out is set qualifies only the branches that are about conformance.
 
 **3. `TETHER_ALLOW_NONSTRICT_X509=1` clears `ssl.VERIFY_X509_STRICT` and nothing else.**
 `verify_mode` stays `CERT_REQUIRED` and `check_hostname` stays `True`: the chain is still verified
@@ -128,9 +140,14 @@ and the host is still authenticated. It restores pre-3.13 *conformance* checking
 3.12 has today — rather than weakening trust. Two interlocks come with it, both from the
 maintainer's amendment:
 
-- **Only the literal `1` arms it.** An interlock that fires on anything truthy is not an interlock;
-  `true`, `yes` and `TRUE` are the spellings a shell profile picks up by habit, and each would
-  otherwise relax a TLS check on a path that carries a GitHub token.
+- **Only the literal `1` arms it** — compared exactly, no `strip`, no truthiness. An interlock that
+  fires on anything truthy is not an interlock; `true`, `yes` and `TRUE` are the spellings a shell
+  profile picks up by habit, and each would otherwise relax a TLS check on a path that carries a
+  GitHub token. An intermediate version stripped whitespace, on the argument that `"1 "` from a
+  `.env` line is unambiguous and that refusing it makes a set variable a silent no-op. Both
+  reviewers rejected it and they were right: the contract says *literal*, and the no-op is not
+  silent — a value that does not arm produces the ordinary strict failure, which prints the cause
+  and this variable. A malformed setting failing loudly is the safer direction to err.
 - **It announces itself on stderr**, once per process. A process that has quietly stopped enforcing
   a check is indistinguishable in a log from one that never needed to. Once per process rather than
   per request because `_paginate` can make twenty calls, and a warning repeated twenty times is one
