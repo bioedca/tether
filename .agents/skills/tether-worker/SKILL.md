@@ -80,9 +80,10 @@ gh pr merge N --auto --squash --match-head-commit <SHA>
 this repository (it needs an organization-owned repo), so that guard is what replaces it.
 
 `gh` is resolved from `PATH` — it is present in both lanes, as `/usr/bin/gh` under WSL and the native
-CLI on Windows. This is the **only** arming instruction in the repository; nothing else in
-`.agents/` or `.github/` calls `gh pr merge` or `enablePullRequestAutoMerge`. A worker that cannot
-run this line cannot arm, and its PR sits green and unmerged until a human notices — which is what
+CLI on Windows. **No workflow arms auto-merge**: nothing under `.agents/bin/` or `.github/` calls
+`gh pr merge` or `enablePullRequestAutoMerge`, so arming is a worker action and only a worker action.
+`CONTRIBUTING.md` documents the same command for a human doing it by hand. A worker that cannot run
+this line cannot arm, and its PR sits green and unmerged until someone notices — which is what
 happened to #327 and #334.
 
 ## Rounds are issued to you, not requested by you
