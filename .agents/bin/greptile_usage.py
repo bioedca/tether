@@ -32,7 +32,6 @@ Stdlib only, and shells out to ``gh`` for auth - the same soft dependency ``clai
 from __future__ import annotations
 
 import argparse
-import calendar
 import json
 import re
 import subprocess
@@ -80,19 +79,6 @@ class Unreadable(RuntimeError):
     """
 
 
-def _month_end(month: str) -> str:
-    """The last day of ``month`` as ``YYYY-MM-DD``.
-
-    The query needs an UPPER bound as well as a lower one. With only ``updated:>=``, a historical
-    ``--month`` matches every PR touched since - and once that exceeds the fetch limit the search
-    truncates before reaching the requested month, omitting billed reviews and reporting too many
-    credits remaining.
-    """
-    year, mon = (int(part) for part in month.split("-"))
-    last = calendar.monthrange(year, mon)[1]
-    return f"{month}-{last:02d}"
-
-
 def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]]]:
     """Credits, PRs and per-PR detail for one repository in ``month`` (``YYYY-MM``).
 
@@ -100,11 +86,19 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
     "could not tell".
     """
     try:
-        # Filtered SERVER-side, not by taking the newest N and hoping. `--limit` is a maximum number
-        # of items fetched, so a repository with more than the limit could silently omit an older PR
-        # that Greptile reviewed this month - and an omitted PR reads as unspent credits, the one
-        # direction that matters. `--search updated:>=` makes the month the query rather than a
-        # post-filter, and the limit then only has to cover PRs touched in one month.
+        # Filtered SERVER-side, not by taking the newest N and hoping: `--limit` is a maximum
+        # number of items FETCHED, so post-filtering cannot detect truncation, and an omitted PR
+        # reads as unspent credits.
+        #
+        # Lower bound only. An upper bound looks tempting and is wrong: a pull request reviewed in
+        # the requested month but commented on, synchronised or merged later has an `updated` date
+        # in that later month, and bounding the range above drops it. A review always moves
+        # `updated`, so `>= month-01` cannot miss one.
+        #
+        # `sort:updated-asc` so the requested month sorts FIRST and any truncation falls on the
+        # months after it. Residual, stated rather than hidden: a historical month in a repository
+        # with more than `--limit` pull requests updated since could still truncate. The counter
+        # is a proxy for the dashboard, and this is one of the ways it can read low.
         prs = _gh(
             "pr",
             "list",
@@ -115,7 +109,7 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
             "--limit",
             "500",
             "--search",
-            f"updated:{month}-01..{_month_end(month)}",
+            f"updated:>={month}-01 sort:updated-asc",
             "--json",
             "number,author,updatedAt",
         )

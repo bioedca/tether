@@ -36,7 +36,7 @@ task text adds only what is specific to this claim.
    `{{PYTHON}} .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
    Exit `5` means a reaper reclaimed the claim and a successor owns it — **stop writing**.
 4. Run the local gates in `AGENTS.md` §Agile execution, then open the PR, classify the review risk,
-   request the provider(s) that risk routes to, arm auto-merge
+   walk the review lane in `docs/agents/review.md` — Codex on the draft until nothing blocking remains, then optionally one Greptile credit if the seat has budget, then mark ready and get CodeRabbit with no actionable comments, arm auto-merge
    (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`), and **exit**.
 
 ## Do not

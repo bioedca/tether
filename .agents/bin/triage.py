@@ -394,10 +394,23 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
         and isinstance(stamp := event.get("created_at"), str)
         and stamp
     ]
+    drafted = [
+        stamp
+        for event in events
+        if event.get("event") == "convert_to_draft"
+        and isinstance(stamp := event.get("created_at"), str)
+        and stamp
+    ]
+    # Opened READY: a PR created ready emits no `ready_for_review`, so a later draft excursion and
+    # return would make that return look like the first entry into the counted phase - discarding
+    # every round spent before it. A `convert_to_draft` earlier than any `ready_for_review` is the
+    # signal, and it means the clock started at creation.
+    if drafted and (not ready or min(drafted) < min(ready)):
+        return None
     if ready:
         return min(ready)
-    # Never ready. A draft has taken no counted round; anything else was opened ready, so every
-    # round it has ever had is real.
+    # Never ready and never drafted. A draft has taken no counted round; anything else was opened
+    # ready, so every round it has ever had is real.
     return _COUNT_NOTHING if pr.get("draft") else None
 
 

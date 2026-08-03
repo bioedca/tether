@@ -191,7 +191,9 @@ def test_the_month_is_queried_server_side_not_filtered_after_a_capped_fetch(
     assert listings, "the repositories must actually be listed"
     for call in listings:
         assert "--search" in call, "the month must be part of the query, not a post-filter"
-        assert "updated:2026-08-01..2026-08-31" in call, "bounded on BOTH sides"
+        assert "updated:>=2026-08-01 sort:updated-asc" in call, (
+            "lower bound only - an upper bound drops a PR reviewed in the month but touched later"
+        )
 
 
 def test_the_configured_repositories_are_the_ones_billed_to_this_seat() -> None:

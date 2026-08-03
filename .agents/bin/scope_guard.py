@@ -567,7 +567,20 @@ def _counted_from(number: int) -> str | None:
         and isinstance(stamp := event.get("created_at"), str)
         and stamp
     ]
-    return min(ready) if ready else None
+    if ready:
+        return min(ready)
+    # No ready event. A draft has taken no counted round - returning None here would mean "count
+    # everything" and report a Greptile review spent during the prescribed draft phase as a round.
+    return _COUNT_NOTHING if _is_draft(number) else None
+
+
+#: Sorts above every ISO-8601 instant, so the ordinary comparison rejects each entry.
+_COUNT_NOTHING = "9999-12-31T23:59:59Z"
+
+
+def _is_draft(number: int) -> bool:
+    status, pull = claim._request("GET", f"/repos/{REPO}/pulls/{number}")
+    return status == 200 and bool((pull or {}).get("draft"))
 
 
 def _render(report: dict[str, Any]) -> str:
