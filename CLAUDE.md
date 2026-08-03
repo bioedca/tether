@@ -40,7 +40,7 @@ If they conflict, stop, choose the safe option, and ask.
 - One work item = one owner = one short-lived branch = one PR = one writable worktree. Use
   `agent/issue-<N>` — **no title slug**, since a slug is not deterministic across agents and two refs
   for one issue would void the mutex. Never share a branch or edit another agent's checkout.
-- **Claim with `python .agents/bin/claim.py claim --issue N --vendor claude`.** Creating the ref *is*
+- **Claim with `python3 .agents/bin/claim.py claim --issue N --vendor claude`.** Creating the ref *is*
   the mutex: `201` to the first writer, `422` to everyone after. Exit `3` is ineligible, `4` is lost;
   in both cases stop, and never open a second branch or PR for that item. Eligibility is a
   *precondition* of the claim, never a consequence.
@@ -125,5 +125,13 @@ If they conflict, stop, choose the safe option, and ask.
 ## This machine
 
 Tooling is split across native Windows and WSL and the split is not obvious: `claude` and the
-CodeRabbit CLI live in WSL, `codex` and `gh` are native. Check with `which`/`where` before scripting
-one rather than assuming.
+CodeRabbit CLI live in WSL, `codex` is native. `gh` is in **both** — `/usr/bin/gh` (2.45.0) under
+WSL and the native CLI on Windows — so a bare `gh` resolves in either lane. Check with
+`which`/`where` before scripting one rather than assuming.
+
+**Interpreters differ, and this is what broke worker dispatch (#382).** WSL has `python3` (3.12.3)
+and **no `python` at all**; native Windows has both, at 3.14.0. Anything a dispatched worker runs
+must therefore say `python3`, or take the interpreter from the launcher's `{{PYTHON}}` token. The
+version split matters too: 3.13+ enables `ssl.VERIFY_X509_STRICT`, which this machine's
+TLS-inspecting proxy CA fails, so `claim.py` reaches GitHub under WSL's 3.12 and not under native
+3.14 (#315).

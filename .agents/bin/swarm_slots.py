@@ -97,6 +97,15 @@ WSL_REPO = "/mnt/c/Users/bioed/Documents/smfret-references/Tether"
 CODEX_CLI = r"%APPDATA%\npm\codex.ps1"
 GATE = r".agents\bin\gate.ps1"
 
+# The interpreter a worker in each lane can actually run. It is a property of the LANE, not of this
+# process, and deliberately NOT `shutil.which`: the launcher runs natively, so its PATH answers
+# correctly for `codex` and confidently WRONG for `claude`, which is dispatched into WSL bash where
+# `python` does not exist at all. Measured 2026-08-03: WSL has `python3` 3.12.3 and no `python`;
+# native Windows has both, at 3.14.0. `setup_sidecar._export_line` branches on the target shell for
+# the same reason. `gh` needs no entry - it is on PATH in both lanes, as `/usr/bin/gh` under WSL and
+# the native CLI on Windows, which is why SKILL.md can name it bare.
+LANE_PYTHON = {"claude": "python3", "codex": "python", "copilot": "python"}
+
 # Deliberately NOT under refs/tags/: hatch-vcs derives the package version from tags, so a
 # non-version tag makes `pip install -e .` fail and turns main red - the trap ADR-0057 records for
 # the ADR reservations. A custom namespace is the same compare-and-swap and invisible to every tag
@@ -351,13 +360,19 @@ def _body(task: Path) -> str:
 
 
 def _render(task: Path, record: dict[str, Any], item: dict[str, Any]) -> str:
-    """Substitute the task template. Every token must be consumed, or the worker reads a literal."""
+    """Substitute the task template. Every token must be consumed, or the worker reads a literal.
+
+    ``PYTHON`` is per-lane because the two lanes are dispatched into different shells, and this
+    token is the only thing in the task text that can know which. ``SKILL.md`` is not templated, so
+    it must name an interpreter resolving in both; a rendered task file can name the exact one.
+    """
     values = {
         "ISSUE": str(record["issue"]),
         "BRANCH": record["branch"],
         "BASE_SHA": str(record.get("base_sha") or "the claim ref's current tip"),
         "GENERATION": str(record["generation"]),
         "VENDOR": item["vendor"],
+        "PYTHON": LANE_PYTHON[item["vendor"]],
         "CAP": str(CAP),
         "ROUND": str(item.get("round", 0)),
         "REMAINING": str(item.get("remaining", CAP)),

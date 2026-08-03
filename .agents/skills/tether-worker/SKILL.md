@@ -12,6 +12,12 @@ only what is specific to being **one peer worker among several**; it never resta
 nothing renews a lease for you, and nothing merges on your behalf. You are short-lived: claim, work,
 push, arm auto-merge, exit.
 
+**Every command below runs in whichever shell your lane was dispatched into** — `claude` into WSL
+bash, `codex`/`copilot` into native PowerShell — so each is written to work in both: a PATH-resolved
+`gh` and `python3`, never an absolute path and never PowerShell's `&` call operator. The shells do
+not agree on interpreter names — WSL has `python3` and no `python` at all — so if a launcher gave you
+a task file, prefer the interpreter that file names.
+
 ## Claim
 
 1. Confirm the issue number and the terminal condition. Eligibility is a **precondition** of the
@@ -19,8 +25,8 @@ push, arm auto-merge, exit.
    bound to the exact title/body snapshot you are about to act on.
 2. Take the mutex. One call decides it — `201` is yours, `422` means someone else got there first:
 
-   ```powershell
-   python .agents/bin/claim.py claim --issue N --vendor claude
+   ```
+   python3 .agents/bin/claim.py claim --issue N --vendor <claude|codex|copilot>
    ```
 
    Exit `3` is *ineligible* (do not work it), `4` is *lost* (stop; do not open a second branch or
@@ -28,8 +34,8 @@ push, arm auto-merge, exit.
 3. Record the generation. Before every authoritative write — a push you intend to be merged, a PR
    state change — revalidate:
 
-   ```powershell
-   python .agents/bin/claim.py check --issue N --generation G
+   ```
+   python3 .agents/bin/claim.py check --issue N --generation G
    ```
 
    Exit `5` means a reaper reclaimed the claim and a successor owns it. **Stop writing.** Your work
@@ -39,8 +45,8 @@ push, arm auto-merge, exit.
 
 If you must abandon the work, release the claim rather than letting it rot:
 
-```powershell
-python .agents/bin/claim.py release --issue N --generation G --vendor claude
+```
+python3 .agents/bin/claim.py release --issue N --generation G --vendor <claude|codex|copilot>
 ```
 
 `release` refuses when the ref's generation is not yours, so a stale worker cannot delete a
@@ -54,8 +60,8 @@ a reproducible unrelated finding becomes a separate templated issue, never extra
 
 Need an ADR? Reserve the number atomically instead of picking one:
 
-```powershell
-python .agents/bin/claim.py reserve-adr
+```
+python3 .agents/bin/claim.py reserve-adr
 ```
 
 Gaps in ADR numbering are legal and expected. Never reuse a number, and never renumber to close a
@@ -66,12 +72,18 @@ gap — that is what invalidated reviews across three PRs at once under the old 
 Open the PR, get the checks green, classify the review risk, and take the review gate in
 `AGENTS.md` §Review gate. Then **arm auto-merge and exit** — do not sit and poll:
 
-```powershell
-& "C:\Program Files\GitHub CLI\gh.exe" pr merge N --auto --squash --match-head-commit <SHA>
+```
+gh pr merge N --auto --squash --match-head-commit <SHA>
 ```
 
 `--match-head-commit` binds the merge to the head your evidence covers. There is no merge queue on
 this repository (it needs an organization-owned repo), so that guard is what replaces it.
+
+`gh` is resolved from `PATH` — it is present in both lanes, as `/usr/bin/gh` under WSL and the native
+CLI on Windows. This is the **only** arming instruction in the repository; nothing else in
+`.agents/` or `.github/` calls `gh pr merge` or `enablePullRequestAutoMerge`. A worker that cannot
+run this line cannot arm, and its PR sits green and unmerged until a human notices — which is what
+happened to #327 and #334.
 
 ## Rounds are issued to you, not requested by you
 
@@ -88,8 +100,8 @@ them against the cap in `AGENTS.md` §Review gate. So:
 Approving a scope snapshot is a maintainer action, not a worker one. It prints both the digest and
 the marker to paste:
 
-```powershell
-python .agents/bin/claim.py scope-hash --issue N
+```
+python3 .agents/bin/claim.py scope-hash --issue N
 ```
 
 The digest covers the normalized title and body, so any later edit to either provably invalidates

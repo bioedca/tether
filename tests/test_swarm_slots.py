@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -541,6 +542,36 @@ def test_every_template_placeholder_is_substituted(name: str) -> None:
     item = {"vendor": "claude", "round": 1, "remaining": 1, "reason": "because"}
     text = slots._render(TASKS / name, record, item)
     assert "{{" not in text and "}}" not in text
+
+
+def test_the_lane_interpreter_table_covers_every_vendor_and_is_not_probed() -> None:
+    """The interpreter is a property of the LANE, not of the launcher's own PATH.
+
+    `claude` is dispatched into WSL bash, where `python` is command-not-found and `python3` is
+    3.12.3; the native lanes have `python` at 3.14.0. `shutil.which` here would answer for the
+    launcher's shell and be confidently wrong for one lane in every single run — which is #382.
+    """
+    assert set(slots.LANE_PYTHON) == set(slots.claim.VENDORS), "every lane needs an interpreter"
+    assert slots.LANE_PYTHON["claude"] == "python3", "WSL has no `python`"
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert not re.search(r"^\s*import shutil\b", source, flags=re.MULTILINE), (
+        "a per-lane constant, never a PATH probe"
+    )
+    assert "shutil.which(" not in source, "a per-lane constant, never a PATH probe"
+
+
+@pytest.mark.parametrize(("vendor", "interpreter"), [("claude", "python3"), ("codex", "python")])
+@pytest.mark.parametrize("name", ["build.md", "amend.md"])
+def test_the_injected_revalidation_names_the_lanes_own_interpreter(
+    name: str, vendor: str, interpreter: str
+) -> None:
+    """Both templates said `python`, so every dispatched claude worker's fence revalidation was
+    `bash: python: command not found` — silently, immediately before an authoritative write.
+    """
+    record = {"issue": 7, "branch": "agent/issue-7", "generation": 5, "base_sha": "abc"}
+    item = {"vendor": vendor, "round": 1, "remaining": 1, "reason": "because"}
+    text = slots._render(TASKS / name, record, item)
+    assert f"{interpreter} .agents/bin/claim.py check --issue 7 --generation 5" in text
 
 
 def test_an_unknown_placeholder_is_refused_not_shipped(tmp_path: Path) -> None:

@@ -20,7 +20,7 @@ filenames* produce no merge conflict on either record, only on the index, where 
 resolution ships both.
 
 ```
-python .agents/bin/claim.py reserve-adr
+python3 .agents/bin/claim.py reserve-adr
 ```
 
 It takes `max(reservations ∪ committed records) + 1` and creates `refs/adr-reservations/NNNN`.

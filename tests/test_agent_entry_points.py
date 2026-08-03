@@ -149,3 +149,146 @@ def test_claude_md_is_not_ignored_again() -> None:
     ignore = (_REPO / ".gitignore").read_text(encoding="utf-8")
     entries = {line.strip() for line in ignore.splitlines() if not line.lstrip().startswith("#")}
     assert "CLAUDE.md" not in entries, "CLAUDE.md must stay tracked — that is the defect #312 fixed"
+
+
+# --------------------------------------------------------------------------------------------
+# The contract is not merely reachable, it is runnable (#382)
+#
+# ``swarm_slots._inner_command`` dispatches ``claude`` into ``wsl -e bash -lc`` and ``codex`` into a
+# native PowerShell shim — from ONE shared skill file. A command in it that names one shell is wrong
+# in the other lane, and nothing read that file's body until this block existed.
+
+TASKS = _REPO / ".agents" / "tasks"
+
+#: Everything a dispatched worker is told to run commands out of. Both lanes read all three.
+WORKER_COMMANDS = (CODEX_SKILL, TASKS / "build.md", TASKS / "amend.md")
+
+_FENCE = "```"
+
+#: Info strings that commit a block to one shell. Naming either is wrong in the other lane.
+SHELL_FENCES = frozenset(
+    {"bash", "sh", "zsh", "console", "powershell", "pwsh", "ps1", "bat", "cmd"}
+)
+
+#: Shapes measured unrunnable in the shell the launcher actually dispatches into, 2026-08-03.
+NATIVE_ONLY = (
+    ('& "', "PowerShell's call operator is not a command in bash"),
+    ("C:\\", "a drive-lettered path does not exist inside WSL"),
+    ("$env:", "PowerShell environment syntax is not bash"),
+)
+
+
+def _blocks(path: Path) -> list[tuple[str, list[str]]]:
+    """Every fenced block as ``(info string, its non-blank lines)``.
+
+    Fences are matched after stripping indentation: two of the skill's blocks sit inside a numbered
+    list, so an unstripped ``startswith`` would skip exactly the two that take the mutex.
+    """
+    blocks: list[tuple[str, list[str]]] = []
+    info: str | None = None
+    body: list[str] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith(_FENCE):
+            if info is None:
+                info, body = line[len(_FENCE) :].strip(), []
+            else:
+                blocks.append((info, body))
+                info = None
+        elif info is not None and line:
+            body.append(line)
+    return blocks
+
+
+def _commands(path: Path) -> list[str]:
+    """Every command an agent is told to *run*: fenced lines, plus inline spans with arguments.
+
+    Both forms carry instructions — the skill fences its commands, the task templates put theirs
+    inline in a numbered step — so reading only one would have missed half of #382.
+
+    An inline span with no whitespace is a *name*, not an invocation: prose saying WSL has no
+    ``python`` is describing the defect, not committing it. Requiring an argument separates the two
+    without needing a prose allowlist.
+    """
+    fenced = [line for _, body in _blocks(path) for line in body]
+    spans = (span.strip() for span in re.findall(r"`([^`\n]+)`", path.read_text(encoding="utf-8")))
+    return fenced + [span for span in spans if " " in span]
+
+
+def test_every_worker_command_runs_in_both_dispatched_shells() -> None:
+    """#382: six ```powershell fences, handed to a session started with ``wsl -e bash -lc``.
+
+    The worst of them was the arming line — ``& "C:\\Program Files\\GitHub CLI\\gh.exe" pr merge …``
+    — and it is the ONLY auto-merge arming instruction in this repository. A worker that could not
+    run it could not arm, which is why #327 and #334 both sat MERGEABLE/CLEAN with green checks and
+    a null ``autoMergeRequest`` until a human merged them by hand.
+
+    Two assertions, one property: a block that annotates one shell is wrong in the other lane
+    whichever it names, and a command carrying that shell's syntax is wrong even under a bare fence.
+    """
+    fenced = [
+        (path.name, info)
+        for path in WORKER_COMMANDS
+        for info, _ in _blocks(path)
+        if info.lower() in SHELL_FENCES
+    ]
+    assert not fenced, (
+        "both lanes read these files, so a block may not annotate one shell; "
+        f"docs/agents/adr.md's bare fence is the form to use: {fenced}"
+    )
+
+    syntax = [
+        (path.name, line, why)
+        for path in WORKER_COMMANDS
+        for line in _commands(path)
+        for needle, why in NATIVE_ONLY
+        if needle in line
+    ]
+    assert not syntax, f"these cannot run in the shell they are dispatched into: {syntax}"
+
+
+def test_no_worker_command_names_the_interpreter_wsl_does_not_have() -> None:
+    """``wsl -e bash -lc 'python -V'`` is command-not-found; ``python3`` is 3.12.3 (2026-08-03).
+
+    The skill is not templated, so it names ``python3``, which resolves in both shells. The task
+    templates *are* templated and take the launcher's per-lane ``{{PYTHON}}`` instead. This asserts
+    on the committed text, never on a rendered task file.
+    """
+    bad = [
+        (path.name, line)
+        for path in WORKER_COMMANDS
+        for line in _commands(path)
+        if re.match(r"^python\b", line)
+    ]
+    assert not bad, f"use python3, or the templated {{{{PYTHON}}}} token: {bad}"
+
+
+def test_the_shared_skill_never_hard_codes_one_vendor_lane() -> None:
+    """The skill said ``--vendor claude`` twice, in a file the Codex lane loads verbatim.
+
+    The ``.claude/skills/`` pointer exists precisely so both lanes read ONE text. A hard-coded
+    vendor in it tells a codex worker to mirror its claim under the wrong ``agent:*`` label, and
+    that label is the only public record of which lane holds an issue.
+    """
+    bad = [
+        (path.name, line)
+        for path in WORKER_COMMANDS
+        for line in _commands(path)
+        if re.search(r"--vendor\s+(claude|codex|copilot)\b", line)
+    ]
+    assert not bad, f"a shared instruction must not name one lane: {bad}"
+
+
+def test_the_arming_command_survives_and_resolves_gh_from_path() -> None:
+    """Asserted present *before* asserted correct: deleting it would also make the greps green.
+
+    ``gh`` is on PATH in both lanes — ``/usr/bin/gh`` 2.45.0 under WSL, which supports
+    ``--match-head-commit``, and the native CLI on Windows — so the bare name is the portable form.
+    """
+    fenced = [line for _, body in _blocks(CODEX_SKILL) for line in body]
+    arming = [line for line in fenced if "pr merge" in line]
+    assert arming, "the skill must still carry the one arming instruction in this repository"
+    assert all(line.startswith("gh pr merge") for line in arming), arming
+    assert all("--match-head-commit" in line for line in arming), (
+        "there is no merge queue on this repository; that guard is what replaces it"
+    )
