@@ -5,10 +5,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0062 — Draft-first review lane: spend the free provider before the metered ones
 
-- **Status:** accepted. Amends [ADR-0057](0057-github-native-swarm-coordination.md), which records
-  the review gate, the round counter and the launcher as one architectural control. This record
-  changes two of those three, so ADR-0057's §Review gate and §Round cap are superseded here; the
-  rest of it stands unchanged.
+- **Status:** accepted; supersedes the §Review gate and §Round cap of [ADR-0057](0057-github-native-swarm-coordination.md)
+  ADR-0057 records the review gate, the round counter and the launcher as one architectural control.
+  This record changes two of those three; the launcher half, and the rest of ADR-0057, stand
+  unchanged.
 - **Date:** 2026-08-03
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)

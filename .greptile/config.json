@@ -1,7 +1,5 @@
 {
   "skipReview": "AUTOMATIC",
   "triggerOnDrafts": false,
-  "triggerOnUpdates": false,
-  "strictness": 2,
-  "instructions": "Tether is a single-molecule FRET analysis suite. A review here costs a metered credit, so weight findings by what is hard to recover from: a silently wrong scientific number, a change to the additive-only HDF5 schema without an ADR and version bump, a secret or private path, raw or unlicensed data, or a concurrency defect in the single-writer project lock. Prefer one well-evidenced blocking finding over many stylistic ones. On frozen, provenance-locked oracles - the reference artifacts under schema/ and the tolerances they pin, which a PR cites rather than edits - take the frozen value as given and review the code against it. That emphatically does NOT extend to a pull request that CHANGES a measured fixture, a reference value, or a tolerance: when the value and its assertion move together, the test proves nothing about the value, and the derivation and its provenance are exactly what needs scrutiny. Weakening a tolerance to make an implementation pass is the failure mode this repository most needs caught."
+  "triggerOnUpdates": false
 }
