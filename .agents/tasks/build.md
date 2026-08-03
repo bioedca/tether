@@ -33,10 +33,11 @@ task text adds only what is specific to this claim.
    otherwise.
 2. Work the acceptance criteria on `{{BRANCH}}` from `{{BASE_SHA}}`, in your own worktree.
 3. Before any authoritative write, revalidate the fence:
-   `python .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
+   `{{PYTHON}} .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
    Exit `5` means a reaper reclaimed the claim and a successor owns it — **stop writing**.
 4. Run the local gates in `AGENTS.md` §Agile execution, then open the PR, classify the review risk,
-   request the provider(s) that risk routes to, arm auto-merge, and **exit**.
+   request the provider(s) that risk routes to, arm auto-merge
+   (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`), and **exit**.
 
 ## Do not
 

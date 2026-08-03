@@ -39,8 +39,9 @@ The severity floor you classify against lives on `review.md`, not in the residen
    follow-up issue
    for this PR, answered `Deferred: … Tracked in #N`, and its thread resolved.
 3. Revalidate the fence before any authoritative write:
-   `python .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
-4. Push, reply to every thread you answered, get the checks green, re-arm auto-merge, and **exit**.
+   `{{PYTHON}} .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
+4. Push, reply to every thread you answered, get the checks green, re-arm auto-merge
+   (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`), and **exit**.
 
 ## Do not
 

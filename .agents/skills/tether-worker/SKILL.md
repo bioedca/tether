@@ -12,6 +12,37 @@ only what is specific to being **one peer worker among several**; it never resta
 nothing renews a lease for you, and nothing merges on your behalf. You are short-lived: claim, work,
 push, arm auto-merge, exit.
 
+## Shell
+
+The lanes are dispatched into **different shells**: `claude` runs inside WSL bash, `codex` and
+`copilot` run in native PowerShell. This file is **not templated** — both lanes read these same
+lines — so every command below is written to be valid in either: a bare executable name followed by
+arguments. Never the PowerShell `&` call operator, and never an absolute path such as
+`C:\Program Files\GitHub CLI\gh.exe`, which does not exist inside WSL.
+
+**Resolve the interpreter for your lane before running anything below.** One name does not fit both,
+and pretending otherwise is the defect this section exists to prevent:
+
+| lane | shell | interpreter |
+|---|---|---|
+| `claude` | WSL bash | `python3` |
+| `codex` | native PowerShell | `python` |
+| `copilot` | native PowerShell | `python` |
+
+WSL provides no `python` at all, and on Windows the python.org installer registers `python` while
+`python3` may be an unconfigured Store stub — so neither name is safe for both.
+
+The commands below are written `python3`, the dispatched `claude` lane's name. **On a native lane,
+substitute `python`.** That single substitution is the entire difference; no other token in any
+command changes between lanes. The launcher already applies it for you in injected task text —
+`{{PYTHON}}` renders from `swarm_slots.LANE_PYTHON`, which is the same table as above — so this
+matters only for hand-driven runs. If neither name resolves, report it; do not paste a path.
+
+`gh` needs no such rule: it resolves from `PATH` in both shells.
+
+Where a command takes `--vendor`, pass **your own lane** — the `Vendor lane` row of the task text
+the launcher injected, or, hand-driven, the vendor of the CLI you are running.
+
 ## Claim
 
 1. Confirm the issue number and the terminal condition. Eligibility is a **precondition** of the
@@ -19,8 +50,8 @@ push, arm auto-merge, exit.
    bound to the exact title/body snapshot you are about to act on.
 2. Take the mutex. One call decides it — `201` is yours, `422` means someone else got there first:
 
-   ```powershell
-   python .agents/bin/claim.py claim --issue N --vendor claude
+   ```sh
+   python3 .agents/bin/claim.py claim --issue N --vendor <your lane>
    ```
 
    Exit `3` is *ineligible* (do not work it), `4` is *lost* (stop; do not open a second branch or
@@ -28,8 +59,8 @@ push, arm auto-merge, exit.
 3. Record the generation. Before every authoritative write — a push you intend to be merged, a PR
    state change — revalidate:
 
-   ```powershell
-   python .agents/bin/claim.py check --issue N --generation G
+   ```sh
+   python3 .agents/bin/claim.py check --issue N --generation G
    ```
 
    Exit `5` means a reaper reclaimed the claim and a successor owns it. **Stop writing.** Your work
@@ -39,8 +70,8 @@ push, arm auto-merge, exit.
 
 If you must abandon the work, release the claim rather than letting it rot:
 
-```powershell
-python .agents/bin/claim.py release --issue N --generation G --vendor claude
+```sh
+python3 .agents/bin/claim.py release --issue N --generation G --vendor <your lane>
 ```
 
 `release` refuses when the ref's generation is not yours, so a stale worker cannot delete a
@@ -54,8 +85,8 @@ a reproducible unrelated finding becomes a separate templated issue, never extra
 
 Need an ADR? Reserve the number atomically instead of picking one:
 
-```powershell
-python .agents/bin/claim.py reserve-adr
+```sh
+python3 .agents/bin/claim.py reserve-adr
 ```
 
 Gaps in ADR numbering are legal and expected. Never reuse a number, and never renumber to close a
@@ -66,8 +97,8 @@ gap — that is what invalidated reviews across three PRs at once under the old 
 Open the PR, get the checks green, classify the review risk, and take the review gate in
 `AGENTS.md` §Review gate. Then **arm auto-merge and exit** — do not sit and poll:
 
-```powershell
-& "C:\Program Files\GitHub CLI\gh.exe" pr merge N --auto --squash --match-head-commit <SHA>
+```sh
+gh pr merge N --auto --squash --match-head-commit <SHA>
 ```
 
 `--match-head-commit` binds the merge to the head your evidence covers. There is no merge queue on
@@ -88,8 +119,8 @@ them against the cap in `AGENTS.md` §Review gate. So:
 Approving a scope snapshot is a maintainer action, not a worker one. It prints both the digest and
 the marker to paste:
 
-```powershell
-python .agents/bin/claim.py scope-hash --issue N
+```sh
+python3 .agents/bin/claim.py scope-hash --issue N
 ```
 
 The digest covers the normalized title and body, so any later edit to either provably invalidates
