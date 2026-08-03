@@ -33,7 +33,7 @@ linked work maps to one. The checklist, not CI, enforces those fields.
 - Review path (may only increase): low | standard | high
 - Risk rationale:
 - Final head SHA:
-- Review round: 0/2 (still a draft) | 1/2 | 2/2 (a third is a stop-list violation — the launcher issues rounds, not you)
+- Review round: 0/2 (no metered round yet — a draft, or ready but not yet reviewed) | 1/2 | 2/2 (a third is a stop-list violation — the launcher issues rounds, not you)
 - Draft phase: Codex iterated to nothing-blocking before this went ready | opened ready (say why)
 - Greptile: spent one credit | skipped — no budget this month | skipped (say why). Balance from `python3 .agents/bin/greptile_usage.py`
 - **CodeRabbit — the last gate**: no actionable comments | pending | unavailable (freezes the PR)
