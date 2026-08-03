@@ -73,15 +73,31 @@ class ClaimError(RuntimeError):
     """A claim precondition failed. The message is safe to print; it carries no path."""
 
 
+class IneligibleError(ClaimError):
+    """A **decided answer about the issue**, and the only thing that may reach exit ``3``.
+
+    Exactly five: the number is a pull request rather than an issue (:func:`_issue`), or the issue
+    is not open, not ``status:ready``, assigned to someone else, or carries no maintainer approval
+    binding its current snapshot (:func:`_check_eligible`). ``AGENTS.md`` defines exit ``3`` as
+    *ineligible - do not work it*, and a compliant agent obeys it, so anything reported that way
+    must be something the server actually told us about the issue.
+
+    **The classification is positive on purpose.** The first fix for #315 subtyped the *failures*
+    instead - a ``TransportError`` caught ahead of a blanket ``except ClaimError`` - and Codex's P1
+    on #386 showed why that is not enough: ``_token`` raises a plain ``ClaimError`` when there is no
+    GitHub token, and ``_issue``/``_paginate`` raise one on any 401, 403 or 5xx. None of those is a
+    verdict, all slipped past a subtype-only arm, and the guarantee stayed false. Enumerating what
+    *is* a verdict fails safe instead: a new error type added to this file tomorrow exits 2
+    unless someone deliberately makes it a verdict.
+    """
+
+
 class TransportError(ClaimError):
     """The API could not be *asked*, as opposed to having answered.
 
-    A subclass rather than a sibling, so every ``except ClaimError`` in this file stays correct and
-    the failure still reaches ``main``'s ``error:`` / exit ``2``. Exactly one site has to tell the
-    two apart: :func:`_cmd_claim` turns a precondition failure into exit ``3``, which ``AGENTS.md``
-    defines as *ineligible - do not work it*. That is an answer **about the issue**, and a transport
-    failure is the absence of one. Reporting a verdict nobody received is the worst failure
-    available here, because a compliant agent believes it and walks away from approved work (#315).
+    Not load-bearing for the exit code any more - :class:`IneligibleError` decides that - but it
+    still carries the distinction the message needs: ``urllib`` wraps a certificate rejection and
+    an unreachable host in one ``URLError``, and those want different words and different remedies.
     """
 
 
@@ -132,12 +148,73 @@ def _announce_nonstrict() -> None:
     global _ANNOUNCED
     if _ANNOUNCED:
         return
-    _ANNOUNCED = True
+    # Latch *after* the write, not before. If stderr is closed or its reader has exited, the print
+    # raises and the notice never arrived; latching first would let a caller that catches the write
+    # error and retries get a relaxed context in silence, which is the one thing this interlock
+    # exists to prevent (Codex P2 on #388).
     print(
         f"notice: {STRICT_OPT_OUT}=1 is set, so X.509 strict-conformance checking is relaxed for "
         "this process. Certificate chain and hostname verification remain enabled (ADR-0061).",
         file=sys.stderr,
     )
+    _ANNOUNCED = True
+
+
+#: OpenSSL's wording for the conformance rejections ``VERIFY_X509_STRICT`` adds. Matched on the
+#: message rather than on a numeric code because the codes are not stable across OpenSSL builds and
+#: a wrong code silently mutes the remedy; a wrong *message* match at worst offers advice that the
+#: next sentence already qualifies.
+_STRICT_MARKERS = ("not marked critical", "invalid ca certificate", "basic constraints")
+#: The failure for which ``SSL_CERT_FILE`` genuinely is the answer: the issuer is simply not here.
+_MISSING_ISSUER_MARKERS = ("unable to get local issuer", "self-signed certificate in certificate")
+
+
+def _certificate_detail(cause: str) -> str:
+    """The message for a certificate rejection, with only the remedy that fits what was seen."""
+    head = f"the GitHub API's TLS certificate failed verification: {cause}."
+    lowered = cause.lower()
+    if _nonstrict_x509_allowed():
+        return (
+            f"{head} {STRICT_OPT_OUT} is already set, so this is not the strict-conformance case: "
+            "the chain itself is not trusted. Do not relax verification further."
+        )
+    if any(marker in lowered for marker in _MISSING_ISSUER_MARKERS):
+        return (
+            f"{head} The issuer could not be found in this machine's trust store. If it uses a "
+            "private or corporate CA, point SSL_CERT_FILE at that CA bundle. This is not the "
+            f"strict-conformance case, and {STRICT_OPT_OUT} will not help."
+        )
+    if any(marker in lowered for marker in _STRICT_MARKERS) and _strict_is_the_default():
+        return (
+            f"{head} The host is reachable and the certificate was found - this is a local trust "
+            "decision. CPython 3.13+ verifies under ssl.VERIFY_X509_STRICT, which rejects a CA "
+            "whose Basic Constraints extension is not marked critical, and TLS-inspecting proxies "
+            "routinely issue exactly that; SSL_CERT_FILE cannot help, because the CA is not "
+            f"missing. If that describes this machine, set {STRICT_OPT_OUT}=1 to relax that one "
+            "conformance check - chain and hostname verification stay on - or run this tool under "
+            "an interpreter older than 3.13."
+        )
+    if _strict_is_the_default():
+        return (
+            f"{head} This interpreter verifies under ssl.VERIFY_X509_STRICT (CPython 3.13+). If "
+            "the certificate is otherwise trusted and only its CA's encoding is at fault - a "
+            f"TLS-inspecting proxy is the usual source - {STRICT_OPT_OUT}=1 relaxes that one "
+            "conformance check. Otherwise the certificate is genuinely not acceptable, and it "
+            "should not be made so."
+        )
+    return (
+        f"{head} Strict conformance checking is not enabled on this interpreter, so it is not "
+        "the cause."
+    )
+
+
+def _strict_is_the_default() -> bool:
+    """Whether CPython's own default context enables strict conformance here (3.13 turned it on).
+
+    Read from ``create_default_context()`` rather than from ``sys.version_info``: the flag is a
+    property of the interpreter's ssl defaults, and asking the source of truth costs nothing.
+    """
+    return bool(ssl.create_default_context().verify_flags & ssl.VERIFY_X509_STRICT)
 
 
 def _transport_error(exc: urllib.error.URLError) -> TransportError:
@@ -152,26 +229,19 @@ def _transport_error(exc: urllib.error.URLError) -> TransportError:
     name). ``str(reason)`` is avoided on purpose: an ``OSError`` renders its ``filename``, so a
     misdirected ``SSL_CERT_FILE`` would print a private path, and ``ClaimError`` promises it does
     not do that.
+
+    **The strict-conformance story is offered only where it can be true.** Codex's P2 on #388: the
+    first version told *every* certificate failure that the CA had been found and that
+    ``SSL_CERT_FILE`` could not help - including an expired certificate, a hostname mismatch, or a
+    genuinely missing issuer, for which ``SSL_CERT_FILE`` is precisely the remedy - and said it on
+    3.11 and 3.12, where strict mode is not even enabled. That is the confidently-wrong message this
+    issue exists to remove, reintroduced one branch over. Each case now gets the remedy that applies
+    to it, and where nothing is known, none is offered.
     """
     reason = getattr(exc, "reason", None)
     if isinstance(reason, ssl.SSLCertVerificationError):
         cause = (reason.verify_message or reason.strerror or "certificate verify failed").strip()
-        if not _nonstrict_x509_allowed():
-            return TransportError(
-                f"the GitHub API's TLS certificate failed verification: {cause}. The host is "
-                "reachable and the certificate was found - this is a local trust decision. "
-                "CPython 3.13+ verifies under ssl.VERIFY_X509_STRICT, which rejects a CA whose "
-                "Basic Constraints extension is not marked critical, and TLS-inspecting proxies "
-                "routinely issue exactly that; SSL_CERT_FILE cannot help, because the CA is not "
-                f"missing. If that describes this machine, set {STRICT_OPT_OUT}=1 to relax that "
-                "one conformance check - chain and hostname verification stay on - or run this "
-                "tool under an interpreter older than 3.13."
-            )
-        return TransportError(
-            f"the GitHub API's TLS certificate failed verification: {cause}. {STRICT_OPT_OUT} is "
-            "already set, so this is not the strict-conformance case: the chain itself is not "
-            "trusted. Do not relax verification further."
-        )
+        return TransportError(_certificate_detail(cause))
     if isinstance(reason, OSError) and reason.strerror:
         return TransportError(
             f"the GitHub API could not be reached ({type(reason).__name__}: {reason.strerror})"
@@ -305,26 +375,32 @@ def _issue(number: int) -> dict[str, Any]:
     """Fetch an issue, refusing a pull request. Both readers of a snapshot start here."""
     status, issue = _request("GET", f"/repos/{REPO}/issues/{number}")
     if status != 200 or not isinstance(issue, dict):
+        # Not a verdict: we failed to read it. A 403 or a 5xx says nothing about the issue.
         raise ClaimError(f"issue #{number} could not be read")
     if issue.get("pull_request"):
-        raise ClaimError(f"#{number} is a pull request, not an issue")
+        # A verdict, and the fifth one: the server told us what this number is, and it is not
+        # claimable work. The other four are in `_check_eligible`.
+        raise IneligibleError(f"#{number} is a pull request, not an issue")
     return issue
 
 
 def _check_eligible(number: int, owner: str) -> dict[str, Any]:
     issue = _issue(number)
+    # These four raises, and only these four, are decided answers about the issue - so these four,
+    # and only these four, are `IneligibleError` and reach exit 3. Everything else this function can
+    # raise (no token, a 403, a 5xx, a TLS refusal) is a failure to ask, and exits 2. See #315.
     if issue.get("state") != "open":
-        raise ClaimError(f"#{number} is not open")
+        raise IneligibleError(f"#{number} is not open")
     labels = {label["name"] for label in issue.get("labels", [])}
     if REQUIRED_LABEL not in labels:
-        raise ClaimError(f"#{number} is not {REQUIRED_LABEL}")
+        raise IneligibleError(f"#{number} is not {REQUIRED_LABEL}")
     assignees = [a["login"] for a in issue.get("assignees", [])]
     if [a for a in assignees if a != owner]:
-        raise ClaimError(f"#{number} is assigned to someone else")
+        raise IneligibleError(f"#{number} is assigned to someone else")
 
     comments = _paginate(f"/repos/{REPO}/issues/{number}/comments", f"#{number} comments")
     if not _approval_binds(issue, comments, owner):
-        raise ClaimError(
+        raise IneligibleError(
             f"#{number} has no maintainer approval binding its current title and body; "
             "it may have been edited after approval"
         )
@@ -469,13 +545,11 @@ def _cmd_claim(args: argparse.Namespace) -> None:
     number = args.issue
     try:
         _check_eligible(number, args.owner)
-    except TransportError:
-        # Ahead of the ClaimError arm, and re-raised rather than relabelled: `main` already prints
-        # `error:` and returns 2 for it. Exit 3 is a decided answer about the issue - not open, not
-        # `status:ready`, assigned elsewhere, or no approval binding the snapshot - and "I could not
-        # ask" is none of those (#315).
-        raise
-    except ClaimError as exc:
+    except IneligibleError as exc:
+        # ONLY this subclass. Every other `ClaimError` - no token, a 403, a 5xx, a TLS refusal -
+        # propagates to `main`, which prints `error:` and returns 2. Exit 3 is a decided answer
+        # about the issue, and "I could not ask" is not one; a compliant agent believes exit 3 and
+        # stops, so a false verdict costs approved work (#315).
         print(f"ineligible: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_INELIGIBLE) from None
 

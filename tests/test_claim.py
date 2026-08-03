@@ -718,9 +718,63 @@ def test_a_certificate_failure_names_the_certificate_and_the_one_remedy(
     message = str(info.value)
     assert "certificate failed verification" in message
     assert "Basic Constraints of CA cert not marked critical" in message
+    if not claim._strict_is_the_default():
+        # Below 3.13 the flag is off, so strict conformance genuinely is not the cause and the
+        # remedy must not be offered. Saying otherwise is the confidently-wrong message again.
+        assert "not enabled on this interpreter" in message
+        assert claim.STRICT_OPT_OUT not in message
+        return
     assert "VERIFY_X509_STRICT" in message, "the message must name the cause it observed"
     assert claim.STRICT_OPT_OUT in message, "and the one supported remedy"
     assert "host is reachable" in message, "it must not read as a network outage"
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (claim.ClaimError("no GitHub token: set GH_TOKEN or run gh auth login"), "no GitHub token"),
+        (claim.ClaimError("#7 comments could not be read"), "could not be read"),
+        (claim.TransportError("the GitHub API could not be reached (gaierror)"), "reached"),
+    ],
+    ids=["no-token", "http-error", "transport"],
+)
+def test_only_a_decided_answer_reaches_exit_three(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    failure: Exception,
+    expected: str,
+) -> None:
+    """Codex P1 on #388: subtyping the *failures* left the guarantee false.
+
+    `_token` raises a plain `ClaimError` when there is no GitHub token, and `_issue`/`_paginate`
+    raise one on any 401, 403 or 5xx. None is a verdict about the issue, and all of them slipped
+    past an `except TransportError` arm into the blanket `except ClaimError` below it. Enumerating
+    what *is* a verdict is the fix, and this is the test that would have caught the first attempt.
+    """
+    monkeypatch.setattr(claim, "_check_eligible", _raises(failure))
+    with pytest.raises(claim.ClaimError) as info:
+        claim._cmd_claim(_args(issue=7))
+    assert not isinstance(info.value, claim.IneligibleError)
+    assert expected in str(info.value)
+    assert "ineligible" not in capsys.readouterr().err
+
+
+def test_the_decided_answers_are_enumerated_and_stay_enumerated() -> None:
+    """Bind the enumeration itself, since its whole value is that it is closed.
+
+    Writing this test found the fifth: `_issue` refuses a pull-request number, which *is* a verdict
+    — the server told us what the number is — while the `status != 200` beside it is not. A later
+    edit that reaches for `IneligibleError` somewhere new shows up here rather than as a worker
+    silently skipping approved work.
+    """
+    source = (ROOT / ".agents" / "bin" / "claim.py").read_text(encoding="utf-8")
+    eligible = source.partition("def _check_eligible")[2].partition("\ndef ")[0]
+    fetch = source.partition("def _issue")[2].partition("\ndef ")[0]
+    assert source.count("raise IneligibleError") == 5, "the verdicts are exactly five"
+    assert eligible.count("raise IneligibleError") == 4
+    assert fetch.count("raise IneligibleError") == 1
+    assert "could not be read" in fetch, "a failed read sits beside it and must NOT be a verdict"
+    assert fetch.count("raise ClaimError") == 1
 
 
 def test_a_certificate_failure_with_the_opt_out_already_set_does_not_suggest_it_again(
@@ -744,6 +798,45 @@ def test_a_certificate_failure_with_the_opt_out_already_set_does_not_suggest_it_
     assert "chain itself is not trusted" in message
     assert "VERIFY_X509_STRICT" not in message, "the strict story does not apply here"
     assert "Do not relax verification further" in message
+
+
+def test_a_missing_issuer_gets_the_remedy_that_actually_applies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2 on #388: the strict story was asserted for every certificate failure.
+
+    For a genuinely missing issuer, `SSL_CERT_FILE` *is* the remedy — the first version told the
+    reader the opposite, confidently. That is the failure mode #315 exists to remove, reintroduced
+    one branch over.
+    """
+    monkeypatch.delenv(claim.STRICT_OPT_OUT, raising=False)
+    _transport(monkeypatch, _cert_error("unable to get local issuer certificate"))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    message = str(info.value)
+    assert "SSL_CERT_FILE" in message
+    assert "point SSL_CERT_FILE at that CA bundle" in message
+    assert f"{claim.STRICT_OPT_OUT} will not help" in message
+    assert "was found" not in message, "it was not found; that is the whole point"
+
+
+def test_an_unrelated_certificate_defect_is_not_blamed_on_conformance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An expired certificate is not a Basic Constraints quibble, and must not read as one."""
+    monkeypatch.delenv(claim.STRICT_OPT_OUT, raising=False)
+    _transport(monkeypatch, _cert_error("certificate has expired"))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    message = str(info.value)
+    assert "certificate has expired" in message
+    assert "Basic Constraints" not in message
+    assert "the certificate was found" not in message
+    if claim._strict_is_the_default():
+        assert "should not be made so" in message, "the escape hatch must stay qualified"
+    else:
+        assert "not enabled on this interpreter" in message
+        assert claim.STRICT_OPT_OUT not in message, "do not offer a remedy that cannot apply"
 
 
 def test_an_unreachable_host_is_still_reported_as_unreachable(
@@ -850,6 +943,21 @@ def test_the_relaxation_announces_itself_once_per_process(
     assert err.count("notice:") == 1, err
     assert claim.STRICT_OPT_OUT in err
     assert "hostname verification remain enabled" in err
+
+
+def test_a_failed_announcement_does_not_latch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codex P2 on #388: latching before the write can relax a context in total silence.
+
+    If stderr is closed or its reader has exited, the print raises and no notice arrived. Latching
+    first would let a caller that catches that error and retries get a relaxed context with nothing
+    on the record — which is precisely what the interlock exists to prevent.
+    """
+    monkeypatch.setenv(claim.STRICT_OPT_OUT, "1")
+    monkeypatch.setattr(claim, "_ANNOUNCED", False)
+    monkeypatch.setattr(claim, "print", _raises(BrokenPipeError("stderr is gone")), raising=False)
+    with pytest.raises(BrokenPipeError):
+        claim._ssl_context()
+    assert claim._ANNOUNCED is False, "a notice that never arrived must not count as delivered"
 
 
 def test_the_default_says_nothing(

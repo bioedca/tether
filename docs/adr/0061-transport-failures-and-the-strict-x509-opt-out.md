@@ -65,16 +65,37 @@ development platform, so 3.13 and 3.14 are supported interpreters that cannot re
 
 ## Decision
 
-**1. `TransportError(ClaimError)`, caught ahead of `ClaimError` in `_cmd_claim` and re-raised.**
-A subclass rather than a sibling, so every other `except ClaimError` in the file stays correct and
-the failure still reaches `main`'s `error:` / exit `2` by the path that already existed. Exit `3` is
-now reachable only by the four decided answers: not open, not `status:ready`, assigned elsewhere, or
-no approval binding the current snapshot.
+**1. Classify the *verdicts*, not the failures: `IneligibleError(ClaimError)` is the only thing
+`_cmd_claim` catches.** There are exactly five, and they are the only paths to exit `3`: the number
+is a pull request rather than an issue, or the issue is not open, not `status:ready`, assigned
+elsewhere, or carries no approval binding its current snapshot. Everything else propagates to
+`main`'s `error:` / exit `2`.
+
+This is the second attempt, and the first one is worth recording because it looked sufficient. It
+subtyped the *failures* — a `TransportError` caught ahead of a blanket `except ClaimError` — and
+Codex's P1 on #388 showed the guarantee was still false: `_token` raises a plain `ClaimError` when
+there is no GitHub token, and `_issue`/`_paginate` raise one on any 401, 403 or 5xx. None of those
+is a verdict; all of them slipped past a subtype-only arm into the blanket `except` below it.
+
+Enumerating what *is* a verdict fails safe instead. A new error type added to this file tomorrow
+exits `2` unless someone deliberately makes it a verdict, whereas the subtype approach failed open:
+anything nobody remembered to classify became a confident "ineligible". Writing the test for the
+enumeration then found a fifth verdict — `_issue` refusing a pull-request number — sitting beside a
+`status != 200` read failure that must *not* be one.
 
 **2. The message names the cause it observed**, distinguishing certificate verification from an
 unreachable host, and interpolating only path-free fields (`verify_message`, `strerror`, the
 exception's class name) so `ClaimError`'s promise that its message carries no path survives a
 misdirected `SSL_CERT_FILE`.
+
+**And it offers only the remedy that fits.** Codex's P2 on #388: the first version told *every*
+certificate failure that the CA had been found and that `SSL_CERT_FILE` could not help — including
+an expired certificate, a hostname mismatch, or a genuinely missing issuer, for which `SSL_CERT_FILE`
+is exactly the remedy — and said it on 3.11 and 3.12, where strict mode is not enabled at all. That
+is the confidently-wrong message this record exists to remove, reintroduced one branch over. The
+strict explanation is now gated on both a recognized conformance signature and strict actually being
+the interpreter's default; a missing issuer gets the trust-store remedy; anything else gets the
+observed reason and no advice.
 
 **3. `TETHER_ALLOW_NONSTRICT_X509=1` clears `ssl.VERIFY_X509_STRICT` and nothing else.**
 `verify_mode` stays `CERT_REQUIRED` and `check_hostname` stays `True`: the chain is still verified
