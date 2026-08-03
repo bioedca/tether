@@ -661,9 +661,10 @@ checkpointed). If the sidecar environment is **absent or corrupt at startup**, t
 **idealization-deferred** mode — all movies extracted + corrected, idealization queued for a later run — rather
 than aborting. The batch policy (warn-and-flag vs. fail-movie) is configurable in the settings profile (§10).
 
-### 7.12 FR-UPDATE — In-app update (post-1.0, M10)
+### 7.12 FR-UPDATE — In-app update
 
-Introduced by **[ADR-0060](adr/0060-in-app-update-mechanism-and-integrity-model.md)**; not part of the 1.0 scope.
+Introduced by **[ADR-0060](adr/0060-in-app-update-mechanism-and-integrity-model.md)**. In scope for 1.0; the
+sequence that delivers it is carried by the GitHub milestone that owns it, not by this document (§9).
 No updater code exists at the time of writing.
 
 The installed application **shall** be able to detect a newer **stable** release, download the installer for the
@@ -675,11 +676,11 @@ could be undone only by a manual reinstall. "Stable" **shall** be derived from t
 never from the attestation *statement* — an attacker who controls the release query controls that flag too, and the
 statement's predicate is controlled by the originating workflow. That ref **shall** be required to match
 `refs/tags/vMAJOR.MINOR.PATCH` exactly — an allowlist, not a prerelease denylist, since a denylist still admits
-`refs/heads/main` or a four-component `v1.0.0.0`; this is the same form §12.7 specifies and `release.yml` already
-enforces. The version parsed from that ref **shall** equal the version used for the strictly-newer comparison, so the
-two cannot diverge. An offered release **shall** additionally be **strictly
-newer than the installed version**, compared on the client, since the same attacker can otherwise replay a genuine,
-genuinely-attested *older* installer, which every signature-style check passes.
+`refs/heads/main` or a four-component `v1.0.0.0`; this is the form §12.7 specifies for a release tag, applied on the
+client and stricter than what `release.yml` enforces on publish today. The version parsed from that ref **shall**
+equal the version used for the strictly-newer comparison, so the two cannot diverge. An offered release **shall**
+additionally be **strictly newer than the installed version**, compared on the client, since the same attacker can
+otherwise replay a genuine, genuinely-attested *older* installer, which every signature-style check passes.
 
 **The verification is the entire trust boundary.** 1.0 installers carry no OS code signature
 ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)), so nothing stands behind this

@@ -5,9 +5,12 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0060 — In-app update: download, verify against build provenance, hand off to the OS installer
 
-- **Status:** accepted. Decision 2's *mechanism* was amended by the maintainer on 2026-07-30 — the
-  originally-specified in-process verifier is not implementable, and the resolution is
-  `gh attestation verify --bundle` shipped via `extra_files` (§"Amending decision 2's mechanism").
+- **Status:** accepted. Decision 2's *mechanism* was amended during authoring — the
+  originally-specified in-process verifier is **not implementable** (no conda-forge `sigstore`
+  package exists, measured, not assumed), and the resolution is `gh attestation verify --bundle`
+  shipped via `extra_files` (§"Amending decision 2's mechanism"). That substitution was selected on
+  the measured evidence recorded in that section and escalated rather than silently applied;
+  **the maintainer's sign-off is the merge of the pull request that lands this record.**
   Everything decision 2 requires *substantively* is unchanged.
 
   **One item is left open, deliberately**, and is named here so a reader checking the six decisions
@@ -17,10 +20,12 @@ SPDX-License-Identifier: GPL-3.0-or-later
   would be a guess presented as a decision; [#330](https://github.com/bioedca/tether/issues/330)
   measures it instead (§3).
 - **Date:** 2026-07-30
-- **Deciders:** bioedca (mechanism, integrity model, consent, channel — recorded 2026-07-27)
+- **Deciders:** bioedca — integrity model, consent and channel recorded 2026-07-27; decision 2's
+  verifier *mechanism* selected during authoring on measured evidence (that 2026-07-27 comment had
+  specified an in-process verifier, which proved unavailable) and ratified by merging this record
 - **PRD anchor:** §4.1 (application shell), §4.3 (offline installer/sidecar), §8 NFR-PKG; introduces
   a new capability, so the PRD amendment lands with this record
-- **Milestone:** M10
+- **Milestone:** M13 - In-app updater (pre-1.0)
 
 ## Context and problem statement
 
@@ -85,7 +90,7 @@ execution as the user.
 Decision 2 as given also fixed *where* the check runs: **in-process**, "checked inside the
 application before the downloaded file is executed", with "a sigstore verifier in the base
 `conda-lock`" named as its consequence. That clause could not be implemented as written — a packaging
-fact, not a disagreement — and the maintainer amended it on 2026-07-30 to a bundled
+fact, not a disagreement — and it is amended by this record to a bundled
 `gh attestation verify --bundle` invoked as a subprocess. See §"Amending decision 2's mechanism".
 **Nothing else in this section changes**: what is verified, what is necessary-but-not-sufficient, and
 what happens on failure are all as decided.
@@ -174,11 +179,17 @@ The trustworthy signal is the one the attestation binds: the **certificate's** `
 **Allowlist the exact form; do not merely deny prereleases.** "Reject a SemVer prerelease component"
 is a denylist, and a denylist still accepts `refs/heads/main`, a four-component `v1.0.0.0`, or any
 other ref that simply fails to look like a prerelease. The ref **must match** `refs/tags/vMAJOR.MINOR.PATCH`
-exactly — three numeric components, no prerelease, no build metadata — which is not a new rule: it is
-the same form `release.yml` already enforces on the tag it will build (`docs/release.md`: anything
-else, "including a four-component `1.0.0.0` or a pre-release `1.0.0-rc1`, is **rejected**") and the
-form PRD §12.7 specifies for a release tag. The client is mirroring the pipeline, not inventing a
-policy.
+exactly — three numeric components, no prerelease, no build metadata — which is the form PRD §12.7
+specifies for a release tag (`vMAJOR.MINOR.PATCH`).
+
+It is **not**, however, a form the publishing side enforces today, and this record should not claim
+otherwise. `release.yml`'s only tag-shape check is `case "$tag" in v*)` — the tag must merely start
+with `v` — and it decides prerelease status from the presence of a hyphen (`case "$TAG" in *-*)`),
+which is itself the denylist this section argues against: a four-component `v1.0.0.0` passes both and
+would publish as a **stable** release. So the client is not mirroring an existing pipeline control; it
+is applying §12.7's stated form on its own, and it is the stricter of the two. Closing the gap on the
+publishing side is a separate concern from this decision and is tracked as
+[#380](https://github.com/bioedca/tether/issues/380).
 
 **And bind the parsed tag to the version being installed.** The version parsed out of the verified
 ref must equal the version the client used for the strictly-newer comparison. Without that binding
@@ -227,7 +238,8 @@ The decisions above fix *what* happens. *How*, per platform, is where the remain
 
 Decision 2 says verification happens **in-process**, and names *"a sigstore verifier in the base
 `conda-lock`"* as its consequence. Those two cannot both hold. This section was written as an
-escalation; the maintainer resolved it on 2026-07-30 and it is now recorded as decided.
+escalation. The substitution below is selected on the measured packaging evidence in this section,
+and merging this record is what ratifies it.
 
 **Decided: `gh attestation verify --bundle`, shipped as a pinned-and-hashed `extra_files` artifact,
 with the bundle fetched from the public attestations API. Not from conda-forge, and not in the lock.**
@@ -479,8 +491,21 @@ one NAT can exhaust it, which lands in the silent-no-op branch above.
   gets a caveat it did not have. The offline promise survives only because consent gates the request,
   which makes the consent implementation security-relevant rather than cosmetic.
 - **Blocked on.** [ADR-0059](0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) — the
-  premise of this design is that no OS signature backs the artifact. And on `v1.0.0` existing: there
-  is nothing to update from until then.
+  premise of this design is that no OS signature backs the artifact.
+
+  **The implementation is *not* blocked on `v1.0.0` existing.** It ships before the tag. What the
+  absent tag blocks is a single *verification* leg, and only that one: "a real newer **stable**
+  release is offered, downloaded, verified and installed." It cannot be exercised pre-tag, because
+  `v1.0.0-rc1` is the only published release and this record's own allowlist requires it to be
+  **refused**. Everything else — the release query, the notice, the bundled-`gh` smoke, the
+  strictly-newer comparison, the per-platform hand-off, and the refusal path itself — is verifiable
+  pre-tag against mocked release responses and against `v1.0.0-rc1` as the refusal fixture.
+
+  Two consequences follow and are stated rather than discovered later. First, the deferred leg is
+  filed as a post-tag issue when the implementing milestone closes. Second, **the updater therefore
+  ships at 1.0 having never once completed a successful update in production** — the first real
+  download-verify-install runs on a user's machine at 1.0.0 → 1.0.1. That is accepted deliberately,
+  and 1.0.1 is to be treated as an explicit updater shakedown rather than an ordinary patch.
 - **Follow-up.** No updater code ships with this record. The implementation is broken out into the
   issues listed below, each of which is separately reviewable and separately revertible.
 
