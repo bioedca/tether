@@ -40,7 +40,7 @@ If they conflict, stop, choose the safe option, and ask.
 - One work item = one owner = one short-lived branch = one PR = one writable worktree. Use
   `agent/issue-<N>` — **no title slug**, since a slug is not deterministic across agents and two refs
   for one issue would void the mutex. Never share a branch or edit another agent's checkout.
-- **Claim with `python .agents/bin/claim.py claim --issue N --vendor claude`.** Creating the ref *is*
+- **Claim with `python3 .agents/bin/claim.py claim --issue N --vendor claude`.** Creating the ref *is*
   the mutex: `201` to the first writer, `422` to everyone after. Exit `3` is ineligible, `4` is lost;
   in both cases stop, and never open a second branch or PR for that item. Eligibility is a
   *precondition* of the claim, never a consequence.
