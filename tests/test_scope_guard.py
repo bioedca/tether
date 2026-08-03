@@ -823,10 +823,13 @@ def test_the_guard_counts_the_head_a_provider_actually_read(
     that does not mirror it at all — the two would report different round counts for one PR and
     there would be no way to tell which was right.
     """
+    # A METERED provider: since ADR-0062 the guard mirrors `triage.METERED_PROVIDERS`, and Codex —
+    # the unmetered lane — consumes no round at all. The #307 property under test is the head
+    # attribution, not which provider it belongs to.
     reviews = [
-        {"user": {"login": "chatgpt-codex-connector[bot]"}, "commit_id": "c" * 40},
+        {"user": {"login": "coderabbitai[bot]"}, "commit_id": "c" * 40},
         {
-            "user": {"login": "chatgpt-codex-connector[bot]"},
+            "user": {"login": "coderabbitai[bot]"},
             "original_commit_id": "c" * 40,
             "commit_id": "d" * 40,
         },

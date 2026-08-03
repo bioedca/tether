@@ -32,6 +32,7 @@ Stdlib only, and shells out to ``gh`` for auth - the same soft dependency ``clai
 from __future__ import annotations
 
 import argparse
+import calendar
 import json
 import re
 import subprocess
@@ -79,6 +80,19 @@ class Unreadable(RuntimeError):
     """
 
 
+def _month_end(month: str) -> str:
+    """The last day of ``month`` as ``YYYY-MM-DD``.
+
+    The query needs an UPPER bound as well as a lower one. With only ``updated:>=``, a historical
+    ``--month`` matches every PR touched since - and once that exceeds the fetch limit the search
+    truncates before reaching the requested month, omitting billed reviews and reporting too many
+    credits remaining.
+    """
+    year, mon = (int(part) for part in month.split("-"))
+    last = calendar.monthrange(year, mon)[1]
+    return f"{month}-{last:02d}"
+
+
 def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]]]:
     """Credits, PRs and per-PR detail for one repository in ``month`` (``YYYY-MM``).
 
@@ -101,7 +115,7 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
             "--limit",
             "500",
             "--search",
-            f"updated:>={month}-01",
+            f"updated:{month}-01..{_month_end(month)}",
             "--json",
             "number,author,updatedAt",
         )
@@ -117,7 +131,11 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
         if pull["updatedAt"][:7] < month:
             continue  # untouched this month, so it cannot carry a review inside it
         try:
-            reviews = _gh("api", f"repos/{repo}/pulls/{pull['number']}/reviews")
+            # `--paginate`: a PR with more than one REST page of reviews would otherwise return
+            # only the first, and a billed review after it reads as unspent credit.
+            reviews = _gh(
+                "api", "--paginate", "--slurp", f"repos/{repo}/pulls/{pull['number']}/reviews"
+            )
         except subprocess.CalledProcessError as exc:
             # Same rule as the repository listing above, and the same reason: a PR whose reviews
             # could not be read is not a PR with zero reviews. Skipping it silently would subtract
@@ -126,9 +144,11 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
             raise Unreadable(
                 f"{repo}#{pull['number']} reviews: {message[-1] if message else 'unreadable'}"
             ) from exc
+        # `--slurp` wraps each page in an outer list; flatten before filtering.
+        flat = [r for page in reviews for r in page]  # type: ignore[union-attr]
         hits = [
             review
-            for review in reviews  # type: ignore[union-attr]
+            for review in flat
             if BOT in (review.get("user") or {}).get("login", "").lower()
             and (review.get("submitted_at") or "")[:7] == month
         ]

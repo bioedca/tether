@@ -10,9 +10,10 @@ respective contract governs.
 Tether is currently maintained **solo (account `bioedca`) with CI and a
 risk-classified review path as merge gates**: branch protection on `main` requires
 green required CI plus a self-review checklist on every PR, while `AGENTS.md`
-requires a substantive final-head review on every lane: **Codex for `low` and
-`standard`, and both Codex and CodeRabbit — in one round — for `high`.**
-Copilot is optional and best-effort. The ruleset still requires zero GitHub approval
+requires a substantive final-head review on one fixed lane, cheapest provider first:
+**Codex on the draft until nothing blocking remains, then optionally one metered
+Greptile credit, then CodeRabbit with no actionable comments before merge.**
+Copilot is advisory only and never satisfies a leg. The ruleset still requires zero GitHub approval
 reviews; load-bearing changes additionally need any qualified human/domain judgment
 specified in `AGENTS.md`. This scales to required human reviews + `CODEOWNERS` if
 contributors join (PRD §12.3).
@@ -255,10 +256,10 @@ Before requesting review / merging, confirm:
       tests, logs or fixtures; `secret-scan` green.
 - [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
 - [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; the round; and a
-      result from **every** provider the lane routes to (Codex for `low`/`standard`; Codex **and**
-      CodeRabbit for `high`, in one round) — **either** a substantive review **or** that provider's
-      own quoted "nothing to review" for the head it read, a Codex 👍 included. If one provider
-      genuinely *cannot* act, record which and why and the other satisfies the lane. Blocking
+      result from every provider the lane reached — **either** a substantive review **or** that
+      provider's own quoted "nothing to review" for the head it read, a Codex 👍 included.
+      **CodeRabbit with no actionable comments is required**; Greptile is optional, and its absence
+      for want of credits is recorded rather than excused as a review. Blocking
       findings fixed, non-blocking ones deferred to a follow-up issue, per `AGENTS.md`.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
       **same** PR.
@@ -292,12 +293,15 @@ is what PRD §12.8 recommends for a solo maintainer — and is gated by a separa
 **conversation resolution**: an unresolved review thread blocks the merge even when
 every check is green. Classify the final diff before merge and follow `AGENTS.md`:
 Copilot is optional, while every PR needs substantive independent review requested once
-checks are green and the diff is declared final. **Low and standard route to Codex
-GitHub Code Review; high/load-bearing takes both Codex and CodeRabbit — requested
-together and answered as one round, never as two.** Author-side or local review, and
-status-only output, do not satisfy it.
+checks are green and the diff is declared final. **Every PR walks the same lane,
+cheapest provider first: Codex on the draft, uncapped; then optionally one metered
+Greptile credit if the seat has budget; then CodeRabbit with no actionable comments,
+which is the last gate before merge.** Author-side or local review, and status-only
+output, do not satisfy it. **Exhaustion is not incapacity** — a provider with no budget
+left has not reviewed: Greptile out of credits is skippable and never blocks, while
+CodeRabbit unavailable freezes the PR.
 
-**Neither provider auto-reviews this repository; you have to ask.** CodeRabbit replies
+**No provider auto-reviews this repository; you have to ask.** CodeRabbit replies
 to an unrequested PR with *"Auto reviews are disabled on this repository"*, and Codex
 reviews only when you open a PR for review, mark a draft ready, or comment
 `@codex review`. A provider that was never asked has not declined — so if you are

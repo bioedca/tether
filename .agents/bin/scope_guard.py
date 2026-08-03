@@ -524,14 +524,50 @@ def _review_rounds(number: int) -> int:
 
     """
     heads: set[str] = set()
-    providers = {"chatgpt-codex-connector[bot]", "coderabbitai[bot]"}
+    # Mirrors `triage.METERED_PROVIDERS`, not every external provider (ADR-0062). Codex is the
+    # unmetered lane and consumes no round; Greptile does, because a spent credit is a real one.
+    # Reported by name so a reader can see WHICH counter this claims to mirror.
+    providers = {"coderabbitai[bot]", "greptile-apps[bot]"}
+    counted_from = _counted_from(number)
     for path in (f"/repos/{REPO}/pulls/{number}/reviews", f"/repos/{REPO}/pulls/{number}/comments"):
         for entry in claim._paginate(path, f"PR #{number} review state"):
             login = ((entry.get("user") or {}).get("login")) or ""
             sha = entry.get("original_commit_id") or entry.get("commit_id")
-            if login in providers and isinstance(sha, str) and sha:
+            when = entry.get("submitted_at") or entry.get("created_at")
+            if login not in providers or not isinstance(sha, str) or not sha:
+                continue
+            # Draft-phase rounds are free, so counting them here would report a PR as spent while
+            # triage correctly reports it as not - the disagreement this function exists to avoid.
+            if (
+                counted_from is None
+                or not isinstance(when, str)
+                or not when
+                or when >= counted_from
+            ):
                 heads.add(sha)
     return len(heads)
+
+
+def _counted_from(number: int) -> str | None:
+    """The first ``ready_for_review`` instant, or ``None`` to count everything.
+
+    A read-only mirror of ``triage._counted_from``. Kept deliberately simple: this guard is
+    advisory, so an unreadable timeline counts everything rather than failing the job.
+    """
+    try:
+        events = claim._paginate(
+            f"/repos/{REPO}/issues/{number}/timeline", f"PR #{number} timeline"
+        )
+    except claim.ClaimError:
+        return None
+    ready = [
+        stamp
+        for event in events
+        if event.get("event") == "ready_for_review"
+        and isinstance(stamp := event.get("created_at"), str)
+        and stamp
+    ]
+    return min(ready) if ready else None
 
 
 def _render(report: dict[str, Any]) -> str:

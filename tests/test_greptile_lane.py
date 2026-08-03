@@ -56,8 +56,10 @@ def _fake_gh(prs: dict[str, list], reviews: dict[int, list], fail: set[str] | No
             if repo in (fail or set()):
                 raise subprocess.CalledProcessError(1, args, stderr=b"rate limit exceeded")
             return prs.get(repo, [])
-        path = args[-1]  # `api repos/<owner>/<name>/pulls/<n>/reviews`
-        return reviews.get(int(path.rsplit("/pulls/", 1)[1].split("/")[0]), [])
+        # `api --paginate --slurp repos/<owner>/<name>/pulls/<n>/reviews` — `--slurp` wraps each
+        # page in an outer list, so the fake returns one page rather than a bare list.
+        path = args[-1]
+        return [reviews.get(int(path.rsplit("/pulls/", 1)[1].split("/")[0]), [])]
 
     return call
 
@@ -189,7 +191,7 @@ def test_the_month_is_queried_server_side_not_filtered_after_a_capped_fetch(
     assert listings, "the repositories must actually be listed"
     for call in listings:
         assert "--search" in call, "the month must be part of the query, not a post-filter"
-        assert "updated:>=2026-08-01" in call
+        assert "updated:2026-08-01..2026-08-31" in call, "bounded on BOTH sides"
 
 
 def test_the_configured_repositories_are_the_ones_billed_to_this_seat() -> None:
