@@ -94,7 +94,9 @@ If they conflict, stop, choose the safe option, and ask.
 
 - **Read `docs/agents/review.md` before requesting a review, answering a finding, or merging.** It
   carries the routing, materiality, the severity floor, the round cap and the merge mechanics.
-- Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. **The
+- Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. It **no longer
+  routes providers** — every PR walks the same lane — it states how much scrutiny the change deserves
+  and whether a metered credit is worth spending on it. **The
   authoring agent is never the only reviewer**, and no provider self-fires — a provider that was
   not asked has not declined.
 - **Open as a draft and spend the cheap provider first.** Every required check runs on a draft, so

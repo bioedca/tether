@@ -68,17 +68,21 @@ def _install(
     labels: list[str],
     body: str = "Closes: #7\n",
     reviews: list[dict[str, Any]] | None = None,
+    timeline: list[dict[str, Any]] | None = None,
+    draft: bool = False,
 ) -> Fake:
     routes: dict[tuple[str, str], tuple[int, Any]] = {
         ("GET", "/repos/bioedca/tether/pulls/99/files"): (200, files),
         ("GET", "/repos/bioedca/tether/pulls/99/reviews"): (200, reviews or []),
         ("GET", "/repos/bioedca/tether/pulls/99/comments"): (200, []),
+        ("GET", "/repos/bioedca/tether/issues/99/timeline"): (200, timeline or []),
         ("GET", "/repos/bioedca/tether/pulls/99"): (
             200,
             {
                 "number": 99,
                 "body": body,
                 "labels": [],
+                "draft": draft,
                 "base": {"sha": "a" * 40},
                 "head": {"sha": "b" * 40},
             },
@@ -637,6 +641,71 @@ def test_review_rounds_counts_distinct_heads_like_triage_does(
     ]
     _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"], reviews=reviews)
     assert guard.measure(99)["review_rounds"] == 1
+
+
+def test_a_pr_opened_ready_keeps_the_rounds_it_spent_before_a_draft_excursion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mirror has to mirror *every* branch, not just the common one. Codex raised this on #385.
+
+    A PR opened ready emits no `ready_for_review`, so a later draft excursion and return makes that
+    return look like the first entry into the counted phase. Taking `min(ready)` therefore discarded
+    every round spent before it, and the guard reported one fewer than `triage` - which reads as
+    *the labels are ahead of the evidence*, the exact corruption this guard exists to detect. A
+    `convert_to_draft` earlier than any `ready_for_review` is the signal that the clock started at
+    creation.
+    """
+    timeline = [
+        {"event": "convert_to_draft", "created_at": "2026-08-02T00:00:00Z"},
+        {"event": "ready_for_review", "created_at": "2026-08-03T00:00:00Z"},
+    ]
+    reviews = [
+        # Before the draft excursion, so a `min(ready)` cutoff would drop it.
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "commit_id": "c" * 40,
+            "submitted_at": "2026-08-01T00:00:00Z",
+        },
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "commit_id": "e" * 40,
+            "submitted_at": "2026-08-03T12:00:00Z",
+        },
+    ]
+    _install(
+        monkeypatch,
+        files=[_file("x.py", 1)],
+        labels=["size:XS"],
+        reviews=reviews,
+        timeline=timeline,
+    )
+    assert guard.measure(99)["review_rounds"] == 2, "a draft excursion must refund no round"
+
+
+def test_a_review_taken_during_the_prescribed_draft_phase_is_not_a_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other direction, and the reason the mirror needs the timeline at all.
+
+    A PR that has never been ready is in the free phase, so a metered review spent there costs no
+    round. Counting it would report the PR as spent while `triage` reports it as not.
+    """
+    reviews = [
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "commit_id": "c" * 40,
+            "submitted_at": "2026-08-01T00:00:00Z",
+        }
+    ]
+    _install(
+        monkeypatch,
+        files=[_file("x.py", 1)],
+        labels=["size:XS"],
+        reviews=reviews,
+        timeline=[],
+        draft=True,
+    )
+    assert guard.measure(99)["review_rounds"] == 0
 
 
 def test_the_report_always_declares_itself_advisory(monkeypatch: pytest.MonkeyPatch) -> None:

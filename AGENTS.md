@@ -84,7 +84,9 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   AMEND session never requests one and still classifies against its severity floor. It carries the
   routing, what counts as a material change, the severity floor, the round cap and the merge
   mechanics. Not having read it is itself a bar to acting.
-- Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. **The
+- Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. It **no longer
+  routes providers** — every PR walks the same lane — it states how much scrutiny the change deserves
+  and whether a metered credit is worth spending on it. **The
   authoring agent is never the only reviewer**, and no provider self-fires — a provider that
   was not asked has not declined.
 - **Open as a draft and spend the cheap provider first.** Every required check runs on a draft, so

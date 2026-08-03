@@ -551,8 +551,13 @@ def _review_rounds(number: int) -> int:
 def _counted_from(number: int) -> str | None:
     """The first ``ready_for_review`` instant, or ``None`` to count everything.
 
-    A read-only mirror of ``triage._counted_from``. Kept deliberately simple: this guard is
-    advisory, so an unreadable timeline counts everything rather than failing the job.
+    A read-only mirror of ``triage._counted_from``, and it has to mirror **every** branch of it, not
+    just the common one. A guard whose purpose is to notice disagreement with the authoritative
+    counter cannot afford to disagree with it itself: this function reported one round fewer than
+    ``triage`` for a PR opened ready that later took a draft excursion, which reads as *the labels
+    are ahead of the evidence* - the exact shape of the corruption it is watching for.
+
+    Advisory, so an unreadable timeline counts everything rather than failing the job.
     """
     try:
         events = claim._paginate(
@@ -567,10 +572,24 @@ def _counted_from(number: int) -> str | None:
         and isinstance(stamp := event.get("created_at"), str)
         and stamp
     ]
+    drafted = [
+        stamp
+        for event in events
+        if event.get("event") == "convert_to_draft"
+        and isinstance(stamp := event.get("created_at"), str)
+        and stamp
+    ]
+    # Opened READY: a PR created ready emits no `ready_for_review`, so a later draft excursion and
+    # return would make that return look like the first entry into the counted phase, discarding
+    # every round spent before it. A `convert_to_draft` earlier than any `ready_for_review` is the
+    # signal, and it means the clock started at creation.
+    if drafted and (not ready or min(drafted) < min(ready)):
+        return None
     if ready:
         return min(ready)
-    # No ready event. A draft has taken no counted round - returning None here would mean "count
-    # everything" and report a Greptile review spent during the prescribed draft phase as a round.
+    # No ready event and no draft excursion. A draft has taken no counted round - returning None
+    # here would mean "count everything" and report a Greptile review spent during the prescribed
+    # draft phase as a round.
     return _COUNT_NOTHING if _is_draft(number) else None
 
 

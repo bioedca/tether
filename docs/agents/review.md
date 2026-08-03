@@ -10,8 +10,10 @@ its own: **an agent that has not read this page may not request a review or merg
 Authorization still has to come from `AGENTS.md` — merge is under explicit per-PR authority, and
 nothing on this page supplies it.
 
-- Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. The authoring
-  agent is never the only reviewer.
+- Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. **It no longer
+  routes providers** — every PR walks the same lane below, whatever its risk. What risk states now is
+  how much scrutiny the change deserves, and so whether a metered credit is worth spending on it
+  (step 2). The authoring agent is never the only reviewer.
 - **Open the PR as a draft, and do the work there.** Every required check runs on a draft, so the
   diff reaches fully green before any metered provider is asked. Greptile skips drafts by default;
   this is what makes the sequence below affordable rather than a policy nobody can keep.

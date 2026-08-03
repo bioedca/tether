@@ -7,8 +7,8 @@ respective contract governs.
 
 ## Development model — solo + CI and review gates (scales up cleanly)
 
-Tether is currently maintained **solo (account `bioedca`) with CI and a
-risk-classified review path as merge gates**: branch protection on `main` requires
+Tether is currently maintained **solo (account `bioedca`) with CI and a fixed
+review lane as merge gates**: branch protection on `main` requires
 green required CI plus a self-review checklist on every PR, while `AGENTS.md`
 requires a substantive final-head review on one fixed lane, cheapest provider first:
 **Codex on the draft until nothing blocking remains, then optionally one metered
@@ -228,7 +228,7 @@ modes are silent:
   service's data-retention terms. This repository is public, but not everything in your
   working tree is.
 
-Cloud reviewers process PR diffs according to the risk path in `AGENTS.md`; this is
+Cloud reviewers process PR diffs according to the review lane in `AGENTS.md`; this is
 third-party processing. Do not open a PR until its contents are safe to send.
 
 ## PR self-review checklist (PRD §12.4)
@@ -315,9 +315,11 @@ file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`) are material
 re-arms the review but grants no extra round, and there are **at most two rounds**.
 
 Fix blocking findings. Blocking is decided on the **severity axis only**: CodeRabbit
-`Critical`/`Major`, Codex `P1`, plus anything touching secrets, unlicensed data, a frozen
-oracle, the §5 skeleton, or a CodeQL alert — and anything that falsifies a claim the PR
-itself introduces.
+`Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its badges use the same P-scale as
+Codex, so they map straight across, and a review the seat paid a credit for must not be
+answerable entirely by deferral — plus anything touching secrets, unlicensed data, a
+frozen oracle, the §5 skeleton, or a CodeQL alert — and anything that falsifies a claim
+the PR itself introduces.
 
 CodeRabbit renders three independent things on a finding and only one of them is the
 severity: a **domain** (`🎯 Functional Correctness`, `📐 Maintainability & Code Quality`,
@@ -332,12 +334,13 @@ link; do not fix non-blocking findings in the same PR, and never point a deferra
 issue that does not exist. If a **selected** provider reports nothing to review at the
 head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is its documented
 "no suggestions" — that satisfies its leg; quote it. A statement from the author, or from
-any other commenter, never does. On `high`, a provider that genuinely **cannot** act
-leaves the other sufficient, with which one and why recorded — capability, never quota;
-both genuinely unavailable freezes the PR. There are **at most two rounds**, and under
-the swarm model the launcher issues them: do not request one yourself on a PR labelled
-`agent:review-capped`. Human sign-off is required only for releases, tags, signing, and
-new scientific claims.
+any other commenter, never does. **Exhaustion is not incapacity**: a provider with nothing
+to say has reviewed, a provider with no budget left has not. Greptile out of credits is
+skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because it is the
+gate. Record which and why — capability, never quota. There are **at most two rounds**
+after the PR goes ready, and under the swarm model the launcher issues them: do not
+request one yourself on a PR labelled `agent:review-capped`. Human sign-off is required
+only for releases, tags, signing, and new scientific claims.
 
 ## Reporting bugs & security issues
 

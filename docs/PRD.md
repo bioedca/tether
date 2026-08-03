@@ -934,8 +934,8 @@ This section governs **distributed (git/GitHub) source-code version control and 
 for the public GPL-3.0 repository `github.com/bioedca/tether` (§4.1). Its scope is **source governance only** —
 large-dataset versioning is already handled by the LFS / gated-CI fixture tiers (§8 NFR-FIXTURES) and is not
 re-litigated here, and **no external data-versioning tool is introduced**. The governing posture is **solo
-developer (bioedca) with CI and risk-classified review gates**: branch protection on `main` requires green CI plus
-the §12.4 review path. There is no universal human-approval count. Qualified human/domain review is required when
+developer (bioedca) with CI and a fixed review lane as merge gates**: branch protection on `main` requires green CI
+plus the §12.4 review lane. There is no universal human-approval count. Qualified human/domain review is required when
 scientific, security, or release judgment is material. The rules scale to required reviews + `CODEOWNERS` (§12.3). Unless flagged
 otherwise, every GitHub capability below is **free for this public repo**.
 
@@ -1021,17 +1021,17 @@ are exportable as JSON, version-history-tracked, and layer cleanly):
 - **No direct pushes** — every change via PR (the `push` event to `main` is blocked for everyone, the maintainer
   included; this is what makes CI the gate).
 - **Require a pull request before merging.** Required approvals = **0** in the solo model; CI, the §12.4
-  self-review checklist, and its risk-based review path are the agent merge gates. **Dismiss stale approvals on new
+  self-review checklist, and its review lane are the agent merge gates. **Dismiss stale approvals on new
   commits** is pre-enabled for scale-up.
 - **Require status checks to pass** + **require branches up to date** before merging (required checks listed in
   §12.6).
 - **Require signed commits** — enforces the SSH-verified identity (§12.1) on everything landing on `main`.
 - **Require linear history** — pairs with squash-merge (§12.2).
 - **Require conversation resolution before merging** — even solo, this forces resolving every self-review thread
-  and every actionable finding from the required risk-classified review path before merge.
+  and every actionable finding from the required review lane before merge.
 - **Block force-pushes** and **block branch deletion** on `main`.
 
-**How the solo dev merges.** With 0 ruleset approvals, bioedca squash-merges only after the §12.4 risk path is
+**How the solo dev merges.** With 0 ruleset approvals, bioedca squash-merges only after the §12.4 review lane is
 complete on the exact head SHA and required checks are green on the current base. The binding is enforced by the
 merger, not the server: `main` carries no strict up-to-date rule, and **merge queue is unavailable** because it
 requires an organization-owned repository, so every merge passes an expected-head guard
@@ -1078,9 +1078,11 @@ worker is short-lived, every AMEND is a new session whose task text the launcher
 stop-list violations rather than judgement calls: more than one self-review pass before the first external request,
 and any review request on a PR labelled `agent:review-capped`.
 
-Blocking is decided on the **severity axis only**: CodeRabbit `Critical`/`Major`, Codex `P1`, plus anything reaching
-secrets, unlicensed data, a frozen oracle or tolerance, the §5 skeleton without an ADR and version bump, or a CodeQL
-alert — and anything that falsifies a claim the PR itself introduces. CodeRabbit renders three independent things on
+Blocking is decided on the **severity axis only**: CodeRabbit `Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its
+badges use the same P-scale as Codex, so they map straight across, and a review the seat paid a credit for must not be
+answerable entirely by deferral — plus anything reaching secrets, unlicensed data, a frozen oracle or tolerance, the §5
+skeleton without an ADR and version bump, or a CodeQL alert — and anything that falsifies a claim the PR itself
+introduces. CodeRabbit renders three independent things on
 a finding, and only one is the severity: a **domain** (`Functional Correctness`, `Maintainability & Code Quality`, …),
 a **severity** (`Critical`, `Major`, `Minor`), and a machine marker (`cr-indicator-types:potential_issue`). The
 marker is a *category*, not a level — it appears on `Minor` and `Major` alike — so it never promotes a `Minor` to
