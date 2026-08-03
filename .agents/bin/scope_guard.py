@@ -529,11 +529,22 @@ def _review_rounds(number: int) -> int:
     # Reported by name so a reader can see WHICH counter this claims to mirror.
     providers = {"coderabbitai[bot]", "greptile-apps[bot]"}
     counted_from = _counted_from(number)
-    for path in (f"/repos/{REPO}/pulls/{number}/reviews", f"/repos/{REPO}/pulls/{number}/comments"):
+    for path, is_reviews in (
+        (f"/repos/{REPO}/pulls/{number}/reviews", True),
+        (f"/repos/{REPO}/pulls/{number}/comments", False),
+    ):
         for entry in claim._paginate(path, f"PR #{number} review state"):
             login = ((entry.get("user") or {}).get("login")) or ""
             sha = entry.get("original_commit_id") or entry.get("commit_id")
-            when = entry.get("submitted_at") or entry.get("created_at")
+            # Path-appropriate, exactly as `triage._review_state` reads it, rather than
+            # `submitted_at or created_at`. The fallback spelling agrees with triage only by
+            # accident of payload shape - the reviews endpoint returns no `created_at`, so the
+            # `or` finds nothing and both fall through to "no timestamp, count it". Should a
+            # review ever carry one, scope_guard would use it and triage would not, and the guard
+            # would report FEWER rounds than the counter it mirrors: "labels ahead of the
+            # evidence", which is the corruption it exists to detect. A mirror should hold by
+            # construction, not by luck about which fields an endpoint happens to send.
+            when = entry.get("submitted_at") if is_reviews else entry.get("created_at")
             if login not in providers or not isinstance(sha, str) or not sha:
                 continue
             # Draft-phase rounds are free, so counting them here would report a PR as spent while

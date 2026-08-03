@@ -682,6 +682,39 @@ def test_a_pr_opened_ready_keeps_the_rounds_it_spent_before_a_draft_excursion(
     assert guard.measure(99)["review_rounds"] == 2, "a draft excursion must refund no round"
 
 
+def test_a_review_timestamp_is_read_the_way_triage_reads_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Greptile's finding on #385, and the mirror argument taken one level further.
+
+    `submitted_at or created_at` agreed with `triage._review_state` only by accident of payload
+    shape: the reviews endpoint sends no `created_at`, so the fallback found nothing and both fell
+    through to "no timestamp, count it". Give a review one and they diverge — triage counts it
+    (`_counts_as_round(None, ...)` fails toward counting), scope_guard would compare the stray
+    `created_at` against `counted_from` and drop it, reporting FEWER rounds than the authoritative
+    counter. That reads as *the labels are ahead of the evidence*, which is what the guard exists to
+    detect, so it must hold by construction rather than by luck.
+    """
+    reviews = [
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "commit_id": "c" * 40,
+            # No `submitted_at`; a `created_at` that predates the ready transition. The `or`
+            # spelling picked this up and excluded the round.
+            "created_at": "2026-08-01T00:00:00Z",
+        }
+    ]
+    _install(
+        monkeypatch,
+        files=[_file("x.py", 1)],
+        labels=["size:XS"],
+        reviews=reviews,
+        timeline=[{"event": "ready_for_review", "created_at": "2026-08-02T00:00:00Z"}],
+    )
+    rounds = guard.measure(99)["review_rounds"]
+    assert rounds == 1, "a review with no submitted_at counts here, exactly as it does in triage"
+
+
 def test_a_review_taken_during_the_prescribed_draft_phase_is_not_a_round(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
