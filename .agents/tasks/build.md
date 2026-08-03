@@ -35,9 +35,22 @@ task text adds only what is specific to this claim.
 3. Before any authoritative write, revalidate the fence:
    `{{PYTHON}} .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
    Exit `5` means a reaper reclaimed the claim and a successor owns it — **stop writing**.
-4. Run the local gates in `AGENTS.md` §Agile execution, then open the PR, classify the review risk,
-   walk the review lane in `docs/agents/review.md` — Codex on the draft until nothing blocking remains, then optionally one Greptile credit if the seat has budget, then mark ready and get CodeRabbit with no actionable comments (`@coderabbitai full review`, never the bare `review`), arm auto-merge
-   (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`), and **exit**.
+4. Run the local gates in `AGENTS.md` §Agile execution, then **open the PR as a draft**, record the
+   risk with its reason, request the first Codex review, and **exit**.
+
+   You open the lane in `docs/agents/review.md`; you do not walk it to the end. The later phases —
+   the optional Greptile credit, marking ready, the mandatory CodeRabbit gate
+   (`@coderabbitai full review`, never the bare `review`), and arming auto-merge
+   (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`) — each begin only after a
+   review lands, and you must not wait for one. A later session continues from where you left it, so
+   **write the lane state into the PR body before exiting**: which phase it is in, what was asked,
+   and what is outstanding. That handoff is the only thing carrying the lane forward.
+
+   > **Autonomous dispatch is gated on [#394](https://github.com/bioedca/tether/issues/394).** A
+   > clean review currently publishes no resumption authority, so nothing reopens the claim and the
+   > draft is stranded. Until that lands the lane is completed by hand. Do not work around it by
+   > polling, by marking the PR ready before its draft phase is done, or by merging without the
+   > CodeRabbit gate.
 
 ## Do not
 

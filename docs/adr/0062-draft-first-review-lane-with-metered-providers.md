@@ -103,6 +103,19 @@ leg, and a quota refusal from it is recorded as *did not review*.
   before it landed still auto-fire. There is no auto-trigger off switch; the account-level
   file-change limit is the stop-gap, and its comparison is *exceeding*, so a one-file PR still
   auto-fires.
+- **The lane is hand-driven until the worker state machine models phases.** This is the record's
+  largest known limitation and it is one problem wearing three faces, all in how a claim is resumed.
+  A worker opens a draft and exits; only `agent:needs-amend` reopens the claim; and that label is
+  published only for a failed check or an owed finding. So a **clean** review authorises nobody, and
+  the draft is stranded before the CodeRabbit gate it cannot merge without
+  ([#394](https://github.com/bioedca/tether/issues/394)) — the opposite failure to
+  [#391](https://github.com/bioedca/tether/issues/391), where the launcher's permanent refs cap
+  resumptions without knowing draft phases are free, and next to
+  [#393](https://github.com/bioedca/tether/issues/393), where a deferred finding owes an AMEND
+  forever because only a push clears it. The single-shot model this replaces had no such gap:
+  auto-merge did the waiting. Patching the three separately would be three guesses at one missing
+  concept, so `.agents/tasks/build.md` now opens the lane and hands off rather than instructing a
+  session to walk phases it cannot reach, and dispatching the lane to a worker waits for #394.
 - **The launcher keeps a second cap, and it is not yet phase-aware.** `swarm_slots.py` records every
   AMEND in a permanent generation ref and refuses another past `CAP`, independently of the labels —
   deliberately, so either counter can bind. It has no notion of draft state, so two draft iterations
