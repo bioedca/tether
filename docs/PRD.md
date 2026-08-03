@@ -661,6 +661,64 @@ checkpointed). If the sidecar environment is **absent or corrupt at startup**, t
 **idealization-deferred** mode — all movies extracted + corrected, idealization queued for a later run — rather
 than aborting. The batch policy (warn-and-flag vs. fail-movie) is configurable in the settings profile (§10).
 
+### 7.12 FR-UPDATE — In-app update
+
+Introduced by **[ADR-0060](adr/0060-in-app-update-mechanism-and-integrity-model.md)**. In scope for 1.0; the
+sequence that delivers it is carried by the GitHub milestone that owns it, not by this document (§9).
+No updater code exists at the time of writing.
+
+The installed application **shall** be able to detect a newer **stable** release, download the installer for the
+running platform, **verify it against the GitHub build-provenance attestation**, and hand off to the OS installer.
+It **shall not** apply an in-place environment update and **shall not** update silently. Prereleases **shall never**
+be offered: a prerelease is not a supported target and this mechanism provides no way back, so moving a user onto one
+could be undone only by a manual reinstall. "Stable" **shall** be derived from the source tag in the verified
+**certificate** (`verificationResult.signature.certificate`), never from the releases API's `prerelease` flag and
+never from the attestation *statement* — an attacker who controls the release query controls that flag too, and the
+statement's predicate is controlled by the originating workflow. That ref **shall** be required to match
+`refs/tags/vMAJOR.MINOR.PATCH` exactly — an allowlist, not a prerelease denylist, since a denylist still admits
+`refs/heads/main` or a four-component `v1.0.0.0`; this is the form §12.7 specifies for a release tag, applied on the
+client and stricter than what `release.yml` enforces on publish today. The version parsed from that ref **shall**
+equal the version used for the strictly-newer comparison, so the two cannot diverge. An offered release **shall**
+additionally be **strictly newer than the installed version**, compared on the client, since the same attacker can
+otherwise replay a genuine, genuinely-attested *older* installer, which every signature-style check passes.
+
+**The verification is the entire trust boundary.** 1.0 installers carry no OS code signature
+([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)), so nothing stands behind this
+check. A SHA-256 match against the published manifest is **necessary but not sufficient** — an attacker who can
+serve a tampered asset can serve a matching manifest — so the attestation, which binds the artifact to a workflow,
+repository and commit, is what is verified. The update **shall not** proceed unless verification succeeds, and there
+**shall be no** "install anyway" affordance — not behind a confirmation, not behind a setting.
+
+How the refusal surfaces depends on *why*: verification that **ran and failed** is reported to the user;
+verification that **could not run** (no network, blocked proxy, rate-limited) is a **silent no-op** — no dialog, no
+error — because an air-gapped machine must not be able to tell the feature exists.
+
+That distinction is only implementable because **Tether performs every network fetch itself** — the release list,
+the attestation bundle, and the Sigstore trusted root — and then runs the verifier **fully offline** against them
+(ADR-0060). A network failure is therefore always Tether's own, and any verifier failure is always a real
+verification failure; the verifier could not tell the two apart on its own, since it collapses every outcome to one
+exit code. A failure that still cannot be classified **shall** be treated as *ran and failed* — refusing loudly when
+unsure is the safe error.
+
+**This is the only sanctioned exception to "no outbound network".** Today the application makes none — the promise
+lives on the published privacy policy (`docs/privacy.md`), not in this document, and the sole `socket` call in
+`src/tether/` is `gethostname()` in `project/lock.py`, which sends nothing. The exception is
+bounded: the requests go to **three** endpoints and no others — the GitHub **releases** and **attestations** APIs,
+and the **Sigstore TUF** trusted-root service — all unauthenticated and all public. Each destination necessarily
+observes the machine's **source IP address** and a **user-agent**, and the disclosure **shall** say so for all three
+rather than claiming "no identifier"; what Tether adds beyond that is nothing — no account, no installation id, no
+usage data, **no telemetry**. All three endpoints **shall** be named in the privacy disclosure and in the
+administrator documentation: a site that allow-lists only the GitHub endpoints silently disables verification, which
+is correct behaviour but an operational trap if undocumented. They are made **only
+after** an explicit first-run consent prompt is answered, so a machine that is never asked never asks; and an
+air-gapped machine **shall** see no error, no dialog and no startup delay. The consent answer **shall** survive an
+update — a flag that resets on upgrade would silently re-enable checking for a user who declined — and a site
+administrator **shall** have a documented way to disable the mechanism permanently. `docs/privacy.md` is amended in
+the PR that adds the request, never before and never after.
+
+An update **shall not** orphan the installed launch surface — the prefix shims, the Windows Start Menu entry, the
+Linux `.desktop` ([ADR-0051](adr/0051-installed-app-launch-surface.md)).
+
 ---
 
 ## 8. Non-functional requirements
