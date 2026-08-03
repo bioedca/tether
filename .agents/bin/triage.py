@@ -89,9 +89,20 @@ ALL_ROUND_LABELS = (*ROUND_LABELS, CAPPED_LABEL)
 # merged claim's issue again, so a conflict that was resolved and then merged would keep a marker
 # saying it still needs a person, forever, which is precisely the failure #276 named.
 #
-# The usual two-writers hazard does not apply here, and by construction rather than by convention:
-# the reaper only ever writes this label while a claim ref lives, and `clear_mirror` refuses to
-# write at all when a live ref owns the issue. See the successor fence in `clear_mirror`.
+# The usual two-writers hazard does not apply here, and for two reasons that are properties of the
+# code rather than promises about it. Stated precisely, because the version of this comment that
+# said "clear_mirror refuses to write when a live ref owns the issue" was FALSE - the fence
+# deliberately proceeds when the ref survives at the merged head - and a false justification is the
+# defect this whole change is about:
+#
+# 1. GitHub will not merge a PR with conflicts. So a marker that survives to a merge is provably
+#    STALE, and the merge path can only ever delete a false one. This is the load-bearing reason.
+# 2. Both of the reaper's conflicted paths - `_mark` at reaper.py:443-445 and `_clear_conflicted` at
+#    reaper.py:464 - sit past the `pr is None or state != "open"` guard, so they need a live ref AND
+#    an OPEN pull request. A merged PR is closed, so in the one window where `clear_mirror` writes
+#    beside a surviving ref, `sweep` takes the no-PR branch and reaches neither. Pinned by
+#    `test_a_closed_pull_request_is_never_marked_conflicted` in tests/test_reaper.py, so the claim
+#    this set's safety rests on is a gate and not this paragraph.
 MIRROR_LABELS = ("status:in-progress", AMEND_LABEL, CONFLICTED_LABEL, *ALL_ROUND_LABELS)
 
 # A label DELETE that reached the desired end state. 404 counts: the label is already gone, which
@@ -230,7 +241,9 @@ def clear_mirror(*, number: int, dry_run: bool) -> dict[str, Any]:
     deleted the ref ``reaper.sweep`` would have had to enumerate. A swallowed 429 or 502 would
     therefore leave exactly the stale mirror this function exists to remove, while reporting that it
     removed it. So every DELETE is checked, and a failure raises: the job goes red and re-running it
-    replays the same ``closed`` payload, which is the retry.
+    replays the same ``closed`` payload, which is the retry — *while no successor has claimed the
+    issue*. Once one has, the fence below correctly refuses and the residue is a maintainer's. That
+    is the right precedence: never strip a live claim to tidy a dead one.
     """
     status, pr = claim._request("GET", f"/repos/{REPO}/pulls/{number}")
     if status == 404:
@@ -267,7 +280,9 @@ def clear_mirror(*, number: int, dry_run: bool) -> dict[str, Any]:
     # Compared against the merged head, NOT mere existence. "Ref exists -> skip" would also skip the
     # ordinary path whenever GitHub's branch deletion has not landed by the time the event is
     # handled, and the cleanup would silently never happen at all - the same defect in a new place.
-    # A surviving ref at the merged head is this claim's own branch mid-deletion, and is safe.
+    # A surviving ref at the merged head is this claim's own branch - normally mid-deletion, and if
+    # it persists (GitHub declines to auto-delete a branch that is another open PR's base) the
+    # reaper still enumerates it, so nothing is stranded either way.
     live = _claim_ref_sha(issue)
     if live is not None and live != merged_head:
         return {"action": "skip", "reason": "successor-claim", "pr": number, "issue": issue}
