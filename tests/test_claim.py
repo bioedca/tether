@@ -987,9 +987,9 @@ def test_only_the_literal_one_arms_the_opt_out(monkeypatch: pytest.MonkeyPatch) 
     `true`, `yes` and `TRUE` are the spellings a shell profile picks up by habit, and each would
     silently relax a TLS check on a path that carries a GitHub token. Only `1` counts.
 
-    Surrounding whitespace is tolerated and asserted separately below: a trailing space picked up
-    from a `.env` line is not an alternative truthy spelling, and refusing it would turn a set
-    variable into a silent no-op — the one outcome the announcement exists to prevent.
+    Whitespace is covered by `test_only_the_exact_string_one_arms_it`, which rejects it. An earlier
+    version of this file said whitespace was tolerated; that was true of an earlier implementation
+    and stopped being true when the comparison became exact.
     """
     stock = claim.ssl.create_default_context()
     for value in ("", "0", "false", "no", "true", "yes", "TRUE", "on", "2", "-1", None):
