@@ -49,7 +49,8 @@ AUTONOMY_OPTIONS = {
 # Frozen option sets, asserted the same way AUTONOMY_OPTIONS is. Without them a form offering
 # "size:S" where another offers "S" goes uncaught, and whoever reads these answers at grooming has
 # no stable vocabulary to read. Each label names the CONSEQUENCE, which is what makes a
-# non-maintainer's answer usable: `risk` selects the reviewer, `size` promises a line budget.
+# non-maintainer's answer usable: `risk` says whether a metered credit is worth spending, `size`
+# promises a line budget.
 SIZE_OPTIONS = {
     "XS — up to 50 added lines",
     "S — up to 150 added lines",
