@@ -126,6 +126,7 @@ def _routes(
     comments: list[dict[str, Any]] | None = None,
     suites: dict[str, Any] | None = None,
     issue_state: str = "open",
+    timeline: list[dict[str, Any]] | None = None,
 ) -> Routes:
     return {
         ("GET", "/repos/bioedca/tether/pulls/99/reviews"): (200, reviews or []),
@@ -136,6 +137,7 @@ def _routes(
             {"state": issue_state, "labels": [{"name": n} for n in (labels or [])]},
         ),
         ("GET", "/repos/bioedca/tether/commits"): (200, suites if suites is not None else GREEN),
+        ("GET", "/repos/bioedca/tether/issues/99/timeline"): (200, timeline or []),
     }
 
 
@@ -826,6 +828,118 @@ def test_a_submitted_review_has_no_original_and_still_counts(
 
     _, result = _run(_routes(reviews=[_review(CODEX, HEAD)], suites=RED), monkeypatch)
     assert result["rounds"] == 1
+
+
+# ------------------------------------------------------- the cap starts at ready-for-review (#384)
+#
+# The review lane spends the unmetered provider first, on a draft, iterating until nothing blocking
+# is left, and only then marks the PR ready and starts spending metered reviews. Counting that draft
+# iteration would strand the PR at `agent:review-capped` before it ever reached the mandatory
+# CodeRabbit gate — the documented loop consuming the cap it is explicitly exempt from.
+
+
+def _ready(at: str) -> dict[str, Any]:
+    return {"event": "ready_for_review", "created_at": at}
+
+
+DRAFT_TIME = "2026-08-01T10:00:00Z"
+READY_TIME = "2026-08-01T12:00:00Z"
+AFTER_READY = "2026-08-01T13:00:00Z"
+
+
+def test_draft_phase_reviews_do_not_consume_a_round(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two Codex reviews on a draft, at two heads, and the PR is still on round zero.
+
+    Before #384 this counted 2 and capped the PR — on a diff no metered provider had yet seen.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[
+                dict(_review(CODEX, OLDER), submitted_at=DRAFT_TIME),
+                dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=RED,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0
+    assert result["capped"] is False
+
+
+def test_a_review_after_ready_for_review_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The exemption is the draft phase, not the provider — the cap must still bind after ready."""
+    _, result = _run(
+        _routes(
+            reviews=[dict(_review(CODEX, HEAD), submitted_at=AFTER_READY)],
+            timeline=[_ready(READY_TIME)],
+            suites=RED,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+
+
+def test_a_pull_request_still_in_draft_has_taken_no_counted_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No `ready_for_review` has happened yet, so nothing can have been counted against the cap."""
+    _, result = _run(
+        _routes(
+            pr=_pr(draft=True),
+            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            suites=RED,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0
+
+
+def test_a_pr_opened_ready_counts_every_round_it_ever_had(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No `ready_for_review` event and not a draft means it was never a draft.
+
+    The absence of the event must not be read as "the cap never started" — that would exempt every
+    PR opened the ordinary way, which is most of them.
+    """
+    _, result = _run(_routes(reviews=[_review(CODEX, HEAD)], timeline=[], suites=RED), monkeypatch)
+    assert result["rounds"] == 1
+
+
+def test_an_unreadable_timeline_counts_everything_rather_than_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cap is a safety control, so an API failure must fail toward counting.
+
+    Capping one round early asks the maintainer a question; the other direction hands out an
+    unbounded review budget, and metered providers make that a bill as well as a risk.
+    """
+    routes = _routes(reviews=[_review(CODEX, HEAD)], suites=RED)
+    del routes[("GET", "/repos/bioedca/tether/issues/99/timeline")]
+    _, result = _run(routes, monkeypatch)
+    assert result["rounds"] == 1
+
+
+def test_draft_findings_still_owe_an_answer_even_though_they_cost_no_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A finding does not stop mattering because it arrived on a draft.
+
+    The two are separate axes: `rounds` is the budget, `owed` is whether the CURRENT head has an
+    unanswered blocking finding. Conflating them would let a worker discard draft findings by
+    marking the PR ready.
+    """
+    fake, result = _run(
+        _routes(
+            comments=[dict(_carried(CODEX, HEAD, HEAD), created_at=DRAFT_TIME)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0, "a draft finding is not a round"
+    assert triage.AMEND_LABEL in fake.added, "but it is still owed an answer"
 
 
 # --------------------------------------------------------------------------- the merge path (#308)

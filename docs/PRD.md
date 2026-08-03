@@ -1052,14 +1052,20 @@ Small, **milestone-scoped** PRs are the unit of work (ideally one issue ↔ one 
 as a **draft PR** and cannot merge. The PR title is a Conventional-Commits string (§12.2) — it
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
-`AGENTS.md` risk path: Copilot is optional, while every PR requires substantive independent review requested once
-required checks are green and the diff is declared final. **Routing: low and standard go to Codex GitHub Code
-Review; high/load-bearing goes to both Codex and CodeRabbit, requested together and answered as one round — two
-reviewers, never two rounds.** Measured on the reaper change, the two providers' findings barely intersected, so on
-the highest-risk work neither alone was sufficient; pairing them is safe only because the round cap binds.
-Author-side/local review and a green or status-only result do not satisfy the independent gate. **Neither provider
-auto-reviews this repository** — CodeRabbit reports auto reviews disabled, and Codex fires only on open-for-review,
-draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined.
+`AGENTS.md` review lane, specified in `docs/agents/review.md` and recorded in ADR-0062: every PR requires substantive
+independent review, and the providers are spent **cheapest first** rather than routed by risk. **Open as a draft** —
+every required check runs on a draft, so the diff reaches green before anything metered is asked. **Codex iterates on
+the draft, uncapped**, until nothing blocking remains; then **optionally one Greptile credit**, if the seat has budget;
+then ready-for-review, where the two-round cap begins; then **CodeRabbit with no actionable comments, which is the last
+gate before merge**. Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
+no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
+**Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
+works in, one per completed review; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
+leg, and a quota refusal from it is *did not review*, not a pass. Exhaustion and incapacity differ: Greptile out of
+credits is skippable, CodeRabbit unavailable **freezes the PR**. Author-side/local review and a green or status-only
+result do not satisfy the gate. **No provider auto-reviews this repository** — CodeRabbit reports auto reviews
+disabled, Greptile is held by `.greptile/config.json`'s `skipReview: "AUTOMATIC"`, and Codex fires only on
+open-for-review, draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined.
 
 Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
 rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are

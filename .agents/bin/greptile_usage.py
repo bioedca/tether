@@ -58,14 +58,32 @@ REPO_SHARE = 16
 
 EXIT_OVER_BUDGET = 1
 
+#: Distinct from over-budget: over-budget is a known answer, this is no answer at all. A caller
+#: that treats them alike is fine; one that retries on 2 and stops on 1 is doing the right thing.
+EXIT_UNKNOWN = 2
+
 
 def _gh(*args: str) -> object:
     out = subprocess.run(["gh", *args], capture_output=True, check=True)  # noqa: S603
     return json.loads(out.stdout.decode("utf-8"))
 
 
+class Unreadable(RuntimeError):
+    """A repository on the seat could not be counted, so the seat total is unknown.
+
+    Raised rather than absorbed. A transient API, authorization or rate-limit error used to record
+    zero usage for that repository, which reads as *unused* and overstates the remaining balance -
+    on the one number the review lane tells a worker to consult before spending a credit. An
+    unknown total must look unknown.
+    """
+
+
 def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]]]:
-    """Credits, PRs and per-PR detail for one repository in ``month`` (``YYYY-MM``)."""
+    """Credits, PRs and per-PR detail for one repository in ``month`` (``YYYY-MM``).
+
+    Raises :class:`Unreadable` if the repository cannot be listed. Never returns zero to mean
+    "could not tell".
+    """
     try:
         prs = _gh(
             "pr",
@@ -81,8 +99,7 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
         )
     except subprocess.CalledProcessError as exc:
         message = exc.stderr.decode("utf-8", "replace").strip().splitlines()
-        print(f"  ! {repo}: {message[-1] if message else 'unreadable'}", file=sys.stderr)
-        return 0, 0, []
+        raise Unreadable(f"{repo}: {message[-1] if message else 'unreadable'}") from exc
 
     credits = prs_seen = 0
     detail: list[tuple[int, int, str]] = []
@@ -122,11 +139,22 @@ def main() -> int:
     per_repo: Counter[str] = Counter()
     prs: Counter[str] = Counter()
     detail: list[tuple[str, int, int, str]] = []
-    for repo in REPOS:
-        credits, seen, rows = _credits(repo, month)
-        per_repo[repo] = credits
-        prs[repo] = seen
-        detail.extend((repo, number, count, when) for number, count, when in rows)
+    try:
+        for repo in REPOS:
+            credits, seen, rows = _credits(repo, month)
+            per_repo[repo] = credits
+            prs[repo] = seen
+            detail.extend((repo, number, count, when) for number, count, when in rows)
+    except Unreadable as exc:
+        # Fail closed. A partial count is worse than no count: it names a remaining balance that is
+        # too high, on the number a worker consults before spending a metered credit.
+        print(f"error: cannot count the seat - {exc}", file=sys.stderr)
+        print(
+            "The remaining balance is UNKNOWN, not the partial figure this run could reach. "
+            "Re-run, or read Settings -> Usage, before spending a credit.",
+            file=sys.stderr,
+        )
+        return EXIT_UNKNOWN
 
     used = sum(per_repo.values())
     left = INCLUDED_CREDITS - used

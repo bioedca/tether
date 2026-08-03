@@ -1,130 +1,171 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Greptile is metered, so the thing that keeps it from firing is load-bearing config.
+"""The seat-wide credit counter, tested on behaviour rather than on the prose that describes it.
 
-Greptile Pro includes 50 credits per seat per month, one credit per completed review, charged to
-the PR author - and this account's single seat is shared across three active repositories. Left on
-automatic it spends a credit the moment a PR opens: on 2026-08-03 it spent two in one day, across
-two repositories, neither requested.
+`tests/test_greptile_config.py` already pins the configuration that stops Greptile firing unasked.
+This file covers the other half: the number a worker is told to read before spending a credit.
 
-`.greptile/config.json` is what stops that, and it is silent when wrong. A misspelled key, a
-`greptile.json` shadowing it, or a merge that drops the file all fail the same way - no error, just
-credits draining. So the settings are asserted rather than trusted.
+An earlier draft of this file asserted phrases and their textual order in `docs/agents/review.md`.
+Codex rejected that on PR #385, correctly: it reinstates the prose-drift category
+`.agents/bin/scope_guard.py` retired, where a harmless rewording turns the base matrix red while
+executable behaviour can contradict the document and still pass. The draft-round counter proved the
+point - the prose said draft reviews were exempt while `triage.py` counted them, and no wording
+assertion could have caught it. `tests/test_triage.py` now covers that behaviourally.
 
 Stdlib only, so it runs on the base 3-OS `test` matrix.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import subprocess
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 _REPO = Path(__file__).resolve().parents[1]
+SCRIPT = _REPO / ".agents" / "bin" / "greptile_usage.py"
 
-CONFIG_DIR = _REPO / ".greptile"
-CONFIG = CONFIG_DIR / "config.json"
-LEGACY = _REPO / "greptile.json"
-COUNTER = _REPO / ".agents" / "bin" / "greptile_usage.py"
-GATE = _REPO / "docs" / "agents" / "review.md"
+_spec = importlib.util.spec_from_file_location("tether_greptile_usage", SCRIPT)
+assert _spec is not None and _spec.loader is not None
+usage = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(usage)
 
 
-def test_greptile_never_reviews_a_pull_request_unasked() -> None:
-    """`skipReview: "AUTOMATIC"` is the one setting the budget rests on.
+def _pr(number: int, author: str = "bioedca", updated: str = "2026-08-02T00:00:00Z") -> dict:
+    return {"number": number, "author": {"login": author}, "updatedAt": updated}
 
-    It suppresses the automatic review while leaving `@greptileai` working, which is exactly the
-    draft-first lane: iterate with the unmetered provider, then spend a credit deliberately.
+
+def _review(bot: str = "greptile-apps[bot]", when: str = "2026-08-02T00:00:00Z") -> dict:
+    return {"user": {"login": bot}, "submitted_at": when}
+
+
+def _fake_gh(prs: dict[str, list], reviews: dict[int, list], fail: set[str] | None = None):
+    """Stand in for `_gh`.
+
+    Branches on the subcommand rather than substring-matching the whole argv: a repository name
+    appears inside the review path too, so a single lookup table would answer the review call with
+    the pull-request list.
     """
-    assert CONFIG.is_file(), "the config that gates a metered provider is missing"
-    config = json.loads(CONFIG.read_text(encoding="utf-8"))
-    assert config.get("skipReview") == "AUTOMATIC", (
-        "without skipReview=AUTOMATIC Greptile reviews every PR on open, at one credit each"
+
+    def call(*args: str) -> Any:
+        if args and args[0] == "pr":  # `pr list --repo <owner/name> ...`
+            repo = args[args.index("--repo") + 1]
+            if repo in (fail or set()):
+                raise subprocess.CalledProcessError(1, args, stderr=b"rate limit exceeded")
+            return prs.get(repo, [])
+        path = args[-1]  # `api repos/<owner>/<name>/pulls/<n>/reviews`
+        return reviews.get(int(path.rsplit("/pulls/", 1)[1].split("/")[0]), [])
+
+    return call
+
+
+def test_the_seat_total_spans_every_repository_not_just_this_one(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Credits are billed per SEAT, so a per-repository number cannot say what is left.
+
+    One credit in each of two repositories is two credits against the same 50 - the arithmetic a
+    Tether-only counter gets wrong by construction.
+    """
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh(
+            {"bioedca/tether": [_pr(1)], "bioedca/Yeliztli": [_pr(2)], "bioedca/tbox-finder": []},
+            {1: [_review()], 2: [_review()]},
+        ),
     )
-    assert config.get("triggerOnDrafts") is False, "the draft phase is where the free work happens"
-    assert config.get("triggerOnUpdates") is False, "a review per commit would multiply the spend"
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == 0
+    out = capsys.readouterr().out
+    assert f"used 2 of {usage.INCLUDED_CREDITS}" in out
+    assert "48 remaining" in out
 
 
-def test_no_legacy_greptile_json_shadows_the_directory_config() -> None:
-    """`.greptile/` takes precedence and `greptile.json` is then ignored - silently.
+def test_an_unreadable_repository_makes_the_total_unknown_rather_than_low(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Fail closed. This is the finding Codex raised on PR #385.
 
-    Two files would mean the one a reader edits is not necessarily the one that binds, and the
-    failure mode is a credit spent rather than an error.
+    Recording zero for a repository that could not be listed reads as *unused* and overstates the
+    remaining balance - on the one number the review lane tells a worker to consult before spending
+    a credit. A partial count is worse than no count, because it looks like an answer.
     """
-    assert not LEGACY.exists(), (
-        "greptile.json is the legacy form and is ignored when .greptile/ exists; keep one"
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh({"bioedca/tether": [_pr(1)]}, {1: [_review()]}, fail={"bioedca/Yeliztli"}),
     )
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == usage.EXIT_UNKNOWN
+    captured = capsys.readouterr()
+    assert "UNKNOWN" in captured.err
+    assert "remaining" not in captured.out, "a balance must not be printed when it is not known"
 
 
-def test_the_config_is_valid_json_with_no_unknown_top_level_keys() -> None:
-    """A misspelled key is not rejected by Greptile; it is ignored, and the default applies.
+def test_only_reviews_the_seat_is_billed_for_are_counted(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The credit is charged to the PR AUTHOR, so another author's PR is not this seat's cost."""
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh({"bioedca/tether": [_pr(1, author="someone-else")]}, {1: [_review()]}),
+    )
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == 0
+    assert "used 0 of" in capsys.readouterr().out
 
-    The default for `skipReview` is to review, so a typo here is indistinguishable from having no
-    config at all - which is the state this whole file exists to prevent.
+
+def test_a_review_from_another_month_is_not_this_months_spend(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Credits reset per billing period, so the month filter is the whole point of the number."""
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh(
+            {"bioedca/tether": [_pr(1, updated="2026-08-02T00:00:00Z")]},
+            {1: [_review(when="2026-07-30T00:00:00Z")]},
+        ),
+    )
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == 0
+    assert "used 0 of" in capsys.readouterr().out
+
+
+def test_over_budget_and_unknown_are_different_exit_codes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Over-budget is a known answer; unreadable is no answer. A caller may want to retry one."""
+    assert usage.EXIT_OVER_BUDGET != usage.EXIT_UNKNOWN
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh(
+            {"bioedca/tether": [_pr(n) for n in range(1, 51)]},
+            {n: [_review()] for n in range(1, 51)},
+        ),
+    )
+    monkeypatch.setattr(
+        "sys.argv", ["greptile_usage.py", "--month", "2026-08", "--fail-over-budget"]
+    )
+    assert usage.main() == usage.EXIT_OVER_BUDGET
+
+
+def test_the_configured_repositories_are_the_ones_billed_to_this_seat() -> None:
+    """A repository that receives reviews and is not listed makes the remaining count read HIGH.
+
+    Structural, not prose: the list is the unit the 50 applies to, so it is asserted where it is
+    used rather than where it is described.
     """
-    known = {
-        "$schema",
-        "skipReview",
-        "triggerOnDrafts",
-        "triggerOnUpdates",
-        "strictness",
-        "commentTypes",
-        "instructions",
-        "labels",
-        "disabledLabels",
-        "includeBranches",
-        "excludeBranches",
-        "includeAuthors",
-        "excludeAuthors",
-        "includeKeywords",
-        "ignoreKeywords",
-        "fileChangeLimit",
-        "ignorePatterns",
-        "context",
-        "customContext",
-        "patternRepositories",
-        "shouldUpdateDescription",
-        "updateSummaryOnly",
-        "fixWithAI",
-        "hideFooter",
-        "includeIssuesTable",
-        "includeConfidenceScore",
-        "includeSequenceDiagram",
-        "statusCheck",
-        "statusCommentsEnabled",
-        "summarySection",
-        "issuesTableSection",
-        "confidenceScoreSection",
-        "sequenceDiagramSection",
+    assert usage.INCLUDED_CREDITS == 50, "Greptile Pro includes 50 credits per seat per month"
+    assert set(usage.REPOS) == {
+        "bioedca/tether",
+        "bioedca/Yeliztli",
+        "bioedca/tbox-finder",
     }
-    config = json.loads(CONFIG.read_text(encoding="utf-8"))
-    unknown = sorted(set(config) - known)
-    assert not unknown, f"these keys are not in Greptile's reference and will be ignored: {unknown}"
-
-
-def test_the_counter_spans_the_whole_seat_not_one_repository() -> None:
-    """Credits are billed per seat, so a per-repository number cannot say what is left.
-
-    Greptile publishes no usage API, so this counter is the only programmatic reading available -
-    and it is only honest if it looks everywhere the seat opens pull requests.
-    """
-    assert COUNTER.is_file(), "the only readable budget signal is missing"
-    source = COUNTER.read_text(encoding="utf-8")
-    assert "INCLUDED_CREDITS = 50" in source, "Greptile Pro includes 50 credits per seat per month"
-    for repo in ("bioedca/tether", "bioedca/Yeliztli", "bioedca/tbox-finder"):
-        assert repo in source, f"{repo} draws on the same seat and must be counted"
-
-
-def test_the_review_gate_states_the_lane_and_its_order() -> None:
-    """The config stops the spend; only the gate says what to spend it ON, and when.
-
-    Asserted structurally rather than by prose equality: the ordering claim is the part a future
-    edit could quietly invert, and inverting it is what makes the budget unaffordable again.
-    """
-    gate = GATE.read_text(encoding="utf-8")
-    assert "@greptileai review this draft" in gate, "the manual trigger must be written down"
-    assert ".agents/bin/greptile_usage.py" in gate, "the gate must name how to read the balance"
-    draft = gate.index("as many rounds as it takes")
-    greptile = gate.index("Optionally spend one Greptile credit")
-    coderabbit = gate.index("last gate before merge")
-    assert draft < greptile < coderabbit, (
-        "the lane is ordered cheapest provider first; that order IS the budget control"
+    assert json.loads(json.dumps(list(usage.REPOS))), (
+        "REPOS must stay JSON-serialisable for reports"
     )

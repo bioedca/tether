@@ -328,8 +328,72 @@ def _reviewed_head(entry: dict[str, Any]) -> str | None:
     return commit if isinstance(commit, str) and commit else None
 
 
-def _review_state(pr_number: int, head: str) -> tuple[set[str], bool]:
+#: Returned by :func:`_counted_from` for a pull request that is STILL a draft. A sentinel rather
+#: than ``None``, because ``None`` already means the opposite - count everything - and a bare
+#: timestamp cannot express "nothing counts yet". Sorts above every ISO-8601 instant, so the
+#: ordinary comparison in :func:`_counts_as_round` rejects each one without a special case.
+_COUNT_NOTHING = "9999-12-31T23:59:59Z"
+
+
+def _counts_as_round(when: object, counted_from: str | None) -> bool:
+    """Whether one piece of review evidence consumes a round.
+
+    ISO-8601 UTC instants from the GitHub API are fixed-width and zero-padded, so lexicographic
+    comparison is chronological; no parsing, and nothing to get wrong about time zones.
+
+    Evidence with no timestamp counts, deliberately. The alternative - dropping it - would let a
+    provider response the API rendered oddly silently buy an extra round, and the cap is a safety
+    control: it fails toward counting.
+    """
+    if counted_from is None:
+        return True
+    return not isinstance(when, str) or not when or when >= counted_from
+
+
+def _counted_from(pr: dict[str, Any]) -> str | None:
+    """When the round cap starts counting for this pull request, as an ISO-8601 instant.
+
+    ``None`` means *count everything*: the pull request was opened ready for review, so every
+    provider round it has ever had is a real round.
+
+    The review lane spends the free provider first, on a draft, iterating until nothing blocking is
+    left — and only then marks the PR ready and starts spending metered reviews. Counting the draft
+    iteration would strand a PR at ``agent:review-capped`` before it ever reached the mandatory
+    CodeRabbit gate: the documented loop would consume the cap it is explicitly exempt from. So the
+    cap begins at the **last** ``ready_for_review`` event, and a PR that is still a draft has taken
+    no counted round at all.
+
+    ``ready_for_review`` rather than "first ready": a PR converted back to draft to take more free
+    iteration has re-entered the exempt phase, and the rounds before that conversion were answered
+    against a diff that no longer exists.
+    """
+    if pr.get("draft"):
+        return _COUNT_NOTHING
+    try:
+        events = claim._paginate(f"/repos/{REPO}/issues/{pr['number']}/timeline", "PR timeline")
+    except (claim.ClaimError, TriageError):
+        # An unreadable timeline must not decide the cap by accident. Counting everything is the
+        # safe direction for a safety control: at worst a PR is capped one round early and the
+        # maintainer is asked, where the other direction hands out an unbounded review budget.
+        return None
+    ready = [
+        stamp
+        for event in events
+        if event.get("event") == "ready_for_review"
+        and isinstance(stamp := event.get("created_at"), str)
+        and stamp
+    ]
+    return max(ready) if ready else None
+
+
+def _review_state(
+    pr_number: int, head: str, counted_from: str | None = None
+) -> tuple[set[str], bool]:
     """``(heads with external review evidence, whether the CURRENT head owes an answer)``.
+
+    ``counted_from`` is the instant the cap starts (see :func:`_counted_from`). Evidence older than
+    it still decides whether the current head **owes an answer** — a finding does not stop mattering
+    because it arrived on a draft — but it does not consume a round.
 
     Both sources carry ``commit_id``: submitted reviews and inline review comments. Inline comments
     are included because a provider can post findings with no submission wrapper, and missing one
@@ -366,7 +430,11 @@ def _review_state(pr_number: int, head: str) -> tuple[set[str], bool]:
             sha = _reviewed_head(entry)
             if login not in EXTERNAL_PROVIDERS or not isinstance(sha, str) or not sha:
                 continue
-            heads.add(sha)
+            # Draft-phase evidence still OWES an answer - a finding does not stop mattering because
+            # it arrived on a draft - but it does not consume one of the two rounds.
+            when = entry.get("submitted_at") if is_reviews else entry.get("created_at")
+            if _counts_as_round(when, counted_from):
+                heads.add(sha)
             if sha != head:
                 continue
             if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
@@ -452,7 +520,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     if not head:
         raise TriageError(f"PR #{pr['number']} has no head sha")
 
-    reviewed, review_owed = _review_state(pr["number"], head)
+    reviewed, review_owed = _review_state(pr["number"], head, _counted_from(pr))
     rounds = len(reviewed)
     running, failed = _suite_state(head)
     capped = rounds >= CAP

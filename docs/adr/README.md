@@ -85,6 +85,7 @@ prose harmonization of the PRD (PRD §12.7).
 | [0057](0057-github-native-swarm-coordination.md) | GitHub-native swarm coordination | accepted | §12.2–§12.5 |
 | [0059](0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) | Ship v1.0.0 unsigned, with SHA-256 manifests + build provenance as the integrity anchor | accepted; supersedes the code-signing half of [0050](0050-release-pipeline-and-code-signing.md) | §9 M9, §12.7, §4.1, NFR-PKG |
 | [0060](0060-in-app-update-mechanism-and-integrity-model.md) | In-app update: download, verify against build provenance, hand off to the OS installer | accepted; decision 2's mechanism amended to bundled `gh --bundle`; store location delegated to [#330](https://github.com/bioedca/tether/issues/330) | §4.1, §4.3, §8 NFR-PKG, §7.12 FR-UPDATE |
+| [0062](0062-draft-first-review-lane-with-metered-providers.md) | Draft-first review lane: spend the free provider before the metered ones | accepted. Amends [ADR-0057](0057-github-native-swarm-coordination.md), which records | §12 (development & version-control protocol) |
 
 <!-- gen:adr-index end -->
 
