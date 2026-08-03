@@ -67,8 +67,18 @@ def _gh(*args: str) -> object:
 def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]]]:
     """Credits, PRs and per-PR detail for one repository in ``month`` (``YYYY-MM``)."""
     try:
-        prs = _gh("pr", "list", "--repo", repo, "--state", "all", "--limit", "100",
-                  "--json", "number,author,updatedAt")
+        prs = _gh(
+            "pr",
+            "list",
+            "--repo",
+            repo,
+            "--state",
+            "all",
+            "--limit",
+            "100",
+            "--json",
+            "number,author,updatedAt",
+        )
     except subprocess.CalledProcessError as exc:
         message = exc.stderr.decode("utf-8", "replace").strip().splitlines()
         print(f"  ! {repo}: {message[-1] if message else 'unreadable'}", file=sys.stderr)
@@ -86,7 +96,8 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
         except subprocess.CalledProcessError:
             continue
         hits = [
-            review for review in reviews  # type: ignore[union-attr]
+            review
+            for review in reviews  # type: ignore[union-attr]
             if BOT in (review.get("user") or {}).get("login", "").lower()
             and (review.get("submitted_at") or "")[:7] == month
         ]
