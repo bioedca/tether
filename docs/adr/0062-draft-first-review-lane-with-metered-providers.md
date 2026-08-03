@@ -58,7 +58,9 @@ findings raised on a draft.
 
 **Exhaustion and incapacity are different.** A provider with nothing to say has reviewed; a provider
 with no budget has not. Greptile out of credits is skippable and never blocks. **CodeRabbit
-unavailable freezes the PR**, because it is the gate. Copilot is advisory only: it never satisfies a
+unavailable freezes the PR**, because it is the gate — but *throttled* is a third thing again: a fair-use refusal that
+names a retry time is a **wait**, and a request that produced no review has not spent the one-per-round allowance.
+Copilot is advisory only: it never satisfies a
 leg, and a quota refusal from it is recorded as *did not review*.
 
 ## Consequences

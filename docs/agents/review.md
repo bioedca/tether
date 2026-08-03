@@ -33,6 +33,13 @@ Each step begins only when the one before it has nothing blocking left.
 4. **CodeRabbit is the last gate before merge** — `@coderabbitai full review` — at least one
    CodeRabbit review with **no actionable comments**. Nothing merges without it.
 
+**Never write a provider's handle in a comment you do not intend as a request.** A mention fires the
+bot even inside backticks — a code span is not an escape. Quoting the trigger while *describing* it
+spent a real fair-use review on a draft that was not ready for one, and throttled the PR that was
+(measured, 2026-08-03). When you need to name a command in prose, break the handle or describe it:
+*"the full-review command"*. This is why the lane's own documentation is the one place these strings
+belong.
+
 **Ask CodeRabbit with `full review`, not `review`.** The bare `@coderabbitai review` is the
 *incremental* command, and it applies only where automatic reviews are **paused**. They are
 **disabled** here, so it does not run — it answers *"CodeRabbit is an incremental review system and
@@ -42,6 +49,12 @@ review that found nothing, which is the failure this gate exists to catch. Measu
 **You must ask — no provider self-fires here.** One request per provider per round; a provider that
 was not asked **has not declined**. Author-side or local output, and a status-only result, never
 satisfy this gate.
+
+**A request that produced no review has not been spent.** The one-per-round limit counts requests
+that were *answered with a review* — so a throttle refusal, or the wrong command running nothing,
+leaves the allowance intact and you ask again. Without that, the fair-use refusal below would deadlock
+the mandatory gate: retry required by one rule, forbidden by the other. What the limit forbids is
+asking a provider to look **again** at work it has already reviewed this round.
 
 - **Metered providers, and the seat they share.** Greptile bills **one credit per completed review,
   charged to the PR author**, from **50 per seat per month** — and this account's one seat is shared

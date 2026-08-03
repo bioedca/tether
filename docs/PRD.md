@@ -1062,7 +1062,9 @@ no single one was sufficient — the lane keeps that property while spending the
 **Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
 works in, one per completed review; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
 leg, and a quota refusal from it is *did not review*, not a pass. Exhaustion and incapacity differ: Greptile out of
-credits is skippable, CodeRabbit unavailable **freezes the PR**. Author-side/local review and a green or status-only
+credits is skippable, CodeRabbit unavailable **freezes the PR** — though a fair-use refusal that names a retry time
+is a **wait**, not unavailability, and a request that produced no review has not spent the one-per-round allowance.
+Author-side/local review and a green or status-only
 result do not satisfy the gate. **No provider auto-reviews this repository** — CodeRabbit reports auto reviews
 disabled, Greptile is held by `.greptile/config.json`'s `skipReview: "AUTOMATIC"`, and Codex fires only on
 open-for-review, draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined.
@@ -1095,7 +1097,10 @@ exist. When a **selected** provider reports that a change has nothing to review 
 including Codex's 👍 reaction, its documented form of "no suggestions" — that statement satisfies its leg, quoted and
 never substituted by the author or any other commenter. **Exhaustion is not incapacity**: a provider with no budget
 left has not reviewed. Greptile out of credits is skippable and never blocks; **CodeRabbit unavailable freezes the
-PR**, because it is the last gate and nothing merges past it. Human sign-off is required for releases,
+PR**, because it is the last gate and nothing merges past it. **Throttled is not unavailable**: CodeRabbit's fair-use
+limit is adaptive, and a refusal that names when the next included review is due is a wait — wait it and ask again,
+which costs no round and no request, and never accept the usage-based-billing offer that accompanies it, since that is
+the maintainer's spending decision. Human sign-off is required for releases,
 tags, signing changes, and any new scientific claim or citation; everything else merges without it.
 
 `.github/pull_request_template.md` carries the **self-review checklist** — the human-judgment gate in the solo model:

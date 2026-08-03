@@ -316,9 +316,16 @@ reads a great deal like a review that found nothing.
 
 CodeRabbit's fair-use limit is **adaptive**: several reviews in one sitting drop the
 seat to a per-interval allowance, and the refusal names when the next included review
-is due. That is a **wait**, not unavailability — wait it out and ask again. It also
-offers to proceed through usage-based billing; that is the maintainer's spending
-decision, never a worker's. Pace review requests rather than batching them.
+is due. That is a **wait**, not unavailability — wait it out and ask again, which
+spends neither a round nor the one-request-per-round allowance, since a request that
+produced no review has not been spent. It also offers to proceed through usage-based
+billing; that is the maintainer's spending decision, never a worker's. Pace review
+requests rather than batching them.
+
+**Do not write a provider's handle in a comment you do not mean as a request.** The
+mention fires the bot even inside backticks — a code span is not an escape — so
+quoting a trigger while describing it spends a real review. Break the handle, or say
+"the full-review command" instead.
 
 Review evidence **survives a non-material push**, so addressing findings does not
 restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
