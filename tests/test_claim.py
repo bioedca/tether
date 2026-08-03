@@ -723,6 +723,29 @@ def test_a_certificate_failure_names_the_certificate_and_the_one_remedy(
     assert "host is reachable" in message, "it must not read as a network outage"
 
 
+def test_a_certificate_failure_with_the_opt_out_already_set_does_not_suggest_it_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The remedy branch must not fire when the remedy is already applied.
+
+    If the opt-out is on and the certificate *still* fails, the strict-conformance story is no
+    longer the explanation - the chain itself is untrusted. Telling the reader to set a variable
+    they have already set would send them in a circle, and worse, imply another notch of loosening
+    exists. There is not one.
+    """
+    monkeypatch.setenv(claim.STRICT_OPT_OUT, "1")
+    monkeypatch.setattr(claim, "_ANNOUNCED", True)
+    _transport(monkeypatch, _cert_error("unable to get local issuer certificate"))
+    with pytest.raises(claim.TransportError) as info:
+        claim._request("GET", "/repos/bioedca/tether/issues/7")
+    message = str(info.value)
+    assert "unable to get local issuer certificate" in message
+    assert "already set" in message
+    assert "chain itself is not trusted" in message
+    assert "VERIFY_X509_STRICT" not in message, "the strict story does not apply here"
+    assert "Do not relax verification further" in message
+
+
 def test_an_unreachable_host_is_still_reported_as_unreachable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -840,12 +863,19 @@ def test_the_default_says_nothing(
 
 
 @pytest.mark.skipif(sys.version_info < (3, 13), reason="VERIFY_X509_STRICT is off before 3.13")
-def test_the_default_really_is_strict_on_the_interpreters_that_have_it() -> None:
+def test_the_default_really_is_strict_on_the_interpreters_that_have_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The other half: `untouched` only means `strict` where CPython makes it so.
 
     3.13 is where `create_default_context()` turned the flag on, and 3.13/3.14 are supported
     interpreters here - so on those, the shipped default must be the strict one.
+
+    The `delenv` is load-bearing rather than tidy: the contract tells operators on the affected
+    machines to set `TETHER_ALLOW_NONSTRICT_X509=1`, so in the very shell this fix exists to serve,
+    reading the ambient environment would fail this test for an environment reason.
     """
+    monkeypatch.delenv(claim.STRICT_OPT_OUT, raising=False)
     assert claim._ssl_context().verify_flags & claim.ssl.VERIFY_X509_STRICT
 
 

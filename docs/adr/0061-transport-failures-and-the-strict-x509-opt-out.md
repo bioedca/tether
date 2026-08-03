@@ -5,18 +5,25 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0061 — A transport failure is not a scope verdict, and strict X.509 conformance is opt-out
 
-- **Status:** accepted. The exit-code half implements [#315](https://github.com/bioedca/tether/issues/315)
-  as written. The opt-out half **reverses a non-goal that issue originally stated** — "no clearing of
-  `VERIFY_X509_STRICT` in shipped code" — which is why it is recorded here rather than applied
-  quietly. That reversal is the maintainer's, amended onto #315's *Expected behavior* on 2026-08-03
-  and reconfirmed in session the same day; the two interlocks it attaches (literal `1` only, and an
-  announcement on stderr) are theirs and are implemented and tested here. The maintainer's sign-off
-  is the merge of the pull request carrying this record.
+- **Status:** accepted; reverses a non-goal of [#315](https://github.com/bioedca/tether/issues/315)
 - **Date:** 2026-08-03
 - **Deciders:** bioedca
-- **PRD anchor:** §12.2–§12.5 (agent tooling). No runtime module changes; `claim.py` is CI/agent
-  tooling, not a §4.2 component.
+- **PRD anchor:** §12.2–§12.5
 - **Milestone:** M11 — Agent-swarm infrastructure
+
+> These header fields are copied verbatim into `docs/adr/README.md` by `scripts/gen_adr_index.py`,
+> which truncates a long cell mid-sentence. Keep them short; the reasoning belongs below.
+
+**On the status.** The exit-code half implements #315 as written. The opt-out half **reverses a
+non-goal that issue originally stated** — "no clearing of `VERIFY_X509_STRICT` in shipped code" —
+which is why it is recorded here rather than applied quietly. That reversal is the maintainer's,
+amended onto #315's *Expected behavior* on 2026-08-03 and reconfirmed in session the same day; the
+two interlocks it attaches (literal `1` only, and an announcement on stderr) are theirs, and are
+implemented and tested here. The maintainer's sign-off is the merge of the pull request carrying
+this record.
+
+**On the PRD anchor.** No runtime module changes: `claim.py` is CI/agent tooling, not a §4.2
+component.
 
 ## Context and problem statement
 
