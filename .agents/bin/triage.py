@@ -419,6 +419,83 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
     return _COUNT_NOTHING if pr.get("draft") else None
 
 
+#: Review threads and their resolution, which the REST payloads do not carry at all. Paged because
+#: a long-running PR passes 100 threads easily — #385 reached 54 — and a short read would silently
+#: report unresolved threads as absent, which on this axis means "nothing is owed".
+_RESOLVED_THREADS = """
+query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) {
+      reviewThreads(first:100, after:$cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          isResolved
+          comments(first:100) { nodes { databaseId } }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def _resolved_comment_ids(pr_number: int) -> set[int]:
+    """Every review-comment id sitting on a **resolved** thread (#393).
+
+    ``review_owed`` could previously be cleared only by moving the head, and for a *non-blocking*
+    finding the contract forbids exactly that: ``docs/agents/review.md`` and ``.agents/tasks/
+    amend.md`` say to defer it to one follow-up issue and resolve the thread with the link — **no
+    push**. So the response the contract prescribes cleared nothing, ``agent:needs-amend`` survived
+    a completed answer, and the launcher kept issuing AMEND sessions until it hit its cap.
+
+    Resolution is the signal because it is the one the contract's own instruction produces and the
+    only one a machine can read. The follow-up *link* is contract, not payload — nothing here can
+    tell a link to a real issue from a plausible one — so this keys on ``isResolved`` and says so.
+
+    **Fails closed by raising, not by answering "nothing resolved".** Both would keep every finding
+    owed, and the difference is #388's: a swallowed transport error becomes a *verdict* about work
+    nobody read. Silently returning an empty set restores the exact bug this fixes, invisibly and
+    forever, while a raise is the same treatment ``_paginate_or_raise`` already gives an unreadable
+    review list one call above — an unreadable review state fails the job rather than being guessed
+    at. A partial page is refused for the same reason: unread threads would report answered findings
+    as unanswered, and a short read is indistinguishable from a short list.
+    """
+    owner, _, name = REPO.partition("/")
+    resolved: set[int] = set()
+    cursor: str | None = None
+    for _page in range(claim.MAX_PAGES):
+        try:
+            data = claim._graphql(
+                _RESOLVED_THREADS,
+                {"owner": owner, "name": name, "number": pr_number, "cursor": cursor},
+                f"PR #{pr_number} review threads",
+            )
+        except claim.ClaimError as exc:
+            # Wrapped for the same reason `_paginate_or_raise` wraps: `main` catches `TriageError`
+            # and reports it as a triage failure, so a bare `ClaimError` would escape as a
+            # traceback rather than as the module's own error.
+            raise TriageError(f"PR #{pr_number} review-thread state could not be read") from exc
+        threads = (
+            ((data.get("repository") or {}).get("pullRequest") or {}).get("reviewThreads")
+        ) or {}
+        for node in threads.get("nodes") or []:
+            if not isinstance(node, dict) or not node.get("isResolved"):
+                continue
+            for comment in ((node.get("comments") or {}).get("nodes")) or []:
+                if isinstance(comment, dict) and isinstance(comment.get("databaseId"), int):
+                    resolved.add(comment["databaseId"])
+        page = threads.get("pageInfo") or {}
+        if not page.get("hasNextPage"):
+            return resolved
+        cursor = page.get("endCursor")
+        if not isinstance(cursor, str) or not cursor:
+            break
+    raise TriageError(
+        f"PR #{pr_number} has more review threads than this query will walk; refusing to judge "
+        "resolution from a partial read, which would report unanswered findings as answered"
+    )
+
+
 def _paginate_or_raise(pr_number: int, path: str, what: str) -> list[dict[str, Any]]:
     try:
         return claim._paginate(path, what)
@@ -493,9 +570,15 @@ def _review_state(
     on a failed check suite left a real hole: a provider requesting changes at a **green** head
     produced no authority at all, so the launcher never started the session that answers the review
     — on the workflow whose whole job is to publish that authority. A head owes an answer when an
-    external provider left inline findings on it, or submitted ``CHANGES_REQUESTED`` for it. A clean
-    pass leaves nothing owed, and pushing a fix moves the head, so the next head owes nothing until
-    a provider looks at it.
+    external provider left **unresolved** inline findings on it, or submitted ``CHANGES_REQUESTED``
+    for it. A clean pass leaves nothing owed, and pushing a fix moves the head, so the next head
+    owes nothing until a provider looks at it.
+
+    **Resolution clears a finding; a push is not the only exit** (#393). Pushing used to be the only
+    one, and for a *non-blocking* finding the contract forbids exactly that — defer it to one
+    follow-up issue and resolve the thread with the link, **no push** — so the prescribed answer
+    cleared nothing and the launcher kept issuing AMEND sessions until it hit its cap. See
+    :func:`_resolved_comment_ids`, including why an unreadable answer still owes.
 
     **A reply is neither a review nor a finding** (#396). GitHub wraps a bot's reply to a review
     thread in a *review submission* — empty body, state ``COMMENTED``, carrying the reply as its
@@ -520,6 +603,16 @@ def _review_state(
     )
 
     wrappers = _reply_wrapper_ids(comments)
+    # Only asked when something might actually be cleared by it. A pull request with no external
+    # inline findings at the current head cannot have an answered one, so the extra query buys
+    # nothing there - and `clear_mirror` and the round-label paths run on every triage event.
+    answerable = any(
+        entry.get("id")
+        for entry in comments
+        if ((entry.get("user") or {}).get("login")) in EXTERNAL_PROVIDERS
+        and _reviewed_head(entry) == head
+    )
+    resolved = _resolved_comment_ids(pr_number) if answerable else set()
 
     heads: set[str] = set()
     owed = False
@@ -546,7 +639,14 @@ def _review_state(
                 heads.add(sha)
             if sha != head:
                 continue
-            if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
+            if is_reviews:
+                # A CHANGES_REQUESTED submission is a SEPARATE signal, and resolving threads does
+                # not clear it (#393's third criterion). It is a verdict on the pull request rather
+                # than a comment on a line, so it is withdrawn by the provider re-reviewing, not by
+                # the author tidying the threads underneath it.
+                if entry.get("state") in BLOCKING_REVIEW_STATES:
+                    owed = True
+            elif entry.get("id") not in resolved:
                 owed = True
     return heads, owed
 
