@@ -273,9 +273,11 @@ addressed **and all required CI checks are green** — wait for in-progress chec
 
 Automated agents are peers, not a hierarchy: each claims one issue, opens one **draft**
 PR, opens the review lane on it, and **hands off and exits** rather than waiting on a
-reviewer. There is no coordinator. Auto-merge is armed at the **end** of the lane, by
-whoever completes it — arming it on a draft would merge the PR past the mandatory
-CodeRabbit gate, since that gate is not a required check. The merge is bound to the head the review evidence covers with
+reviewer. There is no coordinator. Auto-merge is armed at the **end** of the lane, and
+completing the lane is **not by itself authority to arm it** — `AGENTS.md` requires
+explicit per-PR merge authority, which is a separate grant that no amount of green
+checks confers. Arming it on a draft would merge the PR past the mandatory CodeRabbit
+gate, since that gate is not a required check. The merge is bound to the head the review evidence covers with
 `gh pr merge N --auto --squash --match-head-commit <SHA>` — that guard is what stands in
 for the merge queue, which needs an organization-owned repository and so is unavailable
 here.

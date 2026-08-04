@@ -934,8 +934,10 @@ This section governs **distributed (git/GitHub) source-code version control and 
 for the public GPL-3.0 repository `github.com/bioedca/tether` (§4.1). Its scope is **source governance only** —
 large-dataset versioning is already handled by the LFS / gated-CI fixture tiers (§8 NFR-FIXTURES) and is not
 re-litigated here, and **no external data-versioning tool is introduced**. The governing posture is **solo
-developer (bioedca) with CI and a fixed review lane as merge gates**: branch protection on `main` requires green CI
-plus the §12.4 review lane. There is no universal human-approval count. Qualified human/domain review is required when
+developer (bioedca) with CI and a fixed review lane as merge gates**: the **merge policy** for `main` requires green CI
+plus the §12.4 review lane. Only the first half is server-enforced — the `main` ruleset gates on the checks and thread
+resolution described in §12.3, while the review lane is enforced by whoever merges, so it **shall not** be relied on as
+a branch-protection rule. There is no universal human-approval count. Qualified human/domain review is required when
 scientific, security, or release judgment is material. The rules scale to required reviews + `CODEOWNERS` (§12.3). Unless flagged
 otherwise, every GitHub capability below is **free for this public repo**.
 
