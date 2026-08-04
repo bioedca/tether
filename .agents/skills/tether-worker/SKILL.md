@@ -34,11 +34,13 @@ and pretending otherwise is the defect this section exists to prevent:
 WSL provides no `python` at all, and on Windows the python.org installer registers `python` while
 `python3` may be an unconfigured Store stub — so neither name is safe for both.
 
-The commands below are written `python3`, the dispatched `claude` lane's name. **On a native lane,
-substitute `python`.** That single substitution is the entire difference; no other token in any
-command changes between lanes. The launcher already applies it for you in injected task text —
-`{{PYTHON}}` renders from `swarm_slots.LANE_PYTHON`, which is the same table as above — so this
-matters only for hand-driven runs. If neither name resolves, report it; do not paste a path.
+So the commands below write **`<py>`**, and `<py>` is your lane's interpreter from the table above —
+`python3` in WSL bash, `python` in native PowerShell. Substitute it as you read; that single token is
+the entire difference, and no other part of any command changes between lanes. Writing one lane's
+name here instead would be a command the other lane cannot run, on a page both lanes are required to
+read. The launcher already resolves it in injected task text — `{{PYTHON}}` renders from
+`swarm_slots.LANE_PYTHON`, which is the same table as above — so `<py>` is for hand-driven runs. If
+neither name resolves, report it; do not paste a path.
 
 `gh` needs no such rule: it resolves from `PATH` in both shells.
 
@@ -53,7 +55,7 @@ the launcher injected, or, hand-driven, the vendor of the CLI you are running.
 2. Take the mutex. One call decides it — `201` is yours, `422` means someone else got there first:
 
    ```sh
-   python3 .agents/bin/claim.py claim --issue N --vendor <your lane>
+   <py> .agents/bin/claim.py claim --issue N --vendor <your lane>
    ```
 
    Exit `3` is *ineligible* (do not work it), `4` is *lost* (stop; do not open a second branch or
@@ -62,7 +64,7 @@ the launcher injected, or, hand-driven, the vendor of the CLI you are running.
    state change — revalidate:
 
    ```sh
-   python3 .agents/bin/claim.py check --issue N --generation G
+   <py> .agents/bin/claim.py check --issue N --generation G
    ```
 
    Exit `5` means a reaper reclaimed the claim and a successor owns it. **Stop writing.** Your work
@@ -73,7 +75,7 @@ the launcher injected, or, hand-driven, the vendor of the CLI you are running.
 If you must abandon the work, release the claim rather than letting it rot:
 
 ```sh
-python3 .agents/bin/claim.py release --issue N --generation G --vendor <your lane>
+<py> .agents/bin/claim.py release --issue N --generation G --vendor <your lane>
 ```
 
 `release` refuses when the ref's generation is not yours, so a stale worker cannot delete a
@@ -88,7 +90,7 @@ a reproducible unrelated finding becomes a separate templated issue, never extra
 Need an ADR? Reserve the number atomically instead of picking one:
 
 ```sh
-python3 .agents/bin/claim.py reserve-adr
+<py> .agents/bin/claim.py reserve-adr
 ```
 
 Gaps in ADR numbering are legal and expected. Never reuse a number, and never renumber to close a
@@ -140,7 +142,7 @@ Approving a scope snapshot is a maintainer action, not a worker one. It prints b
 the marker to paste:
 
 ```sh
-python3 .agents/bin/claim.py scope-hash --issue N
+<py> .agents/bin/claim.py scope-hash --issue N
 ```
 
 The digest covers the normalized title and body, so any later edit to either provably invalidates

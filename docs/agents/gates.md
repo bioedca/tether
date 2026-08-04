@@ -13,9 +13,13 @@ local gates have not been run is not final and may not be declared so.**
   - `pre-commit run --all-files`
   - PowerShell: `$env:QT_QPA_PLATFORM='offscreen'; pytest -m "not large and not sidecar and not deep"`
   - Docs changes: `mkdocs build --strict`
-  - Schema changes: `python scripts/dump_schema.py --check`
+  - Schema changes: `<py> scripts/dump_schema.py --check`
 
   A bare `pytest` includes optional large, sidecar, and deep tiers; invoke those only when relevant.
+
+  `<py>` is your lane's interpreter — `python3` in WSL bash, `python` in native PowerShell. Naming
+  one of them on a page both lanes are required to read would strand the other lane on a gate it
+  cannot skip.
 
 These are the *local* gates. They do not replace the required CI contexts, which run on three
 operating systems and — for `sidecar / parity` — in the isolated sidecar environment. A gate that

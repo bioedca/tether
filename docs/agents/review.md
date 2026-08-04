@@ -85,9 +85,13 @@ asking a provider to look **again** at work it has already reviewed this round.
   across `tether`, `Yeliztli` and `tbox-finder`. A TREX review costs **3**. Before spending one, read
   the balance; after a month's worth of PRs, expect it to be gone:
 
+  ```sh
+  <py> .agents/bin/greptile_usage.py
   ```
-  python3 .agents/bin/greptile_usage.py
-  ```
+
+  `<py>` is your lane's interpreter — `python3` in WSL bash, `python` in native PowerShell. Naming
+  one of them on a page both lanes read would strand the other lane on the balance check it is
+  required to make before spending a credit.
 
   `.greptile/config.json` sets `skipReview: "AUTOMATIC"` so nothing fires unasked, but it is read
   from the PR's *source branch* — a branch cut before it landed still auto-fires, and the dashboard

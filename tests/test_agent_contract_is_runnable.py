@@ -35,6 +35,50 @@ CLAUDE_SKILL = _REPO / ".claude" / "skills" / "tether-worker" / "SKILL.md"
 TASKS = sorted((_REPO / ".agents" / "tasks").glob("*.md"))
 CONTRACT_FILES = [CODEX_SKILL, CLAUDE_SKILL, *TASKS]
 
+# The governance pages outside the dispatched-worker set that still carry commands an agent is
+# expected to run. #382 removed a defect class from `CONTRACT_FILES`; nothing stopped it re-entering
+# through one of these, and Codex found it doing exactly that on #386 — `docs/agents/adr.md` told a
+# native-lane worker to run `python3`, on the page the Codex lane is *required* to read before
+# adding an ADR. That instance was fixed there; this set is what stops the next one (#390).
+SHARED_PAGES = [
+    _REPO / "AGENTS.md",
+    _REPO / "CLAUDE.md",
+    _REPO / "CONTRIBUTING.md",
+    *sorted((_REPO / "docs" / "agents").glob("*.md")),
+]
+GUARDED_FILES = [*CONTRACT_FILES, *SHARED_PAGES]
+
+# `CONTRIBUTING.md` is guarded, but two of the rules below do not reach it, and this is the
+# exception the issue asks be *stated* rather than silently skipped (#390, third criterion).
+#
+# The other pages instruct an agent that was dispatched into a shell it did not choose, running an
+# interpreter it did not choose. `CONTRIBUTING.md` addresses a human setting up a development
+# environment, who chooses both. Its ```bash blocks are therefore a *true* annotation rather than a
+# false one — they contain `QT_QPA_PLATFORM=offscreen pytest ...`, a POSIX inline env-var prefix
+# PowerShell genuinely cannot parse, so the page names the shell it means. Relabelling those `sh`
+# would make the file less accurate, and requiring `<py>` of a human reader would make it unusable.
+# What the two rules exist to catch is an annotation or an interpreter that is wrong *for a reader
+# who had no say*, and that reader is not this page's audience.
+HUMAN_FACING = frozenset({_REPO / "CONTRIBUTING.md"})
+WORKER_FACING = [path for path in GUARDED_FILES if path not in HUMAN_FACING]
+
+# Which lanes read a page decides what it may name. A page both lanes read may not spell either
+# lane's interpreter, because one of the two spellings is always wrong there; a lane's own
+# adaptation may spell its own. `CLAUDE.md` is that adaptation — `AGENTS.md` is authoritative and it
+# exists because Claude Code loads it instead — and `.claude/skills/` is its skill pointer.
+LANE_SPECIFIC = frozenset({CLAUDE_SKILL, _REPO / "CLAUDE.md"})
+BOTH_LANES = [path for path in WORKER_FACING if path not in LANE_SPECIFIC]
+
+# `.agents/tasks/*.md` are rendered by `swarm_slots._render` before a worker sees them, so they take
+# the launcher's `{{PYTHON}}` token rather than the reader-substituted `<py>`. Both are resolvers;
+# neither is an interpreter name, which is the property this file cares about.
+_RESOLVERS = ("<py>", "{{PYTHON}}")
+
+# `<py>` is only a convention if the page says what it stands for. Both existing definitions read
+# "`<py>` is your lane's interpreter", wrapped across a line break in `AGENTS.md`, so the window is
+# generous and the match is on the pairing rather than on either word alone.
+_PY_DEFINED = re.compile(r"`<py>`[^`]{0,80}\binterpreter\b", re.DOTALL)
+
 _SLOTS = _REPO / ".agents" / "bin" / "swarm_slots.py"
 
 # Absolute-path spellings that pin a command to one machine or one shell. `/mnt/` is the WSL view of
@@ -132,12 +176,18 @@ def _at(path: Path, number: int, command: str) -> str:
 
 def test_the_sample_is_not_empty() -> None:
     """A parse that finds nothing would make every assertion below pass vacuously."""
-    counts = {p.name: len(_commands(p)) for p in CONTRACT_FILES}
+    counts = {p.name: len(_commands(p)) for p in GUARDED_FILES}
     assert len(_commands(CODEX_SKILL)) >= 6, (
         f"the worker skill should carry the claim/check/release/reserve/arm/scope-hash "
         f"commands; found {counts}"
     )
     assert all(_commands(t) for t in TASKS), f"a task template names no command at all: {counts}"
+
+    # Named individually rather than asserted over the whole set: `docs/agents/evidence.md` and
+    # `docs/agents/tools.md` are routing pages that carry no commands at all, and requiring one of
+    # every page would only invite a decorative command to satisfy the test.
+    for page in (_REPO / "AGENTS.md", _REPO / "CONTRIBUTING.md", _REPO / "docs/agents/adr.md"):
+        assert _commands(page), f"{page.name} carries no command; the widened guard reads nothing"
 
 
 def test_no_command_names_an_absolute_path() -> None:
@@ -148,7 +198,7 @@ def test_no_command_names_an_absolute_path() -> None:
     """
     bad = [
         _at(path, number, command)
-        for path in CONTRACT_FILES
+        for path in GUARDED_FILES
         for number, command in _commands(path)
         if any(marker in command for marker in ABSOLUTE)
     ]
@@ -162,7 +212,7 @@ def test_no_command_begins_with_the_powershell_call_operator() -> None:
     """`&` is how PowerShell invokes a quoted path. bash reads it as a syntax error."""
     bad = [
         _at(path, number, command)
-        for path in CONTRACT_FILES
+        for path in GUARDED_FILES
         for number, command in _commands(path)
         if command.startswith("&")
     ]
@@ -178,7 +228,7 @@ def test_every_interpreter_and_cli_reference_is_a_bare_resolvable_name() -> None
     """
     bad = [
         _at(path, number, command)
-        for path in CONTRACT_FILES
+        for path in GUARDED_FILES
         for number, command in _commands(path)
         if re.search(r"[/\\:%$]", command.split()[0])
     ]
@@ -190,16 +240,91 @@ def test_no_fence_asserts_a_shell_the_worker_may_not_be_in() -> None:
 
     A ```` ```powershell ```` block dispatched into bash is the defect #382 exists to remove — and
     it is the part a reader believes before running anything.
+
+    `WORKER_FACING`, not every guarded page: see `HUMAN_FACING` for why `CONTRIBUTING.md` is the one
+    place a shell-specific annotation is the honest one.
     """
     bad = [
         f"{path.relative_to(_REPO).as_posix()}:{number}: ```{language}"
-        for path in CONTRACT_FILES
+        for path in WORKER_FACING
         for number, language, _body in _fences(path)
         if language in _SHELL_SPECIFIC
     ]
     assert not bad, (
         "these fences name a shell the dispatched worker may not have; the commands are "
         f"shell-neutral, so annotate them `sh`: {bad}"
+    )
+
+
+def test_a_page_both_lanes_read_resolves_the_interpreter_instead_of_naming_one() -> None:
+    """The rule #386 established, enforced everywhere it applies rather than where it was found.
+
+    `python3` and `python` are each wrong in exactly one of the two shells — Ubuntu ships no
+    `python`, and on Windows `python3` may be an unconfigured Store stub — so on a page **both**
+    lanes read, either spelling is a command one lane cannot run. `docs/agents/adr.md` was that page
+    (#386): it told a native-lane worker to run `python3` to reserve an ADR number, on a page the
+    Codex lane is required to read before adding a record. Fixing that instance left the class free
+    to re-enter anywhere the old `CONTRACT_FILES` guard did not read (#390).
+
+    A resolver is required instead: `<py>` for a page a human or agent substitutes as it reads, or
+    `{{PYTHON}}` for a task template the launcher renders. Neither names a lane.
+
+    The rule is stated over the *first token* rather than over `.agents/bin/*.py` alone, because the
+    defect is the interpreter, not the script that follows it: `python scripts/dump_schema.py` on a
+    shared page strands the same lane for the same reason.
+
+    A bare `` `python3` `` with nothing after it is a **mention**, not a command — it is how a page
+    says what `<py>` stands for, and how §Shell's table names the lanes. Requiring an argument is
+    what separates the two; without it this rule would forbid the definitions it depends on.
+    """
+    bad: list[str] = []
+    for path in BOTH_LANES:
+        for number, command in _commands(path):
+            parts = command.split()
+            if parts[0] in ("python", "python3") and len(parts) > 1:
+                bad.append(_at(path, number, command))
+    assert not bad, (
+        "these commands name one lane's interpreter on a page both lanes read; one of the two "
+        f"shells cannot run them. Use `<py>` (or `{{{{PYTHON}}}}` in a rendered template): {bad}"
+    )
+
+    undefined = [
+        path.relative_to(_REPO).as_posix()
+        for path in BOTH_LANES
+        if any(command.startswith("<py>") for _number, command in _commands(path))
+        and not _PY_DEFINED.search(path.read_text(encoding="utf-8"))
+    ]
+    assert not undefined, (
+        "these pages use `<py>` without saying what it stands for, which makes it a typo rather "
+        f"than a convention; state that it is the lane's interpreter: {undefined}"
+    )
+
+
+def test_a_lane_specific_page_may_name_its_own_interpreter() -> None:
+    """The distinction the rule above rests on, asserted rather than assumed (#390).
+
+    `CLAUDE.md` is the Claude adaptation — `AGENTS.md` is authoritative, and this copy exists only
+    because Claude Code loads `CLAUDE.md` and not `AGENTS.md`. Its reader is always the WSL lane, so
+    `python3` there is *correct*, and banning the spelling repository-wide would force a resolver on
+    the one file that has nothing to resolve. Pinned so a later tightening of the rule above cannot
+    quietly swallow the exception.
+    """
+    claude_md = _REPO / "CLAUDE.md"
+    assert claude_md in LANE_SPECIFIC and claude_md not in BOTH_LANES
+    named = [
+        command
+        for _number, command in _commands(claude_md)
+        if command.split()[0] in ("python", "python3")
+    ]
+    assert named, (
+        "CLAUDE.md no longer names its own lane's interpreter. That is allowed, but the exception "
+        "is now untested — either drop it from LANE_SPECIFIC or restore a command that uses it"
+    )
+    lane_python = _load_slots().LANE_PYTHON["claude"]
+    wrong = [command for command in named if command.split()[0] != lane_python]
+    assert not wrong, (
+        f"CLAUDE.md may name its own lane's interpreter, which is {lane_python!r} per LANE_PYTHON; "
+        f"these name a different one: {wrong}"
     )
 
 
