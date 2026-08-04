@@ -243,18 +243,42 @@ def test_the_launcher_injects_a_bare_name_for_every_lane() -> None:
     resolves to.
     """
     slots = _load_slots()
-    names = [*slots.LANE_PYTHON.values(), slots.DEFAULT_PYTHON, slots.LANE_GH]
+    names = [*slots.LANE_PYTHON.values(), slots.LANE_GH]
     bad = [name for name in names if re.search(r"[/\\:%$\s]", name)]
     assert not bad, f"the launcher injects something that is not a bare executable name: {bad}"
 
 
+def test_the_interpreter_table_covers_every_lane_and_has_no_fallback() -> None:
+    """A lane the table does not name has no interpreter, and must not inherit another lane's.
+
+    `LANE_PYTHON` is indexed once per rendered task, so a missing vendor decides which interpreter a
+    worker is told to run. Both available fallbacks are wrong for one of the two shells — `python3`
+    is an unconfigured Store stub on Windows, `python` does not exist in Ubuntu — so a default here
+    reinstates #382 for the lane it was added to protect. The launcher refuses instead (#387), and
+    this asserts both halves: every vendor is present, and nothing absorbs the ones that are not.
+    """
+    slots = _load_slots()
+    assert set(slots.LANE_PYTHON) == set(slots.claim.VENDORS), (
+        f"LANE_PYTHON covers {sorted(slots.LANE_PYTHON)} but the vendors are "
+        f"{sorted(slots.claim.VENDORS)}; a lane with no interpreter cannot be dispatched"
+    )
+    assert not hasattr(slots, "DEFAULT_PYTHON"), (
+        "a default interpreter makes an unregistered lane render a task whose commands do not run, "
+        "and it does so silently; `_lane_python` refuses instead"
+    )
+
+
 def test_a_rendered_task_is_runnable_in_the_lane_it_is_rendered_for() -> None:
-    """End to end: what a worker actually receives, for every lane, must pass the same rules."""
+    """End to end: what a worker actually receives, for every lane, must pass the same rules.
+
+    The lanes are read from `claim.VENDORS` rather than listed here, so a fourth lane is covered the
+    moment it is added. A hand-written tuple silently stops at three (#387).
+    """
     slots = _load_slots()
     record = {"issue": 7, "branch": "agent/issue-7", "generation": 5, "base_sha": "a" * 40}
     bad: list[str] = []
     for task in TASKS:
-        for vendor in ("claude", "codex", "copilot"):
+        for vendor in slots.claim.VENDORS:
             item = {"vendor": vendor, "round": 1, "remaining": 1, "reason": "because"}
             for span in re.findall(r"`([^`]+)`", slots._render(task, record, item)):
                 command = span.strip()

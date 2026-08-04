@@ -102,9 +102,8 @@ GATE = r".agents\bin\gate.ps1"
 # and every other lane in native PowerShell, where the python.org installer registers `python`. The
 # templates take this as `{{PYTHON}}` rather than naming an interpreter themselves - one template
 # reaches both shells, so the name has to come from whoever knows the lane, which is this file
-# (#382). Unknown vendors get the POSIX spelling, which is also what `.pre-commit-config.yaml` pins.
+# (#382). There is deliberately no fallback: see :func:`_lane_python`.
 LANE_PYTHON = {"claude": "python3", "codex": "python", "copilot": "python"}
-DEFAULT_PYTHON = "python3"
 # `gh` resolves from `PATH` in both shells, so this is one value rather than a table. It is injected
 # anyway so that no template ever spells a tool path, which is the half of #382 that stranded #327
 # and #334: a worker that cannot run `gh` cannot arm auto-merge.
@@ -363,6 +362,30 @@ def _body(task: Path) -> str:
     return text
 
 
+def _lane_python(vendor: str) -> str:
+    """The interpreter for this lane, or a refusal. **Never a guess.**
+
+    A default here is worse than the ``KeyError`` it replaced (#387). Falling back to ``python3``
+    hands a native lane the one name Windows may expose only as an unconfigured Store stub, and
+    falling back to ``python`` hands WSL a name Ubuntu does not provide at all - so whichever
+    spelling is chosen, an unknown vendor gets a task template whose commands do not run. That is
+    #382 returning through the door built to close it, and it fails at the worker rather than here.
+
+    ``SlotError`` because that is what every other refusal in this module raises and what
+    :func:`main` catches to report exit 2; a bare ``KeyError`` escapes that handler mid-render.
+    Argparse ``choices=claim.VENDORS`` makes this unreachable from the CLI, so it guards the
+    in-process callers - ``_dispatch_build`` and the tests that build an ``item`` by hand.
+    """
+    try:
+        return LANE_PYTHON[vendor]
+    except KeyError:
+        raise SlotError(
+            f"no interpreter is registered for lane {vendor!r}; "
+            f"LANE_PYTHON covers {sorted(LANE_PYTHON)}. Add the lane's interpreter rather than "
+            "letting it inherit another shell's spelling."
+        ) from None
+
+
 def _render(task: Path, record: dict[str, Any], item: dict[str, Any]) -> str:
     """Substitute the task template. Every token must be consumed, or the worker reads a literal."""
     values = {
@@ -375,7 +398,7 @@ def _render(task: Path, record: dict[str, Any], item: dict[str, Any]) -> str:
         "ROUND": str(item.get("round", 0)),
         "REMAINING": str(item.get("remaining", CAP)),
         "REASON": item.get("reason", "a fresh build"),
-        "PYTHON": LANE_PYTHON.get(item["vendor"], DEFAULT_PYTHON),
+        "PYTHON": _lane_python(item["vendor"]),
         "GH": LANE_GH,
     }
     text = _body(task)

@@ -543,6 +543,27 @@ def test_every_template_placeholder_is_substituted(name: str) -> None:
     assert "{{" not in text and "}}" not in text
 
 
+def test_an_unregistered_lane_is_refused_rather_than_given_someone_elses_interpreter() -> None:
+    """The lookup that decides `{{PYTHON}}` must not answer for a lane it does not know (#387).
+
+    Reachable only in-process — argparse pins `--vendor` to `claim.VENDORS` — which is exactly why
+    it is asserted here: `_dispatch_build` and these tests build an `item` by hand, and the two
+    shapes this guard has already worn were both silent-ish. `LANE_PYTHON[vendor]` raised a bare
+    `KeyError` that escapes `main`'s `SlotError` handler mid-render; `LANE_PYTHON.get(vendor,
+    DEFAULT_PYTHON)` replaced it with something worse, a task rendered against an interpreter the
+    lane's own shell may not resolve, discovered only when the worker ran it.
+    """
+    record = {"issue": 7, "branch": "agent/issue-7", "generation": 5, "base_sha": "abc"}
+    item = {"vendor": "gemini", "round": 1, "remaining": 1, "reason": "because"}
+    with pytest.raises(slots.SlotError) as raised:
+        slots._render(TASKS / "amend.md", record, item)
+    message = str(raised.value)
+    assert "gemini" in message, "the refusal must name the lane it could not resolve"
+    assert all(vendor in message for vendor in slots.claim.VENDORS), (
+        f"the refusal must name the accepted set; got {message!r}"
+    )
+
+
 def test_an_unknown_placeholder_is_refused_not_shipped(tmp_path: Path) -> None:
     """Fail loudly rather than inject a template the launcher does not fully understand."""
     bad = tmp_path / "bad.md"
