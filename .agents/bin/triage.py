@@ -433,6 +433,39 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
     return _COUNT_NOTHING if pr.get("draft") else None
 
 
+#: The head a provider names in a plain issue comment. Codex writes ``**Reviewed commit:**
+#: `9785d61352``` in every verdict it posts that way, and that string is the only head binding such
+#: a comment has. Read for the *did a review happen* axis only — never for the round counter, which
+#: stays strictly on `commit_id`-carrying evidence and its documented undercount.
+_VERDICT_HEAD = re.compile(r"Reviewed commit:\**\s*`?([0-9a-f]{7,40})`?")
+
+
+def _verdict_at_head(pr_number: int, head: str) -> bool:
+    """Whether an external provider has posted a verdict naming the current head (#394, #407).
+
+    A provider's **clean** pass is the one that produces no review object. Codex submits a review
+    when it has findings and posts a plain issue comment - or a 👍 reaction - when it does not, and
+    neither of those carries ``commit_id``. So the state that most needs the lane advanced is
+    precisely the one ``/pulls/{n}/reviews`` cannot show, and reading only that channel left every
+    cleanly-reviewed draft stranded.
+
+    Prefix-matched because the comment abbreviates the SHA. Fails **soft**, not closed: an
+    unreadable comment list means *no verdict seen*, which withholds an authority rather than
+    granting one, and the review and comment channels are still read by the caller.
+    """
+    try:
+        comments = claim._paginate(f"/repos/{REPO}/issues/{pr_number}/comments", "PR comment list")
+    except claim.ClaimError:
+        return False
+    for entry in comments:
+        if ((entry.get("user") or {}).get("login")) not in EXTERNAL_PROVIDERS:
+            continue
+        for named in _VERDICT_HEAD.findall(str(entry.get("body") or "")):
+            if head.startswith(named):
+                return True
+    return False
+
+
 def _review_state(
     pr_number: int, head: str, counted_from: str | None = None
 ) -> tuple[set[str], bool, bool]:
@@ -471,7 +504,12 @@ def _review_state(
     """
     heads: set[str] = set()
     owed = False
-    read_head = False
+    # Seeded from the issue-comment channel, because that is where Codex's CLEAN verdict lands.
+    # A dirty Codex pass submits a review; a clean one posts *"Codex Review: Didn't find any major
+    # issues"* as a plain issue comment, or reacts 👍 — neither of which carries `commit_id`, so the
+    # loop below can never see it (Codex P1 on #407). The draft that most deserves to advance is
+    # exactly the one that produced no review object at all.
+    read_head = _verdict_at_head(pr_number, head)
     for path, what, is_reviews in (
         (f"/repos/{REPO}/pulls/{pr_number}/reviews", "review list", True),
         (f"/repos/{REPO}/pulls/{pr_number}/comments", "review-comment list", False),
@@ -508,6 +546,7 @@ def _advance_state(
     *,
     labels: set[str],
     read_head: bool,
+    armed: bool,
     counted_from: str | None,
     owed: bool,
     running: bool,
@@ -544,9 +583,20 @@ def _advance_state(
     if capped or owed or running:
         return _withdraw_advance(labels, remove, "not-eligible")
     if counted_from is not _COUNT_NOTHING:
-        # Already ready for review: the draft phase is over and this authority does not apply.
-        return _withdraw_advance(labels, remove, "lane-complete")
-    if not read_head:
+        # PAST THE DRAFT, AND STILL UNFINISHED. Reading `ready for review` as "the lane is
+        # complete" stranded it one step further along than before (Codex P1 on #407): an ADVANCE
+        # worker marks the PR ready and exits, and the remaining phases - ask CodeRabbit, then arm
+        # auto-merge once it comes back clean - are exactly the ones auto-merge cannot perform.
+        #
+        # The lane is complete when the merge is ARMED, which is the one state that needs no
+        # further session. Everything before it is another phase for another worker.
+        if armed:
+            return _withdraw_advance(labels, remove, "lane-complete")
+    elif not read_head:
+        # In the DRAFT phase only, a review must have happened. Without it a freshly opened draft
+        # would advance the moment its checks went green, before the free provider ever looked at
+        # it. Past the draft that condition would be the strand above, since the phase a ready PR
+        # is waiting for is a review nobody has asked for yet.
         return _withdraw_advance(labels, remove, "no-review-yet")
     if ADVANCE_LABEL in labels:
         return "unchanged"
@@ -602,7 +652,12 @@ def _round_label(rounds: int) -> str | None:
 #: rather than the tail of an add. Clearing `agent:needs-amend` is the only one: it retracts the
 #: launcher's authority to start a session, so a silently failed DELETE leaves a PR that owes
 #: nothing still advertising that it owes an AMEND, and the launcher keeps spending sessions on it.
-CHECKED_REMOVALS = frozenset({AMEND_LABEL})
+# Both are launcher AUTHORITY, so a removal that silently fails leaves a session authorised against
+# state that no longer justifies it. `agent:needs-advance` joins for exactly the reason
+# `agent:needs-amend` is here: `_withdraw_advance` fires when a finding is owed, checks are running,
+# the cap is reached or the lane completed, and in every one of those a surviving label starts an
+# ADVANCE against a PR that is no longer eligible for one (Codex P2 on #407).
+CHECKED_REMOVALS = frozenset({AMEND_LABEL, ADVANCE_LABEL})
 
 
 def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> None:
@@ -714,6 +769,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     advance = _advance_state(
         labels=labels,
         read_head=read_head,
+        armed=bool(pr.get("auto_merge")),
         counted_from=counted_from,
         owed=owed,
         running=running,

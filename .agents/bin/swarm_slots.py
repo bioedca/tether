@@ -595,36 +595,29 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
     number = item["issue"]
     record = _existing_claim(number, owner)
     generation = int(record["generation"])
-    ordinal = _issued_advances(number, generation) + 1
     sha = reaper._read_ref(number)
     if sha is None:
         raise SlotError(f"#{number} claim ref vanished before its lane advance could be issued")
-    ref = f"refs/{ADVANCE_NAMESPACE}/{number}-{generation}-{ordinal}"
+    # Keyed to the HEAD and the PHASE, not to the next ordinal. An ordinal only deduplicates
+    # launchers that race on the same count: one that has already created `-1` while triage has not
+    # yet withdrawn the label leaves the next launcher reading one ref, creating `-2`, and starting
+    # a SECOND session against the same reviewed head - which can spend the Greptile credit twice,
+    # real money (Codex P2 on #407). Keying on the state the authority describes makes the second
+    # launcher collide on `422`, which is what a mutex is for.
+    phase = "draft" if _in_draft_phase(record["branch"]) else "ready"
+    ref = f"refs/{ADVANCE_NAMESPACE}/{number}-{generation}-{sha[:12]}-{phase}"
     status, _ = claim._request("POST", f"/repos/{REPO}/git/refs", {"ref": ref, "sha": sha})
     if status == 422:
         item["mode"] = "lost"
-        item["reason"] = f"another launcher issued lane advance {ordinal} for #{number} first"
+        item["reason"] = f"another launcher already advanced #{number}'s {phase} phase at {sha[:7]}"
         return None
     if status != 201:
         raise SlotError(
-            f"lane advance {ordinal} for #{number} could not be claimed (HTTP {status})"
+            f"the {phase}-phase lane advance for #{number} could not be claimed (HTTP {status})"
         )
     item["round"] = 0
     item["remaining"] = CAP - item["label_rounds"]
     return record
-
-
-def _issued_advances(number: int, generation: int) -> int:
-    """How many lane advances this exact claim has already been issued. Fails closed."""
-    prefix = f"{ADVANCE_NAMESPACE}/{number}-{generation}-"
-    status, refs = claim._request("GET", f"/repos/{REPO}/git/matching-refs/{prefix}")
-    if status == 404:
-        return 0
-    if status != 200 or not isinstance(refs, list):
-        raise SlotError(
-            f"#{number} lane-advance count could not be read (HTTP {status}); refusing to guess it"
-        )
-    return len(refs)
 
 
 def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:

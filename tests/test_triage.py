@@ -227,7 +227,7 @@ def test_round_labels_only_escalate(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert result["rounds"] == 1
     # round-1 is BELOW the capped label already held, so nothing is written and nothing removed.
-    assert fake.added == []
+    assert [n for n in fake.added if n in triage.ALL_ROUND_LABELS] == []
     assert triage.CAPPED_LABEL not in fake.removed
 
 
@@ -292,7 +292,8 @@ def test_a_zero_recount_never_clears_a_round_label(monkeypatch: pytest.MonkeyPat
     )
     assert result["rounds"] == 0
     assert triage.CAPPED_LABEL not in fake.removed
-    assert fake.added == [], "a zero recount writes no round label either"
+    round_labels = [n for n in fake.added if n in triage.ALL_ROUND_LABELS]
+    assert round_labels == [], "a zero recount writes no round label either"
 
 
 def test_a_draft_excursion_after_ready_still_keeps_its_spent_rounds(
@@ -1073,12 +1074,19 @@ def test_a_draft_nobody_has_reviewed_yet_is_not_authorised_to_advance(
     assert result["advance"] == "no-review-yet"
 
 
-def test_a_pull_request_already_ready_for_review_has_no_draft_to_advance(
+def test_a_ready_pull_request_with_the_merge_armed_is_the_lane_complete(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#394's fourth criterion from the other end: nothing published once the lane is complete."""
+    """#394's fourth criterion: nothing published once the lane is complete.
+
+    Complete means the merge is **armed**, not merely that the PR went ready — Codex's P1 on this
+    PR. Reading `ready for review` as complete stranded the lane one step further along: an ADVANCE
+    worker marks the PR ready and exits, and asking CodeRabbit and then arming are exactly the
+    phases auto-merge cannot perform for itself.
+    """
     _, result = _run(
         _routes(
+            pr=_pr(auto_merge={"enabled_by": {"login": "bioedca"}}),
             reviews=[dict(_review(RABBIT, HEAD), submitted_at=AFTER_READY)],
             timeline=[_ready(READY_TIME)],
             suites=GREEN,
@@ -1086,6 +1094,57 @@ def test_a_pull_request_already_ready_for_review_has_no_draft_to_advance(
         monkeypatch,
     )
     assert result["advance"] == "lane-complete"
+
+
+def test_a_ready_pull_request_awaiting_its_gate_is_still_advanced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The P1 itself: green, ready, owing nothing, and nobody has asked CodeRabbit.
+
+    This is the state an ADVANCE worker leaves behind when it marks the PR ready and exits, and it
+    is the one the mandatory gate is waiting on. Before this it published nothing at all.
+    """
+    _, result = _run(
+        _routes(timeline=[_ready(READY_TIME)], suites=GREEN),
+        monkeypatch,
+    )
+    assert result["advance"] == "added"
+
+
+def test_a_provider_verdict_naming_the_head_counts_as_a_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex's CLEAN pass produces no review object at all — Codex's own P1 on this PR.
+
+    It submits a review when it has findings and posts a plain issue comment when it does not, so
+    the draft that most deserves to advance is exactly the one `/pulls/{n}/reviews` cannot show.
+    The comment names the head it read, and that string is its only binding.
+    """
+    routes = _routes(pr=_pr(draft=True), suites=GREEN)
+    routes[("GET", "/repos/bioedca/tether/issues/99/comments")] = (
+        200,
+        [
+            {
+                "user": {"login": CODEX},
+                "body": f"Codex Review: nothing.\n\n**Reviewed commit:** `{HEAD[:10]}`",
+            }
+        ],
+    )
+    _, result = _run(routes, monkeypatch)
+    assert result["advance"] == "added"
+
+
+def test_a_verdict_naming_an_older_head_does_not_authorise_an_advance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control: a verdict is head-bound, and a stale one must not advance a moved diff."""
+    routes = _routes(pr=_pr(draft=True), suites=GREEN)
+    routes[("GET", "/repos/bioedca/tether/issues/99/comments")] = (
+        200,
+        [{"user": {"login": CODEX}, "body": f"**Reviewed commit:** `{OLDER[:10]}`"}],
+    )
+    _, result = _run(routes, monkeypatch)
+    assert result["advance"] == "no-review-yet"
 
 
 def test_a_running_check_suite_holds_the_advance_back(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1574,7 +1633,17 @@ def test_the_conflict_marker_is_cleared_on_merge(monkeypatch: pytest.MonkeyPatch
 
 def test_the_workflow_listens_for_the_merge_event() -> None:
     triggers = _workflow()[True]
-    assert triggers["pull_request"]["types"] == ["closed"]
+    assert "closed" in triggers["pull_request"]["types"]
+
+
+def test_the_workflow_listens_for_the_lanes_own_phase_change() -> None:
+    """`ready_for_review` is a lane step, and nothing else re-triages the claim after it (#394).
+
+    An ADVANCE worker marks the PR ready and exits. No check suite completes and no review is
+    submitted by that alone, so without this trigger the lane strands at the step it was just moved
+    to — with no authority published to ask for the mandatory CodeRabbit review.
+    """
+    assert "ready_for_review" in _workflow()[True]["pull_request"]["types"]
 
 
 def test_the_workflow_passes_merged_only_on_the_pull_request_event() -> None:

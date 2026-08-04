@@ -445,7 +445,10 @@ def test_an_advance_takes_a_ref_outside_the_round_ledger(
 
     slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
     assert fake.amend_refs() == [], "an advance must not touch the round ledger"
-    assert f"refs/{slots.ADVANCE_NAMESPACE}/7-77-1" in fake.created_refs
+    # Keyed to the head and the phase, not to a running ordinal: an ordinal only deduplicates
+    # launchers racing on the same COUNT, so one that had already taken `-1` while the label was
+    # still published would create `-2` and start a second session against the same reviewed head.
+    assert fake.created_refs == [f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-ready"]
 
 
 def test_losing_the_advance_race_launches_nothing(
@@ -470,6 +473,7 @@ def test_losing_the_advance_race_launches_nothing(
     entry = _by_issue(report, 7)
     assert entry["mode"] == "lost"
     assert entry["launched"] is False
+    assert "already advanced" in entry["reason"]
     assert not list(tmp_path.glob("_task-issue-*"))
 
 

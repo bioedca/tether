@@ -87,8 +87,12 @@ on:
   # survives on a finished item, and `agent:needs-amend` is the launcher's authority to start an
   # AMEND session. `closed` covers merged and unmerged alike; triage.py checks `merged` and refuses
   # the unmerged case, because a PR closed without merging may still have a live claim behind it.
+  # `ready_for_review` is the lane's own phase change, and without it the lane strands at the step
+  # it was just moved to (#394). An ADVANCE worker marks the PR ready and exits; no check suite
+  # completes and no review is submitted by that alone, so nothing re-triaged the claim and nothing
+  # published the authority to ask for the mandatory CodeRabbit review. Codex found it on #407.
   pull_request:
-    types: [closed]
+    types: [closed, ready_for_review]
   workflow_dispatch:
     inputs:
       pr:
