@@ -299,7 +299,9 @@ Copilot is optional, while every PR needs substantive independent review request
 checks are green and the diff is declared final. **Every PR walks the same lane,
 cheapest provider first: Codex on the draft, uncapped; then optionally one metered
 Greptile credit if the seat has budget; then CodeRabbit with no actionable comments,
-which is the last gate before merge.** Author-side or local review, and status-only
+which is the last gate before merge.** A PR **opened ready** is allowed and skips the
+free draft phase — it pays for that, because with no `ready_for_review` transition to
+count from, every round it has ever taken is a counted one. Record the reason in the PR. Author-side or local review, and status-only
 output, do not satisfy it. **Exhaustion is not incapacity** — a provider with no budget
 left has not reviewed: Greptile out of credits is skippable and never blocks, while
 CodeRabbit unavailable freezes the PR.
@@ -375,8 +377,11 @@ any other commenter, never does. **Exhaustion is not incapacity**: a provider wi
 to say has reviewed, a provider with no budget left has not. Greptile out of credits is
 skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because it is the
 gate. Record which and why — capability, never quota. There are **at most two rounds**
-after the PR goes ready, and under the swarm model the launcher issues them: do not
-request one yourself on a PR labelled `agent:review-capped`. Human sign-off is required
+after the PR goes ready, counted against **metered providers only** — draft-phase Codex
+is uncounted, and so is Codex after the PR goes ready. Under the swarm model the
+launcher issues those rounds: do not request one yourself on a PR labelled
+`agent:review-capped`, and past the cap the launcher injects no task at all, so no
+worker ever holds authority for a third. Human sign-off is required
 only for releases, tags, signing, and new scientific claims.
 
 ## Reporting bugs & security issues

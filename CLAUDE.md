@@ -114,7 +114,8 @@ If they conflict, stop, choose the safe option, and ask.
   **advisory only** — it never satisfies a leg, and a quota refusal is *did not review*, not a pass.
 - **Two rounds after the draft, and you do not issue them.** The cap counts only rounds taken once
   the PR is ready for review, and only against metered providers — draft-phase Codex is uncounted.
-  Every AMEND is a fresh session whose task text the launcher injects with `ROUND = N of 2`.
+  Every AMEND is a fresh session whose task text the launcher injects with `ROUND = N of 2`; past
+  the cap it injects none, so no worker ever holds authority for a third.
   Stop-list, not judgement: **never a review request while `agent:review-capped` is present**.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to

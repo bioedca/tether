@@ -92,4 +92,6 @@ The review lane this configuration serves is specified in
 [`docs/agents/review.md`](../docs/agents/review.md) and decided in
 [ADR-0062](../docs/adr/0062-draft-first-review-lane-with-metered-providers.md). In short: Greptile is
 **step 2 of 4**, asked once on a draft that is already green and has already survived free Codex
-iteration, and skipped without ceremony when the seat has no budget.
+iteration. When the seat has no budget the step is skipped without a request — but **not without a
+record**: the skip and its reason belong in the PR body, because afterwards "no credits this month"
+and "nobody thought to ask" are indistinguishable, and only one of them is compliant.
