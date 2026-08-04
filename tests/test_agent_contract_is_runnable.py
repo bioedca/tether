@@ -69,11 +69,6 @@ WORKER_FACING = [path for path in GUARDED_FILES if path not in HUMAN_FACING]
 LANE_SPECIFIC = frozenset({CLAUDE_SKILL, _REPO / "CLAUDE.md"})
 BOTH_LANES = [path for path in WORKER_FACING if path not in LANE_SPECIFIC]
 
-# `.agents/tasks/*.md` are rendered by `swarm_slots._render` before a worker sees them, so they take
-# the launcher's `{{PYTHON}}` token rather than the reader-substituted `<py>`. Both are resolvers;
-# neither is an interpreter name, which is the property this file cares about.
-_RESOLVERS = ("<py>", "{{PYTHON}}")
-
 # `<py>` is only a convention if the page says what it stands for. Both existing definitions read
 # "`<py>` is your lane's interpreter", wrapped across a line break in `AGENTS.md`, so the window is
 # generous and the match is on the pairing rather than on either word alone.
@@ -89,8 +84,23 @@ ABSOLUTE = ("C:\\", "c:\\", "/mnt/", "%APPDATA%", "Program Files", "$env:", "~/"
 # like an invocation rather than a filename or a label. Naming the tools this repository actually
 # tells a worker to run keeps prose like `agent/issue-<N>` out of the sample.
 _TOOLS = ("python", "python3", "gh", "git", "pytest", "mkdocs", "reuse", "pre-commit")
+
+# A resolver standing in for the interpreter: `<py>` for a reader to substitute as it goes,
+# `{{PYTHON}}`/`{{GH}}` for the launcher to render into a task template. Both are matched with a
+# LOOKAHEAD rather than `\b`, because these tokens end in a non-word character — `>` and `}` — so
+# `\b` never holds between them and the following space.
+#
+# That is not a nicety. It meant the resolver branch had never matched anything: `{{PYTHON}}`
+# commands were reaching the sample only through the `.agents/bin/` branch below, and the moment
+# `docs/agents/gates.md` was corrected to `<py> scripts/dump_schema.py --check` — a script outside
+# `.agents/bin/` — that line dropped out of `_commands` entirely. Widening the guard would then have
+# stopped checking a required gate's command, and every rule below would have passed it vacuously.
+# Codex found it on #390.
+_RESOLVERS = (r"<py>", r"\{\{PYTHON\}\}", r"\{\{GH\}\}")
 _INVOCATION = re.compile(
-    r"^(?:\{\{(?:PYTHON|GH)\}\}|" + "|".join(_TOOLS) + r")\b|(?<![\w/])\.agents/bin/\S+\.py\b"
+    r"^(?:" + "|".join(_RESOLVERS) + r")(?=\s|$)"
+    r"|^(?:" + "|".join(_TOOLS) + r")\b"
+    r"|(?<![\w/])\.agents/bin/\S+\.py\b"
 )
 
 # Fence languages that assert a shell the dispatched worker may not be in. `sh` is the honest
@@ -188,6 +198,35 @@ def test_the_sample_is_not_empty() -> None:
     # every page would only invite a decorative command to satisfy the test.
     for page in (_REPO / "AGENTS.md", _REPO / "CONTRIBUTING.md", _REPO / "docs/agents/adr.md"):
         assert _commands(page), f"{page.name} carries no command; the widened guard reads nothing"
+
+
+def test_a_resolver_led_command_is_visible_to_the_parser() -> None:
+    """A rule that cannot see the command it governs is worse than no rule.
+
+    Codex's P2 on this PR. `_INVOCATION` accepted only a known tool name at the start or
+    `.agents/bin/*.py` anywhere, so `<py> scripts/dump_schema.py --check` — the corrected form of a
+    **required local gate** — matched neither and left `_commands` entirely. Converting a page to
+    `<py>` would then have *reduced* what the widened guard checked on that line.
+
+    Asserted on the pattern as well as on the page, so it holds for the next resolver-led command
+    too, wherever its script lives.
+    """
+    missed = [
+        command
+        for command in (
+            "<py> scripts/dump_schema.py --check",
+            "<py> .agents/bin/claim.py reserve-adr",
+            "{{PYTHON}} .agents/bin/claim.py check --issue 7 --generation 5",
+            "{{GH}} pr merge 7 --auto --squash",
+        )
+        if not _INVOCATION.search(command)
+    ]
+    assert not missed, f"no rule below applies to a command the parser cannot see: {missed}"
+
+    gates = _commands(_REPO / "docs" / "agents" / "gates.md")
+    assert any("dump_schema.py" in command for _number, command in gates), (
+        "the schema gate's command is a required local gate and must be inside the sample"
+    )
 
 
 def test_no_command_names_an_absolute_path() -> None:
