@@ -143,12 +143,35 @@ leg, and a quota refusal from it is recorded as *did not review*.
   session to walk phases it cannot reach, and dispatching the lane to a worker waits for **both**
   #394 and #391 — they gate it independently, one by publishing no resumption and the other by
   refusing the resumptions that do get published.
-- **The launcher keeps a second cap, and it is not yet phase-aware.** `swarm_slots.py` records every
-  AMEND in a permanent generation ref and refuses another past `CAP`, independently of the labels —
-  deliberately, so either counter can bind. It has no notion of draft state, so two draft iterations
-  exhaust it while `triage.py` correctly reports zero rounds, and the uncapped loop stalls at the
-  launcher with nothing saying why. Tracked as **#391**, and it blocks dispatching this lane to a
-  worker. It does not affect a hand-driven PR, which is how this record's own PR was worked.
+
+  **#391 is resolved** (see the launcher entry below), and **#393** with it. #394 remains, so the
+  lane is still hand-driven past the point a clean review lands: nothing publishes the authority to
+  advance it.
+- **The launcher's second cap is phase-aware, in its own ledger** (amended by
+  [#391](https://github.com/bioedca/tether/issues/391)). `swarm_slots.py` records every AMEND in a
+  permanent generation ref and refuses another past `CAP`, independently of the labels —
+  deliberately, so either counter can bind. As first written it had no notion of draft state, so two
+  draft iterations exhausted it while `triage.py` correctly reported zero rounds, and the uncapped
+  loop stalled at the launcher with nothing saying why.
+
+  A draft-phase session now takes its ref under a `draft-` ordinal
+  (`refs/amend-rounds/<issue>-<generation>-draft-<n>`), which the cap does not count. It still takes
+  a ref, because that ref is the mutex stopping two launchers from starting the same session — a
+  separate job from counting, and one the draft phase needs just as much.
+
+  Three properties are load-bearing and each is pinned by a test. **The phase is written into the
+  ref name**, not re-derived when the ledger is read: a ref is immutable, so it records what was true
+  when the session was issued, where reading `draft` at audit time would let a PR that has since
+  gone ready make its own draft history retroactively count. **The phase comes from
+  `triage._counted_from`**, the same predicate the round labels come from, so `agent:review-capped`
+  and the launcher's refusal cannot disagree about which phase a PR is in — and because that keys on
+  the *first* `ready_for_review`, entering the counted phase stays permanent here too. **It fails
+  toward the cap**: no pull request, or one that cannot be read, is the counted phase, because the
+  uncapped phase has to be positively established.
+
+  `max(issued, label_rounds)` is unchanged for the counted phase. This changes which refs are
+  counted, never how the count is compared, so the launcher's bound remains at worst as strict as
+  the contract's.
 
 ## Alternatives considered
 
