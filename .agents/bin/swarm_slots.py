@@ -522,6 +522,14 @@ def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
 
 
 def run(*, slots: int, vendor: str, owner: str, spawn: bool, tasks: Path) -> dict[str, Any]:
+    # The lane's interpreter is resolved FIRST, before the plan and before any mutation. It is a
+    # property of the argument alone - no I/O, nothing to read - so discovering it late buys nothing
+    # and costs everything: `_render` runs after `_dispatch_build` has created the claim ref or
+    # `_authorise_amend` has burned a permanent round ref, so a refusal there strands a claim until
+    # the reaper, or spends one of the two rounds irrevocably, without launching a worker. Same
+    # argument as the template validation below, and the same one `AGENTS.md` makes about releasing
+    # a claim rather than abandoning it.
+    _lane_python(vendor)
     plan = _plan(slots=slots, vendor=vendor)
     # Validate every template this run may use BEFORE any of it is consumed. A template defect is a
     # property of the file alone, so there is no reason to discover it after taking a claim - which
