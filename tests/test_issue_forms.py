@@ -49,7 +49,8 @@ AUTONOMY_OPTIONS = {
 # Frozen option sets, asserted the same way AUTONOMY_OPTIONS is. Without them a form offering
 # "size:S" where another offers "S" goes uncaught, and whoever reads these answers at grooming has
 # no stable vocabulary to read. Each label names the CONSEQUENCE, which is what makes a
-# non-maintainer's answer usable: `risk` selects the reviewer, `size` promises a line budget.
+# non-maintainer's answer usable: `risk` says whether a metered credit is worth spending, `size`
+# promises a line budget.
 SIZE_OPTIONS = {
     "XS — up to 50 added lines",
     "S — up to 150 added lines",
@@ -57,10 +58,12 @@ SIZE_OPTIONS = {
     "L — up to 900 added lines, the largest budget there is",
     "unsure — leave it to grooming",
 }
+#: Risk no longer picks the reviewer — every PR walks the same cheapest-first lane (ADR-0062).
+#: What risk still decides is whether a metered Greptile credit is worth spending on it.
 RISK_OPTIONS = {
-    "low — Codex reviews it",
-    "standard — Codex reviews it",
-    "high — both Codex and CodeRabbit, answering as one round",
+    "low — the lane: Codex on the draft, then CodeRabbit",
+    "standard — the lane: Codex on the draft, then CodeRabbit",
+    "high — the lane, and a Greptile credit is worth spending if the seat has budget",
     "unsure — leave it to grooming",
 }
 ADR_NEEDED_OPTIONS = {

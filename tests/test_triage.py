@@ -41,6 +41,7 @@ OLDER = "e" * 40
 CODEX = "chatgpt-codex-connector[bot]"
 RABBIT = "coderabbitai[bot]"
 COPILOT = "copilot-pull-request-reviewer[bot]"
+GREPTILE = "greptile-apps[bot]"
 
 
 class Fake:
@@ -126,6 +127,7 @@ def _routes(
     comments: list[dict[str, Any]] | None = None,
     suites: dict[str, Any] | None = None,
     issue_state: str = "open",
+    timeline: list[dict[str, Any]] | None = None,
 ) -> Routes:
     return {
         ("GET", "/repos/bioedca/tether/pulls/99/reviews"): (200, reviews or []),
@@ -136,6 +138,7 @@ def _routes(
             {"state": issue_state, "labels": [{"name": n} for n in (labels or [])]},
         ),
         ("GET", "/repos/bioedca/tether/commits"): (200, suites if suites is not None else GREEN),
+        ("GET", "/repos/bioedca/tether/issues/99/timeline"): (200, timeline or []),
     }
 
 
@@ -155,7 +158,7 @@ def test_no_amend_authority_is_issued_once_capped(monkeypatch: pytest.MonkeyPatc
     because a prose rule was the only thing holding it.
     """
     fake, result = _run(
-        _routes(reviews=[_review(CODEX, OLDER), _review(RABBIT, HEAD)], suites=RED),
+        _routes(reviews=[_review(RABBIT, OLDER), _review(RABBIT, HEAD)], suites=RED),
         monkeypatch,
     )
     assert result["rounds"] == 2
@@ -186,7 +189,7 @@ def test_inline_review_comments_count_even_without_a_submission(
 ) -> None:
     """A provider can post findings with no submission wrapper; missing those undercounts."""
     _, result = _run(
-        _routes(comments=[_review(CODEX, OLDER)], reviews=[_review(RABBIT, HEAD)], suites=GREEN),
+        _routes(comments=[_review(RABBIT, OLDER)], reviews=[_review(RABBIT, HEAD)], suites=GREEN),
         monkeypatch,
     )
     assert result["rounds"] == 2
@@ -219,7 +222,7 @@ def test_the_author_never_consumes_a_round(monkeypatch: pytest.MonkeyPatch) -> N
 def test_round_labels_only_escalate(monkeypatch: pytest.MonkeyPatch) -> None:
     """Monotonic on purpose: stepping back from capped would re-authorise a spent round."""
     fake, result = _run(
-        _routes(labels=[triage.CAPPED_LABEL], reviews=[_review(CODEX, HEAD)], suites=GREEN),
+        _routes(labels=[triage.CAPPED_LABEL], reviews=[_review(RABBIT, HEAD)], suites=GREEN),
         monkeypatch,
     )
     assert result["rounds"] == 1
@@ -235,13 +238,86 @@ def test_reaching_the_cap_replaces_the_earlier_round_label(
     fake, _ = _run(
         _routes(
             labels=["agent:round-1"],
-            reviews=[_review(CODEX, OLDER), _review(RABBIT, HEAD)],
+            reviews=[_review(RABBIT, OLDER), _review(RABBIT, HEAD)],
             suites=GREEN,
         ),
         monkeypatch,
     )
     assert triage.CAPPED_LABEL in fake.added
     assert "agent:round-1" in fake.removed
+
+
+def test_a_failed_amend_label_removal_is_reported_not_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CodeRabbit's finding on #385, and it falsified a claim this PR had just introduced.
+
+    `_apply`'s docstring said "every removal this function makes is paired with an add". Clearing
+    `agent:needs-amend` is not — it is the whole change, and it *retracts authority*. Swallowed, the
+    PR owes nothing but still advertises that it owes an AMEND, and the launcher keeps starting
+    sessions against a permanent cap. Superseded round labels stay best-effort, since an add already
+    published the truth beside them.
+    """
+    routes = _routes(labels=[triage.AMEND_LABEL], reviews=[], suites=GREEN, timeline=[])
+    routes[("DELETE", f"/repos/bioedca/tether/issues/7/labels/{triage.AMEND_LABEL}")] = (500, None)
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(triage.TriageError, match="AMEND"):
+        triage.triage(number=99, branch=None, dry_run=False)
+    assert triage.AMEND_LABEL in fake.removed, "the delete was attempted before it was reported"
+
+
+def test_an_amend_label_already_absent_is_not_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """404 is the end state asked for, reached by another route — not an error to escalate."""
+    routes = _routes(labels=[triage.AMEND_LABEL], reviews=[], suites=GREEN, timeline=[])
+    routes[("DELETE", f"/repos/bioedca/tether/issues/7/labels/{triage.AMEND_LABEL}")] = (404, None)
+    _install(monkeypatch, routes)
+    assert triage.triage(number=99, branch=None, dry_run=False)["amend"] == "cleared"
+
+
+def test_a_zero_recount_never_clears_a_round_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No automatic migration for labels written under the pre-ADR-0062 semantics, on purpose.
+
+    Three versions of one were tried on #385 and each was worse than the last, because a recount of
+    zero is ambiguous in a way no predicate here can resolve. It means *never spent* for a stale
+    label — and *the evidence was deleted* for a real round a metered provider left as wrapper-less
+    inline comments, which `_review_state` supports. Clearing on zero refunds the second case, which
+    is fail-OPEN on the cap: the one thing this module exists to hold.
+
+    So a stale label is removed by hand — a command someone runs, where a wrong automatic clear is
+    silent. Verified empty before ADR-0062 merged.
+    """
+    fake, result = _run(
+        _routes(labels=[triage.CAPPED_LABEL], reviews=[], suites=GREEN, timeline=[]),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0
+    assert triage.CAPPED_LABEL not in fake.removed
+    assert fake.added == [], "a zero recount writes no round label either"
+
+
+def test_a_draft_excursion_after_ready_still_keeps_its_spent_rounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A PR that HAS been ready and returned to draft keeps the round it spent.
+
+    Its `counted_from` is the *first* ready instant, so evidence from before the excursion still
+    counts and the label stands. This is the toggle-to-refund loophole staying closed.
+    """
+    fake, result = _run(
+        _routes(
+            pr=_pr(draft=True),
+            labels=["agent:round-1"],
+            reviews=[dict(_review(RABBIT, HEAD), submitted_at="2026-08-02T12:00:00Z")],
+            suites=GREEN,
+            timeline=[
+                {"event": "ready_for_review", "created_at": "2026-08-02T00:00:00Z"},
+                {"event": "convert_to_draft", "created_at": "2026-08-02T18:00:00Z"},
+            ],
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+    assert "agent:round-1" not in fake.removed
 
 
 # --------------------------------------------------------------------- the amend label
@@ -341,7 +417,7 @@ def test_a_review_on_an_older_head_does_not_owe_at_the_current_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Pushing the fix moves the head, which is exactly how an answered round stops owing."""
-    _, result = _run(_routes(comments=[_review(CODEX, OLDER)], suites=GREEN), monkeypatch)
+    _, result = _run(_routes(comments=[_review(RABBIT, OLDER)], suites=GREEN), monkeypatch)
     assert result["rounds"] == 1
     assert result["review_owed"] is False
     assert result["amend"] == "unchanged"
@@ -357,7 +433,7 @@ def test_a_capped_pr_keeps_a_marker_the_reaper_applied(monkeypatch: pytest.Monke
     fake, result = _run(
         _routes(
             labels=[triage.AMEND_LABEL],
-            reviews=[_review(CODEX, OLDER), _review(RABBIT, HEAD)],
+            reviews=[_review(RABBIT, OLDER), _review(RABBIT, HEAD)],
             suites=GREEN,
         ),
         monkeypatch,
@@ -475,7 +551,7 @@ def test_a_failed_cap_write_leaves_the_previous_round_label_in_place(
     """
     routes = _routes(
         labels=["agent:round-1", triage.AMEND_LABEL],
-        reviews=[_review(CODEX, OLDER), _review(RABBIT, HEAD)],
+        reviews=[_review(RABBIT, OLDER), _review(RABBIT, HEAD)],
         suites=GREEN,
     )
     routes[("POST", "/repos/bioedca/tether/issues/7/labels")] = (403, None)
@@ -784,8 +860,8 @@ def test_answering_a_round_does_not_itself_count_as_a_round(
     """
     fake, result = _run(
         _routes(
-            reviews=[_review(CODEX, OLDER)],
-            comments=[_carried(CODEX, OLDER, HEAD)],
+            reviews=[_review(RABBIT, OLDER)],
+            comments=[_carried(RABBIT, OLDER, HEAD)],
             suites=RED,
         ),
         monkeypatch,
@@ -805,8 +881,8 @@ def test_a_genuine_second_round_still_counts_two(monkeypatch: pytest.MonkeyPatch
     """
     _, result = _run(
         _routes(
-            reviews=[_review(CODEX, OLDER)],
-            comments=[_carried(CODEX, HEAD, HEAD)],
+            reviews=[_review(RABBIT, OLDER)],
+            comments=[_carried(RABBIT, HEAD, HEAD)],
             suites=RED,
         ),
         monkeypatch,
@@ -824,8 +900,202 @@ def test_a_submitted_review_has_no_original_and_still_counts(
     assert triage._reviewed_head({"original_commit_id": "", "commit_id": HEAD}) == HEAD
     assert triage._reviewed_head({}) is None
 
-    _, result = _run(_routes(reviews=[_review(CODEX, HEAD)], suites=RED), monkeypatch)
+    _, result = _run(_routes(reviews=[_review(RABBIT, HEAD)], suites=RED), monkeypatch)
     assert result["rounds"] == 1
+
+
+# ------------------------------------------------------- the cap starts at ready-for-review (#384)
+#
+# The review lane spends the unmetered provider first, on a draft, iterating until nothing blocking
+# is left, and only then marks the PR ready and starts spending metered reviews. Counting that draft
+# iteration would strand the PR at `agent:review-capped` before it ever reached the mandatory
+# CodeRabbit gate — the documented loop consuming the cap it is explicitly exempt from.
+
+
+def _ready(at: str) -> dict[str, Any]:
+    return {"event": "ready_for_review", "created_at": at}
+
+
+DRAFT_TIME = "2026-08-01T10:00:00Z"
+READY_TIME = "2026-08-01T12:00:00Z"
+AFTER_READY = "2026-08-01T13:00:00Z"
+
+
+def test_draft_phase_reviews_do_not_consume_a_round(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two METERED reviews on a draft, at two heads, and the PR is still on round zero.
+
+    Before #384 this counted 2 and capped the PR before it reached the CodeRabbit gate.
+
+    The providers here must be metered, which is CodeRabbit's finding on #385: an earlier version
+    used `CODEX` twice, and Codex consumes no round in *any* phase, so the assertion held for the
+    wrong reason and the draft exemption itself went untested. Every other draft-phase test had the
+    same shape, so the load-bearing behaviour of this whole change had no coverage at all.
+    `test_codex_never_consumes_a_round_even_after_ready` covers the Codex axis separately.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[
+                dict(_review(RABBIT, OLDER), submitted_at=DRAFT_TIME),
+                dict(_review(GREPTILE, HEAD), submitted_at=DRAFT_TIME),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=RED,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0
+    assert result["capped"] is False
+
+
+def test_a_review_after_ready_for_review_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The exemption is the draft phase, not the provider — the cap must still bind after ready."""
+    _, result = _run(
+        _routes(
+            reviews=[dict(_review(RABBIT, HEAD), submitted_at=AFTER_READY)],
+            timeline=[_ready(READY_TIME)],
+            suites=RED,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+
+
+def test_a_pull_request_still_in_draft_has_taken_no_counted_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No `ready_for_review` has happened yet, so nothing can have been counted against the cap.
+
+    The review is a **metered** one on purpose. Codex consumes no round in any phase, so asserting
+    zero against it would hold whether or not the draft exemption existed.
+    """
+    _, result = _run(
+        _routes(
+            pr=_pr(draft=True),
+            reviews=[dict(_review(RABBIT, HEAD), submitted_at=DRAFT_TIME)],
+            suites=RED,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0
+
+
+def test_a_pr_opened_ready_counts_every_round_it_ever_had(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No `ready_for_review` event and not a draft means it was never a draft.
+
+    The absence of the event must not be read as "the cap never started" — that would exempt every
+    PR opened the ordinary way, which is most of them.
+    """
+    _, result = _run(_routes(reviews=[_review(RABBIT, HEAD)], timeline=[], suites=RED), monkeypatch)
+    assert result["rounds"] == 1
+
+
+def test_an_unreadable_timeline_counts_everything_rather_than_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cap is a safety control, so an API failure must fail toward counting.
+
+    Capping one round early asks the maintainer a question; the other direction hands out an
+    unbounded review budget, and metered providers make that a bill as well as a risk.
+    """
+    routes = _routes(reviews=[_review(RABBIT, HEAD)], suites=RED)
+    del routes[("GET", "/repos/bioedca/tether/issues/99/timeline")]
+    _, result = _run(routes, monkeypatch)
+    assert result["rounds"] == 1
+
+
+def test_draft_findings_still_owe_an_answer_even_though_they_cost_no_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A finding does not stop mattering because it arrived on a draft.
+
+    The two are separate axes: `rounds` is the budget, `owed` is whether the CURRENT head has an
+    unanswered blocking finding. Conflating them would let a worker discard draft findings by
+    marking the PR ready.
+
+    The finding is a **metered** provider's so that both halves are load-bearing: Codex is owed an
+    answer but never costs a round, which would leave the `rounds` assertion true for a reason that
+    has nothing to do with drafts.
+    """
+    fake, result = _run(
+        _routes(
+            comments=[dict(_carried(RABBIT, HEAD, HEAD), created_at=DRAFT_TIME)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0, "a draft finding is not a round"
+    assert triage.AMEND_LABEL in fake.added, "but it is still owed an answer"
+
+
+def test_codex_never_consumes_a_round_even_after_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codex is the unmetered lane; the cap exists to ration the providers that cost something.
+
+    Counting it would let free iteration eat the rounds reserved for the mandatory CodeRabbit
+    stage — the same strand-before-the-gate failure as counting draft rounds, one step later.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[
+                dict(_review(CODEX, OLDER), submitted_at=AFTER_READY),
+                dict(_review(CODEX, HEAD), submitted_at=AFTER_READY),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=RED,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0, "Codex is not metered, so it cannot consume a round"
+    assert triage.AMEND_LABEL in fake.added, "its findings are still owed an answer"
+
+
+def test_a_greptile_review_owes_an_answer_like_any_other_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A PAID review that nothing answers is the worst outcome of the lane.
+
+    `EXTERNAL_PROVIDERS` held only Codex and CodeRabbit, so a Greptile review arriving after the
+    short-lived worker exited published no AMEND authority at all and the PR could advance without
+    answering the credit it had just spent.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[dict(_review(GREPTILE, HEAD), submitted_at=AFTER_READY, state="COMMENTED")],
+            comments=[dict(_carried(GREPTILE, HEAD, HEAD), created_at=AFTER_READY)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert triage.AMEND_LABEL in fake.added, "a paid review must be answered"
+    assert result["rounds"] == 1, "and a spent credit is a real round"
+
+
+def test_toggling_back_to_draft_does_not_refund_a_spent_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Entering the counted phase is permanent — otherwise the cap is opt-out.
+
+    Two earlier versions of `_counted_from` each leaked here from a different direction: taking the
+    LAST `ready_for_review`, and short-circuiting on the current `draft` flag. Both let a worker buy
+    unlimited metered rounds by toggling draft, and a material push is granted no extra round.
+    """
+    _, result = _run(
+        _routes(
+            pr=_pr(draft=True),
+            reviews=[
+                dict(_review(RABBIT, OLDER), submitted_at=AFTER_READY),
+                dict(_review(RABBIT, HEAD), submitted_at="2026-08-01T20:00:00Z"),
+            ],
+            timeline=[_ready(READY_TIME), _ready("2026-08-01T19:00:00Z")],
+            suites=RED,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 2, "rounds spent before a draft excursion still count"
+    assert result["capped"] is True
 
 
 # --------------------------------------------------------------------------- the merge path (#308)

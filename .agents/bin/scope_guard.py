@@ -524,14 +524,93 @@ def _review_rounds(number: int) -> int:
 
     """
     heads: set[str] = set()
-    providers = {"chatgpt-codex-connector[bot]", "coderabbitai[bot]"}
-    for path in (f"/repos/{REPO}/pulls/{number}/reviews", f"/repos/{REPO}/pulls/{number}/comments"):
+    # Mirrors `triage.METERED_PROVIDERS`, not every external provider (ADR-0062). Codex is the
+    # unmetered lane and consumes no round; Greptile does, because a spent credit is a real one.
+    # Reported by name so a reader can see WHICH counter this claims to mirror.
+    providers = {"coderabbitai[bot]", "greptile-apps[bot]"}
+    counted_from = _counted_from(number)
+    for path, is_reviews in (
+        (f"/repos/{REPO}/pulls/{number}/reviews", True),
+        (f"/repos/{REPO}/pulls/{number}/comments", False),
+    ):
         for entry in claim._paginate(path, f"PR #{number} review state"):
             login = ((entry.get("user") or {}).get("login")) or ""
             sha = entry.get("original_commit_id") or entry.get("commit_id")
-            if login in providers and isinstance(sha, str) and sha:
+            # Path-appropriate, exactly as `triage._review_state` reads it, rather than
+            # `submitted_at or created_at`. The fallback spelling agrees with triage only by
+            # accident of payload shape - the reviews endpoint returns no `created_at`, so the
+            # `or` finds nothing and both fall through to "no timestamp, count it". Should a
+            # review ever carry one, scope_guard would use it and triage would not, and the guard
+            # would report FEWER rounds than the counter it mirrors: "labels ahead of the
+            # evidence", which is the corruption it exists to detect. A mirror should hold by
+            # construction, not by luck about which fields an endpoint happens to send.
+            when = entry.get("submitted_at") if is_reviews else entry.get("created_at")
+            if login not in providers or not isinstance(sha, str) or not sha:
+                continue
+            # Draft-phase rounds are free, so counting them here would report a PR as spent while
+            # triage correctly reports it as not - the disagreement this function exists to avoid.
+            if (
+                counted_from is None
+                or not isinstance(when, str)
+                or not when
+                or when >= counted_from
+            ):
                 heads.add(sha)
     return len(heads)
+
+
+def _counted_from(number: int) -> str | None:
+    """The first ``ready_for_review`` instant, or ``None`` to count everything.
+
+    A read-only mirror of ``triage._counted_from``, and it has to mirror **every** branch of it, not
+    just the common one. A guard whose purpose is to notice disagreement with the authoritative
+    counter cannot afford to disagree with it itself: this function reported one round fewer than
+    ``triage`` for a PR opened ready that later took a draft excursion, which reads as *the labels
+    are ahead of the evidence* - the exact shape of the corruption it is watching for.
+
+    Advisory, so an unreadable timeline counts everything rather than failing the job.
+    """
+    try:
+        events = claim._paginate(
+            f"/repos/{REPO}/issues/{number}/timeline", f"PR #{number} timeline"
+        )
+    except claim.ClaimError:
+        return None
+    ready = [
+        stamp
+        for event in events
+        if event.get("event") == "ready_for_review"
+        and isinstance(stamp := event.get("created_at"), str)
+        and stamp
+    ]
+    drafted = [
+        stamp
+        for event in events
+        if event.get("event") == "convert_to_draft"
+        and isinstance(stamp := event.get("created_at"), str)
+        and stamp
+    ]
+    # Opened READY: a PR created ready emits no `ready_for_review`, so a later draft excursion and
+    # return would make that return look like the first entry into the counted phase, discarding
+    # every round spent before it. A `convert_to_draft` earlier than any `ready_for_review` is the
+    # signal, and it means the clock started at creation.
+    if drafted and (not ready or min(drafted) < min(ready)):
+        return None
+    if ready:
+        return min(ready)
+    # No ready event and no draft excursion. A draft has taken no counted round - returning None
+    # here would mean "count everything" and report a Greptile review spent during the prescribed
+    # draft phase as a round.
+    return _COUNT_NOTHING if _is_draft(number) else None
+
+
+#: Sorts above every ISO-8601 instant, so the ordinary comparison rejects each entry.
+_COUNT_NOTHING = "9999-12-31T23:59:59Z"
+
+
+def _is_draft(number: int) -> bool:
+    status, pull = claim._request("GET", f"/repos/{REPO}/pulls/{number}")
+    return status == 200 and bool((pull or {}).get("draft"))
 
 
 def _render(report: dict[str, Any]) -> str:

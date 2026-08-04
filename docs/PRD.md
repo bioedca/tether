@@ -934,8 +934,10 @@ This section governs **distributed (git/GitHub) source-code version control and 
 for the public GPL-3.0 repository `github.com/bioedca/tether` (§4.1). Its scope is **source governance only** —
 large-dataset versioning is already handled by the LFS / gated-CI fixture tiers (§8 NFR-FIXTURES) and is not
 re-litigated here, and **no external data-versioning tool is introduced**. The governing posture is **solo
-developer (bioedca) with CI and risk-classified review gates**: branch protection on `main` requires green CI plus
-the §12.4 review path. There is no universal human-approval count. Qualified human/domain review is required when
+developer (bioedca) with CI and a fixed review lane as merge gates**: the **merge policy** for `main` requires green CI
+plus the §12.4 review lane. Only the first half is server-enforced — the `main` ruleset gates on the checks and thread
+resolution described in §12.3, while the review lane is enforced by whoever merges, so it **shall not** be relied on as
+a branch-protection rule. There is no universal human-approval count. Qualified human/domain review is required when
 scientific, security, or release judgment is material. The rules scale to required reviews + `CODEOWNERS` (§12.3). Unless flagged
 otherwise, every GitHub capability below is **free for this public repo**.
 
@@ -1021,17 +1023,17 @@ are exportable as JSON, version-history-tracked, and layer cleanly):
 - **No direct pushes** — every change via PR (the `push` event to `main` is blocked for everyone, the maintainer
   included; this is what makes CI the gate).
 - **Require a pull request before merging.** Required approvals = **0** in the solo model; CI, the §12.4
-  self-review checklist, and its risk-based review path are the agent merge gates. **Dismiss stale approvals on new
+  self-review checklist, and its review lane are the agent merge gates. **Dismiss stale approvals on new
   commits** is pre-enabled for scale-up.
 - **Require status checks to pass** + **require branches up to date** before merging (required checks listed in
   §12.6).
 - **Require signed commits** — enforces the SSH-verified identity (§12.1) on everything landing on `main`.
 - **Require linear history** — pairs with squash-merge (§12.2).
 - **Require conversation resolution before merging** — even solo, this forces resolving every self-review thread
-  and every actionable finding from the required risk-classified review path before merge.
+  and every actionable finding from the required review lane before merge.
 - **Block force-pushes** and **block branch deletion** on `main`.
 
-**How the solo dev merges.** With 0 ruleset approvals, bioedca squash-merges only after the §12.4 risk path is
+**How the solo dev merges.** With 0 ruleset approvals, bioedca squash-merges only after the §12.4 review lane is
 complete on the exact head SHA and required checks are green on the current base. The binding is enforced by the
 merger, not the server: `main` carries no strict up-to-date rule, and **merge queue is unavailable** because it
 requires an organization-owned repository, so every merge passes an expected-head guard
@@ -1052,14 +1054,26 @@ Small, **milestone-scoped** PRs are the unit of work (ideally one issue ↔ one 
 as a **draft PR** and cannot merge. The PR title is a Conventional-Commits string (§12.2) — it
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
-`AGENTS.md` risk path: Copilot is optional, while every PR requires substantive independent review requested once
-required checks are green and the diff is declared final. **Routing: low and standard go to Codex GitHub Code
-Review; high/load-bearing goes to both Codex and CodeRabbit, requested together and answered as one round — two
-reviewers, never two rounds.** Measured on the reaper change, the two providers' findings barely intersected, so on
-the highest-risk work neither alone was sufficient; pairing them is safe only because the round cap binds.
-Author-side/local review and a green or status-only result do not satisfy the independent gate. **Neither provider
-auto-reviews this repository** — CodeRabbit reports auto reviews disabled, and Codex fires only on open-for-review,
-draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined.
+`AGENTS.md` review lane, specified in `docs/agents/review.md` and recorded in ADR-0062: every PR requires substantive
+independent review, and the providers are spent **cheapest first** rather than routed by risk. **Open as a draft** —
+every required check runs on a draft, so the diff reaches green before anything metered is asked. **Codex iterates on
+the draft, uncapped**, until nothing blocking remains; then **optionally one Greptile credit**, if the seat has budget;
+then ready-for-review, where the two-round cap begins — counting **metered providers only**, so Codex remains uncounted
+after the transition as well as before it; then **CodeRabbit with no actionable comments, which is the last
+gate before merge**. Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
+no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
+**Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
+works in, one per completed review; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
+leg, and a quota refusal from it is *did not review*, not a pass. Exhaustion and incapacity differ: Greptile out of
+credits is skippable, CodeRabbit unavailable **freezes the PR** — though a fair-use refusal that names a retry time
+is a **wait**, not unavailability, and a request that produced no review has not spent the one-per-round allowance.
+Author-side/local review and a green or status-only
+result do not satisfy the gate. **No provider auto-reviews this repository** — CodeRabbit reports auto reviews
+disabled, Greptile is held by `.greptile/config.json`'s `skipReview: "AUTOMATIC"`, and Codex fires only on
+open-for-review, draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined. The
+one exception is a branch cut **before** that config landed: it is read from the PR's source branch, so such a branch
+still auto-fires Greptile on open. The credit is spent regardless, so the review is answered and the optional Greptile
+step recorded as spent, never discarded as unsolicited.
 
 Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
 rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
@@ -1072,9 +1086,11 @@ worker is short-lived, every AMEND is a new session whose task text the launcher
 stop-list violations rather than judgement calls: more than one self-review pass before the first external request,
 and any review request on a PR labelled `agent:review-capped`.
 
-Blocking is decided on the **severity axis only**: CodeRabbit `Critical`/`Major`, Codex `P1`, plus anything reaching
-secrets, unlicensed data, a frozen oracle or tolerance, the §5 skeleton without an ADR and version bump, or a CodeQL
-alert — and anything that falsifies a claim the PR itself introduces. CodeRabbit renders three independent things on
+Blocking is decided on the **severity axis only**: CodeRabbit `Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its
+badges use the same P-scale as Codex, so they map straight across, and a review the seat paid a credit for must not be
+answerable entirely by deferral — plus anything reaching secrets, unlicensed data, a frozen oracle or tolerance, the §5
+skeleton without an ADR and version bump, or a CodeQL alert — and anything that falsifies a claim the PR itself
+introduces. CodeRabbit renders three independent things on
 a finding, and only one is the severity: a **domain** (`Functional Correctness`, `Maintainability & Code Quality`, …),
 a **severity** (`Critical`, `Major`, `Minor`), and a machine marker (`cr-indicator-types:potential_issue`). The
 marker is a *category*, not a level — it appears on `Minor` and `Major` alike — so it never promotes a `Minor` to
@@ -1085,8 +1101,14 @@ Every other finding is deferred to one follow-up issue per PR and its thread res
 non-blocking findings in the same PR is a scope breach, and a deferral must never point at an issue that does not
 exist. When a **selected** provider reports that a change has nothing to review for that PR at the head it read —
 including Codex's 👍 reaction, its documented form of "no suggestions" — that statement satisfies its leg, quoted and
-never substituted by the author or any other commenter. On `high`, one provider that genuinely *cannot* act leaves
-the other sufficient with the reason recorded; capability, never quota. Human sign-off is required for releases,
+never substituted by the author or any other commenter. **Exhaustion is not incapacity**: a provider with no budget
+left has not reviewed. Greptile out of credits is skippable and never blocks; **CodeRabbit unavailable freezes the
+PR**, because it is the last gate and nothing merges past it. **Throttled is not unavailable**: CodeRabbit's fair-use
+limit is adaptive, and a refusal that names when the next included review is due is a wait — wait it and ask again,
+which costs no round and no request, and never accept the usage-based-billing offer that accompanies it, since that is
+the maintainer's spending decision. The elapsed interval is necessary but **not sufficient**: the `CodeRabbit` commit
+status reads `pending` while a review is in flight, and a re-request sent then destroys the running review, so the
+status **shall** be read before every ask. Human sign-off is required for releases,
 tags, signing changes, and any new scientific claim or citation; everything else merges without it.
 
 `.github/pull_request_template.md` carries the **self-review checklist** — the human-judgment gate in the solo model:
@@ -1109,7 +1131,7 @@ tags, signing changes, and any new scientific claim or citation; everything else
 - [ ] **Docs updated** (mkdocs / docstrings); if a resolved decision changed, the PRD and/or an ADR is updated in
       the same PR (§12.7).
 - [ ] **Conventional-Commits** PR title; breaking changes carry `!` / `BREAKING CHANGE:` (§12.2).
-- [ ] CodeQL clean; the low/standard/high review path is recorded and complete for the final head SHA (§12.3).
+- [ ] CodeQL clean; the risk level is recorded and the review lane complete for the final head SHA (§12.3).
 
 ### 12.5 Issue tracking & project planning
 
@@ -1127,8 +1149,10 @@ set), revalidated immediately before every authoritative write so a superseded w
 rather than silently applied. A scheduled CI reaper reclaims dead claims unattended — the failure mode that froze
 the ADR-0052 run was a lease that only a sleeping human could renew.
 
-Every agent is a peer: it claims one issue, works one isolated worktree/branch/PR, arms auto-merge bound to the
-reviewed head with `--match-head-commit`, and exits. No agent waits on another, and no agent merges on another's
+Every agent is a peer: it claims one issue, works one isolated worktree/branch/PR, opens the review lane on a draft,
+and hands off. Auto-merge — bound to the reviewed head with `--match-head-commit` — is armed at the **end** of that
+lane by whoever completes it, never on the draft, since the mandatory CodeRabbit gate is not a required check and
+nothing else would hold the merge. No agent waits on another, and no agent merges on another's
 behalf. ADR-0052's coordinator, leases, run records and guarded-merge monopoly are retired, not merely superseded.
 
 **Label taxonomy** (prefixed namespaces, so labels group and filter cleanly):
@@ -1141,7 +1165,7 @@ behalf. ADR-0052's coordinator, leases, run records and guarded-merge monopoly a
 | `status:` | `backlog`, `ready`, `in-progress`, `in-review`, `blocked`, `done` (mirror the board columns) |
 | `agent:` | `claude`, `codex`, `copilot` — the claiming lane, written by `claim.py` as a **mirror** of the claim ref, never as the lock; `human` (reserved for the maintainer, not claimable); `needs-amend` (one AMEND session is owed); `conflicted` (the PR is `DIRTY` and needs a person) |
 | `size:` | `XS`, `S`, `M`, `L` — the diff budget in added lines, 50 / 150 / 400 / 900, excluding lockfiles and generated files. There is no rung above `L`; work that does not fit is `needs:split` |
-| `risk:` | `low`, `standard`, `high` — the review-gate lane (§12.4) |
+| `risk:` | `low`, `standard`, `high` — how much scrutiny the item deserves, and so whether a metered credit is worth spending on it. It **routes no provider**: every item walks the one lane (§12.4) |
 | `needs:` | `split` (over the diff budget), `adr` (an ADR is required in the implementation PR) |
 | `blocked-by:` | `issue` (another open issue here), `maintainer` (a decision), `external` (an upstream or third party) — the *reason* a `status:blocked` item is blocked |
 | standalone | `preauth` (covered by the standing pre-authorization scope), `good-first-issue`, `security`, `help-wanted`, `dependencies` (applied by Dependabot) |

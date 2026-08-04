@@ -86,6 +86,7 @@ prose harmonization of the PRD (PRD §12.7).
 | [0059](0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) | Ship v1.0.0 unsigned, with SHA-256 manifests + build provenance as the integrity anchor | accepted; supersedes the code-signing half of [0050](0050-release-pipeline-and-code-signing.md) | §9 M9, §12.7, §4.1, NFR-PKG |
 | [0060](0060-in-app-update-mechanism-and-integrity-model.md) | In-app update: download, verify against build provenance, hand off to the OS installer | accepted; decision 2's mechanism amended to bundled `gh --bundle`; store location delegated to [#330](https://github.com/bioedca/tether/issues/330) | §4.1, §4.3, §8 NFR-PKG, §7.12 FR-UPDATE |
 | [0061](0061-transport-failures-and-the-strict-x509-opt-out.md) | A transport failure is not a scope verdict, and strict X.509 conformance is opt-out | accepted; reverses a non-goal of [#315](https://github.com/bioedca/tether/issues/315) | §12.2–§12.5 |
+| [0062](0062-draft-first-review-lane-with-metered-providers.md) | Draft-first review lane: spend the free provider before the metered ones | accepted; supersedes the §Review gate and §Round cap of [ADR-0057](0057-github-native-swarm-coordination.md) | §12 |
 
 <!-- gen:adr-index end -->
 

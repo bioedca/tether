@@ -80,14 +80,16 @@ body:
     attributes:
       label: Risk level
       description: >-
-        This picks the reviewer, not the priority. High covers scientific logic or
-        claims, data, provenance, schema, security, dependencies, CI/release, a public
-        API, persistence or migration, concurrency, HPC/Slurm, and broad
-        cross-component work.
+        How much scrutiny this deserves, not the priority - and not the reviewer:
+        every item walks the same review lane. What it decides is whether a metered
+        Greptile credit is worth spending. High covers scientific logic or claims,
+        data, provenance, schema, security, dependencies, CI/release, a public API,
+        persistence or migration, concurrency, HPC/Slurm, and broad cross-component
+        work.
       options:
-        - "low — Codex reviews it"
-        - "standard — Codex reviews it"
-        - "high — both Codex and CodeRabbit, answering as one round"
+        - "low — the lane: Codex on the draft, then CodeRabbit"
+        - "standard — the lane: Codex on the draft, then CodeRabbit"
+        - "high — the lane, and a Greptile credit is worth spending if the seat has budget"
         - "unsure — leave it to grooming"
     validations:
       required: true

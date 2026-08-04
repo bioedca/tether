@@ -36,7 +36,8 @@ If they conflict, stop, choose the safe option, and ask.
 ## Concurrent GitHub Flow
 
 - **GitHub is the coordinator; there is no coordinator agent.** Every agent is a peer: claim one work
-  item, do the work, open a PR, arm auto-merge, exit. Nothing serializes or renews anything for you.
+  item, do the work, open a draft PR, open the review lane, hand off, exit. Auto-merge is armed at
+  the end of that lane, never on the draft. Nothing serializes or renews anything for you.
 - One work item = one owner = one short-lived branch = one PR = one writable worktree. Use
   `agent/issue-<N>` — **no title slug**, since a slug is not deterministic across agents and two refs
   for one issue would void the mutex. Never share a branch or edit another agent's checkout.
@@ -94,12 +95,28 @@ If they conflict, stop, choose the safe option, and ask.
 
 - **Read `docs/agents/review.md` before requesting a review, answering a finding, or merging.** It
   carries the routing, materiality, the severity floor, the round cap and the merge mechanics.
-- Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. **The
-  authoring agent is never the only reviewer**, and neither provider self-fires — a provider that was
-  not asked has not declined. `low`/`standard` → Codex; `high` → **both**, in one round.
-- **Two rounds, and you do not issue them.** Every AMEND is a fresh session whose task text the
-  launcher injects with an explicit `ROUND = N of 2`. Stop-list, not judgement: **one self-review
-  pass at most**, and **never a review request while `agent:review-capped` is present**.
+- Record `low`, `standard`, or `high` in the PR with a reason. Risk may only increase. It **no longer
+  routes providers** — every PR walks the same lane — it states how much scrutiny the change deserves
+  and whether a metered credit is worth spending on it. **The
+  authoring agent is never the only reviewer**, and no provider self-fires — a provider that was
+  not asked has not declined. One exception: a branch cut before `.greptile/config.json` landed
+  still auto-fires Greptile, because the config is read from the PR's source branch. That review is
+  real and its credit is spent — answer it and record step 2 as spent.
+- **Open as a draft and spend the cheap provider first.** Every required check runs on a draft, so
+  the diff goes green before a metered provider is asked. Codex iterates on the draft, uncapped,
+  until nothing blocking is left; then **optionally one Greptile credit** (`@greptileai review this
+  draft`) if the seat has budget — exhaustion never blocks; then ready-for-review; then **CodeRabbit
+  with no actionable comments is the last gate before merge** (`@coderabbitai full review` — the
+  bare `review` is incremental-only and silently reviews nothing here).
+- **Metered providers share one seat.** Greptile is 50 credits per seat per month across every
+  repository this account works in, one per completed review; read the balance with
+  `python3 .agents/bin/greptile_usage.py` before spending. Copilot is budgeted the same way and is
+  **advisory only** — it never satisfies a leg, and a quota refusal is *did not review*, not a pass.
+- **Two rounds after the draft, and you do not issue them.** The cap counts only rounds taken once
+  the PR is ready for review, and only against metered providers — draft-phase Codex is uncounted.
+  Every AMEND is a fresh session whose task text the launcher injects with `ROUND = N of 2`; past
+  the cap it injects none, so no worker ever holds authority for a third.
+  Stop-list, not judgement: **never a review request while `agent:review-capped` is present**.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to
   the merged head. Then **arm auto-merge and exit** — never wait, never poll.

@@ -34,14 +34,19 @@ The severity floor you classify against lives on `review.md`, not in the residen
 
 1. Find the open pull request for `{{BRANCH}}`. Read the failing checks and every unresolved review
    thread on it.
-2. Fix the **blocking** findings only — severity axis: CodeRabbit `Critical`/`Major`, Codex `P1`, plus
+2. Fix the **blocking** findings only — severity axis: CodeRabbit `Critical`/`Major`, Codex `P1`, Greptile `P1`, plus
    the label-independent list in `docs/agents/review.md`. Everything else is deferred to **one**
    follow-up issue
    for this PR, answered `Deferred: … Tracked in #N`, and its thread resolved.
 3. Revalidate the fence before any authoritative write:
    `{{PYTHON}} .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
-4. Push, reply to every thread you answered, get the checks green, re-arm auto-merge
-   (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`), and **exit**.
+4. Push, reply to every thread you answered, get the checks green, update the lane state in the PR
+   body, and **exit**.
+
+   **Arm auto-merge only if the lane is complete** — CodeRabbit returned no actionable comments at
+   this head (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`). If it has not,
+   arming merges the PR *past* the mandatory gate: CodeRabbit is not a required check, so nothing
+   else is holding it. Answering a draft-phase finding is not the end of the lane.
 
 ## Do not
 

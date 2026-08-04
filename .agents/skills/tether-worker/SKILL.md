@@ -1,6 +1,6 @@
 ---
 name: tether-worker
-description: Work one accepted Tether issue as a short-lived peer worker — claim it with the atomic ref mutex, implement in an isolated worktree, open a PR, arm auto-merge, and exit. Use when an agent is asked to solve, resume, or hand off a single work item, or when a launcher injects a build or amend task. There is no coordinator to ask.
+description: Work one accepted Tether issue as a short-lived peer worker — claim it with the atomic ref mutex, implement in an isolated worktree, open a draft PR, open the review lane, hand off, and exit. Use when an agent is asked to solve, resume, or hand off a single work item, or when a launcher injects a build or amend task. There is no coordinator to ask.
 ---
 
 # Tether worker
@@ -10,7 +10,9 @@ only what is specific to being **one peer worker among several**; it never resta
 
 **GitHub is the coordinator; there is no coordinator agent** (ADR-0057). Nothing serializes you,
 nothing renews a lease for you, and nothing merges on your behalf. You are short-lived: claim, work,
-push, arm auto-merge, exit.
+push, open the review lane, hand off, exit. Auto-merge is armed at the **end** of that lane, by
+whoever completes it — see §Finish. Arming it earlier merges the PR past the mandatory CodeRabbit
+gate, because that gate is not a required check and nothing else is holding the merge.
 
 ## Shell
 
@@ -94,8 +96,26 @@ gap — that is what invalidated reviews across three PRs at once under the old 
 
 ## Finish
 
-Open the PR, get the checks green, classify the review risk, and take the review gate in
-`AGENTS.md` §Review gate. Then **arm auto-merge and exit** — do not sit and poll:
+**Open the PR as a draft**, get the checks green, record the review risk with its reason, and request
+the first Codex review. Then **exit** — do not sit and poll.
+
+You open the lane in `docs/agents/review.md`; you do not walk it to the end. Every later phase — the
+optional Greptile credit, marking ready, the mandatory CodeRabbit gate, arming auto-merge — begins
+only *after* a review lands, and waiting for one is exactly what a short-lived worker must not do. So
+**write the lane state into the PR body before you go**: which phase it is in, what was asked, what
+is outstanding. A later session reads that and continues. It is the only thing carrying the lane
+forward.
+
+> Dispatching this lane to a worker is gated on **two** independent blockers, and both must land:
+> [#394](https://github.com/bioedca/tether/issues/394) — a clean review publishes no resumption
+> authority, so nothing reopens the claim — and
+> [#391](https://github.com/bioedca/tether/issues/391) — `swarm_slots.py` counts draft AMEND
+> sessions against its permanent cap, so free draft iteration exhausts the launcher even when
+> `triage.py` correctly reports zero rounds. Until both land the later phases are completed by hand.
+> Never work around it by polling, by marking a PR ready before its draft phase is done, or by
+> merging without the CodeRabbit gate.
+
+Auto-merge is armed at the **end** of the lane, by whoever completes it — not on the draft:
 
 ```sh
 gh pr merge N --auto --squash --match-head-commit <SHA>

@@ -7,12 +7,13 @@ respective contract governs.
 
 ## Development model — solo + CI and review gates (scales up cleanly)
 
-Tether is currently maintained **solo (account `bioedca`) with CI and a
-risk-classified review path as merge gates**: branch protection on `main` requires
+Tether is currently maintained **solo (account `bioedca`) with CI and a fixed
+review lane as merge gates**: branch protection on `main` requires
 green required CI plus a self-review checklist on every PR, while `AGENTS.md`
-requires a substantive final-head review on every lane: **Codex for `low` and
-`standard`, and both Codex and CodeRabbit — in one round — for `high`.**
-Copilot is optional and best-effort. The ruleset still requires zero GitHub approval
+requires a substantive final-head review on one fixed lane, cheapest provider first:
+**Codex on the draft until nothing blocking remains, then optionally one metered
+Greptile credit, then CodeRabbit with no actionable comments before merge.**
+Copilot is advisory only and never satisfies a leg. The ruleset still requires zero GitHub approval
 reviews; load-bearing changes additionally need any qualified human/domain judgment
 specified in `AGENTS.md`. This scales to required human reviews + `CODEOWNERS` if
 contributors join (PRD §12.3).
@@ -227,7 +228,7 @@ modes are silent:
   service's data-retention terms. This repository is public, but not everything in your
   working tree is.
 
-Cloud reviewers process PR diffs according to the risk path in `AGENTS.md`; this is
+Cloud reviewers process PR diffs according to the review lane in `AGENTS.md`; this is
 third-party processing. Do not open a PR until its contents are safe to send.
 
 ## PR self-review checklist (PRD §12.4)
@@ -254,11 +255,12 @@ Before requesting review / merging, confirm:
 - [ ] **No secrets committed** — no token, key, credential or private path in code,
       tests, logs or fixtures; `secret-scan` green.
 - [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
-- [ ] **Review path recorded and complete** — `low`, `standard`, or `high`; the round; and a
-      result from **every** provider the lane routes to (Codex for `low`/`standard`; Codex **and**
-      CodeRabbit for `high`, in one round) — **either** a substantive review **or** that provider's
-      own quoted "nothing to review" for the head it read, a Codex 👍 included. If one provider
-      genuinely *cannot* act, record which and why and the other satisfies the lane. Blocking
+- [ ] **Risk recorded, and the review lane complete** — `low`, `standard`, or `high`, which
+      routes nothing; the round; and a
+      result from every provider the lane reached — **either** a substantive review **or** that
+      provider's own quoted "nothing to review" for the head it read, a Codex 👍 included.
+      **CodeRabbit with no actionable comments is required**; Greptile is optional, and its absence
+      for want of credits is recorded rather than excused as a review. Blocking
       findings fixed, non-blocking ones deferred to a follow-up issue, per `AGENTS.md`.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
       **same** PR.
@@ -269,9 +271,13 @@ Merge **squash-only** (linear history, delete-branch-on-merge) once the review i
 addressed **and all required CI checks are green** — wait for in-progress checks;
 **never merge over a red or pending check**.
 
-Automated agents are peers, not a hierarchy: each claims one issue, opens one PR, and
-**arms auto-merge and exits** rather than waiting or handing off to a merger. There is
-no coordinator. The merge is bound to the head the review evidence covers with
+Automated agents are peers, not a hierarchy: each claims one issue, opens one **draft**
+PR, opens the review lane on it, and **hands off and exits** rather than waiting on a
+reviewer. There is no coordinator. Auto-merge is armed at the **end** of the lane, and
+completing the lane is **not by itself authority to arm it** — `AGENTS.md` requires
+explicit per-PR merge authority, which is a separate grant that no amount of green
+checks confers. Arming it on a draft would merge the PR past the mandatory CodeRabbit
+gate, since that gate is not a required check. The merge is bound to the head the review evidence covers with
 `gh pr merge N --auto --squash --match-head-commit <SHA>` — that guard is what stands in
 for the merge queue, which needs an organization-owned repository and so is unavailable
 here.
@@ -292,16 +298,55 @@ is what PRD §12.8 recommends for a solo maintainer — and is gated by a separa
 **conversation resolution**: an unresolved review thread blocks the merge even when
 every check is green. Classify the final diff before merge and follow `AGENTS.md`:
 Copilot is optional, while every PR needs substantive independent review requested once
-checks are green and the diff is declared final. **Low and standard route to Codex
-GitHub Code Review; high/load-bearing takes both Codex and CodeRabbit — requested
-together and answered as one round, never as two.** Author-side or local review, and
-status-only output, do not satisfy it.
+checks are green and the diff is declared final. **Every PR walks the same lane,
+cheapest provider first: Codex on the draft, uncapped; then optionally one metered
+Greptile credit if the seat has budget; then CodeRabbit with no actionable comments,
+which is the last gate before merge.** A PR **opened ready** is allowed and skips the
+free draft phase — it pays for that, because with no `ready_for_review` transition to
+count from, every round it has ever taken is a counted one. Record the reason in the PR. Author-side or local review, and status-only
+output, do not satisfy it. **Exhaustion is not incapacity** — a provider with no budget
+left has not reviewed: Greptile out of credits is skippable and never blocks, while
+CodeRabbit unavailable freezes the PR.
 
-**Neither provider auto-reviews this repository; you have to ask.** CodeRabbit replies
+**No provider auto-reviews this repository; you have to ask.** CodeRabbit replies
 to an unrequested PR with *"Auto reviews are disabled on this repository"*, and Codex
 reviews only when you open a PR for review, mark a draft ready, or comment
 `@codex review`. A provider that was never asked has not declined — so if you are
 waiting on a review, check that a request was actually posted.
+
+One exception, and it has already cost money: `.greptile/config.json` is read from
+the pull request's **source branch**, so a branch cut before that file landed still
+auto-fires Greptile on open. Answer that review like any other and record the optional
+Greptile step as spent — the credit is gone either way. Rebasing onto a base that
+carries the config prevents the next one.
+
+Ask CodeRabbit with **`@coderabbitai full review`**. The bare `@coderabbitai review`
+is the *incremental* command and applies only where automatic reviews are **paused**;
+they are **disabled** here, so it reviews nothing and replies *"CodeRabbit is an
+incremental review system and does not re-review already reviewed commits"* — which
+reads a great deal like a review that found nothing.
+
+CodeRabbit's fair-use limit is **adaptive**: several reviews in one sitting drop the
+seat to a per-interval allowance, and the refusal names when the next included review
+is due. That is a **wait**, not unavailability — wait it out and ask again, which
+spends neither a round nor the one-request-per-round allowance, since a request that
+produced no review has not been spent. It also offers to proceed through usage-based
+billing; that is the maintainer's spending decision, never a worker's. Pace review
+requests rather than batching them.
+
+**Before any re-request, check that a review is not already running.** The `CodeRabbit`
+commit status reads `pending` / *"Review in progress"* while one is in flight, and a
+second request **aborts it** — spending the window on nothing and triggering the limit
+above. The elapsed interval is not on its own a licence to ask:
+
+```bash
+gh pr checks <PR> --json name,state,description --jq '.[] | select(.name == "CodeRabbit")'
+```
+
+**Do not write a provider's handle in a comment you do not mean as a request.** The
+mention fires the bot even inside backticks — a code span is not an escape — so
+quoting a trigger while describing it spends a real review. Break the handle, or say
+"the full-review command" instead.
 
 Review evidence **survives a non-material push**, so addressing findings does not
 restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
@@ -311,9 +356,11 @@ file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`) are material
 re-arms the review but grants no extra round, and there are **at most two rounds**.
 
 Fix blocking findings. Blocking is decided on the **severity axis only**: CodeRabbit
-`Critical`/`Major`, Codex `P1`, plus anything touching secrets, unlicensed data, a frozen
-oracle, the §5 skeleton, or a CodeQL alert — and anything that falsifies a claim the PR
-itself introduces.
+`Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its badges use the same P-scale as
+Codex, so they map straight across, and a review the seat paid a credit for must not be
+answerable entirely by deferral — plus anything touching secrets, unlicensed data, a
+frozen oracle, the §5 skeleton, or a CodeQL alert — and anything that falsifies a claim
+the PR itself introduces.
 
 CodeRabbit renders three independent things on a finding and only one of them is the
 severity: a **domain** (`🎯 Functional Correctness`, `📐 Maintainability & Code Quality`,
@@ -328,12 +375,16 @@ link; do not fix non-blocking findings in the same PR, and never point a deferra
 issue that does not exist. If a **selected** provider reports nothing to review at the
 head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is its documented
 "no suggestions" — that satisfies its leg; quote it. A statement from the author, or from
-any other commenter, never does. On `high`, a provider that genuinely **cannot** act
-leaves the other sufficient, with which one and why recorded — capability, never quota;
-both genuinely unavailable freezes the PR. There are **at most two rounds**, and under
-the swarm model the launcher issues them: do not request one yourself on a PR labelled
-`agent:review-capped`. Human sign-off is required only for releases, tags, signing, and
-new scientific claims.
+any other commenter, never does. **Exhaustion is not incapacity**: a provider with nothing
+to say has reviewed, a provider with no budget left has not. Greptile out of credits is
+skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because it is the
+gate. Record which and why — capability, never quota. There are **at most two rounds**
+after the PR goes ready, counted against **metered providers only** — draft-phase Codex
+is uncounted, and so is Codex after the PR goes ready. Under the swarm model the
+launcher issues those rounds: do not request one yourself on a PR labelled
+`agent:review-capped`, and past the cap the launcher injects no task at all, so no
+worker ever holds authority for a third. Human sign-off is required
+only for releases, tags, signing, and new scientific claims.
 
 ## Reporting bugs & security issues
 

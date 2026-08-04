@@ -69,7 +69,16 @@ BRANCH_RE = re.compile(r"^" + re.escape(BRANCH_PREFIX) + r"(\d+)$")
 
 # Copilot is deliberately absent: AGENTS.md makes it optional and says its absence or quota never
 # blocks, so a Copilot pass must not consume a round the contract did not grant.
-EXTERNAL_PROVIDERS = frozenset({"chatgpt-codex-connector[bot]", "coderabbitai[bot]"})
+EXTERNAL_PROVIDERS = frozenset(
+    {"chatgpt-codex-connector[bot]", "coderabbitai[bot]", "greptile-apps[bot]"}
+)
+
+#: The providers whose rounds the cap counts. **Codex is deliberately absent**: it is the unmetered
+#: lane the review lane iterates on freely, and counting it would let free iteration consume the
+#: rounds reserved for the mandatory CodeRabbit stage (ADR-0062). Greptile IS counted - a spent
+#: credit is a real round - but its findings reach `owed` through EXTERNAL_PROVIDERS either way,
+#: because a paid review that nothing answers is the worst of both.
+METERED_PROVIDERS = frozenset({"coderabbitai[bot]", "greptile-apps[bot]"})
 
 CAP = 2
 ROUND_LABELS = ("agent:round-1", "agent:round-2")
@@ -328,8 +337,91 @@ def _reviewed_head(entry: dict[str, Any]) -> str | None:
     return commit if isinstance(commit, str) and commit else None
 
 
-def _review_state(pr_number: int, head: str) -> tuple[set[str], bool]:
+#: Returned by :func:`_counted_from` for a pull request that is STILL a draft. A sentinel rather
+#: than ``None``, because ``None`` already means the opposite - count everything - and a bare
+#: timestamp cannot express "nothing counts yet". Sorts above every ISO-8601 instant, so the
+#: ordinary comparison in :func:`_counts_as_round` rejects each one without a special case.
+_COUNT_NOTHING = "9999-12-31T23:59:59Z"
+
+
+def _counts_as_round(when: object, counted_from: str | None) -> bool:
+    """Whether one piece of review evidence consumes a round.
+
+    ISO-8601 UTC instants from the GitHub API are fixed-width and zero-padded, so lexicographic
+    comparison is chronological; no parsing, and nothing to get wrong about time zones.
+
+    Evidence with no timestamp counts, deliberately. The alternative - dropping it - would let a
+    provider response the API rendered oddly silently buy an extra round, and the cap is a safety
+    control: it fails toward counting.
+    """
+    if counted_from is None:
+        return True
+    return not isinstance(when, str) or not when or when >= counted_from
+
+
+def _counted_from(pr: dict[str, Any]) -> str | None:
+    """When the round cap starts counting for this pull request, as an ISO-8601 instant.
+
+    ``None`` means *count everything*: the pull request was opened ready for review, so every
+    provider round it has ever had is a real round.
+
+    The review lane spends the free provider first, on a draft, iterating until nothing blocking is
+    left — and only then marks the PR ready and starts spending metered reviews. Counting the draft
+    iteration would strand a PR at ``agent:review-capped`` before it ever reached the mandatory
+    CodeRabbit gate: the documented loop would consume the cap it is explicitly exempt from.
+
+    **Entering the counted phase is permanent.** The instant is the *first* ``ready_for_review``,
+    and a PR converted back to draft keeps every round it has already spent. Two earlier drafts of
+    this function each had the same loophole from a different direction — taking the *last* event,
+    and short-circuiting on the current ``draft`` flag — and both let a worker buy unlimited metered
+    rounds by toggling draft. A material push is granted **no** extra round; a draft excursion is
+    not a way around that.
+
+    So a PR that has never been ready has taken no counted round, and once it has been ready once,
+    the clock started then and never restarts.
+    """
+    try:
+        events = claim._paginate(f"/repos/{REPO}/issues/{pr['number']}/timeline", "PR timeline")
+    except (claim.ClaimError, TriageError):
+        # An unreadable timeline must not decide the cap by accident. Counting everything is the
+        # safe direction for a safety control: at worst a PR is capped one round early and the
+        # maintainer is asked, where the other direction hands out an unbounded review budget.
+        return None
+    ready = [
+        stamp
+        for event in events
+        if event.get("event") == "ready_for_review"
+        and isinstance(stamp := event.get("created_at"), str)
+        and stamp
+    ]
+    drafted = [
+        stamp
+        for event in events
+        if event.get("event") == "convert_to_draft"
+        and isinstance(stamp := event.get("created_at"), str)
+        and stamp
+    ]
+    # Opened READY: a PR created ready emits no `ready_for_review`, so a later draft excursion and
+    # return would make that return look like the first entry into the counted phase - discarding
+    # every round spent before it. A `convert_to_draft` earlier than any `ready_for_review` is the
+    # signal, and it means the clock started at creation.
+    if drafted and (not ready or min(drafted) < min(ready)):
+        return None
+    if ready:
+        return min(ready)
+    # Never ready and never drafted. A draft has taken no counted round; anything else was opened
+    # ready, so every round it has ever had is real.
+    return _COUNT_NOTHING if pr.get("draft") else None
+
+
+def _review_state(
+    pr_number: int, head: str, counted_from: str | None = None
+) -> tuple[set[str], bool]:
     """``(heads with external review evidence, whether the CURRENT head owes an answer)``.
+
+    ``counted_from`` is the instant the cap starts (see :func:`_counted_from`). Evidence older than
+    it still decides whether the current head **owes an answer** — a finding does not stop mattering
+    because it arrived on a draft — but it does not consume a round.
 
     Both sources carry ``commit_id``: submitted reviews and inline review comments. Inline comments
     are included because a provider can post findings with no submission wrapper, and missing one
@@ -366,7 +458,16 @@ def _review_state(pr_number: int, head: str) -> tuple[set[str], bool]:
             sha = _reviewed_head(entry)
             if login not in EXTERNAL_PROVIDERS or not isinstance(sha, str) or not sha:
                 continue
-            heads.add(sha)
+            # Two independent axes, and conflating them is how this went wrong twice.
+            #
+            # ROUNDS: only a metered provider, and only after the PR went ready. Draft-phase
+            # evidence is free by design, and Codex never counts at all.
+            #
+            # OWED: any external provider, at any time. A finding does not stop mattering because it
+            # arrived on a draft, and a paid Greptile review that nothing answers is the worst case.
+            when = entry.get("submitted_at") if is_reviews else entry.get("created_at")
+            if login in METERED_PROVIDERS and _counts_as_round(when, counted_from):
+                heads.add(sha)
             if sha != head:
                 continue
             if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
@@ -405,8 +506,15 @@ def _round_label(rounds: int) -> str | None:
     return CAPPED_LABEL if rounds >= CAP else ROUND_LABELS[rounds - 1]
 
 
+#: Removals whose failure must be reported rather than swallowed, because they are the whole change
+#: rather than the tail of an add. Clearing `agent:needs-amend` is the only one: it retracts the
+#: launcher's authority to start a session, so a silently failed DELETE leaves a PR that owes
+#: nothing still advertising that it owes an AMEND, and the launcher keeps spending sessions on it.
+CHECKED_REMOVALS = frozenset({AMEND_LABEL})
+
+
 def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> None:
-    """Write the label delta. Adds are fatal on failure; removals are best-effort.
+    """Write the label delta. Adds are fatal on failure; most removals are best-effort.
 
     **ORDER IS THE SAFETY PROPERTY: add first, remove second.** Removing first meant a failed
     ``agent:review-capped`` POST left the PR with *neither* the old round label nor the cap — a
@@ -414,8 +522,17 @@ def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> 
     while this run exits non-zero and looks like it changed nothing. With additions first, the same
     failure leaves the previous round label in place and the next event simply retries.
 
-    An add that silently fails publishes state that is not true, so it raises. A removal that fails
-    leaves a stale marker, which is cosmetic against that standard and is recomputed next event.
+    An add that silently fails publishes state that is not true, so it raises. A *superseded* round
+    label — replaced by the higher one just added — leaves a stale marker if its removal fails,
+    which is cosmetic against that standard and is recomputed next event.
+
+    ``CHECKED_REMOVALS`` is the exception, and an earlier revision of this docstring got it wrong:
+    it claimed "every removal this function makes is paired with an add". Clearing
+    ``agent:needs-amend`` is not — it is the whole change, and it *retracts authority*. Swallowed,
+    it leaves a pull request that owes nothing still advertising that it owes an AMEND, and the
+    launcher keeps starting sessions against a permanent cap. Reported rather than assumed. Success
+    is ``DELETE_DONE``, the set the merge path already uses, ``404`` included: a label that is not
+    there is the end state asked for.
     """
     if dry_run:
         return
@@ -427,7 +544,12 @@ def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> 
                 "not reporting state that was never published"
             )
     for label in remove:
-        claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/{label}", None)
+        status, _ = claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/{label}", None)
+        if label in CHECKED_REMOVALS and status not in DELETE_DONE:
+            raise TriageError(
+                f"#{number} no longer owes an AMEND but {label} could not be removed "
+                f"(HTTP {status}); leaving it would keep issuing authority this run just retracted"
+            )
 
 
 def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str, Any]:
@@ -452,7 +574,8 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     if not head:
         raise TriageError(f"PR #{pr['number']} has no head sha")
 
-    reviewed, review_owed = _review_state(pr["number"], head)
+    counted_from = _counted_from(pr)
+    reviewed, review_owed = _review_state(pr["number"], head, counted_from)
     rounds = len(reviewed)
     running, failed = _suite_state(head)
     capped = rounds >= CAP
@@ -464,15 +587,24 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
 
     # Round labels are mutually exclusive and only ever escalate. Monotonic on purpose: heads cannot
     # be rewritten here (the ruleset forbids force-push and non-fast-forward), so a count that fell
-    # would mean a read failed - and stepping a PR back from capped to round-1 would re-authorise a
-    # round the contract already spent.
+    # would ordinarily mean a read failed - and stepping a PR back from capped to round-1 would
+    # re-authorise a round the contract already spent.
+    #
+    # ADR-0062 changed what these labels MEAN, and there is deliberately no automatic migration for
+    # labels written under the old semantics. Three versions of one were tried and each was worse
+    # than the last, because a recount of zero is ambiguous in a way no predicate here can resolve:
+    # it means "never spent" for a stale label, and "the evidence was deleted" for a real round that
+    # a metered provider left as wrapper-less inline comments. Clearing on zero refunds the second
+    # case - fail-OPEN on the cap, which is the one thing this module exists to hold. The migration
+    # is therefore an operational step, run once against a repository where it was verified empty;
+    # see ADR-0062. A stale label is removed by hand, which is a command, where a wrong automatic
+    # clear is silent.
     target = _round_label(rounds)
-    highest_held = max(
-        (ALL_ROUND_LABELS.index(name) for name in ALL_ROUND_LABELS if name in labels), default=-1
-    )
+    held = [name for name in ALL_ROUND_LABELS if name in labels]
+    highest_held = max((ALL_ROUND_LABELS.index(name) for name in held), default=-1)
     if target is not None and ALL_ROUND_LABELS.index(target) > highest_held:
         add.append(target)
-        remove += [n for n in ALL_ROUND_LABELS if n in labels and n != target]
+        remove += [n for n in held if n != target]
 
     # The whole mechanism: past the cap no AMEND authority is issued, so no third round can start.
     # An existing marker is left alone - see the module docstring on the two writers.

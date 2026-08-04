@@ -68,17 +68,21 @@ def _install(
     labels: list[str],
     body: str = "Closes: #7\n",
     reviews: list[dict[str, Any]] | None = None,
+    timeline: list[dict[str, Any]] | None = None,
+    draft: bool = False,
 ) -> Fake:
     routes: dict[tuple[str, str], tuple[int, Any]] = {
         ("GET", "/repos/bioedca/tether/pulls/99/files"): (200, files),
         ("GET", "/repos/bioedca/tether/pulls/99/reviews"): (200, reviews or []),
         ("GET", "/repos/bioedca/tether/pulls/99/comments"): (200, []),
+        ("GET", "/repos/bioedca/tether/issues/99/timeline"): (200, timeline or []),
         ("GET", "/repos/bioedca/tether/pulls/99"): (
             200,
             {
                 "number": 99,
                 "body": body,
                 "labels": [],
+                "draft": draft,
                 "base": {"sha": "a" * 40},
                 "head": {"sha": "b" * 40},
             },
@@ -639,6 +643,104 @@ def test_review_rounds_counts_distinct_heads_like_triage_does(
     assert guard.measure(99)["review_rounds"] == 1
 
 
+def test_a_pr_opened_ready_keeps_the_rounds_it_spent_before_a_draft_excursion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mirror has to mirror *every* branch, not just the common one. Codex raised this on #385.
+
+    A PR opened ready emits no `ready_for_review`, so a later draft excursion and return makes that
+    return look like the first entry into the counted phase. Taking `min(ready)` therefore discarded
+    every round spent before it, and the guard reported one fewer than `triage` - which reads as
+    *the labels are ahead of the evidence*, the exact corruption this guard exists to detect. A
+    `convert_to_draft` earlier than any `ready_for_review` is the signal that the clock started at
+    creation.
+    """
+    timeline = [
+        {"event": "convert_to_draft", "created_at": "2026-08-02T00:00:00Z"},
+        {"event": "ready_for_review", "created_at": "2026-08-03T00:00:00Z"},
+    ]
+    reviews = [
+        # Before the draft excursion, so a `min(ready)` cutoff would drop it.
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "commit_id": "c" * 40,
+            "submitted_at": "2026-08-01T00:00:00Z",
+        },
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "commit_id": "e" * 40,
+            "submitted_at": "2026-08-03T12:00:00Z",
+        },
+    ]
+    _install(
+        monkeypatch,
+        files=[_file("x.py", 1)],
+        labels=["size:XS"],
+        reviews=reviews,
+        timeline=timeline,
+    )
+    assert guard.measure(99)["review_rounds"] == 2, "a draft excursion must refund no round"
+
+
+def test_a_review_timestamp_is_read_the_way_triage_reads_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Greptile's finding on #385, and the mirror argument taken one level further.
+
+    `submitted_at or created_at` agreed with `triage._review_state` only by accident of payload
+    shape: the reviews endpoint sends no `created_at`, so the fallback found nothing and both fell
+    through to "no timestamp, count it". Give a review one and they diverge — triage counts it
+    (`_counts_as_round(None, ...)` fails toward counting), scope_guard would compare the stray
+    `created_at` against `counted_from` and drop it, reporting FEWER rounds than the authoritative
+    counter. That reads as *the labels are ahead of the evidence*, which is what the guard exists to
+    detect, so it must hold by construction rather than by luck.
+    """
+    reviews = [
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "commit_id": "c" * 40,
+            # No `submitted_at`; a `created_at` that predates the ready transition. The `or`
+            # spelling picked this up and excluded the round.
+            "created_at": "2026-08-01T00:00:00Z",
+        }
+    ]
+    _install(
+        monkeypatch,
+        files=[_file("x.py", 1)],
+        labels=["size:XS"],
+        reviews=reviews,
+        timeline=[{"event": "ready_for_review", "created_at": "2026-08-02T00:00:00Z"}],
+    )
+    rounds = guard.measure(99)["review_rounds"]
+    assert rounds == 1, "a review with no submitted_at counts here, exactly as it does in triage"
+
+
+def test_a_review_taken_during_the_prescribed_draft_phase_is_not_a_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other direction, and the reason the mirror needs the timeline at all.
+
+    A PR that has never been ready is in the free phase, so a metered review spent there costs no
+    round. Counting it would report the PR as spent while `triage` reports it as not.
+    """
+    reviews = [
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "commit_id": "c" * 40,
+            "submitted_at": "2026-08-01T00:00:00Z",
+        }
+    ]
+    _install(
+        monkeypatch,
+        files=[_file("x.py", 1)],
+        labels=["size:XS"],
+        reviews=reviews,
+        timeline=[],
+        draft=True,
+    )
+    assert guard.measure(99)["review_rounds"] == 0
+
+
 def test_the_report_always_declares_itself_advisory(monkeypatch: pytest.MonkeyPatch) -> None:
     """It will be quoted in arguments about other changes, so it must not read as a verdict."""
     _install(monkeypatch, files=[_file("x.py", 5000)], labels=["size:XS"])
@@ -823,10 +925,13 @@ def test_the_guard_counts_the_head_a_provider_actually_read(
     that does not mirror it at all — the two would report different round counts for one PR and
     there would be no way to tell which was right.
     """
+    # A METERED provider: since ADR-0062 the guard mirrors `triage.METERED_PROVIDERS`, and Codex —
+    # the unmetered lane — consumes no round at all. The #307 property under test is the head
+    # attribution, not which provider it belongs to.
     reviews = [
-        {"user": {"login": "chatgpt-codex-connector[bot]"}, "commit_id": "c" * 40},
+        {"user": {"login": "coderabbitai[bot]"}, "commit_id": "c" * 40},
         {
-            "user": {"login": "chatgpt-codex-connector[bot]"},
+            "user": {"login": "coderabbitai[bot]"},
             "original_commit_id": "c" * 40,
             "commit_id": "d" * 40,
         },
