@@ -963,11 +963,15 @@ def test_a_review_after_ready_for_review_counts(monkeypatch: pytest.MonkeyPatch)
 def test_a_pull_request_still_in_draft_has_taken_no_counted_round(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No `ready_for_review` has happened yet, so nothing can have been counted against the cap."""
+    """No `ready_for_review` has happened yet, so nothing can have been counted against the cap.
+
+    The review is a **metered** one on purpose. Codex consumes no round in any phase, so asserting
+    zero against it would hold whether or not the draft exemption existed.
+    """
     _, result = _run(
         _routes(
             pr=_pr(draft=True),
-            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            reviews=[dict(_review(RABBIT, HEAD), submitted_at=DRAFT_TIME)],
             suites=RED,
         ),
         monkeypatch,
@@ -1009,10 +1013,14 @@ def test_draft_findings_still_owe_an_answer_even_though_they_cost_no_round(
     The two are separate axes: `rounds` is the budget, `owed` is whether the CURRENT head has an
     unanswered blocking finding. Conflating them would let a worker discard draft findings by
     marking the PR ready.
+
+    The finding is a **metered** provider's so that both halves are load-bearing: Codex is owed an
+    answer but never costs a round, which would leave the `rounds` assertion true for a reason that
+    has nothing to do with drafts.
     """
     fake, result = _run(
         _routes(
-            comments=[dict(_carried(CODEX, HEAD, HEAD), created_at=DRAFT_TIME)],
+            comments=[dict(_carried(RABBIT, HEAD, HEAD), created_at=DRAFT_TIME)],
             timeline=[_ready(READY_TIME)],
             suites=GREEN,
         ),
