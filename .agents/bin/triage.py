@@ -218,6 +218,45 @@ def _claim_ref_sha(issue: int) -> str | None:
     return sha
 
 
+def _successor_arrived_mid_cleanup(issue: int, merged_head: str, removed: list[str]) -> None:
+    """Raise if a successor claimed ``issue`` while the delete loop was running (#381).
+
+    **The residual #334 could not close, converted from silence into a red job.** The fence above
+    reads the claim ref once and then issues one DELETE per label, and there is no transaction
+    across those writes: ``POST``/``DELETE /issues/{n}/labels`` take no precondition — no ETag, no
+    expected-state header — so "delete only if no successor has claimed since" is not expressible.
+    Meanwhile ``claim._cmd_claim`` creates the ref *first* and publishes its mirror *second*, so a
+    successor that interleaves has its freshly written labels removed by this loop. Blast radius is
+    ``agent:<vendor>`` and ``status:in-progress`` ordinarily, and ``agent:needs-amend`` if the
+    successor has progressed — the last of which is the launcher's authority to start an AMEND
+    session, so losing it makes a live claim silently unauthorized.
+
+    **Nothing prevents it, so this detects it.** Three things that look like fixes are not: the
+    cleanup cannot hold the mutex, because the claim ref *is* the mutex and the merge already
+    released it by deleting the branch — re-acquiring would make this a second writer for the very
+    mutex the design gives to workers. ``concurrency`` in ``agent-triage.yml`` serialises triage
+    runs against each other, never against workers (the same limitation #278 records for the
+    reaper). And re-reading the ref before *each* DELETE only narrows the window; it does not
+    remove it.
+
+    **This has no repair path, deliberately.** Re-adding what was deleted would give
+    :func:`clear_mirror` an add path, and its not having one is load-bearing (#308): re-adding
+    ``status:ready`` is precisely the failure #308 was written to prevent. So this reports and
+    stops. That is the precedence #334 already encodes — *visible residue over silent destruction*
+    — and the sibling of #278's irreducible window on the reaper's ref deletion.
+    """
+    live = _claim_ref_sha(issue)
+    if live is None or live == merged_head:
+        return
+    raise TriageError(
+        f"#{issue} was claimed by a successor while its merged mirror was being cleared, and "
+        f"{', '.join(removed) or 'no label'} may have been removed from that LIVE claim. The "
+        f"claim ref is at {live[:7]}, not the merged head {merged_head[:7]}. Re-add by hand only "
+        "what the successor is owed - this job has no add path on purpose (#308) - and check "
+        f"whether it lost {AMEND_LABEL}, the launcher's authority to start an AMEND session."
+    )
+
+
 def clear_mirror(*, number: int, dry_run: bool) -> dict[str, Any]:
     """Clear a merged claim's label mirror from its linked issue (#308).
 
@@ -232,9 +271,11 @@ def clear_mirror(*, number: int, dry_run: bool) -> dict[str, Any]:
 
     * **Merged, not merely closed.** A PR closed *without* merging leaves the claim live and the ref
       in place, so its mirror is still true. Only ``merged`` clears.
-    * **Fenced against a successor.** ``merged`` is a fact about a finished pull request and says
-      nothing about who owns the issue *now*. The ref is re-read immediately before the deletes and
-      compared to the merged head, so a reopened-and-reclaimed issue is left entirely alone.
+    * **Fenced against a successor, and audited after the fact.** ``merged`` is a fact about a
+      finished pull request and says nothing about who owns the issue *now*. The ref is re-read
+      immediately before the deletes and compared to the merged head, so a reopened-and-reclaimed
+      issue is left entirely alone — and re-read *again* afterwards, because that fence is one
+      snapshot before several authoritative writes. See :func:`_successor_arrived_mid_cleanup`.
     * **Never re-queues.** ``status:ready`` is not in :data:`MIRROR_LABELS` and this function has no
       add path at all — that is the structural guarantee, not a rule to remember. Merged work is
       *done*, and returning it to the queue would hand a finished item to the next worker. This is
@@ -297,13 +338,21 @@ def clear_mirror(*, number: int, dry_run: bool) -> dict[str, Any]:
         return {"action": "skip", "reason": "successor-claim", "pr": number, "issue": issue}
 
     failed: list[str] = []
+    deleted: list[str] = []
     if not dry_run:
         for label in remove:
             status, _ = claim._request(
                 "DELETE", f"/repos/{REPO}/issues/{issue}/labels/{label}", None
             )
-            if status not in DELETE_DONE:
+            if status in DELETE_DONE:
+                deleted.append(label)
+            else:
                 failed.append(f"{label} (HTTP {status})")
+        # THE WINDOW AUDIT, and it runs BEFORE the failure report on purpose. A failed DELETE wants
+        # a re-run; a successor arriving mid-loop means a live claim lost labels and wants a human -
+        # and re-running this job while a successor holds the issue is exactly what must not happen.
+        # Reporting the re-runnable condition first would invite precisely that.
+        _successor_arrived_mid_cleanup(issue, merged_head, deleted)
     if failed:
         # Every label is attempted before raising: partial progress is strictly better than none,
         # and one message naming all of them beats discovering them one re-run at a time.
