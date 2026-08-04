@@ -108,8 +108,15 @@ leg, and a quota refusal from it is recorded as *did not review*.
   on zero refunds the second case, which is **fail-open on the cap**: the single property the counter
   exists to hold. No predicate available at that point can separate the two.
 
-  So a stale label is removed by hand — `gh issue edit <N> --remove-label agent:review-capped` —
-  which is a command somebody runs, where a wrong automatic clear is silent. Verified empty before
+  So a stale label is removed by hand, which is a command somebody runs, where a wrong automatic
+  clear is silent. **Remove every round label, not just the capped one** — `swarm_slots.py` refuses
+  on `agent:review-capped` *or* on `agent:round-2` by itself (`:137` and `:139`), so clearing only
+  the first leaves the item exactly as capped while looking cleaned:
+
+  ```sh
+  gh issue edit <N> --remove-label agent:review-capped \
+                    --remove-label agent:round-2 --remove-label agent:round-1
+  ``` Verified empty before
   this merged: no issue in the repository carried `agent:round-*` or `agent:review-capped`. A future
   change to what these labels mean needs the same check, and should reach for the same answer.
 - **Budget visibility, not budget enforcement.** Greptile publishes no usage API, so
