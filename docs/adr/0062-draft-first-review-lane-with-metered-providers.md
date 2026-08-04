@@ -66,7 +66,10 @@ all sixteen checks, fifty-four threads resolved, `mergeStateStatus: CLEAN`, and 
 record's own text.
 
 So the cap counts what it was always for — **how many times a provider found something that had to
-be fixed** — and after two such rounds a worker may always ask once more to verify convergence. If
+be fixed** — and after two such rounds one more request is permitted, purely to verify convergence.
+*Permitted*, not dispatched: this record grants the authority, and whoever is completing the lane
+spends it — by hand today, and from a session once #394's ADVANCE authority reaches the counted
+phase. Nothing here starts a worker for a capped pull request. If
 that verification is clean the gate is satisfied at no cost and the lane ends. If it finds blocking
 work too, the count passes `CAP` and `triage.py` publishes **`agent:gate-blocked`**: the lane is
 bounded at three metered reviews, and every way out of it is a state something can act on rather

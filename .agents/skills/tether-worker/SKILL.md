@@ -130,9 +130,13 @@ A review round is not yours to open. The launcher is the only issuer of AMEND tu
 them against the cap in `AGENTS.md` §Review gate. So:
 
 - **At most one self-review pass**, before the first external request.
-- **Never post a review-request comment on a PR carrying `agent:review-capped`.** At the cap,
-  safety-class findings escalate to the maintainer and the rest become follow-up issues. Asking for
-  another round is a contract violation, not diligence.
+- **`agent:review-capped` forbids another ROUND, and permits exactly one convergence check.** A
+  round is a metered review that FOUND something, so a clean one costs nothing and satisfies the
+  gate — and without that one request a capped pull request could never merge at all. Answer every
+  blocking finding, push, ask once. Anything beyond that is a contract violation, not diligence.
+- **Never post a review-request comment on a PR carrying `agent:gate-blocked`.** That label means
+  the convergence check came back blocking too, so nothing automatic remains: safety-class findings
+  escalate to the maintainer and the rest become follow-up issues.
 
 ## Maintainer-side commands
 
