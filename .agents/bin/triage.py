@@ -133,6 +133,11 @@ LIVE_STATUSES = frozenset({"queued", "in_progress", "pending", "requested", "wai
 # inline findings), so keying only on CHANGES_REQUESTED would see no outstanding review at all.
 BLOCKING_REVIEW_STATES = frozenset({"CHANGES_REQUESTED"})
 
+# States that are a verdict in themselves, so the submission is a real review even with no body.
+# `COMMENTED` is deliberately absent: it is what GitHub stamps on the wrapper it puts around a
+# reply to a review thread, and treating it as a verdict is exactly the over-count of #396.
+VERDICT_REVIEW_STATES = frozenset({"CHANGES_REQUESTED", "APPROVED", "DISMISSED"})
+
 
 class TriageError(RuntimeError):
     """A triage precondition failed. Safe to print; carries no path."""
@@ -414,6 +419,55 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
     return _COUNT_NOTHING if pr.get("draft") else None
 
 
+def _paginate_or_raise(pr_number: int, path: str, what: str) -> list[dict[str, Any]]:
+    try:
+        return claim._paginate(path, what)
+    except claim.ClaimError as exc:
+        raise TriageError(f"PR #{pr_number} review state could not be read") from exc
+
+
+def _reply_wrapper_ids(comments: list[dict[str, Any]]) -> set[Any]:
+    """Review ids whose every comment is a reply — the wrappers, positively identified (#396).
+
+    Built as *"owns comments, and all of them are replies"* rather than *"owns a non-reply
+    comment"*, and the difference is the whole safety argument. The second spelling asks a
+    submission to **prove** it is a review, so anything the payload does not describe fully — a
+    review that carried no inline comments at all — would drop out of the count. This spelling asks
+    a submission to prove it is a **wrapper**, so the unproven case is counted.
+
+    That is the direction ADR-0062 requires: an unreadable timeline counts everything, because a
+    safety control fails toward counting. Undercounting rounds is the fail-open direction on the
+    cap; overcounting merely strands a pull request, which is visible.
+    """
+    replies: dict[Any, bool] = {}
+    for entry in comments:
+        review_id = entry.get("pull_request_review_id")
+        if review_id is None:
+            continue
+        replies[review_id] = replies.get(review_id, True) and bool(entry.get("in_reply_to_id"))
+    return {review_id for review_id, only_replies in replies.items() if only_replies}
+
+
+def _is_a_review(entry: dict[str, Any], wrappers: set[Any]) -> bool:
+    """Whether a review submission is a review, or the wrapper GitHub puts around a reply (#396).
+
+    Answering a review thread produces a submission of its own: empty body, state ``COMMENTED``,
+    and one comment carrying ``in_reply_to_id``. Nothing on the reviews payload alone distinguishes
+    it from a real review, which is why the caller joins the comment list.
+
+    A body or a verdict settles it without the join. A body is what every substantive review writes
+    — #385's real review was 5667 bytes and all five of its wrappers were 0 — and
+    ``CHANGES_REQUESTED`` says something whether or not it is spelled out, while an empty-bodied
+    ``APPROVED`` is still a pass. Only when both are absent does the join decide, and then only
+    against submissions proven to be wrappers.
+    """
+    if (entry.get("body") or "").strip():
+        return True
+    if entry.get("state") in VERDICT_REVIEW_STATES:
+        return True
+    return entry.get("id") not in wrappers
+
+
 def _review_state(
     pr_number: int, head: str, counted_from: str | None = None
 ) -> tuple[set[str], bool]:
@@ -442,21 +496,43 @@ def _review_state(
     external provider left inline findings on it, or submitted ``CHANGES_REQUESTED`` for it. A clean
     pass leaves nothing owed, and pushing a fix moves the head, so the next head owes nothing until
     a provider looks at it.
+
+    **A reply is neither a review nor a finding** (#396). GitHub wraps a bot's reply to a review
+    thread in a *review submission* — empty body, state ``COMMENTED``, carrying the reply as its
+    only comment — so counting every submission made answering a review consume the round needed to
+    answer the next one, and a 2-round cap behaved like a 1-round cap. Measured on #385: one real
+    review, five wrappers. The reviews endpoint carries no comments, so the two payloads are joined
+    on ``pull_request_review_id`` and a submission counts only when it has a body, a verdict state,
+    or a comment of its own that is not an ``in_reply_to_id``. The same predicate settles the owed
+    axis, where a provider's reply was reading as a fresh finding at the head that answered it.
+
+    This is the *sibling* of the ``commit_id`` rewrite :func:`_reviewed_head` fixes, not a second
+    layer on it. Both make one review look like two, and they are independent: that one moves a
+    real finding onto the head that answered it (wrong *head*), this one turns the answer itself
+    into evidence (wrong *count*). Neither subsumes the other, so both filters run — the head is
+    normalised first, then the entry is asked whether it is a review at all.
     """
+    reviews = _paginate_or_raise(
+        pr_number, f"/repos/{REPO}/pulls/{pr_number}/reviews", "review list"
+    )
+    comments = _paginate_or_raise(
+        pr_number, f"/repos/{REPO}/pulls/{pr_number}/comments", "review-comment list"
+    )
+
+    wrappers = _reply_wrapper_ids(comments)
+
     heads: set[str] = set()
     owed = False
-    for path, what, is_reviews in (
-        (f"/repos/{REPO}/pulls/{pr_number}/reviews", "review list", True),
-        (f"/repos/{REPO}/pulls/{pr_number}/comments", "review-comment list", False),
-    ):
-        try:
-            entries = claim._paginate(path, what)
-        except claim.ClaimError as exc:
-            raise TriageError(f"PR #{pr_number} review state could not be read") from exc
+    for entries, is_reviews in ((reviews, True), (comments, False)):
         for entry in entries:
             login = ((entry.get("user") or {}).get("login")) or ""
             sha = _reviewed_head(entry)
             if login not in EXTERNAL_PROVIDERS or not isinstance(sha, str) or not sha:
+                continue
+            # A reply is neither a review nor a finding. On the comment axis `in_reply_to_id` says
+            # so outright; on the review axis it takes the join, because the wrapper GitHub builds
+            # around a reply looks exactly like a review from the reviews payload alone.
+            if entry.get("in_reply_to_id") if not is_reviews else not _is_a_review(entry, wrappers):
                 continue
             # Two independent axes, and conflating them is how this went wrong twice.
             #
