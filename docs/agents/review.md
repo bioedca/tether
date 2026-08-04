@@ -46,6 +46,21 @@ belong.
 does not re-review already reviewed commits"* and reviews nothing. That reply is easy to read as a
 review that found nothing, which is the failure this gate exists to catch. Measured on #392.
 
+**Read the status check before every ask — a second request aborts a review in flight.** The
+`CodeRabbit` commit status is the liveness signal: `pending` / *"Review in progress"* means one is
+running **right now**, and asking again cancels it, so the window is spent and nothing comes back.
+The bot's own comments are not that signal — *"Full review finished"* reports the pass that just
+ended and says nothing about what is still queued behind it.
+
+```
+gh pr checks <PR> --json name,state,description --jq '.[] | select(.name == "CodeRabbit")'
+```
+
+The check answers *is one running*, never *did one happen*: green with no review body is the silent
+suppression below, and `pending` is a review you must not interrupt. Measured on #385 (2026-08-03):
+a retry sent thirty minutes into a live review killed it and triggered the adaptive limit. Silence is
+not evidence of a throttle — it is what a large review looks like from outside.
+
 **You must ask — no provider self-fires here.** One request per provider per round; a provider that
 was not asked **has not declined**. Author-side or local output, and a status-only result, never
 satisfy this gate.
@@ -60,7 +75,8 @@ carrying the config prevents the *next* one.
 
 **A request that produced no review has not been spent.** The one-per-round limit counts requests
 that were *answered with a review* — so a throttle refusal, or the wrong command running nothing,
-leaves the allowance intact and you ask again. Without that, the fair-use refusal below would deadlock
+leaves the allowance intact and you ask again — once the status check shows nothing
+running. Without that, the fair-use refusal below would deadlock
 the mandatory gate: retry required by one rule, forbidden by the other. What the limit forbids is
 asking a provider to look **again** at work it has already reviewed this round.
 
@@ -115,9 +131,12 @@ asking a provider to look **again** at work it has already reviewed this round.
 - **Throttled is not unavailable, and the difference is a stated retry time.** CodeRabbit's fair-use
   limit is *adaptive*: sustained recent activity drops the seat to a per-interval allowance, and the
   refusal names when the next included review is due — *"Your next included review will be available
-  in 10 minutes"*. That is a **wait**, not a freeze. Wait the stated interval and ask again; do not
-  record it as unavailability, and do not escalate it to the maintainer as one. A freeze is the case
-  where it cannot act **at all**, or where it goes silent with a green check.
+  in 10 minutes"*. That is a **wait**, not a freeze. Wait the stated interval, confirm the status
+  check is not `pending`, then ask again; do not record it as unavailability, and do not escalate it
+  to the maintainer as one. The elapsed interval is necessary and **not sufficient** — a retry that
+  lands on a running review destroys it and re-saturates the limit, which is how a wait turns into
+  the freeze it was not. A freeze is the case where it cannot act **at all**, or where it goes
+  silent with a green check.
   The refusal also offers to proceed **through usage-based billing**. Never take it: paying to skip
   a wait is a spending decision, and it belongs to the maintainer, not to a worker trying to finish.
   Measured on #392, and the driver is request *cadence* — several PRs reviewed in one sitting is what

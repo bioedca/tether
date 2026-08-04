@@ -60,6 +60,10 @@ findings raised on a draft.
 with no budget has not. Greptile out of credits is skippable and never blocks. **CodeRabbit
 unavailable freezes the PR**, because it is the gate — but *throttled* is a third thing again: a fair-use refusal that
 names a retry time is a **wait**, and a request that produced no review has not spent the one-per-round allowance.
+That retry carries a precondition, because the same status check reads two ways: green with no review body is the
+silent suppression above, and `pending` is a review **running now** that a second request destroys (measured on #385).
+So the check is read before every ask — elapsed time alone is not a licence, and a retry that lands on a live review
+converts a wait into the freeze it was not.
 Copilot is advisory only: it never satisfies a
 leg, and a quota refusal from it is recorded as *did not review*.
 

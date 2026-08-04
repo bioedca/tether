@@ -330,6 +330,15 @@ produced no review has not been spent. It also offers to proceed through usage-b
 billing; that is the maintainer's spending decision, never a worker's. Pace review
 requests rather than batching them.
 
+**Before any re-request, check that a review is not already running.** The `CodeRabbit`
+commit status reads `pending` / *"Review in progress"* while one is in flight, and a
+second request **aborts it** — spending the window on nothing and triggering the limit
+above. The elapsed interval is not on its own a licence to ask:
+
+```bash
+gh pr checks <PR> --json name,state,description --jq '.[] | select(.name == "CodeRabbit")'
+```
+
 **Do not write a provider's handle in a comment you do not mean as a request.** The
 mention fires the bot even inside backticks — a code span is not an escape — so
 quoting a trigger while describing it spends a real review. Break the handle, or say

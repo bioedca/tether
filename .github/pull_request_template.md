@@ -36,7 +36,7 @@ linked work maps to one. The checklist, not CI, enforces those fields.
 - Review round: 0/2 (no metered round yet — a draft, or ready but not yet reviewed) | 1/2 | 2/2 (a third is a stop-list violation — the launcher issues rounds, not you)
 - Draft phase: Codex iterated to nothing-blocking before this went ready | opened ready (say why)
 - Greptile: spent one credit | skipped — no budget this month | skipped (say why). Balance from `python3 .agents/bin/greptile_usage.py`
-- **CodeRabbit — the last gate**: no actionable comments | pending | throttled, retrying after the stated interval (a wait, not a freeze) | unavailable (freezes the PR)
+- **CodeRabbit — the last gate**: no actionable comments | in flight (status check `pending` — never re-request, it aborts the run) | throttled, retrying after the stated interval *and* a non-pending status check (a wait, not a freeze) | unavailable (freezes the PR)
 - Independent review result: pending | substantive review complete | nothing to review (quote each selected provider, naming the head it read; a Codex 👍 reaction counts)
 - Provider unavailable: no | yes (which, and why it could not act — capability, never quota)
 - Findings: <N> blocking (fixed) | <M> non-blocking (deferred to #____)

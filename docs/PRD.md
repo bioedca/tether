@@ -1103,7 +1103,9 @@ left has not reviewed. Greptile out of credits is skippable and never blocks; **
 PR**, because it is the last gate and nothing merges past it. **Throttled is not unavailable**: CodeRabbit's fair-use
 limit is adaptive, and a refusal that names when the next included review is due is a wait — wait it and ask again,
 which costs no round and no request, and never accept the usage-based-billing offer that accompanies it, since that is
-the maintainer's spending decision. Human sign-off is required for releases,
+the maintainer's spending decision. The elapsed interval is necessary but **not sufficient**: the `CodeRabbit` commit
+status reads `pending` while a review is in flight, and a re-request sent then destroys the running review, so the
+status **shall** be read before every ask. Human sign-off is required for releases,
 tags, signing changes, and any new scientific claim or citation; everything else merges without it.
 
 `.github/pull_request_template.md` carries the **self-review checklist** — the human-judgment gate in the solo model:
