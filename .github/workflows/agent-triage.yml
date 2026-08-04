@@ -238,13 +238,15 @@ jobs:
                   "",
                   f"PR #{r['pr']} → issue #{r['issue']} · checks **{r['checks']}**",
                   "",
-                  f"| rounds | capped | amend | added | removed |",
-                  "|---|---|---|---|---|",
-                  f"| {r['rounds']} of 2 | {r['capped']} | {r['amend']} "
+                  f"| rounds | capped | gate | amend | added | removed |",
+                  "|---|---|---|---|---|---|",
+                  f"| {r['rounds']} of 2 | {r['capped']} | {r.get('gate', 'open')} | {r['amend']} "
                   f"| {', '.join(r['added']) or '—'} | {', '.join(r['removed']) or '—'} |",
               ]
-              if r["capped"]:
-                  lines += ["", "**At the cap.** No AMEND authority is issued; this PR needs the maintainer."]
+              if r.get("gate") == "blocked":
+                  lines += ["", "**Gate blocked.** The convergence check found blocking work too, so the count has passed the cap. Nothing automatic remains; this PR needs the maintainer."]
+              elif r["capped"]:
+                  lines += ["", "**At the cap.** No further AMEND authority is issued. One convergence check is still permitted: answer everything, push, and request the final review. Clean satisfies the gate."]
           pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines), encoding="utf-8")
           PY
           fi

@@ -52,8 +52,12 @@ The severity floor you classify against lives on `review.md`, not in the residen
 
 - **Do not fix a non-blocking finding.** That is scope breach, not diligence — and a `Deferred:` that
   points at an issue which does not exist is a contract violation, so file the follow-up first.
-- **Do not request another review round.** {{REMAINING}} remain, and they are not yours to spend: if
-  another is warranted, the launcher will start a further session. If this is round {{CAP}}, the next
-  state is not a third round — safety-class findings escalate to the maintainer and the rest become
-  follow-ups.
+- **Do not request another review round.** {{REMAINING}} remain, and they are not yours to spend:
+  if another is warranted, the launcher will start a further session.
+- **At round {{CAP}}, one convergence check is the exception, and only that.** Answer every blocking
+  finding, push, and request the final review — a round is a review that FOUND something, so a clean
+  one costs nothing and satisfies the gate. It is not a third round and it is not optional: without
+  it a capped pull request can never merge. If that check comes back blocking too, stop:
+  `agent:gate-blocked` goes on, safety-class findings escalate to the maintainer, and the rest
+  become follow-ups.
 - Do not rebase or force-push a published branch, and do not open a second PR for this issue.

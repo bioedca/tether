@@ -144,7 +144,8 @@ threshold would make the ladder impossible to fix without a red `main`.
 
 Be precise about what "the label model" means, because parts of it still have no writer. Written by
 code: `agent:claude|codex|copilot` (`claim.py`), `agent:conflicted` and `agent:needs-amend`
-(`reaper.py` and `triage.py`), and `agent:round-1` / `agent:review-capped` (`triage.py`).
+(`reaper.py` and `triage.py`), `agent:round-1` / `agent:review-capped`, and `agent:gate-blocked` (`triage.py`; ADR-0062 and
+#399 — the convergence check found blocking work too, so nothing automatic remains).
 `agent:round-2` is **provisioned but unreachable by code** — under a two-round cap `_round_label`
 publishes `agent:round-1` at one round and `agent:review-capped` at two, so nothing ever writes the
 middle value. The launcher still honours it if a maintainer applies it by hand, reading it as *both
