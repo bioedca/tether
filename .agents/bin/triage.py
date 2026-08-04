@@ -119,6 +119,13 @@ MIRROR_LABELS = ("status:in-progress", AMEND_LABEL, CONFLICTED_LABEL, *ALL_ROUND
 # `clear_mirror`.
 DELETE_DONE = frozenset({200, 204, 404})
 
+# A DELETE that actually TOOK a label off, which is a narrower question than whether the call
+# succeeded. `404` is success - the label is already gone, which is what the call was for - but it
+# removed nothing, so counting it as damage would have `_successor_arrived_mid_cleanup` tell a human
+# a live claim lost a label this run never touched, and invite re-adding it. That is #308's failure
+# arriving through the report rather than through the code (#381).
+DELETE_REMOVED = frozenset({200, 204})
+
 # `cancelled` and `stale` are here deliberately. Neither is a live status nor a pass, so leaving
 # them out made a readable-but-not-green head report as green and CLEAR a real
 # `agent:needs-amend` - the
@@ -239,6 +246,13 @@ def _successor_arrived_mid_cleanup(issue: int, merged_head: str, removed: list[s
     reaper). And re-reading the ref before *each* DELETE only narrows the window; it does not
     remove it.
 
+    ``removed`` is what the run **actually took off**, never what it attempted. ``DELETE_DONE``
+    includes ``404`` because an already-absent label is a successful delete, but it removed nothing,
+    and a report that counted it would name labels for re-adding that this cleanup never touched -
+    #308's failure arriving through the report instead of through the code. The caller therefore
+    skips this entirely when nothing was removed: no damage is possible, so there is nothing to
+    audit and no reason to spend the read.
+
     **This has no repair path, deliberately.** Re-adding what was deleted would give
     :func:`clear_mirror` an add path, and its not having one is load-bearing (#308): re-adding
     ``status:ready`` is precisely the failure #308 was written to prevent. So this reports and
@@ -344,15 +358,23 @@ def clear_mirror(*, number: int, dry_run: bool) -> dict[str, Any]:
             status, _ = claim._request(
                 "DELETE", f"/repos/{REPO}/issues/{issue}/labels/{label}", None
             )
-            if status in DELETE_DONE:
+            if status in DELETE_REMOVED:
                 deleted.append(label)
-            else:
+            elif status not in DELETE_DONE:
                 failed.append(f"{label} (HTTP {status})")
-        # THE WINDOW AUDIT, and it runs BEFORE the failure report on purpose. A failed DELETE wants
-        # a re-run; a successor arriving mid-loop means a live claim lost labels and wants a human -
-        # and re-running this job while a successor holds the issue is exactly what must not happen.
-        # Reporting the re-runnable condition first would invite precisely that.
-        _successor_arrived_mid_cleanup(issue, merged_head, deleted)
+        # THE WINDOW AUDIT, and two things about when it runs are deliberate.
+        #
+        # It runs BEFORE the failure report. A failed DELETE wants a re-run; a successor arriving
+        # mid-loop means a live claim lost labels and wants a human - and re-running this job while
+        # a successor holds the issue is exactly what must not happen. Reporting the re-runnable
+        # condition first would invite precisely that.
+        #
+        # It runs only when something was actually removed. `deleted` is keyed on DELETE_REMOVED
+        # rather than DELETE_DONE, so a 404 - the label was already gone, which on a re-run is the
+        # ordinary case - is not damage. Auditing anyway would spend a read to report a successor
+        # that lost nothing, and name labels for re-adding that this cleanup never touched.
+        if deleted:
+            _successor_arrived_mid_cleanup(issue, merged_head, deleted)
     if failed:
         # Every label is attempted before raising: partial progress is strictly better than none,
         # and one message naming all of them beats discovering them one re-run at a time.

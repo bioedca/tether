@@ -1463,6 +1463,65 @@ def test_a_branch_awaiting_deletion_is_not_mistaken_for_a_successor(
     assert result["action"] == "clear-mirror"
 
 
+def test_a_label_that_was_already_gone_is_not_reported_as_damage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2 on this PR: `DELETE_DONE` includes 404, and 404 removed nothing.
+
+    A re-run is the ordinary way to reach this — the first run removed the labels, the second finds
+    them absent and gets 404 for every one. Counting those as damage would report a successor
+    losing labels this cleanup never touched, and the repair instruction would say to re-add them:
+    #308's failure arriving through the report rather than through the code.
+
+    So nothing was removed, nothing is audited, and the second read is not even spent.
+    """
+    routes = _merged_routes()
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/")] = (404, None)
+    _install(monkeypatch, routes)
+    seen = _sequenced_ref(monkeypatch, None, SUCCESSOR_HEAD)
+
+    result = triage.clear_mirror(number=99, dry_run=False)
+    assert result["action"] == "clear-mirror"
+    assert seen[0] == 1, "nothing was removed, so there is no damage to audit"
+
+
+def test_a_404_is_still_a_successful_delete(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The control for the change above: 404 must not become a *failure* either.
+
+    It is success — the label is gone, which is what the call was for. Only its status as *damage*
+    changes, and moving it from one bucket to the other would turn every re-run red.
+    """
+    routes = _merged_routes()
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/")] = (404, None)
+    _install(monkeypatch, routes)
+    _sequenced_ref(monkeypatch, None, None)
+
+    assert triage.clear_mirror(number=99, dry_run=False)["action"] == "clear-mirror"
+
+
+def test_a_partially_removed_mirror_reports_only_what_it_removed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mixed case, which is what a re-run interrupted by a successor actually looks like.
+
+    One label still present and removed, the rest already absent. The report must name the one, so
+    a human re-adds what was really lost and nothing else.
+    """
+    removed_now = "status:in-progress"
+    routes = _merged_routes()
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/")] = (404, None)
+    routes[("DELETE", f"/repos/bioedca/tether/issues/7/labels/{removed_now}")] = (204, None)
+    _install(monkeypatch, routes)
+    _sequenced_ref(monkeypatch, None, SUCCESSOR_HEAD)
+
+    with pytest.raises(triage.TriageError) as raised:
+        triage.clear_mirror(number=99, dry_run=False)
+
+    message = str(raised.value)
+    assert removed_now in message
+    assert triage.CONFLICTED_LABEL not in message, "a label that was already gone is not damage"
+
+
 def test_a_dry_run_writes_nothing_so_it_audits_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
