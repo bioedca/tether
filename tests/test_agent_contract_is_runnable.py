@@ -83,7 +83,7 @@ ABSOLUTE = ("C:\\", "c:\\", "/mnt/", "%APPDATA%", "Program Files", "$env:", "~/"
 # A line inside a fence is a command; outside one, a backtick span is a command only if it looks
 # like an invocation rather than a filename or a label. Naming the tools this repository actually
 # tells a worker to run keeps prose like `agent/issue-<N>` out of the sample.
-_TOOLS = ("python", "python3", "gh", "git", "pytest", "mkdocs", "reuse", "pre-commit")
+_TOOLS = ("python", "python3", "gh", "git", "pytest", "mkdocs", "reuse", "pre-commit", "ssh")
 
 # A resolver standing in for the interpreter: `<py>` for a reader to substitute as it goes,
 # `{{PYTHON}}`/`{{GH}}` for the launcher to render into a task template. Both are matched with a
@@ -112,15 +112,20 @@ _INVOCATION = re.compile(
 
 
 def _declares_its_shell(command: str) -> bool:
-    """Whether this command's env-var prefix already commits it to one shell, openly.
-
-    The shell-neutrality rules exist to catch a command that *looks* portable and is not. An env
-    prefix is the opposite: it is unmistakably `VAR=value cmd` or `$env:VAR='value'; cmd`, no reader
-    could take it for neutral, and no neutral spelling exists to prefer. So such a command is exempt
-    from the first-token and absolute-path rules — and a page carrying one owes **both** spellings,
-    which is what `test_a_shell_specific_gate_is_given_for_both_lanes` asserts instead.
-    """
+    """Whether this command opens with an env-var prefix, which commits it to one shell openly."""
     return bool(_ENV_PREFIX.match(command))
+
+
+def _gate_body(command: str) -> str:
+    """The command with its env prefix removed — what the two lane spellings must agree on.
+
+    The rules below run on THIS rather than skipping an env-prefixed command, which an earlier
+    revision did. Exempting let `QT_QPA_PLATFORM=offscreen python -m pytest` pass with a hard-coded
+    interpreter on a shared page — the exact WSL/native failure `<py>` exists to prevent, waved
+    through by the check meant to catch it (Codex P2 on #390). The prefix is the shell-specific
+    part; everything after it still owes shell-neutrality.
+    """
+    return _ENV_PREFIX.sub("", command).strip()
 
 
 # Fence languages that assert a shell the dispatched worker may not be in. `sh` is the honest
@@ -189,14 +194,26 @@ def _commands(path: Path) -> list[tuple[int, str]]:
             for offset, line in enumerate(body, start=1)
             if line.strip() and not line.lstrip().startswith("#")
         ]
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    # Inline spans are matched over the whole file rather than line by line, because a long command
+    # WRAPS. `docs/agents/hpc.md`'s first-use SSH probe — the fail-closed check that gates every
+    # cluster action — spans four lines, so a per-line scan never saw it and no rule below applied
+    # to it (Codex P2 on #390). Fenced lines are blanked first so they are not counted twice, and
+    # each span's internal whitespace is collapsed to give the single command a reader sees.
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    unfenced, inside = [], False
+    for line in lines:
         if re.match(r"^\s*```", line):
-            continue
-        found += [
-            (number, span.strip())
-            for span in re.findall(r"`([^`]+)`", line)
-            if _INVOCATION.search(_ENV_PREFIX.sub("", span.strip()))
-        ]
+            inside = not inside
+            unfenced.append("")
+        else:
+            unfenced.append("" if inside else line)
+    joined = "\n".join(unfenced)
+    for match in re.finditer(r"`([^`]+)`", joined, re.DOTALL):
+        number = joined.count("\n", 0, match.start()) + 1
+        span = " ".join(match.group(1).split())
+        if _INVOCATION.search(_ENV_PREFIX.sub("", span)):
+            found.append((number, span))
     return found
 
 
@@ -218,6 +235,15 @@ def test_the_sample_is_not_empty() -> None:
     # every page would only invite a decorative command to satisfy the test.
     for page in (_REPO / "AGENTS.md", _REPO / "CONTRIBUTING.md", _REPO / "docs/agents/adr.md"):
         assert _commands(page), f"{page.name} carries no command; the widened guard reads nothing"
+
+    # The cluster probe specifically, because it is the fail-closed check gating every HPC action
+    # and it is written as a backtick span WRAPPED across four lines. A per-line scan could not see
+    # it, so no rule applied to it at all (Codex P2 on #390). Named rather than left to the
+    # page-is-not-empty assertion above, which `git archive <SHA>` satisfies on its own.
+    hpc = [c for _n, c in _commands(_REPO / "docs/agents/hpc.md")]
+    assert any(c.startswith("ssh ") and "BatchMode=yes" in c for c in hpc), (
+        f"the first-use cluster probe must be inside the sample; hpc.md yielded {hpc}"
+    )
 
 
 def test_a_resolver_led_command_is_visible_to_the_parser() -> None:
@@ -261,14 +287,19 @@ def test_a_shell_specific_gate_is_given_for_both_lanes() -> None:
     first-token rule rather than a hole beside it.
     """
     for path in BOTH_LANES:
-        env_led = [c for _n, c in _commands(path) if _declares_its_shell(c)]
-        if not env_led:
-            continue
-        posix = [c for c in env_led if not c.startswith("$env:")]
-        powershell = [c for c in env_led if c.startswith("$env:")]
-        assert posix and powershell, (
-            f"{path.relative_to(_REPO).as_posix()} gives an environment-prefixed command for only "
-            f"one shell, so the other lane cannot run it: {env_led}"
+        # Paired by the command BODY, not counted per page. Counting proved only that the page held
+        # one of each somewhere, so keeping the bash pytest matrix while changing the PowerShell
+        # line to something unrelated still passed — leaving one lane without the gate, which is
+        # the whole defect (Codex P2 on #390).
+        gates: dict[str, set[str]] = {}
+        for _number, command in _commands(path):
+            if _declares_its_shell(command):
+                shell = "powershell" if command.startswith("$env:") else "posix"
+                gates.setdefault(_gate_body(command), set()).add(shell)
+        unpaired = {body: sorted(shells) for body, shells in gates.items() if len(shells) < 2}
+        assert not unpaired, (
+            f"{path.relative_to(_REPO).as_posix()} gives these environment-prefixed gates for only "
+            f"one shell, so the other lane cannot run them: {unpaired}"
         )
 
 
@@ -282,7 +313,7 @@ def test_no_command_names_an_absolute_path() -> None:
         _at(path, number, command)
         for path in GUARDED_FILES
         for number, command in _commands(path)
-        if any(marker in command for marker in ABSOLUTE) and not _declares_its_shell(command)
+        if any(marker in _ENV_PREFIX.sub("", command) for marker in ABSOLUTE)
     ]
     assert not bad, (
         "these commands hard-code a path that does not exist in the other lane's shell; "
@@ -312,7 +343,7 @@ def test_every_interpreter_and_cli_reference_is_a_bare_resolvable_name() -> None
         _at(path, number, command)
         for path in GUARDED_FILES
         for number, command in _commands(path)
-        if re.search(r"[/\\:%$]", command.split()[0]) and not _declares_its_shell(command)
+        if re.search(r"[/\\:%$]", _ENV_PREFIX.sub("", command).split()[0])
     ]
     assert not bad, f"these commands lead with something other than a bare executable name: {bad}"
 
