@@ -532,7 +532,11 @@ def _review_state(
             # A reply is neither a review nor a finding. On the comment axis `in_reply_to_id` says
             # so outright; on the review axis it takes the join, because the wrapper GitHub builds
             # around a reply looks exactly like a review from the reviews payload alone.
-            if entry.get("in_reply_to_id") if not is_reviews else not _is_a_review(entry, wrappers):
+            if is_reviews:
+                is_reply = not _is_a_review(entry, wrappers)
+            else:
+                is_reply = bool(entry.get("in_reply_to_id"))
+            if is_reply:
                 continue
             # Two independent axes, and conflating them is how this went wrong twice.
             #
