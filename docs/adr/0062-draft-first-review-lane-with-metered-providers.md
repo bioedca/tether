@@ -144,9 +144,14 @@ leg, and a quota refusal from it is recorded as *did not review*.
   #394 and #391 — they gate it independently, one by publishing no resumption and the other by
   refusing the resumptions that do get published.
 
-  **#391 is resolved** (see the launcher entry below), and **#393** with it. #394 remains, so the
-  lane is still hand-driven past the point a clean review lands: nothing publishes the authority to
-  advance it.
+  **All three are now resolved.** #393 gave the owed axis an exit the contract's own instruction
+  produces; #391 made the launcher's ledger phase-aware; and #394 supplied the concept the three
+  were faces of — **the lane's next phase is itself a thing that can be authorised**. A clean review
+  on an unfinished draft publishes `agent:needs-advance`, the launcher takes one
+  `refs/lane-advances/<issue>-<generation>-<n>` against it, and `.agents/tasks/advance.md` walks the
+  lane on by exactly one phase and exits. Deliberately a second label and a second namespace: AMEND
+  says *fix the blocking findings*, and one label cannot also say *there are none, move on* — while
+  a ref in `refs/amend-rounds/` would spend a metered round to change phase.
 - **The launcher's second cap is phase-aware, in its own ledger** (amended by
   [#391](https://github.com/bioedca/tether/issues/391)). `swarm_slots.py` records every AMEND in a
   permanent generation ref and refuses another past `CAP`, independently of the labels —

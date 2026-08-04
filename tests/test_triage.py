@@ -1005,6 +1005,136 @@ def test_an_unreadable_timeline_counts_everything_rather_than_nothing(
     assert result["rounds"] == 1
 
 
+# ---------------------------------------- #394: a clean review authorises the next lane phase
+#
+# The lane is a SEQUENCE, and the swarm had one resumption signal for it: `agent:needs-amend`,
+# published for a failed check or an owed finding. A clean review owes nothing, so it published
+# nothing, `swarm_slots` resumes claimed work only on that label, and the draft sat forever before
+# the CodeRabbit gate it cannot merge without.
+
+
+def _drafted(**over: Any) -> dict[str, Any]:
+    """A pull request still in the draft phase: `draft` true and no `ready_for_review` ever."""
+    return _pr(draft=True, **over)
+
+
+def test_a_clean_review_on_an_unfinished_draft_publishes_advance_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE #394 state, and against today's triage nothing at all is published for it.
+
+    A draft, green, nothing owed, and Codex has looked at this exact head and found nothing
+    blocking. That is the end of a draft round and the start of the next phase — and it was the one
+    state the machine could not represent.
+    """
+    fake, result = _run(
+        _routes(
+            pr=_drafted(),
+            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["advance"] == "added"
+    assert triage.ADVANCE_LABEL in fake.added
+    assert triage.AMEND_LABEL not in fake.added, "an advance is not an amend"
+
+
+def test_an_owed_finding_is_still_an_amend_and_never_an_advance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#394's fourth criterion. Publishing both would hand one claim two authorities.
+
+    Whichever resumption arrived first would decide what the session did, which is worse than
+    either alone.
+    """
+    fake, result = _run(
+        _routes(
+            pr=_drafted(),
+            comments=[dict(_carried(CODEX, HEAD, HEAD), created_at=DRAFT_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert triage.AMEND_LABEL in fake.added
+    assert triage.ADVANCE_LABEL not in fake.added
+    assert result["advance"] != "added"
+
+
+def test_a_draft_nobody_has_reviewed_yet_is_not_authorised_to_advance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Green and owing nothing is not the same as reviewed and clean.
+
+    Without this, a draft would be authorised to leave the draft phase the moment its checks went
+    green — before the free provider had ever looked at it, which is the lane's whole point skipped.
+    """
+    _, result = _run(_routes(pr=_drafted(), suites=GREEN), monkeypatch)
+    assert result["advance"] == "no-review-yet"
+
+
+def test_a_pull_request_already_ready_for_review_has_no_draft_to_advance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#394's fourth criterion from the other end: nothing published once the lane is complete."""
+    _, result = _run(
+        _routes(
+            reviews=[dict(_review(RABBIT, HEAD), submitted_at=AFTER_READY)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["advance"] == "lane-complete"
+
+
+def test_a_running_check_suite_holds_the_advance_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Advancing spends a metered credit or asks the mandatory gate. Not against a moving diff."""
+    _, result = _run(
+        _routes(
+            pr=_drafted(),
+            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            suites=RUNNING,
+        ),
+        monkeypatch,
+    )
+    assert result["advance"] != "added"
+
+
+def test_the_advance_authority_is_withdrawn_when_it_stops_being_true(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale advance would authorise a session to walk a lane that has moved on.
+
+    Safe to withdraw here, unlike `agent:needs-amend`: this label has exactly one writer, so
+    removing it cannot fight the reaper over a signal that means something else.
+    """
+    fake, result = _run(
+        _routes(
+            pr=_drafted(),
+            labels=[triage.ADVANCE_LABEL],
+            comments=[dict(_carried(CODEX, HEAD, HEAD), created_at=DRAFT_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["advance"].startswith("cleared")
+    assert triage.ADVANCE_LABEL in fake.removed
+
+
+def test_the_advance_label_is_part_of_the_merged_claims_mirror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """It describes work in flight, so a merge must clear it like every other mirror label (#308).
+
+    Left out, a merged issue would keep an authority to advance a lane whose PR no longer exists.
+    """
+    assert triage.ADVANCE_LABEL in triage.MIRROR_LABELS
+    fake = _install(monkeypatch, _merged_routes(labels=[triage.ADVANCE_LABEL]))
+    triage.clear_mirror(number=99, dry_run=False)
+    assert triage.ADVANCE_LABEL in fake.removed
+
+
 def test_draft_findings_still_owe_an_answer_even_though_they_cost_no_round(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

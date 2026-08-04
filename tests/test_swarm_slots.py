@@ -87,6 +87,7 @@ def _install(
     issues: dict[int, dict[str, Any]] | None = None,
     ref_status: int = 201,
     issued_refs: list[dict[str, Any]] | None = None,
+    advance_refs: list[dict[str, Any]] | None = None,
 ) -> Fake:
     """Wire the fake transport and the claim-ref list.
 
@@ -112,6 +113,10 @@ def _install(
         ("GET", f"/repos/bioedca/tether/git/matching-refs/{slots.AMEND_NAMESPACE}/"): (
             200,
             issued_refs or [],
+        ),
+        ("GET", f"/repos/bioedca/tether/git/matching-refs/{slots.ADVANCE_NAMESPACE}/"): (
+            200,
+            advance_refs or [],
         ),
     }
     for number, issue in (issues or {}).items():
@@ -400,6 +405,111 @@ def test_the_draft_ledger_is_still_keyed_to_the_claim_generation(
     assert fake.amend_refs() == [
         f"refs/{slots.AMEND_NAMESPACE}/7-77-{slots.DRAFT_ORDINAL_PREFIX}1"
     ], "generation 77's draft ledger must start at 1 regardless of generation 76's"
+
+
+# ------------------------------------------- the lane advance is not a review round (#394)
+
+
+def test_an_advance_label_launches_the_advance_task_not_the_amend_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#394's second criterion: the session must be told which phase it is in.
+
+    Handing this claim `amend.md` would tell a worker to fix the blocking findings — and there are
+    none, which is the precondition of the whole state. It would then either invent work or stop.
+    """
+    _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.ADVANCE_LABEL)})
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    report = slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    entry = _by_issue(report, 7)
+    assert entry["mode"] == "advance"
+    text = (tmp_path / entry["task_file"]).read_text(encoding="utf-8")
+    assert "ADVANCE" in text and "AMEND —" not in text
+    assert "{{" not in text
+
+
+def test_an_advance_takes_a_ref_outside_the_round_ledger(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#394's third criterion: advancing consumes no review round.
+
+    The ref is still taken — it is what makes the authority exactly one session — but in
+    `refs/lane-advances/`. In `refs/amend-rounds/` it would spend one of the two metered rounds to
+    move a pull request from one phase to the next.
+    """
+    fake = _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.ADVANCE_LABEL)})
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    assert fake.amend_refs() == [], "an advance must not touch the round ledger"
+    assert f"refs/{slots.ADVANCE_NAMESPACE}/7-77-1" in fake.created_refs
+
+
+def test_losing_the_advance_race_launches_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`exactly one session` is the criterion, and a label alone cannot meet it.
+
+    A label is state: it stays published until triage recomputes, so every launcher run in between
+    would start another session against the same phase — several workers all spending the Greptile
+    credit, or all marking the PR ready. `422` is how the loser finds out.
+    """
+    _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL)},
+        ref_status=422,
+    )
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    report = slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    entry = _by_issue(report, 7)
+    assert entry["mode"] == "lost"
+    assert entry["launched"] is False
+    assert not list(tmp_path.glob("_task-issue-*"))
+
+
+def test_an_amend_wins_over_an_advance_when_both_are_somehow_published(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Answering a finding always precedes moving the lane on.
+
+    `triage.py` does not publish both, so this is a belt on a state that should not occur — but if
+    it does, the safe reading is the one that fixes something rather than the one that advances past
+    it.
+    """
+    _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL, slots.AMEND_LABEL)},
+    )
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    entry = _by_issue(
+        slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path), 7
+    )
+    assert entry["mode"] == "amend"
+
+
+def test_the_advance_template_tells_a_worker_it_is_not_an_amend() -> None:
+    """The stop-list #394 asks for, asserted on the shipped text rather than on the launcher.
+
+    Advancing more than one phase is the failure this template exists to prevent: each step begins
+    only when the previous has nothing blocking left, and a worker cannot know that about a review
+    it has just requested.
+    """
+    # Whitespace-normalised: these are prose files, so an assertion on an exact string breaks the
+    # first time a sentence rewraps, which teaches the next author to rewrite the test rather than
+    # to keep the promise.
+    text = " ".join((TASKS / "advance.md").read_text(encoding="utf-8").split())
+    assert "NOT AN AMEND" in text.upper()
+    assert "Do not walk more than one phase" in text
+    assert "Exhaustion never blocks" in text, "a Greptile balance of zero must not stall the lane"
 
 
 def test_losing_the_amend_round_race_launches_nothing(

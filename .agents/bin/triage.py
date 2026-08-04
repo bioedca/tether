@@ -84,6 +84,19 @@ CAP = 2
 ROUND_LABELS = ("agent:round-1", "agent:round-2")
 CAPPED_LABEL = "agent:review-capped"
 AMEND_LABEL = "agent:needs-amend"
+
+#: *This draft's lane has somewhere to go, and nobody is going there.* The lane (ADR-0062) is a
+#: multi-phase sequence - iterate Codex on the draft, optionally spend a Greptile credit, mark
+#: ready, ask CodeRabbit - but the only resumption signal the swarm had was ``agent:needs-amend``,
+#: published when a check failed or a finding was owed. A **clean** review owes nothing, so it
+#: published nothing, no worker resumed, and the draft sat forever before the gate it cannot merge
+#: without (#394).
+#:
+#: Deliberately a second label rather than a reuse of ``agent:needs-amend``. They authorise
+#: different sessions: AMEND says *fix the blocking findings*, and a session handed that with none
+#: to find would either invent work or stop. #394's second criterion is that the session be told
+#: which phase it is in, and one label cannot say two things.
+ADVANCE_LABEL = "agent:needs-advance"
 CONFLICTED_LABEL = "agent:conflicted"
 ALL_ROUND_LABELS = (*ROUND_LABELS, CAPPED_LABEL)
 
@@ -112,7 +125,13 @@ ALL_ROUND_LABELS = (*ROUND_LABELS, CAPPED_LABEL)
 #    beside a surviving ref, `sweep` takes the no-PR branch and reaches neither. Pinned by
 #    `test_a_closed_pull_request_is_never_marked_conflicted` in tests/test_reaper.py, so the claim
 #    this set's safety rests on is a gate and not this paragraph.
-MIRROR_LABELS = ("status:in-progress", AMEND_LABEL, CONFLICTED_LABEL, *ALL_ROUND_LABELS)
+MIRROR_LABELS = (
+    "status:in-progress",
+    AMEND_LABEL,
+    ADVANCE_LABEL,
+    CONFLICTED_LABEL,
+    *ALL_ROUND_LABELS,
+)
 
 # A label DELETE that reached the desired end state. 404 counts: the label is already gone, which
 # is what the call was for. Anything else is a failure the merge path must not swallow - see
@@ -416,8 +435,15 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
 
 def _review_state(
     pr_number: int, head: str, counted_from: str | None = None
-) -> tuple[set[str], bool]:
-    """``(heads with external review evidence, whether the CURRENT head owes an answer)``.
+) -> tuple[set[str], bool, bool]:
+    """``(heads that spent a round, whether the CURRENT head owes an answer, whether it was read)``.
+
+    The third value is *any* external provider having looked at the current head, counted phase or
+    not. It is not a third counter: it answers a question neither of the others can, which is
+    whether a **clean** review has happened at all (#394). ``heads`` counts only metered,
+    post-``ready_for_review`` evidence, so on a draft it is empty whatever Codex has done - and
+    ``owed`` is false both when a review came back clean and when none was ever asked for. Those two
+    states authorise opposite things, so telling them apart needs its own value.
 
     ``counted_from`` is the instant the cap starts (see :func:`_counted_from`). Evidence older than
     it still decides whether the current head **owes an answer** — a finding does not stop mattering
@@ -445,6 +471,7 @@ def _review_state(
     """
     heads: set[str] = set()
     owed = False
+    read_head = False
     for path, what, is_reviews in (
         (f"/repos/{REPO}/pulls/{pr_number}/reviews", "review list", True),
         (f"/repos/{REPO}/pulls/{pr_number}/comments", "review-comment list", False),
@@ -458,6 +485,8 @@ def _review_state(
             sha = _reviewed_head(entry)
             if login not in EXTERNAL_PROVIDERS or not isinstance(sha, str) or not sha:
                 continue
+            if sha == head:
+                read_head = True
             # Two independent axes, and conflating them is how this went wrong twice.
             #
             # ROUNDS: only a metered provider, and only after the PR went ready. Draft-phase
@@ -472,7 +501,70 @@ def _review_state(
                 continue
             if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
                 owed = True
-    return heads, owed
+    return heads, owed, read_head
+
+
+def _advance_state(
+    *,
+    labels: set[str],
+    read_head: bool,
+    counted_from: str | None,
+    owed: bool,
+    running: bool,
+    capped: bool,
+    add: list[str],
+    remove: list[str],
+) -> str:
+    """Publish, hold or clear the authority to advance an unfinished draft lane (#394).
+
+    The lane is a **sequence**, and until now the swarm had one resumption signal for it:
+    ``agent:needs-amend``, published when a check failed or a finding was owed. A clean review owes
+    nothing, so it published nothing; ``swarm_slots`` resumes claimed work only on that label; and
+    the draft sat forever, before the CodeRabbit gate it cannot merge without. The pre-ADR-0062
+    contract had no such gap because it was single-shot - open ready, request, arm auto-merge, exit
+    - and auto-merge did the waiting. The lane replaced that with phases auto-merge cannot perform.
+
+    Every condition below is a way the authority would otherwise be wrong, and each is #394's:
+
+    * **The lane must be unfinished.** ``_counted_from`` reporting the draft sentinel is exactly
+      *"no ``ready_for_review`` has ever happened"*, so a PR already in the counted phase has no
+      draft to advance and gets nothing.
+    * **Nothing may be owed.** An owed finding is still an AMEND. Publishing both would hand one
+      claim two authorities and let the resumption that arrives first decide which.
+    * **The checks must be green and settled.** Advancing means spending a metered credit or asking
+      the mandatory gate, and neither is worth doing against a diff that is still moving.
+    * **A review must actually have happened at this head.** Otherwise a freshly opened draft would
+      be authorised to leave the draft phase before the free provider had ever looked at it, which
+      is the lane's whole point skipped.
+    * **Not past the cap.** Nothing is authorised past it, by any route.
+
+    The label is *published*, not consumed. ``swarm_slots`` takes the ref that makes it exactly one
+    session; the label alone re-triggering would be an unbounded supply of them.
+    """
+    if capped or owed or running:
+        return _withdraw_advance(labels, remove, "not-eligible")
+    if counted_from is not _COUNT_NOTHING:
+        # Already ready for review: the draft phase is over and this authority does not apply.
+        return _withdraw_advance(labels, remove, "lane-complete")
+    if not read_head:
+        return _withdraw_advance(labels, remove, "no-review-yet")
+    if ADVANCE_LABEL in labels:
+        return "unchanged"
+    add.append(ADVANCE_LABEL)
+    return "added"
+
+
+def _withdraw_advance(labels: set[str], remove: list[str], reason: str) -> str:
+    """Take the advance authority back when its preconditions stop holding.
+
+    Unlike ``agent:needs-amend`` this label has exactly one writer, so removing it here cannot
+    fight the reaper over a signal that means something else. It is safe to withdraw and it must
+    be: a stale one would authorise a session to advance a lane that has moved on.
+    """
+    if ADVANCE_LABEL in labels:
+        remove.append(ADVANCE_LABEL)
+        return f"cleared-{reason}"
+    return reason
 
 
 def _suite_state(sha: str) -> tuple[bool, bool]:
@@ -575,7 +667,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         raise TriageError(f"PR #{pr['number']} has no head sha")
 
     counted_from = _counted_from(pr)
-    reviewed, review_owed = _review_state(pr["number"], head, counted_from)
+    reviewed, review_owed, read_head = _review_state(pr["number"], head, counted_from)
     rounds = len(reviewed)
     running, failed = _suite_state(head)
     capped = rounds >= CAP
@@ -619,6 +711,17 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     else:
         amend = "unchanged"
 
+    advance = _advance_state(
+        labels=labels,
+        read_head=read_head,
+        counted_from=counted_from,
+        owed=owed,
+        running=running,
+        capped=capped,
+        add=add,
+        remove=remove,
+    )
+
     _apply(issue, add, remove, dry_run=dry_run)
     return {
         "action": "triage",
@@ -630,6 +733,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         "checks": "running" if running else ("failed" if failed else "green"),
         "review_owed": review_owed,
         "amend": amend,
+        "advance": advance,
         "added": add,
         "removed": remove,
     }

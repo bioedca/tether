@@ -92,6 +92,7 @@ triage.claim = claim
 REPO = claim.REPO
 CAP = triage.CAP
 AMEND_LABEL = triage.AMEND_LABEL
+ADVANCE_LABEL = triage.ADVANCE_LABEL
 CAPPED_LABEL = triage.CAPPED_LABEL
 ROUND_LABELS = triage.ROUND_LABELS
 
@@ -122,6 +123,12 @@ LANE_GH = "gh"
 # the ADR reservations. A custom namespace is the same compare-and-swap and invisible to every tag
 # consumer.
 AMEND_NAMESPACE = "amend-rounds"
+
+# A SEPARATE namespace, and that is what makes advancing cost no round (#394's third criterion).
+# The mechanism is the AMEND ledger's - `POST /git/refs` is the mutex, 201 to the winner and 422 to
+# everyone after, keyed to the claim generation - but a lane advance is not a review round, and
+# putting it in `amend-rounds` would spend one to move a PR from one phase to the next.
+ADVANCE_NAMESPACE = "lane-advances"
 
 # The draft phase's refs live under the same namespace with a `draft-` ordinal prefix, so both
 # ledgers are enumerated by one `matching-refs` call and neither can be mistaken for the other
@@ -318,6 +325,26 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
                 }
             )
             continue
+        if ADVANCE_LABEL in labels and AMEND_LABEL not in labels:
+            # A clean review on an unfinished draft (#394). Not an AMEND: there are no blocking
+            # findings to fix, and a session told to fix them would either invent work or stop.
+            # AMEND wins if both are somehow present - answering a finding always precedes moving
+            # the lane on, and triage does not publish both, so this is a belt on a state that
+            # should not occur.
+            plan.append(
+                {
+                    "issue": number,
+                    "mode": "advance",
+                    "label_rounds": spent,
+                    "reason": (
+                        "agent:needs-advance is published for this claim: its draft is green, "
+                        "owes nothing, and a review has come back clean, so the lane has a next "
+                        "phase and nobody is walking it."
+                    ),
+                    "priority": _priority(labels),
+                }
+            )
+            continue
         if AMEND_LABEL not in labels:
             continue
         # The ROUND is not decided here. `_authorise_amend` reads the launcher's own issuance count
@@ -348,7 +375,7 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
 
     # AMEND and refusals first, then priority, then issue number. The number is the tie-break rather
     # than API order so two launchers on the same queue agree on what they are competing for.
-    order = {"refuse": 0, "lost": 0, "amend": 1, "build": 2}
+    order = {"refuse": 0, "lost": 0, "amend": 1, "advance": 2, "build": 3}
     plan.sort(key=lambda item: (order[item["mode"]], item["priority"], item["issue"]))
 
     # Refusals are reported however many there are; only launches consume a slot.
@@ -546,6 +573,60 @@ def _spawn(command: str) -> None:
     subprocess.Popen(command, shell=True)  # noqa: S602 - command is built here, not user-supplied
 
 
+def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
+    """Take the authority to advance this claim's lane by one phase, or return ``None`` (#394).
+
+    **Exactly one session**, which is the criterion the label alone cannot meet. A label is a
+    *state*: it stays published until triage recomputes and withdraws it, so every launcher run in
+    between would start another session against the same phase - several workers all spending the
+    Greptile credit, or all marking the PR ready. So the label publishes the authority and this
+    consumes it, by the same compare-and-swap the AMEND ledger uses: ``201`` to the winner, ``422``
+    to everyone after, keyed to the claim generation so a reclaim starts fresh.
+
+    **In its own namespace**, which is what makes advancing cost no round. Reusing
+    ``amend-rounds`` would have spent one of the two metered rounds to move a pull request from one
+    phase to the next - and #391 has just finished making that ledger mean one thing.
+
+    Ordinals count up rather than stopping at one: a lane has several phases, and a worker that
+    spends the Greptile credit is not the worker that marks the PR ready. There is no cap here
+    because there is nothing to cap - none of these steps is a review round - and the natural bound
+    is that triage withdraws the label the moment the lane has nowhere left to go.
+    """
+    number = item["issue"]
+    record = _existing_claim(number, owner)
+    generation = int(record["generation"])
+    ordinal = _issued_advances(number, generation) + 1
+    sha = reaper._read_ref(number)
+    if sha is None:
+        raise SlotError(f"#{number} claim ref vanished before its lane advance could be issued")
+    ref = f"refs/{ADVANCE_NAMESPACE}/{number}-{generation}-{ordinal}"
+    status, _ = claim._request("POST", f"/repos/{REPO}/git/refs", {"ref": ref, "sha": sha})
+    if status == 422:
+        item["mode"] = "lost"
+        item["reason"] = f"another launcher issued lane advance {ordinal} for #{number} first"
+        return None
+    if status != 201:
+        raise SlotError(
+            f"lane advance {ordinal} for #{number} could not be claimed (HTTP {status})"
+        )
+    item["round"] = 0
+    item["remaining"] = CAP - item["label_rounds"]
+    return record
+
+
+def _issued_advances(number: int, generation: int) -> int:
+    """How many lane advances this exact claim has already been issued. Fails closed."""
+    prefix = f"{ADVANCE_NAMESPACE}/{number}-{generation}-"
+    status, refs = claim._request("GET", f"/repos/{REPO}/git/matching-refs/{prefix}")
+    if status == 404:
+        return 0
+    if status != 200 or not isinstance(refs, list):
+        raise SlotError(
+            f"#{number} lane-advance count could not be read (HTTP {status}); refusing to guess it"
+        )
+    return len(refs)
+
+
 def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
     """Take AMEND authority for this issue, or return ``None`` having recorded why not.
 
@@ -626,19 +707,20 @@ def run(*, slots: int, vendor: str, owner: str, spawn: bool, tasks: Path) -> dic
     # property of the file alone, so there is no reason to discover it after taking a claim - which
     # would strand the ref until the reaper - or after authorising a round, which spends one of the
     # two irrevocably and launches nothing with it.
-    for mode in {item["mode"] for item in plan} & {"amend", "build"}:
+    for mode in {item["mode"] for item in plan} & {"amend", "advance", "build"}:
         _body(tasks / f"{mode}.md")
     results: list[dict[str, Any]] = []
     for item in plan:
         if item["mode"] == "refuse":
             results.append({**item, "launched": False})
             continue
-        if item["mode"] == "amend":
-            record = _authorise_amend(item, owner)
+        if item["mode"] in ("amend", "advance"):
+            authorise = _authorise_amend if item["mode"] == "amend" else _authorise_advance
+            record = authorise(item, owner)
             if record is None:
                 results.append({**item, "launched": False})
                 continue
-            task_file = tasks / "amend.md"
+            task_file = tasks / f"{item['mode']}.md"
         else:
             taken = _dispatch_build(item["issue"], vendor, owner)
             if taken is None:

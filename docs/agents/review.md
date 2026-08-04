@@ -122,6 +122,14 @@ asking a provider to look **again** at work it has already reviewed this round.
   `ROUND = N of 2`; past the cap it injects none, so no worker ever holds authority for a third. At
   the cap, safety-class findings escalate to the maintainer and the rest become follow-ups.
   Stop-list, not judgement: **never a review request while `agent:review-capped` is present**.
+- **A clean review on an unfinished draft resumes the claim, and does not spend a round.** The lane
+  is a sequence, and a review that finds nothing owes nothing — so under the AMEND-only signal it
+  published no authority at all and the draft sat before the gate it cannot merge without (#394).
+  `triage.py` now publishes **`agent:needs-advance`** when a draft is green, settled, owes nothing
+  and has been reviewed at its current head, and the launcher issues **one** ADVANCE session against
+  it: `.agents/tasks/advance.md`, which moves the lane on by exactly one phase and exits. It is not
+  an AMEND — there are no blocking findings to fix — and its ref lives in `refs/lane-advances/`
+  rather than `refs/amend-rounds/`, so advancing a phase never costs a metered round.
 - **Capability is not quota, and the two fail differently.** A selected provider reporting nothing to
   review at the head it read satisfies its leg — including a Codex 👍 reaction, its documented form
   of "no suggestions". Quote the provider, never the author or another commenter. *Exhaustion* is not
