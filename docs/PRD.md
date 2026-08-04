@@ -1056,7 +1056,8 @@ setup** and the ruleset's `code_scanning` rule, not as a named status check. Age
 independent review, and the providers are spent **cheapest first** rather than routed by risk. **Open as a draft** —
 every required check runs on a draft, so the diff reaches green before anything metered is asked. **Codex iterates on
 the draft, uncapped**, until nothing blocking remains; then **optionally one Greptile credit**, if the seat has budget;
-then ready-for-review, where the two-round cap begins; then **CodeRabbit with no actionable comments, which is the last
+then ready-for-review, where the two-round cap begins — counting **metered providers only**, so Codex remains uncounted
+after the transition as well as before it; then **CodeRabbit with no actionable comments, which is the last
 gate before merge**. Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
 no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
 **Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account

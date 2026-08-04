@@ -35,8 +35,11 @@ task text adds only what is specific to this claim.
 3. Before any authoritative write, revalidate the fence:
    `{{PYTHON}} .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
    Exit `5` means a reaper reclaimed the claim and a successor owns it — **stop writing**.
-4. Run the local gates in `AGENTS.md` §Agile execution, then **open the PR as a draft**, record the
-   risk with its reason, request the first Codex review, and **exit**.
+4. Run the local gates in `AGENTS.md` §Agile execution. **Read `docs/agents/review.md` before you
+   request anything from any provider** — it carries the lane, the severity floor and the risk
+   classes, and a request sent without it is a request you cannot classify. Then **open the PR as a
+   draft**, record the risk (`low`, `standard` or `high`) with its reason, request the first Codex
+   review, and **exit**.
 
    You open the lane in `docs/agents/review.md`; you do not walk it to the end. The later phases —
    the optional Greptile credit, marking ready, the mandatory CodeRabbit gate

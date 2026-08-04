@@ -48,8 +48,11 @@ only when the previous has nothing blocking left:
 
 **The round cap counts metered providers only, and only after the PR first goes ready.** Codex never
 consumes a round, draft or not — counting the free lane would let it eat the rounds reserved for the
-mandatory CodeRabbit stage. Greptile does count, because a spent credit is a real round. Entering the
-counted phase is **permanent**: a PR converted back to draft keeps every round it has spent, or the
+mandatory CodeRabbit stage. Greptile counts **when it reviews after the PR is ready** — there, a spent
+credit is a real round. The step-2 credit does not, because step 2 is on the draft: the money is gone
+either way and the findings are owed either way, but no round is charged. Those are two ledgers and
+conflating them would let a worker reach `agent:review-capped` on the draft phase the lane sends them
+to, before the mandatory gate. Entering the counted phase is **permanent**: a PR converted back to draft keeps every round it has spent, or the
 cap would be opt-out by toggling draft.
 
 Owed-an-answer is a **separate axis** from rounds. Any external provider's finding is owed an answer
@@ -142,9 +145,10 @@ leg, and a quota refusal from it is recorded as *did not review*.
 
 ## Alternatives considered
 
-- **Keep risk routing and swap CodeRabbit for Greptile on `high`.** Rejected: 16 credits a month
-  cannot cover `high` work at this repository's rate, and it leaves the silent-CodeRabbit failure in
-  place on everything else.
+- **Keep risk routing and swap CodeRabbit for Greptile on `high`.** Rejected: the seat's **50**
+  credits are one pool shared across three repositories, and a TREX review costs 3 — so at most 16
+  full reviews a month, for all three. That cannot cover `high` work at this repository's rate, and
+  it leaves the silent-CodeRabbit failure in place on everything else.
 - **Budget by milestone allowance.** Rejected as premature — it needs a policy for what happens when
   one bucket empties while another has slack, and the seat is shared with two repositories whose
   spend this repository cannot see.
