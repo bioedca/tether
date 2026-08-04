@@ -420,8 +420,11 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
 
 
 #: Review threads and their resolution, which the REST payloads do not carry at all. Paged because
-#: a long-running PR passes 100 threads easily — #385 reached 54 — and a short read would silently
-#: report unresolved threads as absent, which on this axis means "nothing is owed".
+#: a long-running PR approaches 100 threads - #385 reached 54 - and this set only ever REMOVES
+#: owing: a comment absent from it is owed. So a short read drops resolved threads and reports
+#: ANSWERED findings as unanswered, which re-issues AMEND sessions against work already deferred.
+#: That is the fail-closed direction, and stating it the other way round is how a later reader
+#: comes to relax the wrong control.
 _RESOLVED_THREADS = """
 query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
   repository(owner:$owner, name:$name) {
@@ -537,7 +540,8 @@ def _resolved_comment_ids(pr_number: int) -> set[int]:
             break
     raise TriageError(
         f"PR #{pr_number} has more review threads than this query will walk; refusing to judge "
-        "resolution from a partial read, which would report unanswered findings as answered"
+        "resolution from a partial read, which would report ANSWERED findings as unanswered and "
+        "re-issue AMEND sessions against deferrals that are already complete"
     )
 
 
