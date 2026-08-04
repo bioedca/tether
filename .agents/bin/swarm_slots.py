@@ -604,7 +604,14 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
     # a SECOND session against the same reviewed head - which can spend the Greptile credit twice,
     # real money (Codex P2 on #407). Keying on the state the authority describes makes the second
     # launcher collide on `422`, which is what a mutex is for.
-    phase = "draft" if _in_draft_phase(record["branch"]) else "ready"
+    # Keyed to the concrete lane STEP, from the same evidence triage used to publish the label.
+    # Head-plus-phase was too coarse: several one-step sessions share a head - spend the Greptile
+    # credit, then mark ready; ask CodeRabbit, then arm the merge - so the second of any pair
+    # collided on `422` and stranded the lane (Codex P2 on #407).
+    pr = triage._pull_request(number=None, branch=record["branch"])
+    if not isinstance(pr, dict):
+        raise SlotError(f"#{number} has no open pull request to advance")
+    phase = triage.advance_step_token(pr)
     ref = f"refs/{ADVANCE_NAMESPACE}/{number}-{generation}-{sha[:12]}-{phase}"
     status, _ = claim._request("POST", f"/repos/{REPO}/git/refs", {"ref": ref, "sha": sha})
     if status == 422:

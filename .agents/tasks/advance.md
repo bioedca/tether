@@ -37,9 +37,13 @@ Read root `AGENTS.md`, `docs/agents/review.md` and `.agents/skills/tether-worker
 
 ## Do
 
-1. Find the open pull request for `{{BRANCH}}`. Confirm it is still a draft, still green, and that
-   the latest review has nothing blocking outstanding. If any of those is false, **stop and record
-   why in the PR body** — the state that authorised this session has changed under it.
+1. Find the open pull request for `{{BRANCH}}`. Confirm it is still **green** and that the latest
+   review has nothing blocking outstanding. If either is false, **stop and record why in the PR
+   body** — the state that authorised this session has changed under it.
+
+   **Do not stop merely because the pull request is no longer a draft.** A ready PR still has lane
+   left: the CodeRabbit gate to request, and the merge to arm once that comes back clean. Which
+   step you are on is decided in 2, not by the draft flag.
 2. Work out which lane phase is next from what the PR body records, and do **only that one**:
    - **Codex is not yet clean** → answer what is left, push, request the next Codex round, exit.
    - **Codex is clean, Greptile not yet spent** → read the seat balance with
@@ -49,6 +53,9 @@ Read root `AGENTS.md`, `docs/agents/review.md` and `.agents/skills/tether-worker
    - **Greptile settled** → mark the pull request ready for review. This starts the two-round cap.
    - **Ready, no CodeRabbit review yet** → request the full review. Read its status check first: a
      `pending` one is a review running now, and asking again destroys it.
+   - **Ready, CodeRabbit came back with no actionable comments** → the gate is satisfied and the
+     only step left is arming the merge. Do that, and nothing else. This step is available even at
+     `agent:review-capped`, because arming is not a review request.
 3. Revalidate the fence before any authoritative write:
    `{{PYTHON}} .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
 4. **Write the new lane state into the PR body**, then **exit** — do not sit and poll. That record is

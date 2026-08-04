@@ -274,10 +274,19 @@ def _as_draft(fake: Fake, *, draft: bool) -> None:
         200,
         [{"number": 99}],
     )
-    fake.routes[("GET", "/repos/bioedca/tether/pulls/99")] = (200, {"number": 99, "draft": draft})
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99")] = (
+        200,
+        {"number": 99, "draft": draft, "head": {"sha": HEAD}},
+    )
     fake.routes[("GET", "/repos/bioedca/tether/issues/99/timeline")] = (
         200,
         [] if draft else [{"event": "ready_for_review", "created_at": "2026-08-01T12:00:00Z"}],
+    )
+    # The advance ref is keyed to the lane STEP, which triage derives from the provider evidence at
+    # the head, so the reviews list has to be answerable or the token falls back to the phase alone.
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99/reviews")] = (
+        200,
+        [{"user": {"login": "chatgpt-codex-connector[bot]"}, "commit_id": HEAD}],
     )
 
 
@@ -418,7 +427,8 @@ def test_an_advance_label_launches_the_advance_task_not_the_amend_one(
     Handing this claim `amend.md` would tell a worker to fix the blocking findings — and there are
     none, which is the precondition of the whole state. It would then either invent work or stop.
     """
-    _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.ADVANCE_LABEL)})
+    fake = _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.ADVANCE_LABEL)})
+    _as_draft(fake, draft=True)
     for name in ("build.md", "amend.md", "advance.md"):
         (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
 
@@ -440,6 +450,7 @@ def test_an_advance_takes_a_ref_outside_the_round_ledger(
     move a pull request from one phase to the next.
     """
     fake = _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.ADVANCE_LABEL)})
+    _as_draft(fake, draft=True)
     for name in ("build.md", "amend.md", "advance.md"):
         (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
 
@@ -448,7 +459,7 @@ def test_an_advance_takes_a_ref_outside_the_round_ledger(
     # Keyed to the head and the phase, not to a running ordinal: an ordinal only deduplicates
     # launchers racing on the same COUNT, so one that had already taken `-1` while the label was
     # still published would create `-2` and start a second session against the same reviewed head.
-    assert fake.created_refs == [f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-ready"]
+    assert fake.created_refs == [f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1"]
 
 
 def test_losing_the_advance_race_launches_nothing(
@@ -460,12 +471,13 @@ def test_losing_the_advance_race_launches_nothing(
     would start another session against the same phase — several workers all spending the Greptile
     credit, or all marking the PR ready. `422` is how the loser finds out.
     """
-    _install(
+    fake = _install(
         monkeypatch,
         claimed=[7],
         issues={7: _issue(7, slots.ADVANCE_LABEL)},
         ref_status=422,
     )
+    _as_draft(fake, draft=True)
     for name in ("build.md", "amend.md", "advance.md"):
         (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
 

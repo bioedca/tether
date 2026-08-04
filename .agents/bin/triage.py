@@ -542,6 +542,37 @@ def _review_state(
     return heads, owed, read_head
 
 
+def advance_step_token(pr: dict[str, Any]) -> str:
+    """A token that changes when the lane's NEXT STEP changes, and not otherwise (#394).
+
+    The launcher keys its one-session ref on this. Keying on the head and a coarse draft/ready
+    phase was too blunt: the lane needs several one-step sessions at one head - a Codex-clean draft
+    spends a Greptile credit, the clean Greptile result then marks the PR ready, a ready PR asks
+    CodeRabbit and a later session arms the merge once that comes back clean. All four can share a
+    head, so the second of any pair collided on `422` and the lane stranded (Codex P2 on #407).
+
+    What separates them is the EVIDENCE: each step is unlocked by a provider verdict that was not
+    there before. Counting distinct provider submissions at this head therefore advances exactly
+    when the next step does, and stays put when two launchers race on the same state - which is the
+    duplicate-session case the ref exists to refuse.
+    """
+    number = int(pr["number"])
+    head = str((pr.get("head") or {}).get("sha") or "")
+    phase = "draft" if _counted_from(pr) is _COUNT_NOTHING else "ready"
+    seen = 0
+    try:
+        for entry in claim._paginate(f"/repos/{REPO}/pulls/{number}/reviews", "review list"):
+            login = ((entry.get("user") or {}).get("login")) or ""
+            if login in EXTERNAL_PROVIDERS and _reviewed_head(entry) == head:
+                seen += 1
+    except claim.ClaimError:
+        # Unreadable: fall back to the phase alone. That is the OLD, coarser key, so the failure
+        # mode is a collision that stalls one step - visible - rather than a duplicate session that
+        # spends a credit twice.
+        return phase
+    return f"{phase}-{seen}"
+
+
 def _advance_state(
     *,
     labels: set[str],
@@ -580,7 +611,12 @@ def _advance_state(
     The label is *published*, not consumed. ``swarm_slots`` takes the ref that makes it exactly one
     session; the label alone re-triggering would be an unbounded supply of them.
     """
-    if capped or owed or running:
+    if owed or running:
+        return _withdraw_advance(labels, remove, "not-eligible")
+    # The cap bounds REVIEW REQUESTS, and the last lane step is not one. A PR whose gate has passed
+    # with both rounds spent still needs a session to arm the merge, and withholding here left it
+    # green, gated and unmergeable with nobody authorised to finish it (Codex P2 on #407).
+    if capped and not (counted_from is not _COUNT_NOTHING and read_head and not armed):
         return _withdraw_advance(labels, remove, "not-eligible")
     if counted_from is not _COUNT_NOTHING:
         # PAST THE DRAFT, AND STILL UNFINISHED. Reading `ready for review` as "the lane is

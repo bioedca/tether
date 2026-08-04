@@ -82,6 +82,13 @@ on:
     types: [submitted, dismissed]
   pull_request_review_comment:
     types: [created]
+  # A provider's CLEAN verdict is an issue comment, not a review: Codex submits a review when it
+  # has findings and comments when it does not. Without this trigger the one state
+  # `agent:needs-advance` exists to catch - a draft whose free review came back clean - produced no
+  # event at all, and the label could only ever be published by a manual run (Codex P2 on #407).
+  # `issue_comment` fires for pull requests too; triage.py skips anything that is not one.
+  issue_comment:
+    types: [created]
   # The happy path, which used to clean up nothing (#308). A squash-merge deletes the branch — so
   # the mutex releases correctly — and `Closes: #N` closes the issue, but the claim's LABEL mirror
   # survives on a finished item, and `agent:needs-amend` is the launcher's authority to start an
@@ -151,6 +158,7 @@ jobs:
       github.event_name == 'workflow_dispatch'
       || github.event_name == 'pull_request_review'
       || github.event_name == 'pull_request_review_comment'
+      || (github.event_name == 'issue_comment' && github.event.issue.pull_request != null)
       || github.event_name == 'pull_request'
       || startsWith(github.event.check_suite.head_branch, 'agent/issue-')
     steps:
@@ -174,14 +182,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Untrusted event data is passed through env, never interpolated into the script body.
-          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+          # `issue_comment` carries the pull request under `issue`, not `pull_request` — the number
+          # is the same one, but the payload puts it elsewhere, so without this arm the trigger
+          # added above would fire and then triage nothing.
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
           HEAD_BRANCH: ${{ github.event.check_suite.head_branch }}
           # A manual run defaults to dry-run; a real event always acts.
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
           # The merge path clears the claim's label mirror instead of publishing round state. Set
           # from the event alone; whether the PR actually merged is re-checked in triage.py from the
           # API, so a `closed` event that was not a merge writes nothing.
-          MERGED: ${{ github.event_name == 'pull_request' }}
+          MERGED: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' }}
         run: |
           set -euo pipefail
           # BOOTSTRAP GUARD, and deliberately a narrow one. The checkout above is pinned to the

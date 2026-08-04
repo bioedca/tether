@@ -1646,12 +1646,23 @@ def test_the_workflow_listens_for_the_lanes_own_phase_change() -> None:
     assert "ready_for_review" in _workflow()[True]["pull_request"]["types"]
 
 
-def test_the_workflow_passes_merged_only_on_the_pull_request_event() -> None:
-    """The flag is set from the event; whether it MERGED is re-checked from the API in triage.py."""
+def test_the_workflow_passes_merged_only_on_a_closed_pull_request() -> None:
+    """The flag is set from the event; whether it MERGED is re-checked from the API in triage.py.
+
+    The action matters, not just the event name. `pull_request` now also carries
+    `ready_for_review`, and while `MERGED` was true for every event of that name a ready transition
+    ran the merge-cleanup path — where `clear_mirror` sees `merged == false` and skips. The phase
+    change then published nothing, stranding the lane at the step the trigger was added to unstick
+    (Codex P2 on #407).
+    """
     step = next(
         s
         for s in _workflow()["jobs"]["triage"]["steps"]
         if s.get("name") == "Publish review-round state"
     )
-    assert step["env"]["MERGED"] == "${{ github.event_name == 'pull_request' }}"
+    merged = step["env"]["MERGED"]
+    assert "github.event_name == 'pull_request'" in merged
+    assert "github.event.action == 'closed'" in merged, (
+        "a ready_for_review transition must not take the merge-cleanup path"
+    )
     assert "--merged" in step["run"]
