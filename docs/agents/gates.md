@@ -11,7 +11,10 @@ local gates have not been run is not final and may not be declared so.**
 
 - Run the narrowest relevant tests first, then the required local gates before review:
   - `pre-commit run --all-files`
-  - PowerShell: `$env:QT_QPA_PLATFORM='offscreen'; pytest -m "not large and not sidecar and not deep"`
+  - The test matrix, which needs an environment variable and so is the one command that **cannot**
+    be written once for both shells. Run the line for your lane:
+    - WSL bash: `QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep"`
+    - native PowerShell: `$env:QT_QPA_PLATFORM='offscreen'; pytest -m "not large and not sidecar and not deep"`
   - Docs changes: `mkdocs build --strict`
   - Schema changes: `<py> scripts/dump_schema.py --check`
 

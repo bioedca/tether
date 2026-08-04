@@ -97,11 +97,31 @@ _TOOLS = ("python", "python3", "gh", "git", "pytest", "mkdocs", "reuse", "pre-co
 # stopped checking a required gate's command, and every rule below would have passed it vacuously.
 # Codex found it on #390.
 _RESOLVERS = (r"<py>", r"\{\{PYTHON\}\}", r"\{\{GH\}\}")
+
+# A command may set an environment variable before naming its tool, and that prefix is the one
+# construct with **no** shell-neutral spelling: `VAR=value cmd` is POSIX-only and PowerShell needs
+# `$env:VAR='value'; cmd`. Recognising it is what puts such a command inside the sample at all —
+# without this the offscreen-Qt test matrix, a *required* local gate, was invisible to every rule
+# below and could carry a typo indefinitely (Codex P2 on #390).
+_ENV_PREFIX = re.compile(r"^(?:\$env:\w+\s*=\s*[^;\s]+\s*;\s*|\w+=[^\s=]*\s+)+")
 _INVOCATION = re.compile(
     r"^(?:" + "|".join(_RESOLVERS) + r")(?=\s|$)"
     r"|^(?:" + "|".join(_TOOLS) + r")\b"
     r"|(?<![\w/])\.agents/bin/\S+\.py\b"
 )
+
+
+def _declares_its_shell(command: str) -> bool:
+    """Whether this command's env-var prefix already commits it to one shell, openly.
+
+    The shell-neutrality rules exist to catch a command that *looks* portable and is not. An env
+    prefix is the opposite: it is unmistakably `VAR=value cmd` or `$env:VAR='value'; cmd`, no reader
+    could take it for neutral, and no neutral spelling exists to prefer. So such a command is exempt
+    from the first-token and absolute-path rules — and a page carrying one owes **both** spellings,
+    which is what `test_a_shell_specific_gate_is_given_for_both_lanes` asserts instead.
+    """
+    return bool(_ENV_PREFIX.match(command))
+
 
 # Fence languages that assert a shell the dispatched worker may not be in. `sh` is the honest
 # annotation for a command written to be shell-neutral, and is deliberately absent.
@@ -175,7 +195,7 @@ def _commands(path: Path) -> list[tuple[int, str]]:
         found += [
             (number, span.strip())
             for span in re.findall(r"`([^`]+)`", line)
-            if _INVOCATION.search(span.strip())
+            if _INVOCATION.search(_ENV_PREFIX.sub("", span.strip()))
         ]
     return found
 
@@ -229,6 +249,29 @@ def test_a_resolver_led_command_is_visible_to_the_parser() -> None:
     )
 
 
+def test_a_shell_specific_gate_is_given_for_both_lanes() -> None:
+    """The one command with no neutral spelling owes each lane its own, on a page both must read.
+
+    `VAR=value cmd` is POSIX-only and PowerShell needs `$env:VAR='value'; cmd`, so the offscreen-Qt
+    test matrix cannot be written once — which is precisely why it must be written twice. Giving
+    only the PowerShell form left the `claude` lane, dispatched into WSL bash, with no runnable
+    version of a **required** local gate, on the page whose whole subject is the required gates.
+
+    The exemption in `_declares_its_shell` is what makes this assertion the substitute for the
+    first-token rule rather than a hole beside it.
+    """
+    for path in BOTH_LANES:
+        env_led = [c for _n, c in _commands(path) if _declares_its_shell(c)]
+        if not env_led:
+            continue
+        posix = [c for c in env_led if not c.startswith("$env:")]
+        powershell = [c for c in env_led if c.startswith("$env:")]
+        assert posix and powershell, (
+            f"{path.relative_to(_REPO).as_posix()} gives an environment-prefixed command for only "
+            f"one shell, so the other lane cannot run it: {env_led}"
+        )
+
+
 def test_no_command_names_an_absolute_path() -> None:
     """The defect that could not arm auto-merge.
 
@@ -239,7 +282,7 @@ def test_no_command_names_an_absolute_path() -> None:
         _at(path, number, command)
         for path in GUARDED_FILES
         for number, command in _commands(path)
-        if any(marker in command for marker in ABSOLUTE)
+        if any(marker in command for marker in ABSOLUTE) and not _declares_its_shell(command)
     ]
     assert not bad, (
         "these commands hard-code a path that does not exist in the other lane's shell; "
@@ -269,7 +312,7 @@ def test_every_interpreter_and_cli_reference_is_a_bare_resolvable_name() -> None
         _at(path, number, command)
         for path in GUARDED_FILES
         for number, command in _commands(path)
-        if re.search(r"[/\\:%$]", command.split()[0])
+        if re.search(r"[/\\:%$]", command.split()[0]) and not _declares_its_shell(command)
     ]
     assert not bad, f"these commands lead with something other than a bare executable name: {bad}"
 
