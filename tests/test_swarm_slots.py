@@ -323,6 +323,41 @@ def test_a_draft_claim_can_be_issued_more_amends_than_the_cap(
     ]
 
 
+def test_a_stuck_draft_label_stops_relaunching_at_the_runaway_ceiling(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Uncapped is not unbounded, and the difference is a live failure mode (Codex P2 on #406).
+
+    `agent:needs-amend` has two writers. Triage publishes it for an owed review; `reaper.sweep`
+    publishes it for a STALE open pull request. A stale draft therefore carries it with nothing for
+    a worker to fix — so without a ceiling every launcher run mints another `draft-N` ref and
+    relaunches the same dead session forever, because the draft ledger never binds.
+
+    The refusal names the cause rather than reporting a cap, since the review cap is a different
+    thing and reaching this one means a label is stuck.
+    """
+    refs = [_draft_ref(7, 77, n + 1) for n in range(slots.DRAFT_CEILING)]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=True)
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse"
+    assert "stuck" in entry["reason"] and "reaper" in entry["reason"]
+    assert fake.amend_refs() == [], "nothing further may be minted at the ceiling"
+
+
+def test_the_runaway_ceiling_is_far_above_any_real_draft_phase() -> None:
+    """It must never bind on ordinary iteration, or it becomes the throttle ADR-0062 removed.
+
+    #385 is the longest draft phase this repository has had at eleven Codex rounds. A ceiling near
+    that would throttle the free lane, which is exactly what uncapping it was for.
+    """
+    assert slots.DRAFT_CEILING >= 20
+    assert slots.DRAFT_CEILING > slots.CAP * 5
+
+
 def test_the_counted_phase_still_refuses_at_the_cap(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
