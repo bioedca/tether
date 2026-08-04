@@ -135,6 +135,14 @@ AMEND_NAMESPACE = "amend-rounds"
 # immutable once created, so `<issue>-<gen>-draft-2` records what was true when that session was
 # issued; reading `draft` at audit time would report today's answer about yesterday's decision, and
 # a PR that has since gone ready would make its own draft history retroactively count.
+#
+# A ref written BEFORE this prefix existed is therefore read as counted-phase, and that is correct
+# rather than a missing migration: it was created under the old semantics, where every AMEND counted
+# against the cap whatever the pull request's state. Verified before this merged - the repository
+# holds exactly one `refs/amend-rounds/*` ref, `252-38550159308-1`, belonging to an issue that is
+# closed and merged, and **zero** live `agent/issue-*` claims. A generation is a server-assigned,
+# strictly increasing activity id, so a reclaim can never reuse that key either. Nothing live can
+# misread, and a future change to this naming needs the same check.
 DRAFT_ORDINAL_PREFIX = "draft-"
 
 EXIT_NO_WORK = 3
@@ -196,10 +204,18 @@ def _amend_ordinals(number: int, generation: int, *, draft: bool) -> list[str]:
         )
     ordinals = []
     for entry in refs:
-        name = entry.get("ref", "") if isinstance(entry, dict) else ""
-        _, marker, ordinal = name.partition(f"refs/{prefix}")
-        if not marker:
-            continue
+        # A malformed entry is a FAILED READ, not an absent round. Skipping one would make a bad
+        # ledger response look like fewer issued rounds, and the only thing that count protects
+        # against is issuing one too many - so it fails closed exactly as a non-list response does.
+        name = entry.get("ref") if isinstance(entry, dict) else None
+        _, marker, ordinal = (
+            name.partition(f"refs/{prefix}") if isinstance(name, str) else ("", "", "")
+        )
+        if not marker or not ordinal:
+            raise SlotError(
+                f"#{number} has an AMEND ref this launcher cannot parse ({name!r}); refusing to "
+                "count a ledger it does not fully understand"
+            )
         if ordinal.startswith(DRAFT_ORDINAL_PREFIX) is draft:
             ordinals.append(ordinal)
     return ordinals
