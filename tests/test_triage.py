@@ -144,11 +144,14 @@ def _routes(
     }
 
 
-def _thread(*comment_ids: int, resolved: bool = False) -> dict[str, Any]:
+def _thread(*comment_ids: int, resolved: bool = False, truncated: bool = False) -> dict[str, Any]:
     """One review thread. Resolution is a property of the THREAD, so it covers all its comments."""
     return {
         "isResolved": resolved,
-        "comments": {"nodes": [{"databaseId": i} for i in comment_ids]},
+        "comments": {
+            "pageInfo": {"hasNextPage": truncated},
+            "nodes": [{"databaseId": i} for i in comment_ids],
+        },
     }
 
 
@@ -1341,6 +1344,64 @@ def test_a_partial_thread_read_is_refused_rather_than_treated_as_complete(
     routes[("POST", "/graphql")] = (200, _threads([_thread(4242, resolved=True)], cursor=""))
     with pytest.raises(triage.TriageError, match="partial read"):
         _run(routes, monkeypatch)
+
+
+def test_a_malformed_thread_payload_is_refused_rather_than_read_as_nothing_resolved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2: `or {}` down the GraphQL chain turns a null level into a silent verdict.
+
+    A null `repository`, `pullRequest` or `reviewThreads` would become an empty page and then
+    "nothing is resolved" — which SUCCEEDS, keeps every finding owed, and so restores this bug
+    permanently and invisibly. Every level is required.
+    """
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    routes[("POST", "/graphql")] = (200, {"data": {"repository": None}})
+    with pytest.raises(triage.TriageError, match="malformed"):
+        _run(routes, monkeypatch)
+
+
+def test_a_thread_with_more_comments_than_one_page_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P3: a finding past the first 100 comments would stay owed after its thread resolved.
+
+    That is this bug one level down, so the nested connection reports `hasNextPage` and a truncated
+    thread fails the job rather than being half-read.
+    """
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        threads=[_thread(4242, resolved=True, truncated=True)],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    with pytest.raises(triage.TriageError, match="part of a thread"):
+        _run(routes, monkeypatch)
+
+
+def test_a_head_carrying_only_replies_does_not_pay_for_the_thread_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2: the `answerable` predicate must use the same reply filter as the loop.
+
+    A head carrying only the provider's own replies has nothing resolution could clear — the loop
+    skips them anyway — so forcing the query there can only turn a rate limit or a transient error
+    into a failed job on a pull request with nothing to do.
+    """
+    fake, _ = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, WRAPPER_IDS[0])],
+            comments=[_reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500099)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert not [c for c in fake.calls if c[1] == "/graphql"]
 
 
 def test_resolution_covers_every_comment_on_the_thread_not_just_the_first(

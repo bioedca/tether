@@ -430,7 +430,10 @@ query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
         pageInfo { hasNextPage endCursor }
         nodes {
           isResolved
-          comments(first:100) { nodes { databaseId } }
+          comments(first:100) {
+            pageInfo { hasNextPage }
+            nodes { databaseId }
+          }
         }
       }
     }
@@ -475,16 +478,40 @@ def _resolved_comment_ids(pr_number: int) -> set[int]:
             # and reports it as a triage failure, so a bare `ClaimError` would escape as a
             # traceback rather than as the module's own error.
             raise TriageError(f"PR #{pr_number} review-thread state could not be read") from exc
-        threads = (
-            ((data.get("repository") or {}).get("pullRequest") or {}).get("reviewThreads")
-        ) or {}
-        for node in threads.get("nodes") or []:
+        # Every level is REQUIRED, not defaulted. `or {}` down this chain would turn a null
+        # `repository`, `pullRequest` or `reviewThreads` into an empty page and then into "nothing
+        # is resolved" - which succeeds, keeps every finding owed, and so restores the bug this
+        # function exists to fix, silently and permanently. That is the fail-open shape #388 names:
+        # an unreadable answer becoming a verdict about work nobody read.
+        threads = ((data.get("repository") or {}).get("pullRequest") or {}).get("reviewThreads")
+        nodes = threads.get("nodes") if isinstance(threads, dict) else None
+        page = threads.get("pageInfo") if isinstance(threads, dict) else None
+        if not isinstance(nodes, list) or not isinstance(page, dict):
+            raise TriageError(
+                f"PR #{pr_number} review-thread state came back malformed; refusing to read it as "
+                "'nothing is resolved', which would keep answered findings owed forever"
+            )
+        for node in nodes:
             if not isinstance(node, dict) or not node.get("isResolved"):
                 continue
-            for comment in ((node.get("comments") or {}).get("nodes")) or []:
+            comments = node.get("comments")
+            inner = comments.get("nodes") if isinstance(comments, dict) else None
+            if not isinstance(inner, list):
+                raise TriageError(
+                    f"PR #{pr_number} has a resolved review thread whose comments could not be "
+                    "read; refusing to decide what it answered"
+                )
+            # A thread with more comments than one page is refused rather than half-read: a finding
+            # past the slice would stay owed after its thread was resolved, which is this bug one
+            # level down. Threads that long are rare enough that failing loudly costs little.
+            if (comments.get("pageInfo") or {}).get("hasNextPage"):
+                raise TriageError(
+                    f"PR #{pr_number} has a resolved review thread with more comments than this "
+                    "query reads; refusing to judge resolution from part of a thread"
+                )
+            for comment in inner:
                 if isinstance(comment, dict) and isinstance(comment.get("databaseId"), int):
                     resolved.add(comment["databaseId"])
-        page = threads.get("pageInfo") or {}
         if not page.get("hasNextPage"):
             return resolved
         cursor = page.get("endCursor")
@@ -604,12 +631,17 @@ def _review_state(
 
     wrappers = _reply_wrapper_ids(comments)
     # Only asked when something might actually be cleared by it. A pull request with no external
-    # inline findings at the current head cannot have an answered one, so the extra query buys
+    # inline FINDING at the current head cannot have an answered one, so the extra query buys
     # nothing there - and `clear_mirror` and the round-label paths run on every triage event.
+    #
+    # The `in_reply_to_id` filter matches the main loop's. Without it a head carrying only the
+    # provider's own replies - which the loop skips anyway - would force a GraphQL read that can
+    # only fail the job, on a pull request with nothing to clear.
     answerable = any(
         entry.get("id")
         for entry in comments
         if ((entry.get("user") or {}).get("login")) in EXTERNAL_PROVIDERS
+        and not entry.get("in_reply_to_id")
         and _reviewed_head(entry) == head
     )
     resolved = _resolved_comment_ids(pr_number) if answerable else set()
