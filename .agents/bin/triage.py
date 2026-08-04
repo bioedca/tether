@@ -432,7 +432,7 @@ query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
           isResolved
           comments(first:100) {
             pageInfo { hasNextPage }
-            nodes { databaseId }
+            nodes { fullDatabaseId }
           }
         }
       }
@@ -494,6 +494,16 @@ def _resolved_comment_ids(pr_number: int) -> set[int]:
         for node in nodes:
             if not isinstance(node, dict) or not node.get("isResolved"):
                 continue
+            if len(((node.get("comments") or {}).get("nodes")) or []) < 2:
+                # Resolved but never replied to. The contract's deferral is reply + resolve + a
+                # follow-up link, and the reply is the part of it a machine can see - so a thread
+                # somebody merely closed has not answered anything (Codex P2 on #405).
+                #
+                # What this still cannot see is SEVERITY. The contract permits deferral only for a
+                # non-blocking finding; a blocking one must be fixed and pushed. Resolving a
+                # blocking thread without a push is a worker violating the contract, and telling
+                # the two apart needs the provider severity parsing tracked in #409.
+                continue
             comments = node.get("comments")
             inner = comments.get("nodes") if isinstance(comments, dict) else None
             if not isinstance(inner, list):
@@ -510,8 +520,16 @@ def _resolved_comment_ids(pr_number: int) -> set[int]:
                     "query reads; refusing to judge resolution from part of a thread"
                 )
             for comment in inner:
-                if isinstance(comment, dict) and isinstance(comment.get("databaseId"), int):
-                    resolved.add(comment["databaseId"])
+                if not isinstance(comment, dict):
+                    continue
+                # `fullDatabaseId` is a GraphQL BigInt and arrives as a STRING, where the REST `id`
+                # compared against it is an int. Normalising here rather than at the comparison
+                # keeps the set one type.
+                raw = comment.get("fullDatabaseId")
+                if isinstance(raw, str) and raw.isdigit():
+                    resolved.add(int(raw))
+                elif isinstance(raw, int):
+                    resolved.add(raw)
         if not page.get("hasNextPage"):
             return resolved
         cursor = page.get("endCursor")

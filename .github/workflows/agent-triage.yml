@@ -82,6 +82,14 @@ on:
     types: [submitted, dismissed]
   pull_request_review_comment:
     types: [created]
+  # Resolving a thread is now a state change that can CLEAR `agent:needs-amend` (#393), and nothing
+  # else reports it: `pull_request_review_comment` fires on `created` only, so an AMEND worker that
+  # posts its `Deferred: … Tracked in #N` reply and then resolves gets a triage run that snapshots
+  # the state *before* the resolve — and a maintainer who resolves without commenting gets no run at
+  # all. The label would then stay published forever even though the code clears it on a manual
+  # rerun, which is the bug wearing a new hat. Codex found it on #405.
+  pull_request_review_thread:
+    types: [resolved, unresolved]
   # The happy path, which used to clean up nothing (#308). A squash-merge deletes the branch — so
   # the mutex releases correctly — and `Closes: #N` closes the issue, but the claim's LABEL mirror
   # survives on a finished item, and `agent:needs-amend` is the launcher's authority to start an
@@ -147,6 +155,7 @@ jobs:
       github.event_name == 'workflow_dispatch'
       || github.event_name == 'pull_request_review'
       || github.event_name == 'pull_request_review_comment'
+      || github.event_name == 'pull_request_review_thread'
       || github.event_name == 'pull_request'
       || startsWith(github.event.check_suite.head_branch, 'agent/issue-')
     steps:

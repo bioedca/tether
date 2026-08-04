@@ -150,7 +150,9 @@ def _thread(*comment_ids: int, resolved: bool = False, truncated: bool = False) 
         "isResolved": resolved,
         "comments": {
             "pageInfo": {"hasNextPage": truncated},
-            "nodes": [{"databaseId": i} for i in comment_ids],
+            # `fullDatabaseId` is a GraphQL BigInt and arrives as a STRING, which is the shape the
+            # parser must normalise - `databaseId` is deprecated for not carrying 64-bit ids.
+            "nodes": [{"fullDatabaseId": str(i)} for i in comment_ids],
         },
     }
 
@@ -1242,7 +1244,7 @@ def test_a_deferred_finding_stops_owing_once_its_thread_is_resolved(
     fake, result = _run(
         _routes(
             comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
-            threads=[_thread(4242, resolved=True)],
+            threads=[_thread(4242, 4243, resolved=True)],
             timeline=[_ready(READY_TIME)],
             suites=GREEN,
         ),
@@ -1252,12 +1254,55 @@ def test_a_deferred_finding_stops_owing_once_its_thread_is_resolved(
     assert triage.AMEND_LABEL not in fake.added
 
 
+def test_a_thread_closed_without_a_reply_has_answered_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2: `isResolved` alone is not the contract's deferral.
+
+    That is reply + resolve + a follow-up link, and the reply is the part a machine can see.
+    Somebody clicking resolve on an unanswered finding must not retract the AMEND it owes.
+    """
+    fake, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, resolved=True)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_a_sixty_four_bit_comment_id_still_matches_its_resolved_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2: `databaseId` is deprecated for exactly this, and the ids here are already that big.
+
+    A modern comment would return no usable id, the resolved set would never contain the REST `id`,
+    and the finding would stay owed forever — this function's own bug, reintroduced through the
+    field it reads. `fullDatabaseId` is a BigInt and arrives as a string, so it is normalised.
+    """
+    big = 3708430108000
+    _, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, big)],
+            threads=[_thread(big, big + 1, resolved=True)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is False
+
+
 def test_a_finding_on_an_unresolved_thread_still_owes(monkeypatch: pytest.MonkeyPatch) -> None:
     """The control, and #393's second criterion. Identical but for `isResolved`."""
     fake, result = _run(
         _routes(
             comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
-            threads=[_thread(4242, resolved=False)],
+            threads=[_thread(4242, 4243, resolved=False)],
             timeline=[_ready(READY_TIME)],
             suites=GREEN,
         ),
@@ -1285,7 +1330,7 @@ def test_resolving_threads_does_not_clear_an_outstanding_changes_requested(
                 )
             ],
             comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
-            threads=[_thread(4242, resolved=True)],
+            threads=[_thread(4242, 4243, resolved=True)],
             timeline=[_ready(READY_TIME)],
             suites=GREEN,
         ),
@@ -1341,7 +1386,7 @@ def test_a_partial_thread_read_is_refused_rather_than_treated_as_complete(
         suites=GREEN,
     )
     # Always another page, and never a usable cursor: the walk cannot complete.
-    routes[("POST", "/graphql")] = (200, _threads([_thread(4242, resolved=True)], cursor=""))
+    routes[("POST", "/graphql")] = (200, _threads([_thread(4242, 4243, resolved=True)], cursor=""))
     with pytest.raises(triage.TriageError, match="partial read"):
         _run(routes, monkeypatch)
 
@@ -1375,7 +1420,7 @@ def test_a_thread_with_more_comments_than_one_page_is_refused(
     """
     routes = _routes(
         comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
-        threads=[_thread(4242, resolved=True, truncated=True)],
+        threads=[_thread(4242, 4243, resolved=True, truncated=True)],
         timeline=[_ready(READY_TIME)],
         suites=GREEN,
     )
@@ -1859,6 +1904,20 @@ def test_the_conflict_marker_is_cleared_on_merge(monkeypatch: pytest.MonkeyPatch
     triage.clear_mirror(number=99, dry_run=False)
     assert triage.CONFLICTED_LABEL in fake.removed
     assert triage.CONFLICTED_LABEL in triage.MIRROR_LABELS
+
+
+def test_the_workflow_listens_for_a_resolved_thread() -> None:
+    """Resolving a thread can now CLEAR `agent:needs-amend`, and nothing else reports it.
+
+    `pull_request_review_comment` fires on `created` only, so an AMEND worker that replies and then
+    resolves gets a run that snapshots the state BEFORE the resolve, and a maintainer who resolves
+    without commenting gets no run at all. The label would stay published forever while the code
+    cleared it on a manual rerun (Codex P2 on #405).
+    """
+    assert set(_workflow()[True]["pull_request_review_thread"]["types"]) == {
+        "resolved",
+        "unresolved",
+    }
 
 
 def test_the_workflow_listens_for_the_merge_event() -> None:
