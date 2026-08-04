@@ -117,6 +117,10 @@ If they conflict, stop, choose the safe option, and ask.
   Every AMEND is a fresh session whose task text the launcher injects with `ROUND = N of 2`; past
   the cap it injects none, so no worker ever holds authority for a third.
   Stop-list, not judgement: **never a review request while `agent:review-capped` is present**.
+- **A round is a metered review that found something blocking.** A clean one is the lane
+  terminating and costs nothing, so at the cap you may ask **once** more purely to verify
+  convergence. Clean satisfies the gate; blocking again publishes `agent:gate-blocked`, which is a
+  maintainer's — stop there. Without this the gate and the cap contradict each other (#399).
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to
   the merged head. Then **arm auto-merge and exit** — never wait, never poll.

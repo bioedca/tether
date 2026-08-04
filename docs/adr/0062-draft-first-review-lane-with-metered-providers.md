@@ -55,6 +55,30 @@ conflating them would let a worker reach `agent:review-capped` on the draft phas
 to, before the mandatory gate. Entering the counted phase is **permanent**: a PR converted back to draft keeps every round it has spent, or the
 cap would be opt-out by toggling draft.
 
+**A round is a metered review that found something blocking; a clean one is the lane terminating**
+(amended by [#399](https://github.com/bioedca/tether/issues/399)). As first written, the gate and
+the cap could contradict each other. The gate requires *"at least one CodeRabbit review with no
+actionable comments"*; the cap allows two rounds. If the round-2 review posts actionable comments,
+answering them moves the head, and the gate then requires a review at *that* head — round 3, which
+the cap forbids. The pull request could satisfy neither rule, and no state it could reach would
+merge. This record claimed the lane terminates; #385 proved otherwise, at head `3628712`: green on
+all sixteen checks, fifty-four threads resolved, `mergeStateStatus: CLEAN`, and unmergeable by this
+record's own text.
+
+So the cap counts what it was always for — **how many times a provider found something that had to
+be fixed** — and after two such rounds a worker may always ask once more to verify convergence. If
+that verification is clean the gate is satisfied at no cost and the lane ends. If it finds blocking
+work too, the count passes `CAP` and `triage.py` publishes **`agent:gate-blocked`**: the lane is
+bounded at three metered reviews, and every way out of it is a state something can act on rather
+than a green pull request nobody may merge. That last one is a maintainer's, and a label rather than
+a comment because a workflow posting one trips `test_no_workflow_can_post_a_review_trigger`.
+
+The alternatives were weaker. *Answering never spends a round* removes the bound the cap exists to
+be. *The gate is satisfied by findings answered* re-admits the failure the gate was built for —
+"reviewed and answered" stops proving "reviewed and nothing left". *The cap raises on maintainer
+authority* keeps both rules honest but puts a human in the loop for exactly the pull requests that
+are converging normally.
+
 Owed-an-answer is a **separate axis** from rounds. Any external provider's finding is owed an answer
 at the head it was written against — including Greptile's, whose review was paid for, and including
 findings raised on a draft.

@@ -84,6 +84,15 @@ CAP = 2
 ROUND_LABELS = ("agent:round-1", "agent:round-2")
 CAPPED_LABEL = "agent:review-capped"
 AMEND_LABEL = "agent:needs-amend"
+
+#: *This pull request cannot satisfy its own gate, and no automatic state remains.* Published when
+#: the convergence verification a capped PR is allowed (#399) itself came back blocking, so the
+#: count has passed ``CAP``. Without it such a PR sits green, mergeable and forbidden to merge, with
+#: nothing anywhere saying why - which is how #385 was found, by hand.
+#:
+#: Distinct from ``agent:review-capped``, which means *the budget is spent and the lane may still
+#: terminate*. This one means *the lane has stopped terminating*, and it is a maintainer's.
+GATE_BLOCKED_LABEL = "agent:gate-blocked"
 CONFLICTED_LABEL = "agent:conflicted"
 ALL_ROUND_LABELS = (*ROUND_LABELS, CAPPED_LABEL)
 
@@ -112,7 +121,13 @@ ALL_ROUND_LABELS = (*ROUND_LABELS, CAPPED_LABEL)
 #    beside a surviving ref, `sweep` takes the no-PR branch and reaches neither. Pinned by
 #    `test_a_closed_pull_request_is_never_marked_conflicted` in tests/test_reaper.py, so the claim
 #    this set's safety rests on is a gate and not this paragraph.
-MIRROR_LABELS = ("status:in-progress", AMEND_LABEL, CONFLICTED_LABEL, *ALL_ROUND_LABELS)
+MIRROR_LABELS = (
+    "status:in-progress",
+    AMEND_LABEL,
+    GATE_BLOCKED_LABEL,
+    CONFLICTED_LABEL,
+    *ALL_ROUND_LABELS,
+)
 
 # A label DELETE that reached the desired end state. 404 counts: the label is already gone, which
 # is what the call was for. Anything else is a failure the merge path must not swallow - see
@@ -468,6 +483,32 @@ def _is_a_review(entry: dict[str, Any], wrappers: set[Any]) -> bool:
     return entry.get("id") not in wrappers
 
 
+def _is_blocking(entry: dict[str, Any], is_reviews: bool) -> bool:
+    """Whether this piece of metered evidence found something, and so spends a round (#399).
+
+    **A converged round is free.** ADR-0062's gate requires *"at least one CodeRabbit review with no
+    actionable comments"*, and its cap allows two rounds — and those two rules could contradict each
+    other. If the round-2 review posts actionable comments, answering them moves the head, and the
+    gate then requires a review at *that* head, which would be round 3. The cap forbids it. #385
+    reached exactly that state: green on all 16 checks, 54 threads resolved, ``mergeStateStatus:
+    CLEAN``, and unmergeable by the lane's own text.
+
+    So the cap counts what it was always for - *how many times a provider has found something that
+    had to be fixed* - and a review that finds nothing is not a round but the lane **terminating**.
+    After two blocking rounds a worker may therefore always ask once more to verify convergence:
+    clean satisfies the gate at no cost, and blocking again pushes the count past ``CAP``, which
+    publishes ``agent:gate-blocked`` rather than leaving the PR green and stuck. The lane is bounded
+    at three metered reviews and every path out of it is a state something can act on.
+
+    Blocking is *actionable output at the head reviewed*: a ``CHANGES_REQUESTED`` submission, or an
+    inline finding. A submission with a body and no findings is CodeRabbit's clean form and is
+    exactly what the gate asks for. A reply is neither (#396), and is filtered before this is asked.
+    """
+    if not is_reviews:
+        return True  # An inline finding is the actionable thing itself.
+    return entry.get("state") in BLOCKING_REVIEW_STATES
+
+
 def _review_state(
     pr_number: int, head: str, counted_from: str | None = None
 ) -> tuple[set[str], bool]:
@@ -541,8 +582,16 @@ def _review_state(
             #
             # OWED: any external provider, at any time. A finding does not stop mattering because it
             # arrived on a draft, and a paid Greptile review that nothing answers is the worst case.
+            #
+            # A round is a metered review that found something BLOCKING (#399). A clean one is a
+            # convergence verification: it satisfies the gate, so charging it a round would make
+            # the gate and the cap contradict each other - see `_is_blocking`.
             when = entry.get("submitted_at") if is_reviews else entry.get("created_at")
-            if login in METERED_PROVIDERS and _counts_as_round(when, counted_from):
+            if (
+                login in METERED_PROVIDERS
+                and _counts_as_round(when, counted_from)
+                and _is_blocking(entry, is_reviews)
+            ):
                 heads.add(sha)
             if sha != head:
                 continue
@@ -655,6 +704,10 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     rounds = len(reviewed)
     running, failed = _suite_state(head)
     capped = rounds >= CAP
+    # PAST the cap, not at it. At the cap the lane can still terminate: one convergence
+    # verification is allowed and a clean one satisfies the gate at no cost (#399). Past it,
+    # that verification came back blocking too, so no automatic state remains.
+    gate_blocked = rounds > CAP
     # Either reason owes the same single AMEND session: CI to fix, or a review to answer.
     owed = failed or review_owed
 
@@ -695,6 +748,9 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     else:
         amend = "unchanged"
 
+    if gate_blocked and GATE_BLOCKED_LABEL not in labels:
+        add.append(GATE_BLOCKED_LABEL)
+
     _apply(issue, add, remove, dry_run=dry_run)
     return {
         "action": "triage",
@@ -703,6 +759,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         "head": head,
         "rounds": rounds,
         "capped": capped,
+        "gate": "blocked" if gate_blocked else "open",
         "checks": "running" if running else ("failed" if failed else "green"),
         "review_owed": review_owed,
         "amend": amend,
