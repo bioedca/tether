@@ -1105,7 +1105,52 @@ def test_a_ready_pull_request_awaiting_its_gate_is_still_advanced(
     is the one the mandatory gate is waiting on. Before this it published nothing at all.
     """
     _, result = _run(
-        _routes(timeline=[_ready(READY_TIME)], suites=GREEN),
+        _routes(
+            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["advance"] == "added"
+
+
+def test_an_unreadable_timeline_never_publishes_advance_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fail-open the composed audit found, and it was live.
+
+    `_counted_from` answers `None` BOTH for a PR opened ready and for a timeline it could not read.
+    That `None` is the fail-toward-COUNTING answer on the round axis, and reusing it here with the
+    opposite polarity meant an API failure took the past-the-draft branch, skipped the
+    review-happened requirement, and published authority for a pull request nobody had reviewed.
+
+    Requiring the review in every phase is what closes it, so this asserts the composite: unreadable
+    timeline plus no review at head publishes nothing.
+    """
+    routes = _routes(suites=GREEN)
+    del routes[("GET", "/repos/bioedca/tether/issues/99/timeline")]
+    _, result = _run(routes, monkeypatch)
+    assert result["advance"] == "no-review-yet"
+
+
+def test_the_cap_does_not_withhold_the_counted_phases_remaining_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cap bounds ROUNDS, and neither remaining step is one (Codex P2 on #407).
+
+    A PR that has answered round CAP still needs to request the convergence check ADR-0062 permits,
+    and one whose gate has passed still needs a session to arm the merge. Withholding for both left
+    a green, gated pull request with nobody authorised to finish it. The DRAFT phase stays subject
+    to the cap, where a round really would be spent.
+    """
+    _, result = _run(
+        _routes(
+            labels=[triage.CAPPED_LABEL],
+            reviews=[dict(_review(RABBIT, HEAD), submitted_at=AFTER_READY)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
         monkeypatch,
     )
     assert result["advance"] == "added"

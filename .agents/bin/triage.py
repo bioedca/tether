@@ -613,27 +613,31 @@ def _advance_state(
     """
     if owed or running:
         return _withdraw_advance(labels, remove, "not-eligible")
-    # The cap bounds REVIEW REQUESTS, and the last lane step is not one. A PR whose gate has passed
-    # with both rounds spent still needs a session to arm the merge, and withholding here left it
-    # green, gated and unmergeable with nobody authorised to finish it (Codex P2 on #407).
-    if capped and not (counted_from is not _COUNT_NOTHING and read_head and not armed):
+    # The cap bounds ROUNDS, and the counted phase's remaining steps are not rounds. A PR whose
+    # gate has passed with both rounds spent still needs a session to arm the merge, and one that
+    # has answered round CAP still needs to request the convergence check ADR-0062 permits - a
+    # review that finds nothing is the lane terminating, not a third round. Withholding here left
+    # such a PR green, gated and unmergeable with nobody authorised to finish it (Codex P2 on
+    # #407). The draft phase stays subject to the cap, where a round really would be spent.
+    if capped and counted_from is _COUNT_NOTHING:
         return _withdraw_advance(labels, remove, "not-eligible")
-    if counted_from is not _COUNT_NOTHING:
-        # PAST THE DRAFT, AND STILL UNFINISHED. Reading `ready for review` as "the lane is
-        # complete" stranded it one step further along than before (Codex P1 on #407): an ADVANCE
-        # worker marks the PR ready and exits, and the remaining phases - ask CodeRabbit, then arm
-        # auto-merge once it comes back clean - are exactly the ones auto-merge cannot perform.
-        #
-        # The lane is complete when the merge is ARMED, which is the one state that needs no
-        # further session. Everything before it is another phase for another worker.
-        if armed:
-            return _withdraw_advance(labels, remove, "lane-complete")
-    elif not read_head:
-        # In the DRAFT phase only, a review must have happened. Without it a freshly opened draft
-        # would advance the moment its checks went green, before the free provider ever looked at
-        # it. Past the draft that condition would be the strand above, since the phase a ready PR
-        # is waiting for is a review nobody has asked for yet.
+    # A REVIEW MUST HAVE HAPPENED AT THIS HEAD, in every phase. The lane only ever advances out of
+    # a state a provider has looked at: on a draft that is Codex coming back clean, and past it the
+    # head has not moved since - marking a PR ready pushes nothing - so the same evidence is still
+    # there. Requiring it unconditionally is also what closes a fail-open, which is why it is not
+    # phase-specific: `_counted_from` answers `None` BOTH for a PR that was opened ready and for a
+    # timeline it could not read, so a phase-specific test read an API failure as "past the draft"
+    # and published authority for a pull request nobody had reviewed. `None` is deliberately the
+    # fail-toward-counting answer on the ROUND axis; it is not evidence of anything on this one.
+    if not read_head:
         return _withdraw_advance(labels, remove, "no-review-yet")
+    if counted_from is not _COUNT_NOTHING and armed:
+        # PAST THE DRAFT AND ARMED is the one state needing no further session. Reading merely
+        # `ready for review` as "the lane is complete" stranded it one step further along than
+        # before (Codex P1 on #407): an ADVANCE worker marks the PR ready and exits, and the
+        # remaining steps - ask CodeRabbit, then arm once it comes back clean - are exactly the
+        # ones auto-merge cannot perform for itself.
+        return _withdraw_advance(labels, remove, "lane-complete")
     if ADVANCE_LABEL in labels:
         return "unchanged"
     add.append(ADVANCE_LABEL)
