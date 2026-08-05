@@ -1513,6 +1513,28 @@ def test_a_thread_with_more_comments_than_one_page_is_refused(
         _run(routes, monkeypatch)
 
 
+def test_a_thread_whose_paging_is_unreadable_is_refused_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same refusal, reached through the check meant to enforce it (CodeRabbit on #405).
+
+    `(comments.get("pageInfo") or {}).get("hasNextPage")` read an ABSENT connection as `False`, so
+    a payload that could not be paged was judged from whatever came back — the half-read the test
+    above refuses, arriving through its own guard. The query always selects `pageInfo`, so absent
+    means unreadable rather than short.
+    """
+    thread = _thread(4242, 4243, resolved=True)
+    del thread["comments"]["pageInfo"]
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        threads=[thread],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    with pytest.raises(triage.TriageError, match="paging could not be read"):
+        _run(routes, monkeypatch)
+
+
 def test_a_head_carrying_only_replies_still_reads_the_threads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -627,7 +627,19 @@ def _resolved_comment_ids(pr_number: int) -> set[int]:
             # A thread with more comments than one page is refused rather than half-read: a finding
             # past the slice would stay owed after its thread was resolved, which is this bug one
             # level down. Threads that long are rare enough that failing loudly costs little.
-            if (comments.get("pageInfo") or {}).get("hasNextPage"):
+            #
+            # The paging level is REQUIRED, like every other. `(… or {}).get("hasNextPage")` read an
+            # absent `pageInfo` as `False` and judged the thread from whatever came back — which is
+            # the half-read this refuses, arriving through the check meant to prevent it. The query
+            # always selects the connection, so an absent one means an unreadable payload rather
+            # than a short thread (CodeRabbit on #405).
+            inner_page = comments.get("pageInfo")
+            if not isinstance(inner_page, dict):
+                raise TriageError(
+                    f"PR #{pr_number} has a resolved review thread whose comment paging could not "
+                    "be read; refusing to judge resolution from a thread that may be truncated"
+                )
+            if inner_page.get("hasNextPage"):
                 raise TriageError(
                     f"PR #{pr_number} has a resolved review thread with more comments than this "
                     "query reads; refusing to judge resolution from part of a thread"
