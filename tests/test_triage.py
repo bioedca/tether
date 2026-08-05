@@ -1919,9 +1919,14 @@ def test_a_stale_amend_label_withholds_the_advance_it_would_contradict(
     writer. So the published amend outlives the finding that caused it, and everything
     `_advance_state` asks about is then true: nothing owed, checks green, a review at the head.
 
-    Both labels on one claim is the state `swarm_slots` assumes cannot happen: it picks ADVANCE only
-    when AMEND is absent, so with both present the launcher dispatches whichever it reads first and
-    an AMEND session arrives with no findings to fix.
+    Both labels on one claim is the state `swarm_slots` assumes cannot happen. Precisely: its belt
+    at `swarm_slots.py` is `ADVANCE_LABEL in labels and AMEND_LABEL not in labels`, so the outcome
+    is *deterministic* — AMEND wins — and the failure is not a race. It is that the belt's own
+    stated justification, **"triage does not publish both"**, was false, and what it falls back to
+    is an AMEND session dispatched against a claim with nothing owed and no findings to fix.
+
+    So this test makes that comment true rather than papering over it, which is the direction this
+    repository requires: a belt may be redundant, but its reason may not be wrong.
     """
     fake, result = _run(
         _routes(
