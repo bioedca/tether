@@ -54,17 +54,29 @@ SHARED_PAGES = [
 ]
 GUARDED_FILES = [*CONTRACT_FILES, *SHARED_PAGES]
 
-# `CONTRIBUTING.md` is guarded, but two of the rules below do not reach it, and this is the
-# exception the issue asks be *stated* rather than silently skipped (#390, third criterion).
+# `CONTRIBUTING.md` is guarded, but THREE of the rules below do not reach it, and this is the
+# exception the issue asks be *stated* rather than silently skipped (#390, third criterion). Named
+# individually, because an exception stated as a number is the kind that drifts — this comment said
+# "two" while the set had grown to three, and CodeRabbit caught it:
+#
+#   1. `test_no_fence_asserts_a_shell_the_worker_may_not_be_in`, which reads `WORKER_FACING`.
+#   2. `test_a_shell_specific_gate_is_given_for_both_lanes`, and
+#   3. `test_a_page_both_lanes_read_resolves_the_interpreter_instead_of_naming_one`, both of which
+#      read `BOTH_LANES` — and `BOTH_LANES` is derived from `WORKER_FACING`, so excluding a page
+#      here excludes it from all three at once.
+#
+# The second of those is the one whose exclusion is load-bearing rather than merely harmless: the
+# page carries `QT_QPA_PLATFORM=offscreen pytest ...` with no PowerShell counterpart, which the
+# pairing rule would otherwise reject outright.
 #
 # The other pages instruct an agent that was dispatched into a shell it did not choose, running an
 # interpreter it did not choose. `CONTRIBUTING.md` addresses a human setting up a development
 # environment, who chooses both. Its ```bash blocks are therefore a *true* annotation rather than a
-# false one — they contain `QT_QPA_PLATFORM=offscreen pytest ...`, a POSIX inline env-var prefix
-# PowerShell genuinely cannot parse, so the page names the shell it means. Relabelling those `sh`
-# would make the file less accurate, and requiring `<py>` of a human reader would make it unusable.
-# What the two rules exist to catch is an annotation or an interpreter that is wrong *for a reader
-# who had no say*, and that reader is not this page's audience.
+# false one — that POSIX inline env-var prefix is one PowerShell genuinely cannot parse, so the page
+# names the shell it means. Relabelling those `sh` would make the file less accurate, and requiring
+# `<py>` of a human reader would make it unusable. What the three rules exist to catch is an
+# annotation or an interpreter that is wrong *for a reader who had no say*, and that reader is not
+# this page's audience.
 HUMAN_FACING = frozenset({_REPO / "CONTRIBUTING.md"})
 WORKER_FACING = [path for path in GUARDED_FILES if path not in HUMAN_FACING]
 
@@ -373,6 +385,30 @@ def test_the_two_lane_spellings_of_a_gate_are_paired_by_their_variable_too() -> 
     assert _gate_env(missing) == frozenset(), "and no prefix at all is not a gate of this kind"
 
 
+def test_a_command_that_is_only_an_env_assignment_does_not_crash_the_guard() -> None:
+    """CodeRabbit on #390: the guard must report, not raise, on the shape that empties out.
+
+    `_ENV_PREFIX`'s PowerShell branch ends `;\\s*`, so it can consume a whole command. No page
+    carries one today, and `SHARED_PAGES` globs `docs/agents/*.md`, so a new page can add one — at
+    which point the first-token rule would die with `IndexError` rather than assert. A guard that
+    crashes is worse than one that passes vacuously: the vacuous one at least reports green
+    honestly, while this one reports a failure that says nothing about the contract.
+
+    Asserted on the helpers rather than on a fixture page, since the point is that no page needs to
+    carry the shape for the rule to be safe against it.
+    """
+    only_assignment = "$env:TETHER_ALLOW_NONSTRICT_X509=1;"
+    assert _gate_body(only_assignment) == "", "the prefix really does consume the whole command"
+    assert _gate_body(only_assignment).split() == [], "so indexing [0] would raise"
+
+    # The rule's own comprehension, run over the pathological input.
+    assert not [
+        command
+        for command in (only_assignment,)
+        if (parts := _gate_body(command).split()) and re.search(r"[/\\:%$]", parts[0])
+    ]
+
+
 def test_no_command_names_an_absolute_path() -> None:
     """The defect that could not arm auto-merge.
 
@@ -409,11 +445,18 @@ def test_every_interpreter_and_cli_reference_is_a_bare_resolvable_name() -> None
     `PATH` in bash and PowerShell alike; anything carrying a separator, a drive letter or an
     environment-variable expansion has already chosen a lane.
     """
+    # `_gate_body`, and the emptiness guard is not defensive padding. `_ENV_PREFIX`'s PowerShell
+    # branch ends `;\s*`, so it can consume a whole command: a fenced line reading
+    # `$env:TETHER_ALLOW_NONSTRICT_X509=1;` strips to `""`, and `"".split()[0]` is an `IndexError`.
+    # The fence branch of `_commands` takes any non-empty non-`#` line, so nothing filters that
+    # shape out, and `SHARED_PAGES` globs `docs/agents/*.md` — a new page can introduce one. The
+    # guard would then die with an opaque traceback instead of reporting what it found, which is a
+    # worse failure than the one it exists to catch (CodeRabbit on #390).
     bad = [
         _at(path, number, command)
         for path in GUARDED_FILES
         for number, command in _commands(path)
-        if re.search(r"[/\\:%$]", _ENV_PREFIX.sub("", command).split()[0])
+        if (parts := _gate_body(command).split()) and re.search(r"[/\\:%$]", parts[0])
     ]
     assert not bad, f"these commands lead with something other than a bare executable name: {bad}"
 
@@ -477,10 +520,14 @@ def test_a_page_both_lanes_read_resolves_the_interpreter_instead_of_naming_one()
         f"shells cannot run them. Use `<py>` (or `{{{{PYTHON}}}}` in a rendered template): {bad}"
     )
 
+    # `_gate_body` here too. Reading the raw command repeats the exact blindness the loop above was
+    # just fixed for: the first token of `QT_QPA_PLATFORM=offscreen <py> scripts/dump_schema.py` is
+    # the assignment, so the page would use the convention without ever being asked to define it —
+    # which turns `<py>` back into a typo (CodeRabbit on #390).
     undefined = [
         path.relative_to(_REPO).as_posix()
         for path in BOTH_LANES
-        if any(command.startswith("<py>") for _number, command in _commands(path))
+        if any(_gate_body(command).startswith("<py>") for _number, command in _commands(path))
         and not _PY_DEFINED.search(path.read_text(encoding="utf-8"))
     ]
     assert not undefined, (
