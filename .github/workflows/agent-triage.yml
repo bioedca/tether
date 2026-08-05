@@ -138,12 +138,23 @@ concurrency:
   # whereas `check_suite.pull_requests` can be empty. Branch and PR are 1:1 here because the branch
   # IS the claim ref.
   #
+  # `issue_comment` CANNOT be normalised to the branch, and that is a payload limitation rather than
+  # a choice: it carries neither `pull_request.head.ref` nor `check_suite.head_branch`, only the
+  # number. Left to fall through, every comment on every pull request in the repository shared one
+  # `dispatch-` group — so comments on unrelated PRs contended globally while a comment on one PR
+  # did not serialise with that PR's own runs (CodeRabbit on #407). Keying it on the number fixes
+  # the first half completely and the second not at all: a comment-triggered run still races the
+  # branch-keyed run for the same pull request, because no expression available here maps one key
+  # space onto the other. Bounded rather than removed, and bounded by the same property that makes
+  # the whole module safe to re-run — state is recomputed from the API, never accumulated.
+  #
   # `workflow_dispatch` can only key on the number it was given, so a manual run does not serialise
   # against a concurrent event. That is why it defaults to `dry_run: true`: the un-normalised path
   # writes nothing unless a human deliberately says otherwise.
   group: >-
     agent-triage-${{ github.event.pull_request.head.ref
       || github.event.check_suite.head_branch
+      || (github.event.issue.number && format('pr-{0}', github.event.issue.number))
       || format('dispatch-{0}', inputs.pr) }}
   cancel-in-progress: false
 

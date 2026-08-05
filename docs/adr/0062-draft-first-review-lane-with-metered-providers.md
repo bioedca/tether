@@ -157,12 +157,20 @@ leg, and a quota refusal from it is recorded as *did not review*.
   refs the launcher counts. CodeRabbit caught the overclaim on #406.
 
   **#394** supplied the concept the three were faces of — **the lane's next phase is itself a thing
-  that can be authorised**. A clean review on an unfinished draft publishes `agent:needs-advance`,
+  that can be authorised**. A clean review on an unfinished lane publishes `agent:needs-advance`,
   the launcher takes one `refs/lane-advances/<issue>-<generation>-<step>-<attempt>` against it, and
   `.agents/tasks/advance.md` walks the lane on by exactly one phase and exits. Deliberately a second
   label and a second namespace: AMEND says *fix the blocking findings*, and one label cannot also
   say *there are none, move on* — while a ref in `refs/amend-rounds/` would spend a metered round to
   change phase.
+
+  **This authority spans the ready phase too, not only the draft.** The stranded draft is the
+  incident that found it, but the same gap exists twice more after the PR goes ready: nobody has
+  asked for the mandatory CodeRabbit review, or it has come back clean and the merge is not armed.
+  Neither step is a review round, so neither is withheld at `agent:review-capped` — a capped PR
+  still needs the convergence check this ADR permits, and a gated one still needs a session to arm
+  the merge. Reading *ready* as *complete* simply moved the stranding one step later; the lane is
+  complete only when it is ready **and** armed.
 - **The launcher's second cap is phase-aware, in its own ledger** (amended by
   [#391](https://github.com/bioedca/tether/issues/391)). `swarm_slots.py` records every AMEND in a
   permanent generation ref and refuses another past `CAP`, independently of the labels —

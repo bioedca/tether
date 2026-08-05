@@ -1909,6 +1909,38 @@ def test_an_owed_finding_is_still_an_amend_and_never_an_advance(
     assert result["advance"] != "added"
 
 
+def test_a_stale_amend_label_withholds_the_advance_it_would_contradict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same invariant, against the label rather than the finding (CodeRabbit on #407).
+
+    A capped PR reaches the `withheld-at-cap` branch and returns before the one that would clear a
+    stale `agent:needs-amend`, and this function must not clear it either — that label has a second
+    writer. So the published amend outlives the finding that caused it, and everything
+    `_advance_state` asks about is then true: nothing owed, checks green, a review at the head.
+
+    Both labels on one claim is the state `swarm_slots` assumes cannot happen: it picks ADVANCE only
+    when AMEND is absent, so with both present the launcher dispatches whichever it reads first and
+    an AMEND session arrives with no findings to fix.
+    """
+    fake, result = _run(
+        _routes(
+            labels=[triage.CAPPED_LABEL, triage.AMEND_LABEL],
+            reviews=[
+                dict(_review(RABBIT, OLDER), submitted_at=AFTER_READY),
+                dict(_review(RABBIT, HEAD), submitted_at=AFTER_READY),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["capped"] is True, "the branch that strands the label only runs at the cap"
+    assert result["amend"] == "withheld-at-cap", "the stale label is left for its own writer"
+    assert result["advance"] != "added"
+    assert triage.ADVANCE_LABEL not in fake.added, "one claim, one authority"
+
+
 def test_a_draft_nobody_has_reviewed_yet_is_not_authorised_to_advance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

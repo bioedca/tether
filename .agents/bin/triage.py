@@ -763,7 +763,12 @@ def _advance_state(
     add: list[str],
     remove: list[str],
 ) -> str:
-    """Publish, hold or clear the authority to advance an unfinished draft lane (#394).
+    """Publish, hold or clear the authority to advance an unfinished lane (#394).
+
+    **Unfinished, not merely draft.** The stranded draft is the incident that found this, but the
+    conditions below turn on what step is left rather than on the draft flag: a ready pull request
+    whose gate has not been asked for is stranded in the same way, and only *ready and armed* is
+    the lane actually complete.
 
     The lane is a **sequence**, and until now the swarm had one resumption signal for it:
     ``agent:needs-amend``, published when a check failed or a finding was owed. A clean review owes
@@ -777,8 +782,13 @@ def _advance_state(
     * **The lane must be unfinished.** ``_counted_from`` reporting the draft sentinel is exactly
       *"no ``ready_for_review`` has ever happened"*, so a PR already in the counted phase has no
       draft to advance and gets nothing.
-    * **Nothing may be owed.** An owed finding is still an AMEND. Publishing both would hand one
-      claim two authorities and let the resumption that arrives first decide which.
+    * **Nothing may be owed, and no AMEND may still be published.** An owed finding is still an
+      AMEND. Publishing both would hand one claim two authorities and let the resumption that
+      arrives first decide which. ``owed`` alone does not cover it: the label is a *published*
+      state that outlives the finding, because the capped branch above returns before the one that
+      clears a stale one, and the module docstring forbids this function clearing it instead — that
+      label has a second writer. So the presence of the label is checked directly, and the advance
+      waits for whoever owns the amend to finish (CodeRabbit on #407).
     * **The checks must be green and settled.** Advancing means spending a metered credit or asking
       the mandatory gate, and neither is worth doing against a diff that is still moving.
     * **A review must actually have happened at this head.** Otherwise a freshly opened draft would
@@ -789,7 +799,7 @@ def _advance_state(
     The label is *published*, not consumed. ``swarm_slots`` takes the ref that makes it exactly one
     session; the label alone re-triggering would be an unbounded supply of them.
     """
-    if owed or running:
+    if owed or running or AMEND_LABEL in labels:
         return _withdraw_advance(labels, remove, "not-eligible")
     # The cap bounds ROUNDS, and the counted phase's remaining steps are not rounds. A PR whose
     # gate has passed with both rounds spent still needs a session to arm the merge, and one that

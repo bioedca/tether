@@ -5,10 +5,15 @@ SPDX-License-Identifier: GPL-3.0-or-later
 Injected verbatim by .agents/bin/swarm_slots.py as an ADVANCE worker's whole task text. The launcher
 substitutes the {{PLACEHOLDER}} tokens.
 
-THIS IS NOT AN AMEND. It is issued when a review came back CLEAN on an unfinished draft, which owes
+THIS IS NOT AN AMEND. It is issued when a review came back CLEAN on an unfinished LANE, which owes
 nothing and so published no `agent:needs-amend` — the gap that left the lane stranded before the gate
 it cannot merge without (#394). A session handed the AMEND text here would go looking for blocking
 findings, find none, and either invent work or stop.
+
+An unfinished lane is not only a draft. The stranded DRAFT is the incident that found this, but
+`_advance_state` publishes for any phase that still has a step left — a ready pull request whose
+CodeRabbit gate has not been asked for, or has passed with the merge not yet armed, is equally
+stranded and equally this session's business.
 
 The authority is one ref in refs/lane-advances/, taken before this file was rendered, so this session
 holds exactly one advance. It is deliberately NOT in refs/amend-rounds/: moving a pull request from
@@ -44,11 +49,16 @@ Read root `AGENTS.md`, `docs/agents/review.md` and `.agents/skills/tether-worker
    **Do not stop merely because the pull request is no longer a draft.** A ready PR still has lane
    left: the CodeRabbit gate to request, and the merge to arm once that comes back clean. Which
    step you are on is decided in 3, not by the draft flag.
-2. **Revalidate the fence before anything below, including the stop-and-record path in 1:**
+2. **Revalidate the fence immediately before EVERY authoritative write**, starting with the
+   stop-and-record path in 1:
    `{{PYTHON}} .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
-   Exit `5` means the claim was reaped and reclaimed while this session was starting — stop, write
-   nothing. Every step in 3 is an authoritative write on somebody's pull request, and two of them
-   spend real money or merge code, so the check comes first rather than between choosing and doing.
+   Exit `5` means the claim was reaped and reclaimed — stop, write nothing.
+
+   **Once at the start is not enough**, and this said so until CodeRabbit pointed out on #407 that
+   it only fenced the first write. A session can be reaped between choosing a phase and performing
+   it, and every step in 3 is a write on somebody's pull request — a push, a metered request, a
+   ready transition, a merge. Re-run the check before each one and before the PR-body write in 4,
+   not once for all of them. A reaped worker that writes anyway is writing on a **successor's** PR.
 3. Work out which lane phase is next from what the PR body records, and do **only that one**:
    - **Codex is not yet clean** → answer what is left, push, request the next Codex round, exit.
    - **Codex is clean, Greptile not yet spent** → read the seat balance with
@@ -59,14 +69,20 @@ Read root `AGENTS.md`, `docs/agents/review.md` and `.agents/skills/tether-worker
    - **Ready, no CodeRabbit review yet** → request the full review. Read its status check first: a
      `pending` one is a review running now, and asking again destroys it.
    - **Ready, CodeRabbit came back with no actionable comments** → the gate is satisfied and the
-     only step left is arming the merge. Do that, and nothing else. This step is available even at
-     `agent:review-capped`, because arming is not a review request.
+     only step left is arming the merge — **if this session holds merge authority**. It does not
+     hold it by default: the `refs/lane-advances/` ref authorises one *phase transition*, and
+     `AGENTS.md` requires **explicit per-PR merge authority** that is never inferred. Without it,
+     record *"gate satisfied, awaiting merge authority"* in the PR body and exit; the lane is
+     finished and a person decides the merge. Arming is available even at `agent:review-capped`,
+     because arming is not a review request — but that is about the *cap*, not about authority.
 4. **Write the new lane state into the PR body**, then **exit** — do not sit and poll. That record is
    the only thing carrying the lane to the next session.
 
-   Arm auto-merge **only** if the lane is now complete — CodeRabbit returned no actionable comments
-   at this head (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`). CodeRabbit is not
-   a required check, so arming before it has passed merges the PR straight past its own gate.
+   Arm auto-merge **only** when both hold: the lane is complete — CodeRabbit returned no actionable
+   comments at this head — **and** this session was given explicit merge authority for this PR
+   (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`). CodeRabbit is not a required
+   check, so arming before it has passed merges the PR straight past its own gate; and the advance
+   ref is not merge authority, so arming without that authority merges code nobody authorised.
 
 ## Do not
 
