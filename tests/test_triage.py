@@ -1005,6 +1005,199 @@ def test_an_unreadable_timeline_counts_everything_rather_than_nothing(
     assert result["rounds"] == 1
 
 
+# ------------------------------------------- #396: GitHub wraps a reply in a review submission
+#
+# Answering a review thread produces a review submission of its own - empty body, state COMMENTED,
+# carrying the reply as its only comment - so counting every submission made ANSWERING a review
+# consume the round needed to answer the next one, and a 2-round cap behaved like a 1-round cap.
+#
+# The fixtures below are the measured shape of PR #385, not an invention:
+#
+#   4849387696  23:45:12  e5533f8  body 5667  5 comments   <- the one real review
+#   4849532819  00:18:21  13c1390  body    0  1 comment    <- five wrappers, one per reply the bot
+#   4849532989  00:18:24  13c1390  body    0  1 comment       sent after the author answered a
+#   4849533034  00:18:24  13c1390  body    0  1 comment       thread, each comment carrying
+#   4849533088  00:18:25  13c1390  body    0  1 comment       in_reply_to_id -> 3708430108
+#   4849535136  00:18:58  13c1390  body    0  1 comment
+
+REAL_REVIEW_ID = 4849387696
+WRAPPER_IDS = (4849532819, 4849532989, 4849533034, 4849533088, 4849535136)
+FINDING_ID = 3708430108
+
+
+def _submission(user: str, sha: str, review_id: int, *, body: str = "", at: str = AFTER_READY):
+    return {
+        "user": {"login": user},
+        "commit_id": sha,
+        "id": review_id,
+        "state": "COMMENTED",
+        "body": body,
+        "submitted_at": at,
+    }
+
+
+def _finding(user: str, sha: str, review_id: int, comment_id: int, *, at: str = AFTER_READY):
+    return {
+        "user": {"login": user},
+        "commit_id": sha,
+        "original_commit_id": sha,
+        "id": comment_id,
+        "pull_request_review_id": review_id,
+        "created_at": at,
+    }
+
+
+def _reply(user: str, sha: str, review_id: int, comment_id: int, *, at: str = AFTER_READY):
+    return dict(_finding(user, sha, review_id, comment_id, at=at), in_reply_to_id=FINDING_ID)
+
+
+def test_answering_a_review_does_not_spend_the_round_that_answers_the_next(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE #385 fixture: one real review plus five reply wrappers must count as one round.
+
+    Against the old implementation this is 2 - `{e5533f8, 13c1390}` - because every submission from
+    a metered provider added its head. So the PR reached `agent:review-capped` after a single
+    review, before the mandatory CodeRabbit gate it cannot merge without.
+    """
+    reviews = [_submission(RABBIT, OLDER, REAL_REVIEW_ID, body="x" * 5667)]
+    comments = [_finding(RABBIT, OLDER, REAL_REVIEW_ID, FINDING_ID)]
+    for offset, wrapper_id in enumerate(WRAPPER_IDS):
+        reviews.append(_submission(RABBIT, HEAD, wrapper_id))
+        comments.append(_reply(RABBIT, HEAD, wrapper_id, 3708500000 + offset))
+
+    _, result = _run(
+        _routes(reviews=reviews, comments=comments, timeline=[_ready(READY_TIME)], suites=GREEN),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1, "five replies to one review are still one review"
+    assert result["capped"] is False
+
+
+def test_a_providers_reply_costs_no_round_but_is_still_owed_an_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Where the reply predicate stops, and why it stops there.
+
+    The wrapper costs no round — that is #396. What it must *not* do is clear the owed axis as well.
+    A provider answering inside a thread writes an acknowledgement and *"that only half fixes it"*
+    in exactly the same shape, so treating every threaded reply as handled would leave a green head
+    owing nothing while real feedback sat unanswered. Over-counting a round costs a metered review;
+    under-owing merges past a finding. The signal that really separates the two is thread
+    resolution, which these REST payloads do not carry and #393 adds.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, WRAPPER_IDS[0])],
+            comments=[_reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500099)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0, "the wrapper is not a review"
+    assert result["review_owed"] is True, "but the reply may still carry a finding"
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_a_real_finding_in_the_same_shape_still_counts_and_still_owes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control. Identical payload but for `in_reply_to_id`, and every conclusion flips.
+
+    Without this the two tests above would pass just as happily against an implementation that had
+    stopped counting metered reviews altogether.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, WRAPPER_IDS[0])],
+            comments=[_finding(RABBIT, HEAD, WRAPPER_IDS[0], 3708500099)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+    assert result["review_owed"] is True
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_an_empty_bodied_review_carrying_real_findings_counts_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#396's second criterion: a bodyless review is not automatically a wrapper.
+
+    A provider can post findings with no summary at all, and `_review_state` has always supported
+    that - dropping it would undercount a round that really happened, which is the fail-OPEN
+    direction on the cap.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
+            comments=[
+                _finding(RABBIT, HEAD, REAL_REVIEW_ID, 3708500001),
+                _reply(RABBIT, HEAD, REAL_REVIEW_ID, 3708500002),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1, "one non-reply comment makes the submission a review"
+
+
+def test_a_submission_that_proves_nothing_either_way_is_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The safety direction, asserted rather than left to the reader of `_reply_wrapper_ids`.
+
+    A submission with no body, no verdict and no comments at all is *ambiguous*. It is counted,
+    because undercounting is the fail-open direction on the cap and ADR-0062 already settles the
+    tie the same way for an unreadable timeline: a safety control fails toward counting.
+
+    Written as `owns comments and all of them are replies` rather than `owns a non-reply comment`
+    precisely so this case lands here.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+
+
+def test_the_wrapper_filter_and_the_rewritten_commit_id_are_independent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#396's fourth criterion: reconciled with `_reviewed_head`'s note, not layered on it.
+
+    Both defects make one review look like two, and neither subsumes the other. `_reviewed_head`
+    fixes the *head* — GitHub carries a real finding forward onto the commit that answered it —
+    while this fixes the *count*, where the answer itself became evidence. Here they occur together:
+    a real finding written at `OLDER` and since re-pointed at `HEAD`, plus a wrapper genuinely at
+    `HEAD`. One round, at `OLDER`. Fix either defect alone and this reads 2.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[
+                _submission(RABBIT, OLDER, REAL_REVIEW_ID, body="findings"),
+                _submission(RABBIT, HEAD, WRAPPER_IDS[0]),
+            ],
+            comments=[
+                dict(_finding(RABBIT, HEAD, REAL_REVIEW_ID, FINDING_ID), original_commit_id=OLDER),
+                _reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500098),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+
+
 def test_draft_findings_still_owe_an_answer_even_though_they_cost_no_round(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

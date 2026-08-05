@@ -68,13 +68,14 @@ def _install(
     labels: list[str],
     body: str = "Closes: #7\n",
     reviews: list[dict[str, Any]] | None = None,
+    comments: list[dict[str, Any]] | None = None,
     timeline: list[dict[str, Any]] | None = None,
     draft: bool = False,
 ) -> Fake:
     routes: dict[tuple[str, str], tuple[int, Any]] = {
         ("GET", "/repos/bioedca/tether/pulls/99/files"): (200, files),
         ("GET", "/repos/bioedca/tether/pulls/99/reviews"): (200, reviews or []),
-        ("GET", "/repos/bioedca/tether/pulls/99/comments"): (200, []),
+        ("GET", "/repos/bioedca/tether/pulls/99/comments"): (200, comments or []),
         ("GET", "/repos/bioedca/tether/issues/99/timeline"): (200, timeline or []),
         ("GET", "/repos/bioedca/tether/pulls/99"): (
             200,
@@ -938,3 +939,78 @@ def test_the_guard_counts_the_head_a_provider_actually_read(
     ]
     _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"], reviews=reviews)
     assert guard.measure(99)["review_rounds"] == 1
+
+
+def test_the_guard_does_not_count_a_reply_wrapper_as_a_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#396 in the audit half, for the same reason #307 was mirrored here.
+
+    A guard reporting MORE rounds than the counter it audits reads as *"the evidence is ahead of the
+    labels"* — a corruption report about nothing, and the one thing a second opinion must not
+    produce. The #385 shape: one real review at `c…`, one reply wrapper at `d…` whose only comment
+    carries `in_reply_to_id`. One round.
+    """
+    reviews = [
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "id": 1,
+            "body": "findings",
+            "commit_id": "c" * 40,
+        },
+        {"user": {"login": "coderabbitai[bot]"}, "id": 2, "body": "", "commit_id": "d" * 40},
+    ]
+    comments = [
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "id": 11,
+            "pull_request_review_id": 2,
+            "in_reply_to_id": 10,
+            "commit_id": "d" * 40,
+        }
+    ]
+    _install(
+        monkeypatch,
+        files=[_file("x.py", 1)],
+        labels=["size:XS"],
+        reviews=reviews,
+        comments=comments,
+    )
+    assert guard.measure(99)["review_rounds"] == 1
+
+
+def test_the_guard_still_counts_a_bodyless_review_that_carries_real_findings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control, and the safety direction: only a proven wrapper is dropped.
+
+    Identical to the case above but for `in_reply_to_id`, so a filter that had simply stopped
+    counting bodyless submissions would pass that test and fail this one. Undercounting is the
+    fail-open direction on the cap, which is why the mirror asks a submission to prove it is a
+    wrapper rather than to prove it is a review.
+    """
+    reviews = [
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "id": 1,
+            "body": "findings",
+            "commit_id": "c" * 40,
+        },
+        {"user": {"login": "coderabbitai[bot]"}, "id": 2, "body": "", "commit_id": "d" * 40},
+    ]
+    comments = [
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "id": 11,
+            "pull_request_review_id": 2,
+            "commit_id": "d" * 40,
+        }
+    ]
+    _install(
+        monkeypatch,
+        files=[_file("x.py", 1)],
+        labels=["size:XS"],
+        reviews=reviews,
+        comments=comments,
+    )
+    assert guard.measure(99)["review_rounds"] == 2
