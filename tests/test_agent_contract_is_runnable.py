@@ -44,6 +44,12 @@ SHARED_PAGES = [
     _REPO / "AGENTS.md",
     _REPO / "CLAUDE.md",
     _REPO / "CONTRIBUTING.md",
+    # The PR template is prose an agent READS AND FOLLOWS while filling the lane state, so a command
+    # in it is as binding as one on a docs page — and it carried `python3 .agents/bin/
+    # greptile_usage.py`, the balance check a native-lane worker is told to run before spending a
+    # metered credit. Left out of the first draft of this set because it is a template rather than a
+    # page; Codex found the defect sitting in it (#390).
+    _REPO / ".github" / "pull_request_template.md",
     *sorted((_REPO / "docs" / "agents").glob("*.md")),
 ]
 GUARDED_FILES = [*CONTRACT_FILES, *SHARED_PAGES]
@@ -126,6 +132,39 @@ def _gate_body(command: str) -> str:
     part; everything after it still owes shell-neutrality.
     """
     return _ENV_PREFIX.sub("", command).strip()
+
+
+_PS_ASSIGNMENT = re.compile(r"\$env:(\w+)\s*=\s*([^;\s]+)")
+_POSIX_ASSIGNMENT = re.compile(r"(\w+)=(\S*)")
+_QUOTES = "\"'"
+
+
+def _assignment(name: str, value: str) -> str:
+    return f"{name}={value.strip(_QUOTES)}"
+
+
+def _gate_env(command: str) -> frozenset[str]:
+    """The environment a gate sets, normalised across the two spellings it has to be written in.
+
+    Pairing on the command body alone was not enough. `$env:QT_QPA_PLATFRM='offscreen'; pytest …`
+    and `QT_QPA_PLATFORM=offscreen pytest …` share a body, so the typo paired happily and one lane
+    ran the gate **without the offscreen platform** — a required gate with different semantics per
+    lane, which is the defect one level in from the one the pairing already catches (Codex P2 on
+    #390). The variable is half the gate, so it is half the key.
+
+    Quotes are stripped because only PowerShell needs them: `'offscreen'` and `offscreen` are the
+    same value, and keying on the quoting would report every correctly paired gate as unpaired.
+    """
+    prefix = _ENV_PREFIX.match(command)
+    if not prefix:
+        return frozenset()
+    text = prefix.group(0)
+    pairs = {_assignment(name, value) for name, value in _PS_ASSIGNMENT.findall(text)}
+    # Whatever is left once the PowerShell form is removed is the POSIX form. Matching POSIX first
+    # would swallow `env:QT_QPA_PLATFORM='offscreen'` as a name/value pair of its own.
+    remainder = _PS_ASSIGNMENT.sub("", text)
+    pairs |= {_assignment(name, value) for name, value in _POSIX_ASSIGNMENT.findall(remainder)}
+    return frozenset(pairs)
 
 
 # Fence languages that assert a shell the dispatched worker may not be in. `sh` is the honest
@@ -287,20 +326,51 @@ def test_a_shell_specific_gate_is_given_for_both_lanes() -> None:
     first-token rule rather than a hole beside it.
     """
     for path in BOTH_LANES:
-        # Paired by the command BODY, not counted per page. Counting proved only that the page held
-        # one of each somewhere, so keeping the bash pytest matrix while changing the PowerShell
-        # line to something unrelated still passed — leaving one lane without the gate, which is
-        # the whole defect (Codex P2 on #390).
-        gates: dict[str, set[str]] = {}
+        # Paired by the command BODY **and the environment it sets**, not counted per page. Counting
+        # proved only that the page held one of each somewhere, so keeping the bash pytest matrix
+        # while changing the PowerShell line to something unrelated still passed. Keying on the body
+        # alone then left the variable free: a typo in one lane's `QT_QPA_PLATFORM` paired against
+        # the other's correct spelling and ran a required gate with different semantics. Both were
+        # Codex P2s on #390, one round apart.
+        gates: dict[tuple[frozenset[str], str], set[str]] = {}
         for _number, command in _commands(path):
             if _declares_its_shell(command):
                 shell = "powershell" if command.startswith("$env:") else "posix"
-                gates.setdefault(_gate_body(command), set()).add(shell)
-        unpaired = {body: sorted(shells) for body, shells in gates.items() if len(shells) < 2}
+                gates.setdefault((_gate_env(command), _gate_body(command)), set()).add(shell)
+        unpaired = {
+            f"{' '.join(sorted(env))} {body}".strip(): sorted(shells)
+            for (env, body), shells in gates.items()
+            if len(shells) < 2
+        }
         assert not unpaired, (
             f"{path.relative_to(_REPO).as_posix()} gives these environment-prefixed gates for only "
             f"one shell, so the other lane cannot run them: {unpaired}"
         )
+
+
+def test_the_two_lane_spellings_of_a_gate_are_paired_by_their_variable_too() -> None:
+    """What `_gate_env` is for, asserted on the pairing key rather than on today's pages.
+
+    The rule above can only be as strong as its key. Keyed on the body alone, a gate whose variable
+    was mistyped in one lane paired against the other's correct spelling: same command, same page,
+    both shells present, test green — and one lane running the Qt matrix **without** the offscreen
+    platform. That is a required gate silently meaning two different things, which is worse than the
+    missing-lane case the pairing already catches, because nothing about it looks wrong.
+
+    Stated here rather than left to the pages: no page currently carries the typo, so a
+    corpus-driven assertion would pass against a key that ignored the variable entirely.
+    """
+    posix = "QT_QPA_PLATFORM=offscreen pytest -m 'not large'"
+    powershell = "$env:QT_QPA_PLATFORM='offscreen'; pytest -m 'not large'"
+    typo = "$env:QT_QPA_PLATFRM='offscreen'; pytest -m 'not large'"
+    missing = "pytest -m 'not large'"
+
+    assert _gate_env(posix) == _gate_env(powershell), (
+        "the two spellings of one gate must give one key, or every correct pair reads as unpaired"
+    )
+    assert _gate_body(posix) == _gate_body(powershell) == _gate_body(missing)
+    assert _gate_env(typo) != _gate_env(posix), "a mistyped variable must not pair"
+    assert _gate_env(missing) == frozenset(), "and no prefix at all is not a gate of this kind"
 
 
 def test_no_command_names_an_absolute_path() -> None:
@@ -393,8 +463,14 @@ def test_a_page_both_lanes_read_resolves_the_interpreter_instead_of_naming_one()
     bad: list[str] = []
     for path in BOTH_LANES:
         for number, command in _commands(path):
-            parts = command.split()
-            if parts[0] in ("python", "python3") and len(parts) > 1:
+            # `_gate_body`, not `command`: the first token of an env-prefixed command is the
+            # ASSIGNMENT, so reading `parts[0]` here let `QT_QPA_PLATFORM=offscreen python -m
+            # pytest ...` name a lane's interpreter on a shared page and pass — the very failure
+            # `<py>` exists to prevent, waved through by the rule that governs it (Codex P2 on
+            # #390). The prefix is the shell-specific part and is paired for both lanes above;
+            # what follows it still owes lane-neutrality.
+            parts = _gate_body(command).split()
+            if parts and parts[0] in ("python", "python3") and len(parts) > 1:
                 bad.append(_at(path, number, command))
     assert not bad, (
         "these commands name one lane's interpreter on a page both lanes read; one of the two "
