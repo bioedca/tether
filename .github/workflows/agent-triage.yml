@@ -166,7 +166,6 @@ jobs:
       github.event_name == 'workflow_dispatch'
       || github.event_name == 'pull_request_review'
       || github.event_name == 'pull_request_review_comment'
-      || github.event_name == 'pull_request_review_thread'
       || github.event_name == 'pull_request'
       || startsWith(github.event.check_suite.head_branch, 'agent/issue-')
     steps:

@@ -2227,8 +2227,23 @@ def test_the_workflow_does_not_carry_a_trigger_actions_will_not_run() -> None:
 
     Asserted as an ABSENCE because the mistake is re-addable in one line and looks like a fix. The
     real path is the dispatch in `.agents/tasks/amend.md`, pinned below.
+
+    **Over the whole file, not just the `on:` mapping.** Checking the mapping alone let the same
+    dead event straight back in through the job's `if:` pre-filter — in this very pull request,
+    three lines below the comment explaining why it cannot fire (CodeRabbit on #405). A name that
+    can never equal `github.event_name` is inert wherever it is written, and reading a branch for it
+    as evidence the resolve path is handled is precisely the failure being guarded against.
     """
-    assert "pull_request_review_thread" not in _workflow()[True]
+    source = WORKFLOW.read_text(encoding="utf-8")
+    offenders = [
+        f"{i}: {line.strip()}"
+        for i, line in enumerate(source.splitlines(), 1)
+        if "pull_request_review_thread" in line and not line.lstrip().startswith("#")
+    ]
+    assert not offenders, (
+        "`pull_request_review_thread` is a webhook Actions does not implement, so it never fires "
+        f"and never matches `github.event_name` — inert wherever it appears: {offenders}"
+    )
 
 
 def test_the_deferral_procedure_dispatches_the_triage_that_reads_it() -> None:
