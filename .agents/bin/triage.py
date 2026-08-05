@@ -799,7 +799,14 @@ def _advance_state(
     The label is *published*, not consumed. ``swarm_slots`` takes the ref that makes it exactly one
     session; the label alone re-triggering would be an unbounded supply of them.
     """
-    if owed or running or AMEND_LABEL in labels:
+    # `not in remove` is load-bearing, and leaving it out re-created the very bug this function
+    # exists to fix. `labels` is the snapshot read at the start of the run, so on the run that
+    # RETIRES the amend — the finding was answered, the fix pushed, the suite came back green — the
+    # label is in `remove` and still in `labels`. Withholding on the snapshot alone therefore
+    # withheld the advance on exactly the run that made it due, and nothing fires afterwards to
+    # publish it: clearing a label is not an event. The draft strands before the gate, which is
+    # #394. So the question is whether the amend STANDS, not whether it was there when we looked.
+    if owed or running or (AMEND_LABEL in labels and AMEND_LABEL not in remove):
         return _withdraw_advance(labels, remove, "not-eligible")
     # The cap bounds ROUNDS, and the counted phase's remaining steps are not rounds. A PR whose
     # gate has passed with both rounds spent still needs a session to arm the merge, and one that

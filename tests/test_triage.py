@@ -1946,6 +1946,35 @@ def test_a_stale_amend_label_withholds_the_advance_it_would_contradict(
     assert triage.ADVANCE_LABEL not in fake.added, "one claim, one authority"
 
 
+def test_the_run_that_retires_the_amend_is_the_run_that_publishes_the_advance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of the guard above, and without it that guard rebuilds #394.
+
+    This is the ordinary end of an AMEND: the finding was answered, the fix pushed, the suite came
+    back green at the new head, and the free provider has looked at it. `agent:needs-amend` is
+    retired on this run — and `labels` is the snapshot read before that, so it still contains the
+    label being removed.
+
+    Withholding on the snapshot alone therefore withheld the advance on exactly the run that made
+    it due, and nothing fires afterwards to reconsider: clearing a label is not an event. The draft
+    would sit before the gate it cannot merge without, which is the stranding #394 exists to end.
+    """
+    fake, result = _run(
+        _routes(
+            pr=_drafted(),
+            labels=[triage.AMEND_LABEL],
+            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["amend"] == "cleared", "the answered finding retires its authority"
+    assert triage.AMEND_LABEL in fake.removed
+    assert result["advance"] == "added", "and the same run hands over the next phase"
+    assert triage.ADVANCE_LABEL in fake.added
+
+
 def test_a_draft_nobody_has_reviewed_yet_is_not_authorised_to_advance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
