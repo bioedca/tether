@@ -1082,9 +1082,14 @@ governance text itself (`AGENTS.md`, `CONTRIBUTING.md`, this document, `docs/adr
 `docs/agents/**`) are material. A material push re-arms the review but grants **no additional round**, and a PR gets **at most two
 rounds** — a third means the issue was scoped too large. Under the swarm model the **launcher issues rounds**: a
 worker is short-lived, every AMEND is a new session whose task text the launcher injects with an explicit
-`ROUND = N of 2`, and past the cap it injects none — so no worker holds authority for a third. Two things are
-stop-list violations rather than judgement calls: more than one self-review pass before the first external request,
-and any review request on a PR labelled `agent:review-capped`.
+`ROUND = N of 2`, and past the cap it injects none — so no worker holds authority for a third. A **round** is a
+metered review that produced blocking output; a metered review that finds nothing is a convergence verification,
+satisfies the gate, and costs nothing — without which the mandatory CodeRabbit gate and the two-round cap contradict
+each other and a PR can sit green, correct and unmergeable. Two things are stop-list violations rather than judgement
+calls: more than one self-review pass before the first external request, and a review request on a PR labelled
+`agent:review-capped` **beyond the single convergence check** that state permits — everything answered, everything
+pushed, one final review. A second such request, or any request while `agent:gate-blocked` is present, is the
+violation.
 
 Blocking is decided on the **severity axis only**: CodeRabbit `Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its
 badges use the same P-scale as Codex, so they map straight across, and a review the seat paid a credit for must not be
