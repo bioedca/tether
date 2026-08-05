@@ -1086,9 +1086,11 @@ records **failed convergence** and publishes `agent:gate-blocked`, and it issues
 stops for the maintainer rather than continuing. Under the swarm model the **launcher issues rounds**: a
 worker is short-lived, every AMEND is a new session whose task text the launcher injects with an explicit
 `ROUND = N of 2`, and past the cap it injects none — so no worker holds authority for a third. A **round** is a
-metered review that produced blocking output; a metered review that finds nothing is a convergence verification,
-satisfies the gate, and costs nothing — without which the mandatory CodeRabbit gate and the two-round cap contradict
-each other and a PR can sit green, correct and unmergeable. Two things are stop-list violations rather than judgement
+metered review that produced blocking output, and one that finds nothing costs nothing — without which the mandatory
+CodeRabbit gate and the two-round cap contradict each other and a PR can sit green, correct and unmergeable. Costing
+nothing and *satisfying the gate* are separate, and only one of them is provider-blind: any clean metered review is
+free, while the gate is **CodeRabbit at the current head**, because that is the review ADR-0062 makes mandatory and
+Greptile is the optional leg whose exhaustion never blocks. Two things are stop-list violations rather than judgement
 calls: more than one self-review pass before the first external request, and a review request on a PR labelled
 `agent:review-capped` **beyond the single convergence check** that state permits — everything answered, everything
 pushed, one final review. A second such request, or any request while `agent:gate-blocked` is present, is the

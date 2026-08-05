@@ -131,8 +131,9 @@ them against the cap in `AGENTS.md` §Review gate. So:
 
 - **At most one self-review pass**, before the first external request.
 - **`agent:review-capped` forbids another ROUND, and permits exactly one convergence check.** A
-  round is a metered review that found something **blocking**, so a clean one costs nothing and
-  satisfies the gate — and without that one request a capped pull request could never merge at all.
+  round is a metered review that found something **blocking**, so a clean one costs nothing — and
+  a clean **CodeRabbit** one also satisfies the gate, which is why that is the review to ask for
+  here. Without that one request a capped pull request could never merge at all.
   A review whose only output is non-blocking is clean for this purpose: defer those to a follow-up
   issue rather than fixing them here, and the round is still free. Answer every
   blocking finding, push, and ask for **one completed review**. A request that produced no review
