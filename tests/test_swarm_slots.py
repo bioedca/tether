@@ -15,6 +15,7 @@ exactly the inconsistent state an undercount would produce.
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -45,17 +46,49 @@ class Fake:
     def __init__(self, routes: dict[tuple[str, str], tuple[int, Any]]) -> None:
         self.routes = routes
         self.calls: list[tuple[str, str]] = []
+        # The ref NAME lives in the request body, and the name is the record: which ledger a round
+        # was taken in is written into it (#391), so a test that could only see the path could not
+        # tell a draft session from a counted one.
+        self.created_refs: list[str] = []
 
     def __call__(self, method: str, path: str, body: Any = None) -> tuple[int, Any]:
         self.calls.append((method, path))
+        if method == "POST" and path.endswith("/git/refs") and isinstance(body, dict):
+            self.created_refs.append(str(body.get("ref", "")))
         best: tuple[int, tuple[int, Any]] | None = None
         for (m, prefix), response in self.routes.items():
             if m == method and path.startswith(prefix) and (best is None or len(prefix) > best[0]):
                 best = (len(prefix), response)
-        return best[1] if best is not None else self.DEFAULTS.get(method, (200, None))
+        answer = best[1] if best is not None else self.DEFAULTS.get(method, (200, None))
+        return self._filter_matching_refs(path, answer)
+
+    @staticmethod
+    def _filter_matching_refs(path: str, answer: tuple[int, Any]) -> tuple[int, Any]:
+        """`matching-refs/<prefix>` returns only refs under that prefix, and the fake must too.
+
+        The route is registered on the namespace, so without this it hands back another
+        generation's refs — which the real endpoint never would, and which made the
+        generation-keying test pass for the wrong reason until `_amend_ordinals` started failing
+        closed on a ref it could not attribute.
+        """
+        marker = "/git/matching-refs/"
+        status, body = answer
+        if marker not in path or not isinstance(body, list):
+            return answer
+        wanted = f"refs/{path.split(marker, 1)[1]}"
+        return status, [
+            entry
+            for entry in body
+            if not isinstance(entry, dict)
+            or not isinstance(entry.get("ref"), str)
+            or entry["ref"].startswith(wanted)
+        ]
 
     def posted_refs(self) -> list[str]:
         return [p for m, p in self.calls if m == "POST" and p.endswith("/git/refs")]
+
+    def amend_refs(self) -> list[str]:
+        return [r for r in self.created_refs if f"refs/{slots.AMEND_NAMESPACE}/" in r]
 
 
 def _issue(number: int, *labels: str, state: str = "open") -> dict[str, Any]:
@@ -85,6 +118,7 @@ def _install(
     one transport live and make these tests pass for the wrong reason.
     """
     assert slots.claim is slots.reaper.claim, "one claim module, one patch point"
+    assert slots.claim is slots.triage.claim, "triage too, since #391 calls into it"
 
     routes: dict[tuple[str, str], tuple[int, Any]] = {
         ("GET", "/repos/bioedca/tether/issues?state=open"): (200, ready or []),
@@ -229,6 +263,268 @@ def test_the_launcher_refuses_on_its_own_count_even_when_the_label_says_zero(
     assert entry["mode"] == "refuse"
     assert "already issued" in entry["reason"]
     assert not list(tmp_path.glob("_task-issue-*"))
+
+
+# --------------------------------------------------- the draft phase is uncapped here too (#391)
+#
+# ADR-0062 makes the draft phase uncapped: Codex is the unmetered lane and iterates until nothing
+# blocking remains. `triage.py` counts accordingly. This launcher keeps a SECOND, independent cap in
+# permanent generation refs - deliberately, so either counter can bind - and it had no notion of
+# draft state, so two draft iterations exhausted it while triage correctly reported zero rounds and
+# the advertised unlimited loop stalled here with no label saying why.
+
+
+def _draft_ref(number: int, generation: int, ordinal: int) -> dict[str, Any]:
+    return {
+        "ref": f"refs/{slots.AMEND_NAMESPACE}/{number}-{generation}-"
+        f"{slots.DRAFT_ORDINAL_PREFIX}{ordinal}"
+    }
+
+
+def _as_draft(fake: Fake, *, draft: bool) -> None:
+    """Point the claim's branch at a pull request in one phase or the other.
+
+    `_in_draft_phase` goes through `triage._counted_from`, which reads the TIMELINE and not the
+    `draft` flag alone - so a draft here means no `ready_for_review` has ever happened, which is
+    what makes entering the counted phase permanent.
+    """
+    fake.routes[("GET", "/repos/bioedca/tether/pulls?head=bioedca:agent/issue-7")] = (
+        200,
+        [{"number": 99}],
+    )
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99")] = (200, {"number": 99, "draft": draft})
+    fake.routes[("GET", "/repos/bioedca/tether/issues/99/timeline")] = (
+        200,
+        [] if draft else [{"event": "ready_for_review", "created_at": "2026-08-01T12:00:00Z"}],
+    )
+
+
+def test_a_draft_claim_can_be_issued_more_amends_than_the_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#391's first criterion, and the one the old counter made impossible.
+
+    `CAP` draft sessions are already on record. Under the old ledger that is the cap and the
+    launcher refuses; the uncapped Codex loop the lane advertises could not complete, because the
+    BUILD worker exits after requesting its review and `amend.md` forbids a worker requesting the
+    next one.
+    """
+    refs = [_draft_ref(7, 77, n + 1) for n in range(slots.CAP)]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=True)
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "amend", entry.get("reason")
+    assert entry["phase"] == "draft"
+    assert fake.amend_refs() == [
+        f"refs/{slots.AMEND_NAMESPACE}/7-77-{slots.DRAFT_ORDINAL_PREFIX}{slots.CAP + 1}"
+    ]
+
+
+def test_a_stuck_draft_label_stops_relaunching_at_the_runaway_ceiling(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Uncapped is not unbounded, and the difference is a live failure mode (Codex P2 on #406).
+
+    `agent:needs-amend` has two writers. Triage publishes it for an owed review; `reaper.sweep`
+    publishes it for a STALE open pull request. A stale draft therefore carries it with nothing for
+    a worker to fix — so without a ceiling every launcher run mints another `draft-N` ref and
+    relaunches the same dead session forever, because the draft ledger never binds.
+
+    The refusal names the cause rather than reporting a cap, since the review cap is a different
+    thing and reaching this one means a label is stuck.
+    """
+    refs = [_draft_ref(7, 77, n + 1) for n in range(slots.DRAFT_CEILING)]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=True)
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse"
+    assert "stuck" in entry["reason"] and "reaper" in entry["reason"]
+    assert fake.amend_refs() == [], "nothing further may be minted at the ceiling"
+
+
+def test_the_runaway_ceiling_is_far_above_any_real_draft_phase() -> None:
+    """It must never bind on ordinary iteration, or it becomes the throttle ADR-0062 removed.
+
+    #385 is the longest draft phase this repository has had at eleven Codex rounds. A ceiling near
+    that would throttle the free lane, which is exactly what uncapping it was for.
+    """
+    assert slots.DRAFT_CEILING >= 20
+    assert slots.DRAFT_CEILING > slots.CAP * 5
+
+
+def test_the_counted_phase_still_refuses_at_the_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#391's second criterion. The exemption is the phase, not the mechanism.
+
+    Same claim, same generation, `CAP` refs — but taken after `ready_for_review`, so they are in the
+    counted ledger and the refusal is exactly as it was.
+    """
+    refs = [_ref(7, 77, n + 1) for n in range(slots.CAP)]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=False)
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse"
+    assert "already issued" in entry["reason"]
+
+
+def test_draft_sessions_do_not_discount_the_counted_ledger(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The two ledgers are separate in BOTH directions.
+
+    Five draft sessions and one counted one: the counted count must read 1, so the next session is
+    round 2 of 2 — not round 6, and not refused. A single ordinal sequence shared between the phases
+    would let free draft iteration consume the metered budget, which is the defect inverted.
+    """
+    refs = [_draft_ref(7, 77, n + 1) for n in range(5)] + [_ref(7, 77, 1)]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=False)
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "amend"
+    assert (entry["round"], entry["remaining"]) == (2, 0)
+
+
+def test_an_unreadable_pull_request_charges_the_counted_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#391 changes a safety control, so the unknown case must fall on the strict side.
+
+    The uncapped phase has to be positively established. Reading "I cannot tell" as draft would
+    hand out an unbounded issuance budget on any transient failure — the one outcome this second
+    counter exists to prevent.
+    """
+    refs = [_ref(7, 77, n + 1) for n in range(slots.CAP)]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    fake.routes[("GET", "/repos/bioedca/tether/pulls?head=bioedca:agent/issue-7")] = (502, None)
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse"
+
+
+def test_a_malformed_pull_request_payload_also_charges_the_counted_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The other half of "cannot read", and the half the first version missed.
+
+    An unreachable endpoint raises `ClaimError`/`TriageError` and was handled. A payload that
+    ARRIVES and is the wrong shape raises `TypeError` (and friends) out of the timeline walk
+    instead, escaping the guard entirely — so the docstring promised a fail-closed control the code
+    did not implement for the case most likely to produce one (CodeRabbit on #406).
+
+    A 200 whose timeline holds a bare string is exactly that: well-formed JSON, wrong shape.
+    """
+    refs = [_ref(7, 77, n + 1) for n in range(slots.CAP)]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=True)
+    fake.routes[("GET", "/repos/bioedca/tether/issues/99/timeline")] = (200, ["not-an-event"])
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse", "a malformed payload must not read as the uncapped phase"
+
+
+def test_a_malformed_amend_ref_fails_closed_rather_than_counting_as_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Codex P2: skipping an unparseable entry makes a bad read look like fewer issued rounds.
+
+    The only thing this count protects against is issuing one too many, so an entry the launcher
+    cannot parse fails closed exactly as a non-list response does. Here the ledger is at the cap and
+    one entry is junk: silently dropping it would authorise a third counted session.
+    """
+    # A non-dict entry, which is what a malformed 200 body actually looks like. A junk *string*
+    # ref would be filtered by the endpoint's own prefix before the launcher ever saw it.
+    refs = [_ref(7, 77, 1), "refs/amend-rounds/7-77-"]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=False)
+
+    for name in ("build.md", "amend.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+    with pytest.raises(slots.SlotError, match="cannot parse"):
+        slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+
+
+def test_a_ref_written_before_the_draft_prefix_reads_as_counted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Codex P2 on the migration, and the answer is that the old reading is the right one.
+
+    A numeric ref predates `draft-`, so it was created under the semantics where every AMEND counted
+    whatever the PR's state — reading it as counted is what it meant. Verified empty besides:
+    the repository holds one `refs/amend-rounds/*` ref, on a closed and merged issue, and no live
+    claims at all. This pins the classification so a later "helpful" reclassification is a test
+    failure rather than a silent refund.
+    """
+    refs = [_ref(7, 77, 1), _ref(7, 77, 2)]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=False)
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse", "legacy numeric refs are counted-phase rounds"
+
+
+def test_the_launcher_shares_one_transport_with_everything_it_calls() -> None:
+    """Two `claim` module objects is two things to authenticate and two things to patch.
+
+    `_load` builds a fresh module, so `triage` arrives holding its own. That was harmless while
+    triage was only *read* for constants; #391 calls `_in_draft_phase` into it, and a second,
+    unpatched transport would make these tests reach the network — or, worse, pass while only half
+    of the calls were faked. The same reasoning the file already applies to `reaper`.
+    """
+    assert slots.claim is slots.reaper.claim is slots.triage.claim
+
+
+def test_the_phase_comes_from_the_same_predicate_the_round_labels_do() -> None:
+    """#391's last criterion: `agent:review-capped` and this refusal cannot disagree about phase.
+
+    Asserted as identity, not as behaviour. Two implementations that happen to agree today are
+    exactly what the criterion forbids, and `_counted_from` keys on the FIRST `ready_for_review`,
+    so a worker cannot refund a spent round by toggling back to draft.
+    """
+    source = inspect.getsource(slots._in_draft_phase)
+    assert "triage._counted_from" in source and "triage._COUNT_NOTHING" in source, (
+        "the launcher must read triage's phase predicate rather than re-deriving `draft`"
+    )
+
+
+def test_the_draft_ledger_is_still_keyed_to_the_claim_generation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A reaped-and-reclaimed issue starts fresh in both ledgers, as it always did.
+
+    The draft refs of generation 76 must not be visible to generation 77, or a reclaim would inherit
+    a phase history that belongs to a worker the reaper already removed.
+    """
+    refs = [_draft_ref(7, 76, n + 1) for n in range(3)]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=True)
+
+    _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert fake.amend_refs() == [
+        f"refs/{slots.AMEND_NAMESPACE}/7-77-{slots.DRAFT_ORDINAL_PREFIX}1"
+    ], "generation 77's draft ledger must start at 1 regardless of generation 76's"
 
 
 def test_losing_the_amend_round_race_launches_nothing(
