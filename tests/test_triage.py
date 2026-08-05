@@ -2251,10 +2251,23 @@ def test_the_deferral_procedure_dispatches_the_triage_that_reads_it() -> None:
 
     Without this, `_resolved_comment_ids` is real code that nothing ever runs at the moment it
     matters: the worker replies, resolves, exits, and the label it just answered survives.
+
+    **The ORDER is the property, not the presence.** Asserting only that the command appears let it
+    sit in step 2 while the reply it must read was instructed in step 4 — so a worker following the
+    numbered order dispatched first, triage read a resolved thread with no
+    `Deferred: … Tracked in #N` in it, and correctly kept owing. The run happened and cleared
+    nothing, which is indistinguishable from the bug it was added to fix (CodeRabbit on #405).
     """
     amend = (ROOT / ".agents" / "tasks" / "amend.md").read_text(encoding="utf-8")
-    assert "workflow run agent-triage.yml" in amend
     assert "-f pr=" in amend and "-f dry_run=false" in amend
+    dispatch = amend.find("workflow run agent-triage.yml")
+    reply = amend.find("reply to every thread you answered")
+    assert dispatch != -1, "the deferral procedure must dispatch triage"
+    assert reply != -1, "the procedure must instruct the reply triage reads"
+    assert dispatch > reply, (
+        "the dispatch must come AFTER the reply it exists to make readable; dispatching first "
+        "gives triage a resolved thread with no deferral in it, and the label survives the answer"
+    )
 
 
 def test_the_workflow_listens_for_the_merge_event() -> None:
