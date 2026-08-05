@@ -38,6 +38,12 @@ The severity floor you classify against lives on `review.md`, not in the residen
    the label-independent list in `docs/agents/review.md`. Everything else is deferred to **one**
    follow-up issue
    for this PR, answered `Deferred: … Tracked in #N`, and its thread resolved.
+
+   **Then dispatch triage, because resolving fires no event.** `pull_request_review_thread` is a
+   webhook Actions does not implement, so nothing recomputes the labels after a resolve and
+   `agent:needs-amend` would survive the answer that cleared it:
+   `{{GH}} workflow run agent-triage.yml -f pr=<PR> -f dry_run=false`. The reply is what triage
+   reads — a thread resolved with no `Deferred: … Tracked in #N` from you still owes.
 3. Revalidate the fence before any authoritative write:
    `{{PYTHON}} .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
 4. Push, reply to every thread you answered, get the checks green, update the lane state in the PR

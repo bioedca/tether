@@ -435,7 +435,7 @@ query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
           isResolved
           comments(first:100) {
             pageInfo { hasNextPage }
-            nodes { fullDatabaseId }
+            nodes { fullDatabaseId body author { login } }
           }
         }
       }
@@ -443,6 +443,55 @@ query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
   }
 }
 """
+
+
+#: The contract's deferral reply, which `docs/agents/review.md` and `.agents/tasks/amend.md` both
+#: spell `Deferred: … Tracked in #N`. Anchored per line so it matches the reply's opening whether or
+#: not the worker wrapped it in emphasis, and paired with an issue reference because half the
+#: sentence is not the sentence.
+_DEFERRAL_RE = re.compile(r"^\s*[*_>\s]*deferred\s*:", re.IGNORECASE | re.MULTILINE)
+_TRACKED_RE = re.compile(r"#\d+")
+
+
+def _carries_a_deferral(comments: list[Any]) -> bool:
+    """Whether a resolved thread records the one answer that resolution alone is allowed to mean.
+
+    The severity floor permits resolve-without-push for a **non-blocking** finding only: defer it to
+    one follow-up issue, reply ``Deferred: … Tracked in #N``, resolve. A blocking finding must be
+    fixed, which moves the head and clears the owing that way. So ``isResolved`` on its own says
+    *somebody closed this*, not *this was answered the way the contract allows* — and reading the
+    first as the second lets a resolved blocking thread retract the AMEND authority that exists to
+    address it (Codex P1 on #405).
+
+    The reply is the part of that procedure the payload can show. It must come from outside
+    ``EXTERNAL_PROVIDERS``: a provider writing the word in its own finding is not the author
+    deferring it. The follow-up issue is required to be *referenced*, not to exist — nothing here
+    can tell ``#4711`` from a real number, and ``amend.md`` already forbids pointing at one that is
+    not there.
+
+    **GraphQL and REST spell a bot's login differently**, and the first version of this check was
+    wrong because of it: ``author.login`` on a ``Bot`` is ``coderabbitai``, while the REST ``user.
+    login`` these provider sets were built from is ``coderabbitai[bot]``. Comparing the raw GraphQL
+    login against ``EXTERNAL_PROVIDERS`` therefore matches nothing — no exception, no empty result,
+    just a provider-authored comment silently passing as the author's own deferral. Both spellings
+    are tried.
+
+    Severity itself is still unread, and this does not pretend otherwise: a worker that writes the
+    deferral over a blocking finding defeats it. That needs the provider severity parsing tracked in
+    #409. What this removes is the *silent* path, where no answer at all cleared the label.
+    """
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        login = ((comment.get("author") or {}).get("login")) or ""
+        if login in EXTERNAL_PROVIDERS or f"{login}[bot]" in EXTERNAL_PROVIDERS:
+            continue
+        body = comment.get("body")
+        if not isinstance(body, str):
+            continue
+        if _DEFERRAL_RE.search(body) and _TRACKED_RE.search(body):
+            return True
+    return False
 
 
 def _resolved_comment_ids(pr_number: int) -> set[int]:
@@ -497,16 +546,6 @@ def _resolved_comment_ids(pr_number: int) -> set[int]:
         for node in nodes:
             if not isinstance(node, dict) or not node.get("isResolved"):
                 continue
-            if len(((node.get("comments") or {}).get("nodes")) or []) < 2:
-                # Resolved but never replied to. The contract's deferral is reply + resolve + a
-                # follow-up link, and the reply is the part of it a machine can see - so a thread
-                # somebody merely closed has not answered anything (Codex P2 on #405).
-                #
-                # What this still cannot see is SEVERITY. The contract permits deferral only for a
-                # non-blocking finding; a blocking one must be fixed and pushed. Resolving a
-                # blocking thread without a push is a worker violating the contract, and telling
-                # the two apart needs the provider severity parsing tracked in #409.
-                continue
             comments = node.get("comments")
             inner = comments.get("nodes") if isinstance(comments, dict) else None
             if not isinstance(inner, list):
@@ -522,6 +561,8 @@ def _resolved_comment_ids(pr_number: int) -> set[int]:
                     f"PR #{pr_number} has a resolved review thread with more comments than this "
                     "query reads; refusing to judge resolution from part of a thread"
                 )
+            if not _carries_a_deferral(inner):
+                continue
             for comment in inner:
                 if not isinstance(comment, dict):
                     continue
@@ -664,14 +705,15 @@ def _review_state(
     # inline FINDING at the current head cannot have an answered one, so the extra query buys
     # nothing there - and `clear_mirror` and the round-label paths run on every triage event.
     #
-    # The `in_reply_to_id` filter matches the main loop's. Without it a head carrying only the
-    # provider's own replies - which the loop skips anyway - would force a GraphQL read that can
-    # only fail the job, on a pull request with nothing to clear.
+    # Deliberately NOT filtered by `in_reply_to_id`, and an earlier revision of this predicate was.
+    # That filter was correct only while the main loop skipped replies on the owed axis too; #396
+    # removed that, because a threaded reply can carry a finding. Keeping it here would be worse
+    # than redundant - a head whose only external comment is a reply would owe, skip the read that
+    # could clear it, and owe forever.
     answerable = any(
         entry.get("id")
         for entry in comments
         if ((entry.get("user") or {}).get("login")) in EXTERNAL_PROVIDERS
-        and not entry.get("in_reply_to_id")
         and _reviewed_head(entry) == head
     )
     resolved = _resolved_comment_ids(pr_number) if answerable else set()
