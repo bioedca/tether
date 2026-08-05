@@ -1300,6 +1300,102 @@ def test_two_blocking_rounds_then_a_clean_verification_leaves_the_lane_able_to_m
     )
 
 
+def test_the_gate_is_not_satisfied_by_the_rounds_that_preceded_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The convergence check must have actually happened. Stale round evidence is not it.
+
+    Two blocking rounds, both answered and pushed, and the verification never requested. Everything
+    a capped PR reports looks identical to the converged case — `rounds == 2`, nothing owed, checks
+    green — because the only thing that differs is a review that does not exist.
+
+    Reading the gate off the round set said `satisfied` here, since answering a finding moves the
+    head and leaves those SHAs behind as stale non-empty evidence. That is the mandatory gate
+    reporting itself met with no clean review anywhere (CodeRabbit on #408).
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _, result = _run(
+        _routes(
+            reviews=[*first["reviews"], *second["reviews"]],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 2, "the two rounds still happened"
+    assert result["capped"] is True
+    assert result["review_owed"] is False, "both were answered and the fix pushed"
+    assert result["gate"] == "open", (
+        "no CodeRabbit review exists at this head, so the gate ADR-0062 makes mandatory has not "
+        "been met - and `open` is what tells the worker to go and buy it"
+    )
+
+
+def test_a_greptile_round_does_not_satisfy_the_coderabbit_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate names one provider, and the round set is provider-blind.
+
+    Greptile is metered, so its blocking review is a real round — but ADR-0062's gate is *CodeRabbit
+    with no actionable comments*, and Greptile is the optional leg whose exhaustion never blocks. A
+    clean Greptile pass at the head must therefore leave the gate open, or a PR could merge having
+    never satisfied the one review the lane requires.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _, result = _run(
+        _routes(
+            reviews=[
+                *first["reviews"],
+                *second["reviews"],
+                _clean_review(GREPTILE, HEAD),
+            ],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 2, "a clean review is free whoever wrote it"
+    assert result["gate"] == "open", "Greptile cannot stand in for the mandatory CodeRabbit gate"
+
+
+def test_a_reply_wrapper_at_the_head_is_not_the_convergence_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#396's wrapper, seen from the gate axis.
+
+    Answering the round-two threads produces an empty `COMMENTED` submission at the new head that
+    is byte-identical to a clean review. Counting it would let a PR satisfy its own gate by
+    replying to itself, without any provider having looked at the fix.
+
+    Today two independent things stop this, and only one of them is the gate signal: the reply also
+    leaves the head *owing*, because that axis deliberately does not filter replies (#396). So this
+    passes even against the pre-fix code. It is kept as a forward guard rather than a binding
+    regression, because #393 removes the other one — once a resolved thread stops owing, the reply
+    filter on this axis is all that is left.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _, result = _run(
+        _routes(
+            reviews=[
+                *first["reviews"],
+                *second["reviews"],
+                _submission(RABBIT, HEAD, WRAPPER_IDS[0]),
+            ],
+            comments=[
+                *first["comments"],
+                *second["comments"],
+                _reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500099),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["gate"] == "open", "the PR answered itself; nobody verified the fix"
+
+
 def test_a_verification_that_finds_something_reports_why_the_pr_cannot_proceed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

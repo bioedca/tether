@@ -157,8 +157,10 @@ rounds spent*. The remaining labels — `agent:human`, `preauth`, `size:*`, `ris
 The cap failed on #276 at **9 rounds against a limit of 2** because a prose rule was the only thing
 holding it. It is now two independent refusals, and neither is redundant:
 
-- **`triage.py` withholds `agent:needs-amend` at the cap**, so the authority to start an AMEND session
-  is never *published*.
+- **`triage.py` withholds `agent:needs-amend` once the gate is blocked**, so the authority to start
+  an AMEND session is never *published* after the lane has run out of moves. It is deliberately not
+  withheld *at* the cap: the round-two findings still have to be answered, and withholding one step
+  earlier stranded the very session that answers them (#399).
 - **`swarm_slots.py` refuses to inject an AMEND block past the cap**, so it is never *acted on* even
   when the label is wrong.
 

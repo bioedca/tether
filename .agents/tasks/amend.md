@@ -55,8 +55,10 @@ The severity floor you classify against lives on `review.md`, not in the residen
 - **Do not request another review round.** {{REMAINING}} remain, and they are not yours to spend:
   if another is warranted, the launcher will start a further session.
 - **At round {{CAP}}, one convergence check is the exception, and only that.** Answer every blocking
-  finding, push, and request the final review — a round is a review that FOUND something, so a clean
-  one costs nothing and satisfies the gate. It is not a third round and it is not optional: without
+  finding, push, and request the final review — a round is a review that found something
+  **blocking**, so a clean one costs nothing and satisfies the gate. A review that returns only
+  non-blocking findings is clean for this purpose: defer them, per the first rule above, and the
+  round stays free. It is not a third round and it is not optional: without
   it a capped pull request can never merge. If that check comes back blocking too, stop:
   `agent:gate-blocked` goes on, safety-class findings escalate to the maintainer, and the rest
   become follow-ups.

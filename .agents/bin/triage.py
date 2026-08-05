@@ -80,6 +80,12 @@ EXTERNAL_PROVIDERS = frozenset(
 #: because a paid review that nothing answers is the worst of both.
 METERED_PROVIDERS = frozenset({"coderabbitai[bot]", "greptile-apps[bot]"})
 
+#: The one provider that can satisfy the mandatory gate. ADR-0062 names CodeRabbit specifically -
+#: Greptile is optional and its exhaustion never blocks - so the gate signal is keyed on this login
+#: alone. Reading it off ``METERED_PROVIDERS`` instead would let a spent Greptile credit report a
+#: CodeRabbit gate as met, which is the one substitution the lane does not allow.
+GATE_PROVIDER = "coderabbitai[bot]"
+
 CAP = 2
 ROUND_LABELS = ("agent:round-1", "agent:round-2")
 CAPPED_LABEL = "agent:review-capped"
@@ -489,7 +495,7 @@ def _gate_state(
     capped: bool,
     owed: bool,
     running: bool,
-    reviewed: set[str],
+    converged: bool,
 ) -> str:
     """``blocked`` | ``satisfied`` | ``open`` — what the mandatory gate is doing (#399).
 
@@ -497,11 +503,17 @@ def _gate_state(
     ending is the absence of work rather than a state to publish. What it changes is the run
     summary, which an operator reads to decide the next step.
 
-    ``satisfied`` is deliberately narrow. A **clean** metered review is free, so ``rounds`` and
-    ``capped`` are identical either side of one and cannot distinguish it. What can: a metered
-    provider has reported at this head, and nothing is owed or in flight. That is exactly ADR-0062's
-    gate — *a review with no actionable comments at the final head* — so it is read off the same
-    evidence rather than tracked separately.
+    ``satisfied`` is deliberately narrow, and it is read off ``converged`` — *a clean CodeRabbit
+    review at this exact head* — rather than off the round evidence. **The two are not
+    interchangeable, and using the rounds was a real defect.** ``reviewed`` holds the heads where a
+    metered provider found something *blocking*; answering a finding moves the head, so by the time
+    the lane is capped every SHA in that set is stale by construction. It is also provider-blind. A
+    capped PR whose two rounds were fixed but which never asked for the verification would therefore
+    have reported its mandatory gate satisfied with no clean review in existence, and a blocking
+    *Greptile* round would have satisfied a *CodeRabbit* gate (CodeRabbit on #408).
+
+    So the gate asks for the thing ADR-0062 actually requires and nothing adjacent to it: that
+    provider, that head, no findings.
 
     Only claimed at the cap. Before it, a clean review is an ordinary pass with rounds still to
     spend, and calling the gate satisfied there would invite arming a merge on a PR whose lane is
@@ -509,7 +521,7 @@ def _gate_state(
     """
     if gate_blocked:
         return "blocked"
-    if capped and not owed and not running and reviewed:
+    if capped and not owed and not running and converged:
         return "satisfied"
     return "open"
 
@@ -542,8 +554,13 @@ def _is_blocking(entry: dict[str, Any], is_reviews: bool) -> bool:
 
 def _review_state(
     pr_number: int, head: str, counted_from: str | None = None
-) -> tuple[set[str], bool]:
-    """``(heads with external review evidence, whether the CURRENT head owes an answer)``.
+) -> tuple[set[str], bool, bool]:
+    """``(blocking metered heads, whether the CURRENT head owes an answer, gate converged)``.
+
+    The third value is the mandatory gate itself: **a clean CodeRabbit review at this head**. It is
+    tracked separately from the first because the two answer opposite questions — the round set is
+    *where a provider found something*, the gate is *where one found nothing* — and the first can
+    never stand in for the second. See :func:`_gate_state` for what conflating them did.
 
     ``counted_from`` is the instant the cap starts (see :func:`_counted_from`). Evidence older than
     it still decides whether the current head **owes an answer** — a finding does not stop mattering
@@ -603,6 +620,11 @@ def _review_state(
 
     heads: set[str] = set()
     owed = False
+    # The gate, tracked as two halves that must both hold: the provider submitted at THIS head, and
+    # it left no finding here. A `COMMENTED` submission is CodeRabbit's clean form, so the
+    # submission alone proves nothing — the absence of findings beside it is the actual signal.
+    gate_review_here = False
+    gate_finding_here = False
     for entries, is_reviews in ((reviews, True), (comments, False)):
         for entry in entries:
             login = ((entry.get("user") or {}).get("login")) or ""
@@ -643,9 +665,20 @@ def _review_state(
                 heads.add(sha)
             if sha != head:
                 continue
+            # The gate is asked at the current head only, and the two halves fail in opposite
+            # directions on purpose. A *reply wrapper* is not the verification (#396), so it cannot
+            # prove the gate — but an inline comment voids it whether or not it is threaded, because
+            # a provider writing "that only half fixes it" inside its own thread is a finding
+            # wearing an acknowledgement's payload shape (#404). Proving fails closed; voiding
+            # fails open.
+            if login == GATE_PROVIDER:
+                if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
+                    gate_finding_here = True
+                elif not is_reply:
+                    gate_review_here = True
             if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
                 owed = True
-    return heads, owed
+    return heads, owed, gate_review_here and not gate_finding_here
 
 
 def _suite_state(sha: str) -> tuple[bool, bool]:
@@ -748,7 +781,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         raise TriageError(f"PR #{pr['number']} has no head sha")
 
     counted_from = _counted_from(pr)
-    reviewed, review_owed = _review_state(pr["number"], head, counted_from)
+    reviewed, review_owed, converged = _review_state(pr["number"], head, counted_from)
     rounds = len(reviewed)
     running, failed = _suite_state(head)
     capped = rounds >= CAP
@@ -823,7 +856,11 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         # look identical either side of it; the distinguisher is that nothing is owed at a head a
         # metered provider has already read.
         "gate": _gate_state(
-            gate_blocked=gate_blocked, capped=capped, owed=owed, running=running, reviewed=reviewed
+            gate_blocked=gate_blocked,
+            capped=capped,
+            owed=owed,
+            running=running,
+            converged=converged,
         ),
         "checks": "running" if running else ("failed" if failed else "green"),
         "review_owed": review_owed,
