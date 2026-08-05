@@ -483,6 +483,37 @@ def _is_a_review(entry: dict[str, Any], wrappers: set[Any]) -> bool:
     return entry.get("id") not in wrappers
 
 
+def _gate_state(
+    *,
+    gate_blocked: bool,
+    capped: bool,
+    owed: bool,
+    running: bool,
+    reviewed: set[str],
+) -> str:
+    """``blocked`` | ``satisfied`` | ``open`` — what the mandatory gate is doing (#399).
+
+    Reported rather than acted on: nothing here writes a label for ``satisfied``, because the lane
+    ending is the absence of work rather than a state to publish. What it changes is the run
+    summary, which an operator reads to decide the next step.
+
+    ``satisfied`` is deliberately narrow. A **clean** metered review is free, so ``rounds`` and
+    ``capped`` are identical either side of one and cannot distinguish it. What can: a metered
+    provider has reported at this head, and nothing is owed or in flight. That is exactly ADR-0062's
+    gate — *a review with no actionable comments at the final head* — so it is read off the same
+    evidence rather than tracked separately.
+
+    Only claimed at the cap. Before it, a clean review is an ordinary pass with rounds still to
+    spend, and calling the gate satisfied there would invite arming a merge on a PR whose lane is
+    unfinished — the failure ``.agents/tasks/amend.md`` warns about, one step earlier.
+    """
+    if gate_blocked:
+        return "blocked"
+    if capped and not owed and not running and reviewed:
+        return "satisfied"
+    return "open"
+
+
 def _is_blocking(entry: dict[str, Any], is_reviews: bool) -> bool:
     """Whether this piece of metered evidence found something, and so spends a round (#399).
 
@@ -754,7 +785,15 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
 
     # The whole mechanism: past the cap no AMEND authority is issued, so no third round can start.
     # An existing marker is left alone - see the module docstring on the two writers.
-    if capped:
+    #
+    # PAST the cap, not AT it, and the difference is what makes #399's convergence check reachable.
+    # An AMEND is not a round: a round is a metered REVIEW, and this authorises the session that
+    # ANSWERS one. Withholding at `rounds == CAP` meant the round-2 review's own findings could
+    # never be fixed - so the lane could not reach the "everything answered, everything pushed"
+    # state the convergence check requires, and the change that exists to un-deadlock the gate
+    # deadlocked it one step earlier (CodeRabbit on #408). Past `CAP` the convergence check itself
+    # came back blocking, and then there is genuinely nothing left to authorise.
+    if gate_blocked:
         amend = "withheld-at-cap"
     elif owed and AMEND_LABEL not in labels:
         add.append(AMEND_LABEL)
@@ -776,7 +815,16 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         "head": head,
         "rounds": rounds,
         "capped": capped,
-        "gate": "blocked" if gate_blocked else "open",
+        # Three states, not two. `open` covers "the gate is still ahead of this PR"; `blocked` is
+        # the convergence check having come back blocking. `satisfied` is the third, and leaving it
+        # out made the run summary tell an operator that "one convergence check is still permitted"
+        # on a PR whose gate had just been met - an invitation to spend a second one, which is a
+        # stop-list violation (CodeRabbit on #408). Clean evidence is free, so `rounds` and `capped`
+        # look identical either side of it; the distinguisher is that nothing is owed at a head a
+        # metered provider has already read.
+        "gate": _gate_state(
+            gate_blocked=gate_blocked, capped=capped, owed=owed, running=running, reviewed=reviewed
+        ),
         "checks": "running" if running else ("failed" if failed else "green"),
         "review_owed": review_owed,
         "amend": amend,

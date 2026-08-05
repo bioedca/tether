@@ -168,18 +168,28 @@ def _run(routes: Routes, monkeypatch: pytest.MonkeyPatch) -> tuple[Fake, dict[st
 
 
 def test_no_amend_authority_is_issued_once_capped(monkeypatch: pytest.MonkeyPatch) -> None:
-    """THE cap. Two rounds spent and CI red - the one state that would otherwise owe an AMEND.
+    """THE cap. Authority stops once the convergence check has failed too, and not before.
 
     `agent:needs-amend` is the launcher's authority to start a session, so withholding it makes a
-    third round impossible rather than forbidden. #276 reached 9 rounds against a limit of 2
+    further round impossible rather than forbidden. #276 reached 9 rounds against a limit of 2
     because a prose rule was the only thing holding it.
+
+    THREE blocking rounds here, not two, and that is the correction rather than a stronger case:
+    withholding at exactly `CAP` also withheld the session that answers round 2, so the convergence
+    check could never happen (CodeRabbit on #408). Past the cap that check has itself come back
+    blocking, so there is genuinely nothing left to authorise — CI red as well, which is the state
+    that would otherwise owe an AMEND on its own.
     """
     fake, result = _run(
-        _routes(reviews=[_review(RABBIT, OLDER), _review(RABBIT, HEAD)], suites=RED),
+        _routes(
+            reviews=[_review(RABBIT, OLDER), _review(RABBIT, ROUND_2), _review(RABBIT, HEAD)],
+            suites=RED,
+        ),
         monkeypatch,
     )
-    assert result["rounds"] == 2
+    assert result["rounds"] == 3
     assert result["capped"] is True
+    assert result["gate"] == "blocked"
     assert result["amend"] == "withheld-at-cap"
     assert triage.AMEND_LABEL not in fake.added
     assert triage.CAPPED_LABEL in fake.added
@@ -455,7 +465,7 @@ def test_a_capped_pr_keeps_a_marker_the_reaper_applied(monkeypatch: pytest.Monke
     fake, result = _run(
         _routes(
             labels=[triage.AMEND_LABEL],
-            reviews=[_review(RABBIT, OLDER), _review(RABBIT, HEAD)],
+            reviews=[_review(RABBIT, OLDER), _review(RABBIT, ROUND_2), _review(RABBIT, HEAD)],
             suites=GREEN,
         ),
         monkeypatch,
@@ -1282,8 +1292,12 @@ def test_two_blocking_rounds_then_a_clean_verification_leaves_the_lane_able_to_m
     )
     assert result["rounds"] == 2, "the verification found nothing, so it spent nothing"
     assert result["capped"] is True
-    assert result["gate"] == "open", "the lane can still terminate here"
     assert result["review_owed"] is False
+    assert result["gate"] == "satisfied", (
+        "clean evidence is free, so `rounds` and `capped` read the same either side of the "
+        "convergence check - and reporting `open` here told an operator that another check was "
+        "still permitted on a PR whose gate had just been met (CodeRabbit on #408)"
+    )
 
 
 def test_a_verification_that_finds_something_reports_why_the_pr_cannot_proceed(
@@ -1317,11 +1331,13 @@ def test_the_cap_still_binds_on_rounds_that_found_something(
 ) -> None:
     """The control. "A converged round is free" must not become "no round is ever counted".
 
-    Two blocking rounds still reach the cap and still withhold AMEND authority — the property the
-    whole counter exists for, and the one a too-generous reading of #399 would destroy.
+    Two blocking rounds still reach the cap — the property the whole counter exists for, and the one
+    a too-generous reading of #399 would destroy. Both were answered at heads that have since moved,
+    so nothing is owed at the current head and no session is needed; what the cap denies is a THIRD
+    round, and none is being asked for.
     """
     first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
-    _, result = _run(
+    fake, result = _run(
         _routes(
             reviews=[*first["reviews"], *second["reviews"]],
             comments=[*first["comments"], *second["comments"]],
@@ -1331,7 +1347,40 @@ def test_the_cap_still_binds_on_rounds_that_found_something(
         monkeypatch,
     )
     assert (result["rounds"], result["capped"]) == (2, True)
-    assert result["amend"] == "withheld-at-cap"
+    assert triage.CAPPED_LABEL in fake.added
+    assert triage.AMEND_LABEL not in fake.added, "nothing is owed, so nothing is authorised"
+
+
+def test_a_blocking_review_at_the_cap_still_gets_the_session_that_answers_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CodeRabbit on #408: withholding AMEND *at* the cap made the convergence check unreachable.
+
+    An AMEND is not a round. A round is a metered REVIEW; this label authorises the session that
+    ANSWERS one. Refusing it at `rounds == CAP` meant the round-2 findings could never be fixed, so
+    the pull request could never reach the *everything answered, everything pushed* state the
+    convergence check requires — the change written to un-deadlock the gate deadlocking it one step
+    earlier, and in the one place the deadlock is hardest to see.
+
+    Distinguished from the test above by WHERE the second round landed: there both were answered and
+    the head moved on, here the second review is at the current head and still owes.
+    """
+    first = _blocking_round(ROUND_1, 11)
+    second = _blocking_round(HEAD, 22)
+    fake, result = _run(
+        _routes(
+            reviews=[*first["reviews"], *second["reviews"]],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert (result["rounds"], result["capped"]) == (2, True)
+    assert result["review_owed"] is True
+    assert result["gate"] == "open", "the gate is not satisfied while a finding is outstanding"
+    assert result["amend"] == "added"
+    assert triage.AMEND_LABEL in fake.added
 
 
 def test_a_clean_metered_review_alone_spends_no_round(monkeypatch: pytest.MonkeyPatch) -> None:

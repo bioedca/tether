@@ -131,7 +131,16 @@ asking a provider to look **again** at work it has already reviewed this round.
   count has passed the cap: `agent:gate-blocked` goes on, and it is **a maintainer's** — safety-class
   findings escalate, the rest become follow-ups, and you stop.
   Stop-list, not judgement: **never a review request while `agent:gate-blocked` is present**, and
-  under `agent:review-capped` never more than that one convergence check.
+  under `agent:review-capped` never more than that one *completed* convergence review. A request
+  that produced no review has not spent it — a fair-use refusal naming a retry time is a wait, so
+  wait it and ask again after reading the status check.
+- **The cap withholds AMEND authority past itself, not at itself**, and the distinction is what
+  makes the convergence check reachable. An AMEND answers a review; it is not a review, so it is not
+  a round. At `agent:review-capped` the round-2 findings still have to be fixed, and a worker is
+  still issued the session that fixes them — otherwise the lane could never reach the *everything
+  answered, everything pushed* state the convergence check requires, and the rule written to
+  un-deadlock the gate would deadlock it one step earlier (CodeRabbit on #408). Authority stops once
+  `agent:gate-blocked` is published, because then the convergence check has failed too.
 - **Capability is not quota, and the two fail differently.** A selected provider reporting nothing to
   review at the head it read satisfies its leg — including a Codex 👍 reaction, its documented form
   of "no suggestions". Quote the provider, never the author or another commenter. *Exhaustion* is not

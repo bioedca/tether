@@ -133,7 +133,11 @@ them against the cap in `AGENTS.md` §Review gate. So:
 - **`agent:review-capped` forbids another ROUND, and permits exactly one convergence check.** A
   round is a metered review that FOUND something, so a clean one costs nothing and satisfies the
   gate — and without that one request a capped pull request could never merge at all. Answer every
-  blocking finding, push, ask once. Anything beyond that is a contract violation, not diligence.
+  blocking finding, push, and ask for **one completed review**. A request that produced no review
+  has not spent it: a fair-use refusal naming a retry time is a *wait*, so wait it out and ask
+  again, reading the status check first — `pending` is a review running now that a second request
+  destroys. What is forbidden is a second *completed* convergence review, not a second attempt at
+  getting the first.
 - **Never post a review-request comment on a PR carrying `agent:gate-blocked`.** That label means
   the convergence check came back blocking too, so nothing automatic remains: safety-class findings
   escalate to the maintainer and the rest become follow-up issues.

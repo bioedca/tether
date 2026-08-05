@@ -245,8 +245,10 @@ jobs:
               ]
               if r.get("gate") == "blocked":
                   lines += ["", "**Gate blocked.** The convergence check found blocking work too, so the count has passed the cap. Nothing automatic remains; this PR needs the maintainer."]
+              elif r.get("gate") == "satisfied":
+                  lines += ["", "**Gate satisfied.** A metered review came back clean at this head with nothing owed, so the lane is complete. Arm auto-merge. Do NOT request another review: the cap is spent and a further request is a stop-list violation."]
               elif r["capped"]:
-                  lines += ["", "**At the cap.** No further AMEND authority is issued. One convergence check is still permitted: answer everything, push, and request the final review. Clean satisfies the gate."]
+                  lines += ["", "**At the cap.** One convergence check is permitted: answer everything, push, and request the final review — clean satisfies the gate. AMEND authority is still issued for findings owed at this head; it is withheld only once that check has come back blocking too."]
           pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines), encoding="utf-8")
           PY
           fi
