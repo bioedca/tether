@@ -146,6 +146,24 @@ def _gate_body(command: str) -> str:
     return _ENV_PREFIX.sub("", command).strip()
 
 
+def _first_token(command: str) -> str:
+    """The executable a shell must resolve, with any environment prefix removed.
+
+    Every rule that asks *what does this command run* goes through here, and that is the point.
+    Normalisation used to be opt-in at each call site, so a rule could read `command.split()[0]` —
+    which for `VAR=value cmd` is the **assignment** — and silently govern nothing. That defect was
+    found three separate times on #390, in three different rules, because fixing the instance never
+    fixed the class. One helper, and `test_every_first_token_rule_sees_past_an_env_prefix` asserts
+    the rules actually use it.
+
+    Empty when the command is nothing but a prefix: `_ENV_PREFIX`'s PowerShell branch ends `;\\s*`,
+    so `$env:X=1;` reduces to `""`. Callers must treat that as *no executable named* rather than
+    indexing it.
+    """
+    parts = _gate_body(command).split()
+    return parts[0] if parts else ""
+
+
 _PS_ASSIGNMENT = re.compile(r"\$env:(\w+)\s*=\s*([^;\s]+)")
 _POSIX_ASSIGNMENT = re.compile(r"(\w+)=(\S*)")
 _QUOTES = "\"'"
@@ -405,8 +423,36 @@ def test_a_command_that_is_only_an_env_assignment_does_not_crash_the_guard() -> 
     assert not [
         command
         for command in (only_assignment,)
-        if (parts := _gate_body(command).split()) and re.search(r"[/\\:%$]", parts[0])
+        if (token := _first_token(command)) and re.search(r"[/\\:%$]", token)
     ]
+
+
+def test_every_first_token_rule_sees_past_an_env_prefix() -> None:
+    """The class, not the instance — found three times on #390 before it was fixed as one.
+
+    Each rule below asks *what does this command run*, and each one independently read
+    `command.split()[0]`, which for `VAR=value cmd` is the **assignment**. Fixing them one at a time
+    kept working and kept missing siblings: the interpreter rule, then the `<py>`-definition rule,
+    then the call-operator and lane-specific rules a round later. The shared cause is that
+    normalisation was opt-in per call site.
+
+    So it is now `_first_token`, and this asserts the rules actually reach through a prefix rather
+    than that some particular line calls the helper. A rule that regresses to raw `.split()[0]`
+    fails here even if it is a rule written after this test.
+    """
+    prefixed = "QT_QPA_PLATFORM=offscreen python -m pytest"
+    powershell = "$env:QT_QPA_PLATFORM='offscreen'; & gh.exe pr merge"
+    absolute = "QT_QPA_PLATFORM=offscreen /mnt/c/Python/python.exe -m pytest"
+
+    assert _first_token(prefixed) == "python", "the executable, not the assignment"
+    assert _first_token(powershell) == "&", "the call operator is the first token once stripped"
+    assert _first_token("$env:TETHER_ALLOW_NONSTRICT_X509=1;") == "", "prefix-only names nothing"
+
+    # Each rule's own predicate, run over a command that hides its defect behind a prefix.
+    assert _gate_body(powershell).startswith("&"), "the call-operator rule must fire"
+    assert _first_token(prefixed) in ("python", "python3"), "the interpreter rule must fire"
+    assert any(marker in _gate_body(absolute) for marker in ABSOLUTE), "the path rule must fire"
+    assert re.search(r"[/\\:%$]", _first_token(absolute)), "the bare-name rule must fire"
 
 
 def test_no_command_names_an_absolute_path() -> None:
@@ -419,7 +465,7 @@ def test_no_command_names_an_absolute_path() -> None:
         _at(path, number, command)
         for path in GUARDED_FILES
         for number, command in _commands(path)
-        if any(marker in _ENV_PREFIX.sub("", command) for marker in ABSOLUTE)
+        if any(marker in _gate_body(command) for marker in ABSOLUTE)
     ]
     assert not bad, (
         "these commands hard-code a path that does not exist in the other lane's shell; "
@@ -433,7 +479,7 @@ def test_no_command_begins_with_the_powershell_call_operator() -> None:
         _at(path, number, command)
         for path in GUARDED_FILES
         for number, command in _commands(path)
-        if command.startswith("&")
+        if _gate_body(command).startswith("&")
     ]
     assert not bad, f"these commands are PowerShell-only; drop the call operator: {bad}"
 
@@ -456,7 +502,7 @@ def test_every_interpreter_and_cli_reference_is_a_bare_resolvable_name() -> None
         _at(path, number, command)
         for path in GUARDED_FILES
         for number, command in _commands(path)
-        if (parts := _gate_body(command).split()) and re.search(r"[/\\:%$]", parts[0])
+        if (token := _first_token(command)) and re.search(r"[/\\:%$]", token)
     ]
     assert not bad, f"these commands lead with something other than a bare executable name: {bad}"
 
@@ -513,7 +559,7 @@ def test_a_page_both_lanes_read_resolves_the_interpreter_instead_of_naming_one()
             # #390). The prefix is the shell-specific part and is paired for both lanes above;
             # what follows it still owes lane-neutrality.
             parts = _gate_body(command).split()
-            if parts and parts[0] in ("python", "python3") and len(parts) > 1:
+            if _first_token(command) in ("python", "python3") and len(parts) > 1:
                 bad.append(_at(path, number, command))
     assert not bad, (
         "these commands name one lane's interpreter on a page both lanes read; one of the two "
@@ -550,14 +596,14 @@ def test_a_lane_specific_page_may_name_its_own_interpreter() -> None:
     named = [
         command
         for _number, command in _commands(claude_md)
-        if command.split()[0] in ("python", "python3")
+        if _first_token(command) in ("python", "python3")
     ]
     assert named, (
         "CLAUDE.md no longer names its own lane's interpreter. That is allowed, but the exception "
         "is now untested — either drop it from LANE_SPECIFIC or restore a command that uses it"
     )
     lane_python = _load_slots().LANE_PYTHON["claude"]
-    wrong = [command for command in named if command.split()[0] != lane_python]
+    wrong = [command for command in named if _first_token(command) != lane_python]
     assert not wrong, (
         f"CLAUDE.md may name its own lane's interpreter, which is {lane_python!r} per LANE_PYTHON; "
         f"these name a different one: {wrong}"
@@ -645,8 +691,9 @@ def test_a_rendered_task_is_runnable_in_the_lane_it_is_rendered_for() -> None:
                 command = span.strip()
                 if not _INVOCATION.search(command):
                     continue
-                if any(m in command for m in ABSOLUTE) or re.search(
-                    r"[/\\:%$]", command.split()[0]
+                token = _first_token(command)
+                if any(m in _gate_body(command) for m in ABSOLUTE) or (
+                    token and re.search(r"[/\\:%$]", token)
                 ):
                     bad.append(f"{task.name} [{vendor}]: {command}")
     assert not bad, f"a rendered task hands its worker an unrunnable command: {bad}"
