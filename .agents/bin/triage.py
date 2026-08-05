@@ -119,6 +119,13 @@ MIRROR_LABELS = ("status:in-progress", AMEND_LABEL, CONFLICTED_LABEL, *ALL_ROUND
 # `clear_mirror`.
 DELETE_DONE = frozenset({200, 204, 404})
 
+# A DELETE that actually TOOK a label off, which is a narrower question than whether the call
+# succeeded. `404` is success - the label is already gone, which is what the call was for - but it
+# removed nothing, so counting it as damage would have `_successor_arrived_mid_cleanup` tell a human
+# a live claim lost a label this run never touched, and invite re-adding it. That is #308's failure
+# arriving through the report rather than through the code (#381).
+DELETE_REMOVED = frozenset({200, 204})
+
 # `cancelled` and `stale` are here deliberately. Neither is a live status nor a pass, so leaving
 # them out made a readable-but-not-green head report as green and CLEAR a real
 # `agent:needs-amend` - the
@@ -132,6 +139,11 @@ LIVE_STATUSES = frozenset({"queued", "in_progress", "pending", "requested", "wai
 # inline comments are the form both providers actually use (both answered #285 as COMMENTED with
 # inline findings), so keying only on CHANGES_REQUESTED would see no outstanding review at all.
 BLOCKING_REVIEW_STATES = frozenset({"CHANGES_REQUESTED"})
+
+# States that are a verdict in themselves, so the submission is a real review even with no body.
+# `COMMENTED` is deliberately absent: it is what GitHub stamps on the wrapper it puts around a
+# reply to a review thread, and treating it as a verdict is exactly the over-count of #396.
+VERDICT_REVIEW_STATES = frozenset({"CHANGES_REQUESTED", "APPROVED", "DISMISSED"})
 
 
 class TriageError(RuntimeError):
@@ -218,6 +230,52 @@ def _claim_ref_sha(issue: int) -> str | None:
     return sha
 
 
+def _successor_arrived_mid_cleanup(issue: int, merged_head: str, removed: list[str]) -> None:
+    """Raise if a successor claimed ``issue`` while the delete loop was running (#381).
+
+    **The residual #334 could not close, converted from silence into a red job.** The fence above
+    reads the claim ref once and then issues one DELETE per label, and there is no transaction
+    across those writes: ``POST``/``DELETE /issues/{n}/labels`` take no precondition — no ETag, no
+    expected-state header — so "delete only if no successor has claimed since" is not expressible.
+    Meanwhile ``claim._cmd_claim`` creates the ref *first* and publishes its mirror *second*, so a
+    successor that interleaves has its freshly written labels removed by this loop. Blast radius is
+    ``agent:<vendor>`` and ``status:in-progress`` ordinarily, and ``agent:needs-amend`` if the
+    successor has progressed — the last of which is the launcher's authority to start an AMEND
+    session, so losing it makes a live claim silently unauthorized.
+
+    **Nothing prevents it, so this detects it.** Three things that look like fixes are not: the
+    cleanup cannot hold the mutex, because the claim ref *is* the mutex and the merge already
+    released it by deleting the branch — re-acquiring would make this a second writer for the very
+    mutex the design gives to workers. ``concurrency`` in ``agent-triage.yml`` serialises triage
+    runs against each other, never against workers (the same limitation #278 records for the
+    reaper). And re-reading the ref before *each* DELETE only narrows the window; it does not
+    remove it.
+
+    ``removed`` is what the run **actually took off**, never what it attempted. ``DELETE_DONE``
+    includes ``404`` because an already-absent label is a successful delete, but it removed nothing,
+    and a report that counted it would name labels for re-adding that this cleanup never touched -
+    #308's failure arriving through the report instead of through the code. The caller therefore
+    skips this entirely when nothing was removed: no damage is possible, so there is nothing to
+    audit and no reason to spend the read.
+
+    **This has no repair path, deliberately.** Re-adding what was deleted would give
+    :func:`clear_mirror` an add path, and its not having one is load-bearing (#308): re-adding
+    ``status:ready`` is precisely the failure #308 was written to prevent. So this reports and
+    stops. That is the precedence #334 already encodes — *visible residue over silent destruction*
+    — and the sibling of #278's irreducible window on the reaper's ref deletion.
+    """
+    live = _claim_ref_sha(issue)
+    if live is None or live == merged_head:
+        return
+    raise TriageError(
+        f"#{issue} was claimed by a successor while its merged mirror was being cleared, and "
+        f"{', '.join(removed) or 'no label'} may have been removed from that LIVE claim. The "
+        f"claim ref is at {live[:7]}, not the merged head {merged_head[:7]}. Re-add by hand only "
+        "what the successor is owed - this job has no add path on purpose (#308) - and check "
+        f"whether it lost {AMEND_LABEL}, the launcher's authority to start an AMEND session."
+    )
+
+
 def clear_mirror(*, number: int, dry_run: bool) -> dict[str, Any]:
     """Clear a merged claim's label mirror from its linked issue (#308).
 
@@ -232,9 +290,11 @@ def clear_mirror(*, number: int, dry_run: bool) -> dict[str, Any]:
 
     * **Merged, not merely closed.** A PR closed *without* merging leaves the claim live and the ref
       in place, so its mirror is still true. Only ``merged`` clears.
-    * **Fenced against a successor.** ``merged`` is a fact about a finished pull request and says
-      nothing about who owns the issue *now*. The ref is re-read immediately before the deletes and
-      compared to the merged head, so a reopened-and-reclaimed issue is left entirely alone.
+    * **Fenced against a successor, and audited after the fact.** ``merged`` is a fact about a
+      finished pull request and says nothing about who owns the issue *now*. The ref is re-read
+      immediately before the deletes and compared to the merged head, so a reopened-and-reclaimed
+      issue is left entirely alone — and re-read *again* afterwards, because that fence is one
+      snapshot before several authoritative writes. See :func:`_successor_arrived_mid_cleanup`.
     * **Never re-queues.** ``status:ready`` is not in :data:`MIRROR_LABELS` and this function has no
       add path at all — that is the structural guarantee, not a rule to remember. Merged work is
       *done*, and returning it to the queue would hand a finished item to the next worker. This is
@@ -297,13 +357,29 @@ def clear_mirror(*, number: int, dry_run: bool) -> dict[str, Any]:
         return {"action": "skip", "reason": "successor-claim", "pr": number, "issue": issue}
 
     failed: list[str] = []
+    deleted: list[str] = []
     if not dry_run:
         for label in remove:
             status, _ = claim._request(
                 "DELETE", f"/repos/{REPO}/issues/{issue}/labels/{label}", None
             )
-            if status not in DELETE_DONE:
+            if status in DELETE_REMOVED:
+                deleted.append(label)
+            elif status not in DELETE_DONE:
                 failed.append(f"{label} (HTTP {status})")
+        # THE WINDOW AUDIT, and two things about when it runs are deliberate.
+        #
+        # It runs BEFORE the failure report. A failed DELETE wants a re-run; a successor arriving
+        # mid-loop means a live claim lost labels and wants a human - and re-running this job while
+        # a successor holds the issue is exactly what must not happen. Reporting the re-runnable
+        # condition first would invite precisely that.
+        #
+        # It runs only when something was actually removed. `deleted` is keyed on DELETE_REMOVED
+        # rather than DELETE_DONE, so a 404 - the label was already gone, which on a re-run is the
+        # ordinary case - is not damage. Auditing anyway would spend a read to report a successor
+        # that lost nothing, and name labels for re-adding that this cleanup never touched.
+        if deleted:
+            _successor_arrived_mid_cleanup(issue, merged_head, deleted)
     if failed:
         # Every label is attempted before raising: partial progress is strictly better than none,
         # and one message naming all of them beats discovering them one re-run at a time.
@@ -414,6 +490,55 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
     return _COUNT_NOTHING if pr.get("draft") else None
 
 
+def _paginate_or_raise(pr_number: int, path: str, what: str) -> list[dict[str, Any]]:
+    try:
+        return claim._paginate(path, what)
+    except claim.ClaimError as exc:
+        raise TriageError(f"PR #{pr_number} review state could not be read") from exc
+
+
+def _reply_wrapper_ids(comments: list[dict[str, Any]]) -> set[Any]:
+    """Review ids whose every comment is a reply — the wrappers, positively identified (#396).
+
+    Built as *"owns comments, and all of them are replies"* rather than *"owns a non-reply
+    comment"*, and the difference is the whole safety argument. The second spelling asks a
+    submission to **prove** it is a review, so anything the payload does not describe fully — a
+    review that carried no inline comments at all — would drop out of the count. This spelling asks
+    a submission to prove it is a **wrapper**, so the unproven case is counted.
+
+    That is the direction ADR-0062 requires: an unreadable timeline counts everything, because a
+    safety control fails toward counting. Undercounting rounds is the fail-open direction on the
+    cap; overcounting merely strands a pull request, which is visible.
+    """
+    replies: dict[Any, bool] = {}
+    for entry in comments:
+        review_id = entry.get("pull_request_review_id")
+        if review_id is None:
+            continue
+        replies[review_id] = replies.get(review_id, True) and bool(entry.get("in_reply_to_id"))
+    return {review_id for review_id, only_replies in replies.items() if only_replies}
+
+
+def _is_a_review(entry: dict[str, Any], wrappers: set[Any]) -> bool:
+    """Whether a review submission is a review, or the wrapper GitHub puts around a reply (#396).
+
+    Answering a review thread produces a submission of its own: empty body, state ``COMMENTED``,
+    and one comment carrying ``in_reply_to_id``. Nothing on the reviews payload alone distinguishes
+    it from a real review, which is why the caller joins the comment list.
+
+    A body or a verdict settles it without the join. A body is what every substantive review writes
+    — #385's real review was 5667 bytes and all five of its wrappers were 0 — and
+    ``CHANGES_REQUESTED`` says something whether or not it is spelled out, while an empty-bodied
+    ``APPROVED`` is still a pass. Only when both are absent does the join decide, and then only
+    against submissions proven to be wrappers.
+    """
+    if (entry.get("body") or "").strip():
+        return True
+    if entry.get("state") in VERDICT_REVIEW_STATES:
+        return True
+    return entry.get("id") not in wrappers
+
+
 def _review_state(
     pr_number: int, head: str, counted_from: str | None = None
 ) -> tuple[set[str], bool]:
@@ -442,31 +567,65 @@ def _review_state(
     external provider left inline findings on it, or submitted ``CHANGES_REQUESTED`` for it. A clean
     pass leaves nothing owed, and pushing a fix moves the head, so the next head owes nothing until
     a provider looks at it.
+
+    **A reply is not a review** (#396). GitHub wraps a bot's reply to a review thread in a *review
+    submission* — empty body, state ``COMMENTED``, carrying the reply as its only comment — so
+    counting every submission made answering a review consume the round needed to answer the next
+    one, and a 2-round cap behaved like a 1-round cap. Measured on #385: one real review, five
+    wrappers. The reviews endpoint carries no comments, so the two payloads are joined on
+    ``pull_request_review_id`` and a submission counts only when it has a body, a verdict state, or
+    a comment of its own that is not an ``in_reply_to_id``.
+
+    **The reply filter stops at the round axis, and that asymmetry is the point.** It is tempting to
+    reuse it on the owed axis, where a provider's acknowledgement reads as a fresh finding at the
+    head that answered it — but a threaded reply is not *reliably* an acknowledgement. A provider
+    answering "that only half fixes it" writes it in the same shape, and dropping it would leave the
+    head owing nothing while real feedback sat unanswered. Over-counting a round costs a metered
+    review; under-owing merges past a finding. So this axis fails toward owing, matching the rest of
+    the module. The signal that actually separates *handled* from *unhandled* is whether the thread
+    was resolved, which is absent from these REST payloads and arrives with #393.
+
+    This is the *sibling* of the ``commit_id`` rewrite :func:`_reviewed_head` fixes, not a second
+    layer on it. Both make one review look like two, and they are independent: that one moves a
+    real finding onto the head that answered it (wrong *head*), this one turns the answer itself
+    into evidence (wrong *count*). Neither subsumes the other, so both filters run — the head is
+    normalised first, then the entry is asked whether it is a review at all.
     """
+    reviews = _paginate_or_raise(
+        pr_number, f"/repos/{REPO}/pulls/{pr_number}/reviews", "review list"
+    )
+    comments = _paginate_or_raise(
+        pr_number, f"/repos/{REPO}/pulls/{pr_number}/comments", "review-comment list"
+    )
+
+    wrappers = _reply_wrapper_ids(comments)
+
     heads: set[str] = set()
     owed = False
-    for path, what, is_reviews in (
-        (f"/repos/{REPO}/pulls/{pr_number}/reviews", "review list", True),
-        (f"/repos/{REPO}/pulls/{pr_number}/comments", "review-comment list", False),
-    ):
-        try:
-            entries = claim._paginate(path, what)
-        except claim.ClaimError as exc:
-            raise TriageError(f"PR #{pr_number} review state could not be read") from exc
+    for entries, is_reviews in ((reviews, True), (comments, False)):
         for entry in entries:
             login = ((entry.get("user") or {}).get("login")) or ""
             sha = _reviewed_head(entry)
             if login not in EXTERNAL_PROVIDERS or not isinstance(sha, str) or not sha:
                 continue
+            # A reply is not a *review*. On the comment axis `in_reply_to_id` says so outright; on
+            # the review axis it takes the join, because the wrapper GitHub builds around a reply
+            # looks exactly like a review from the reviews payload alone.
+            if is_reviews:
+                is_reply = not _is_a_review(entry, wrappers)
+            else:
+                is_reply = bool(entry.get("in_reply_to_id"))
             # Two independent axes, and conflating them is how this went wrong twice.
             #
-            # ROUNDS: only a metered provider, and only after the PR went ready. Draft-phase
-            # evidence is free by design, and Codex never counts at all.
+            # ROUNDS: only a metered provider, only after the PR went ready, and never a reply.
+            # Draft-phase evidence is free by design, and Codex never counts at all.
             #
-            # OWED: any external provider, at any time. A finding does not stop mattering because it
-            # arrived on a draft, and a paid Greptile review that nothing answers is the worst case.
+            # OWED: any external provider, at any time, *including* a reply. A finding does not stop
+            # mattering because it arrived on a draft, nor because the provider wrote it inside an
+            # existing thread; a paid Greptile review that nothing answers is the worst case. This
+            # is where the reply filter deliberately stops — see the docstring.
             when = entry.get("submitted_at") if is_reviews else entry.get("created_at")
-            if login in METERED_PROVIDERS and _counts_as_round(when, counted_from):
+            if not is_reply and login in METERED_PROVIDERS and _counts_as_round(when, counted_from):
                 heads.add(sha)
             if sha != head:
                 continue
