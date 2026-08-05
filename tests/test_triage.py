@@ -2257,6 +2257,11 @@ def test_the_deferral_procedure_dispatches_the_triage_that_reads_it() -> None:
     numbered order dispatched first, triage read a resolved thread with no
     `Deferred: … Tracked in #N` in it, and correctly kept owing. The run happened and cleared
     nothing, which is indistinguishable from the bug it was added to fix (CodeRabbit on #405).
+
+    **The exit is part of that order.** Moving the dispatch after the reply fixed one half and left
+    the other: step 4 still ended `and **exit**` a paragraph ABOVE the dispatch, so a worker reading
+    it in order left before running it and no run happened at all — a stronger version of the same
+    defect, and one an ordering assertion between only those two tokens cannot see.
     """
     amend = (ROOT / ".agents" / "tasks" / "amend.md").read_text(encoding="utf-8")
     assert "-f pr=" in amend and "-f dry_run=false" in amend
@@ -2267,6 +2272,13 @@ def test_the_deferral_procedure_dispatches_the_triage_that_reads_it() -> None:
     assert dispatch > reply, (
         "the dispatch must come AFTER the reply it exists to make readable; dispatching first "
         "gives triage a resolved thread with no deferral in it, and the label survives the answer"
+    )
+    procedure = amend.find("## Do\n")
+    exits = [m.start() for m in re.finditer(r"\bexit\b", amend) if m.start() > procedure]
+    assert exits, "the procedure must tell the worker to exit"
+    assert min(exits) > dispatch, (
+        "every exit instruction must come AFTER the dispatch; an exit written above it tells the "
+        "worker to leave before the run, so nothing recomputes the labels the reply just answered"
     )
 
 
