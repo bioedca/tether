@@ -257,14 +257,25 @@ def _in_draft_phase(branch: str) -> bool:
     counted phase, so the cap binds. The uncapped phase has to be positively established: a wrong
     answer in that direction is an unbounded issuance budget, which is the one outcome the second
     counter exists to prevent.
+
+    **"Cannot read" includes MALFORMED, not just unreachable**, and the first version of this
+    caught only the two transport errors. A payload that arrives and is the wrong *shape* raises
+    `KeyError`/`TypeError`/`ValueError`/`AttributeError` out of `_pull_request`'s selection or
+    `_counted_from`'s timeline walk - which escaped this function entirely, so the docstring above
+    described a fail-closed guard that the code did not implement for the case most likely to
+    produce one (CodeRabbit on #406). Both arms now return the same answer, kept separate because
+    they mean different things: one is *GitHub did not answer*, the other is *GitHub answered
+    something this does not understand*.
     """
     try:
         pr = triage._pull_request(number=None, branch=branch)
+        if not isinstance(pr, dict):
+            return False
+        return triage._counted_from(pr) is triage._COUNT_NOTHING
     except (triage.TriageError, claim.ClaimError):
         return False
-    if not isinstance(pr, dict):
+    except (KeyError, TypeError, ValueError, AttributeError):
         return False
-    return triage._counted_from(pr) is triage._COUNT_NOTHING
 
 
 def _take_amend_round(number: int, generation: int, ordinal: str, sha: str) -> bool:
