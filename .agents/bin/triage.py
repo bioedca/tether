@@ -538,14 +538,22 @@ def _review_state(
     pass leaves nothing owed, and pushing a fix moves the head, so the next head owes nothing until
     a provider looks at it.
 
-    **A reply is neither a review nor a finding** (#396). GitHub wraps a bot's reply to a review
-    thread in a *review submission* — empty body, state ``COMMENTED``, carrying the reply as its
-    only comment — so counting every submission made answering a review consume the round needed to
-    answer the next one, and a 2-round cap behaved like a 1-round cap. Measured on #385: one real
-    review, five wrappers. The reviews endpoint carries no comments, so the two payloads are joined
-    on ``pull_request_review_id`` and a submission counts only when it has a body, a verdict state,
-    or a comment of its own that is not an ``in_reply_to_id``. The same predicate settles the owed
-    axis, where a provider's reply was reading as a fresh finding at the head that answered it.
+    **A reply is not a review** (#396). GitHub wraps a bot's reply to a review thread in a *review
+    submission* — empty body, state ``COMMENTED``, carrying the reply as its only comment — so
+    counting every submission made answering a review consume the round needed to answer the next
+    one, and a 2-round cap behaved like a 1-round cap. Measured on #385: one real review, five
+    wrappers. The reviews endpoint carries no comments, so the two payloads are joined on
+    ``pull_request_review_id`` and a submission counts only when it has a body, a verdict state, or
+    a comment of its own that is not an ``in_reply_to_id``.
+
+    **The reply filter stops at the round axis, and that asymmetry is the point.** It is tempting to
+    reuse it on the owed axis, where a provider's acknowledgement reads as a fresh finding at the
+    head that answered it — but a threaded reply is not *reliably* an acknowledgement. A provider
+    answering "that only half fixes it" writes it in the same shape, and dropping it would leave the
+    head owing nothing while real feedback sat unanswered. Over-counting a round costs a metered
+    review; under-owing merges past a finding. So this axis fails toward owing, matching the rest of
+    the module. The signal that actually separates *handled* from *unhandled* is whether the thread
+    was resolved, which is absent from these REST payloads and arrives with #393.
 
     This is the *sibling* of the ``commit_id`` rewrite :func:`_reviewed_head` fixes, not a second
     layer on it. Both make one review look like two, and they are independent: that one moves a
@@ -570,25 +578,34 @@ def _review_state(
             sha = _reviewed_head(entry)
             if login not in EXTERNAL_PROVIDERS or not isinstance(sha, str) or not sha:
                 continue
-            # A reply is neither a review nor a finding. On the comment axis `in_reply_to_id` says
-            # so outright; on the review axis it takes the join, because the wrapper GitHub builds
-            # around a reply looks exactly like a review from the reviews payload alone.
-            if entry.get("in_reply_to_id") if not is_reviews else not _is_a_review(entry, wrappers):
-                continue
+            # A reply is not a *review*. On the comment axis `in_reply_to_id` says so outright; on
+            # the review axis it takes the join, because the wrapper GitHub builds around a reply
+            # looks exactly like a review from the reviews payload alone.
+            if is_reviews:
+                is_reply = not _is_a_review(entry, wrappers)
+            else:
+                is_reply = bool(entry.get("in_reply_to_id"))
             # Two independent axes, and conflating them is how this went wrong twice.
             #
-            # ROUNDS: only a metered provider, and only after the PR went ready. Draft-phase
-            # evidence is free by design, and Codex never counts at all.
+            # ROUNDS: only a metered provider, only after the PR went ready, and never a reply.
+            # Draft-phase evidence is free by design, and Codex never counts at all.
             #
-            # OWED: any external provider, at any time. A finding does not stop mattering because it
-            # arrived on a draft, and a paid Greptile review that nothing answers is the worst case.
+            # OWED: any external provider, at any time, *including* a reply. A finding does not stop
+            # mattering because it arrived on a draft, nor because the provider wrote it inside an
+            # existing thread; a paid Greptile review that nothing answers is the worst case. This
+            # is where the reply filter deliberately stops — see the docstring.
             #
             # A round is a metered review that found something BLOCKING (#399). A clean one is a
             # convergence verification: it satisfies the gate, so charging it a round would make
             # the gate and the cap contradict each other - see `_is_blocking`.
+            #
+            # All three conditions narrow the ROUND axis and none of them touches OWED. They compose
+            # rather than overlap: a reply is not a review at all, a draft round is free, and a
+            # clean round is the lane terminating.
             when = entry.get("submitted_at") if is_reviews else entry.get("created_at")
             if (
-                login in METERED_PROVIDERS
+                not is_reply
+                and login in METERED_PROVIDERS
                 and _counts_as_round(when, counted_from)
                 and _is_blocking(entry, is_reviews)
             ):

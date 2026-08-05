@@ -1096,13 +1096,17 @@ def test_answering_a_review_does_not_spend_the_round_that_answers_the_next(
     assert result["capped"] is False
 
 
-def test_a_providers_reply_is_not_a_fresh_finding_at_the_head_that_answered_it(
+def test_a_providers_reply_costs_no_round_but_is_still_owed_an_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The same predicate on the other axis.
+    """Where the reply predicate stops, and why it stops there.
 
-    The bot's reply lands at the CURRENT head, so reading every external inline comment as a finding
-    made *"Confirmed, the fix is correct"* owe an AMEND — authority to answer an answer.
+    The wrapper costs no round — that is #396. What it must *not* do is clear the owed axis as well.
+    A provider answering inside a thread writes an acknowledgement and *"that only half fixes it"*
+    in exactly the same shape, so treating every threaded reply as handled would leave a green head
+    owing nothing while real feedback sat unanswered. Over-counting a round costs a metered review;
+    under-owing merges past a finding. The signal that really separates the two is thread
+    resolution, which these REST payloads do not carry and #393 adds.
     """
     fake, result = _run(
         _routes(
@@ -1113,8 +1117,9 @@ def test_a_providers_reply_is_not_a_fresh_finding_at_the_head_that_answered_it(
         ),
         monkeypatch,
     )
-    assert result["review_owed"] is False
-    assert triage.AMEND_LABEL not in fake.added
+    assert result["rounds"] == 0, "the wrapper is not a review"
+    assert result["review_owed"] is True, "but the reply may still carry a finding"
+    assert triage.AMEND_LABEL in fake.added
 
 
 def test_a_real_finding_in_the_same_shape_still_counts_and_still_owes(
