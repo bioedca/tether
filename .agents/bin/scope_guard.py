@@ -522,6 +522,12 @@ def _review_rounds(number: int) -> int:
 
     **The 12 heads this reported for #276 on #290 came from the broken version and are inflated.**
 
+    It shared the *other* overcount too, until #396. GitHub wraps a bot's reply to a review thread
+    in a review submission of its own - empty body, state ``COMMENTED``, one comment carrying
+    ``in_reply_to_id`` - so answering a review counted as a round. Mirrored here for the same reason
+    the ``original_commit_id`` fix was: a guard reporting MORE rounds than the counter it claims to
+    mirror reads as "the evidence is ahead of the labels", which is a corruption report about
+    nothing.
     """
     heads: set[str] = set()
     # Mirrors `triage.METERED_PROVIDERS`, not every external provider (ADR-0062). Codex is the
@@ -529,13 +535,35 @@ def _review_rounds(number: int) -> int:
     # Reported by name so a reader can see WHICH counter this claims to mirror.
     providers = {"coderabbitai[bot]", "greptile-apps[bot]"}
     counted_from = _counted_from(number)
-    for path, is_reviews in (
-        (f"/repos/{REPO}/pulls/{number}/reviews", True),
-        (f"/repos/{REPO}/pulls/{number}/comments", False),
-    ):
-        for entry in claim._paginate(path, f"PR #{number} review state"):
+    reviews = claim._paginate(f"/repos/{REPO}/pulls/{number}/reviews", f"PR #{number} review state")
+    comments = claim._paginate(
+        f"/repos/{REPO}/pulls/{number}/comments", f"PR #{number} review state"
+    )
+    # `owns comments, and all of them are replies` - the same spelling `triage._reply_wrapper_ids`
+    # uses, and for the same reason: it asks a submission to prove it is a WRAPPER, so anything the
+    # payload does not describe fully is still counted.
+    only_replies: dict[Any, bool] = {}
+    for entry in comments:
+        review_id = entry.get("pull_request_review_id")
+        if review_id is not None:
+            only_replies[review_id] = only_replies.get(review_id, True) and bool(
+                entry.get("in_reply_to_id")
+            )
+    wrappers = {review_id for review_id, every in only_replies.items() if every}
+    for entries, is_reviews in ((reviews, True), (comments, False)):
+        for entry in entries:
             login = ((entry.get("user") or {}).get("login")) or ""
             sha = entry.get("original_commit_id") or entry.get("commit_id")
+            # A reply is not a review (#396). Stated inline rather than delegated because this
+            # module deliberately shares no code with `triage.py` - it is a second opinion, and one
+            # that imported the counter it audits would not be one.
+            if is_reviews:
+                real = bool((entry.get("body") or "").strip()) or entry.get("id") not in wrappers
+                real = real or entry.get("state") in {"CHANGES_REQUESTED", "APPROVED", "DISMISSED"}
+                if not real:
+                    continue
+            elif entry.get("in_reply_to_id"):
+                continue
             # Path-appropriate, exactly as `triage._review_state` reads it, rather than
             # `submitted_at or created_at`. The fallback spelling agrees with triage only by
             # accident of payload shape - the reviews endpoint returns no `created_at`, so the

@@ -1005,6 +1005,199 @@ def test_an_unreadable_timeline_counts_everything_rather_than_nothing(
     assert result["rounds"] == 1
 
 
+# ------------------------------------------- #396: GitHub wraps a reply in a review submission
+#
+# Answering a review thread produces a review submission of its own - empty body, state COMMENTED,
+# carrying the reply as its only comment - so counting every submission made ANSWERING a review
+# consume the round needed to answer the next one, and a 2-round cap behaved like a 1-round cap.
+#
+# The fixtures below are the measured shape of PR #385, not an invention:
+#
+#   4849387696  23:45:12  e5533f8  body 5667  5 comments   <- the one real review
+#   4849532819  00:18:21  13c1390  body    0  1 comment    <- five wrappers, one per reply the bot
+#   4849532989  00:18:24  13c1390  body    0  1 comment       sent after the author answered a
+#   4849533034  00:18:24  13c1390  body    0  1 comment       thread, each comment carrying
+#   4849533088  00:18:25  13c1390  body    0  1 comment       in_reply_to_id -> 3708430108
+#   4849535136  00:18:58  13c1390  body    0  1 comment
+
+REAL_REVIEW_ID = 4849387696
+WRAPPER_IDS = (4849532819, 4849532989, 4849533034, 4849533088, 4849535136)
+FINDING_ID = 3708430108
+
+
+def _submission(user: str, sha: str, review_id: int, *, body: str = "", at: str = AFTER_READY):
+    return {
+        "user": {"login": user},
+        "commit_id": sha,
+        "id": review_id,
+        "state": "COMMENTED",
+        "body": body,
+        "submitted_at": at,
+    }
+
+
+def _finding(user: str, sha: str, review_id: int, comment_id: int, *, at: str = AFTER_READY):
+    return {
+        "user": {"login": user},
+        "commit_id": sha,
+        "original_commit_id": sha,
+        "id": comment_id,
+        "pull_request_review_id": review_id,
+        "created_at": at,
+    }
+
+
+def _reply(user: str, sha: str, review_id: int, comment_id: int, *, at: str = AFTER_READY):
+    return dict(_finding(user, sha, review_id, comment_id, at=at), in_reply_to_id=FINDING_ID)
+
+
+def test_answering_a_review_does_not_spend_the_round_that_answers_the_next(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE #385 fixture: one real review plus five reply wrappers must count as one round.
+
+    Against the old implementation this is 2 - `{e5533f8, 13c1390}` - because every submission from
+    a metered provider added its head. So the PR reached `agent:review-capped` after a single
+    review, before the mandatory CodeRabbit gate it cannot merge without.
+    """
+    reviews = [_submission(RABBIT, OLDER, REAL_REVIEW_ID, body="x" * 5667)]
+    comments = [_finding(RABBIT, OLDER, REAL_REVIEW_ID, FINDING_ID)]
+    for offset, wrapper_id in enumerate(WRAPPER_IDS):
+        reviews.append(_submission(RABBIT, HEAD, wrapper_id))
+        comments.append(_reply(RABBIT, HEAD, wrapper_id, 3708500000 + offset))
+
+    _, result = _run(
+        _routes(reviews=reviews, comments=comments, timeline=[_ready(READY_TIME)], suites=GREEN),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1, "five replies to one review are still one review"
+    assert result["capped"] is False
+
+
+def test_a_providers_reply_costs_no_round_but_is_still_owed_an_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Where the reply predicate stops, and why it stops there.
+
+    The wrapper costs no round — that is #396. What it must *not* do is clear the owed axis as well.
+    A provider answering inside a thread writes an acknowledgement and *"that only half fixes it"*
+    in exactly the same shape, so treating every threaded reply as handled would leave a green head
+    owing nothing while real feedback sat unanswered. Over-counting a round costs a metered review;
+    under-owing merges past a finding. The signal that really separates the two is thread
+    resolution, which these REST payloads do not carry and #393 adds.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, WRAPPER_IDS[0])],
+            comments=[_reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500099)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0, "the wrapper is not a review"
+    assert result["review_owed"] is True, "but the reply may still carry a finding"
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_a_real_finding_in_the_same_shape_still_counts_and_still_owes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control. Identical payload but for `in_reply_to_id`, and every conclusion flips.
+
+    Without this the two tests above would pass just as happily against an implementation that had
+    stopped counting metered reviews altogether.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, WRAPPER_IDS[0])],
+            comments=[_finding(RABBIT, HEAD, WRAPPER_IDS[0], 3708500099)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+    assert result["review_owed"] is True
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_an_empty_bodied_review_carrying_real_findings_counts_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#396's second criterion: a bodyless review is not automatically a wrapper.
+
+    A provider can post findings with no summary at all, and `_review_state` has always supported
+    that - dropping it would undercount a round that really happened, which is the fail-OPEN
+    direction on the cap.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
+            comments=[
+                _finding(RABBIT, HEAD, REAL_REVIEW_ID, 3708500001),
+                _reply(RABBIT, HEAD, REAL_REVIEW_ID, 3708500002),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1, "one non-reply comment makes the submission a review"
+
+
+def test_a_submission_that_proves_nothing_either_way_is_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The safety direction, asserted rather than left to the reader of `_reply_wrapper_ids`.
+
+    A submission with no body, no verdict and no comments at all is *ambiguous*. It is counted,
+    because undercounting is the fail-open direction on the cap and ADR-0062 already settles the
+    tie the same way for an unreadable timeline: a safety control fails toward counting.
+
+    Written as `owns comments and all of them are replies` rather than `owns a non-reply comment`
+    precisely so this case lands here.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+
+
+def test_the_wrapper_filter_and_the_rewritten_commit_id_are_independent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#396's fourth criterion: reconciled with `_reviewed_head`'s note, not layered on it.
+
+    Both defects make one review look like two, and neither subsumes the other. `_reviewed_head`
+    fixes the *head* — GitHub carries a real finding forward onto the commit that answered it —
+    while this fixes the *count*, where the answer itself became evidence. Here they occur together:
+    a real finding written at `OLDER` and since re-pointed at `HEAD`, plus a wrapper genuinely at
+    `HEAD`. One round, at `OLDER`. Fix either defect alone and this reads 2.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[
+                _submission(RABBIT, OLDER, REAL_REVIEW_ID, body="findings"),
+                _submission(RABBIT, HEAD, WRAPPER_IDS[0]),
+            ],
+            comments=[
+                dict(_finding(RABBIT, HEAD, REAL_REVIEW_ID, FINDING_ID), original_commit_id=OLDER),
+                _reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500098),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+
+
 def test_draft_findings_still_owe_an_answer_even_though_they_cost_no_round(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1355,6 +1548,183 @@ def test_the_fence_fails_closed_on_an_unreadable_claim_ref(
     with pytest.raises(triage.TriageError):
         triage.clear_mirror(number=99, dry_run=False)
     assert fake.removed == []
+
+
+# ------------------------------------------------------ the window the fence cannot close (#381)
+#
+# The fence above is one snapshot taken before several authoritative writes, and there is no
+# transaction across label writes to make it more than that: the label endpoints take no
+# precondition, so "delete only if no successor has claimed since" is not expressible. A successor's
+# `claim._cmd_claim` creates the ref FIRST and publishes its mirror SECOND, so one that interleaves
+# has its freshly written labels deleted by a loop that has already decided to run.
+#
+# Nothing prevents this - the cleanup cannot hold a mutex the merge already released, and re-reading
+# before each DELETE only narrows the window. So it is DETECTED instead, which converts a silent
+# corruption into a red job. No repair path: re-adding would give `clear_mirror` an add path, and
+# its not having one is #308's load-bearing property.
+
+
+def _sequenced_ref(monkeypatch: pytest.MonkeyPatch, *shas: str | None) -> list[int]:
+    """Make `_claim_ref_sha` answer differently per call, and count the calls.
+
+    Patched at the function rather than through `Fake`, which answers per route and so cannot tell
+    the pre-loop read from the post-loop one — and *that those two reads see different things* is
+    the entire subject here.
+    """
+    seen = [0]
+
+    def answer(issue: int) -> str | None:
+        index = min(seen[0], len(shas) - 1)
+        seen[0] += 1
+        return shas[index]
+
+    monkeypatch.setattr(triage, "_claim_ref_sha", answer)
+    return seen
+
+
+def test_a_successor_that_arrives_mid_cleanup_is_reported_not_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The residual #334 left behind, made loud (#381).
+
+    Absent when the fence reads it, present at a foreign head immediately after the deletes: that
+    is a successor whose claim was created and whose mirror was published *while this loop ran*.
+    The labels are already gone; what this asserts is that the job says so.
+    """
+    fake = _install(monkeypatch, _merged_routes())
+    _sequenced_ref(monkeypatch, None, SUCCESSOR_HEAD)
+
+    with pytest.raises(triage.TriageError) as raised:
+        triage.clear_mirror(number=99, dry_run=False)
+
+    message = str(raised.value)
+    assert "successor" in message
+    assert SUCCESSOR_HEAD[:7] in message and MERGED_HEAD[:7] in message
+    # The labels it names must be the ones actually deleted, or the repair instruction is a guess.
+    assert all(label in message for label in fake.removed)
+    # `agent:needs-amend` is the launcher's authority to start an AMEND session, so a successor
+    # losing it is the consequence a human most needs pointed at.
+    assert triage.AMEND_LABEL in message
+
+
+def test_the_window_audit_never_re_adds_what_it_reports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`clear_mirror` having no add path is load-bearing (#308), and a repair would destroy it.
+
+    Re-adding `status:ready` to an issue a successor is actively working is precisely the failure
+    #308 was written to prevent, so the audit reports and stops. Visible residue over silent
+    destruction — the precedence #334 already encodes.
+    """
+    fake = _install(monkeypatch, _merged_routes())
+    _sequenced_ref(monkeypatch, None, SUCCESSOR_HEAD)
+
+    with pytest.raises(triage.TriageError):
+        triage.clear_mirror(number=99, dry_run=False)
+    assert fake.added == []
+
+
+def test_the_ordinary_merge_still_reads_the_ref_twice_and_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The audit must cost the ordinary path a `GET` and nothing else.
+
+    Also pins that the post-loop read happens at all: with one read the count is 1 and this test
+    fails, which is what makes the two above more than a monkeypatch exercise.
+    """
+    fake = _install(monkeypatch, _merged_routes())
+    seen = _sequenced_ref(monkeypatch, None, None)
+
+    result = triage.clear_mirror(number=99, dry_run=False)
+    assert result["action"] == "clear-mirror"
+    assert seen[0] == 2, "the claim ref must be read before the deletes and again after them"
+    assert "status:in-progress" in fake.removed
+
+
+def test_a_branch_awaiting_deletion_is_not_mistaken_for_a_successor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The post-loop read compares heads for the same reason the fence does.
+
+    GitHub deletes the merged branch asynchronously, so the ref can still be there when the loop
+    finishes. Auditing on mere existence would turn every ordinary merge red.
+    """
+    _install(monkeypatch, _merged_routes())
+    _sequenced_ref(monkeypatch, None, MERGED_HEAD)
+
+    result = triage.clear_mirror(number=99, dry_run=False)
+    assert result["action"] == "clear-mirror"
+
+
+def test_a_label_that_was_already_gone_is_not_reported_as_damage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2 on this PR: `DELETE_DONE` includes 404, and 404 removed nothing.
+
+    A re-run is the ordinary way to reach this — the first run removed the labels, the second finds
+    them absent and gets 404 for every one. Counting those as damage would report a successor
+    losing labels this cleanup never touched, and the repair instruction would say to re-add them:
+    #308's failure arriving through the report rather than through the code.
+
+    So nothing was removed, nothing is audited, and the second read is not even spent.
+    """
+    routes = _merged_routes()
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/")] = (404, None)
+    _install(monkeypatch, routes)
+    seen = _sequenced_ref(monkeypatch, None, SUCCESSOR_HEAD)
+
+    result = triage.clear_mirror(number=99, dry_run=False)
+    assert result["action"] == "clear-mirror"
+    assert seen[0] == 1, "nothing was removed, so there is no damage to audit"
+
+
+def test_a_404_is_still_a_successful_delete(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The control for the change above: 404 must not become a *failure* either.
+
+    It is success — the label is gone, which is what the call was for. Only its status as *damage*
+    changes, and moving it from one bucket to the other would turn every re-run red.
+    """
+    routes = _merged_routes()
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/")] = (404, None)
+    _install(monkeypatch, routes)
+    _sequenced_ref(monkeypatch, None, None)
+
+    assert triage.clear_mirror(number=99, dry_run=False)["action"] == "clear-mirror"
+
+
+def test_a_partially_removed_mirror_reports_only_what_it_removed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mixed case, which is what a re-run interrupted by a successor actually looks like.
+
+    One label still present and removed, the rest already absent. The report must name the one, so
+    a human re-adds what was really lost and nothing else.
+    """
+    removed_now = "status:in-progress"
+    routes = _merged_routes()
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/")] = (404, None)
+    routes[("DELETE", f"/repos/bioedca/tether/issues/7/labels/{removed_now}")] = (204, None)
+    _install(monkeypatch, routes)
+    _sequenced_ref(monkeypatch, None, SUCCESSOR_HEAD)
+
+    with pytest.raises(triage.TriageError) as raised:
+        triage.clear_mirror(number=99, dry_run=False)
+
+    message = str(raised.value)
+    assert removed_now in message
+    assert triage.CONFLICTED_LABEL not in message, "a label that was already gone is not damage"
+
+
+def test_a_dry_run_writes_nothing_so_it_audits_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing was deleted, so no live claim can have been damaged and nothing needs reporting."""
+    _install(monkeypatch, _merged_routes())
+    seen = _sequenced_ref(monkeypatch, None, SUCCESSOR_HEAD)
+
+    result = triage.clear_mirror(number=99, dry_run=True)
+    assert result["action"] == "clear-mirror"
+    assert seen[0] == 1, "a dry run must not spend a second read on damage it could not have done"
 
 
 def test_the_fence_fails_closed_on_a_pull_request_with_no_head_sha(
