@@ -416,6 +416,29 @@ def test_an_unreadable_pull_request_charges_the_counted_cap(
     assert entry["mode"] == "refuse"
 
 
+def test_a_malformed_pull_request_payload_also_charges_the_counted_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The other half of "cannot read", and the half the first version missed.
+
+    An unreachable endpoint raises `ClaimError`/`TriageError` and was handled. A payload that
+    ARRIVES and is the wrong shape raises `TypeError` (and friends) out of the timeline walk
+    instead, escaping the guard entirely — so the docstring promised a fail-closed control the code
+    did not implement for the case most likely to produce one (CodeRabbit on #406).
+
+    A 200 whose timeline holds a bare string is exactly that: well-formed JSON, wrong shape.
+    """
+    refs = [_ref(7, 77, n + 1) for n in range(slots.CAP)]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=True)
+    fake.routes[("GET", "/repos/bioedca/tether/issues/99/timeline")] = (200, ["not-an-event"])
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse", "a malformed payload must not read as the uncapped phase"
+
+
 def test_a_malformed_amend_ref_fails_closed_rather_than_counting_as_absent(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

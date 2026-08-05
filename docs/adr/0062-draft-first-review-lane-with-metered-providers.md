@@ -140,13 +140,22 @@ leg, and a quota refusal from it is recorded as *did not review*.
   forever because only a push clears it. The single-shot model this replaces had no such gap:
   auto-merge did the waiting. Patching the three separately would be three guesses at one missing
   concept, so `.agents/tasks/build.md` now opens the lane and hands off rather than instructing a
-  session to walk phases it cannot reach, and dispatching the lane to a worker waits for **both**
-  #394 and #391 — they gate it independently, one by publishing no resumption and the other by
-  refusing the resumptions that do get published.
+  session to walk phases it cannot reach, and dispatching the lane to a worker **waited** for both
+  #394 and #391 — they gated it independently, one by publishing no resumption and the other by
+  refusing the resumptions that did get published.
 
-  **#391 is resolved** (see the launcher entry below), and **#393** with it. #394 remains, so the
-  lane is still hand-driven past the point a clean review lands: nothing publishes the authority to
-  advance it.
+  **#391 is resolved** (see the launcher entry below): the launcher's ledger is phase-aware, so the
+  draft phase no longer exhausts a cap that was never meant to bind there.
+
+  **#393 is not resolved by it, and an earlier revision of this paragraph claimed it was.** The two
+  are adjacent, not the same: #391 removes the *cost* of the repeated AMEND, while the condition
+  that keeps issuing one — a deferred finding that only a push can clear — is untouched by which
+  refs the launcher counts. What clears it is thread resolution carrying the contract's
+  `Deferred: … Tracked in #N`, which lands in #393's own change. CodeRabbit caught the overclaim on
+  #406.
+
+  #394 also remains, so the lane is still hand-driven past the point a clean review lands: nothing
+  publishes the authority to advance it.
 - **The launcher's second cap is phase-aware, in its own ledger** (amended by
   [#391](https://github.com/bioedca/tether/issues/391)). `swarm_slots.py` records every AMEND in a
   permanent generation ref and refuses another past `CAP`, independently of the labels —
