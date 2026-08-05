@@ -543,6 +543,27 @@ def test_every_template_placeholder_is_substituted(name: str) -> None:
     assert "{{" not in text and "}}" not in text
 
 
+def test_an_unregistered_lane_is_refused_rather_than_given_someone_elses_interpreter() -> None:
+    """The lookup that decides `{{PYTHON}}` must not answer for a lane it does not know (#387).
+
+    Reachable only in-process — argparse pins `--vendor` to `claim.VENDORS` — which is exactly why
+    it is asserted here: `_dispatch_build` and these tests build an `item` by hand, and the two
+    shapes this guard has already worn were both silent-ish. `LANE_PYTHON[vendor]` raised a bare
+    `KeyError` that escapes `main`'s `SlotError` handler mid-render; `LANE_PYTHON.get(vendor,
+    DEFAULT_PYTHON)` replaced it with something worse, a task rendered against an interpreter the
+    lane's own shell may not resolve, discovered only when the worker ran it.
+    """
+    record = {"issue": 7, "branch": "agent/issue-7", "generation": 5, "base_sha": "abc"}
+    item = {"vendor": "gemini", "round": 1, "remaining": 1, "reason": "because"}
+    with pytest.raises(slots.SlotError) as raised:
+        slots._render(TASKS / "amend.md", record, item)
+    message = str(raised.value)
+    assert "gemini" in message, "the refusal must name the lane it could not resolve"
+    assert all(vendor in message for vendor in slots.claim.VENDORS), (
+        f"the refusal must name the accepted set; got {message!r}"
+    )
+
+
 def test_an_unknown_placeholder_is_refused_not_shipped(tmp_path: Path) -> None:
     """Fail loudly rather than inject a template the launcher does not fully understand."""
     bad = tmp_path / "bad.md"
@@ -576,6 +597,34 @@ def test_a_malformed_template_is_caught_before_any_state_is_consumed(
     mutations = [c for c in fake.calls if c[0] in {"POST", "PATCH", "DELETE"}]
     assert mutations == [], (
         f"nothing may be consumed before the template is known good: {mutations}"
+    )
+
+
+def test_an_unregistered_lane_is_caught_before_any_state_is_consumed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The interpreter refusal must be side-effect free, for the template argument's exact reason.
+
+    Codex's P2 on the first draft of #387: raising from `_render` is too late by construction.
+    `run` has already called `_dispatch_build`, creating the claim ref, or `_authorise_amend`,
+    burning a permanent round ref — so the refusal strands a claim until the reaper, or spends one
+    of the two rounds irrevocably, and launches nothing with it. Neither unwinds, and `AGENTS.md`
+    says to release a claim rather than abandon it.
+
+    The lane's interpreter is a property of the argument alone, with nothing to read, so `run`
+    resolves it before it plans. What this asserts is what did NOT happen.
+    """
+    ready = [_issue(9, "status:ready")]
+    fake = _install(monkeypatch, ready=ready, issues={9: ready[0]})
+    for name in ("build.md", "amend.md"):
+        (tmp_path / name).write_text("Do the thing on {{ISSUE}}.\n", encoding="utf-8")
+
+    with pytest.raises(slots.SlotError, match="gemini"):
+        slots.run(slots=2, vendor="gemini", owner="bioedca", spawn=False, tasks=tmp_path)
+
+    mutations = [c for c in fake.calls if c[0] in {"POST", "PATCH", "DELETE"}]
+    assert mutations == [], (
+        f"nothing may be consumed before the lane is known dispatchable: {mutations}"
     )
 
 
