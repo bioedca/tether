@@ -130,6 +130,14 @@ AMEND_NAMESPACE = "amend-rounds"
 # putting it in `amend-rounds` would spend one to move a PR from one phase to the next.
 ADVANCE_NAMESPACE = "lane-advances"
 
+#: How many times one lane STEP may be attempted at one head before the launcher stops serving it.
+#: A runaway stop, not a cap - see `ADVANCE_ATTEMPTS`'s use in `_authorise_advance`. A step ends by
+#: producing the evidence that moves `advance_step_token`; a step whose provider is throttled or
+#: silently suppressing produces none, so without a bound the launcher would either relaunch forever
+#: or (keyed on the step alone) refuse forever. Three covers an ordinary throttle-and-wait and is
+#: small enough that a genuinely stuck gate reaches a person quickly.
+ADVANCE_ATTEMPTS = 3
+
 # The draft phase's refs live under the same namespace with a `draft-` ordinal prefix, so both
 # ledgers are enumerated by one `matching-refs` call and neither can be mistaken for the other
 # (#391). ADR-0062 makes the draft phase uncapped - Codex iterates freely until nothing blocking
@@ -305,26 +313,14 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
         labels = _labels(issue)
         number = int(issue["number"])
         spent = _rounds_spent(labels)
-        if spent >= CAP:
-            # The FAST refusal, from the published labels. Not the authoritative one - that is the
-            # launcher's own issuance count in `_authorise_amend`, which does not depend on any
-            # label. This one exists so a capped issue costs no further API calls, and it is
-            # reported rather than skipped: a launcher passing over it quietly would look just like
-            # one with no work.
-            plan.append(
-                {
-                    "issue": number,
-                    "mode": "refuse",
-                    "label_rounds": spent,
-                    "reason": (
-                        f"at the {CAP}-round cap ({CAPPED_LABEL} present or {spent} rounds spent); "
-                        "no AMEND authority may be issued. Safety-class findings escalate to the "
-                        "maintainer; the rest become follow-ups."
-                    ),
-                    "priority": _priority(labels),
-                }
-            )
-            continue
+        # ADVANCE IS TESTED BEFORE THE CAP, and the order is the fix rather than a preference. The
+        # cap bounds ROUNDS, and the steps this label authorises at the cap are not rounds: a PR
+        # whose gate has passed with both rounds spent still needs one session to arm the merge,
+        # and `triage._advance_state` deliberately keeps the label alive for it. With the refusal
+        # first, the launcher answered "at the cap" and started nothing, stranding a gated, green,
+        # mergeable PR with nobody authorised to finish it (Codex P1 on #407). Triage is the thing
+        # that decides eligibility; a launcher that re-decides it from a different rule is how the
+        # two came to disagree.
         if ADVANCE_LABEL in labels and AMEND_LABEL not in labels:
             # A clean review on an unfinished draft (#394). Not an AMEND: there are no blocking
             # findings to fix, and a session told to fix them would either invent work or stop.
@@ -340,6 +336,26 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
                         "agent:needs-advance is published for this claim: its draft is green, "
                         "owes nothing, and a review has come back clean, so the lane has a next "
                         "phase and nobody is walking it."
+                    ),
+                    "priority": _priority(labels),
+                }
+            )
+            continue
+        if spent >= CAP:
+            # The FAST refusal, from the published labels. Not the authoritative one - that is the
+            # launcher's own issuance count in `_authorise_amend`, which does not depend on any
+            # label. This one exists so a capped issue costs no further API calls, and it is
+            # reported rather than skipped: a launcher passing over it quietly would look just like
+            # one with no work.
+            plan.append(
+                {
+                    "issue": number,
+                    "mode": "refuse",
+                    "label_rounds": spent,
+                    "reason": (
+                        f"at the {CAP}-round cap ({CAPPED_LABEL} present or {spent} rounds spent); "
+                        "no AMEND authority may be issued. Safety-class findings escalate to the "
+                        "maintainer; the rest become follow-ups."
                     ),
                     "priority": _priority(labels),
                 }
@@ -598,12 +614,6 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
     sha = reaper._read_ref(number)
     if sha is None:
         raise SlotError(f"#{number} claim ref vanished before its lane advance could be issued")
-    # Keyed to the HEAD and the PHASE, not to the next ordinal. An ordinal only deduplicates
-    # launchers that race on the same count: one that has already created `-1` while triage has not
-    # yet withdrawn the label leaves the next launcher reading one ref, creating `-2`, and starting
-    # a SECOND session against the same reviewed head - which can spend the Greptile credit twice,
-    # real money (Codex P2 on #407). Keying on the state the authority describes makes the second
-    # launcher collide on `422`, which is what a mutex is for.
     # Keyed to the concrete lane STEP, from the same evidence triage used to publish the label.
     # Head-plus-phase was too coarse: several one-step sessions share a head - spend the Greptile
     # credit, then mark ready; ask CodeRabbit, then arm the merge - so the second of any pair
@@ -611,8 +621,39 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
     pr = triage._pull_request(number=None, branch=record["branch"])
     if not isinstance(pr, dict):
         raise SlotError(f"#{number} has no open pull request to advance")
-    phase = triage.advance_step_token(pr)
-    ref = f"refs/{ADVANCE_NAMESPACE}/{number}-{generation}-{sha[:12]}-{phase}"
+    try:
+        phase = triage.advance_step_token(pr)
+    except (triage.TriageError, claim.ClaimError) as exc:
+        # A step token this launcher cannot compute is not a step token it may guess at: the
+        # fallback would key the ref differently from the launcher that read successfully, and two
+        # names for one state is two workers. Refusing costs a cycle; the next event retries.
+        raise SlotError(
+            f"#{number}'s lane step could not be determined, so no advance ref can be keyed to it"
+        ) from exc
+    # AND TO AN ATTEMPT, because a step can fail to produce the evidence that ends it. The step
+    # token only moves when a provider submission appears at this head, so the session that ASKS
+    # CodeRabbit consumes `ready-0` before there is anything to see - and if that request is
+    # throttled, refused, or silently suppressed, no review ever arrives, the token stays put, and
+    # every later launcher collides on `422`. The mandatory gate would then be unretryable by
+    # construction (Codex P1 on #407), which is not hypothetical: this repository's own lane sat in
+    # exactly that state under CodeRabbit's adaptive limit.
+    #
+    # The attempt is derived from the refs that EXIST, so two launchers racing on one state compute
+    # the same number and the compare-and-swap still gives the session to one of them. It bounds
+    # rather than counts: `ADVANCE_ATTEMPTS` is a runaway stop like `DRAFT_CEILING`, not a cap, and
+    # reaching it means the step cannot complete and wants a person.
+    prefix = f"{ADVANCE_NAMESPACE}/{number}-{generation}-{sha[:12]}-{phase}-"
+    taken = _advance_attempts(prefix)
+    if taken >= ADVANCE_ATTEMPTS:
+        item["mode"] = "refuse"
+        item["reason"] = (
+            f"#{number}'s {phase} lane step has been attempted {taken} times at {sha[:7]} without "
+            f"producing the evidence that ends it, which is the {ADVANCE_ATTEMPTS}-attempt runaway "
+            "ceiling rather than the review cap. A provider is refusing or silently suppressing "
+            "the request; a maintainer decides, and no further session helps."
+        )
+        return None
+    ref = f"refs/{prefix}{taken + 1}"
     status, _ = claim._request("POST", f"/repos/{REPO}/git/refs", {"ref": ref, "sha": sha})
     if status == 422:
         item["mode"] = "lost"
@@ -625,6 +666,24 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
     item["round"] = 0
     item["remaining"] = CAP - item["label_rounds"]
     return record
+
+
+def _advance_attempts(prefix: str) -> int:
+    """How many sessions have already been issued for this exact lane step.
+
+    Fails closed, like every other ledger read here: an unreadable answer reported as zero would
+    mint an attempt the ceiling should have refused. ``404`` from ``matching-refs`` is the ordinary
+    "nothing matches" answer and genuinely means none.
+    """
+    status, payload = claim._request("GET", f"/repos/{REPO}/git/matching-refs/{prefix}", None)
+    if status == 404:
+        return 0
+    if status != 200 or not isinstance(payload, list):
+        raise SlotError(
+            f"the lane-advance ledger for {prefix} could not be read (HTTP {status}); refusing to "
+            "treat an unreadable ledger as an empty one"
+        )
+    return len(payload)
 
 
 def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:

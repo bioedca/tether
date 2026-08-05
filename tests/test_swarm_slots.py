@@ -59,7 +59,28 @@ class Fake:
         for (m, prefix), response in self.routes.items():
             if m == method and path.startswith(prefix) and (best is None or len(prefix) > best[0]):
                 best = (len(prefix), response)
-        return best[1] if best is not None else self.DEFAULTS.get(method, (200, None))
+        chosen = best[1] if best is not None else self.DEFAULTS.get(method, (200, None))
+        return self._filter_matching_refs(path, chosen)
+
+    @staticmethod
+    def _filter_matching_refs(path: str, response: tuple[int, Any]) -> tuple[int, Any]:
+        """`matching-refs/<prefix>` returns only the refs under that prefix, as the real one does.
+
+        Routes here match by prefix, so a route registered for a namespace answers a query for one
+        step INSIDE it with every ref in the namespace. Without this, a ledger read keyed to a
+        narrow prefix counts refs belonging to other heads, phases and steps — and a test asserting
+        an attempt number or a ceiling would pass for a reason the real API does not supply.
+        """
+        marker = "/git/matching-refs/"
+        status, payload = response
+        if marker not in path or status != 200 or not isinstance(payload, list):
+            return response
+        wanted = f"refs/{path.split(marker, 1)[1]}"
+        return status, [
+            entry
+            for entry in payload
+            if not isinstance(entry, dict) or str(entry.get("ref", "")).startswith(wanted)
+        ]
 
     def posted_refs(self) -> list[str]:
         return [p for m, p in self.calls if m == "POST" and p.endswith("/git/refs")]
@@ -456,10 +477,70 @@ def test_an_advance_takes_a_ref_outside_the_round_ledger(
 
     slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
     assert fake.amend_refs() == [], "an advance must not touch the round ledger"
-    # Keyed to the head and the phase, not to a running ordinal: an ordinal only deduplicates
-    # launchers racing on the same COUNT, so one that had already taken `-1` while the label was
-    # still published would create `-2` and start a second session against the same reviewed head.
-    assert fake.created_refs == [f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1"]
+    # Keyed to the claim, the head, the lane STEP and the attempt. The step is what stops two
+    # sessions racing on one state; the attempt is what stops a step whose provider never answered
+    # from becoming unretryable. Both halves are named here so a change to either is visible.
+    assert fake.created_refs == [f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1-1"]
+
+
+def test_a_lane_step_whose_provider_never_answered_can_be_retried(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Codex P1: the mandatory gate must not be unretryable by construction.
+
+    The step token only moves when a provider submission appears at this head, so the session that
+    ASKS CodeRabbit consumes its step before there is anything to see. Throttle that request — or
+    have it silently suppressed, which this repository's own lane experienced — and no review ever
+    arrives, the token stays put, and keyed on the step alone every later launcher collides on 422.
+    The one gate nothing may merge past would then have no second attempt.
+
+    The attempt ordinal is derived from the refs that exist, so two launchers racing on one state
+    still compute the same name and the compare-and-swap still gives the session to one of them.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL)},
+        advance_refs=[{"ref": f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1-1"}],
+    )
+    _as_draft(fake, draft=True)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    assert fake.created_refs == [f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1-2"], (
+        "a second attempt at the same step must be issuable, not a 422"
+    )
+
+
+def test_a_lane_step_that_never_completes_stops_at_the_attempt_ceiling(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Retryable is not unbounded, which is the same distinction `DRAFT_CEILING` draws.
+
+    A step that has been attempted `ADVANCE_ATTEMPTS` times at one head without producing the
+    evidence that ends it is not going to; something outside this repository is refusing. Serving
+    attempt four would relaunch the same dead session forever, so the launcher refuses and says
+    which provider behaviour to look for.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL)},
+        advance_refs=[
+            {"ref": f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1-{n}"}
+            for n in range(1, slots.ADVANCE_ATTEMPTS + 1)
+        ],
+    )
+    _as_draft(fake, draft=True)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    report = slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    assert fake.created_refs == [], "no further session is issued"
+    refusals = [item for item in report["results"] if item["mode"] == "refuse"]
+    assert refusals, "and the refusal is reported rather than looking like no work"
+    assert "runaway ceiling rather than the review cap" in refusals[0]["reason"]
 
 
 def test_losing_the_advance_race_launches_nothing(

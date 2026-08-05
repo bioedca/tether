@@ -378,7 +378,7 @@ def _counts_as_round(when: object, counted_from: str | None) -> bool:
     return not isinstance(when, str) or not when or when >= counted_from
 
 
-def _counted_from(pr: dict[str, Any]) -> str | None:
+def _counted_from(pr: dict[str, Any], *, strict: bool = False) -> str | None:
     """When the round cap starts counting for this pull request, as an ISO-8601 instant.
 
     ``None`` means *count everything*: the pull request was opened ready for review, so every
@@ -405,6 +405,14 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
         # An unreadable timeline must not decide the cap by accident. Counting everything is the
         # safe direction for a safety control: at worst a PR is capped one round early and the
         # maintainer is asked, where the other direction hands out an unbounded review budget.
+        #
+        # `strict` exists because that answer is safe for the CAP and unsafe for a mutex KEY.
+        # `None` here is indistinguishable from `None` meaning "opened ready", so a caller building
+        # a ref name from the phase would write `ready-*` on a transient failure and `draft-*` on
+        # success — two names for one state, and therefore two workers where the ref promises one
+        # (Codex P2 on #407). Such a caller asks for the refusal instead.
+        if strict:
+            raise
         return None
     ready = [
         stamp
@@ -555,10 +563,16 @@ def advance_step_token(pr: dict[str, Any]) -> str:
     there before. Counting distinct provider submissions at this head therefore advances exactly
     when the next step does, and stays put when two launchers race on the same state - which is the
     duplicate-session case the ref exists to refuse.
+
+    **Raises rather than guessing the phase.** ``_counted_from`` answers ``None`` both for a PR
+    opened ready and for a timeline it could not read, which is the right answer for the cap and
+    the wrong one for a key: a transient failure would write ``ready-*`` where a successful read
+    writes ``draft-*``, giving one state two ref names and the ref would stop being a mutex. The
+    caller refuses instead, which costs a launcher cycle and never a duplicate session.
     """
     number = int(pr["number"])
     head = str((pr.get("head") or {}).get("sha") or "")
-    phase = "draft" if _counted_from(pr) is _COUNT_NOTHING else "ready"
+    phase = "draft" if _counted_from(pr, strict=True) is _COUNT_NOTHING else "ready"
     seen = 0
     try:
         for entry in claim._paginate(f"/repos/{REPO}/pulls/{number}/reviews", "review list"):
