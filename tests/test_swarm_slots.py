@@ -59,27 +59,33 @@ class Fake:
         for (m, prefix), response in self.routes.items():
             if m == method and path.startswith(prefix) and (best is None or len(prefix) > best[0]):
                 best = (len(prefix), response)
-        chosen = best[1] if best is not None else self.DEFAULTS.get(method, (200, None))
-        return self._filter_matching_refs(path, chosen)
+        answer = best[1] if best is not None else self.DEFAULTS.get(method, (200, None))
+        return self._filter_matching_refs(path, answer)
 
     @staticmethod
-    def _filter_matching_refs(path: str, response: tuple[int, Any]) -> tuple[int, Any]:
-        """`matching-refs/<prefix>` returns only the refs under that prefix, as the real one does.
+    def _filter_matching_refs(path: str, answer: tuple[int, Any]) -> tuple[int, Any]:
+        """`matching-refs/<prefix>` returns only refs under that prefix, and the fake must too.
 
-        Routes here match by prefix, so a route registered for a namespace answers a query for one
-        step INSIDE it with every ref in the namespace. Without this, a ledger read keyed to a
-        narrow prefix counts refs belonging to other heads, phases and steps — and a test asserting
-        an attempt number or a ceiling would pass for a reason the real API does not supply.
+        The route is registered on the namespace, so without this it hands back another
+        generation's refs — which the real endpoint never would, and which made the
+        generation-keying test pass for the wrong reason until `_amend_ordinals` started failing
+        closed on a ref it could not attribute.
+
+        Load-bearing one level narrower too, since #394: a lane-advance ledger read is keyed to a
+        single STEP, so without this it would count every advance ref in the namespace and the
+        attempt and ceiling assertions would pass for a reason GitHub does not supply.
         """
         marker = "/git/matching-refs/"
-        status, payload = response
-        if marker not in path or status != 200 or not isinstance(payload, list):
-            return response
+        status, body = answer
+        if marker not in path or not isinstance(body, list):
+            return answer
         wanted = f"refs/{path.split(marker, 1)[1]}"
         return status, [
             entry
-            for entry in payload
-            if not isinstance(entry, dict) or str(entry.get("ref", "")).startswith(wanted)
+            for entry in body
+            if not isinstance(entry, dict)
+            or not isinstance(entry.get("ref"), str)
+            or entry["ref"].startswith(wanted)
         ]
 
     def posted_refs(self) -> list[str]:
@@ -335,6 +341,41 @@ def test_a_draft_claim_can_be_issued_more_amends_than_the_cap(
     ]
 
 
+def test_a_stuck_draft_label_stops_relaunching_at_the_runaway_ceiling(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Uncapped is not unbounded, and the difference is a live failure mode (Codex P2 on #406).
+
+    `agent:needs-amend` has two writers. Triage publishes it for an owed review; `reaper.sweep`
+    publishes it for a STALE open pull request. A stale draft therefore carries it with nothing for
+    a worker to fix — so without a ceiling every launcher run mints another `draft-N` ref and
+    relaunches the same dead session forever, because the draft ledger never binds.
+
+    The refusal names the cause rather than reporting a cap, since the review cap is a different
+    thing and reaching this one means a label is stuck.
+    """
+    refs = [_draft_ref(7, 77, n + 1) for n in range(slots.DRAFT_CEILING)]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=True)
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse"
+    assert "stuck" in entry["reason"] and "reaper" in entry["reason"]
+    assert fake.amend_refs() == [], "nothing further may be minted at the ceiling"
+
+
+def test_the_runaway_ceiling_is_far_above_any_real_draft_phase() -> None:
+    """It must never bind on ordinary iteration, or it becomes the throttle ADR-0062 removed.
+
+    #385 is the longest draft phase this repository has had at eleven Codex rounds. A ceiling near
+    that would throttle the free lane, which is exactly what uncapping it was for.
+    """
+    assert slots.DRAFT_CEILING >= 20
+    assert slots.DRAFT_CEILING > slots.CAP * 5
+
+
 def test_the_counted_phase_still_refuses_at_the_cap(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -391,6 +432,50 @@ def test_an_unreadable_pull_request_charges_the_counted_cap(
 
     entry = _by_issue(_run(monkeypatch, tmp_path), 7)
     assert entry["mode"] == "refuse"
+
+
+def test_a_malformed_amend_ref_fails_closed_rather_than_counting_as_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Codex P2: skipping an unparseable entry makes a bad read look like fewer issued rounds.
+
+    The only thing this count protects against is issuing one too many, so an entry the launcher
+    cannot parse fails closed exactly as a non-list response does. Here the ledger is at the cap and
+    one entry is junk: silently dropping it would authorise a third counted session.
+    """
+    # A non-dict entry, which is what a malformed 200 body actually looks like. A junk *string*
+    # ref would be filtered by the endpoint's own prefix before the launcher ever saw it.
+    refs = [_ref(7, 77, 1), "refs/amend-rounds/7-77-"]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=False)
+
+    for name in ("build.md", "amend.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+    with pytest.raises(slots.SlotError, match="cannot parse"):
+        slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+
+
+def test_a_ref_written_before_the_draft_prefix_reads_as_counted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Codex P2 on the migration, and the answer is that the old reading is the right one.
+
+    A numeric ref predates `draft-`, so it was created under the semantics where every AMEND counted
+    whatever the PR's state — reading it as counted is what it meant. Verified empty besides:
+    the repository holds one `refs/amend-rounds/*` ref, on a closed and merged issue, and no live
+    claims at all. This pins the classification so a later "helpful" reclassification is a test
+    failure rather than a silent refund.
+    """
+    refs = [_ref(7, 77, 1), _ref(7, 77, 2)]
+    fake = _install(
+        monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)}, issued_refs=refs
+    )
+    _as_draft(fake, draft=False)
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse", "legacy numeric refs are counted-phase rounds"
 
 
 def test_the_launcher_shares_one_transport_with_everything_it_calls() -> None:

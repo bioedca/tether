@@ -150,7 +150,23 @@ ADVANCE_ATTEMPTS = 3
 # immutable once created, so `<issue>-<gen>-draft-2` records what was true when that session was
 # issued; reading `draft` at audit time would report today's answer about yesterday's decision, and
 # a PR that has since gone ready would make its own draft history retroactively count.
+#
+# A ref written BEFORE this prefix existed is therefore read as counted-phase, and that is correct
+# rather than a missing migration: it was created under the old semantics, where every AMEND counted
+# against the cap whatever the pull request's state. Verified before this merged - the repository
+# holds exactly one `refs/amend-rounds/*` ref, `252-38550159308-1`, belonging to an issue that is
+# closed and merged, and **zero** live `agent/issue-*` claims. A generation is a server-assigned,
+# strictly increasing activity id, so a reclaim can never reuse that key either. Nothing live can
+# misread, and a future change to this naming needs the same check.
 DRAFT_ORDINAL_PREFIX = "draft-"
+
+#: A runaway stop, NOT the review cap - the two are different things and conflating them would undo
+#: this change. `CAP` bounds how much metered review a PR may buy; this bounds how many times the
+#: launcher will relaunch the same free session before concluding that nothing is progressing.
+#: Deliberately far above any real draft phase (#385, the largest, took eleven Codex rounds), so it
+#: binds only when `agent:needs-amend` is stuck - which the reaper's stale-PR path can do on a draft
+#: with nothing to fix. Reaching it is reported, never silent.
+DRAFT_CEILING = 20
 
 EXIT_NO_WORK = 3
 
@@ -211,10 +227,18 @@ def _amend_ordinals(number: int, generation: int, *, draft: bool) -> list[str]:
         )
     ordinals = []
     for entry in refs:
-        name = entry.get("ref", "") if isinstance(entry, dict) else ""
-        _, marker, ordinal = name.partition(f"refs/{prefix}")
-        if not marker:
-            continue
+        # A malformed entry is a FAILED READ, not an absent round. Skipping one would make a bad
+        # ledger response look like fewer issued rounds, and the only thing that count protects
+        # against is issuing one too many - so it fails closed exactly as a non-list response does.
+        name = entry.get("ref") if isinstance(entry, dict) else None
+        _, marker, ordinal = (
+            name.partition(f"refs/{prefix}") if isinstance(name, str) else ("", "", "")
+        )
+        if not marker or not ordinal:
+            raise SlotError(
+                f"#{number} has an AMEND ref this launcher cannot parse ({name!r}); refusing to "
+                "count a ledger it does not fully understand"
+            )
         if ordinal.startswith(DRAFT_ORDINAL_PREFIX) is draft:
             ordinals.append(ordinal)
     return ordinals
@@ -717,9 +741,26 @@ def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
         # nothing blocking remains. So the ref is still taken - it is the mutex that stops two
         # launchers issuing the same session, which is orthogonal to counting - but under the
         # `draft-` ordinal, where `_issued_amends` does not see it.
-        ordinal = (
-            f"{DRAFT_ORDINAL_PREFIX}{len(_amend_ordinals(number, generation, draft=True)) + 1}"
-        )
+        spent = len(_amend_ordinals(number, generation, draft=True))
+        # UNCAPPED IS NOT UNBOUNDED, and the difference is a live failure mode rather than caution.
+        # `agent:needs-amend` has two writers: triage publishes it for an owed review, and
+        # `reaper.sweep` publishes it for a STALE open pull request (reaper.py:466-471). A stale
+        # draft carries it with nothing for a worker to fix, so each launcher run would mint another
+        # `draft-N` ref, forever, and the label nobody clears would relaunch the same dead session
+        # indefinitely (Codex P2 on #406). This ceiling never binds on real iteration - #385 took
+        # eleven Codex rounds, the most any PR here has needed - so reaching it means the label is
+        # stuck, which is the thing to report rather than to keep serving.
+        if spent >= DRAFT_CEILING:
+            item["mode"] = "refuse"
+            item["reason"] = (
+                f"{spent} draft AMEND sessions already issued for generation {generation}, which "
+                f"is the {DRAFT_CEILING}-session runaway ceiling rather than the review cap. The "
+                "draft phase is uncapped by design, so reaching this means `agent:needs-amend` is "
+                "stuck - most likely the reaper's stale-PR marker on a draft with nothing to fix. "
+                "A maintainer clears the label or closes the claim; no further session helps."
+            )
+            return None
+        ordinal = f"{DRAFT_ORDINAL_PREFIX}{spent + 1}"
         round_number, remaining = 0, CAP
     else:
         issued = _issued_amends(number, generation)
