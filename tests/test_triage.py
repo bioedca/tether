@@ -1396,6 +1396,55 @@ def test_a_reply_wrapper_at_the_head_is_not_the_convergence_review(
     assert result["gate"] == "open", "the PR answered itself; nobody verified the fix"
 
 
+def test_an_acknowledgement_does_not_retract_a_gate_that_was_already_satisfied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deadlock this fix nearly rebuilt, caught in self-review before it shipped.
+
+    Two blocking rounds, the verification comes back clean at `HEAD` — the gate is satisfied — and
+    then CodeRabbit replies inside one of its own threads, as it routinely does after an answer.
+    Voiding the gate on *any* threaded comment made that acknowledgement retract a satisfied gate,
+    and nothing could restore it: the signal is head-bound, and a converged pull request has no
+    material change left to push. Green, gated, and unmergeable — #399's exact shape, arriving
+    through #399's own fix.
+
+    A reply is not an actionable comment (#396), so it is not asked here. The case it was guarding
+    against — a reply that really does carry a finding — is `owed`'s, which counts replies for that
+    reason (#404) and which `_gate_state` already requires to be false.
+
+    Asserted on `_review_state`'s convergence value rather than on `gate`, because on this branch
+    the reply also leaves the head **owed**, and `owed` alone would report `open` whichever way the
+    convergence value went. The deadlock becomes reachable when #393 lands and a resolved thread
+    stops owing, which is precisely when this assertion starts carrying the whole weight.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _install(
+        monkeypatch,
+        _routes(
+            reviews=[
+                *first["reviews"],
+                *second["reviews"],
+                _clean_review(RABBIT, HEAD),
+                _submission(RABBIT, HEAD, WRAPPER_IDS[0]),
+            ],
+            comments=[
+                *first["comments"],
+                *second["comments"],
+                _reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500097),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+    )
+    heads, owed, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert len(heads) == 2, "neither the clean review nor the reply is a round"
+    assert owed is True, "the reply is still owed an answer - that is #404's axis, and it stands"
+    assert converged is True, (
+        "the verification happened and found nothing; an acknowledgement afterwards is not a "
+        "finding and must not take the gate back"
+    )
+
+
 def test_a_verification_that_finds_something_reports_why_the_pr_cannot_proceed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

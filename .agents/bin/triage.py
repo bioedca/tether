@@ -738,14 +738,21 @@ def _review_state(
                 continue
             # The gate is asked at the current head only, and the two halves fail in opposite
             # directions on purpose. A *reply wrapper* is not the verification (#396), so it cannot
-            # prove the gate — but an inline comment voids it whether or not it is threaded, because
-            # a provider writing "that only half fixes it" inside its own thread is a finding
-            # wearing an acknowledgement's payload shape (#404). Proving fails closed; voiding
-            # fails open.
-            if login == GATE_PROVIDER:
+            # prove the gate, and it does not void it either — **both halves skip replies, and the
+            # asymmetric version of this was a defect.** Voiding on any threaded comment looked like
+            # the safe direction (#404: a provider writing "that only half fixes it" inside its own
+            # thread is a finding wearing an acknowledgement's shape), but it made an ordinary
+            # CodeRabbit acknowledgement at the current head retract a gate that was already
+            # satisfied — permanently, since nothing clears it but moving the head, and a converged
+            # PR has nothing left to push. That is #399's own deadlock, rebuilt by the fix for it.
+            #
+            # The reply question belongs to `owed`, which counts replies deliberately and for
+            # exactly that reason, and which `_gate_state` already requires to be false. So this
+            # axis asks only what ADR-0062 asks — *actionable comments* — and a reply is not one.
+            if login == GATE_PROVIDER and not is_reply:
                 if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
                     gate_finding_here = True
-                elif not is_reply:
+                else:
                     gate_review_here = True
             if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
                 owed = True
