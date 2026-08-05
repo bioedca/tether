@@ -573,17 +573,22 @@ def advance_step_token(pr: dict[str, Any]) -> str:
     number = int(pr["number"])
     head = str((pr.get("head") or {}).get("sha") or "")
     phase = "draft" if _counted_from(pr, strict=True) is _COUNT_NOTHING else "ready"
+    # NO FALLBACK on an unreadable review list, and an earlier revision had one: it returned the
+    # coarse `phase` on `ClaimError`, reasoning that a collision stalls one step visibly rather than
+    # duplicating a session. That reasoning was wrong, and checkably so. The coarse token `draft`
+    # keys the prefix `…-draft-`, which `…-draft-1-1` STARTS WITH - so a launcher with an unreadable
+    # endpoint counts the successful launcher's ref, takes `…-draft-2`, and creates a ref that
+    # collides with nothing. Two names, one lane state, two workers, and a Greptile credit possibly
+    # spent twice (CodeRabbit on #407).
+    #
+    # It also made the caller's own guard dead code: `_authorise_advance` wraps this call to convert
+    # a read failure into a refusal, and the swallow meant that `except` could never fire for the
+    # one failure it was written for. Propagating is what makes the pair coherent.
     seen = 0
-    try:
-        for entry in claim._paginate(f"/repos/{REPO}/pulls/{number}/reviews", "review list"):
-            login = ((entry.get("user") or {}).get("login")) or ""
-            if login in EXTERNAL_PROVIDERS and _reviewed_head(entry) == head:
-                seen += 1
-    except claim.ClaimError:
-        # Unreadable: fall back to the phase alone. That is the OLD, coarser key, so the failure
-        # mode is a collision that stalls one step - visible - rather than a duplicate session that
-        # spends a credit twice.
-        return phase
+    for entry in claim._paginate(f"/repos/{REPO}/pulls/{number}/reviews", "review list"):
+        login = ((entry.get("user") or {}).get("login")) or ""
+        if login in EXTERNAL_PROVIDERS and _reviewed_head(entry) == head:
+            seen += 1
     return f"{phase}-{seen}"
 
 
@@ -747,9 +752,14 @@ def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> 
     for label in remove:
         status, _ = claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/{label}", None)
         if label in CHECKED_REMOVALS and status not in DELETE_DONE:
+            # Label-neutral: `CHECKED_REMOVALS` holds two labels now, and naming only the AMEND one
+            # made the failure misdescribe the state whenever `agent:needs-advance` was the label
+            # that would not clear — on the message an operator reads to decide what to repair
+            # (CodeRabbit on #407).
             raise TriageError(
-                f"#{number} no longer owes an AMEND but {label} could not be removed "
-                f"(HTTP {status}); leaving it would keep issuing authority this run just retracted"
+                f"#{number} no longer holds the authority {label} grants, but it could not be "
+                f"removed (HTTP {status}); leaving it would keep issuing the session this run "
+                "just retracted"
             )
 
 

@@ -621,6 +621,42 @@ def test_a_lane_step_whose_provider_never_answered_can_be_retried(
     )
 
 
+def test_an_unreadable_review_list_issues_no_advance_at_all(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CodeRabbit on #407: the step token must fail closed, not degrade to a coarser one.
+
+    `advance_step_token` used to swallow a `ClaimError` on the review list and return the bare
+    phase. That looked conservative and was not. The coarse token `draft` keys the prefix
+    `…-draft-`, which `…-draft-1-1` starts with — so this launcher counts the *successful*
+    launcher's ref, takes `…-draft-2`, and creates a name that collides with nothing. Two ref names
+    for one lane state, two workers, and a Greptile credit possibly spent twice.
+
+    It also made `_authorise_advance`'s own guard unreachable for the one failure it was written
+    for. Asserted as an absence — no ref created, no task rendered — because the defect produced a
+    ref that looked perfectly well-formed.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL)},
+        advance_refs=[{"ref": f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1-1"}],
+    )
+    _as_draft(fake, draft=True)
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99/reviews")] = (502, None)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    report = slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    assert fake.created_refs == [], "an unreadable step must issue no advance ref"
+    assert not list(tmp_path.glob("_task-issue-*.md")), "and no worker may be rendered for one"
+    refusals = [item for item in report["results"] if item["mode"] == "refuse"]
+    assert refusals and "unreadable" in refusals[0]["reason"], (
+        "reported as a refusal rather than raised: one flaky read on one claim must not abort the "
+        "run for every other claim in the plan"
+    )
+
+
 def test_a_lane_step_that_never_completes_stops_at_the_attempt_ceiling(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

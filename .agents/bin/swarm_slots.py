@@ -658,13 +658,22 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
         raise SlotError(f"#{number} has no open pull request to advance")
     try:
         phase = triage.advance_step_token(pr)
-    except (triage.TriageError, claim.ClaimError) as exc:
-        # A step token this launcher cannot compute is not a step token it may guess at: the
-        # fallback would key the ref differently from the launcher that read successfully, and two
-        # names for one state is two workers. Refusing costs a cycle; the next event retries.
-        raise SlotError(
-            f"#{number}'s lane step could not be determined, so no advance ref can be keyed to it"
-        ) from exc
+    except (triage.TriageError, claim.ClaimError):
+        # A step token this launcher cannot compute is not one it may guess at: a coarser fallback
+        # keys the ref differently from the launcher that read successfully, and two names for one
+        # state is two workers (CodeRabbit on #407).
+        #
+        # Reported as a REFUSAL rather than raised, because the failure is transient and local to
+        # this claim. Raising would abort the whole run, so one flaky read on one pull request would
+        # strand every other claim in the plan - and this costs nothing to retry, since no ref has
+        # been taken and the next event recomputes it.
+        item["mode"] = "refuse"
+        item["reason"] = (
+            f"#{number}'s lane step could not be determined - the review list at this head was "
+            "unreadable - so no advance ref can be keyed to it. Nothing was consumed; the next "
+            "triage event reissues the authority."
+        )
+        return None
     # AND TO AN ATTEMPT, because a step can fail to produce the evidence that ends it. The step
     # token only moves when a provider submission appears at this head, so the session that ASKS
     # CodeRabbit consumes `ready-0` before there is anything to see - and if that request is

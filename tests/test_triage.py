@@ -261,7 +261,10 @@ def test_a_failed_amend_label_removal_is_reported_not_swallowed(
     routes = _routes(labels=[triage.AMEND_LABEL], reviews=[], suites=GREEN, timeline=[])
     routes[("DELETE", f"/repos/bioedca/tether/issues/7/labels/{triage.AMEND_LABEL}")] = (500, None)
     fake = _install(monkeypatch, routes)
-    with pytest.raises(triage.TriageError, match="AMEND"):
+    # Matched on the LABEL, not on the word "AMEND": `CHECKED_REMOVALS` holds two labels now, so the
+    # message is label-neutral and naming one of them in the assertion would pin prose that has to
+    # describe both (CodeRabbit on #407).
+    with pytest.raises(triage.TriageError, match=triage.AMEND_LABEL):
         triage.triage(number=99, branch=None, dry_run=False)
     assert triage.AMEND_LABEL in fake.removed, "the delete was attempted before it was reported"
 
