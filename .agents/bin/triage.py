@@ -681,8 +681,6 @@ def _review_state(
             sha = _reviewed_head(entry)
             if login not in EXTERNAL_PROVIDERS or not isinstance(sha, str) or not sha:
                 continue
-            if sha == head:
-                read_head = True
             # A reply is not a *review*. On the comment axis `in_reply_to_id` says so outright; on
             # the review axis it takes the join, because the wrapper GitHub builds around a reply
             # looks exactly like a review from the reviews payload alone.
@@ -690,6 +688,18 @@ def _review_state(
                 is_reply = not _is_a_review(entry, wrappers)
             else:
                 is_reply = bool(entry.get("in_reply_to_id"))
+            # A REPLY IS NOT A LOOK, and set before this filter it said one had happened. Answering
+            # is exactly what lands on a *new* head: a submitted review carries no
+            # `original_commit_id`, so the wrapper GitHub builds around a provider's reply binds to
+            # whatever the head is now (#396). The lane would advance out of a state nobody had
+            # reviewed — the requirement in `_advance_state` inverted by the evidence meant to
+            # satisfy it.
+            #
+            # Masked today by `owed`, which counts replies deliberately (#404) and which
+            # `_advance_state` refuses on. Unmasked the moment #393 lands and a resolved thread
+            # stops owing, so it is fixed here rather than left for that PR to inherit.
+            if sha == head and not is_reply:
+                read_head = True
             # Two independent axes, and conflating them is how this went wrong twice.
             #
             # ROUNDS: only a metered provider, only after the PR went ready, and never a reply.

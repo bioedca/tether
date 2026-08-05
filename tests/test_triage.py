@@ -1987,6 +1987,36 @@ def test_a_draft_nobody_has_reviewed_yet_is_not_authorised_to_advance(
     assert result["advance"] == "no-review-yet"
 
 
+def test_a_providers_reply_at_the_new_head_is_not_a_review_of_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`read_head` is *a provider looked at this head*, and a reply is not looking.
+
+    This is the shape that makes it reachable rather than theoretical: a submitted review carries no
+    `original_commit_id`, so the wrapper GitHub builds around a provider's reply (#396) binds to
+    whatever the head is **now** — which, after the worker has answered and pushed, is a head no
+    provider has reviewed. Counted, it authorises the lane to advance out of exactly that state.
+
+    Asserted on `_review_state` directly, because `owed` masks it here: the reply is owed an answer
+    (#404), and `_advance_state` refuses on `owed` before ever reading this value. #393 unmasks it
+    by letting a resolved thread stop owing, which is why it is fixed now rather than then.
+    """
+    _install(
+        monkeypatch,
+        _routes(
+            pr=_drafted(),
+            reviews=[_submission(CODEX, HEAD, WRAPPER_IDS[0], at=DRAFT_TIME)],
+            comments=[_reply(CODEX, HEAD, WRAPPER_IDS[0], 3708500095)],
+            suites=GREEN,
+        ),
+    )
+    _, _, read_head = triage._review_state(99, HEAD, None)
+    assert read_head is False, (
+        "the only provider evidence at this head is a wrapper around a reply; nobody has reviewed "
+        "the fix that produced it"
+    )
+
+
 def test_a_ready_pull_request_with_the_merge_armed_is_the_lane_complete(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
