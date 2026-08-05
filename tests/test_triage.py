@@ -1933,6 +1933,183 @@ def test_the_fence_fails_closed_on_an_unreadable_claim_ref(
     assert fake.removed == []
 
 
+# ------------------------------------------------------ the window the fence cannot close (#381)
+#
+# The fence above is one snapshot taken before several authoritative writes, and there is no
+# transaction across label writes to make it more than that: the label endpoints take no
+# precondition, so "delete only if no successor has claimed since" is not expressible. A successor's
+# `claim._cmd_claim` creates the ref FIRST and publishes its mirror SECOND, so one that interleaves
+# has its freshly written labels deleted by a loop that has already decided to run.
+#
+# Nothing prevents this - the cleanup cannot hold a mutex the merge already released, and re-reading
+# before each DELETE only narrows the window. So it is DETECTED instead, which converts a silent
+# corruption into a red job. No repair path: re-adding would give `clear_mirror` an add path, and
+# its not having one is #308's load-bearing property.
+
+
+def _sequenced_ref(monkeypatch: pytest.MonkeyPatch, *shas: str | None) -> list[int]:
+    """Make `_claim_ref_sha` answer differently per call, and count the calls.
+
+    Patched at the function rather than through `Fake`, which answers per route and so cannot tell
+    the pre-loop read from the post-loop one — and *that those two reads see different things* is
+    the entire subject here.
+    """
+    seen = [0]
+
+    def answer(issue: int) -> str | None:
+        index = min(seen[0], len(shas) - 1)
+        seen[0] += 1
+        return shas[index]
+
+    monkeypatch.setattr(triage, "_claim_ref_sha", answer)
+    return seen
+
+
+def test_a_successor_that_arrives_mid_cleanup_is_reported_not_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The residual #334 left behind, made loud (#381).
+
+    Absent when the fence reads it, present at a foreign head immediately after the deletes: that
+    is a successor whose claim was created and whose mirror was published *while this loop ran*.
+    The labels are already gone; what this asserts is that the job says so.
+    """
+    fake = _install(monkeypatch, _merged_routes())
+    _sequenced_ref(monkeypatch, None, SUCCESSOR_HEAD)
+
+    with pytest.raises(triage.TriageError) as raised:
+        triage.clear_mirror(number=99, dry_run=False)
+
+    message = str(raised.value)
+    assert "successor" in message
+    assert SUCCESSOR_HEAD[:7] in message and MERGED_HEAD[:7] in message
+    # The labels it names must be the ones actually deleted, or the repair instruction is a guess.
+    assert all(label in message for label in fake.removed)
+    # `agent:needs-amend` is the launcher's authority to start an AMEND session, so a successor
+    # losing it is the consequence a human most needs pointed at.
+    assert triage.AMEND_LABEL in message
+
+
+def test_the_window_audit_never_re_adds_what_it_reports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`clear_mirror` having no add path is load-bearing (#308), and a repair would destroy it.
+
+    Re-adding `status:ready` to an issue a successor is actively working is precisely the failure
+    #308 was written to prevent, so the audit reports and stops. Visible residue over silent
+    destruction — the precedence #334 already encodes.
+    """
+    fake = _install(monkeypatch, _merged_routes())
+    _sequenced_ref(monkeypatch, None, SUCCESSOR_HEAD)
+
+    with pytest.raises(triage.TriageError):
+        triage.clear_mirror(number=99, dry_run=False)
+    assert fake.added == []
+
+
+def test_the_ordinary_merge_still_reads_the_ref_twice_and_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The audit must cost the ordinary path a `GET` and nothing else.
+
+    Also pins that the post-loop read happens at all: with one read the count is 1 and this test
+    fails, which is what makes the two above more than a monkeypatch exercise.
+    """
+    fake = _install(monkeypatch, _merged_routes())
+    seen = _sequenced_ref(monkeypatch, None, None)
+
+    result = triage.clear_mirror(number=99, dry_run=False)
+    assert result["action"] == "clear-mirror"
+    assert seen[0] == 2, "the claim ref must be read before the deletes and again after them"
+    assert "status:in-progress" in fake.removed
+
+
+def test_a_branch_awaiting_deletion_is_not_mistaken_for_a_successor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The post-loop read compares heads for the same reason the fence does.
+
+    GitHub deletes the merged branch asynchronously, so the ref can still be there when the loop
+    finishes. Auditing on mere existence would turn every ordinary merge red.
+    """
+    _install(monkeypatch, _merged_routes())
+    _sequenced_ref(monkeypatch, None, MERGED_HEAD)
+
+    result = triage.clear_mirror(number=99, dry_run=False)
+    assert result["action"] == "clear-mirror"
+
+
+def test_a_label_that_was_already_gone_is_not_reported_as_damage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2 on this PR: `DELETE_DONE` includes 404, and 404 removed nothing.
+
+    A re-run is the ordinary way to reach this — the first run removed the labels, the second finds
+    them absent and gets 404 for every one. Counting those as damage would report a successor
+    losing labels this cleanup never touched, and the repair instruction would say to re-add them:
+    #308's failure arriving through the report rather than through the code.
+
+    So nothing was removed, nothing is audited, and the second read is not even spent.
+    """
+    routes = _merged_routes()
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/")] = (404, None)
+    _install(monkeypatch, routes)
+    seen = _sequenced_ref(monkeypatch, None, SUCCESSOR_HEAD)
+
+    result = triage.clear_mirror(number=99, dry_run=False)
+    assert result["action"] == "clear-mirror"
+    assert seen[0] == 1, "nothing was removed, so there is no damage to audit"
+
+
+def test_a_404_is_still_a_successful_delete(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The control for the change above: 404 must not become a *failure* either.
+
+    It is success — the label is gone, which is what the call was for. Only its status as *damage*
+    changes, and moving it from one bucket to the other would turn every re-run red.
+    """
+    routes = _merged_routes()
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/")] = (404, None)
+    _install(monkeypatch, routes)
+    _sequenced_ref(monkeypatch, None, None)
+
+    assert triage.clear_mirror(number=99, dry_run=False)["action"] == "clear-mirror"
+
+
+def test_a_partially_removed_mirror_reports_only_what_it_removed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mixed case, which is what a re-run interrupted by a successor actually looks like.
+
+    One label still present and removed, the rest already absent. The report must name the one, so
+    a human re-adds what was really lost and nothing else.
+    """
+    removed_now = "status:in-progress"
+    routes = _merged_routes()
+    routes[("DELETE", "/repos/bioedca/tether/issues/7/labels/")] = (404, None)
+    routes[("DELETE", f"/repos/bioedca/tether/issues/7/labels/{removed_now}")] = (204, None)
+    _install(monkeypatch, routes)
+    _sequenced_ref(monkeypatch, None, SUCCESSOR_HEAD)
+
+    with pytest.raises(triage.TriageError) as raised:
+        triage.clear_mirror(number=99, dry_run=False)
+
+    message = str(raised.value)
+    assert removed_now in message
+    assert triage.CONFLICTED_LABEL not in message, "a label that was already gone is not damage"
+
+
+def test_a_dry_run_writes_nothing_so_it_audits_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing was deleted, so no live claim can have been damaged and nothing needs reporting."""
+    _install(monkeypatch, _merged_routes())
+    seen = _sequenced_ref(monkeypatch, None, SUCCESSOR_HEAD)
+
+    result = triage.clear_mirror(number=99, dry_run=True)
+    assert result["action"] == "clear-mirror"
+    assert seen[0] == 1, "a dry run must not spend a second read on damage it could not have done"
+
+
 def test_the_fence_fails_closed_on_a_pull_request_with_no_head_sha(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
