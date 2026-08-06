@@ -1012,9 +1012,12 @@ def _advance_state(
 
     Every condition below is a way the authority would otherwise be wrong, and each is #394's:
 
-    * **The lane must be unfinished.** ``_counted_from`` reporting the draft sentinel is exactly
-      *"no ``ready_for_review`` has ever happened"*, so a PR already in the counted phase has no
-      draft to advance and gets nothing.
+    * **The lane must be unfinished**, and only *ready and armed* is finished. A counted-phase pull
+      request whose gate has not been asked for, or has passed with the merge not yet armed, still
+      has a step left and is authorised. ``_counted_from`` reporting the draft sentinel is exactly
+      *"no ``ready_for_review`` has ever happened"*, and what that answer decides is which rules
+      apply — the cap binds in the draft phase, where a round really is spent — not whether the
+      lane is over.
     * **Nothing may be owed, and no AMEND may still be published.** An owed finding is still an
       AMEND. Publishing both would hand one claim two authorities and let the resumption that
       arrives first decide which. ``owed`` alone does not cover it: the label is a *published*
