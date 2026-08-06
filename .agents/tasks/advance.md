@@ -60,7 +60,7 @@ Read root `AGENTS.md`, `docs/agents/review.md` and `.agents/skills/tether-worker
    ready transition, a merge. Re-run the check before each one and before the PR-body write in 4,
    not once for all of them. A reaped worker that writes anyway is writing on a **successor's** PR.
 3. Work out which lane phase is next from what the PR body records, and do **only that one**:
-   - **Codex is not yet clean** → answer what is left, push, request the next Codex round, exit.
+   - **Codex is not yet clean** → answer what is left, push, request the next Codex round.
    - **Codex is clean, Greptile not yet spent** → read the seat balance with
      `{{PYTHON}} .agents/bin/greptile_usage.py`. Spend one credit if there is budget; if there is
      none, record *"Greptile: no credits this month"* and move to the next step. **Exhaustion never
@@ -72,17 +72,20 @@ Read root `AGENTS.md`, `docs/agents/review.md` and `.agents/skills/tether-worker
      only step left is arming the merge — **if this session holds merge authority**. It does not
      hold it by default: the `refs/lane-advances/` ref authorises one *phase transition*, and
      `AGENTS.md` requires **explicit per-PR merge authority** that is never inferred. Without it,
-     record *"gate satisfied, awaiting merge authority"* in the PR body and exit; the lane is
+     the lane state you write in 4 is *"gate satisfied, awaiting merge authority"*; the lane is
      finished and a person decides the merge. Arming is available even at `agent:review-capped`,
      because arming is not a review request — but that is about the *cap*, not about authority.
-4. **Write the new lane state into the PR body**, then **exit** — do not sit and poll. That record is
-   the only thing carrying the lane to the next session.
+4. **Write the new lane state into the PR body.** That record is the only thing carrying the lane to
+   the next session.
 
    Arm auto-merge **only** when both hold: the lane is complete — CodeRabbit returned no actionable
    comments at this head — **and** this session was given explicit merge authority for this PR
    (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`). CodeRabbit is not a required
    check, so arming before it has passed merges the PR straight past its own gate; and the advance
    ref is not merge authority, so arming without that authority merges code nobody authorised.
+
+   **Then exit** — do not sit and poll. Last, and written last: an `exit` placed above the arming
+   paragraph tells a worker reading in order to leave before the one command that ends the lane.
 
 ## Do not
 

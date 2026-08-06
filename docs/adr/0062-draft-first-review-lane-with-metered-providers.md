@@ -158,7 +158,9 @@ leg, and a quota refusal from it is recorded as *did not review*.
 
   **#394** supplied the concept the three were faces of — **the lane's next phase is itself a thing
   that can be authorised**. A clean review on an unfinished lane publishes `agent:needs-advance`,
-  the launcher takes one `refs/lane-advances/<issue>-<generation>-<step>-<attempt>` against it, and
+  the launcher takes one `refs/lane-advances/<issue>-<generation>-<head-sha>-<step>-<attempt>`
+  against it — `<head-sha>` being `sha[:12]`, so a push starts a fresh attempt series rather than
+  inheriting the exhausted one — and
   `.agents/tasks/advance.md` walks the lane on by exactly one phase and exits. Deliberately a second
   label and a second namespace: AMEND says *fix the blocking findings*, and one label cannot also
   say *there are none, move on* — while a ref in `refs/amend-rounds/` would spend a metered round to

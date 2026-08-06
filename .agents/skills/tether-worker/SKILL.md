@@ -110,9 +110,12 @@ forward.
 > unfinished lane publishes `agent:needs-advance`, and the launcher turns that into one ADVANCE
 > session holding `.agents/tasks/advance.md` ([#394](https://github.com/bioedca/tether/issues/394)).
 > Draft-phase sessions do not spend the launcher's cap
-> ([#391](https://github.com/bioedca/tether/issues/391)), so the free Codex loop really is
-> unlimited. None of that is yours to start: never work around it by polling, by marking a PR ready
-> before its draft phase is done, or by merging without the CodeRabbit gate.
+> ([#391](https://github.com/bioedca/tether/issues/391)), so the free Codex loop costs no metered
+> round — **uncapped, not unbounded**. A separate runaway stop, `DRAFT_CEILING`, bounds how many
+> times the launcher will relaunch the same free session; it sits far above any real draft phase and
+> binds only when nothing is progressing. None of that is yours to start: never work around it by
+> polling, by marking a PR ready before its draft phase is done, or by merging without the
+> CodeRabbit gate.
 
 Auto-merge is armed at the **end** of the lane, by whoever completes it — not on the draft:
 

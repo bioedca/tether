@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -315,6 +316,11 @@ def _as_draft(fake: Fake, *, draft: bool) -> None:
         200,
         [{"user": {"login": "chatgpt-codex-connector[bot]"}, "commit_id": HEAD}],
     )
+    # And the comment list beside it, because the token applies #396's reply filter and a reply
+    # wrapper is only identifiable from the join. Registered even though most tests leave it empty:
+    # `Fake` matches by prefix, so without it `…/pulls/99/comments` falls through to the
+    # `…/pulls/99` route, gets a dict where a list belongs, and every advance test refuses.
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99/comments")] = (200, [])
 
 
 def test_a_draft_claim_can_be_issued_more_amends_than_the_cap(
@@ -657,6 +663,64 @@ def test_an_unreadable_review_list_issues_no_advance_at_all(
     )
 
 
+def test_answering_an_old_finding_does_not_look_like_a_new_lane_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#396's reply wrapper, reappearing in the step token this PR introduces (CodeRabbit on #407).
+
+    `_review_state` has excluded wrappers since #404; `advance_step_token` counted them. Answering a
+    thread makes GitHub wrap the reply in a `COMMENTED` submission carrying the CURRENT `commit_id`,
+    so a reply to an OLD finding reads as fresh provider evidence at this head. The token moves, the
+    ref prefix moves with it, `_authorise_advance` finds nothing at the new name, and the SAME lane
+    step is launched a second time — a Greptile credit possibly spent twice for one phase.
+
+    Asserted on the ref NAME because both readings create a ref, and only the name says which
+    happened: `…-draft-1-2` is a retry of one step, `…-draft-2-1` is a step that never occurred.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL)},
+        advance_refs=[{"ref": f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1-1"}],
+    )
+    _as_draft(fake, draft=True)
+    wrapper = 4242
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99/reviews")] = (
+        200,
+        [
+            {"user": {"login": "chatgpt-codex-connector[bot]"}, "commit_id": HEAD},
+            # The wrapper: empty body, no verdict, and GitHub's rewritten `commit_id` at the head.
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "id": wrapper,
+                "commit_id": HEAD,
+                "state": "COMMENTED",
+                "body": "",
+            },
+        ],
+    )
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99/comments")] = (
+        200,
+        [
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "pull_request_review_id": wrapper,
+                "in_reply_to_id": 11,
+                "commit_id": HEAD,
+                "original_commit_id": "0" * 40,
+            }
+        ],
+    )
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    assert fake.created_refs == [f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1-2"], (
+        "a reply is not a lane step: the token must stay at the step the real review unlocked, so "
+        "this is attempt 2 of step 1 and never attempt 1 of a step that nothing produced"
+    )
+
+
 def test_a_lane_step_that_never_completes_stops_at_the_attempt_ceiling(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -751,6 +815,46 @@ def test_the_advance_template_tells_a_worker_it_is_not_an_amend() -> None:
     assert "NOT AN AMEND" in text.upper()
     assert "Do not walk more than one phase" in text
     assert "Exhaustion never blocks" in text, "a Greptile balance of zero must not stall the lane"
+
+
+def test_the_advance_template_carries_its_procedure_in_a_runnable_order() -> None:
+    """Presence is not the property; ORDER is (CodeRabbit `Major` on #407).
+
+    The check above asserts three phrases exist. That passes a file which fences the claim *after*
+    the write it protects, drops the PR-state record, or tells the worker to exit before the one
+    command that ends the lane — and the last of those was live here: step 4 read
+    `**Write the new lane state into the PR body**, then **exit**` with the `gh pr merge` command in
+    the paragraph *below* it, so a worker following the step in order left before arming. The same
+    defect CodeRabbit found in `amend.md` on #405, in the sibling file.
+
+    So this pins the sequence a worker actually executes, each anchor a phrase the file must keep
+    for its own sake rather than one planted for the assertion.
+    """
+    text = " ".join((TASKS / "advance.md").read_text(encoding="utf-8").split())
+    sequence = [
+        ("confirm the PR still holds the authorising state", "Confirm it is still"),
+        ("revalidate the claim fence before writing", "claim.py check --issue"),
+        ("choose exactly one lane phase", "Work out which lane phase is next"),
+        ("record the new lane state", "Write the new lane state into the PR body"),
+        ("arm the merge, which is the lane's last action", "pr merge <PR> --auto --squash"),
+        ("and only then exit", "Then exit"),
+    ]
+    seen = -1
+    for what, anchor in sequence:
+        at = text.find(anchor)
+        assert at != -1, f"the procedure must instruct the worker to {what} (`{anchor}`)"
+        assert at > seen, f"'{what}' must come after the step before it, not at {at}"
+        seen = at
+
+    # The instruction spelling is lowercase; the exit-CODE sense is capitalised (``Exit `5` means
+    # the claim was reaped``) and is deliberately not matched. An `exit` anywhere above the arming
+    # paragraph is the #405 defect, and a single ordered pair cannot see one that sits above both.
+    procedure = text.find("## Do ")
+    exits = [m.start() for m in re.finditer(r"\bexit\b", text) if m.start() > procedure]
+    assert exits and min(exits) == text.find("Then exit") + len("Then "), (
+        "the only exit instruction in the procedure must be the final one; an earlier one tells a "
+        "worker to leave before the phase it was issued to perform"
+    )
 
 
 def test_losing_the_amend_round_race_launches_nothing(

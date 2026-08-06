@@ -753,10 +753,25 @@ def advance_step_token(pr: dict[str, Any]) -> str:
     # It also made the caller's own guard dead code: `_authorise_advance` wraps this call to convert
     # a read failure into a refusal, and the swallow meant that `except` could never fire for the
     # one failure it was written for. Propagating is what makes the pair coherent.
+    #
+    # The reply filter runs here for the same reason it runs in `_review_state`, and leaving it out
+    # was a live defect: answering a thread makes GitHub wrap the reply in a `COMMENTED` submission
+    # of its own (#396). The reply carries `original_commit_id` of the head it was written against
+    # while the wrapper carries the CURRENT `commit_id`, so an answer to an OLD finding increments
+    # this token — the lane's next step is unchanged, but the ref prefix moves, `_authorise_advance`
+    # finds nothing at the new name, and launches the step a second time. One reply, one duplicate
+    # session, and a Greptile credit possibly spent twice (CodeRabbit on #407).
+    wrappers = _reply_wrapper_ids(
+        claim._paginate(f"/repos/{REPO}/pulls/{number}/comments", "review-comment list")
+    )
     seen = 0
     for entry in claim._paginate(f"/repos/{REPO}/pulls/{number}/reviews", "review list"):
         login = ((entry.get("user") or {}).get("login")) or ""
-        if login in EXTERNAL_PROVIDERS and _reviewed_head(entry) == head:
+        if (
+            login in EXTERNAL_PROVIDERS
+            and _reviewed_head(entry) == head
+            and _is_a_review(entry, wrappers)
+        ):
             seen += 1
     return f"{phase}-{seen}"
 
