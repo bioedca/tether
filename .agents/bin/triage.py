@@ -586,9 +586,20 @@ def _gate_state(
     So the gate asks for the thing ADR-0062 actually requires and nothing adjacent to it: that
     provider, that head, no findings.
 
-    Only claimed at the cap. Before it, a clean review is an ordinary pass with rounds still to
-    spend, and calling the gate satisfied there would invite arming a merge on a PR whose lane is
-    unfinished — the failure ``.agents/tasks/amend.md`` warns about, one step earlier.
+    **``capped`` is a proxy, and a deliberately conservative one.** What the gate actually needs to
+    exclude is the DRAFT phase: a clean review there ends nothing, because the Greptile step and the
+    ready transition are still to come, and reporting the gate satisfied would invite arming a merge
+    on an unfinished lane — the failure ``.agents/tasks/amend.md`` warns about, one step earlier.
+    ``capped`` excludes it because draft rounds do not count, so a draft is never capped.
+
+    It excludes more than that, and the cost is known: a PR whose FIRST CodeRabbit review comes back
+    clean has met ADR-0062's gate — the cap is a ceiling, not a quota — and this reports ``open``
+    anyway. That direction is the safe one, since it at worst suggests a metered credit nobody
+    needed, where the other suggests a merge past the gate. Narrowing it to *"has been ready at
+    least once"* wants ``_counted_from(strict=True)``, which raises on an unreadable timeline rather
+    than returning the ``None`` that means *count everything*; reusing that ``None`` with the
+    opposite polarity is a live fail-open CodeRabbit found on #407. That helper arrives with #394,
+    so the narrowing is tracked in #411 rather than built on an unmerged sibling here.
     """
     if gate_blocked:
         return "blocked"
