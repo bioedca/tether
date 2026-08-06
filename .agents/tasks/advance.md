@@ -59,15 +59,29 @@ Read root `AGENTS.md`, `docs/agents/review.md` and `.agents/skills/tether-worker
    it, and every step in 3 is a write on somebody's pull request — a push, a metered request, a
    ready transition, a merge. Re-run the check before each one and before the PR-body write in 4,
    not once for all of them. A reaped worker that writes anyway is writing on a **successor's** PR.
-3. Work out which lane phase is next from what the PR body records, and do **only that one**:
+3. Work out which lane phase is next from what the PR body records, and do **only that one**.
+
+   **You may not be the only session on this step.** The advance ref gives one session per
+   *attempt*, and a step may be attempted up to three times; a launcher arriving after the first
+   ref exists takes the next ordinal rather than colliding with it, so another worker may be
+   part-way through this phase right now (#412). Before the two phases where a duplicate costs real
+   money, **re-read the provider's own state and treat a request already in flight as done** — both
+   are marked below. Neither is safe to infer from the PR body, which the other worker may not have
+   written yet.
+
    - **Codex is not yet clean** → answer what is left, push, request the next Codex round.
    - **Codex is clean, Greptile not yet spent** → read the seat balance with
-     `{{PYTHON}} .agents/bin/greptile_usage.py`. Spend one credit if there is budget; if there is
-     none, record *"Greptile: no credits this month"* and move to the next step. **Exhaustion never
-     blocks.**
+     `{{PYTHON}} .agents/bin/greptile_usage.py`. **It reports credits spent per PR: if this pull
+     request already has one this month, another session spent it — record that and move on rather
+     than buying a second.** Spend one credit if there is budget and none is recorded here; if there
+     is none at all, record *"Greptile: no credits this month"* and move to the next step.
+     **Exhaustion never blocks.**
    - **Greptile settled** → mark the pull request ready for review. This starts the two-round cap.
-   - **Ready, no CodeRabbit review yet** → request the full review. Read its status check first: a
-     `pending` one is a review running now, and asking again destroys it.
+   - **Ready, no CodeRabbit review yet** → **read the `CodeRabbit` commit status before asking.**
+     `Review in progress` means another session already asked and a second request destroys the run
+     it is waiting for; treat that as this phase being done. Only `Review skipped` or a
+     completed review at an older head is an unasked gate. A rate-limit refusal names its own retry
+     time and costs nothing, so it is a *wait*, not a failure.
    - **Ready, CodeRabbit came back with no actionable comments** → the gate is satisfied and the
      only step left is arming the merge — **if this session holds merge authority**. It does not
      hold it by default: the `refs/lane-advances/` ref authorises one *phase transition*, and

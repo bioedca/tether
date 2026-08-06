@@ -623,8 +623,52 @@ def test_a_lane_step_whose_provider_never_answered_can_be_retried(
 
     slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
     assert fake.created_refs == [f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1-2"], (
-        "a second attempt at the same step must be issuable, not a 422"
+        "a second attempt at the same step must be issuable, not a 422; the OVERLAP this permits "
+        "is characterised in the test below and tracked in #412"
     )
+
+
+def test_a_later_launcher_can_overlap_an_in_flight_advance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CHARACTERISATION, not approval: the sequential race the ordinals do not close (#412).
+
+    Greptile read the two halves of `_authorise_advance` together on #407 and found the docstring
+    claiming *"exactly one session"* while the attempt ceiling below permits three. The
+    compare-and-swap settles the SIMULTANEOUS race — two launchers at once compute the same ordinal
+    and one takes `422`. A launcher arriving *later* counts the winner's ref, takes the next
+    ordinal, and collides with nothing, so both workers run the same phase.
+
+    Nothing here distinguishes *attempt 1 is still working* from *attempt 1 died*: refs carry no
+    timestamp, `AGENTS.md` forbids the lease/TTL/heartbeat that would say, and an ADVANCE worker
+    pushes nothing, so branch activity never moves for it either. The retry is not gratuitous — the
+    alternative is a mandatory gate that is unretryable by construction once a provider throttles
+    (Codex `P1` on #407), which this repository has actually experienced. Bounded overlap was the
+    deliberate trade.
+
+    This test exists so that trade cannot be quietly re-described as serialisation. It asserts what
+    the launcher DOES, and #412 carries what it should do instead.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL)},
+        # Attempt 1 taken by a launcher whose worker has not finished: the step token is unmoved,
+        # because the evidence that moves it is exactly what that worker has not yet produced.
+        advance_refs=[{"ref": f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1-1"}],
+    )
+    _as_draft(fake, draft=True)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    report = slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    entry = _by_issue(report, 7)
+    assert entry["mode"] == "advance" and entry["launched"] is True, (
+        "the launcher serves a second worker for a step already being worked; when #412 lands this "
+        "assertion is what must change, and it should fail loudly rather than drift"
+    )
+    assert fake.created_refs == [f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1-2"]
+    assert list(tmp_path.glob("_task-issue-7*.md")), "and renders it a full ADVANCE task"
 
 
 def test_an_unreadable_review_list_issues_no_advance_at_all(

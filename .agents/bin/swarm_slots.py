@@ -627,12 +627,23 @@ def _spawn(command: str) -> None:
 def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
     """Take the authority to advance this claim's lane by one phase, or return ``None`` (#394).
 
-    **Exactly one session**, which is the criterion the label alone cannot meet. A label is a
-    *state*: it stays published until triage recomputes and withdraws it, so every launcher run in
-    between would start another session against the same phase - several workers all spending the
-    Greptile credit, or all marking the PR ready. So the label publishes the authority and this
-    consumes it, by the same compare-and-swap the AMEND ledger uses: ``201`` to the winner, ``422``
-    to everyone after, keyed to the claim generation so a reclaim starts fresh.
+    **One session per attempt, and attempts are bounded — not "exactly one session per step".**
+    This docstring asserted the stronger claim until Greptile read the two halves of the function
+    together on #407, and the difference is load-bearing. A label is a *state*: it stays published
+    until triage recomputes and withdraws it, so every launcher run in between would start another
+    session against the same phase - several workers all spending the Greptile credit, or all
+    marking the PR ready. So the label publishes the authority and this consumes it, by the same
+    compare-and-swap the AMEND ledger uses: ``201`` to the winner, ``422`` to everyone after, keyed
+    to the claim generation so a reclaim starts fresh.
+
+    That settles the SIMULTANEOUS race and not the sequential one. Two launchers running at once
+    compute the same attempt number and one gets ``422``; a launcher running *after* another's ref
+    exists counts it, takes the next ordinal, and collides with nothing - so up to
+    ``ADVANCE_ATTEMPTS`` workers can be in flight on one step while none has yet produced the
+    evidence that ends it. Serializing that needs a signal meaning *the previous attempt's session
+    is over*, and this architecture has none to offer: refs carry no timestamp, and ``AGENTS.md``
+    forbids the lease, TTL and heartbeat that would supply one. Tracked in #412. The two phases
+    where a duplicate costs real money are guarded worker-side in ``.agents/tasks/advance.md``.
 
     **In its own namespace**, which is what makes advancing cost no round. Reusing
     ``amend-rounds`` would have spent one of the two metered rounds to move a pull request from one
@@ -682,8 +693,11 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
     # construction (Codex P1 on #407), which is not hypothetical: this repository's own lane sat in
     # exactly that state under CodeRabbit's adaptive limit.
     #
-    # The attempt is derived from the refs that EXIST, so two launchers racing on one state compute
-    # the same number and the compare-and-swap still gives the session to one of them. It bounds
+    # The attempt is derived from the refs that EXIST, so two launchers racing SIMULTANEOUSLY on one
+    # state compute the same number and the compare-and-swap gives the session to one of them. A
+    # launcher arriving LATER counts the winner's ref and takes the next ordinal, which collides
+    # with nothing - so this trades the unretryable gate above for up to `ADVANCE_ATTEMPTS` workers
+    # overlapping on one step, and that trade is deliberate rather than overlooked (#412). It bounds
     # rather than counts: `ADVANCE_ATTEMPTS` is a runaway stop like `DRAFT_CEILING`, not a cap, and
     # reaching it means the step cannot complete and wants a person.
     prefix = f"{ADVANCE_NAMESPACE}/{number}-{generation}-{sha[:12]}-{phase}-"
