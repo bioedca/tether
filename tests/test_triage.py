@@ -1461,6 +1461,41 @@ def test_an_unreadable_thread_read_fails_the_job_rather_than_answering_it(
         _run(routes, monkeypatch)
 
 
+class _Answer:
+    """A ``urlopen`` result that goes wrong where ``_request``'s handlers cannot see it."""
+
+    status = 200
+
+    def __enter__(self) -> _Answer:
+        return self
+
+    def __exit__(self, *_exc: object) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return b"<html>502 Bad Gateway</html>"
+
+
+def test_an_unreadable_comment_list_withholds_the_verdict_instead_of_ending_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_verdict_at_head` promises to fail SOFT, and only `ClaimError` was ever soft.
+
+    Deliberately end to end through the real `_paginate` and `_request` rather than a stubbed
+    `ClaimError`, because a stub proves only that the handler present catches what it names. The
+    defect was the handler being narrower than the ways the read fails: a proxy answering with an
+    HTML error page raised `JSONDecodeError` straight through `except claim.ClaimError`, and one
+    unreadable list ended the triage run for every issue in the repository (CodeRabbit on #407).
+
+    Soft is the right direction *here* and nowhere near a general licence — no verdict seen
+    withholds an authority. The thread-read tests above fail closed by raising, for the same
+    reason read the other way.
+    """
+    monkeypatch.setattr(triage.claim, "_token", lambda: "t")
+    monkeypatch.setattr(triage.claim.urllib.request, "urlopen", lambda *_a, **_k: _Answer())
+    assert triage._verdict_at_head(99, HEAD) is False
+
+
 def test_a_partial_thread_read_is_refused_rather_than_treated_as_complete(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

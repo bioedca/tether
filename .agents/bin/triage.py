@@ -536,6 +536,11 @@ def _verdict_at_head(pr_number: int, head: str) -> bool:
     Prefix-matched because the comment abbreviates the SHA. Fails **soft**, not closed: an
     unreadable comment list means *no verdict seen*, which withholds an authority rather than
     granting one, and the review and comment channels are still read by the caller.
+
+    That is true of *every* way the read can fail only because ``claim._request`` now converts a
+    malformed or truncated answer into ``ClaimError`` as well. It used to let those out raw, so the
+    soft failure this docstring promises was a hard crash of the whole triage run for anything but
+    a transport error (CodeRabbit on #407).
     """
     try:
         comments = claim._paginate(f"/repos/{REPO}/issues/{pr_number}/comments", "PR comment list")

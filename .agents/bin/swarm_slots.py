@@ -648,10 +648,12 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
     ``amend-rounds`` would have spent one of the two metered rounds to move a pull request from one
     phase to the next - and #391 has just finished making that ledger mean one thing.
 
-    Ordinals count up rather than stopping at one: a lane has several phases, and a worker that
-    spends the Greptile credit is not the worker that marks the PR ready. There is no cap here
-    because there is nothing to cap - none of these steps is a review round - and the natural bound
-    is that triage withdraws the label the moment the lane has nowhere left to go.
+    Refs accumulate rather than stopping at one: a lane has several phases, and the worker that
+    spends the Greptile credit is not the worker that marks the PR ready. **The review cap does not
+    bind here** - none of these steps is a round - so what bounds a single step is
+    ``ADVANCE_ATTEMPTS``, a runaway ceiling on refs sharing one prefix, and what bounds the lane is
+    triage withdrawing the label the moment it has nowhere left to go. This paragraph said *"there
+    is no cap here"* until CodeRabbit read it beside the ceiling three screens below.
     """
     number = item["issue"]
     record = _existing_claim(number, owner)
@@ -735,7 +737,13 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
         raise SlotError(
             f"the {phase}-phase lane advance for #{number} could not be claimed (HTTP {status})"
         )
-    item["round"] = 0
+    # `round` is what the ledger has ALREADY spent, not a round being taken - an advance takes
+    # none. Zero was the honest reading of "this session spends nothing" and a false reading of the
+    # row it renders: a capped pull request was handed *"metered rounds spent 0 of 2"* directly
+    # above *"rounds still available 0"*, two rows of one table contradicting each other, and the
+    # first of them telling the worker the cap was untouched (CodeRabbit on #407). The template
+    # says what this session spends in its own row, where it needs no number.
+    item["round"] = item["label_rounds"]
     item["remaining"] = CAP - item["label_rounds"]
     return record
 

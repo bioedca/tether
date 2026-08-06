@@ -696,6 +696,33 @@ def test_a_recorded_lane_state_is_what_makes_the_retry_issuable(
     )
 
 
+def test_the_advance_table_never_tells_a_capped_worker_its_cap_is_untouched(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CodeRabbit on #407: two rows of one table, contradicting each other.
+
+    `{{ROUND}}` was hard-zero for an advance — true of what the session spends, false of the row it
+    renders. A pull request at the cap was handed *"metered rounds spent 0 of 2"* directly above
+    *"rounds still available 0"*, and the first of those is the row a worker reads to decide whether
+    another review request is affordable. What the session spends is now its own row, where it needs
+    no number and cannot be read as a ledger balance.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL, *slots.ROUND_LABELS)},
+    )
+    _as_draft(fake, draft=False)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    rendered = (tmp_path / "_task-issue-7.md").read_text(encoding="utf-8")
+    assert "**2 of 2**" in rendered, "the spent count must be the ledger's, not the session's"
+    assert "**0**" in rendered, "and it must agree with the remaining count beside it"
+    assert "**0 of 2**" not in rendered
+
+
 def test_an_unreadable_review_list_issues_no_advance_at_all(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

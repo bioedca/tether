@@ -33,8 +33,9 @@ walking the lane, and that is why this session exists.
 | Branch | `{{BRANCH}}` |
 | Generation | `{{GENERATION}}` |
 | Vendor lane | `{{VENDOR}}` |
-| Metered rounds spent | **{{ROUND}} of {{CAP}}** — this session spends none |
+| Metered rounds already spent | **{{ROUND}} of {{CAP}}** |
 | Rounds still available | **{{REMAINING}}** |
+| What this session spends | **nothing** — an advance is not a review round |
 | Why this session exists | {{REASON}} |
 
 Read root `AGENTS.md`, `docs/agents/review.md` and `.agents/skills/tether-worker/SKILL.md` first.
