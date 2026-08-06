@@ -145,6 +145,28 @@ asking a provider to look **again** at work it has already reviewed this round.
   answered, everything pushed* state the convergence check requires, and the rule written to
   un-deadlock the gate would deadlock it one step earlier (CodeRabbit on #408). Authority stops once
   `agent:gate-blocked` is published, because then the convergence check has failed too.
+- **A clean review on an unfinished lane resumes the claim, and does not spend a round.** The lane
+  is a sequence, and a review that finds nothing owes nothing — so under the AMEND-only signal it
+  published no authority at all and the lane sat before the gate it cannot merge without (#394).
+  `triage.py` now publishes **`agent:needs-advance`** when a PR is green, settled, owes nothing and
+  has been reviewed at its current head, and the launcher issues **one** ADVANCE session against
+  it: `.agents/tasks/advance.md`, which moves the lane on by exactly one phase and exits. It is not
+  an AMEND — there are no blocking findings to fix — and its ref lives in `refs/lane-advances/`
+  rather than `refs/amend-rounds/`, so advancing a phase never costs a metered round.
+
+  **The stranded draft is the incident; the rule is broader.** A draft whose free review came back
+  clean is what found this, but a *ready* pull request is stranded in the same way — nobody has
+  asked CodeRabbit, or it has passed and the merge is not armed — and neither step is a round. So
+  the authority is published for any phase with a step left, and withheld only once the lane is
+  genuinely complete: ready **and** armed. Being at `agent:review-capped` does not withhold it,
+  because the remaining steps are not rounds.
+
+  **`agent:gate-blocked` does withhold it**, and that rule belongs to neither issue alone. Past the
+  cap the convergence check came back blocking too, so a maintainer decides — and an advance is
+  precisely the automatic state that label says no longer remains. The window it closes is a real
+  one: `owed` stops holding the moment the author answers the findings and resolves the threads
+  (#393), which is exactly when a session would otherwise be dispatched to walk a lane that has
+  stopped terminating, toward a review it has no round left to buy.
 - **Capability is not quota, and the two fail differently.** A selected provider reporting nothing to
   review at the head it read satisfies its leg — including a Codex 👍 reaction, its documented form
   of "no suggestions". Quote the provider, never the author or another commenter. *Exhaustion* is not

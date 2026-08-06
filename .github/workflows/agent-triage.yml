@@ -82,6 +82,13 @@ on:
     types: [submitted, dismissed]
   pull_request_review_comment:
     types: [created]
+  # A provider's CLEAN verdict is an issue comment, not a review: Codex submits a review when it
+  # has findings and comments when it does not. Without this trigger the one state
+  # `agent:needs-advance` exists to catch - a draft whose free review came back clean - produced no
+  # event at all, and the label could only ever be published by a manual run (Codex P2 on #407).
+  # `issue_comment` fires for pull requests too; triage.py skips anything that is not one.
+  issue_comment:
+    types: [created]
   # NO TRIGGER FIRES ON A RESOLVE, and this is the place that fact is recorded because it is not
   # discoverable from the file. Resolving a thread is a state change that can CLEAR
   # `agent:needs-amend` (#393), and `pull_request_review_comment` fires on `created` only — so an
@@ -106,8 +113,12 @@ on:
   # survives on a finished item, and `agent:needs-amend` is the launcher's authority to start an
   # AMEND session. `closed` covers merged and unmerged alike; triage.py checks `merged` and refuses
   # the unmerged case, because a PR closed without merging may still have a live claim behind it.
+  # `ready_for_review` is the lane's own phase change, and without it the lane strands at the step
+  # it was just moved to (#394). An ADVANCE worker marks the PR ready and exits; no check suite
+  # completes and no review is submitted by that alone, so nothing re-triaged the claim and nothing
+  # published the authority to ask for the mandatory CodeRabbit review. Codex found it on #407.
   pull_request:
-    types: [closed]
+    types: [closed, ready_for_review]
   workflow_dispatch:
     inputs:
       pr:
@@ -146,12 +157,23 @@ concurrency:
   # whereas `check_suite.pull_requests` can be empty. Branch and PR are 1:1 here because the branch
   # IS the claim ref.
   #
+  # `issue_comment` CANNOT be normalised to the branch, and that is a payload limitation rather than
+  # a choice: it carries neither `pull_request.head.ref` nor `check_suite.head_branch`, only the
+  # number. Left to fall through, every comment on every pull request in the repository shared one
+  # `dispatch-` group — so comments on unrelated PRs contended globally while a comment on one PR
+  # did not serialise with that PR's own runs (CodeRabbit on #407). Keying it on the number fixes
+  # the first half completely and the second not at all: a comment-triggered run still races the
+  # branch-keyed run for the same pull request, because no expression available here maps one key
+  # space onto the other. Bounded rather than removed, and bounded by the same property that makes
+  # the whole module safe to re-run — state is recomputed from the API, never accumulated.
+  #
   # `workflow_dispatch` can only key on the number it was given, so a manual run does not serialise
   # against a concurrent event. That is why it defaults to `dry_run: true`: the un-normalised path
   # writes nothing unless a human deliberately says otherwise.
   group: >-
     agent-triage-${{ github.event.pull_request.head.ref
       || github.event.check_suite.head_branch
+      || (github.event.issue.number && format('pr-{0}', github.event.issue.number))
       || format('dispatch-{0}', inputs.pr) }}
   cancel-in-progress: false
 
@@ -166,6 +188,7 @@ jobs:
       github.event_name == 'workflow_dispatch'
       || github.event_name == 'pull_request_review'
       || github.event_name == 'pull_request_review_comment'
+      || (github.event_name == 'issue_comment' && github.event.issue.pull_request != null)
       || github.event_name == 'pull_request'
       || startsWith(github.event.check_suite.head_branch, 'agent/issue-')
     steps:
@@ -189,14 +212,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Untrusted event data is passed through env, never interpolated into the script body.
-          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+          # `issue_comment` carries the pull request under `issue`, not `pull_request` — the number
+          # is the same one, but the payload puts it elsewhere, so without this arm the trigger
+          # added above would fire and then triage nothing.
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
           HEAD_BRANCH: ${{ github.event.check_suite.head_branch }}
           # A manual run defaults to dry-run; a real event always acts.
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
           # The merge path clears the claim's label mirror instead of publishing round state. Set
           # from the event alone; whether the PR actually merged is re-checked in triage.py from the
           # API, so a `closed` event that was not a merge writes nothing.
-          MERGED: ${{ github.event_name == 'pull_request' }}
+          MERGED: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' }}
         run: |
           set -euo pipefail
           # BOOTSTRAP GUARD, and deliberately a narrow one. The checkout above is pinned to the

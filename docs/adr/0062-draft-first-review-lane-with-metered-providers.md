@@ -171,18 +171,40 @@ leg, and a quota refusal from it is recorded as *did not review*.
   #394 and #391 — they gated it independently, one by publishing no resumption and the other by
   refusing the resumptions that did get published.
 
-  **#391 is resolved** (see the launcher entry below): the launcher's ledger is phase-aware, so the
-  draft phase no longer exhausts a cap that was never meant to bind there.
+  **All three are now resolved, by three different changes** — the point of the concept, and worth
+  separating because an earlier revision credited one of them to the wrong PR.
 
-  **#393 is not resolved by it, and an earlier revision of this paragraph claimed it was.** The two
-  are adjacent, not the same: #391 removes the *cost* of the repeated AMEND, while the condition
-  that keeps issuing one — a deferred finding that only a push can clear — is untouched by which
-  refs the launcher counts. What clears it is thread resolution carrying the contract's
-  `Deferred: … Tracked in #N`, which lands in #393's own change. CodeRabbit caught the overclaim on
-  #406.
+  **#391** made the launcher's ledger phase-aware, so the draft phase no longer exhausts a cap that
+  was never meant to bind there.
 
-  #394 also remains, so the lane is still hand-driven past the point a clean review lands: nothing
-  publishes the authority to advance it.
+  **#393** gave the owed axis an exit that the contract's own instruction produces: a finding whose
+  thread carries `Deferred: … Tracked in #N` and is resolved stops owing, with no push. It is
+  **not** resolved by #391, which an earlier draft of this paragraph claimed — #391 removes the
+  *cost* of the repeated AMEND, while the condition that keeps issuing one is untouched by which
+  refs the launcher counts. CodeRabbit caught the overclaim on #406.
+
+  **#394** supplied the concept the three were faces of — **the lane's next phase is itself a thing
+  that can be authorised**. A clean review on an unfinished lane publishes `agent:needs-advance`,
+  the launcher takes one `refs/lane-advances/<issue>-<generation>-<head-sha>-<step>-<lane-state>`
+  against it — `<head-sha>` being `sha[:12]`, so a push starts a fresh attempt series rather than
+  inheriting the exhausted one, and `<lane-state>` a digest of the pull request body, which is the
+  record `advance.md` requires every session to write before it stops. A session still working the
+  step has changed nothing, so the next launcher computes the *same* name and takes `422`; one that
+  reported back moved the digest, and its retry is a different name. How many times a step has been
+  attempted is simply how many refs share the prefix, bounded by `ADVANCE_ATTEMPTS` as a runaway
+  ceiling rather than by the review cap, since none of these steps is a round. Then
+  `.agents/tasks/advance.md` walks the lane on by exactly one phase and exits. Deliberately a second
+  label and a second namespace: AMEND says *fix the blocking findings*, and one label cannot also
+  say *there are none, move on* — while a ref in `refs/amend-rounds/` would spend a metered round to
+  change phase.
+
+  **This authority spans the ready phase too, not only the draft.** The stranded draft is the
+  incident that found it, but the same gap exists twice more after the PR goes ready: nobody has
+  asked for the mandatory CodeRabbit review, or it has come back clean and the merge is not armed.
+  Neither step is a review round, so neither is withheld at `agent:review-capped` — a capped PR
+  still needs the convergence check this ADR permits, and a gated one still needs a session to arm
+  the merge. Reading *ready* as *complete* simply moved the stranding one step later; the lane is
+  complete only when it is ready **and** armed.
 - **The launcher's second cap is phase-aware, in its own ledger** (amended by
   [#391](https://github.com/bioedca/tether/issues/391)). `swarm_slots.py` records every AMEND in a
   permanent generation ref and refuses another past `CAP`, independently of the labels —

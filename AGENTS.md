@@ -112,6 +112,11 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   check: everything answered, pushed, and one final review requested. Clean satisfies the gate;
   blocking again publishes `agent:gate-blocked`. Stop-list, not judgement: **never a review request
   while `agent:gate-blocked` is present**, and never a second one under `agent:review-capped`.
+- **A clean review resumes the claim too, and costs no round.** A review that finds nothing owes no
+  AMEND, so it used to publish nothing and the draft stranded before the gate. `agent:needs-advance`
+  is the authority to walk the lane on by **one** phase — `.agents/tasks/advance.md`, not AMEND, and
+  its ref is outside the round ledger. It is withheld under `agent:gate-blocked`: there the lane has
+  stopped terminating and a maintainer decides, so there is no next phase to authorise.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to
   the merged head. Then **arm auto-merge and exit** — never wait, never poll.

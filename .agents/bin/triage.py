@@ -99,6 +99,18 @@ AMEND_LABEL = "agent:needs-amend"
 #: Distinct from ``agent:review-capped``, which means *the budget is spent and the lane may still
 #: terminate*. This one means *the lane has stopped terminating*, and it is a maintainer's.
 GATE_BLOCKED_LABEL = "agent:gate-blocked"
+#: *This draft's lane has somewhere to go, and nobody is going there.* The lane (ADR-0062) is a
+#: multi-phase sequence - iterate Codex on the draft, optionally spend a Greptile credit, mark
+#: ready, ask CodeRabbit - but the only resumption signal the swarm had was ``agent:needs-amend``,
+#: published when a check failed or a finding was owed. A **clean** review owes nothing, so it
+#: published nothing, no worker resumed, and the draft sat forever before the gate it cannot merge
+#: without (#394).
+#:
+#: Deliberately a second label rather than a reuse of ``agent:needs-amend``. They authorise
+#: different sessions: AMEND says *fix the blocking findings*, and a session handed that with none
+#: to find would either invent work or stop. #394's second criterion is that the session be told
+#: which phase it is in, and one label cannot say two things.
+ADVANCE_LABEL = "agent:needs-advance"
 CONFLICTED_LABEL = "agent:conflicted"
 ALL_ROUND_LABELS = (*ROUND_LABELS, CAPPED_LABEL)
 
@@ -131,6 +143,7 @@ MIRROR_LABELS = (
     "status:in-progress",
     AMEND_LABEL,
     GATE_BLOCKED_LABEL,
+    ADVANCE_LABEL,
     CONFLICTED_LABEL,
     *ALL_ROUND_LABELS,
 )
@@ -456,7 +469,7 @@ def _counts_as_round(when: object, counted_from: str | None) -> bool:
     return not isinstance(when, str) or not when or when >= counted_from
 
 
-def _counted_from(pr: dict[str, Any]) -> str | None:
+def _counted_from(pr: dict[str, Any], *, strict: bool = False) -> str | None:
     """When the round cap starts counting for this pull request, as an ISO-8601 instant.
 
     ``None`` means *count everything*: the pull request was opened ready for review, so every
@@ -483,6 +496,14 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
         # An unreadable timeline must not decide the cap by accident. Counting everything is the
         # safe direction for a safety control: at worst a PR is capped one round early and the
         # maintainer is asked, where the other direction hands out an unbounded review budget.
+        #
+        # `strict` exists because that answer is safe for the CAP and unsafe for a mutex KEY.
+        # `None` here is indistinguishable from `None` meaning "opened ready", so a caller building
+        # a ref name from the phase would write `ready-*` on a transient failure and `draft-*` on
+        # success — two names for one state, and therefore two workers where the ref promises one
+        # (Codex P2 on #407). Such a caller asks for the refusal instead.
+        if strict:
+            raise
         return None
     ready = [
         stamp
@@ -509,6 +530,44 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
     # Never ready and never drafted. A draft has taken no counted round; anything else was opened
     # ready, so every round it has ever had is real.
     return _COUNT_NOTHING if pr.get("draft") else None
+
+
+#: The head a provider names in a plain issue comment. Codex writes ``**Reviewed commit:**
+#: `9785d61352``` in every verdict it posts that way, and that string is the only head binding such
+#: a comment has. Read for the *did a review happen* axis only — never for the round counter, which
+#: stays strictly on `commit_id`-carrying evidence and its documented undercount.
+_VERDICT_HEAD = re.compile(r"Reviewed commit:\**\s*`?([0-9a-f]{7,40})`?")
+
+
+def _verdict_at_head(pr_number: int, head: str) -> bool:
+    """Whether an external provider has posted a verdict naming the current head (#394, #407).
+
+    A provider's **clean** pass is the one that produces no review object. Codex submits a review
+    when it has findings and posts a plain issue comment - or a 👍 reaction - when it does not, and
+    neither of those carries ``commit_id``. So the state that most needs the lane advanced is
+    precisely the one ``/pulls/{n}/reviews`` cannot show, and reading only that channel left every
+    cleanly-reviewed draft stranded.
+
+    Prefix-matched because the comment abbreviates the SHA. Fails **soft**, not closed: an
+    unreadable comment list means *no verdict seen*, which withholds an authority rather than
+    granting one, and the review and comment channels are still read by the caller.
+
+    That is true of *every* way the read can fail only because ``claim._request`` now converts a
+    malformed or truncated answer into ``ClaimError`` as well. It used to let those out raw, so the
+    soft failure this docstring promises was a hard crash of the whole triage run for anything but
+    a transport error (CodeRabbit on #407).
+    """
+    try:
+        comments = claim._paginate(f"/repos/{REPO}/issues/{pr_number}/comments", "PR comment list")
+    except claim.ClaimError:
+        return False
+    for entry in comments:
+        if ((entry.get("user") or {}).get("login")) not in EXTERNAL_PROVIDERS:
+            continue
+        for named in _VERDICT_HEAD.findall(str(entry.get("body") or "")):
+            if head.startswith(named):
+                return True
+    return False
 
 
 #: Review threads and their resolution, which the REST payloads do not carry at all. Paged because
@@ -815,13 +874,26 @@ def _is_blocking(entry: dict[str, Any], is_reviews: bool) -> bool:
 
 def _review_state(
     pr_number: int, head: str, counted_from: str | None = None
-) -> tuple[set[str], bool, bool]:
-    """``(blocking metered heads, whether the CURRENT head owes an answer, gate converged)``.
+) -> tuple[set[str], bool, bool, bool]:
+    """``(heads that spent a round, whether the CURRENT head owes an answer, read, converged)``.
 
-    The third value is the mandatory gate itself: **a clean CodeRabbit review at this head**. It is
-    tracked separately from the first because the two answer opposite questions — the round set is
-    *where a provider found something*, the gate is *where one found nothing* — and the first can
-    never stand in for the second. See :func:`_gate_state` for what conflating them did.
+    The last two both look like *"a review happened"* and are not interchangeable — with each other
+    or with ``heads``. #394 and #399 landed one each, and this is where they meet.
+
+    ``read`` is *any* external provider having looked at the current head, counted phase or not. It
+    is not a third counter: it answers a question neither of the others can, which is whether a
+    **clean** review has happened at all (#394). ``heads`` counts only metered,
+    post-``ready_for_review`` evidence, so on a draft it is empty whatever Codex has done — and
+    ``owed`` is false both when a review came back clean and when none was ever asked for. Those two
+    states authorise opposite things, so telling them apart needs its own value.
+
+    ``converged`` is the mandatory gate itself: **a clean CodeRabbit review at this head** (#399).
+    Tracked apart from ``heads`` because the two answer opposite questions — the round set is *where
+    a provider found something*, the gate is *where one found nothing* — and apart from ``read``
+    because that one is satisfied by any provider at all. **A Codex thumbs-up is a ``read`` and is
+    not a gate**, which is why ``converged`` keys on ``GATE_PROVIDER`` and ``read`` deliberately
+    does not: substituting a free provider for the metered gate is exactly what ADR-0062 forbids.
+    See :func:`_gate_state` for what conflating a round with the gate did.
 
     ``counted_from`` is the instant the cap starts (see :func:`_counted_from`). Evidence older than
     it still decides whether the current head **owes an answer** — a finding does not stop mattering
@@ -908,6 +980,15 @@ def _review_state(
     # submission alone proves nothing — the absence of findings beside it is the actual signal.
     gate_review_here = False
     gate_finding_here = False
+    # Seeded from the issue-comment channel, because that is where Codex's CLEAN verdict lands.
+    # A dirty Codex pass submits a review; a clean one posts *"Codex Review: Didn't find any major
+    # issues"* as a plain issue comment, or reacts 👍 — neither of which carries `commit_id`, so the
+    # loop below can never see it (Codex P1 on #407). The draft that most deserves to advance is
+    # exactly the one that produced no review object at all.
+    #
+    # Deliberately NOT seeding the gate the same way: that channel is where the FREE provider
+    # answers, and a gate satisfiable by Codex is no gate at all.
+    read_head = _verdict_at_head(pr_number, head)
     for entries, is_reviews in ((reviews, True), (comments, False)):
         for entry in entries:
             login = ((entry.get("user") or {}).get("login")) or ""
@@ -921,6 +1002,18 @@ def _review_state(
                 is_reply = not _is_a_review(entry, wrappers)
             else:
                 is_reply = bool(entry.get("in_reply_to_id"))
+            # A REPLY IS NOT A LOOK, and set before this filter it said one had happened. Answering
+            # is exactly what lands on a *new* head: a submitted review carries no
+            # `original_commit_id`, so the wrapper GitHub builds around a provider's reply binds to
+            # whatever the head is now (#396). The lane would advance out of a state nobody had
+            # reviewed — the requirement in `_advance_state` inverted by the evidence meant to
+            # satisfy it.
+            #
+            # Masked today by `owed`, which counts replies deliberately (#404) and which
+            # `_advance_state` refuses on. Unmasked the moment #393 lands and a resolved thread
+            # stops owing, so it is fixed here rather than left for that PR to inherit.
+            if sha == head and not is_reply:
+                read_head = True
             # Two independent axes, and conflating them is how this went wrong twice.
             #
             # ROUNDS: only a metered provider, only after the PR went ready, and never a reply.
@@ -987,7 +1080,182 @@ def _review_state(
                     owed = True
             elif entry.get("id") not in resolved:
                 owed = True
-    return heads, owed, gate_review_here and not gate_finding_here
+    return heads, owed, read_head, gate_review_here and not gate_finding_here
+
+
+def advance_step_token(pr: dict[str, Any]) -> str:
+    """A token that changes when the lane's NEXT STEP changes, and not otherwise (#394).
+
+    The launcher keys its one-session ref on this. Keying on the head and a coarse draft/ready
+    phase was too blunt: the lane needs several one-step sessions at one head - a Codex-clean draft
+    spends a Greptile credit, the clean Greptile result then marks the PR ready, a ready PR asks
+    CodeRabbit and a later session arms the merge once that comes back clean. All four can share a
+    head, so the second of any pair collided on `422` and the lane stranded (Codex P2 on #407).
+
+    What separates them is the EVIDENCE: each step is unlocked by a provider verdict that was not
+    there before. Counting distinct provider submissions at this head therefore advances exactly
+    when the next step does, and stays put when two launchers race on the same state - which is the
+    duplicate-session case the ref exists to refuse.
+
+    **Raises rather than guessing the phase.** ``_counted_from`` answers ``None`` both for a PR
+    opened ready and for a timeline it could not read, which is the right answer for the cap and
+    the wrong one for a key: a transient failure would write ``ready-*`` where a successful read
+    writes ``draft-*``, giving one state two ref names and the ref would stop being a mutex. The
+    caller refuses instead, which costs a launcher cycle and never a duplicate session.
+    """
+    number = int(pr["number"])
+    head = str((pr.get("head") or {}).get("sha") or "")
+    phase = "draft" if _counted_from(pr, strict=True) is _COUNT_NOTHING else "ready"
+    # NO FALLBACK on an unreadable review list, and an earlier revision had one: it returned the
+    # coarse `phase` on `ClaimError`, reasoning that a collision stalls one step visibly rather than
+    # duplicating a session. That reasoning was wrong, and checkably so. The coarse token `draft`
+    # keys the prefix `…-draft-`, which `…-draft-1-1` STARTS WITH - so a launcher with an unreadable
+    # endpoint counts the successful launcher's ref, takes `…-draft-2`, and creates a ref that
+    # collides with nothing. Two names, one lane state, two workers, and a Greptile credit possibly
+    # spent twice (CodeRabbit on #407).
+    #
+    # It also made the caller's own guard dead code: `_authorise_advance` wraps this call to convert
+    # a read failure into a refusal, and the swallow meant that `except` could never fire for the
+    # one failure it was written for. Propagating is what makes the pair coherent.
+    #
+    # The reply filter runs here for the same reason it runs in `_review_state`, and leaving it out
+    # was a live defect: answering a thread makes GitHub wrap the reply in a `COMMENTED` submission
+    # of its own (#396). The reply carries `original_commit_id` of the head it was written against
+    # while the wrapper carries the CURRENT `commit_id`, so an answer to an OLD finding increments
+    # this token — the lane's next step is unchanged, but the ref prefix moves, `_authorise_advance`
+    # finds nothing at the new name, and launches the step a second time. One reply, one duplicate
+    # session, and a Greptile credit possibly spent twice (CodeRabbit on #407).
+    wrappers = _reply_wrapper_ids(
+        claim._paginate(f"/repos/{REPO}/pulls/{number}/comments", "review-comment list")
+    )
+    seen = 0
+    for entry in claim._paginate(f"/repos/{REPO}/pulls/{number}/reviews", "review list"):
+        login = ((entry.get("user") or {}).get("login")) or ""
+        if (
+            login in EXTERNAL_PROVIDERS
+            and _reviewed_head(entry) == head
+            and _is_a_review(entry, wrappers)
+        ):
+            seen += 1
+    return f"{phase}-{seen}"
+
+
+def _advance_state(
+    *,
+    labels: set[str],
+    read_head: bool,
+    armed: bool,
+    counted_from: str | None,
+    owed: bool,
+    running: bool,
+    capped: bool,
+    gate_blocked: bool,
+    add: list[str],
+    remove: list[str],
+) -> str:
+    """Publish, hold or clear the authority to advance an unfinished lane (#394).
+
+    **Unfinished, not merely draft.** The stranded draft is the incident that found this, but the
+    conditions below turn on what step is left rather than on the draft flag: a ready pull request
+    whose gate has not been asked for is stranded in the same way, and only *ready and armed* is
+    the lane actually complete.
+
+    The lane is a **sequence**, and until now the swarm had one resumption signal for it:
+    ``agent:needs-amend``, published when a check failed or a finding was owed. A clean review owes
+    nothing, so it published nothing; ``swarm_slots`` resumes claimed work only on that label; and
+    the draft sat forever, before the CodeRabbit gate it cannot merge without. The pre-ADR-0062
+    contract had no such gap because it was single-shot - open ready, request, arm auto-merge, exit
+    - and auto-merge did the waiting. The lane replaced that with phases auto-merge cannot perform.
+
+    Every condition below is a way the authority would otherwise be wrong, and each is #394's:
+
+    * **The lane must be unfinished**, and only *ready and armed* is finished. A counted-phase pull
+      request whose gate has not been asked for, or has passed with the merge not yet armed, still
+      has a step left and is authorised. ``_counted_from`` reporting the draft sentinel is exactly
+      *"no ``ready_for_review`` has ever happened"*, and what that answer decides is which rules
+      apply — the cap binds in the draft phase, where a round really is spent — not whether the
+      lane is over.
+    * **Nothing may be owed, and no AMEND may still be published.** An owed finding is still an
+      AMEND. Publishing both would hand one claim two authorities and let the resumption that
+      arrives first decide which. ``owed`` alone does not cover it: the label is a *published*
+      state that outlives the finding, because the capped branch above returns before the one that
+      clears a stale one, and the module docstring forbids this function clearing it instead — that
+      label has a second writer. So the presence of the label is checked directly, and the advance
+      waits for whoever owns the amend to finish (CodeRabbit on #407).
+    * **The checks must be green and settled.** Advancing means spending a metered credit or asking
+      the mandatory gate, and neither is worth doing against a diff that is still moving.
+    * **A review must actually have happened at this head.** Otherwise a freshly opened draft would
+      be authorised to leave the draft phase before the free provider had ever looked at it, which
+      is the lane's whole point skipped.
+    * **Not past the cap.** Nothing is authorised past it, by any route.
+    * **Not gate-blocked**, which is #399 meeting #394 and belongs to neither branch alone. That
+      label means *the convergence verification came back blocking too, so no automatic state
+      remains* — and an advance is automatic state. ``owed`` covers the moment the finding lands
+      and stops covering it the instant the author answers and resolves the thread (#393), which is
+      exactly when a session would be dispatched to walk a lane that has stopped terminating.
+      Checked on the recomputed ``rounds > CAP``, not on the label, so it cannot be cleared by
+      anyone tidying labels.
+
+    The label is *published*, not consumed. ``swarm_slots`` takes the ref that makes it exactly one
+    session; the label alone re-triggering would be an unbounded supply of them.
+    """
+    # `not in remove` is load-bearing, and leaving it out re-created the very bug this function
+    # exists to fix. `labels` is the snapshot read at the start of the run, so on the run that
+    # RETIRES the amend — the finding was answered, the fix pushed, the suite came back green — the
+    # label is in `remove` and still in `labels`. Withholding on the snapshot alone therefore
+    # withheld the advance on exactly the run that made it due, and nothing fires afterwards to
+    # publish it: clearing a label is not an event. The draft strands before the gate, which is
+    # #394. So the question is whether the amend STANDS, not whether it was there when we looked.
+    if owed or running or (AMEND_LABEL in labels and AMEND_LABEL not in remove):
+        return _withdraw_advance(labels, remove, "not-eligible")
+    # #399's terminal state, which #394's branch could not see and #399's had nothing to withhold
+    # from. `gate_blocked` says a maintainer decides from here, and publishing advance authority
+    # beside it would dispatch a session to walk a lane that has stopped terminating - past the cap,
+    # so with no round to spend on the review that step would ask for.
+    if gate_blocked:
+        return _withdraw_advance(labels, remove, "gate-blocked")
+    # The cap bounds ROUNDS, and the counted phase's remaining steps are not rounds. A PR whose
+    # gate has passed with both rounds spent still needs a session to arm the merge, and one that
+    # has answered round CAP still needs to request the convergence check ADR-0062 permits - a
+    # review that finds nothing is the lane terminating, not a third round. Withholding here left
+    # such a PR green, gated and unmergeable with nobody authorised to finish it (Codex P2 on
+    # #407). The draft phase stays subject to the cap, where a round really would be spent.
+    if capped and counted_from is _COUNT_NOTHING:
+        return _withdraw_advance(labels, remove, "not-eligible")
+    # A REVIEW MUST HAVE HAPPENED AT THIS HEAD, in every phase. The lane only ever advances out of
+    # a state a provider has looked at: on a draft that is Codex coming back clean, and past it the
+    # head has not moved since - marking a PR ready pushes nothing - so the same evidence is still
+    # there. Requiring it unconditionally is also what closes a fail-open, which is why it is not
+    # phase-specific: `_counted_from` answers `None` BOTH for a PR that was opened ready and for a
+    # timeline it could not read, so a phase-specific test read an API failure as "past the draft"
+    # and published authority for a pull request nobody had reviewed. `None` is deliberately the
+    # fail-toward-counting answer on the ROUND axis; it is not evidence of anything on this one.
+    if not read_head:
+        return _withdraw_advance(labels, remove, "no-review-yet")
+    if counted_from is not _COUNT_NOTHING and armed:
+        # PAST THE DRAFT AND ARMED is the one state needing no further session. Reading merely
+        # `ready for review` as "the lane is complete" stranded it one step further along than
+        # before (Codex P1 on #407): an ADVANCE worker marks the PR ready and exits, and the
+        # remaining steps - ask CodeRabbit, then arm once it comes back clean - are exactly the
+        # ones auto-merge cannot perform for itself.
+        return _withdraw_advance(labels, remove, "lane-complete")
+    if ADVANCE_LABEL in labels:
+        return "unchanged"
+    add.append(ADVANCE_LABEL)
+    return "added"
+
+
+def _withdraw_advance(labels: set[str], remove: list[str], reason: str) -> str:
+    """Take the advance authority back when its preconditions stop holding.
+
+    Unlike ``agent:needs-amend`` this label has exactly one writer, so removing it here cannot
+    fight the reaper over a signal that means something else. It is safe to withdraw and it must
+    be: a stale one would authorise a session to advance a lane that has moved on.
+    """
+    if ADVANCE_LABEL in labels:
+        remove.append(ADVANCE_LABEL)
+        return f"cleared-{reason}"
+    return reason
 
 
 def _suite_state(sha: str) -> tuple[bool, bool]:
@@ -1025,7 +1293,12 @@ def _round_label(rounds: int) -> str | None:
 #: rather than the tail of an add. Clearing `agent:needs-amend` is the only one: it retracts the
 #: launcher's authority to start a session, so a silently failed DELETE leaves a PR that owes
 #: nothing still advertising that it owes an AMEND, and the launcher keeps spending sessions on it.
-CHECKED_REMOVALS = frozenset({AMEND_LABEL})
+# Both are launcher AUTHORITY, so a removal that silently fails leaves a session authorised against
+# state that no longer justifies it. `agent:needs-advance` joins for exactly the reason
+# `agent:needs-amend` is here: `_withdraw_advance` fires when a finding is owed, checks are running,
+# the cap is reached or the lane completed, and in every one of those a surviving label starts an
+# ADVANCE against a PR that is no longer eligible for one (Codex P2 on #407).
+CHECKED_REMOVALS = frozenset({AMEND_LABEL, ADVANCE_LABEL})
 
 
 def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> None:
@@ -1061,9 +1334,14 @@ def _apply(number: int, add: list[str], remove: list[str], *, dry_run: bool) -> 
     for label in remove:
         status, _ = claim._request("DELETE", f"/repos/{REPO}/issues/{number}/labels/{label}", None)
         if label in CHECKED_REMOVALS and status not in DELETE_DONE:
+            # Label-neutral: `CHECKED_REMOVALS` holds two labels now, and naming only the AMEND one
+            # made the failure misdescribe the state whenever `agent:needs-advance` was the label
+            # that would not clear — on the message an operator reads to decide what to repair
+            # (CodeRabbit on #407).
             raise TriageError(
-                f"#{number} no longer owes an AMEND but {label} could not be removed "
-                f"(HTTP {status}); leaving it would keep issuing authority this run just retracted"
+                f"#{number} no longer holds the authority {label} grants, but it could not be "
+                f"removed (HTTP {status}); leaving it would keep issuing the session this run "
+                "just retracted"
             )
 
 
@@ -1090,7 +1368,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         raise TriageError(f"PR #{pr['number']} has no head sha")
 
     counted_from = _counted_from(pr)
-    reviewed, review_owed, converged = _review_state(pr["number"], head, counted_from)
+    reviewed, review_owed, read_head, converged = _review_state(pr["number"], head, counted_from)
     rounds = len(reviewed)
     running, failed = _suite_state(head)
     capped = rounds >= CAP
@@ -1149,6 +1427,19 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     if gate_blocked and GATE_BLOCKED_LABEL not in labels:
         add.append(GATE_BLOCKED_LABEL)
 
+    advance = _advance_state(
+        labels=labels,
+        read_head=read_head,
+        armed=bool(pr.get("auto_merge")),
+        counted_from=counted_from,
+        owed=owed,
+        running=running,
+        capped=capped,
+        gate_blocked=gate_blocked,
+        add=add,
+        remove=remove,
+    )
+
     _apply(issue, add, remove, dry_run=dry_run)
     return {
         "action": "triage",
@@ -1174,6 +1465,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         "checks": "running" if running else ("failed" if failed else "green"),
         "review_owed": review_owed,
         "amend": amend,
+        "advance": advance,
         "added": add,
         "removed": remove,
     }
