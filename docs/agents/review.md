@@ -38,9 +38,13 @@ Each step begins only when the one before it has nothing blocking left.
    `Actionable comments posted: 0` line, which is the bot's machine-readable form of the verdict.
    An *absence* of comments is not that evidence, and neither is a green `CodeRabbit` status check:
    both are also what the incremental command below leaves behind when it reviews nothing, and the
-   check answers *is one running*, never *did one happen*. This is the same predicate
-   `triage._review_state` computes as its `converged` half — that provider, that head, no findings
-   — so the checklist and the counter are asking one question, not two that resemble each other.
+   check answers *is one running*, never *did one happen*.
+
+   **Nothing automatic reads this, and that is the point.** `triage._review_state` reports the heads
+   a provider reviewed and whether the current one owes an answer; it does not parse a provider's
+   verdict text and has no convergence output. So the gate is an obligation on whoever completes the
+   lane, and the recorded evidence is the only thing that makes it auditable afterwards — by a human,
+   or by a reviewer asked to confirm the lane was walked rather than declared.
 
 **Never write a provider's handle in a comment you do not intend as a request.** A mention fires the
 bot even inside backticks — a code span is not an escape. Quoting the trigger while *describing* it
