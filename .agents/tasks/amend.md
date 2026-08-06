@@ -57,10 +57,9 @@ The severity floor you classify against lives on `review.md`, not in the residen
 - **At round {{CAP}}, one convergence check is the exception, and only that.** Answer every blocking
   finding, push, and request the final review — a round is a review that found something
   **blocking**, so a clean one costs nothing, and a clean **CodeRabbit** one is also what satisfies
-  the gate. A review that returns only
-  non-blocking findings is clean for this purpose: defer them, per the first rule above, and the
-  round stays free. It is not a third round and it is not optional: without
-  it a capped pull request can never merge. If that check comes back blocking too, stop:
+  the gate. A review returning only non-blocking findings is clean for this purpose: defer them, per
+  the first rule above, and the round stays free. It is not a third round and it is not optional —
+  without it a capped pull request can never merge. If that check comes back blocking too, stop:
   `agent:gate-blocked` goes on, safety-class findings escalate to the maintainer, and the rest
   become follow-ups.
 - Do not rebase or force-push a published branch, and do not open a second PR for this issue.
