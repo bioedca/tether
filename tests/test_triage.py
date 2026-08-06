@@ -113,15 +113,6 @@ def _review(user: str, sha: str) -> dict[str, Any]:
     return {"user": {"login": user}, "commit_id": sha, "state": "CHANGES_REQUESTED"}
 
 
-def _clean_review(user: str, sha: str, *, body: str = "No actionable comments.") -> dict[str, Any]:
-    """CodeRabbit's clean form: a body, state `COMMENTED`, and no inline findings.
-
-    Measured on #385 — every CodeRabbit submission there was `COMMENTED`, the dirty ones included,
-    so the state does not separate them. Only the absence of findings does.
-    """
-    return {"user": {"login": user}, "commit_id": sha, "state": "COMMENTED", "body": body}
-
-
 def _suites(*entries: dict[str, Any], total: int | None = None) -> dict[str, Any]:
     return {
         "total_count": total if total is not None else len(entries),
@@ -145,6 +136,7 @@ def _routes(
     suites: dict[str, Any] | None = None,
     issue_state: str = "open",
     timeline: list[dict[str, Any]] | None = None,
+    threads: list[dict[str, Any]] | None = None,
 ) -> Routes:
     return {
         ("GET", "/repos/bioedca/tether/pulls/99/reviews"): (200, reviews or []),
@@ -156,6 +148,65 @@ def _routes(
         ),
         ("GET", "/repos/bioedca/tether/commits"): (200, suites if suites is not None else GREEN),
         ("GET", "/repos/bioedca/tether/issues/99/timeline"): (200, timeline or []),
+        ("POST", "/graphql"): (200, _threads(threads or [])),
+    }
+
+
+#: The contract's deferral reply, spelled as `docs/agents/review.md` and `.agents/tasks/amend.md`
+#: prescribe it. #409 is the real follow-up this stack filed, so the fixture is not inventing one.
+DEFERRAL = "Deferred: non-blocking, severity is unread here. Tracked in #409."
+
+#: **GraphQL omits the `[bot]` suffix REST carries.** `author.login` on a Bot is `coderabbitai`,
+#: while `user.login` on the same account over REST is `coderabbitai[bot]` - measured on this repo.
+#: The fixture uses the GraphQL spelling because that is what the parser under test receives, and
+#: writing the REST one here would let a provider-authored deferral pass unnoticed.
+RABBIT_GQL = "coderabbitai"
+
+
+def _thread(
+    *comment_ids: int,
+    resolved: bool = False,
+    truncated: bool = False,
+    answer: str | None = DEFERRAL,
+    answered_by: str = "bioedca",
+) -> dict[str, Any]:
+    """One review thread. Resolution is a property of the THREAD, so it covers all its comments.
+
+    Shaped the way GitHub returns one: the first comment is the provider's finding, anything after
+    it is a reply. `answer` is what those replies say - `None` for a thread somebody closed with no
+    answer at all - and `answered_by` is who wrote them, so a *provider* writing the deferral (which
+    must not count) is expressible.
+    """
+    nodes: list[dict[str, Any]] = []
+    for position, comment_id in enumerate(comment_ids):
+        finding = position == 0
+        nodes.append(
+            {
+                # `fullDatabaseId` is a GraphQL BigInt and arrives as a STRING, which is the shape
+                # the parser must normalise - `databaseId` is deprecated for dropping 64-bit ids.
+                "fullDatabaseId": str(comment_id),
+                "body": "A finding." if finding else (answer or "Acknowledged."),
+                "author": {"login": RABBIT_GQL if finding else answered_by},
+            }
+        )
+    return {
+        "isResolved": resolved,
+        "comments": {"pageInfo": {"hasNextPage": truncated}, "nodes": nodes},
+    }
+
+
+def _threads(nodes: list[dict[str, Any]], *, cursor: str | None = None) -> dict[str, Any]:
+    return {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": cursor is not None, "endCursor": cursor},
+                        "nodes": nodes,
+                    }
+                }
+            }
+        }
     }
 
 
@@ -1178,47 +1229,6 @@ def test_an_empty_bodied_review_carrying_real_findings_counts_once(
     assert result["rounds"] == 1, "one non-reply comment makes the submission a review"
 
 
-def test_a_submission_that_proves_nothing_either_way_is_still_read_as_a_review(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The safety direction of `_reply_wrapper_ids`, and where #399 takes over from #396.
-
-    A submission with no body, no verdict and no comments is *ambiguous* about whether it is a
-    review at all. #396's set is written as `owns comments and all of them are replies` rather than
-    `owns a non-reply comment` precisely so the ambiguous case is treated as a review — a wrapper
-    has to be proven, because undercounting is the fail-open direction on the cap.
-
-    It then spends no round, and that is #399 rather than a hole in #396: it found nothing, so it
-    is a convergence verification and free. The two rules compose in the order they are asked —
-    *is this a review*, then *did it find anything* — and this pins both halves, because a naive
-    implementation of either could produce this same zero for the wrong reason.
-    """
-    _, result = _run(
-        _routes(
-            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
-            timeline=[_ready(READY_TIME)],
-            suites=GREEN,
-        ),
-        monkeypatch,
-    )
-    assert result["rounds"] == 0, "it found nothing, so it converged rather than spending a round"
-    assert result["review_owed"] is False, (
-        "and nothing is owed, so it is not a wrapper being hidden"
-    )
-
-    # The control: the same submission carrying one real finding is a round.
-    _, blocking = _run(
-        _routes(
-            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
-            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
-            timeline=[_ready(READY_TIME)],
-            suites=GREEN,
-        ),
-        monkeypatch,
-    )
-    assert blocking["rounds"] == 1
-
-
 def test_the_wrapper_filter_and_the_rewritten_commit_id_are_independent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1248,329 +1258,349 @@ def test_the_wrapper_filter_and_the_rewritten_commit_id_are_independent(
     assert result["rounds"] == 1
 
 
-# ---------------------------------------------- #399: the gate and the cap could deadlock a PR
+# ------------------------------------ #393: only a push used to clear `review_owed`
 #
-# ADR-0062 requires "at least one CodeRabbit review with no actionable comments" AND allows two
-# rounds. If the round-2 review posts actionable comments, answering them moves the head, and the
-# gate then requires a review at THAT head - which would be round 3, which the cap forbids. #385
-# reached exactly that state: green on all 16 checks, 54 threads resolved, mergeStateStatus CLEAN,
-# and unmergeable by the lane's own text, with nothing anywhere saying why.
-#
-# The resolution: a round is a metered review that FOUND something. A clean one is the lane
-# terminating, not a round, so a capped PR may always ask once more to verify convergence.
-
-ROUND_1 = "1" * 40
-ROUND_2 = "2" * 40
+# For a NON-BLOCKING finding the contract forbids a push: defer it to one follow-up issue and
+# resolve the thread with the link. So the answer the contract prescribes cleared nothing,
+# `agent:needs-amend` survived a completed answer, and the launcher kept issuing AMEND sessions
+# until it hit its cap. Resolution is the signal because it is what that instruction produces and
+# the only part of it a machine can read - the follow-up LINK is contract, not payload.
 
 
-def _blocking_round(sha: str, comment_id: int) -> dict[str, list[dict[str, Any]]]:
-    """One metered round that found something, in the shape #385's actually had."""
-    return {
-        "reviews": [_submission(RABBIT, sha, comment_id * 10, body="findings")],
-        "comments": [_finding(RABBIT, sha, comment_id * 10, comment_id)],
-    }
-
-
-def test_two_blocking_rounds_then_a_clean_verification_leaves_the_lane_able_to_merge(
+def test_a_deferred_finding_stops_owing_once_its_thread_is_resolved(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """THE #385 deadlock, resolved. The third review is the one that terminates the lane.
+    """THE #393 case: reply, resolve, link a follow-up, do not push. No AMEND owed.
 
-    Two rounds found things; both were answered and the fix pushed. The verification at the current
-    head comes back clean — which is exactly what the gate asks for — so it costs nothing and the
-    count stays at the cap rather than passing it.
+    Against the old implementation `review_owed` is True here and stays True forever, because its
+    only exit was `pushing a fix moves the head` — exactly what the contract forbids for a
+    non-blocking finding.
     """
-    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
-    _, result = _run(
+    fake, result = _run(
         _routes(
-            reviews=[*first["reviews"], *second["reviews"], _clean_review(RABBIT, HEAD)],
-            comments=[*first["comments"], *second["comments"]],
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, 4243, resolved=True)],
             timeline=[_ready(READY_TIME)],
             suites=GREEN,
         ),
         monkeypatch,
     )
-    assert result["rounds"] == 2, "the verification found nothing, so it spent nothing"
-    assert result["capped"] is True
     assert result["review_owed"] is False
-    assert result["gate"] == "satisfied", (
-        "clean evidence is free, so `rounds` and `capped` read the same either side of the "
-        "convergence check - and reporting `open` here told an operator that another check was "
-        "still permitted on a PR whose gate had just been met (CodeRabbit on #408)"
-    )
+    assert triage.AMEND_LABEL not in fake.added
 
 
-def test_the_gate_is_not_satisfied_by_the_rounds_that_preceded_it(
+def test_a_thread_closed_without_a_reply_has_answered_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The convergence check must have actually happened. Stale round evidence is not it.
+    """Codex P2: `isResolved` alone is not the contract's deferral.
 
-    Two blocking rounds, both answered and pushed, and the verification never requested. Everything
-    a capped PR reports looks identical to the converged case — `rounds == 2`, nothing owed, checks
-    green — because the only thing that differs is a review that does not exist.
-
-    Reading the gate off the round set said `satisfied` here, since answering a finding moves the
-    head and leaves those SHAs behind as stale non-empty evidence. That is the mandatory gate
-    reporting itself met with no clean review anywhere (CodeRabbit on #408).
+    That is reply + resolve + a follow-up link, and the reply is the part a machine can see.
+    Somebody clicking resolve on an unanswered finding must not retract the AMEND it owes.
     """
-    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
-    _, result = _run(
-        _routes(
-            reviews=[*first["reviews"], *second["reviews"]],
-            comments=[*first["comments"], *second["comments"]],
-            timeline=[_ready(READY_TIME)],
-            suites=GREEN,
-        ),
-        monkeypatch,
-    )
-    assert result["rounds"] == 2, "the two rounds still happened"
-    assert result["capped"] is True
-    assert result["review_owed"] is False, "both were answered and the fix pushed"
-    assert result["gate"] == "open", (
-        "no CodeRabbit review exists at this head, so the gate ADR-0062 makes mandatory has not "
-        "been met - and `open` is what tells the worker to go and buy it"
-    )
-
-
-def test_a_greptile_round_does_not_satisfy_the_coderabbit_gate(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The gate names one provider, and the round set is provider-blind.
-
-    Greptile is metered, so its blocking review is a real round — but ADR-0062's gate is *CodeRabbit
-    with no actionable comments*, and Greptile is the optional leg whose exhaustion never blocks. A
-    clean Greptile pass at the head must therefore leave the gate open, or a PR could merge having
-    never satisfied the one review the lane requires.
-    """
-    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
-    _, result = _run(
-        _routes(
-            reviews=[
-                *first["reviews"],
-                *second["reviews"],
-                _clean_review(GREPTILE, HEAD),
-            ],
-            comments=[*first["comments"], *second["comments"]],
-            timeline=[_ready(READY_TIME)],
-            suites=GREEN,
-        ),
-        monkeypatch,
-    )
-    assert result["rounds"] == 2, "a clean review is free whoever wrote it"
-    assert result["gate"] == "open", "Greptile cannot stand in for the mandatory CodeRabbit gate"
-
-
-def test_a_reply_wrapper_at_the_head_is_not_the_convergence_review(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """#396's wrapper, seen from the gate axis.
-
-    Answering the round-two threads produces an empty `COMMENTED` submission at the new head that
-    is byte-identical to a clean review. Counting it would let a PR satisfy its own gate by
-    replying to itself, without any provider having looked at the fix.
-
-    Today two independent things stop this, and only one of them is the gate signal: the reply also
-    leaves the head *owing*, because that axis deliberately does not filter replies (#396). So this
-    passes even against the pre-fix code. It is kept as a forward guard rather than a binding
-    regression, because #393 removes the other one — once a resolved thread stops owing, the reply
-    filter on this axis is all that is left.
-    """
-    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
-    _, result = _run(
-        _routes(
-            reviews=[
-                *first["reviews"],
-                *second["reviews"],
-                _submission(RABBIT, HEAD, WRAPPER_IDS[0]),
-            ],
-            comments=[
-                *first["comments"],
-                *second["comments"],
-                _reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500099),
-            ],
-            timeline=[_ready(READY_TIME)],
-            suites=GREEN,
-        ),
-        monkeypatch,
-    )
-    assert result["gate"] == "open", "the PR answered itself; nobody verified the fix"
-
-
-def test_an_acknowledgement_does_not_retract_a_gate_that_was_already_satisfied(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The deadlock this fix nearly rebuilt, caught in self-review before it shipped.
-
-    Two blocking rounds, the verification comes back clean at `HEAD` — the gate is satisfied — and
-    then CodeRabbit replies inside one of its own threads, as it routinely does after an answer.
-    Voiding the gate on *any* threaded comment made that acknowledgement retract a satisfied gate,
-    and nothing could restore it: the signal is head-bound, and a converged pull request has no
-    material change left to push. Green, gated, and unmergeable — #399's exact shape, arriving
-    through #399's own fix.
-
-    A reply is not an actionable comment (#396), so it is not asked here. The case it was guarding
-    against — a reply that really does carry a finding — is `owed`'s, which counts replies for that
-    reason (#404) and which `_gate_state` already requires to be false.
-
-    Asserted on `_review_state`'s convergence value rather than on `gate`, because on this branch
-    the reply also leaves the head **owed**, and `owed` alone would report `open` whichever way the
-    convergence value went. The deadlock becomes reachable when #393 lands and a resolved thread
-    stops owing, which is precisely when this assertion starts carrying the whole weight.
-    """
-    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
-    _install(
-        monkeypatch,
-        _routes(
-            reviews=[
-                *first["reviews"],
-                *second["reviews"],
-                _clean_review(RABBIT, HEAD),
-                _submission(RABBIT, HEAD, WRAPPER_IDS[0]),
-            ],
-            comments=[
-                *first["comments"],
-                *second["comments"],
-                _reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500097),
-            ],
-            timeline=[_ready(READY_TIME)],
-            suites=GREEN,
-        ),
-    )
-    heads, owed, converged = triage._review_state(99, HEAD, READY_TIME)
-    assert len(heads) == 2, "neither the clean review nor the reply is a round"
-    assert owed is True, "the reply is still owed an answer - that is #404's axis, and it stands"
-    assert converged is True, (
-        "the verification happened and found nothing; an acknowledgement afterwards is not a "
-        "finding and must not take the gate back"
-    )
-
-
-def test_a_verification_that_finds_something_reports_why_the_pr_cannot_proceed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """#399's third criterion: a PR in this state must say so, not sit green and mergeable.
-
-    Three blocking metered rounds. There is no state left that merges: the gate wants a clean
-    review, the cap forbids buying one, and nothing automatic can resolve it. That is a
-    maintainer's, and `agent:gate-blocked` is how they find out without hand-counting review ids as
-    #385 required.
-    """
-    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
-    third = _blocking_round(HEAD, 33)
     fake, result = _run(
         _routes(
-            reviews=[*first["reviews"], *second["reviews"], *third["reviews"]],
-            comments=[*first["comments"], *second["comments"], *third["comments"]],
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, resolved=True)],
             timeline=[_ready(READY_TIME)],
             suites=GREEN,
         ),
         monkeypatch,
     )
-    assert result["rounds"] == 3
-    assert result["gate"] == "blocked"
-    assert triage.GATE_BLOCKED_LABEL in fake.added
-
-
-def test_the_cap_still_binds_on_rounds_that_found_something(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The control. "A converged round is free" must not become "no round is ever counted".
-
-    Two blocking rounds still reach the cap — the property the whole counter exists for, and the one
-    a too-generous reading of #399 would destroy. Both were answered at heads that have since moved,
-    so nothing is owed at the current head and no session is needed; what the cap denies is a THIRD
-    round, and none is being asked for.
-    """
-    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
-    fake, result = _run(
-        _routes(
-            reviews=[*first["reviews"], *second["reviews"]],
-            comments=[*first["comments"], *second["comments"]],
-            timeline=[_ready(READY_TIME)],
-            suites=GREEN,
-        ),
-        monkeypatch,
-    )
-    assert (result["rounds"], result["capped"]) == (2, True)
-    assert triage.CAPPED_LABEL in fake.added
-    assert triage.AMEND_LABEL not in fake.added, "nothing is owed, so nothing is authorised"
-
-
-def test_a_blocking_review_at_the_cap_still_gets_the_session_that_answers_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """CodeRabbit on #408: withholding AMEND *at* the cap made the convergence check unreachable.
-
-    An AMEND is not a round. A round is a metered REVIEW; this label authorises the session that
-    ANSWERS one. Refusing it at `rounds == CAP` meant the round-2 findings could never be fixed, so
-    the pull request could never reach the *everything answered, everything pushed* state the
-    convergence check requires — the change written to un-deadlock the gate deadlocking it one step
-    earlier, and in the one place the deadlock is hardest to see.
-
-    Distinguished from the test above by WHERE the second round landed: there both were answered and
-    the head moved on, here the second review is at the current head and still owes.
-    """
-    first = _blocking_round(ROUND_1, 11)
-    second = _blocking_round(HEAD, 22)
-    fake, result = _run(
-        _routes(
-            reviews=[*first["reviews"], *second["reviews"]],
-            comments=[*first["comments"], *second["comments"]],
-            timeline=[_ready(READY_TIME)],
-            suites=GREEN,
-        ),
-        monkeypatch,
-    )
-    assert (result["rounds"], result["capped"]) == (2, True)
     assert result["review_owed"] is True
-    assert result["gate"] == "open", "the gate is not satisfied while a finding is outstanding"
-    assert result["amend"] == "added"
     assert triage.AMEND_LABEL in fake.added
 
 
-def test_a_clean_metered_review_alone_spends_no_round(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The narrow statement of the rule, so it is not only observable through the deadlock.
+def test_a_reply_that_is_not_a_deferral_does_not_license_the_resolve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P1: resolution may only mean the one thing the severity floor permits it to mean.
 
-    CodeRabbit's clean form is state `COMMENTED` with a body and no inline findings — measured on
-    #385, where the dirty reviews were `COMMENTED` too, so the state does not separate them and
-    only the absence of findings does.
+    Resolve-without-push is allowed for a **non-blocking** finding, deferred to a follow-up issue.
+    A blocking finding must be fixed, which moves the head. So `isResolved` plus *any* reply was too
+    weak: resolving a blocking CodeRabbit thread under a "will look at this" retracted the AMEND
+    authority that existed to address it. The `Deferred: … Tracked in #N` reply is the evidence the
+    contract itself prescribes, and it is what this now requires.
+
+    Severity is still unread — a worker that writes the deferral over a blocking finding defeats
+    this — and that is #409. What is closed here is the path where nothing was written at all.
+    """
+    fake, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, 4243, resolved=True, answer="Ack, will look at this.")],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_a_deferral_written_by_the_provider_is_not_the_authors_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `[bot]` suffix, which GraphQL drops and REST keeps.
+
+    `EXTERNAL_PROVIDERS` is built from REST logins (`coderabbitai[bot]`), so testing the raw GraphQL
+    login (`coderabbitai`) against it matches nothing — no error, no empty result, just a provider
+    quoting the deferral wording in its own finding and passing as the author's answer. Both
+    spellings are tried, and this is what fails if only one is.
+    """
+    fake, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, 4243, resolved=True, answered_by=RABBIT_GQL)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_a_sixty_four_bit_comment_id_still_matches_its_resolved_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2: `databaseId` is deprecated for exactly this, and the ids here are already that big.
+
+    A modern comment would return no usable id, the resolved set would never contain the REST `id`,
+    and the finding would stay owed forever — this function's own bug, reintroduced through the
+    field it reads. `fullDatabaseId` is a BigInt and arrives as a string, so it is normalised.
+    """
+    big = 3708430108000
+    _, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, big)],
+            threads=[_thread(big, big + 1, resolved=True)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is False
+
+
+def test_a_finding_on_an_unresolved_thread_still_owes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The control, and #393's second criterion. Identical but for `isResolved`."""
+    fake, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, 4243, resolved=False)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_resolving_threads_does_not_clear_an_outstanding_changes_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#393's third criterion: the two are separate signals.
+
+    `CHANGES_REQUESTED` is a verdict on the pull request, not a comment on a line. It is withdrawn
+    by the provider reviewing again, never by the author tidying the threads underneath it — so an
+    author who could clear it by resolving would be dismissing a review on their own authority.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[
+                dict(
+                    _submission(RABBIT, HEAD, REAL_REVIEW_ID, body="please fix"),
+                    state="CHANGES_REQUESTED",
+                )
+            ],
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, 4243, resolved=True)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True, "the submission outlives its threads"
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_thread_resolution_is_not_read_when_nothing_could_be_cleared_by_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The query is asked only when it can change an answer.
+
+    `clear_mirror` and the round-label paths run on every triage event, and a pull request with no
+    external finding at the current head cannot have an answered one.
+    """
+    fake, _ = _run(_routes(reviews=[_review(RABBIT, HEAD)], suites=GREEN), monkeypatch)
+    assert not [c for c in fake.calls if c[1] == "/graphql"]
+
+
+def test_an_unreadable_thread_read_fails_the_job_rather_than_answering_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fails closed by RAISING, and the distinction is #388's.
+
+    Returning "nothing resolved" would also keep every finding owed, and would restore this exact
+    bug invisibly and forever the first time the query broke. A transport failure must not become a
+    verdict about work nobody read — so this is the same treatment `_paginate_or_raise` gives an
+    unreadable review list one call above.
+    """
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    routes[("POST", "/graphql")] = (200, {"errors": [{"message": "Something went wrong"}]})
+    with pytest.raises(triage.TriageError):
+        _run(routes, monkeypatch)
+
+
+def test_a_partial_thread_read_is_refused_rather_than_treated_as_complete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unread threads would report answered findings as unanswered — and #385 reached 54 threads.
+
+    A short read is indistinguishable from a short list, so the cursor is followed and a walk that
+    does not terminate is an error rather than a partial answer.
+    """
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    # Always another page, and never a usable cursor: the walk cannot complete.
+    routes[("POST", "/graphql")] = (200, _threads([_thread(4242, 4243, resolved=True)], cursor=""))
+    with pytest.raises(triage.TriageError, match="partial read"):
+        _run(routes, monkeypatch)
+
+
+def test_a_malformed_thread_payload_is_refused_rather_than_read_as_nothing_resolved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2: `or {}` down the GraphQL chain turns a null level into a silent verdict.
+
+    A null `repository`, `pullRequest` or `reviewThreads` would become an empty page and then
+    "nothing is resolved" — which SUCCEEDS, keeps every finding owed, and so restores this bug
+    permanently and invisibly. Every level is required.
+    """
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    routes[("POST", "/graphql")] = (200, {"data": {"repository": None}})
+    with pytest.raises(triage.TriageError, match="malformed"):
+        _run(routes, monkeypatch)
+
+
+def test_a_thread_with_more_comments_than_one_page_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P3: a finding past the first 100 comments would stay owed after its thread resolved.
+
+    That is this bug one level down, so the nested connection reports `hasNextPage` and a truncated
+    thread fails the job rather than being half-read.
+    """
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        threads=[_thread(4242, 4243, resolved=True, truncated=True)],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    with pytest.raises(triage.TriageError, match="part of a thread"):
+        _run(routes, monkeypatch)
+
+
+def test_a_thread_whose_paging_is_unreadable_is_refused_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same refusal, reached through the check meant to enforce it (CodeRabbit on #405).
+
+    `(comments.get("pageInfo") or {}).get("hasNextPage")` read an ABSENT connection as `False`, so
+    a payload that could not be paged was judged from whatever came back — the half-read the test
+    above refuses, arriving through its own guard. The query always selects `pageInfo`, so absent
+    means unreadable rather than short.
+    """
+    thread = _thread(4242, 4243, resolved=True)
+    del thread["comments"]["pageInfo"]
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        threads=[thread],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    with pytest.raises(triage.TriageError, match="paging could not be read"):
+        _run(routes, monkeypatch)
+
+
+def test_a_head_carrying_only_replies_still_reads_the_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `answerable` predicate tracks the loop, and the loop moved.
+
+    An earlier revision gave this predicate the loop's `in_reply_to_id` filter, on the ground that a
+    head carrying only replies had nothing resolution could clear. #396 removed that filter from the
+    owed axis — a threaded reply can carry a finding — so the ground is gone and keeping the filter
+    would be worse than redundant: such a head would owe, skip the one read that could clear it, and
+    owe forever.
+
+    The saving it was written for is still had, one case over: a head with no external comment at
+    all makes no query. That is `test_a_head_with_no_external_comment_never_asks_about_threads`.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, WRAPPER_IDS[0])],
+            comments=[_reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500099)],
+            threads=[_thread(3708500099, 3708500100, resolved=True)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert [c for c in fake.calls if c[1] == "/graphql"], "the reply owes, so it must be readable"
+    assert result["review_owed"] is False, "and its resolved thread is what clears it"
+
+
+def test_a_head_with_no_external_comment_never_asks_about_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The query is still only paid for when something could be cleared by it.
+
+    Nothing external at this head means nothing owed and nothing to resolve, so a rate limit or a
+    transient GraphQL error must not fail the job — `clear_mirror` and the round-label paths run on
+    every triage event, including the ones with no review activity at all.
+    """
+    fake, _ = _run(
+        _routes(
+            comments=[_finding(RABBIT, OLDER, REAL_REVIEW_ID, 4242)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert not [c for c in fake.calls if c[1] == "/graphql"]
+
+
+def test_resolution_covers_every_comment_on_the_thread_not_just_the_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`isResolved` is a property of the thread, so a finding anywhere in it is answered.
+
+    Keying on the thread's first comment alone would leave a multi-comment thread owing after it was
+    resolved — the same "answered but still owed" state, one level down.
     """
     _, result = _run(
         _routes(
-            reviews=[_clean_review(RABBIT, HEAD)],
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4243)],
+            threads=[_thread(4242, 4243, 4244, resolved=True)],
             timeline=[_ready(READY_TIME)],
             suites=GREEN,
         ),
         monkeypatch,
     )
-    assert result["rounds"] == 0
-
-
-def test_a_changes_requested_submission_is_blocking_without_any_inline_finding(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A verdict is actionable output whether or not it is spelled out line by line."""
-    _, result = _run(
-        _routes(
-            reviews=[
-                dict(_clean_review(RABBIT, HEAD, body="please fix"), state="CHANGES_REQUESTED")
-            ],
-            timeline=[_ready(READY_TIME)],
-            suites=GREEN,
-        ),
-        monkeypatch,
-    )
-    assert result["rounds"] == 1
-
-
-def test_the_gate_blocked_label_is_part_of_the_merged_claims_mirror(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """It describes work in flight, so a merge clears it like every other mirror label (#308)."""
-    assert triage.GATE_BLOCKED_LABEL in triage.MIRROR_LABELS
-    fake = _install(monkeypatch, _merged_routes(labels=[triage.GATE_BLOCKED_LABEL]))
-    triage.clear_mirror(number=99, dry_run=False)
-    assert triage.GATE_BLOCKED_LABEL in fake.removed
+    assert result["review_owed"] is False
 
 
 def test_draft_findings_still_owe_an_answer_even_though_they_cost_no_round(
@@ -2187,6 +2217,71 @@ def test_the_conflict_marker_is_cleared_on_merge(monkeypatch: pytest.MonkeyPatch
     assert triage.CONFLICTED_LABEL in triage.MIRROR_LABELS
 
 
+def test_the_workflow_does_not_carry_a_trigger_actions_will_not_run() -> None:
+    """`pull_request_review_thread` is a webhook Actions does not implement (Codex P2 on #405).
+
+    Resolving a thread can CLEAR `agent:needs-amend`, and no trigger reports it — so this file grew
+    one that looks exactly right and never fires. The parser accepts an unknown event, which is what
+    makes it dangerous: an inert control reads as a live one, and the missing-trigger bug was
+    recorded as fixed while nothing had changed.
+
+    Asserted as an ABSENCE because the mistake is re-addable in one line and looks like a fix. The
+    real path is the dispatch in `.agents/tasks/amend.md`, pinned below.
+
+    **Over the whole file, not just the `on:` mapping.** Checking the mapping alone let the same
+    dead event straight back in through the job's `if:` pre-filter — in this very pull request,
+    three lines below the comment explaining why it cannot fire (CodeRabbit on #405). A name that
+    can never equal `github.event_name` is inert wherever it is written, and reading a branch for it
+    as evidence the resolve path is handled is precisely the failure being guarded against.
+    """
+    source = WORKFLOW.read_text(encoding="utf-8")
+    offenders = [
+        f"{i}: {line.strip()}"
+        for i, line in enumerate(source.splitlines(), 1)
+        if "pull_request_review_thread" in line and not line.lstrip().startswith("#")
+    ]
+    assert not offenders, (
+        "`pull_request_review_thread` is a webhook Actions does not implement, so it never fires "
+        f"and never matches `github.event_name` — inert wherever it appears: {offenders}"
+    )
+
+
+def test_the_deferral_procedure_dispatches_the_triage_that_reads_it() -> None:
+    """The resolve path's only working trigger, so the contract has to carry it.
+
+    Without this, `_resolved_comment_ids` is real code that nothing ever runs at the moment it
+    matters: the worker replies, resolves, exits, and the label it just answered survives.
+
+    **The ORDER is the property, not the presence.** Asserting only that the command appears let it
+    sit in step 2 while the reply it must read was instructed in step 4 — so a worker following the
+    numbered order dispatched first, triage read a resolved thread with no
+    `Deferred: … Tracked in #N` in it, and correctly kept owing. The run happened and cleared
+    nothing, which is indistinguishable from the bug it was added to fix (CodeRabbit on #405).
+
+    **The exit is part of that order.** Moving the dispatch after the reply fixed one half and left
+    the other: step 4 still ended `and **exit**` a paragraph ABOVE the dispatch, so a worker reading
+    it in order left before running it and no run happened at all — a stronger version of the same
+    defect, and one an ordering assertion between only those two tokens cannot see.
+    """
+    amend = (ROOT / ".agents" / "tasks" / "amend.md").read_text(encoding="utf-8")
+    assert "-f pr=" in amend and "-f dry_run=false" in amend
+    dispatch = amend.find("workflow run agent-triage.yml")
+    reply = amend.find("reply to every thread you answered")
+    assert dispatch != -1, "the deferral procedure must dispatch triage"
+    assert reply != -1, "the procedure must instruct the reply triage reads"
+    assert dispatch > reply, (
+        "the dispatch must come AFTER the reply it exists to make readable; dispatching first "
+        "gives triage a resolved thread with no deferral in it, and the label survives the answer"
+    )
+    procedure = amend.find("## Do\n")
+    exits = [m.start() for m in re.finditer(r"\bexit\b", amend) if m.start() > procedure]
+    assert exits, "the procedure must tell the worker to exit"
+    assert min(exits) > dispatch, (
+        "every exit instruction must come AFTER the dispatch; an exit written above it tells the "
+        "worker to leave before the run, so nothing recomputes the labels the reply just answered"
+    )
+
+
 def test_the_workflow_listens_for_the_merge_event() -> None:
     triggers = _workflow()[True]
     assert triggers["pull_request"]["types"] == ["closed"]
@@ -2201,3 +2296,378 @@ def test_the_workflow_passes_merged_only_on_the_pull_request_event() -> None:
     )
     assert step["env"]["MERGED"] == "${{ github.event_name == 'pull_request' }}"
     assert "--merged" in step["run"]
+
+
+def _clean_review(user: str, sha: str, *, body: str = "No actionable comments.") -> dict[str, Any]:
+    """CodeRabbit's clean form: a body, state `COMMENTED`, and no inline findings.
+
+    Measured on #385 — every CodeRabbit submission there was `COMMENTED`, the dirty ones included,
+    so the state does not separate them. Only the absence of findings does.
+    """
+    return {"user": {"login": user}, "commit_id": sha, "state": "COMMENTED", "body": body}
+
+
+def test_a_submission_that_proves_nothing_either_way_is_still_read_as_a_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The safety direction of `_reply_wrapper_ids`, and where #399 takes over from #396.
+
+    A submission with no body, no verdict and no comments is *ambiguous* about whether it is a
+    review at all. #396's set is written as `owns comments and all of them are replies` rather than
+    `owns a non-reply comment` precisely so the ambiguous case is treated as a review — a wrapper
+    has to be proven, because undercounting is the fail-open direction on the cap.
+
+    It then spends no round, and that is #399 rather than a hole in #396: it found nothing, so it
+    is a convergence verification and free. The two rules compose in the order they are asked —
+    *is this a review*, then *did it find anything* — and this pins both halves, because a naive
+    implementation of either could produce this same zero for the wrong reason.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0, "it found nothing, so it converged rather than spending a round"
+    assert result["review_owed"] is False, (
+        "and nothing is owed, so it is not a wrapper being hidden"
+    )
+
+    # The control: the same submission carrying one real finding is a round.
+    _, blocking = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert blocking["rounds"] == 1
+
+
+# ---------------------------------------------- #399: the gate and the cap could deadlock a PR
+#
+# ADR-0062 requires "at least one CodeRabbit review with no actionable comments" AND allows two
+# rounds. If the round-2 review posts actionable comments, answering them moves the head, and the
+# gate then requires a review at THAT head - which would be round 3, which the cap forbids. #385
+# reached exactly that state: green on all 16 checks, 54 threads resolved, mergeStateStatus CLEAN,
+# and unmergeable by the lane's own text, with nothing anywhere saying why.
+#
+# The resolution: a round is a metered review that FOUND something. A clean one is the lane
+# terminating, not a round, so a capped PR may always ask once more to verify convergence.
+
+ROUND_1 = "1" * 40
+ROUND_2 = "2" * 40
+
+
+def _blocking_round(sha: str, comment_id: int) -> dict[str, list[dict[str, Any]]]:
+    """One metered round that found something, in the shape #385's actually had."""
+    return {
+        "reviews": [_submission(RABBIT, sha, comment_id * 10, body="findings")],
+        "comments": [_finding(RABBIT, sha, comment_id * 10, comment_id)],
+    }
+
+
+def test_two_blocking_rounds_then_a_clean_verification_leaves_the_lane_able_to_merge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE #385 deadlock, resolved. The third review is the one that terminates the lane.
+
+    Two rounds found things; both were answered and the fix pushed. The verification at the current
+    head comes back clean — which is exactly what the gate asks for — so it costs nothing and the
+    count stays at the cap rather than passing it.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _, result = _run(
+        _routes(
+            reviews=[*first["reviews"], *second["reviews"], _clean_review(RABBIT, HEAD)],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 2, "the verification found nothing, so it spent nothing"
+    assert result["capped"] is True
+    assert result["review_owed"] is False
+    assert result["gate"] == "satisfied", (
+        "clean evidence is free, so `rounds` and `capped` read the same either side of the "
+        "convergence check - and reporting `open` here told an operator that another check was "
+        "still permitted on a PR whose gate had just been met (CodeRabbit on #408)"
+    )
+
+
+def test_the_gate_is_not_satisfied_by_the_rounds_that_preceded_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The convergence check must have actually happened. Stale round evidence is not it.
+
+    Two blocking rounds, both answered and pushed, and the verification never requested. Everything
+    a capped PR reports looks identical to the converged case — `rounds == 2`, nothing owed, checks
+    green — because the only thing that differs is a review that does not exist.
+
+    Reading the gate off the round set said `satisfied` here, since answering a finding moves the
+    head and leaves those SHAs behind as stale non-empty evidence. That is the mandatory gate
+    reporting itself met with no clean review anywhere (CodeRabbit on #408).
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _, result = _run(
+        _routes(
+            reviews=[*first["reviews"], *second["reviews"]],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 2, "the two rounds still happened"
+    assert result["capped"] is True
+    assert result["review_owed"] is False, "both were answered and the fix pushed"
+    assert result["gate"] == "open", (
+        "no CodeRabbit review exists at this head, so the gate ADR-0062 makes mandatory has not "
+        "been met - and `open` is what tells the worker to go and buy it"
+    )
+
+
+def test_a_greptile_round_does_not_satisfy_the_coderabbit_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate names one provider, and the round set is provider-blind.
+
+    Greptile is metered, so its blocking review is a real round — but ADR-0062's gate is *CodeRabbit
+    with no actionable comments*, and Greptile is the optional leg whose exhaustion never blocks. A
+    clean Greptile pass at the head must therefore leave the gate open, or a PR could merge having
+    never satisfied the one review the lane requires.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _, result = _run(
+        _routes(
+            reviews=[
+                *first["reviews"],
+                *second["reviews"],
+                _clean_review(GREPTILE, HEAD),
+            ],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 2, "a clean review is free whoever wrote it"
+    assert result["gate"] == "open", "Greptile cannot stand in for the mandatory CodeRabbit gate"
+
+
+def test_a_reply_wrapper_at_the_head_is_not_the_convergence_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#396's wrapper, seen from the gate axis.
+
+    Answering the round-two threads produces an empty `COMMENTED` submission at the new head that
+    is byte-identical to a clean review. Counting it would let a PR satisfy its own gate by
+    replying to itself, without any provider having looked at the fix.
+
+    Today two independent things stop this, and only one of them is the gate signal: the reply also
+    leaves the head *owing*, because that axis deliberately does not filter replies (#396). So this
+    passes even against the pre-fix code. It is kept as a forward guard rather than a binding
+    regression, because #393 removes the other one — once a resolved thread stops owing, the reply
+    filter on this axis is all that is left.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _, result = _run(
+        _routes(
+            reviews=[
+                *first["reviews"],
+                *second["reviews"],
+                _submission(RABBIT, HEAD, WRAPPER_IDS[0]),
+            ],
+            comments=[
+                *first["comments"],
+                *second["comments"],
+                _reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500099),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["gate"] == "open", "the PR answered itself; nobody verified the fix"
+
+
+def test_an_acknowledgement_does_not_retract_a_gate_that_was_already_satisfied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deadlock this fix nearly rebuilt, caught in self-review before it shipped.
+
+    Two blocking rounds, the verification comes back clean at `HEAD` — the gate is satisfied — and
+    then CodeRabbit replies inside one of its own threads, as it routinely does after an answer.
+    Voiding the gate on *any* threaded comment made that acknowledgement retract a satisfied gate,
+    and nothing could restore it: the signal is head-bound, and a converged pull request has no
+    material change left to push. Green, gated, and unmergeable — #399's exact shape, arriving
+    through #399's own fix.
+
+    A reply is not an actionable comment (#396), so it is not asked here. The case it was guarding
+    against — a reply that really does carry a finding — is `owed`'s, which counts replies for that
+    reason (#404) and which `_gate_state` already requires to be false.
+
+    Asserted on `_review_state`'s convergence value rather than on `gate`, because on this branch
+    the reply also leaves the head **owed**, and `owed` alone would report `open` whichever way the
+    convergence value went. The deadlock becomes reachable when #393 lands and a resolved thread
+    stops owing, which is precisely when this assertion starts carrying the whole weight.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _install(
+        monkeypatch,
+        _routes(
+            reviews=[
+                *first["reviews"],
+                *second["reviews"],
+                _clean_review(RABBIT, HEAD),
+                _submission(RABBIT, HEAD, WRAPPER_IDS[0]),
+            ],
+            comments=[
+                *first["comments"],
+                *second["comments"],
+                _reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500097),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+    )
+    heads, owed, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert len(heads) == 2, "neither the clean review nor the reply is a round"
+    assert owed is True, "the reply is still owed an answer - that is #404's axis, and it stands"
+    assert converged is True, (
+        "the verification happened and found nothing; an acknowledgement afterwards is not a "
+        "finding and must not take the gate back"
+    )
+
+
+def test_a_verification_that_finds_something_reports_why_the_pr_cannot_proceed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#399's third criterion: a PR in this state must say so, not sit green and mergeable.
+
+    Three blocking metered rounds. There is no state left that merges: the gate wants a clean
+    review, the cap forbids buying one, and nothing automatic can resolve it. That is a
+    maintainer's, and `agent:gate-blocked` is how they find out without hand-counting review ids as
+    #385 required.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    third = _blocking_round(HEAD, 33)
+    fake, result = _run(
+        _routes(
+            reviews=[*first["reviews"], *second["reviews"], *third["reviews"]],
+            comments=[*first["comments"], *second["comments"], *third["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 3
+    assert result["gate"] == "blocked"
+    assert triage.GATE_BLOCKED_LABEL in fake.added
+
+
+def test_the_cap_still_binds_on_rounds_that_found_something(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control. "A converged round is free" must not become "no round is ever counted".
+
+    Two blocking rounds still reach the cap — the property the whole counter exists for, and the one
+    a too-generous reading of #399 would destroy. Both were answered at heads that have since moved,
+    so nothing is owed at the current head and no session is needed; what the cap denies is a THIRD
+    round, and none is being asked for.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    fake, result = _run(
+        _routes(
+            reviews=[*first["reviews"], *second["reviews"]],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert (result["rounds"], result["capped"]) == (2, True)
+    assert triage.CAPPED_LABEL in fake.added
+    assert triage.AMEND_LABEL not in fake.added, "nothing is owed, so nothing is authorised"
+
+
+def test_a_blocking_review_at_the_cap_still_gets_the_session_that_answers_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CodeRabbit on #408: withholding AMEND *at* the cap made the convergence check unreachable.
+
+    An AMEND is not a round. A round is a metered REVIEW; this label authorises the session that
+    ANSWERS one. Refusing it at `rounds == CAP` meant the round-2 findings could never be fixed, so
+    the pull request could never reach the *everything answered, everything pushed* state the
+    convergence check requires — the change written to un-deadlock the gate deadlocking it one step
+    earlier, and in the one place the deadlock is hardest to see.
+
+    Distinguished from the test above by WHERE the second round landed: there both were answered and
+    the head moved on, here the second review is at the current head and still owes.
+    """
+    first = _blocking_round(ROUND_1, 11)
+    second = _blocking_round(HEAD, 22)
+    fake, result = _run(
+        _routes(
+            reviews=[*first["reviews"], *second["reviews"]],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert (result["rounds"], result["capped"]) == (2, True)
+    assert result["review_owed"] is True
+    assert result["gate"] == "open", "the gate is not satisfied while a finding is outstanding"
+    assert result["amend"] == "added"
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_a_clean_metered_review_alone_spends_no_round(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The narrow statement of the rule, so it is not only observable through the deadlock.
+
+    CodeRabbit's clean form is state `COMMENTED` with a body and no inline findings — measured on
+    #385, where the dirty reviews were `COMMENTED` too, so the state does not separate them and
+    only the absence of findings does.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_clean_review(RABBIT, HEAD)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0
+
+
+def test_a_changes_requested_submission_is_blocking_without_any_inline_finding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A verdict is actionable output whether or not it is spelled out line by line."""
+    _, result = _run(
+        _routes(
+            reviews=[
+                dict(_clean_review(RABBIT, HEAD, body="please fix"), state="CHANGES_REQUESTED")
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+
+
+def test_the_gate_blocked_label_is_part_of_the_merged_claims_mirror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """It describes work in flight, so a merge clears it like every other mirror label (#308)."""
+    assert triage.GATE_BLOCKED_LABEL in triage.MIRROR_LABELS
+    fake = _install(monkeypatch, _merged_routes(labels=[triage.GATE_BLOCKED_LABEL]))
+    triage.clear_mirror(number=99, dry_run=False)
+    assert triage.GATE_BLOCKED_LABEL in fake.removed

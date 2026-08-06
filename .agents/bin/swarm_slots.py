@@ -76,10 +76,18 @@ def _load(name: str) -> Any:
 # leave the other live - the kind of half-faked test that passes for the wrong reason.
 reaper = _load("reaper")
 claim = reaper.claim
-# triage is read for the label vocabulary and the cap ONLY, never called, so its own separate
-# `claim` object is never used. Sharing the constants means the two halves of the cap cannot
-# disagree about which labels they are talking about.
+# triage supplies the label vocabulary, the cap, and - since #391 - the phase predicate the draft
+# exemption keys on. Sharing the constants means the two halves of the cap cannot disagree about
+# which labels they are talking about, and sharing the predicate means they cannot disagree about
+# which phase a pull request is in.
+#
+# `_load` builds a fresh module, so triage arrives holding a SECOND `claim` object. That was
+# harmless while triage was only read; it is not now that `_in_draft_phase` calls into it, because a
+# second transport is a second thing to authenticate and a second thing a test must patch - and a
+# half-patched test is the failure this file's own reaper/claim comment above exists to prevent. So
+# the one transport is pushed in, and a test pins that all three modules share it.
 triage = _load("triage")
+triage.claim = claim
 
 REPO = claim.REPO
 CAP = triage.CAP
@@ -114,6 +122,36 @@ LANE_GH = "gh"
 # the ADR reservations. A custom namespace is the same compare-and-swap and invisible to every tag
 # consumer.
 AMEND_NAMESPACE = "amend-rounds"
+
+# The draft phase's refs live under the same namespace with a `draft-` ordinal prefix, so both
+# ledgers are enumerated by one `matching-refs` call and neither can be mistaken for the other
+# (#391). ADR-0062 makes the draft phase uncapped - Codex iterates freely until nothing blocking
+# remains - and `triage.py` counts accordingly, but this launcher keeps a SECOND, independent cap in
+# permanent generation refs, deliberately, so that either counter can bind. It had no notion of
+# draft state, so two draft iterations exhausted it while triage correctly reported zero rounds, and
+# the advertised unlimited loop stalled here with no label saying why.
+#
+# The phase is written INTO THE REF NAME rather than re-derived when the ledger is read. A ref is
+# immutable once created, so `<issue>-<gen>-draft-2` records what was true when that session was
+# issued; reading `draft` at audit time would report today's answer about yesterday's decision, and
+# a PR that has since gone ready would make its own draft history retroactively count.
+#
+# A ref written BEFORE this prefix existed is therefore read as counted-phase, and that is correct
+# rather than a missing migration: it was created under the old semantics, where every AMEND counted
+# against the cap whatever the pull request's state. Verified before this merged - the repository
+# holds exactly one `refs/amend-rounds/*` ref, `252-38550159308-1`, belonging to an issue that is
+# closed and merged, and **zero** live `agent/issue-*` claims. A generation is a server-assigned,
+# strictly increasing activity id, so a reclaim can never reuse that key either. Nothing live can
+# misread, and a future change to this naming needs the same check.
+DRAFT_ORDINAL_PREFIX = "draft-"
+
+#: A runaway stop, NOT the review cap - the two are different things and conflating them would undo
+#: this change. `CAP` bounds how much metered review a PR may buy; this bounds how many times the
+#: launcher will relaunch the same free session before concluding that nothing is progressing.
+#: Deliberately far above any real draft phase (#385, the largest, took eleven Codex rounds), so it
+#: binds only when `agent:needs-amend` is stuck - which the reaper's stale-PR path can do on a draft
+#: with nothing to fix. Reaching it is reported, never silent.
+DRAFT_CEILING = 20
 
 EXIT_NO_WORK = 3
 
@@ -151,18 +189,81 @@ def _issued_amends(number: int, generation: int) -> int:
     ordinary "nothing matches" answer and genuinely means zero.
 
     """
+    return len(_amend_ordinals(number, generation, draft=False))
+
+
+def _amend_ordinals(number: int, generation: int, *, draft: bool) -> list[str]:
+    """The AMEND refs already taken for this claim, in one phase or the other (#391).
+
+    One ``matching-refs`` call covers both ledgers; the ``draft-`` prefix on the ordinal separates
+    them. Splitting here rather than at the call site keeps the two counts derived from one read, so
+    they cannot disagree about what exists.
+
+    Fails closed for the same reason :func:`_issued_amends` does: reading a failure as zero would
+    hand out a fresh session at the cap.
+    """
     prefix = f"{AMEND_NAMESPACE}/{number}-{generation}-"
     status, refs = claim._request("GET", f"/repos/{REPO}/git/matching-refs/{prefix}")
     if status == 404:
-        return 0
+        return []
     if status != 200 or not isinstance(refs, list):
         raise SlotError(
             f"#{number} issued-AMEND count could not be read (HTTP {status}); refusing to guess it"
         )
-    return len(refs)
+    ordinals = []
+    for entry in refs:
+        # A malformed entry is a FAILED READ, not an absent round. Skipping one would make a bad
+        # ledger response look like fewer issued rounds, and the only thing that count protects
+        # against is issuing one too many - so it fails closed exactly as a non-list response does.
+        name = entry.get("ref") if isinstance(entry, dict) else None
+        _, marker, ordinal = (
+            name.partition(f"refs/{prefix}") if isinstance(name, str) else ("", "", "")
+        )
+        if not marker or not ordinal:
+            raise SlotError(
+                f"#{number} has an AMEND ref this launcher cannot parse ({name!r}); refusing to "
+                "count a ledger it does not fully understand"
+            )
+        if ordinal.startswith(DRAFT_ORDINAL_PREFIX) is draft:
+            ordinals.append(ordinal)
+    return ordinals
 
 
-def _take_amend_round(number: int, generation: int, ordinal: int, sha: str) -> bool:
+def _in_draft_phase(branch: str) -> bool:
+    """Whether this claim's pull request is still in the **uncapped** draft phase (#391).
+
+    Derived from ``triage._counted_from``, not from a second reading of ``draft``, and that is the
+    point rather than an economy. It is the same predicate the round labels come from, so
+    ``agent:review-capped`` and this launcher's refusal cannot disagree about which phase a pull
+    request is in - and it keys on the *first* ``ready_for_review`` event, so entering the counted
+    phase is permanent and a worker cannot refund a spent round by toggling back to draft.
+
+    **Fails closed, twice over.** No pull request yet, or one this cannot read, is treated as the
+    counted phase, so the cap binds. The uncapped phase has to be positively established: a wrong
+    answer in that direction is an unbounded issuance budget, which is the one outcome the second
+    counter exists to prevent.
+
+    **"Cannot read" includes MALFORMED, not just unreachable**, and the first version of this
+    caught only the two transport errors. A payload that arrives and is the wrong *shape* raises
+    `KeyError`/`TypeError`/`ValueError`/`AttributeError` out of `_pull_request`'s selection or
+    `_counted_from`'s timeline walk - which escaped this function entirely, so the docstring above
+    described a fail-closed guard that the code did not implement for the case most likely to
+    produce one (CodeRabbit on #406). Both arms now return the same answer, kept separate because
+    they mean different things: one is *GitHub did not answer*, the other is *GitHub answered
+    something this does not understand*.
+    """
+    try:
+        pr = triage._pull_request(number=None, branch=branch)
+        if not isinstance(pr, dict):
+            return False
+        return triage._counted_from(pr) is triage._COUNT_NOTHING
+    except (triage.TriageError, claim.ClaimError):
+        return False
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return False
+
+
+def _take_amend_round(number: int, generation: int, ordinal: str, sha: str) -> bool:
     """Claim the right to issue AMEND round ``ordinal``. ``True`` if this launcher won it.
 
     ``POST /git/refs`` is the mutex, exactly as it is for the issue claim itself: ``201`` to the
@@ -489,25 +590,67 @@ def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
       refusal: it counts refs this launcher created, not a label another workflow wrote.
     * **lost** - another launcher claimed the same round first. Not an error and not a refusal.
     * authorised - ``item`` gains ``round``/``remaining`` and the caller proceeds.
+
+    **The cap applies to the counted phase only** (#391). ADR-0062 makes the draft phase uncapped,
+    and this counter had no notion of one: two draft iterations exhausted it while ``triage.py``
+    correctly reported zero rounds, so the free Codex loop the lane advertises stalled here with no
+    label saying why. A draft session still takes a ref - that ref is the mutex preventing two
+    launchers from starting the same session, which is a separate job from counting - but under the
+    ``draft-`` ordinal, which :func:`_issued_amends` does not count.
+
+    ``item["phase"]`` records which ledger was used, so the report says so rather than leaving a
+    reader to infer it from a round number of ``0``.
     """
     number = item["issue"]
     record = _existing_claim(number, owner)
     generation = int(record["generation"])
-    issued = _issued_amends(number, generation)
+    draft = _in_draft_phase(record["branch"])
+    item["phase"] = "draft" if draft else "counted"
 
-    # `max` of the two counters, so EITHER can cap it. That makes the launcher's bound at worst as
-    # strict as the contract's and never looser - the property the first version failed to have.
-    if max(issued, item["label_rounds"]) >= CAP:
-        item["mode"] = "refuse"
-        item["reason"] = (
-            f"at the {CAP}-round cap ({issued} AMEND session(s) already issued for generation "
-            f"{generation}; labels report {item['label_rounds']}). No further AMEND authority "
-            "may be issued. Safety-class findings escalate to the maintainer; the rest become "
-            "follow-ups."
-        )
-        return None
+    if draft:
+        # ADR-0062 makes the draft phase uncapped: Codex is the unmetered lane and iterates until
+        # nothing blocking remains. So the ref is still taken - it is the mutex that stops two
+        # launchers issuing the same session, which is orthogonal to counting - but under the
+        # `draft-` ordinal, where `_issued_amends` does not see it.
+        spent = len(_amend_ordinals(number, generation, draft=True))
+        # UNCAPPED IS NOT UNBOUNDED, and the difference is a live failure mode rather than caution.
+        # `agent:needs-amend` has two writers: triage publishes it for an owed review, and
+        # `reaper.sweep` publishes it for a STALE open pull request (reaper.py:466-471). A stale
+        # draft carries it with nothing for a worker to fix, so each launcher run would mint another
+        # `draft-N` ref, forever, and the label nobody clears would relaunch the same dead session
+        # indefinitely (Codex P2 on #406). This ceiling never binds on real iteration - #385 took
+        # eleven Codex rounds, the most any PR here has needed - so reaching it means the label is
+        # stuck, which is the thing to report rather than to keep serving.
+        if spent >= DRAFT_CEILING:
+            item["mode"] = "refuse"
+            item["reason"] = (
+                f"{spent} draft AMEND sessions already issued for generation {generation}, which "
+                f"is the {DRAFT_CEILING}-session runaway ceiling rather than the review cap. The "
+                "draft phase is uncapped by design, so reaching this means `agent:needs-amend` is "
+                "stuck - most likely the reaper's stale-PR marker on a draft with nothing to fix. "
+                "A maintainer clears the label or closes the claim; no further session helps."
+            )
+            return None
+        ordinal = f"{DRAFT_ORDINAL_PREFIX}{spent + 1}"
+        round_number, remaining = 0, CAP
+    else:
+        issued = _issued_amends(number, generation)
+        # `max` of the two counters, so EITHER can cap it. That makes the launcher's bound at worst
+        # as strict as the contract's and never looser - the property the first version failed to
+        # have, and one the draft split above must not weaken: it changes which refs are counted,
+        # never how the count is compared.
+        if max(issued, item["label_rounds"]) >= CAP:
+            item["mode"] = "refuse"
+            item["reason"] = (
+                f"at the {CAP}-round cap ({issued} AMEND session(s) already issued for generation "
+                f"{generation}; labels report {item['label_rounds']}). No further AMEND authority "
+                "may be issued. Safety-class findings escalate to the maintainer; the rest become "
+                "follow-ups."
+            )
+            return None
+        ordinal = str(issued + 1)
+        round_number, remaining = issued + 1, CAP - (issued + 1)
 
-    ordinal = issued + 1
     sha = reaper._read_ref(number)
     if sha is None:
         raise SlotError(f"#{number} claim ref vanished before its AMEND could be issued")
@@ -516,8 +659,8 @@ def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
         item["reason"] = f"another launcher issued AMEND round {ordinal} for #{number} first"
         return None
 
-    item["round"] = ordinal
-    item["remaining"] = CAP - ordinal
+    item["round"] = round_number
+    item["remaining"] = remaining
     return record
 
 

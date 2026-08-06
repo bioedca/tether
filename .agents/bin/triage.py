@@ -511,6 +511,185 @@ def _counted_from(pr: dict[str, Any]) -> str | None:
     return _COUNT_NOTHING if pr.get("draft") else None
 
 
+#: Review threads and their resolution, which the REST payloads do not carry at all. Paged because
+#: a long-running PR approaches 100 threads - #385 reached 54 - and this set only ever REMOVES
+#: owing: a comment absent from it is owed. So a short read drops resolved threads and reports
+#: ANSWERED findings as unanswered, which re-issues AMEND sessions against work already deferred.
+#: That is the fail-closed direction, and stating it the other way round is how a later reader
+#: comes to relax the wrong control.
+_RESOLVED_THREADS = """
+query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) {
+      reviewThreads(first:100, after:$cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          isResolved
+          comments(first:100) {
+            pageInfo { hasNextPage }
+            nodes { fullDatabaseId body author { login } }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+#: The contract's deferral reply, which `docs/agents/review.md` and `.agents/tasks/amend.md` both
+#: spell `Deferred: … Tracked in #N`. Anchored per line so it matches the reply's opening whether or
+#: not the worker wrapped it in emphasis, and paired with an issue reference because half the
+#: sentence is not the sentence.
+_DEFERRAL_RE = re.compile(r"^\s*[*_>\s]*deferred\s*:", re.IGNORECASE | re.MULTILINE)
+_TRACKED_RE = re.compile(r"#\d+")
+
+
+def _carries_a_deferral(comments: list[Any]) -> bool:
+    """Whether a resolved thread records the one answer that resolution alone is allowed to mean.
+
+    The severity floor permits resolve-without-push for a **non-blocking** finding only: defer it to
+    one follow-up issue, reply ``Deferred: … Tracked in #N``, resolve. A blocking finding must be
+    fixed, which moves the head and clears the owing that way. So ``isResolved`` on its own says
+    *somebody closed this*, not *this was answered the way the contract allows* — and reading the
+    first as the second lets a resolved blocking thread retract the AMEND authority that exists to
+    address it (Codex P1 on #405).
+
+    The reply is the part of that procedure the payload can show. It must come from outside
+    ``EXTERNAL_PROVIDERS``: a provider writing the word in its own finding is not the author
+    deferring it. The follow-up issue is required to be *referenced*, not to exist — nothing here
+    can tell ``#4711`` from a real number, and ``amend.md`` already forbids pointing at one that is
+    not there.
+
+    **GraphQL and REST spell a bot's login differently**, and the first version of this check was
+    wrong because of it: ``author.login`` on a ``Bot`` is ``coderabbitai``, while the REST ``user.
+    login`` these provider sets were built from is ``coderabbitai[bot]``. Comparing the raw GraphQL
+    login against ``EXTERNAL_PROVIDERS`` therefore matches nothing — no exception, no empty result,
+    just a provider-authored comment silently passing as the author's own deferral. Both spellings
+    are tried.
+
+    Severity itself is still unread, and this does not pretend otherwise: a worker that writes the
+    deferral over a blocking finding defeats it. That needs the provider severity parsing tracked in
+    #409. What this removes is the *silent* path, where no answer at all cleared the label.
+    """
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        login = ((comment.get("author") or {}).get("login")) or ""
+        if login in EXTERNAL_PROVIDERS or f"{login}[bot]" in EXTERNAL_PROVIDERS:
+            continue
+        body = comment.get("body")
+        if not isinstance(body, str):
+            continue
+        if _DEFERRAL_RE.search(body) and _TRACKED_RE.search(body):
+            return True
+    return False
+
+
+def _resolved_comment_ids(pr_number: int) -> set[int]:
+    """Every review-comment id sitting on a **resolved** thread (#393).
+
+    ``review_owed`` could previously be cleared only by moving the head, and for a *non-blocking*
+    finding the contract forbids exactly that: ``docs/agents/review.md`` and ``.agents/tasks/
+    amend.md`` say to defer it to one follow-up issue and resolve the thread with the link — **no
+    push**. So the response the contract prescribes cleared nothing, ``agent:needs-amend`` survived
+    a completed answer, and the launcher kept issuing AMEND sessions until it hit its cap.
+
+    Resolution is the signal because it is the one the contract's own instruction produces and the
+    only one a machine can read. The follow-up *link* is contract, not payload — nothing here can
+    tell a link to a real issue from a plausible one — so this keys on ``isResolved`` and says so.
+
+    **Fails closed by raising, not by answering "nothing resolved".** Both would keep every finding
+    owed, and the difference is #388's: a swallowed transport error becomes a *verdict* about work
+    nobody read. Silently returning an empty set restores the exact bug this fixes, invisibly and
+    forever, while a raise is the same treatment ``_paginate_or_raise`` already gives an unreadable
+    review list one call above — an unreadable review state fails the job rather than being guessed
+    at. A partial page is refused for the same reason: unread threads would report answered findings
+    as unanswered, and a short read is indistinguishable from a short list.
+    """
+    owner, _, name = REPO.partition("/")
+    resolved: set[int] = set()
+    cursor: str | None = None
+    for _page in range(claim.MAX_PAGES):
+        try:
+            data = claim._graphql(
+                _RESOLVED_THREADS,
+                {"owner": owner, "name": name, "number": pr_number, "cursor": cursor},
+                f"PR #{pr_number} review threads",
+            )
+        except claim.ClaimError as exc:
+            # Wrapped for the same reason `_paginate_or_raise` wraps: `main` catches `TriageError`
+            # and reports it as a triage failure, so a bare `ClaimError` would escape as a
+            # traceback rather than as the module's own error.
+            raise TriageError(f"PR #{pr_number} review-thread state could not be read") from exc
+        # Every level is REQUIRED, not defaulted. `or {}` down this chain would turn a null
+        # `repository`, `pullRequest` or `reviewThreads` into an empty page and then into "nothing
+        # is resolved" - which succeeds, keeps every finding owed, and so restores the bug this
+        # function exists to fix, silently and permanently. That is the fail-open shape #388 names:
+        # an unreadable answer becoming a verdict about work nobody read.
+        threads = ((data.get("repository") or {}).get("pullRequest") or {}).get("reviewThreads")
+        nodes = threads.get("nodes") if isinstance(threads, dict) else None
+        page = threads.get("pageInfo") if isinstance(threads, dict) else None
+        if not isinstance(nodes, list) or not isinstance(page, dict):
+            raise TriageError(
+                f"PR #{pr_number} review-thread state came back malformed; refusing to read it as "
+                "'nothing is resolved', which would keep answered findings owed forever"
+            )
+        for node in nodes:
+            if not isinstance(node, dict) or not node.get("isResolved"):
+                continue
+            comments = node.get("comments")
+            inner = comments.get("nodes") if isinstance(comments, dict) else None
+            if not isinstance(inner, list):
+                raise TriageError(
+                    f"PR #{pr_number} has a resolved review thread whose comments could not be "
+                    "read; refusing to decide what it answered"
+                )
+            # A thread with more comments than one page is refused rather than half-read: a finding
+            # past the slice would stay owed after its thread was resolved, which is this bug one
+            # level down. Threads that long are rare enough that failing loudly costs little.
+            #
+            # The paging level is REQUIRED, like every other. `(… or {}).get("hasNextPage")` read an
+            # absent `pageInfo` as `False` and judged the thread from whatever came back — which is
+            # the half-read this refuses, arriving through the check meant to prevent it. The query
+            # always selects the connection, so an absent one means an unreadable payload rather
+            # than a short thread (CodeRabbit on #405).
+            inner_page = comments.get("pageInfo")
+            if not isinstance(inner_page, dict):
+                raise TriageError(
+                    f"PR #{pr_number} has a resolved review thread whose comment paging could not "
+                    "be read; refusing to judge resolution from a thread that may be truncated"
+                )
+            if inner_page.get("hasNextPage"):
+                raise TriageError(
+                    f"PR #{pr_number} has a resolved review thread with more comments than this "
+                    "query reads; refusing to judge resolution from part of a thread"
+                )
+            if not _carries_a_deferral(inner):
+                continue
+            for comment in inner:
+                if not isinstance(comment, dict):
+                    continue
+                # `fullDatabaseId` is a GraphQL BigInt and arrives as a STRING, where the REST `id`
+                # compared against it is an int. Normalising here rather than at the comparison
+                # keeps the set one type.
+                raw = comment.get("fullDatabaseId")
+                if isinstance(raw, str) and raw.isdigit():
+                    resolved.add(int(raw))
+                elif isinstance(raw, int):
+                    resolved.add(raw)
+        if not page.get("hasNextPage"):
+            return resolved
+        cursor = page.get("endCursor")
+        if not isinstance(cursor, str) or not cursor:
+            break
+    raise TriageError(
+        f"PR #{pr_number} has more review threads than this query will walk; refusing to judge "
+        "resolution from a partial read, which would report ANSWERED findings as unanswered and "
+        "re-issue AMEND sessions against deferrals that are already complete"
+    )
+
+
 def _paginate_or_raise(pr_number: int, path: str, what: str) -> list[dict[str, Any]]:
     try:
         return claim._paginate(path, what)
@@ -664,9 +843,15 @@ def _review_state(
     on a failed check suite left a real hole: a provider requesting changes at a **green** head
     produced no authority at all, so the launcher never started the session that answers the review
     — on the workflow whose whole job is to publish that authority. A head owes an answer when an
-    external provider left inline findings on it, or submitted ``CHANGES_REQUESTED`` for it. A clean
-    pass leaves nothing owed, and pushing a fix moves the head, so the next head owes nothing until
-    a provider looks at it.
+    external provider left **unresolved** inline findings on it, or submitted ``CHANGES_REQUESTED``
+    for it. A clean pass leaves nothing owed, and pushing a fix moves the head, so the next head
+    owes nothing until a provider looks at it.
+
+    **Resolution clears a finding; a push is not the only exit** (#393). Pushing used to be the only
+    one, and for a *non-blocking* finding the contract forbids exactly that — defer it to one
+    follow-up issue and resolve the thread with the link, **no push** — so the prescribed answer
+    cleared nothing and the launcher kept issuing AMEND sessions until it hit its cap. See
+    :func:`_resolved_comment_ids`, including why an unreadable answer still owes.
 
     **A reply is not a review** (#396). GitHub wraps a bot's reply to a review thread in a *review
     submission* — empty body, state ``COMMENTED``, carrying the reply as its only comment — so
@@ -699,6 +884,22 @@ def _review_state(
     )
 
     wrappers = _reply_wrapper_ids(comments)
+    # Only asked when something might actually be cleared by it. A pull request with no external
+    # inline FINDING at the current head cannot have an answered one, so the extra query buys
+    # nothing there - and `clear_mirror` and the round-label paths run on every triage event.
+    #
+    # Deliberately NOT filtered by `in_reply_to_id`, and an earlier revision of this predicate was.
+    # That filter was correct only while the main loop skipped replies on the owed axis too; #396
+    # removed that, because a threaded reply can carry a finding. Keeping it here would be worse
+    # than redundant - a head whose only external comment is a reply would owe, skip the read that
+    # could clear it, and owe forever.
+    answerable = any(
+        entry.get("id")
+        for entry in comments
+        if ((entry.get("user") or {}).get("login")) in EXTERNAL_PROVIDERS
+        and _reviewed_head(entry) == head
+    )
+    resolved = _resolved_comment_ids(pr_number) if answerable else set()
 
     heads: set[str] = set()
     owed = False
@@ -760,12 +961,31 @@ def _review_state(
             # The reply question belongs to `owed`, which counts replies deliberately and for
             # exactly that reason, and which `_gate_state` already requires to be false. So this
             # axis asks only what ADR-0062 asks — *actionable comments* — and a reply is not one.
+            #
+            # **The gate is RESOLUTION-BLIND where `owed` below is resolution-aware, deliberately.**
+            # #393 made a resolved finding stop owing, because a deferral answered it. It does not
+            # make the review that carried it clean: ADR-0062's gate is *a CodeRabbit review with no
+            # actionable comments*, and tidying the thread afterwards does not retroactively remove
+            # the comment from that review. So a deferred-and-resolved finding still needs a fresh
+            # review at this head before the gate is met — one more free review under #399's rule,
+            # never a deadlock, because a non-blocking round costs nothing to ask again.
+            #
+            # The asymmetry is the fail-closed direction on the axis that decides merges: reading
+            # `resolved` here would let the author satisfy the mandatory gate by resolving threads,
+            # which is precisely the substitution the gate exists to refuse.
             if login == GATE_PROVIDER and not is_reply:
                 if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
                     gate_finding_here = True
                 else:
                     gate_review_here = True
-            if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
+            if is_reviews:
+                # A CHANGES_REQUESTED submission is a SEPARATE signal, and resolving threads does
+                # not clear it (#393's third criterion). It is a verdict on the pull request rather
+                # than a comment on a line, so it is withdrawn by the provider re-reviewing, not by
+                # the author tidying the threads underneath it.
+                if entry.get("state") in BLOCKING_REVIEW_STATES:
+                    owed = True
+            elif entry.get("id") not in resolved:
                 owed = True
     return heads, owed, gate_review_here and not gate_finding_here
 
