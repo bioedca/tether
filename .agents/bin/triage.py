@@ -718,6 +718,34 @@ def _is_a_review(entry: dict[str, Any], wrappers: set[Any]) -> bool:
     return entry.get("id") not in wrappers
 
 
+def _clearable_comment_id(entry: dict[str, Any]) -> int | None:
+    """This inline comment's id, if it is one a resolved thread could ever clear (#410).
+
+    One field with two readers, and they disagreed. :func:`_review_state`'s ``answerable`` decides
+    whether the thread query runs at all and asked ``id`` as a **truthiness** test; its owed axis
+    decides whether a finding was cleared by what came back and asked the same field as a
+    **membership** test. So a comment with no ``id``, or ``0``, owed an answer while ``answerable``
+    skipped the read that could have cleared it — and would have owed forever.
+
+    Unreachable against today's REST payload, which always carries a positive ``id``. Recorded and
+    fixed because the pair has to stay in agreement if either is ever re-derived from a different
+    payload: the GraphQL node id is a *string*, which would make the truthiness reading subtly
+    wrong rather than merely inconsistent.
+
+    ``None`` means *nothing can clear this*, so both readers fail toward owing. Aligning the other
+    way — widening ``answerable`` to match the membership test — is the fail-OPEN direction: it
+    lets an unusable id reach ``resolved`` and stop owing, withholding AMEND authority on a head
+    that still carries an unanswered external finding.
+
+    ``bool`` is rejected explicitly because it is an ``int`` in Python, so ``True`` would otherwise
+    be a usable id, and one that compares equal to a real comment numbered ``1``.
+    """
+    cid = entry.get("id")
+    if not isinstance(cid, int) or isinstance(cid, bool) or cid <= 0:
+        return None
+    return cid
+
+
 def _review_state(
     pr_number: int, head: str, counted_from: str | None = None
 ) -> tuple[set[str], bool]:
@@ -794,7 +822,7 @@ def _review_state(
     # than redundant - a head whose only external comment is a reply would owe, skip the read that
     # could clear it, and owe forever.
     answerable = any(
-        entry.get("id")
+        _clearable_comment_id(entry) is not None
         for entry in comments
         if ((entry.get("user") or {}).get("login")) in EXTERNAL_PROVIDERS
         and _reviewed_head(entry) == head
@@ -837,8 +865,10 @@ def _review_state(
                 # the author tidying the threads underneath it.
                 if entry.get("state") in BLOCKING_REVIEW_STATES:
                     owed = True
-            elif entry.get("id") not in resolved:
-                owed = True
+            else:
+                cid = _clearable_comment_id(entry)
+                if cid is None or cid not in resolved:
+                    owed = True
     return heads, owed
 
 
