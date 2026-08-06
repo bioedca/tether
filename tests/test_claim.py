@@ -711,6 +711,39 @@ def test_an_answer_that_cannot_be_read_leaves_request_as_a_claim_error(
     assert "could not be read" in str(caught.value)
 
 
+class _UnreadableBody:
+    """An ``HTTPError`` file object that fails where ``error.read()`` reads it."""
+
+    def read(self, *_a: object) -> bytes:
+        raise claim.http.client.IncompleteRead(b"{")
+
+    def close(self) -> None:
+        return None
+
+
+def test_a_status_survives_a_body_that_cannot_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same defect one branch over, and Python's scoping is why (CodeRabbit's `Major` on #407).
+
+    ``error.read()`` runs INSIDE the ``HTTPError`` handler, and an exception raised inside a handler
+    is not offered to its siblings — so the guard added for the success path could never have caught
+    this one.
+
+    Degraded rather than raised, deliberately. The status line arrived intact, so the answer is
+    known even though the body is not, and it is the same loss the unparseable-body branch beside it
+    already accepts. ``_request`` promises HTTP errors are *returned* — 422 is an answer — and
+    raising here would falsify that for a 404 whose body happened to be truncated.
+    """
+    monkeypatch.setattr(claim, "_token", lambda: "t")
+    monkeypatch.setattr(
+        claim.urllib.request,
+        "urlopen",
+        _raises(
+            claim.urllib.error.HTTPError("https://api", 404, "Not Found", {}, _UnreadableBody())  # type: ignore[arg-type]
+        ),
+    )
+    assert claim._request("GET", "/repos/o/r/issues/1") == (404, None)
+
+
 def test_a_transport_failure_on_the_eligibility_read_is_an_error_not_a_verdict(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

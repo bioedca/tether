@@ -361,7 +361,16 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None) -> tupl
             payload = response.read()
             return response.status, (json.loads(payload) if payload else None)
     except urllib.error.HTTPError as error:
-        payload = error.read()
+        # Inside a handler, so the sibling below CANNOT catch what this raises - which is the same
+        # defect one branch over, and CodeRabbit's `Major` on #407 for it. Degraded to `(code,
+        # None)` rather than raised, because it is the same loss as the unparseable body just
+        # below: the status line arrived intact, so the answer is known even when the body is not,
+        # and this function's contract is that HTTP errors are RETURNED. Raising would turn a
+        # perfectly legible 404 into an exception because its body was truncated.
+        try:
+            payload = error.read()
+        except (OSError, ValueError, http.client.HTTPException):
+            return error.code, None
         try:
             return error.code, json.loads(payload) if payload else None
         except ValueError:
