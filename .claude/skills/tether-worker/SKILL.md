@@ -1,6 +1,6 @@
 ---
 name: tether-worker
-description: Work one accepted Tether issue as a short-lived peer worker — claim it with the atomic ref mutex, implement in an isolated worktree, open a draft PR, open the review lane, hand off, and exit. Use when an agent is asked to solve, resume, or hand off a single work item, or when a launcher injects a build or amend task. There is no coordinator to ask.
+description: Work one accepted Tether issue as a short-lived peer worker — claim it with the atomic ref mutex, implement in an isolated worktree, hand off, and exit. A BUILD session opens the draft PR and the review lane on it; an AMEND session continues the pull request that already exists, answering one round on it, and never re-opens or re-drafts one. Use when an agent is asked to solve, resume, or hand off a single work item, or when a launcher injects a task from .agents/tasks/. There is no coordinator to ask.
 ---
 
 # Tether worker (pointer)

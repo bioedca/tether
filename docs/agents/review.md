@@ -33,6 +33,15 @@ Each step begins only when the one before it has nothing blocking left.
 4. **CodeRabbit is the last gate before merge** — `@coderabbitai full review` — at least one
    CodeRabbit review with **no actionable comments**. Nothing merges without it.
 
+   **That is a verdict a completed review reached, and it is recorded as one.** The evidence is the
+   review: its permalink, the `commit_id` it read — which must be the final head — and its own
+   `Actionable comments posted: 0` line, which is the bot's machine-readable form of the verdict.
+   An *absence* of comments is not that evidence, and neither is a green `CodeRabbit` status check:
+   both are also what the incremental command below leaves behind when it reviews nothing, and the
+   check answers *is one running*, never *did one happen*. This is the same predicate
+   `triage._review_state` computes as its `converged` half — that provider, that head, no findings
+   — so the checklist and the counter are asking one question, not two that resemble each other.
+
 **Never write a provider's handle in a comment you do not intend as a request.** A mention fires the
 bot even inside backticks — a code span is not an escape. Quoting the trigger while *describing* it
 spent a real fair-use review on a draft that was not ready for one, and throttled the PR that was

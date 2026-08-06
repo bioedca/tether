@@ -1258,6 +1258,87 @@ def test_the_wrapper_filter_and_the_rewritten_commit_id_are_independent(
     assert result["rounds"] == 1
 
 
+# ----------------------------------------- #400: a review nobody submitted is not a review round
+#
+# GitHub's schema for the reviews endpoint says a review "created in the PENDING state" is "not
+# submitted and therefore does not include the `submitted_at` property". `_counts_as_round` counts a
+# timestamp-less entry on purpose, so an unsubmitted draft spent a round no review had taken.
+#
+# Same family as #396 - an artefact that is not a review being counted as one - and a distinct
+# cause: #396's wrapper is a SUBMITTED review with nothing in it, this is an UNSUBMITTED one.
+
+
+def test_a_review_still_being_drafted_is_not_a_round(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#400: a `PENDING` review has no `submitted_at`, and the counter counted it for that.
+
+    One submitted review at `OLDER`, one still in someone's editor at `HEAD`. Only the first is a
+    review that happened. Before the fix the draft's missing timestamp took the
+    fail-toward-counting branch of `_counts_as_round` and this read **2** - a pull request capped by
+    a review nobody had sent, and one nothing could un-send.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[
+                dict(_review(RABBIT, OLDER), submitted_at=AFTER_READY),
+                dict(_review(RABBIT, HEAD), state="PENDING"),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1, "the unsubmitted draft is not a round"
+    assert result["capped"] is False
+
+
+def test_a_review_still_being_drafted_owes_nothing_either(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other axis. Nothing is owed an answer to a finding its author has not sent yet.
+
+    `owed` deliberately fails toward owing everywhere else - a threaded reply counts (#404), a draft
+    finding counts (#384) - because those are all things a provider has actually published. An
+    unsubmitted review is the one case where there is nothing on the pull request to answer, so the
+    skip covers both axes rather than only the round one.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[dict(_review(RABBIT, HEAD), state="PENDING", body="half-written")],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0
+    assert result["review_owed"] is False
+    assert triage.AMEND_LABEL not in fake.added
+
+
+def test_a_timestampless_review_that_is_not_pending_still_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control, and the half of #400 that is a REFUSAL to change something.
+
+    The fix must not arrive by teaching `_counts_as_round` to distrust a missing timestamp. That
+    function fails toward counting for malformed data by design (ADR-0062), and narrowing it would
+    trade a visible over-count for the fail-open direction #276 reached at 9 rounds against a limit
+    of 2. So a review with no timestamp and no state at all - the shape an oddly-rendered payload
+    would take - still spends its round, and only the explicitly `PENDING` one does not.
+
+    `counted_from` is set here on purpose: with no ready event `_counts_as_round` short-circuits on
+    `counted_from is None` and this would hold without exercising the branch under test.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_review(RABBIT, HEAD)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1, "a malformed entry is still counted; only PENDING is exempt"
+
+
 # ------------------------------------ #393: only a push used to clear `review_owed`
 #
 # For a NON-BLOCKING finding the contract forbids a push: defer it to one follow-up issue and

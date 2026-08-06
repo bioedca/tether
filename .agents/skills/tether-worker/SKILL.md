@@ -1,6 +1,6 @@
 ---
 name: tether-worker
-description: Work one accepted Tether issue as a short-lived peer worker — claim it with the atomic ref mutex, implement in an isolated worktree, open a draft PR, open the review lane, hand off, and exit. Use when an agent is asked to solve, resume, or hand off a single work item, or when a launcher injects a build or amend task. There is no coordinator to ask.
+description: Work one accepted Tether issue as a short-lived peer worker — claim it with the atomic ref mutex, implement in an isolated worktree, hand off, and exit. A BUILD session opens the draft PR and the review lane on it; an AMEND session continues the pull request that already exists, answering one round on it, and never re-opens or re-drafts one. Use when an agent is asked to solve, resume, or hand off a single work item, or when a launcher injects a task from .agents/tasks/. There is no coordinator to ask.
 ---
 
 # Tether worker
@@ -125,6 +125,13 @@ gh pr merge N --auto --squash --match-head-commit <SHA>
 
 `--match-head-commit` binds the merge to the head your evidence covers. There is no merge queue on
 this repository (it needs an organization-owned repo), so that guard is what replaces it.
+
+**`<SHA>` is the 40-hex head the clean review read, and you supply it — nothing substitutes it.**
+It is the `commit_id` on that review, which is equally what `git rev-parse HEAD` prints when you
+have pushed nothing since. Do **not** re-read the head from the pull request while arming: that
+answers with whatever it is *now*, which makes the guard agree with itself and bind nothing — a
+guard that always passes is worse than none, because it reads as protection. A short or mismatched
+value fails closed, refusing the merge rather than making it against a head no review covers.
 
 ## Rounds are issued to you, not requested by you
 

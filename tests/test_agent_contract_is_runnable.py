@@ -697,3 +697,29 @@ def test_a_rendered_task_is_runnable_in_the_lane_it_is_rendered_for() -> None:
                 ):
                     bad.append(f"{task.name} [{vendor}]: {command}")
     assert not bad, f"a rendered task hands its worker an unrunnable command: {bad}"
+
+
+#: The provider triggers. `docs/agents/review.md` states the rule these fire under: a mention fires
+#: the bot **even inside backticks**, because a code span is not an escape.
+PROVIDER_HANDLES = ("@coderabbitai", "@greptileai", "@codex", "@copilot")
+
+
+def test_the_pull_request_template_carries_no_provider_handle() -> None:
+    """The template becomes the PR *body*, so a handle in it is a request on every pull request.
+
+    Every other guarded page is prose an agent reads. This one is prose GitHub **posts**: whatever
+    it contains is published as a real comment the moment a PR is opened, and a mention there fires
+    the bot on a draft that is not ready for one — spending a fair-use review and throttling the PR
+    that was ready (`docs/agents/review.md`, measured 2026-08-03).
+
+    The template has always been clean, and nothing said so. #400 added the CodeRabbit gate's
+    evidence requirement to it, which is exactly the edit that invites naming the command; it names
+    it in prose — *"the full-review command"* — as `review.md` prescribes. This is the test that
+    keeps the next such edit honest.
+    """
+    body = (_REPO / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+    found = [handle for handle in PROVIDER_HANDLES if handle in body]
+    assert not found, (
+        f"{found} in the PR template fires a real review on every pull request opened from it; "
+        "name the command in prose instead"
+    )
