@@ -89,6 +89,25 @@ on:
   # `issue_comment` fires for pull requests too; triage.py skips anything that is not one.
   issue_comment:
     types: [created]
+  # NO TRIGGER FIRES ON A RESOLVE, and this is the place that fact is recorded because it is not
+  # discoverable from the file. Resolving a thread is a state change that can CLEAR
+  # `agent:needs-amend` (#393), and `pull_request_review_comment` fires on `created` only — so an
+  # AMEND worker that posts its `Deferred: … Tracked in #N` reply and then resolves gets a run that
+  # snapshots the state *before* the resolve.
+  #
+  # `pull_request_review_thread` looks like the answer and is not. It exists as a WEBHOOK, but it is
+  # absent from Actions' "Events that trigger workflows", and a trigger Actions does not implement
+  # is accepted by the parser and never fires — an inert control that reads as a live one. This
+  # workflow carried it for exactly that reason until Codex checked the list on #405; the version
+  # that "fixed" the missing trigger fixed nothing.
+  #
+  # So the resolve path dispatches instead: `.agents/tasks/amend.md` ends the deferral procedure
+  # with `gh workflow run agent-triage.yml -f pr=<N> -f dry_run=false`. A maintainer resolving in
+  # the web UI still produces no run, and that residual is real. It is a LATENCY bug rather than a
+  # correctness one, because state here is recomputed and never accumulated: the stale label costs
+  # one AMEND session against an already-deferred finding, and the next check suite, review or
+  # dispatch converges. The opposite direction — a resolve clearing authority early — is the one
+  # that would matter, and no path produces it.
   # The happy path, which used to clean up nothing (#308). A squash-merge deletes the branch — so
   # the mutex releases correctly — and `Closes: #N` closes the issue, but the claim's LABEL mirror
   # survives on a finished item, and `agent:needs-amend` is the launcher's authority to start an

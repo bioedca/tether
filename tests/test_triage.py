@@ -128,6 +128,7 @@ def _routes(
     suites: dict[str, Any] | None = None,
     issue_state: str = "open",
     timeline: list[dict[str, Any]] | None = None,
+    threads: list[dict[str, Any]] | None = None,
 ) -> Routes:
     return {
         ("GET", "/repos/bioedca/tether/pulls/99/reviews"): (200, reviews or []),
@@ -139,6 +140,65 @@ def _routes(
         ),
         ("GET", "/repos/bioedca/tether/commits"): (200, suites if suites is not None else GREEN),
         ("GET", "/repos/bioedca/tether/issues/99/timeline"): (200, timeline or []),
+        ("POST", "/graphql"): (200, _threads(threads or [])),
+    }
+
+
+#: The contract's deferral reply, spelled as `docs/agents/review.md` and `.agents/tasks/amend.md`
+#: prescribe it. #409 is the real follow-up this stack filed, so the fixture is not inventing one.
+DEFERRAL = "Deferred: non-blocking, severity is unread here. Tracked in #409."
+
+#: **GraphQL omits the `[bot]` suffix REST carries.** `author.login` on a Bot is `coderabbitai`,
+#: while `user.login` on the same account over REST is `coderabbitai[bot]` - measured on this repo.
+#: The fixture uses the GraphQL spelling because that is what the parser under test receives, and
+#: writing the REST one here would let a provider-authored deferral pass unnoticed.
+RABBIT_GQL = "coderabbitai"
+
+
+def _thread(
+    *comment_ids: int,
+    resolved: bool = False,
+    truncated: bool = False,
+    answer: str | None = DEFERRAL,
+    answered_by: str = "bioedca",
+) -> dict[str, Any]:
+    """One review thread. Resolution is a property of the THREAD, so it covers all its comments.
+
+    Shaped the way GitHub returns one: the first comment is the provider's finding, anything after
+    it is a reply. `answer` is what those replies say - `None` for a thread somebody closed with no
+    answer at all - and `answered_by` is who wrote them, so a *provider* writing the deferral (which
+    must not count) is expressible.
+    """
+    nodes: list[dict[str, Any]] = []
+    for position, comment_id in enumerate(comment_ids):
+        finding = position == 0
+        nodes.append(
+            {
+                # `fullDatabaseId` is a GraphQL BigInt and arrives as a STRING, which is the shape
+                # the parser must normalise - `databaseId` is deprecated for dropping 64-bit ids.
+                "fullDatabaseId": str(comment_id),
+                "body": "A finding." if finding else (answer or "Acknowledged."),
+                "author": {"login": RABBIT_GQL if finding else answered_by},
+            }
+        )
+    return {
+        "isResolved": resolved,
+        "comments": {"pageInfo": {"hasNextPage": truncated}, "nodes": nodes},
+    }
+
+
+def _threads(nodes: list[dict[str, Any]], *, cursor: str | None = None) -> dict[str, Any]:
+    return {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": cursor is not None, "endCursor": cursor},
+                        "nodes": nodes,
+                    }
+                }
+            }
+        }
     }
 
 
@@ -1202,6 +1262,351 @@ def test_the_wrapper_filter_and_the_rewritten_commit_id_are_independent(
     assert result["rounds"] == 1
 
 
+# ------------------------------------ #393: only a push used to clear `review_owed`
+#
+# For a NON-BLOCKING finding the contract forbids a push: defer it to one follow-up issue and
+# resolve the thread with the link. So the answer the contract prescribes cleared nothing,
+# `agent:needs-amend` survived a completed answer, and the launcher kept issuing AMEND sessions
+# until it hit its cap. Resolution is the signal because it is what that instruction produces and
+# the only part of it a machine can read - the follow-up LINK is contract, not payload.
+
+
+def test_a_deferred_finding_stops_owing_once_its_thread_is_resolved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE #393 case: reply, resolve, link a follow-up, do not push. No AMEND owed.
+
+    Against the old implementation `review_owed` is True here and stays True forever, because its
+    only exit was `pushing a fix moves the head` — exactly what the contract forbids for a
+    non-blocking finding.
+    """
+    fake, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, 4243, resolved=True)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is False
+    assert triage.AMEND_LABEL not in fake.added
+
+
+def test_a_thread_closed_without_a_reply_has_answered_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2: `isResolved` alone is not the contract's deferral.
+
+    That is reply + resolve + a follow-up link, and the reply is the part a machine can see.
+    Somebody clicking resolve on an unanswered finding must not retract the AMEND it owes.
+    """
+    fake, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, resolved=True)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_a_reply_that_is_not_a_deferral_does_not_license_the_resolve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P1: resolution may only mean the one thing the severity floor permits it to mean.
+
+    Resolve-without-push is allowed for a **non-blocking** finding, deferred to a follow-up issue.
+    A blocking finding must be fixed, which moves the head. So `isResolved` plus *any* reply was too
+    weak: resolving a blocking CodeRabbit thread under a "will look at this" retracted the AMEND
+    authority that existed to address it. The `Deferred: … Tracked in #N` reply is the evidence the
+    contract itself prescribes, and it is what this now requires.
+
+    Severity is still unread — a worker that writes the deferral over a blocking finding defeats
+    this — and that is #409. What is closed here is the path where nothing was written at all.
+    """
+    fake, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, 4243, resolved=True, answer="Ack, will look at this.")],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_a_deferral_written_by_the_provider_is_not_the_authors_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `[bot]` suffix, which GraphQL drops and REST keeps.
+
+    `EXTERNAL_PROVIDERS` is built from REST logins (`coderabbitai[bot]`), so testing the raw GraphQL
+    login (`coderabbitai`) against it matches nothing — no error, no empty result, just a provider
+    quoting the deferral wording in its own finding and passing as the author's answer. Both
+    spellings are tried, and this is what fails if only one is.
+    """
+    fake, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, 4243, resolved=True, answered_by=RABBIT_GQL)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_a_sixty_four_bit_comment_id_still_matches_its_resolved_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2: `databaseId` is deprecated for exactly this, and the ids here are already that big.
+
+    A modern comment would return no usable id, the resolved set would never contain the REST `id`,
+    and the finding would stay owed forever — this function's own bug, reintroduced through the
+    field it reads. `fullDatabaseId` is a BigInt and arrives as a string, so it is normalised.
+    """
+    big = 3708430108000
+    _, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, big)],
+            threads=[_thread(big, big + 1, resolved=True)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is False
+
+
+def test_a_finding_on_an_unresolved_thread_still_owes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The control, and #393's second criterion. Identical but for `isResolved`."""
+    fake, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, 4243, resolved=False)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_resolving_threads_does_not_clear_an_outstanding_changes_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#393's third criterion: the two are separate signals.
+
+    `CHANGES_REQUESTED` is a verdict on the pull request, not a comment on a line. It is withdrawn
+    by the provider reviewing again, never by the author tidying the threads underneath it — so an
+    author who could clear it by resolving would be dismissing a review on their own authority.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[
+                dict(
+                    _submission(RABBIT, HEAD, REAL_REVIEW_ID, body="please fix"),
+                    state="CHANGES_REQUESTED",
+                )
+            ],
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            threads=[_thread(4242, 4243, resolved=True)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True, "the submission outlives its threads"
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_thread_resolution_is_not_read_when_nothing_could_be_cleared_by_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The query is asked only when it can change an answer.
+
+    `clear_mirror` and the round-label paths run on every triage event, and a pull request with no
+    external finding at the current head cannot have an answered one.
+    """
+    fake, _ = _run(_routes(reviews=[_review(RABBIT, HEAD)], suites=GREEN), monkeypatch)
+    assert not [c for c in fake.calls if c[1] == "/graphql"]
+
+
+def test_an_unreadable_thread_read_fails_the_job_rather_than_answering_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fails closed by RAISING, and the distinction is #388's.
+
+    Returning "nothing resolved" would also keep every finding owed, and would restore this exact
+    bug invisibly and forever the first time the query broke. A transport failure must not become a
+    verdict about work nobody read — so this is the same treatment `_paginate_or_raise` gives an
+    unreadable review list one call above.
+    """
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    routes[("POST", "/graphql")] = (200, {"errors": [{"message": "Something went wrong"}]})
+    with pytest.raises(triage.TriageError):
+        _run(routes, monkeypatch)
+
+
+def test_a_partial_thread_read_is_refused_rather_than_treated_as_complete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unread threads would report answered findings as unanswered — and #385 reached 54 threads.
+
+    A short read is indistinguishable from a short list, so the cursor is followed and a walk that
+    does not terminate is an error rather than a partial answer.
+    """
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    # Always another page, and never a usable cursor: the walk cannot complete.
+    routes[("POST", "/graphql")] = (200, _threads([_thread(4242, 4243, resolved=True)], cursor=""))
+    with pytest.raises(triage.TriageError, match="partial read"):
+        _run(routes, monkeypatch)
+
+
+def test_a_malformed_thread_payload_is_refused_rather_than_read_as_nothing_resolved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P2: `or {}` down the GraphQL chain turns a null level into a silent verdict.
+
+    A null `repository`, `pullRequest` or `reviewThreads` would become an empty page and then
+    "nothing is resolved" — which SUCCEEDS, keeps every finding owed, and so restores this bug
+    permanently and invisibly. Every level is required.
+    """
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    routes[("POST", "/graphql")] = (200, {"data": {"repository": None}})
+    with pytest.raises(triage.TriageError, match="malformed"):
+        _run(routes, monkeypatch)
+
+
+def test_a_thread_with_more_comments_than_one_page_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex P3: a finding past the first 100 comments would stay owed after its thread resolved.
+
+    That is this bug one level down, so the nested connection reports `hasNextPage` and a truncated
+    thread fails the job rather than being half-read.
+    """
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        threads=[_thread(4242, 4243, resolved=True, truncated=True)],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    with pytest.raises(triage.TriageError, match="part of a thread"):
+        _run(routes, monkeypatch)
+
+
+def test_a_thread_whose_paging_is_unreadable_is_refused_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same refusal, reached through the check meant to enforce it (CodeRabbit on #405).
+
+    `(comments.get("pageInfo") or {}).get("hasNextPage")` read an ABSENT connection as `False`, so
+    a payload that could not be paged was judged from whatever came back — the half-read the test
+    above refuses, arriving through its own guard. The query always selects `pageInfo`, so absent
+    means unreadable rather than short.
+    """
+    thread = _thread(4242, 4243, resolved=True)
+    del thread["comments"]["pageInfo"]
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        threads=[thread],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    with pytest.raises(triage.TriageError, match="paging could not be read"):
+        _run(routes, monkeypatch)
+
+
+def test_a_head_carrying_only_replies_still_reads_the_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `answerable` predicate tracks the loop, and the loop moved.
+
+    An earlier revision gave this predicate the loop's `in_reply_to_id` filter, on the ground that a
+    head carrying only replies had nothing resolution could clear. #396 removed that filter from the
+    owed axis — a threaded reply can carry a finding — so the ground is gone and keeping the filter
+    would be worse than redundant: such a head would owe, skip the one read that could clear it, and
+    owe forever.
+
+    The saving it was written for is still had, one case over: a head with no external comment at
+    all makes no query. That is `test_a_head_with_no_external_comment_never_asks_about_threads`.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, WRAPPER_IDS[0])],
+            comments=[_reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500099)],
+            threads=[_thread(3708500099, 3708500100, resolved=True)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert [c for c in fake.calls if c[1] == "/graphql"], "the reply owes, so it must be readable"
+    assert result["review_owed"] is False, "and its resolved thread is what clears it"
+
+
+def test_a_head_with_no_external_comment_never_asks_about_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The query is still only paid for when something could be cleared by it.
+
+    Nothing external at this head means nothing owed and nothing to resolve, so a rate limit or a
+    transient GraphQL error must not fail the job — `clear_mirror` and the round-label paths run on
+    every triage event, including the ones with no review activity at all.
+    """
+    fake, _ = _run(
+        _routes(
+            comments=[_finding(RABBIT, OLDER, REAL_REVIEW_ID, 4242)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert not [c for c in fake.calls if c[1] == "/graphql"]
+
+
+def test_resolution_covers_every_comment_on_the_thread_not_just_the_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`isResolved` is a property of the thread, so a finding anywhere in it is answered.
+
+    Keying on the thread's first comment alone would leave a multi-comment thread owing after it was
+    resolved — the same "answered but still owed" state, one level down.
+    """
+    _, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4243)],
+            threads=[_thread(4242, 4243, 4244, resolved=True)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is False
+
+
 def test_draft_findings_still_owe_an_answer_even_though_they_cost_no_round(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1814,6 +2219,71 @@ def test_the_conflict_marker_is_cleared_on_merge(monkeypatch: pytest.MonkeyPatch
     triage.clear_mirror(number=99, dry_run=False)
     assert triage.CONFLICTED_LABEL in fake.removed
     assert triage.CONFLICTED_LABEL in triage.MIRROR_LABELS
+
+
+def test_the_workflow_does_not_carry_a_trigger_actions_will_not_run() -> None:
+    """`pull_request_review_thread` is a webhook Actions does not implement (Codex P2 on #405).
+
+    Resolving a thread can CLEAR `agent:needs-amend`, and no trigger reports it — so this file grew
+    one that looks exactly right and never fires. The parser accepts an unknown event, which is what
+    makes it dangerous: an inert control reads as a live one, and the missing-trigger bug was
+    recorded as fixed while nothing had changed.
+
+    Asserted as an ABSENCE because the mistake is re-addable in one line and looks like a fix. The
+    real path is the dispatch in `.agents/tasks/amend.md`, pinned below.
+
+    **Over the whole file, not just the `on:` mapping.** Checking the mapping alone let the same
+    dead event straight back in through the job's `if:` pre-filter — in this very pull request,
+    three lines below the comment explaining why it cannot fire (CodeRabbit on #405). A name that
+    can never equal `github.event_name` is inert wherever it is written, and reading a branch for it
+    as evidence the resolve path is handled is precisely the failure being guarded against.
+    """
+    source = WORKFLOW.read_text(encoding="utf-8")
+    offenders = [
+        f"{i}: {line.strip()}"
+        for i, line in enumerate(source.splitlines(), 1)
+        if "pull_request_review_thread" in line and not line.lstrip().startswith("#")
+    ]
+    assert not offenders, (
+        "`pull_request_review_thread` is a webhook Actions does not implement, so it never fires "
+        f"and never matches `github.event_name` — inert wherever it appears: {offenders}"
+    )
+
+
+def test_the_deferral_procedure_dispatches_the_triage_that_reads_it() -> None:
+    """The resolve path's only working trigger, so the contract has to carry it.
+
+    Without this, `_resolved_comment_ids` is real code that nothing ever runs at the moment it
+    matters: the worker replies, resolves, exits, and the label it just answered survives.
+
+    **The ORDER is the property, not the presence.** Asserting only that the command appears let it
+    sit in step 2 while the reply it must read was instructed in step 4 — so a worker following the
+    numbered order dispatched first, triage read a resolved thread with no
+    `Deferred: … Tracked in #N` in it, and correctly kept owing. The run happened and cleared
+    nothing, which is indistinguishable from the bug it was added to fix (CodeRabbit on #405).
+
+    **The exit is part of that order.** Moving the dispatch after the reply fixed one half and left
+    the other: step 4 still ended `and **exit**` a paragraph ABOVE the dispatch, so a worker reading
+    it in order left before running it and no run happened at all — a stronger version of the same
+    defect, and one an ordering assertion between only those two tokens cannot see.
+    """
+    amend = (ROOT / ".agents" / "tasks" / "amend.md").read_text(encoding="utf-8")
+    assert "-f pr=" in amend and "-f dry_run=false" in amend
+    dispatch = amend.find("workflow run agent-triage.yml")
+    reply = amend.find("reply to every thread you answered")
+    assert dispatch != -1, "the deferral procedure must dispatch triage"
+    assert reply != -1, "the procedure must instruct the reply triage reads"
+    assert dispatch > reply, (
+        "the dispatch must come AFTER the reply it exists to make readable; dispatching first "
+        "gives triage a resolved thread with no deferral in it, and the label survives the answer"
+    )
+    procedure = amend.find("## Do\n")
+    exits = [m.start() for m in re.finditer(r"\bexit\b", amend) if m.start() > procedure]
+    assert exits, "the procedure must tell the worker to exit"
+    assert min(exits) > dispatch, (
+        "every exit instruction must come AFTER the dispatch; an exit written above it tells the "
+        "worker to leave before the run, so nothing recomputes the labels the reply just answered"
+    )
 
 
 def test_the_workflow_listens_for_the_merge_event() -> None:

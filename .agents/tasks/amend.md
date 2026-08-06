@@ -38,15 +38,32 @@ The severity floor you classify against lives on `review.md`, not in the residen
    the label-independent list in `docs/agents/review.md`. Everything else is deferred to **one**
    follow-up issue
    for this PR, answered `Deferred: … Tracked in #N`, and its thread resolved.
+
+   The reply is what triage reads — a thread resolved with no `Deferred: … Tracked in #N` from you
+   still owes. **Resolving fires no event**, so the labels are not recomputed by any of this; the
+   dispatch that does it is the LAST action of step 4, once the reply exists for it to read.
 3. Revalidate the fence before any authoritative write:
    `{{PYTHON}} .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
-4. Push, reply to every thread you answered, get the checks green, update the lane state in the PR
-   body, and **exit**.
+4. Push, reply to every thread you answered, resolve the deferred ones, get the checks green, and
+   update the lane state in the PR body.
+
+   **Dispatch triage LAST, after the push and every reply** — `{{GH}} workflow run agent-triage.yml
+   -f pr=<PR> -f dry_run=false`. `pull_request_review_thread` is a webhook Actions does not
+   implement, so nothing recomputes the labels after a resolve and `agent:needs-amend` would survive
+   the answer that cleared it. The order is the whole point and was wrong here until CodeRabbit said
+   so on #405: dispatching before the reply gives triage a resolved thread with no
+   `Deferred: … Tracked in #N` to read, so it correctly keeps owing — and dispatching before the
+   push snapshots a head the push then moves. Either way the run does nothing and the residual it
+   exists to clear survives it.
 
    **Arm auto-merge only if the lane is complete** — CodeRabbit returned no actionable comments at
    this head (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`). If it has not,
    arming merges the PR *past* the mandatory gate: CodeRabbit is not a required check, so nothing
    else is holding it. Answering a draft-phase finding is not the end of the lane.
+
+   **Then, and only then, exit.** This is the last line of step 4 because it has to be: an `exit`
+   written before the dispatch is an instruction to leave before running it, and a worker that
+   follows the step in order never recomputes the labels at all.
 
 ## Do not
 
