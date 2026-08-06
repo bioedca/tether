@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -636,14 +637,12 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
     compare-and-swap the AMEND ledger uses: ``201`` to the winner, ``422`` to everyone after, keyed
     to the claim generation so a reclaim starts fresh.
 
-    That settles the SIMULTANEOUS race and not the sequential one. Two launchers running at once
-    compute the same attempt number and one gets ``422``; a launcher running *after* another's ref
-    exists counts it, takes the next ordinal, and collides with nothing - so up to
-    ``ADVANCE_ATTEMPTS`` workers can be in flight on one step while none has yet produced the
-    evidence that ends it. Serializing that needs a signal meaning *the previous attempt's session
-    is over*, and this architecture has none to offer: refs carry no timestamp, and ``AGENTS.md``
-    forbids the lease, TTL and heartbeat that would supply one. Tracked in #412. The two phases
-    where a duplicate costs real money are guarded worker-side in ``.agents/tasks/advance.md``.
+    An attempt ORDINAL settled only the simultaneous race, and Greptile's ``P1`` on #407 is that
+    gap: a launcher running *after* another's ref exists counts it, takes the next ordinal, and
+    collides with nothing, so two same-generation workers run one step and can spend a metered
+    credit twice. The ref is therefore keyed on :func:`_lane_state_digest` rather than a counter -
+    *the lane state the previous session recorded* - which is the one signal here that distinguishes
+    **reported back** from **still running**, and needs no lease, TTL or heartbeat (#412).
 
     **In its own namespace**, which is what makes advancing cost no round. Reusing
     ``amend-rounds`` would have spent one of the two metered rounds to move a pull request from one
@@ -693,13 +692,24 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
     # construction (Codex P1 on #407), which is not hypothetical: this repository's own lane sat in
     # exactly that state under CodeRabbit's adaptive limit.
     #
-    # The attempt is derived from the refs that EXIST, so two launchers racing SIMULTANEOUSLY on one
-    # state compute the same number and the compare-and-swap gives the session to one of them. A
-    # launcher arriving LATER counts the winner's ref and takes the next ordinal, which collides
-    # with nothing - so this trades the unretryable gate above for up to `ADVANCE_ATTEMPTS` workers
-    # overlapping on one step, and that trade is deliberate rather than overlooked (#412). It bounds
-    # rather than counts: `ADVANCE_ATTEMPTS` is a runaway stop like `DRAFT_CEILING`, not a cap, and
-    # reaching it means the step cannot complete and wants a person.
+    # AND TO THE LANE STATE THE PREVIOUS ATTEMPT LEFT BEHIND, which is what makes the retry safe.
+    # An ordinal derived from the refs that merely EXIST settles only the SIMULTANEOUS race: two
+    # launchers at once compute the same number and the compare-and-swap gives the session to one of
+    # them, but a launcher arriving LATER counts the winner's ref, takes the next ordinal, and
+    # collides with nothing - so two same-generation workers run one step and can duplicate a
+    # metered request (Greptile `P1` on #407).
+    #
+    # Keying the ref on a digest of the PR BODY closes it without a lease, a TTL or a heartbeat,
+    # none of which `AGENTS.md` allows. `.agents/tasks/advance.md` requires every session to write
+    # the lane state into that body before it exits - including the stop-and-record path - so the
+    # digest moving IS the previous attempt reporting that it is over. While a worker is still
+    # running the digest is unchanged, the ref name is identical, and the second launcher takes
+    # `422` exactly as the simultaneous case does.
+    #
+    # It fails in the safe direction on the case it cannot see: a worker that dies WITHOUT recording
+    # leaves the digest unmoved, so no retry is issued and the lane stalls visibly, wanting a
+    # person. That is the direction every other control here takes, and it is the opposite of
+    # spending a credit twice in silence.
     prefix = f"{ADVANCE_NAMESPACE}/{number}-{generation}-{sha[:12]}-{phase}-"
     taken = _advance_attempts(prefix)
     if taken >= ADVANCE_ATTEMPTS:
@@ -711,11 +721,15 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
             "the request; a maintainer decides, and no further session helps."
         )
         return None
-    ref = f"refs/{prefix}{taken + 1}"
+    ref = f"refs/{prefix}{_lane_state_digest(pr)}"
     status, _ = claim._request("POST", f"/repos/{REPO}/git/refs", {"ref": ref, "sha": sha})
     if status == 422:
         item["mode"] = "lost"
-        item["reason"] = f"another launcher already advanced #{number}'s {phase} phase at {sha[:7]}"
+        item["reason"] = (
+            f"#{number}'s {phase} lane step is already held at {sha[:7]} - either another launcher "
+            "took it just now, or a session is still working it and has not yet recorded a lane "
+            "state to retry from"
+        )
         return None
     if status != 201:
         raise SlotError(
@@ -724,6 +738,27 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
     item["round"] = 0
     item["remaining"] = CAP - item["label_rounds"]
     return record
+
+
+def _lane_state_digest(pr: dict[str, Any]) -> str:
+    """A short digest of the pull request body — *the lane state the last session left* (#394).
+
+    The advance ref is keyed on this so a retry becomes issuable only once something has reported
+    back. `.agents/tasks/advance.md` makes writing the lane state the last thing every session does,
+    stop-and-record paths included, so a moved digest means the previous attempt ended and an
+    unmoved one means it has not.
+
+    **Digest of the whole body, not of a parsed lane block.** Parsing would need the body to keep a
+    fixed shape, and the body is prose a human also edits; a parser that silently found nothing
+    would return one constant for every state and re-open the overlap this closes. Hashing
+    everything means an unrelated edit merely permits one extra attempt - bounded by
+    ``ADVANCE_ATTEMPTS`` - which is the harmless direction.
+
+    Hex-truncated because it lands in a ref name: 12 characters over a body-sized input is far past
+    the collision risk that matters here, where the only cost of a collision is one refused retry.
+    """
+    body = pr.get("body")
+    return hashlib.sha256((body if isinstance(body, str) else "").encode("utf-8")).hexdigest()[:12]
 
 
 def _advance_attempts(prefix: str) -> int:

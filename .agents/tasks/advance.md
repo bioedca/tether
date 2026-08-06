@@ -61,13 +61,14 @@ Read root `AGENTS.md`, `docs/agents/review.md` and `.agents/skills/tether-worker
    not once for all of them. A reaped worker that writes anyway is writing on a **successor's** PR.
 3. Work out which lane phase is next from what the PR body records, and do **only that one**.
 
-   **You may not be the only session on this step.** The advance ref gives one session per
-   *attempt*, and a step may be attempted up to three times; a launcher arriving after the first
-   ref exists takes the next ordinal rather than colliding with it, so another worker may be
-   part-way through this phase right now (#412). Before the two phases where a duplicate costs real
-   money, **re-read the provider's own state and treat a request already in flight as done** — both
-   are marked below. Neither is safe to infer from the PR body, which the other worker may not have
-   written yet.
+   **Writing the lane state in 4 is what releases the next attempt** (#412). The advance ref is
+   keyed on a digest of the PR body, so until you record something no launcher can issue another
+   session for this step — and if you stop without recording, none ever will and the lane stalls
+   for a person. That is the safe direction and it is also why 4 is not optional.
+
+   Belt and braces on the two phases where a duplicate would cost real money: **read the provider's
+   own state before spending, and treat a request already in flight as done.** Both are marked
+   below. Neither is safe to infer from the PR body alone.
 
    - **Codex is not yet clean** → answer what is left, push, request the next Codex round.
    - **Codex is clean, Greptile not yet spent** → read the seat balance with
