@@ -287,7 +287,7 @@ def test_round_labels_only_escalate(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert result["rounds"] == 1
     # round-1 is BELOW the capped label already held, so nothing is written and nothing removed.
-    assert fake.added == []
+    assert [n for n in fake.added if n in triage.ALL_ROUND_LABELS] == []
     assert triage.CAPPED_LABEL not in fake.removed
 
 
@@ -321,7 +321,10 @@ def test_a_failed_amend_label_removal_is_reported_not_swallowed(
     routes = _routes(labels=[triage.AMEND_LABEL], reviews=[], suites=GREEN, timeline=[])
     routes[("DELETE", f"/repos/bioedca/tether/issues/7/labels/{triage.AMEND_LABEL}")] = (500, None)
     fake = _install(monkeypatch, routes)
-    with pytest.raises(triage.TriageError, match="AMEND"):
+    # Matched on the LABEL, not on the word "AMEND": `CHECKED_REMOVALS` holds two labels now, so the
+    # message is label-neutral and naming one of them in the assertion would pin prose that has to
+    # describe both (CodeRabbit on #407).
+    with pytest.raises(triage.TriageError, match=triage.AMEND_LABEL):
         triage.triage(number=99, branch=None, dry_run=False)
     assert triage.AMEND_LABEL in fake.removed, "the delete was attempted before it was reported"
 
@@ -352,7 +355,8 @@ def test_a_zero_recount_never_clears_a_round_label(monkeypatch: pytest.MonkeyPat
     )
     assert result["rounds"] == 0
     assert triage.CAPPED_LABEL not in fake.removed
-    assert fake.added == [], "a zero recount writes no round label either"
+    round_labels = [n for n in fake.added if n in triage.ALL_ROUND_LABELS]
+    assert round_labels == [], "a zero recount writes no round label either"
 
 
 def test_a_draft_excursion_after_ready_still_keeps_its_spent_rounds(
@@ -1457,6 +1461,44 @@ def test_an_unreadable_thread_read_fails_the_job_rather_than_answering_it(
         _run(routes, monkeypatch)
 
 
+class _Answer:
+    """A ``urlopen`` result that goes wrong where ``_request``'s handlers cannot see it."""
+
+    status = 200
+
+    def __enter__(self) -> _Answer:
+        """``urlopen`` is used as a context manager, so this stands in for one."""
+        return self
+
+    def __exit__(self, *_exc: object) -> bool:
+        """Never suppress: a test that swallowed its own failure would pass for nothing."""
+        return False
+
+    def read(self) -> bytes:
+        """What a TLS-inspecting proxy answers with — a 200 whose body is not JSON at all."""
+        return b"<html>502 Bad Gateway</html>"
+
+
+def test_an_unreadable_comment_list_withholds_the_verdict_instead_of_ending_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_verdict_at_head` promises to fail SOFT, and only `ClaimError` was ever soft.
+
+    Deliberately end to end through the real `_paginate` and `_request` rather than a stubbed
+    `ClaimError`, because a stub proves only that the handler present catches what it names. The
+    defect was the handler being narrower than the ways the read fails: a proxy answering with an
+    HTML error page raised `JSONDecodeError` straight through `except claim.ClaimError`, and one
+    unreadable list ended the triage run for every issue in the repository (CodeRabbit on #407).
+
+    Soft is the right direction *here* and nowhere near a general licence — no verdict seen
+    withholds an authority. The thread-read tests above fail closed by raising, for the same
+    reason read the other way.
+    """
+    monkeypatch.setattr(triage.claim, "_token", lambda: "t")
+    monkeypatch.setattr(triage.claim.urllib.request, "urlopen", lambda *_a, **_k: _Answer())
+    assert triage._verdict_at_head(99, HEAD) is False
+
+
 def test_a_partial_thread_read_is_refused_rather_than_treated_as_complete(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2284,15 +2326,365 @@ def test_the_deferral_procedure_dispatches_the_triage_that_reads_it() -> None:
 
 def test_the_workflow_listens_for_the_merge_event() -> None:
     triggers = _workflow()[True]
-    assert triggers["pull_request"]["types"] == ["closed"]
+    assert "closed" in triggers["pull_request"]["types"]
 
 
-def test_the_workflow_passes_merged_only_on_the_pull_request_event() -> None:
-    """The flag is set from the event; whether it MERGED is re-checked from the API in triage.py."""
+def test_the_workflow_listens_for_the_lanes_own_phase_change() -> None:
+    """`ready_for_review` is a lane step, and nothing else re-triages the claim after it (#394).
+
+    An ADVANCE worker marks the PR ready and exits. No check suite completes and no review is
+    submitted by that alone, so without this trigger the lane strands at the step it was just moved
+    to — with no authority published to ask for the mandatory CodeRabbit review.
+    """
+    assert "ready_for_review" in _workflow()[True]["pull_request"]["types"]
+
+
+def test_the_workflow_passes_merged_only_on_a_closed_pull_request() -> None:
+    """The flag is set from the event; whether it MERGED is re-checked from the API in triage.py.
+
+    The action matters, not just the event name. `pull_request` now also carries
+    `ready_for_review`, and while `MERGED` was true for every event of that name a ready transition
+    ran the merge-cleanup path — where `clear_mirror` sees `merged == false` and skips. The phase
+    change then published nothing, stranding the lane at the step the trigger was added to unstick
+    (Codex P2 on #407).
+    """
     step = next(
         s
         for s in _workflow()["jobs"]["triage"]["steps"]
         if s.get("name") == "Publish review-round state"
     )
-    assert step["env"]["MERGED"] == "${{ github.event_name == 'pull_request' }}"
+    merged = step["env"]["MERGED"]
+    assert "github.event_name == 'pull_request'" in merged
+    assert "github.event.action == 'closed'" in merged, (
+        "a ready_for_review transition must not take the merge-cleanup path"
+    )
     assert "--merged" in step["run"]
+
+
+# ---------------------------------------- #394: a clean review authorises the next lane phase
+#
+# The lane is a SEQUENCE, and the swarm had one resumption signal for it: `agent:needs-amend`,
+# published for a failed check or an owed finding. A clean review owes nothing, so it published
+# nothing, `swarm_slots` resumes claimed work only on that label, and the draft sat forever before
+# the CodeRabbit gate it cannot merge without.
+
+
+def _drafted(**over: Any) -> dict[str, Any]:
+    """A pull request still in the draft phase: `draft` true and no `ready_for_review` ever."""
+    return _pr(draft=True, **over)
+
+
+def test_a_clean_review_on_an_unfinished_draft_publishes_advance_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE #394 state, and against today's triage nothing at all is published for it.
+
+    A draft, green, nothing owed, and Codex has looked at this exact head and found nothing
+    blocking. That is the end of a draft round and the start of the next phase — and it was the one
+    state the machine could not represent.
+    """
+    fake, result = _run(
+        _routes(
+            pr=_drafted(),
+            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["advance"] == "added"
+    assert triage.ADVANCE_LABEL in fake.added
+    assert triage.AMEND_LABEL not in fake.added, "an advance is not an amend"
+
+
+def test_an_owed_finding_is_still_an_amend_and_never_an_advance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#394's fourth criterion. Publishing both would hand one claim two authorities.
+
+    Whichever resumption arrived first would decide what the session did, which is worse than
+    either alone.
+    """
+    fake, result = _run(
+        _routes(
+            pr=_drafted(),
+            comments=[dict(_carried(CODEX, HEAD, HEAD), created_at=DRAFT_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert triage.AMEND_LABEL in fake.added
+    assert triage.ADVANCE_LABEL not in fake.added
+    assert result["advance"] != "added"
+
+
+def test_a_stale_amend_label_withholds_the_advance_it_would_contradict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same invariant, against the label rather than the finding (CodeRabbit on #407).
+
+    A capped PR reaches the `withheld-at-cap` branch and returns before the one that would clear a
+    stale `agent:needs-amend`, and this function must not clear it either — that label has a second
+    writer. So the published amend outlives the finding that caused it, and everything
+    `_advance_state` asks about is then true: nothing owed, checks green, a review at the head.
+
+    Both labels on one claim is the state `swarm_slots` assumes cannot happen. Precisely: its belt
+    at `swarm_slots.py` is `ADVANCE_LABEL in labels and AMEND_LABEL not in labels`, so the outcome
+    is *deterministic* — AMEND wins — and the failure is not a race. It is that the belt's own
+    stated justification, **"triage does not publish both"**, was false, and what it falls back to
+    is an AMEND session dispatched against a claim with nothing owed and no findings to fix.
+
+    So this test makes that comment true rather than papering over it, which is the direction this
+    repository requires: a belt may be redundant, but its reason may not be wrong.
+    """
+    fake, result = _run(
+        _routes(
+            labels=[triage.CAPPED_LABEL, triage.AMEND_LABEL],
+            reviews=[
+                dict(_review(RABBIT, OLDER), submitted_at=AFTER_READY),
+                dict(_review(RABBIT, HEAD), submitted_at=AFTER_READY),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["capped"] is True, "the branch that strands the label only runs at the cap"
+    assert result["amend"] == "withheld-at-cap", "the stale label is left for its own writer"
+    assert result["advance"] != "added"
+    assert triage.ADVANCE_LABEL not in fake.added, "one claim, one authority"
+
+
+def test_the_run_that_retires_the_amend_is_the_run_that_publishes_the_advance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of the guard above, and without it that guard rebuilds #394.
+
+    This is the ordinary end of an AMEND: the finding was answered, the fix pushed, the suite came
+    back green at the new head, and the free provider has looked at it. `agent:needs-amend` is
+    retired on this run — and `labels` is the snapshot read before that, so it still contains the
+    label being removed.
+
+    Withholding on the snapshot alone therefore withheld the advance on exactly the run that made
+    it due, and nothing fires afterwards to reconsider: clearing a label is not an event. The draft
+    would sit before the gate it cannot merge without, which is the stranding #394 exists to end.
+    """
+    fake, result = _run(
+        _routes(
+            pr=_drafted(),
+            labels=[triage.AMEND_LABEL],
+            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["amend"] == "cleared", "the answered finding retires its authority"
+    assert triage.AMEND_LABEL in fake.removed
+    assert result["advance"] == "added", "and the same run hands over the next phase"
+    assert triage.ADVANCE_LABEL in fake.added
+
+
+def test_a_draft_nobody_has_reviewed_yet_is_not_authorised_to_advance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Green and owing nothing is not the same as reviewed and clean.
+
+    Without this, a draft would be authorised to leave the draft phase the moment its checks went
+    green — before the free provider had ever looked at it, which is the lane's whole point skipped.
+    """
+    _, result = _run(_routes(pr=_drafted(), suites=GREEN), monkeypatch)
+    assert result["advance"] == "no-review-yet"
+
+
+def test_a_providers_reply_at_the_new_head_is_not_a_review_of_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`read_head` is *a provider looked at this head*, and a reply is not looking.
+
+    This is the shape that makes it reachable rather than theoretical: a submitted review carries no
+    `original_commit_id`, so the wrapper GitHub builds around a provider's reply (#396) binds to
+    whatever the head is **now** — which, after the worker has answered and pushed, is a head no
+    provider has reviewed. Counted, it authorises the lane to advance out of exactly that state.
+
+    Asserted on `_review_state` directly, because `owed` masks it here: the reply is owed an answer
+    (#404), and `_advance_state` refuses on `owed` before ever reading this value. #393 unmasks it
+    by letting a resolved thread stop owing, which is why it is fixed now rather than then.
+    """
+    _install(
+        monkeypatch,
+        _routes(
+            pr=_drafted(),
+            reviews=[_submission(CODEX, HEAD, WRAPPER_IDS[0], at=DRAFT_TIME)],
+            comments=[_reply(CODEX, HEAD, WRAPPER_IDS[0], 3708500095)],
+            suites=GREEN,
+        ),
+    )
+    _, _, read_head = triage._review_state(99, HEAD, None)
+    assert read_head is False, (
+        "the only provider evidence at this head is a wrapper around a reply; nobody has reviewed "
+        "the fix that produced it"
+    )
+
+
+def test_a_ready_pull_request_with_the_merge_armed_is_the_lane_complete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#394's fourth criterion: nothing published once the lane is complete.
+
+    Complete means the merge is **armed**, not merely that the PR went ready — Codex's P1 on this
+    PR. Reading `ready for review` as complete stranded the lane one step further along: an ADVANCE
+    worker marks the PR ready and exits, and asking CodeRabbit and then arming are exactly the
+    phases auto-merge cannot perform for itself.
+    """
+    _, result = _run(
+        _routes(
+            pr=_pr(auto_merge={"enabled_by": {"login": "bioedca"}}),
+            reviews=[dict(_review(RABBIT, HEAD), submitted_at=AFTER_READY)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["advance"] == "lane-complete"
+
+
+def test_a_ready_pull_request_awaiting_its_gate_is_still_advanced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The P1 itself: green, ready, owing nothing, and nobody has asked CodeRabbit.
+
+    This is the state an ADVANCE worker leaves behind when it marks the PR ready and exits, and it
+    is the one the mandatory gate is waiting on. Before this it published nothing at all.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["advance"] == "added"
+
+
+def test_an_unreadable_timeline_never_publishes_advance_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fail-open the composed audit found, and it was live.
+
+    `_counted_from` answers `None` BOTH for a PR opened ready and for a timeline it could not read.
+    That `None` is the fail-toward-COUNTING answer on the round axis, and reusing it here with the
+    opposite polarity meant an API failure took the past-the-draft branch, skipped the
+    review-happened requirement, and published authority for a pull request nobody had reviewed.
+
+    Requiring the review in every phase is what closes it, so this asserts the composite: unreadable
+    timeline plus no review at head publishes nothing.
+    """
+    routes = _routes(suites=GREEN)
+    del routes[("GET", "/repos/bioedca/tether/issues/99/timeline")]
+    _, result = _run(routes, monkeypatch)
+    assert result["advance"] == "no-review-yet"
+
+
+def test_the_cap_does_not_withhold_the_counted_phases_remaining_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cap bounds ROUNDS, and neither remaining step is one (Codex P2 on #407).
+
+    A PR that has answered round CAP still needs to request the convergence check ADR-0062 permits,
+    and one whose gate has passed still needs a session to arm the merge. Withholding for both left
+    a green, gated pull request with nobody authorised to finish it. The DRAFT phase stays subject
+    to the cap, where a round really would be spent.
+    """
+    _, result = _run(
+        _routes(
+            labels=[triage.CAPPED_LABEL],
+            reviews=[dict(_review(RABBIT, HEAD), submitted_at=AFTER_READY)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["advance"] == "added"
+
+
+def test_a_provider_verdict_naming_the_head_counts_as_a_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex's CLEAN pass produces no review object at all — Codex's own P1 on this PR.
+
+    It submits a review when it has findings and posts a plain issue comment when it does not, so
+    the draft that most deserves to advance is exactly the one `/pulls/{n}/reviews` cannot show.
+    The comment names the head it read, and that string is its only binding.
+    """
+    routes = _routes(pr=_pr(draft=True), suites=GREEN)
+    routes[("GET", "/repos/bioedca/tether/issues/99/comments")] = (
+        200,
+        [
+            {
+                "user": {"login": CODEX},
+                "body": f"Codex Review: nothing.\n\n**Reviewed commit:** `{HEAD[:10]}`",
+            }
+        ],
+    )
+    _, result = _run(routes, monkeypatch)
+    assert result["advance"] == "added"
+
+
+def test_a_verdict_naming_an_older_head_does_not_authorise_an_advance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control: a verdict is head-bound, and a stale one must not advance a moved diff."""
+    routes = _routes(pr=_pr(draft=True), suites=GREEN)
+    routes[("GET", "/repos/bioedca/tether/issues/99/comments")] = (
+        200,
+        [{"user": {"login": CODEX}, "body": f"**Reviewed commit:** `{OLDER[:10]}`"}],
+    )
+    _, result = _run(routes, monkeypatch)
+    assert result["advance"] == "no-review-yet"
+
+
+def test_a_running_check_suite_holds_the_advance_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Advancing spends a metered credit or asks the mandatory gate. Not against a moving diff."""
+    _, result = _run(
+        _routes(
+            pr=_drafted(),
+            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            suites=RUNNING,
+        ),
+        monkeypatch,
+    )
+    assert result["advance"] != "added"
+
+
+def test_the_advance_authority_is_withdrawn_when_it_stops_being_true(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale advance would authorise a session to walk a lane that has moved on.
+
+    Safe to withdraw here, unlike `agent:needs-amend`: this label has exactly one writer, so
+    removing it cannot fight the reaper over a signal that means something else.
+    """
+    fake, result = _run(
+        _routes(
+            pr=_drafted(),
+            labels=[triage.ADVANCE_LABEL],
+            comments=[dict(_carried(CODEX, HEAD, HEAD), created_at=DRAFT_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["advance"].startswith("cleared")
+    assert triage.ADVANCE_LABEL in fake.removed
+
+
+def test_the_advance_label_is_part_of_the_merged_claims_mirror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """It describes work in flight, so a merge must clear it like every other mirror label (#308).
+
+    Left out, a merged issue would keep an authority to advance a lane whose PR no longer exists.
+    """
+    assert triage.ADVANCE_LABEL in triage.MIRROR_LABELS
+    fake = _install(monkeypatch, _merged_routes(labels=[triage.ADVANCE_LABEL]))
+    triage.clear_mirror(number=99, dry_run=False)
+    assert triage.ADVANCE_LABEL in fake.removed
