@@ -665,16 +665,20 @@ class _Answer:
     """The little of a ``urlopen`` result ``_request`` actually touches, and no more."""
 
     def __init__(self, payload: bytes | BaseException, status: int = 200) -> None:
+        """Carry either the bytes to hand back or the exception to raise instead of them."""
         self._payload = payload
         self.status = status
 
     def __enter__(self) -> _Answer:
+        """``urlopen`` is used as a context manager, so this stands in for one."""
         return self
 
     def __exit__(self, *_exc: object) -> bool:
+        """Never suppress: a test that swallowed its own failure would pass for nothing."""
         return False
 
     def read(self) -> bytes:
+        """Hand back the body, or fail the way a real response fails part-way through one."""
         if isinstance(self._payload, BaseException):
             raise self._payload
         return self._payload  # type: ignore[return-value]
@@ -715,9 +719,11 @@ class _UnreadableBody:
     """An ``HTTPError`` file object that fails where ``error.read()`` reads it."""
 
     def read(self, *_a: object) -> bytes:
+        """The failure itself: the body ends before the length the headers promised."""
         raise claim.http.client.IncompleteRead(b"{")
 
     def close(self) -> None:
+        """``HTTPError`` closes its file object on the way out, and that must not fail too."""
         return None
 
 

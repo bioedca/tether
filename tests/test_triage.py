@@ -1467,12 +1467,15 @@ class _Answer:
     status = 200
 
     def __enter__(self) -> _Answer:
+        """``urlopen`` is used as a context manager, so this stands in for one."""
         return self
 
     def __exit__(self, *_exc: object) -> bool:
+        """Never suppress: a test that swallowed its own failure would pass for nothing."""
         return False
 
     def read(self) -> bytes:
+        """What a TLS-inspecting proxy answers with — a 200 whose body is not JSON at all."""
         return b"<html>502 Bad Gateway</html>"
 
 
