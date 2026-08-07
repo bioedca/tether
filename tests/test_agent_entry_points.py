@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Both vendor lanes carry the same contract, and the copies cannot drift apart silently.
+"""Both vendor lanes reach the same contract, and neither route may quietly stop working.
 
 ``AGENTS.md`` governs every agent here, but the two lanes load different files to reach it: Codex
 takes ``.agents/skills/`` and its ``agents/openai.yaml``; Claude Code loads ``CLAUDE.md`` and
@@ -89,35 +89,34 @@ def test_the_adaptation_names_the_contract_as_authoritative() -> None:
     )
 
 
-def test_every_contract_section_is_adapted() -> None:
-    """The binding that makes duplication survivable.
+def test_the_claude_entry_point_is_a_pointer_not_a_second_contract() -> None:
+    """The replacement for the two drift guards this file used to carry (ADR-0064).
 
-    A rule added to `AGENTS.md` under a new heading is a rule this lane would never see. Matching on
-    headings rather than prose is deliberate: an *adaptation* is supposed to reword, so demanding
-    identical text would force the two files to be one and defeat the point of adapting.
+    Those guards bound a hand-written *adaptation*: every `##` section of `AGENTS.md` had to appear
+    in `CLAUDE.md`, and the two had to stay within a factor of two in size. They worked, and the
+    thing they were protecting was the problem. Two files said the same eight things in different
+    words — only 49 of ~150 lines byte-identical — so every contract edit cost two files and a test
+    run, and ADR-0057's third driver (contract text is resident context, so its size is a running
+    cost) was being paid twice for one contract.
+
+    A pointer cannot drift, so the property worth binding changes: not *does it adapt every section*
+    but *is it still a pointer*. `.claude/skills/tether-worker/SKILL.md` is bound the same way by
+    `test_the_claude_skill_is_a_pointer_with_identical_routing_metadata` below; this is that rule
+    applied one level up.
     """
-    contract = _sections(CONTRACT)
-    adapted = set(_sections(CLAUDE_ENTRY))
-    assert contract, "AGENTS.md has no sections; the parse is wrong"
+    text = CLAUDE_ENTRY.read_text(encoding="utf-8")
+    assert "AGENTS.md" in text, "it must name its target"
+    assert CONTRACT.is_file(), "the pointer's target does not exist"
 
-    unadapted = [s for s in contract if s not in adapted]
-    assert not unadapted, (
-        "AGENTS.md has sections CLAUDE.md does not adapt, so this lane never sees those rules: "
-        f"{unadapted}"
-    )
-
-
-def test_the_adaptation_stays_close_to_the_contract_in_size() -> None:
-    """Both are resident context on every call, so both are a running cost (ADR-0057, driver 3).
-
-    A bound rather than a target. Much shorter means rules were dropped; much longer means it has
-    stopped being an adaptation and started being its own document.
-    """
     contract_lines = len(CONTRACT.read_text(encoding="utf-8").splitlines())
-    adapted_lines = len(CLAUDE_ENTRY.read_text(encoding="utf-8").splitlines())
-    assert contract_lines <= adapted_lines <= contract_lines * 2, (
-        f"CLAUDE.md is {adapted_lines} lines against AGENTS.md's {contract_lines}; "
-        "it should track the contract, not shrink below it or grow into a separate document"
+    entry_lines = len(text.splitlines())
+    assert entry_lines * 2 < contract_lines, (
+        f"CLAUDE.md is {entry_lines} lines against AGENTS.md's {contract_lines}; it looks like a "
+        "copy of the contract rather than a pointer to it"
+    )
+    assert not _sections(CLAUDE_ENTRY), (
+        "CLAUDE.md carries `##` sections of its own, so it has started restating the contract "
+        "instead of pointing at it"
     )
 
 
