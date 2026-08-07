@@ -221,6 +221,14 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
             # A dict here is GitHub's error envelope, not a page of reviews. Treating it as empty
             # would subtract from the spend in the one direction that matters.
             raise Unreadable(f"{repo}#{pull['number']} reviews: not a list of reviews")
+        if not all(isinstance(review, dict) for review in reviews):
+            # The ENTRIES are checked as well as the container (CodeRabbit `Major` on #422). A
+            # `null` in the list reached `review.get(...)` below and raised `AttributeError`, which
+            # `main` does not catch - so the one command a worker must run before spending a
+            # metered credit exited on a traceback instead of reporting UNKNOWN. Everything else
+            # unreadable in this file becomes `Unreadable`; this shape escaped because the
+            # container was the right type and only its contents were not.
+            raise Unreadable(f"{repo}#{pull['number']} reviews: an entry is not a review object")
         hits = [
             review
             for review in reviews

@@ -321,3 +321,29 @@ def test_the_configured_repositories_are_the_ones_billed_to_this_seat() -> None:
     assert json.loads(json.dumps(list(usage.REPOS))), (
         "REPOS must stay JSON-serialisable for reports"
     )
+
+
+def test_a_review_list_holding_a_non_object_is_unknown_rather_than_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The container was type-checked and its CONTENTS were not (CodeRabbit `Major` on #422).
+
+    `isinstance(reviews, list)` catches GitHub's error envelope, which is a dict. It does not catch
+    a list carrying `null`, and `review.get(...)` then raises `AttributeError` — which `main` does
+    not catch, because everything else that cannot be read in this file raises `Unreadable`. So the
+    one command a worker must run before spending a metered credit exited on a traceback rather
+    than reporting UNKNOWN, and an unreadable balance that *looks* like a crash invites re-running
+    it rather than treating the budget as unknown.
+
+    The control is the same payload with a real review object, so what separates them is the entry
+    type alone and not the plumbing.
+    """
+    monkeypatch.setattr(usage, "_gh", _fake_gh({"bioedca/tether": [_pr(1)]}, {1: [None]}))
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == usage.EXIT_UNKNOWN
+    captured = capsys.readouterr()
+    assert "remaining" not in captured.out, "an unreadable list must never print a balance"
+    assert "UNKNOWN" in captured.err
+
+    monkeypatch.setattr(usage, "_gh", _fake_gh({"bioedca/tether": [_pr(1)]}, {1: [_review()]}))
+    assert usage.main() == 0, "and a real review object still counts"
