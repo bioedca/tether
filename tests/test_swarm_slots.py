@@ -1065,6 +1065,77 @@ def test_the_amend_ref_is_keyed_to_the_claim_generation(
     assert all("7-77-" in p for p in reads), "keyed to issue AND generation"
 
 
+def _reclaim_after_first_read(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """`claim._generation` answers 77 once and 78 thereafter - the reaper reclaiming mid-flight.
+
+    The first read is the one `_existing_claim` takes at the top of an authorisation; every later
+    one is the revalidation immediately before a write. Faked here rather than by moving the
+    activity route, so the test does not depend on how many API calls happen to sit between the two
+    - which is the detail the fix is about, and the one most likely to change under it.
+    """
+    seen: list[int] = []
+
+    def generation(number: int) -> int:
+        seen.append(number)
+        return 77 if len(seen) == 1 else 78
+
+    monkeypatch.setattr(slots.claim, "_generation", generation)
+    return seen
+
+
+def test_a_reclaim_during_authorisation_files_no_amend_round(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The generation is revalidated immediately before the write (CodeRabbit on #408).
+
+    `_existing_claim` reads it at the top, and the counted branch then spends three more round trips
+    - the draft lookup, the ledger read, the terminal label re-read - before `_take_amend_round`.
+    The reaper can reclaim across any of them, which is why `AGENTS.md` requires revalidation
+    immediately before every authoritative write rather than once for all of them.
+
+    What a stale write costs is worth stating, because *"this launcher loses a race"* understates
+    it: the ref lands under the DEAD generation, so the successor's `_issued_amends` cannot see a
+    round that really was issued, and the head recorded on it belongs to a different claim.
+    Generation keying is what makes a reclaim start fresh, and that only holds while refs are filed
+    under the generation that was live when they were written.
+    """
+    fake = _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)})
+    _as_draft(fake, draft=False)
+    seen = _reclaim_after_first_read(monkeypatch)
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert len(seen) > 1, "the plan's generation must be re-read, not trusted, before the write"
+    assert entry["mode"] == "lost", entry.get("reason")
+    assert "reclaimed" in entry["reason"] and "78" in entry["reason"], "and it says which way"
+    assert fake.amend_refs() == [], "nothing may be filed under a generation this launcher lost"
+    assert not list(tmp_path.glob("_task-issue-*.md")), "and no worker starts against it"
+
+
+def test_a_reclaim_during_authorisation_files_no_lane_advance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The twin, whose window is the wider of the two.
+
+    CodeRabbit raised the race against `_authorise_amend` alone. `_authorise_advance` reads the
+    generation at the same place and then reads the pull request, its step token and its whole
+    review list before writing - more round trips than the AMEND path, so it is the easier of the
+    pair to hit. Fixing only the reported one would have left a known instance of one defect behind
+    on the argument that nobody pointed at it.
+    """
+    fake = _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.ADVANCE_LABEL)})
+    _as_draft(fake, draft=True)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+    seen = _reclaim_after_first_read(monkeypatch)
+
+    entry = _by_issue(
+        slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path), 7
+    )
+    assert len(seen) > 1, "the advance path revalidates too"
+    assert entry["mode"] == "lost", entry.get("reason")
+    assert fake.created_refs == [], "no lane-advance ref under the dead generation either"
+
+
 def test_an_unreadable_issuance_count_never_authorises_an_amend(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -188,8 +188,15 @@ def _rounds_spent(labels: set[str]) -> int:
     """How many review rounds this issue has already spent, from the published round labels.
 
     Read from the labels rather than recounted: ``triage.py`` owns the count, and a launcher that
-    re-derived it could disagree with the state the contract publishes. ``agent:review-capped``
-    is the terminal value, so it reports ``CAP`` and the caller refuses.
+    re-derived it could disagree with the state the contract publishes. ``agent:review-capped`` is
+    the terminal value on this axis and reports ``CAP``.
+
+    **Which no longer refuses an AMEND** (#399), and this docstring said it did. The cap bounds
+    metered REVIEWS, and an AMEND is the session that *answers* one - so at the cap exactly one is
+    still due, the one that fixes round two's findings and gives the convergence check something
+    clean to verify. Refusing it here is the deadlock #399 removes from ``triage.py``, rebuilt one
+    layer up. The terminal refusal is ``agent:gate-blocked``; what this count feeds is the report
+    and the label-side bound, not a veto.
     """
     if CAPPED_LABEL in labels:
         return CAP
@@ -439,10 +446,6 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
                 "issue": number,
                 "mode": "amend",
                 "label_rounds": spent,
-                # Carried so `_authorise_amend` can apply the label-side bound without re-reading
-                # the issue. False here by construction - the branch above returns on it - and
-                # named rather than assumed, because the refusal message reads it.
-                "gate_blocked": False,
                 "reason": (
                     "agent:needs-amend is published for this claim: a check suite is not "
                     "green, or a review at the current head is unanswered."
@@ -760,6 +763,15 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
         )
         return None
     ref = f"refs/{prefix}{_lane_state_digest(pr)}"
+    # Same revalidation as the AMEND path, and this window is the WIDER of the two: the pull
+    # request, its step token and its review list are all read between the generation above and
+    # this write. CodeRabbit raised it against `_authorise_amend` only; leaving the twin would keep
+    # a known instance of the same defect, and this one is the easier of the pair to hit.
+    lost = _reclaimed(number, generation)
+    if lost is not None:
+        item["mode"] = "lost"
+        item["reason"] = lost
+        return None
     status, _ = claim._request("POST", f"/repos/{REPO}/git/refs", {"ref": ref, "sha": sha})
     if status == 422:
         item["mode"] = "lost"
@@ -823,6 +835,43 @@ def _advance_attempts(prefix: str) -> int:
     return len(payload)
 
 
+def _reclaimed(number: int, generation: int) -> str | None:
+    """``None`` while this launcher still holds ``generation``, else why it no longer does.
+
+    Called immediately before each authoritative ref write, which is the rule ``AGENTS.md`` states
+    for every claim holder: *revalidate immediately before every authoritative write and stop
+    writing on exit 5*. Both authorisation paths read the generation once at the top and then spend
+    several round trips deciding what to write - the draft lookup, the ledger read and the terminal
+    label re-read for an AMEND; the pull request and its whole review list for an ADVANCE - and the
+    reaper can reclaim across any of them (CodeRabbit on #408).
+
+    What a stale write costs is not a lost race, which would be harmless, but a **misfiled ledger**.
+    The ref lands under the DEAD generation, where the successor's :func:`_issued_amends` cannot see
+    it, carrying the successor's head as the provenance of a round issued against a different
+    claim; the session it launches then dies on its own injected ``claim.py check`` having consumed
+    a slot. Generation keying is what makes a reclaim start fresh, and that only holds if the
+    generation a ref is filed under is the one that was live when it was written.
+
+    **This bounds the window rather than closing it.** ``POST /git/refs`` takes no
+    expected-generation, so a reclaim landing between this read and the write is not detectable
+    here - the same irreducible residue :func:`reaper._prepare_retire` documents for deletion. What
+    it removes is the wide window, which is several API calls long.
+
+    ``None`` from :func:`claim._generation` refuses rather than passing: it answers that way for an
+    unreadable activity index as well as for an absent ref, and ``claim.py`` makes the point that it
+    must never be read as *"there is nothing to protect"*. Comparing it against a live ``int``
+    therefore refuses on both, which is the direction every other control in this module takes.
+    """
+    current = claim._generation(number)
+    if current == generation:
+        return None
+    return (
+        f"#{number} was reclaimed while its session was being authorised: generation {generation} "
+        f"is now {current!r}, so nothing further may be filed under one this launcher no longer "
+        "holds. The successor's own launcher issues its rounds; this costs neither claim a round."
+    )
+
+
 def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
     """Take AMEND authority for this issue, or return ``None`` having recorded why not.
 
@@ -830,7 +879,8 @@ def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
 
     * **refuse** - the launcher's own issuance count has reached the cap. This is the independent
       refusal: it counts refs this launcher created, not a label another workflow wrote.
-    * **lost** - another launcher claimed the same round first. Not an error and not a refusal.
+    * **lost** - another launcher claimed the same round first, or the reaper reclaimed this issue
+      while the round was being authorised. Not an error and not a refusal.
     * authorised - ``item`` gains ``round``/``remaining`` and the caller proceeds.
 
     **The cap applies to the counted phase only** (#391). ADR-0062 makes the draft phase uncapped,
@@ -891,12 +941,17 @@ def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
         # The label-side bound is still real, it is just the right label: `agent:gate-blocked` is
         # the state where nothing further is authorised, and it is published from a recount rather
         # than carried forward, so it cannot be cleared by tidying labels.
-        # RE-READ, not the plan's snapshot. `item["gate_blocked"]` was decided when the plan was
-        # built, and triage can publish the terminal label in the seconds between - so a stale False
-        # let the reservation create an AMEND ref for a lane that had stopped terminating
-        # (CodeRabbit on #408). This is the same rule `AGENTS.md` states for a claim: revalidate
-        # immediately before the authoritative write, never once for all of them. A read failure
-        # raises rather than defaulting, because defaulting here defaults toward issuing.
+        # READ HERE, not carried from the plan. `_plan` decided the mode from a label snapshot taken
+        # before every call above, and triage can publish the terminal label in the seconds between
+        # - so trusting that snapshot let the reservation create an AMEND ref for a lane that had
+        # stopped terminating (CodeRabbit on #408). This is the same rule `AGENTS.md` states for a
+        # claim, and `_reclaimed` applies it to the claim itself below: revalidate immediately
+        # before the authoritative write, never once for all of them. A read failure raises rather
+        # than defaulting, because defaulting here defaults toward issuing.
+        #
+        # The plan carried a `gate_blocked: False` for this until #408's own review: it was always
+        # False by construction and always replaced here before either read, so it recorded nothing
+        # and its comment claimed the re-read below did not happen (CodeRabbit on #408).
         item["gate_blocked"] = GATE_BLOCKED_LABEL in _labels(_issue_now(number))
         if issued >= CAP or item["gate_blocked"]:
             item["mode"] = "refuse"
@@ -914,6 +969,14 @@ def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
     sha = reaper._read_ref(number)
     if sha is None:
         raise SlotError(f"#{number} claim ref vanished before its AMEND could be issued")
+    # LAST of the reads, deliberately. Generations only ever increase, so finding this one unchanged
+    # proves nothing was reclaimed across any of the calls above - which is what licenses `sha`,
+    # read a moment ago, to be this claim's head rather than a successor's.
+    lost = _reclaimed(number, generation)
+    if lost is not None:
+        item["mode"] = "lost"
+        item["reason"] = lost
+        return None
     if not _take_amend_round(number, generation, ordinal, sha):
         item["mode"] = "lost"
         item["reason"] = f"another launcher issued AMEND round {ordinal} for #{number} first"
