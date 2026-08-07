@@ -55,6 +55,43 @@ conflating them would let a worker reach `agent:review-capped` on the draft phas
 to, before the mandatory gate. Entering the counted phase is **permanent**: a PR converted back to draft keeps every round it has spent, or the
 cap would be opt-out by toggling draft.
 
+**A round is a metered review that found something blocking, so a clean one costs nothing; and a
+clean CodeRabbit one at the current head is the lane terminating** (amended by
+[#399](https://github.com/bioedca/tether/issues/399)). **The two halves are separate on purpose**,
+and the shorter phrasing conflated them: *free* is a property of any clean metered review, while
+*terminating* names its provider. A clean Greptile pass costs no round and settles nothing.
+
+As first written, the gate and the cap could contradict each other. The gate requires *"at least one CodeRabbit review with no
+actionable comments"*; the cap allows two rounds. If the round-2 review posts actionable comments,
+answering them moves the head, and the gate then requires a review at *that* head — round 3, which
+the cap forbids. The pull request could satisfy neither rule, and no state it could reach would
+merge. This record claimed the lane terminates; #385 proved otherwise, at head `3628712`: green on
+all sixteen checks, fifty-four threads resolved, `mergeStateStatus: CLEAN`, and unmergeable by this
+record's own text.
+
+So the cap counts what it was always for — **how many times a provider found something that had to
+be fixed** — and after two such rounds one more request is permitted, purely to verify convergence.
+*Permitted, and dispatched exactly once.* This record grants the authority and #394's
+`agent:needs-advance` carries it: `_advance_state` withholds on the cap only in the **draft** phase,
+where a round really would be spent, so a capped pull request that is ready, green and owes nothing
+is handed one ADVANCE session to ask for the verification. Exactly one, because the
+`refs/lane-advances/` compare-and-swap below is what the session takes and the label alone cannot
+re-trigger — which is also what a maintainer watching such a pull request needs to know, since
+asking by hand as well spends a second metered review on the same head. If
+that verification is clean the gate is satisfied at no cost and the lane ends. If it finds blocking
+work too, the count passes `CAP` and `triage.py` publishes **`agent:gate-blocked`**: the lane is
+bounded at three post-ready counted reviews — the optional Greptile credit on the draft is metered
+as well and sits deliberately outside that count, so *three metered reviews* would understate what
+a lane can spend — and every way out of it is a state something can act on rather
+than a green pull request nobody may merge. That last one is a maintainer's, and a label rather than
+a comment because a workflow posting one trips `test_no_workflow_can_post_a_review_trigger`.
+
+The alternatives were weaker. *Answering never spends a round* removes the bound the cap exists to
+be. *The gate is satisfied by findings answered* re-admits the failure the gate was built for —
+"reviewed and answered" stops proving "reviewed and nothing left". *The cap raises on maintainer
+authority* keeps both rules honest but puts a human in the loop for exactly the pull requests that
+are converging normally.
+
 Owed-an-answer is a **separate axis** from rounds. Any external provider's finding is owed an answer
 at the head it was written against — including Greptile's, whose review was paid for, and including
 findings raised on a draft.
@@ -200,9 +237,16 @@ leg, and a quota refusal from it is recorded as *did not review*.
   toward the cap**: no pull request, or one that cannot be read, is the counted phase, because the
   uncapped phase has to be positively established.
 
-  `max(issued, label_rounds)` is unchanged for the counted phase. This changes which refs are
-  counted, never how the count is compared, so the launcher's bound remains at worst as strict as
-  the contract's.
+  Splitting the ledger changes which refs are counted, never how the count is compared. **What the
+  counted phase compares did change, and in this record's own amendment above**: it is now
+  `issued >= CAP`, the launcher's own issuance count, and no longer `max(issued, label_rounds)`.
+  Those two counters mean different things once a converged round is free — `label_rounds` counts
+  metered *reviews*, `issued` counts the *sessions that answer them* — and at the cap exactly one
+  session is still due, the one that fixes round two's findings so the convergence check has
+  something clean to verify. Comparing against the review count refused that session, which is
+  precisely the deadlock this record removes, rebuilt one layer up in the launcher. The label-side
+  bound is still real and is now the right label: `agent:gate-blocked`, recomputed rather than
+  carried forward, so tidying labels cannot clear it.
 
 ## Alternatives considered
 

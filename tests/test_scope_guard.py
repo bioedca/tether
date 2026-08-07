@@ -637,7 +637,11 @@ def test_review_rounds_counts_distinct_heads_like_triage_does(
     """
     reviews = [
         {"user": {"login": "chatgpt-codex-connector[bot]"}, "commit_id": "c" * 40},
-        {"user": {"login": "coderabbitai[bot]"}, "commit_id": "c" * 40},
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "commit_id": "c" * 40,
+            "state": "CHANGES_REQUESTED",
+        },
         {"user": {"login": "bioedca"}, "commit_id": "d" * 40},
     ]
     _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"], reviews=reviews)
@@ -665,11 +669,13 @@ def test_a_pr_opened_ready_keeps_the_rounds_it_spent_before_a_draft_excursion(
         {
             "user": {"login": "coderabbitai[bot]"},
             "commit_id": "c" * 40,
+            "state": "CHANGES_REQUESTED",
             "submitted_at": "2026-08-01T00:00:00Z",
         },
         {
             "user": {"login": "coderabbitai[bot]"},
             "commit_id": "e" * 40,
+            "state": "CHANGES_REQUESTED",
             "submitted_at": "2026-08-03T12:00:00Z",
         },
     ]
@@ -700,6 +706,7 @@ def test_a_review_timestamp_is_read_the_way_triage_reads_it(
         {
             "user": {"login": "coderabbitai[bot]"},
             "commit_id": "c" * 40,
+            "state": "CHANGES_REQUESTED",
             # No `submitted_at`; a `created_at` that predates the ready transition. The `or`
             # spelling picked this up and excluded the round.
             "created_at": "2026-08-01T00:00:00Z",
@@ -728,6 +735,7 @@ def test_a_review_taken_during_the_prescribed_draft_phase_is_not_a_round(
         {
             "user": {"login": "coderabbitai[bot]"},
             "commit_id": "c" * 40,
+            "state": "CHANGES_REQUESTED",
             "submitted_at": "2026-08-01T00:00:00Z",
         }
     ]
@@ -930,15 +938,43 @@ def test_the_guard_counts_the_head_a_provider_actually_read(
     # the unmetered lane — consumes no round at all. The #307 property under test is the head
     # attribution, not which provider it belongs to.
     reviews = [
-        {"user": {"login": "coderabbitai[bot]"}, "commit_id": "c" * 40},
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "commit_id": "c" * 40,
+            "state": "CHANGES_REQUESTED",
+        },
         {
             "user": {"login": "coderabbitai[bot]"},
             "original_commit_id": "c" * 40,
             "commit_id": "d" * 40,
+            "state": "CHANGES_REQUESTED",
         },
     ]
     _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"], reviews=reviews)
     assert guard.measure(99)["review_rounds"] == 1
+
+
+def test_the_guard_does_not_count_a_clean_metered_review_as_a_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#399 in the audit half. Codex P2 on that PR, and it is the mirror's whole purpose.
+
+    A round is a metered review that found something; a clean one is the lane terminating. Left
+    counting every metered head, this guard would report **one** round on every pull request
+    CodeRabbit passes while triage reports **zero** — which reads as *the evidence is ahead of the
+    labels*, the corruption signal this mirror exists to raise rather than to manufacture.
+    """
+    reviews = [
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "id": 1,
+            "body": "No actionable comments.",
+            "state": "COMMENTED",
+            "commit_id": "c" * 40,
+        }
+    ]
+    _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"], reviews=reviews)
+    assert guard.measure(99)["review_rounds"] == 0
 
 
 def test_the_guard_does_not_count_a_reply_wrapper_as_a_round(
@@ -956,6 +992,7 @@ def test_the_guard_does_not_count_a_reply_wrapper_as_a_round(
             "user": {"login": "coderabbitai[bot]"},
             "id": 1,
             "body": "findings",
+            "state": "CHANGES_REQUESTED",
             "commit_id": "c" * 40,
         },
         {"user": {"login": "coderabbitai[bot]"}, "id": 2, "body": "", "commit_id": "d" * 40},
@@ -994,6 +1031,7 @@ def test_the_guard_still_counts_a_bodyless_review_that_carries_real_findings(
             "user": {"login": "coderabbitai[bot]"},
             "id": 1,
             "body": "findings",
+            "state": "CHANGES_REQUESTED",
             "commit_id": "c" * 40,
         },
         {"user": {"login": "coderabbitai[bot]"}, "id": 2, "body": "", "commit_id": "d" * 40},

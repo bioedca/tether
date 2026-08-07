@@ -562,6 +562,12 @@ def _review_rounds(number: int) -> int:
                 real = real or entry.get("state") in {"CHANGES_REQUESTED", "APPROVED", "DISMISSED"}
                 if not real:
                     continue
+                # A round is a metered review that FOUND something (#399). A clean one is the lane
+                # terminating, and counting it here would report one round where triage reports
+                # zero on every PR CodeRabbit passes - "evidence ahead of the labels", which is the
+                # corruption signal this mirror exists to raise rather than to manufacture.
+                if entry.get("state") not in {"CHANGES_REQUESTED"}:
+                    continue
             elif entry.get("in_reply_to_id"):
                 continue
             # Path-appropriate, exactly as `triage._review_state` reads it, rather than
