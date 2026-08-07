@@ -178,14 +178,27 @@ BLOCKING_REVIEW_STATES = frozenset({"CHANGES_REQUESTED"})
 # `COMMENTED` is deliberately absent: it is what GitHub stamps on the wrapper it puts around a
 # reply to a review thread, and treating it as a verdict is exactly the over-count of #396.
 VERDICT_REVIEW_STATES = frozenset({"CHANGES_REQUESTED", "APPROVED", "DISMISSED"})
-# The same question asked on the GATE axis, where `DISMISSED` is deliberately absent (CodeRabbit on
-# #408). The set above includes it because on the ROUND axis a dismissal is still a submission that
-# happened, and counting it there is the fail-CLOSED direction. Here it is the opposite: a dismissal
-# is an administrative REMOVAL of a verdict, not a provider reporting, so an empty `DISMISSED`
-# submission at the head satisfied the mandatory gate with nothing showing CodeRabbit had ever
-# looked - fail-open on the one axis merges are decided on. Two names rather than one set, because
-# the axes want opposite answers from the same payload and sharing a constant hid that.
-GATE_VERDICT_STATES = frozenset({"CHANGES_REQUESTED", "APPROVED"})
+
+# The GATE's proving half, as an ALLOWLIST (#415). These are the submission states that can mean
+# *a review happened at this head and found nothing*; everything else proves nothing.
+#
+# The predicate used to be spelled by EXCLUSION - anything that was not `CHANGES_REQUESTED` proved
+# the gate - which is allow-by-default on the one axis merges are decided on. `DISMISSED` is the
+# state that made it a live defect: a worker who cannot converge can submit a review and then
+# `PUT /pulls/{n}/reviews/{id}/dismissals`, and the withdrawn verdict's BODY outlives it, so the
+# submission still looked like a provider reporting. #408 closed the empty case by taking
+# `DISMISSED` out of the set consulted here; it could not close the case with a body, because a
+# real `CHANGES_REQUESTED` review always has one.
+#
+# An allowlist also answers the states nobody has thought of yet. `PENDING`, an absent `state` and
+# whatever GitHub adds next all prove nothing - and, just as importantly, VOID nothing: retracting a
+# gate a genuine clean review already met would strand the lane with nothing to push. Voiding stays
+# the separate, fail-closed job of `BLOCKING_REVIEW_STATES`.
+GATE_PROVING_STATES = frozenset({"COMMENTED", "APPROVED"})
+#: The member of the set above that is a verdict in itself, so it proves the gate with no body.
+#: `COMMENTED` is not one: GitHub stamps it on reply wrappers too (#396), so it has to show that it
+#: reported something. `DISMISSED` is a verdict being *withdrawn* and is in neither place.
+GATE_VERDICT_STATE = "APPROVED"
 
 # A review someone has STARTED DRAFTING and not submitted (#400). GitHub's own schema for the
 # reviews endpoint says it outright: a review "created in the PENDING state" is "not submitted and
@@ -852,29 +865,34 @@ def _substantive_review_ids(comments: list[dict[str, Any]]) -> set[Any]:
     }
 
 
-def _says_something(entry: dict[str, Any], spoke: set[Any]) -> bool:
-    """Whether a submission carries evidence that its provider actually reported.
+def _proves_the_gate(entry: dict[str, Any], spoke: set[Any]) -> bool:
+    """Whether this submission is the gate provider reporting cleanly at this head.
 
-    A body is what every substantive review writes - #385's real review was 5667 bytes and all five
-    of its wrappers were 0 - a verdict state says something whether or not it is spelled out, and a
-    submission owning a non-reply comment has plainly reported. Anything else is a submission the
-    payload does not describe, and the gate does not accept those.
+    Two questions, in this order, and the order is the fix for #415.
 
-    ``GATE_VERDICT_STATES`` rather than ``VERDICT_REVIEW_STATES``: a ``DISMISSED`` submission is a
-    verdict being *withdrawn*, which is evidence of an administrative act rather than of a review,
-    and accepting it here satisfied the gate on an empty payload. See the note beside the constants.
+    **Is the state one that can mean a review happened?** An allowlist - see
+    ``GATE_PROVING_STATES``. Asking the complement instead ("not ``CHANGES_REQUESTED``") admitted
+    ``DISMISSED``, an absent state, and every state GitHub has yet to invent.
+
+    **Did the payload show it actually reported?** A body is what every substantive review writes -
+    #385's real review was 5667 bytes and all five of its wrappers were 0 - and a submission owning
+    a non-reply comment has plainly reported. ``APPROVED`` skips this: it is a verdict in itself.
+    Anything else is a submission the payload does not describe, and the gate does not accept those.
+
+    The two must both hold. Either alone is a defect this function has already had: state-only
+    admitted a dismissal, evidence-only admitted the body a dismissal leaves behind.
     """
-    return bool(
-        (entry.get("body") or "").strip()
-        or entry.get("state") in GATE_VERDICT_STATES
-        or entry.get("id") in spoke
-    )
+    if entry.get("state") not in GATE_PROVING_STATES:
+        return False
+    if entry.get("state") == GATE_VERDICT_STATE:
+        return True
+    return bool((entry.get("body") or "").strip() or entry.get("id") in spoke)
 
 
 def _gate_state(
     *,
     gate_blocked: bool,
-    capped: bool,
+    past_the_draft: bool,
     owed: bool,
     running: bool,
     converged: bool,
@@ -897,24 +915,27 @@ def _gate_state(
     So the gate asks for the thing ADR-0062 actually requires and nothing adjacent to it: that
     provider, that head, no findings.
 
-    **``capped`` is a proxy, and a deliberately conservative one.** What the gate actually needs to
-    exclude is the DRAFT phase: a clean review there ends nothing, because the Greptile step and the
-    ready transition are still to come, and reporting the gate satisfied would invite arming a merge
-    on an unfinished lane — the failure ``.agents/tasks/amend.md`` warns about, one step earlier.
-    ``capped`` excludes it because draft rounds do not count, so a draft is never capped.
+    **``past_the_draft`` asks the question directly, where ``capped`` used to stand in for it
+    (#411).** What the gate needs to exclude is the DRAFT phase: a clean review there ends nothing,
+    because the Greptile step and the ready transition are still to come, and reporting the gate
+    satisfied would invite arming a merge on an unfinished lane — the failure
+    ``.agents/tasks/amend.md`` warns about, one step earlier.
 
-    It excludes more than that, and the cost is known: a PR whose FIRST CodeRabbit review comes back
-    clean has met ADR-0062's gate — the cap is a ceiling, not a quota — and this reports ``open``
-    anyway. That direction is the safe one, since it at worst suggests a metered credit nobody
-    needed, where the other suggests a merge past the gate. Narrowing it to *"has been ready at
-    least once"* wants ``_counted_from(strict=True)``, which raises on an unreadable timeline rather
-    than returning the ``None`` that means *count everything*; reusing that ``None`` with the
-    opposite polarity is a live fail-open CodeRabbit found on #407. That helper arrives with #394,
-    so the narrowing is tracked in #411 rather than built on an unmerged sibling here.
+    ``capped`` did exclude it, because draft rounds do not count and a draft is therefore never
+    capped. It also excluded a PR whose FIRST CodeRabbit review came back clean — which has met
+    ADR-0062's gate, since the cap is a ceiling and not a quota — and reported ``open`` for it. The
+    run summary then told an operator the lane was unfinished when it was finished, which is an
+    invitation to spend a metered credit nobody needed.
+
+    The caller resolves the phase from ``_counted_from(strict=True)`` and hands the answer down as a
+    plain bool, so an unreadable timeline arrives here as ``False`` and reports ``open``. That
+    matters more than which helper is called: ``_counted_from`` answers ``None`` both for *opened
+    ready* and for *could not read*, and reusing that ``None`` here with the opposite polarity is a
+    live fail-open CodeRabbit found on #407.
     """
     if gate_blocked:
         return "blocked"
-    if capped and not owed and not running and converged:
+    if past_the_draft and not owed and not running and converged:
         return "satisfied"
     return "open"
 
@@ -988,12 +1009,12 @@ def _is_blocking(entry: dict[str, Any], is_reviews: bool) -> bool:
     at three metered reviews and every path out of it is a state something can act on.
 
     Blocking is *actionable output at the head reviewed*: a ``CHANGES_REQUESTED`` submission, or an
-    inline finding **the provider itself badged at or above the severity floor**. A submission with a
-    body and no findings is CodeRabbit's clean form and is exactly what the gate asks for. A reply is
-    neither (#396), and is filtered before this is asked.
+    inline finding **the provider itself badged at or above the severity floor**. A submission with
+    a body and no findings is CodeRabbit's clean form and is exactly what the gate asks for. A reply
+    is neither (#396), and is filtered before this is asked.
 
-    **The severity is read, not inferred from the comment's shape (#409).** Every inline finding used
-    to count, which is an approximation in the over-counting direction - safe on the cap, and
+    **The severity is read, not inferred from the comment's shape (#409).** Every inline finding
+    used to count, which is an approximation in the over-counting direction - safe on the cap, and
     expensive: measured across this repository, 58% of CodeRabbit's inline findings are ``Minor``,
     which `docs/agents/review.md` says to **defer** rather than fix. Two pull requests reached
     ``agent:review-capped`` having been told nothing they were obliged to act on (#405 spent 4 such
@@ -1208,7 +1229,7 @@ def _review_state(
             if login == GATE_PROVIDER and not is_reply:
                 if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
                     gate_finding_here = True
-                elif _says_something(entry, spoke):
+                elif _proves_the_gate(entry, spoke):
                     # POSITIVE EVIDENCE, where the round axis above deliberately takes the absence
                     # of it. `_is_a_review` counts a submission with no body, no verdict and no
                     # comments, because it asks a submission to prove it is a *wrapper* - and on the
@@ -1523,7 +1544,18 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     if not head:
         raise TriageError(f"PR #{pr['number']} has no head sha")
 
-    counted_from = _counted_from(pr)
+    # ONE timeline read, TWO polarities, and they are separated here rather than inferred from the
+    # answer (#411). `_counted_from` returns `None` both for a PR opened ready and for a timeline it
+    # could not read; that ambiguity is safe for the CAP, which wants "count everything" either way,
+    # and fail-OPEN for the gate, which would read the unreadable case as *past the draft* (Codex P2
+    # on #407). So the failure is caught once, where it is still distinguishable, and each axis is
+    # given the answer that fails closed for it.
+    try:
+        counted_from = _counted_from(pr, strict=True)
+        phase_read = True
+    except (claim.ClaimError, TriageError):
+        counted_from, phase_read = None, False
+    past_the_draft = phase_read and counted_from is not _COUNT_NOTHING
     reviewed, review_owed, read_head, converged = _review_state(pr["number"], head, counted_from)
     rounds = len(reviewed)
     running, failed = _suite_state(head)
@@ -1616,7 +1648,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         # `test_a_greptile_round_does_not_satisfy_the_coderabbit_gate` is what holds that.
         "gate": _gate_state(
             gate_blocked=gate_blocked,
-            capped=capped,
+            past_the_draft=past_the_draft,
             owed=owed,
             running=running,
             converged=converged,

@@ -1421,24 +1421,31 @@ def test_a_timestampless_review_that_is_not_pending_still_counts(
     assert result["rounds"] == 1, "a malformed entry is still counted; only PENDING is exempt"
 
 
-def test_a_review_still_being_drafted_proves_no_gate(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The axis the `PENDING` guard is load-bearing on once #399 landed — and the one that binds it.
+def test_a_review_still_being_drafted_is_not_a_look_at_this_head(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The axis the `PENDING` guard is load-bearing on, and it has now moved twice.
 
-    **The three tests above went partly vacuous when #399 merged into this branch, and this is the
-    replacement rather than an addition.** `_is_blocking` spends a round only on
-    `CHANGES_REQUESTED` or an inline finding, so `PENDING` stops counting on the round axis whether
-    or not the guard exists. Measured, not assumed: neutralising `UNSUBMITTED_REVIEW_STATE` failed
-    two of those three before the merge and none of them after it.
+    **The three tests above went partly vacuous when #399 landed.** `_is_blocking` spends a round
+    only on `CHANGES_REQUESTED` or an inline finding, so `PENDING` stopped counting on the round
+    axis whether or not the guard existed. #414 replaced them with an assertion on `converged`,
+    because on the gate axis a half-written review WITH A BODY was the fail-open case.
 
-    The guard did not become redundant, it moved. On the gate axis a `PENDING` submission is the
-    fail-OPEN case: it is not in `BLOCKING_REVIEW_STATES`, so it falls to `_says_something`, and a
-    half-written review **with a body** answers yes. Without the guard `converged` would be true —
-    the mandatory gate satisfied by a review its author has not sent, at the head a merge is armed
-    against.
+    **That replacement went vacuous in turn when #415 landed, in this same pull request.** The
+    proving half is now an allowlist and `PENDING` is not in it, so `converged` is false with or
+    without the guard. Measured the same way both times, by neutralising
+    `UNSUBMITTED_REVIEW_STATE` and rerunning: two of three failed before #399, none after it, and
+    the `converged` replacement failed before #415 and not after.
 
-    Asserted on `converged` from `_review_state` rather than on `result["gate"]`, for the reason
-    `test_an_empty_submission_is_a_round_but_not_a_gate` records: the summary is gated on the
-    counted phase and would report `open` here whichever way the evidence went.
+    What is left is `read_head` — *a provider has looked at this exact head* — which is the
+    authority `_advance_state` requires before it will walk the lane on. It is set before either
+    other axis is consulted, so nothing downstream masks it: without the guard, a review sitting
+    unsent in its author's editor would be a look, and the lane would advance out of a head no
+    provider had reported on. That is the last thing the guard uniquely does, so it is what this
+    test now asserts.
+
+    The comment above this block, warning that a sibling change can silently answer the same
+    question, was written by #414 about #399. It predicted this instance.
     """
     _run(
         _routes(
@@ -1450,10 +1457,14 @@ def test_a_review_still_being_drafted_proves_no_gate(monkeypatch: pytest.MonkeyP
         ),
         monkeypatch,
     )
-    _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
-    assert converged is False, (
-        "an unsubmitted draft review must not satisfy the gate nothing may merge past"
+    _, _, read_head, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert read_head is False, (
+        "an unsent review is not a provider having looked, and `_advance_state` reads this as the "
+        "authority to move the lane on"
     )
+    # Still true, and still worth stating - but no longer what binds the guard, since the allowlist
+    # in `GATE_PROVING_STATES` refuses `PENDING` on its own.
+    assert converged is False
 
 
 # ------------------------------------ #393: only a push used to clear `review_owed`
@@ -3081,6 +3092,93 @@ def test_the_gate_is_not_satisfied_by_the_rounds_that_preceded_it(
     )
 
 
+def test_a_first_review_that_comes_back_clean_satisfies_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#411: the cap is a CEILING, not a quota, and the gate used to insist the ceiling was reached.
+
+    `_gate_state` claimed `satisfied` only when `capped` held. That excluded the draft phase, which
+    is what it was reaching for, and it excluded this too — a ready pull request whose very first
+    CodeRabbit review found nothing. ADR-0062's gate is *a CodeRabbit review with no actionable
+    comments*; it says nothing about how many rounds preceded it. Reporting `open` here told an
+    operator the lane was unfinished when it was finished, which invites spending a metered credit
+    on a review nobody needs.
+
+    Zero rounds, not one: a clean review is free (#399), so `rounds` reads 0 and the old predicate
+    could not have been further from firing.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_clean_review(RABBIT, HEAD)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0, "a clean review spends nothing"
+    assert result["capped"] is False
+    assert result["gate"] == "satisfied", (
+        "the mandatory review happened at this head and found nothing - which is the whole of what "
+        "ADR-0062 asks for"
+    )
+
+
+def test_a_clean_review_on_a_draft_does_not_satisfy_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The half of the old proxy that was right, kept and now asserted directly (#411).
+
+    A clean review on a draft ends nothing: the optional Greptile credit and the ready transition
+    are still ahead, and `.agents/tasks/amend.md` warns about arming a merge on an unfinished lane.
+    `capped` excluded this case only as a side effect — draft rounds do not count, so a draft is
+    never capped — and a side effect is not a property. Now the phase is asked directly.
+
+    The payload is otherwise identical to the test above, so the phase is the only difference
+    between `satisfied` and `open`.
+    """
+    _, result = _run(
+        _routes(
+            pr=_pr(draft=True),
+            reviews=[_clean_review(RABBIT, HEAD)],
+            timeline=[],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["gate"] == "open", (
+        "the Greptile step and the ready transition are lane, and the gate is not met until they "
+        "are behind the PR"
+    )
+
+
+def test_a_timeline_that_cannot_be_read_reports_the_gate_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fail direction, which is the property — not a side effect of which helper was called.
+
+    `_counted_from` answers `None` for a PR **opened ready** and for a timeline it **could not
+    read**, and those want opposite treatment. On the round axis `None` means *count everything*,
+    which is fail-closed for a safety control. Read here with the opposite polarity it would mean
+    *past the draft* — so one transient 502 on the timeline endpoint would let a clean review report
+    the mandatory gate satisfied, which is CodeRabbit's fail-open on #407 in a new place.
+
+    So the caller catches the failure where the two are still distinguishable and hands the gate a
+    plain `False`. The evidence is otherwise a gate-satisfying payload, so nothing but the
+    unreadable timeline can explain `open`.
+    """
+    routes = _routes(reviews=[_clean_review(RABBIT, HEAD)], suites=GREEN)
+    routes[("GET", "/repos/bioedca/tether/issues/99/timeline")] = (502, {"message": "upstream"})
+    _, result = _run(routes, monkeypatch)
+    assert result["gate"] == "open", (
+        "an unreadable phase is not evidence the draft is behind this PR, and the gate is the one "
+        "axis merges are decided on"
+    )
+    assert result["rounds"] == 0, (
+        "and the ROUND axis keeps its own fail direction from the same failure - `None` there "
+        "still means count everything, which is why the two cannot share one answer"
+    )
+
+
 def test_a_greptile_round_does_not_satisfy_the_coderabbit_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3222,7 +3320,91 @@ def test_a_dismissed_submission_is_not_evidence_the_gate_was_met(
         _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
         assert converged is expected, f"{state} must {'' if expected else 'not '}satisfy the gate"
     assert "DISMISSED" in triage.VERDICT_REVIEW_STATES, "still counted on the ROUND axis"
-    assert "DISMISSED" not in triage.GATE_VERDICT_STATES, "and never on the gate axis"
+    assert "DISMISSED" not in triage.GATE_PROVING_STATES, "and never on the gate axis"
+
+
+def test_dismissing_a_changes_requested_review_does_not_convert_it_into_a_clean_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#415's dismissal sequence, walked end to end - and it survived #408's fix.
+
+    That fix took `DISMISSED` out of the set `_says_something` consults, which closed the case where
+    the withdrawn submission was EMPTY. It could not close this one, because a real
+    `CHANGES_REQUESTED` review has a body and dismissal does not remove it: the body outlives the
+    verdict, `_says_something` sees it, and the proving half was reached by *exclusion* - anything
+    that is not `CHANGES_REQUESTED`. So the one payload a worker can actually produce here still
+    proved the gate.
+
+    The sequence needs no special access beyond the author's own: submit, then
+    `PUT /pulls/{n}/reviews/{id}/dismissals`. That is why the allowlist is the fix rather than
+    adding `DISMISSED` to another denylist - the next state GitHub invents is admitted by default.
+
+    Three payloads, identical but for `state`, so nothing but the state can explain the difference.
+    """
+    body = "**Actionable comments posted: 1**\n\nThe head is not bound to the evidence."
+    for state, expected in (
+        ("CHANGES_REQUESTED", False),  # the verdict itself: blocked, obviously not satisfied
+        ("DISMISSED", False),  # withdrawn - and the body it left behind is not a clean review
+        ("COMMENTED", True),  # the control: the same body, in CodeRabbit's clean form
+    ):
+        _run(
+            _routes(
+                reviews=[
+                    {"user": {"login": RABBIT}, "commit_id": HEAD, "state": state, "body": body}
+                ],
+                timeline=[_ready(READY_TIME)],
+                suites=GREEN,
+            ),
+            monkeypatch,
+        )
+        _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
+        assert converged is expected, (
+            f"a {state} submission carrying a body must "
+            f"{'' if expected else 'not '}satisfy the mandatory gate"
+        )
+
+
+@pytest.mark.parametrize(
+    "state",
+    ["PENDING", "SOMETHING_GITHUB_ADDS_LATER", None],
+    ids=["pending", "unknown", "absent"],
+)
+def test_a_state_the_gate_cannot_read_proves_nothing_and_voids_nothing(
+    state: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The allowlist's other half: it must not become a *voiding* list by accident (#415).
+
+    An unreadable state is not evidence a review happened - that is what the allowlist enforces -
+    but neither is it evidence one found something. Were it to void, a single odd submission would
+    retract a gate a real clean review had already satisfied, and the lane would strand with nothing
+    a worker could push to clear it.
+
+    So each case is asserted twice: alone it does not converge, and ALONGSIDE a genuine clean review
+    convergence survives. The second assertion is the one that fails if the fix is written as a
+    denylist that happens to include these states.
+
+    Asserted on `converged` rather than on `result["gate"]` because that is the predicate #415 is
+    about. The reported gate additionally requires `capped`, which is a separate question (#411) and
+    would make a green here mean two things at once.
+    """
+    odd: dict[str, Any] = {"user": {"login": RABBIT}, "commit_id": HEAD, "body": "..."}
+    if state is not None:
+        odd["state"] = state
+
+    _run(_routes(reviews=[odd], timeline=[_ready(READY_TIME)], suites=GREEN), monkeypatch)
+    _, _, _, alone = triage._review_state(99, HEAD, READY_TIME)
+    assert alone is False, "an unreadable state is not evidence a review happened"
+
+    _run(
+        _routes(
+            reviews=[odd, _clean_review(RABBIT, HEAD)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    _, _, _, beside = triage._review_state(99, HEAD, READY_TIME)
+    assert beside is True, "and it must not take back a gate a real review met"
 
 
 def test_a_bodiless_submission_from_the_gate_provider_does_not_satisfy_the_gate(
