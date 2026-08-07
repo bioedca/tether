@@ -61,6 +61,10 @@ The severity floor you classify against lives on `review.md`, not in the residen
    arming merges the PR *past* the mandatory gate: CodeRabbit is not a required check, so nothing
    else is holding it. Answering a draft-phase finding is not the end of the lane.
 
+   **`<SHA>` is the 40-hex head the clean review read, never the head re-read while arming** —
+   `docs/agents/review.md` §Merge is the rule, including why re-reading it makes the guard always
+   pass. You have read that page; nothing merges without it.
+
    **Then, and only then, exit.** This is the last line of step 4 because it has to be: an `exit`
    written before the dispatch is an instruction to leave before running it, and a worker that
    follows the step in order never recomputes the labels at all.

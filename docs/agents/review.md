@@ -33,6 +33,47 @@ Each step begins only when the one before it has nothing blocking left.
 4. **CodeRabbit is the last gate before merge** — `@coderabbitai full review` — at least one
    CodeRabbit review with **no actionable comments**. Nothing merges without it.
 
+   **That is a verdict a completed review reached, and it is recorded as one.** The evidence is the
+   review itself, and it is four things together: its **permalink**, the **`commit_id` it read**
+   — which must be the final head — a **`submitted_at`**, with a state that is not `PENDING`, and a
+   **body** whose `Actionable comments posted:` count is zero.
+
+   **`submitted_at` is what separates a review from a draft of one.** GitHub's schema says a review
+   created in the `PENDING` state is *"not submitted and therefore does not include the
+   `submitted_at` property"*, and `triage.py` skips such an entry on every axis it has — not a
+   round, owing nothing, not a look at the head. A checklist that accepted one would let the
+   *documented* gate be satisfied by something the *code* has already decided is not a review. The
+   two disagreeing about what counts as a review is the defect this section exists to remove, so the
+   evidence names the same thing the counter does.
+
+   **Zero is written by that line being ABSENT, and asking for the line is asking for something
+   that does not exist.** Measured across every CodeRabbit review this repository has ever had:
+   twenty-one carry `**Actionable comments posted: N**` with `N ≥ 1`, and the clean ones carry no
+   such line at all — the body opens directly on `🧹 Nitpick comments`. So the clean form is *a
+   review body that states no actionable-comment count, or states it as `0`*, and a rule demanding
+   the literal `Actionable comments posted: 0` would make the mandatory gate unsatisfiable by its
+   own evidence requirement. Quote the opening of the body, so a reader can see which of the two it
+   is.
+
+   **A body there must be.** An *absence* of comments is not this evidence, and neither is a green
+   `CodeRabbit` status check: both are also what the incremental command below leaves behind when it
+   reviews nothing, and the check answers *is one running*, never *did one happen*. A clean review
+   is not silent — it carries its nitpick section, which is why "no actionable comments" and "no
+   review" do not look alike once you read the body.
+
+   **Nitpicks are not actionable comments, and inline comments are.** CodeRabbit files what it
+   counts as actionable as inline review comments and puts `🔵 Trivial` nitpicks in the body, so a
+   body full of nitpicks with no inline comments *is* the clean form. A `🟡 Minor` inline comment
+   is still an actionable comment even though the severity floor says to defer rather than fix it:
+   the gate and the severity floor answer different questions, and this one is *is there an
+   actionable comment at this head*.
+
+   **Nothing automatic reads this, and that is the point.** `triage._review_state` reports the heads
+   a provider reviewed and whether the current one owes an answer; it does not parse a provider's
+   verdict text and has no convergence output. So the gate is an obligation on whoever completes the
+   lane, and the recorded evidence is the only thing that makes it auditable afterwards — by a human,
+   or by a reviewer asked to confirm the lane was walked rather than declared.
+
 **Never write a provider's handle in a comment you do not intend as a request.** A mention fires the
 bot even inside backticks — a code span is not an escape. Quoting the trigger while *describing* it
 spent a real fair-use review on a draft that was not ready for one, and throttled the PR that was
@@ -204,5 +245,24 @@ asking a provider to look **again** at work it has already reviewed this round.
   triggers it, so pace the asks rather than batching them.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to
-  the merged head. Then **arm auto-merge and exit** — never wait, never poll. Squash with
-  `--match-head-commit`, which is what replaces the merge queue this repository cannot have.
+  the merged head. Then **arm auto-merge and exit** — never wait, never poll.
+
+  ```
+  gh pr merge <PR> --auto --squash --match-head-commit <SHA>
+  ```
+
+  `--match-head-commit` is what replaces the merge queue this repository cannot have — that needs an
+  organization-owned repository. **`<SHA>` is the 40-hex head the clean review read, and you supply
+  it; nothing substitutes it.** It is the `commit_id` on that review, which is equally what
+  `git rev-parse HEAD` prints when you have pushed nothing since. Do **not** re-read the head from
+  the pull request while arming: that answers with whatever it is *now*, so the flag compares the
+  head against itself, binds nothing, and still reads as protection — and a guard that always passes
+  is worse than no guard. A short or mismatched value is refused by the API, so the failure is the
+  merge not happening rather than a merge against a head no review covers.
+
+  **This paragraph is the rule, and the other pages point at it rather than restate it.**
+  `.agents/tasks/{build,amend,advance}.md`, `.agents/skills/tether-worker/SKILL.md` and
+  `CONTRIBUTING.md` carry the command and nothing else. [#400](https://github.com/bioedca/tether/issues/400)
+  had to correct one sentence on four pages and [#416](https://github.com/bioedca/tether/issues/416)
+  was the fifth it could not reach; that is what a paraphrase costs on the one command standing in
+  for a merge queue.

@@ -1052,3 +1052,37 @@ def test_the_guard_still_counts_a_bodyless_review_that_carries_real_findings(
         comments=comments,
     )
     assert guard.measure(99)["review_rounds"] == 2
+
+
+def test_the_guard_does_not_count_a_review_still_being_drafted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#400 in the audit half, and it has to land here or the mirror manufactures a disagreement.
+
+    A `PENDING` review carries no `submitted_at`, and both counters treat a timestamp-less entry as
+    countable. Fixed in `triage.py` alone, this guard would report **two** rounds where triage
+    reports one on any pull request with a draft review open against it - "the evidence is ahead of
+    the labels", which is the corruption signal this mirror exists to raise rather than to invent.
+
+    The draft carries a body, which is what makes the ordering load-bearing: the `real` test one
+    line below accepts any submission with a body, so a `PENDING` check placed after it would never
+    be reached.
+    """
+    reviews = [
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "id": 1,
+            "body": "findings",
+            "state": "CHANGES_REQUESTED",
+            "commit_id": "c" * 40,
+        },
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "id": 2,
+            "body": "half-written",
+            "state": "PENDING",
+            "commit_id": "d" * 40,
+        },
+    ]
+    _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"], reviews=reviews)
+    assert guard.measure(99)["review_rounds"] == 1
