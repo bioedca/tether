@@ -558,6 +558,14 @@ def _review_rounds(number: int) -> int:
             # module deliberately shares no code with `triage.py` - it is a second opinion, and one
             # that imported the counter it audits would not be one.
             if is_reviews:
+                # An unsubmitted draft review is not a round (#400), and it is asked FIRST because
+                # a `PENDING` review carrying a body would otherwise pass the `real` test below. It
+                # has no `submitted_at`, and the timestamp branch at the foot of this loop counts a
+                # timestamp-less entry deliberately - so leaving it in spends a round on a review
+                # its author has not sent. Mirrors `triage.UNSUBMITTED_REVIEW_STATE`, stated inline
+                # because this module shares no code with the counter it audits.
+                if entry.get("state") == "PENDING":
+                    continue
                 real = bool((entry.get("body") or "").strip()) or entry.get("id") not in wrappers
                 real = real or entry.get("state") in {"CHANGES_REQUESTED", "APPROVED", "DISMISSED"}
                 if not real:

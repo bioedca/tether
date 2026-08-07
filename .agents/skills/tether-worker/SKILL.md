@@ -1,6 +1,6 @@
 ---
 name: tether-worker
-description: Work one accepted Tether issue as a short-lived peer worker — claim it with the atomic ref mutex, implement in an isolated worktree, open a draft PR, open the review lane, hand off, and exit. Use when an agent is asked to solve, resume, or hand off a single work item, or when a launcher injects a build or amend task. There is no coordinator to ask.
+description: Work one accepted Tether issue as a short-lived peer worker — claim it with the atomic ref mutex, implement in an isolated worktree, hand off, and exit. A BUILD session opens the draft PR and the review lane on it; an AMEND session continues the pull request that already exists, answering one round on it; an ADVANCE session continues it too, moving the lane on by exactly one phase and taking no round. Neither of the latter two re-opens or re-drafts a pull request. Use when an agent is asked to solve, resume, or hand off a single work item, or when a launcher injects a task from .agents/tasks/. There is no coordinator to ask.
 ---
 
 # Tether worker
@@ -98,15 +98,25 @@ gap — that is what invalidated reviews across three PRs at once under the old 
 
 ## Finish
 
-**Open the PR as a draft**, get the checks green, record the review risk with its reason, and request
-the first Codex review. Then **exit** — do not sit and poll.
+**How you finish depends on which task you were given, and only the first step differs.**
 
-You open the lane in `docs/agents/review.md`; you do not walk it to the end. Every later phase — the
-optional Greptile credit, marking ready, the mandatory CodeRabbit gate, arming auto-merge — begins
-only *after* a review lands, and waiting for one is exactly what a short-lived worker must not do. So
-**write the lane state into the PR body before you go**: which phase it is in, what was asked, what
-is outstanding. A later session reads that and continues. It is the only thing carrying the lane
-forward.
+- **BUILD** (`.agents/tasks/build.md`) — **open the PR as a draft**, get the checks green, record the
+  review risk with its reason, and request the first Codex review.
+- **AMEND** (`.agents/tasks/amend.md`) — **the pull request already exists: continue it.** Push the
+  answer to this round's blocking findings onto the same branch, reply to each thread, and dispatch
+  triage. Never open a second PR, never re-draft the one that is open, and never re-record the risk —
+  it may only increase.
+- **ADVANCE** (`.agents/tasks/advance.md`) — the PR exists and owes nothing; move the lane on by
+  **exactly one** phase and stop.
+
+Then **exit** — do not sit and poll.
+
+A BUILD session opens the lane in `docs/agents/review.md`; no session walks it to the end. Every
+later phase — the optional Greptile credit, marking ready, the mandatory CodeRabbit gate, arming
+auto-merge — begins only *after* a review lands, and waiting for one is exactly what a short-lived
+worker must not do. So **whichever task you hold, write the lane state into the PR body before you
+go**: which phase it is in, what was asked, what is outstanding. A later session reads that and
+continues. It is the only thing carrying the lane forward.
 
 > **A later phase is somebody else's session, and it is issued to them.** A clean review on an
 > unfinished lane publishes `agent:needs-advance`, and the launcher turns that into one ADVANCE
@@ -127,6 +137,10 @@ gh pr merge N --auto --squash --match-head-commit <SHA>
 
 `--match-head-commit` binds the merge to the head your evidence covers. There is no merge queue on
 this repository (it needs an organization-owned repo), so that guard is what replaces it.
+
+**`<SHA>` is the 40-hex head the clean review read, never the head re-read while arming** —
+`docs/agents/review.md` §Merge is the rule, including why re-reading it makes the guard always
+pass. You have read that page; nothing merges without it.
 
 ## Rounds are issued to you, not requested by you
 

@@ -259,7 +259,14 @@ Before requesting review / merging, confirm:
       routes nothing; the round; and a
       result from every provider the lane reached — **either** a substantive review **or** that
       provider's own quoted "nothing to review" for the head it read, a Codex 👍 included.
-      **CodeRabbit with no actionable comments is required**; Greptile is optional, and its absence
+      **CodeRabbit with no actionable comments is required**, and that is a verdict a completed
+      review reached rather than an absence of one: record the review itself — permalink,
+      `commit_id`, `submitted_at` (a `PENDING` review has none, and is not a submitted one), and the
+      opening of its body. `docs/agents/review.md` §4 states what counts as
+      that evidence and, in particular, why the clean verdict is written by the
+      `Actionable comments posted:` line being **absent** rather than reading `0`. Neither silence
+      nor a green `CodeRabbit` status check is the gate; both are also what a request that reviewed
+      **nothing** leaves behind (see the full-review command below). Greptile is optional, and its absence
       for want of credits is recorded rather than excused as a review. Blocking
       findings fixed, non-blocking ones deferred to a follow-up issue, per `AGENTS.md`.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
@@ -280,7 +287,9 @@ checks confers. Arming it on a draft would merge the PR past the mandatory CodeR
 gate, since that gate is not a required check. The merge is bound to the head the review evidence covers with
 `gh pr merge N --auto --squash --match-head-commit <SHA>` — that guard is what stands in
 for the merge queue, which needs an organization-owned repository and so is unavailable
-here.
+here. **`<SHA>` is the 40-hex head the clean review read, never the head re-read while
+arming** — `docs/agents/review.md` §Merge is the rule, including why re-reading it makes
+the guard always pass.
 
 The `main-baseline` ruleset requires these **11** status checks:
 

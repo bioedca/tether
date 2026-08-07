@@ -187,6 +187,24 @@ VERDICT_REVIEW_STATES = frozenset({"CHANGES_REQUESTED", "APPROVED", "DISMISSED"}
 # the axes want opposite answers from the same payload and sharing a constant hid that.
 GATE_VERDICT_STATES = frozenset({"CHANGES_REQUESTED", "APPROVED"})
 
+# A review someone has STARTED DRAFTING and not submitted (#400). GitHub's own schema for the
+# reviews endpoint says it outright: a review "created in the PENDING state" is "not submitted and
+# therefore does not include the `submitted_at` property". `_counts_as_round` counts a
+# timestamp-less entry deliberately, so without this an unsubmitted draft spends a round that no
+# review has taken - a cap consumed by work nobody has done.
+#
+# Skipped here rather than by teaching `_counts_as_round` about it. That function must keep failing
+# TOWARD counting for a missing or malformed timestamp, which is the direction ADR-0062 requires of
+# a safety control and the property #396 rests on; narrowing it to fix this would trade a visible
+# over-count for the fail-open one.
+#
+# **Not reachable through the identity this workflow runs as**, and the docstring says so rather
+# than claiming a defect nobody can trigger: GitHub keeps a pending review's comments "only visible
+# to you", so a metered provider's draft never appears in a payload this reads. What the guard buys
+# is that the count stays correct whichever identity reads it - a deployment property, not one this
+# module can assert about itself.
+UNSUBMITTED_REVIEW_STATE = "PENDING"
+
 
 class TriageError(RuntimeError):
     """A triage precondition failed. Safe to print; carries no path."""
@@ -1099,6 +1117,10 @@ def _review_state(
             login = ((entry.get("user") or {}).get("login")) or ""
             sha = _reviewed_head(entry)
             if login not in EXTERNAL_PROVIDERS or not isinstance(sha, str) or not sha:
+                continue
+            # An unsubmitted draft is not a review on ANY axis - not a round, and nothing is owed an
+            # answer to a finding its author has not sent yet. See `UNSUBMITTED_REVIEW_STATE`.
+            if is_reviews and entry.get("state") == UNSUBMITTED_REVIEW_STATE:
                 continue
             # A reply is not a *review*. On the comment axis `in_reply_to_id` says so outright; on
             # the review axis it takes the join, because the wrapper GitHub builds around a reply
