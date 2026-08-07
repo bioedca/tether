@@ -784,12 +784,24 @@ def test_no_page_both_lanes_read_names_a_gh_spelling_one_of_them_cannot_run() ->
     )
 
 
+#: The issue forms GitHub posts. **`.md` as well as `.yml`** — GitHub supports and publishes both,
+#: and none of the Markdown kind exists here today, so globbing only `*.yml` was latent rather than
+#: broken (#421).
+#:
+#: `config.yml` is excluded **by name**: it is the issue-chooser configuration —
+#: `blank_issues_enabled`, `contact_links` — and its contents never become the body of anything. It
+#: carries no provider handle either, so including it changed no result; it was simply wrong about
+#: what this set means, and the set is named for that meaning.
+ISSUE_FORMS = sorted(
+    path
+    for suffix in ("*.yml", "*.yaml", "*.md")
+    for path in (_REPO / ".github" / "ISSUE_TEMPLATE").glob(suffix)
+    if path.name not in {"config.yml", "config.yaml"}
+)
+
 #: The templates GitHub **posts** rather than the pages an agent reads. Both become the body of a
 #: real comment the moment someone opens a pull request or an issue from them.
-POSTED_TEMPLATES = [
-    _REPO / ".github" / "pull_request_template.md",
-    *sorted((_REPO / ".github" / "ISSUE_TEMPLATE").glob("*.yml")),
-]
+POSTED_TEMPLATES = [_REPO / ".github" / "pull_request_template.md", *ISSUE_FORMS]
 
 
 def test_no_posted_template_carries_a_provider_handle() -> None:
@@ -814,8 +826,18 @@ def test_no_posted_template_carries_a_provider_handle() -> None:
 
     Globbed, not listed: a hand-written tuple silently stops at the forms that existed when it was
     written, which is the failure `.agents/tasks/*.md` already had once (#387).
+
+    **The emptiness guard counts the issue forms specifically (#421).** It used to read
+    `len(POSTED_TEMPLATES) > 1` over the combined list, which `pull_request_template.md` plus the
+    chooser `config.yml` satisfied on their own — so if every issue form were renamed, moved or
+    converted to Markdown, the glob would have matched nothing real and this test would still have
+    passed. That is the same vacuity the glob was written to prevent, reintroduced one level up.
     """
-    assert len(POSTED_TEMPLATES) > 1, "the issue-form glob matched nothing; the path is wrong"
+    assert len(ISSUE_FORMS) > 1, (
+        "the issue-form glob matched nothing real; this guard is passing on the pull-request "
+        "template alone, which is the vacuity the glob exists to prevent"
+    )
+    assert len(POSTED_TEMPLATES) == len(ISSUE_FORMS) + 1, "and the PR template is still in the set"
     bad: list[str] = []
     for path in POSTED_TEMPLATES:
         body = path.read_text(encoding="utf-8")
