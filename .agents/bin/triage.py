@@ -457,8 +457,9 @@ def _reviewed_head(entry: dict[str, Any]) -> str | None:
 
 #: Returned by :func:`_counted_from` for a pull request that is STILL a draft. A sentinel rather
 #: than ``None``, because ``None`` already means the opposite - count everything - and a bare
-#: timestamp cannot express "nothing counts yet". Sorts above every ISO-8601 instant, so the
-#: ordinary comparison in :func:`_counts_as_round` rejects each one without a special case.
+#: timestamp cannot express "nothing counts yet". It sorts above every ISO-8601 instant, but
+#: :func:`_counts_as_round` tests it by identity rather than relying on that: the comparison is the
+#: LAST clause there, and the malformed-data clauses in front of it used to answer first (#423).
 _COUNT_NOTHING = "9999-12-31T23:59:59Z"
 
 
@@ -468,10 +469,21 @@ def _counts_as_round(when: object, counted_from: str | None) -> bool:
     ISO-8601 UTC instants from the GitHub API are fixed-width and zero-padded, so lexicographic
     comparison is chronological; no parsing, and nothing to get wrong about time zones.
 
-    Evidence with no timestamp counts, deliberately. The alternative - dropping it - would let a
+    **The phase is asked first, and that ordering is the fix for #423.** This used to open on the
+    malformed-data clauses, which meant a metered review with no usable ``submitted_at`` counted
+    even against ``_COUNT_NOTHING`` - so a draft could be capped, which is the one thing ADR-0062
+    says the draft phase cannot do, and the state ``_advance_state`` used to carry a branch for.
+    Measured over every shape ``when`` can take out of the payload, nine of ten reached the counting
+    answer on a draft; only a well-formed instant did not.
+
+    Evidence with no timestamp still counts everywhere else, deliberately. Dropping it would let a
     provider response the API rendered oddly silently buy an extra round, and the cap is a safety
-    control: it fails toward counting.
+    control: it fails toward counting. That direction is unchanged for both other values of
+    ``counted_from``, and that is measured rather than argued - see
+    ``test_the_reorder_changes_nothing_outside_the_draft_phase``.
     """
+    if counted_from is _COUNT_NOTHING:
+        return False  # ADR-0062: the draft phase spends no rounds, whatever the payload looks like.
     if counted_from is None:
         return True
     return not isinstance(when, str) or not when or when >= counted_from
@@ -889,6 +901,57 @@ def _gate_state(
     return "open"
 
 
+#: CodeRabbit renders a fixed three-field italic header on every inline finding:
+#: ``_<domain>_ | _<severity>_ | _<effort>_``. The capture is anchored on the **second** field, and
+#: that is the whole point rather than an implementation detail: `docs/agents/review.md` says in as
+#: many words that the *domain* label and the ``cr-indicator-types:`` marker are **not** severities
+#: and never promote a finding - ``potential_issue`` sits on ``Minor`` and ``Major`` alike. Reading
+#: field one, or grepping the body, would do exactly what that rule forbids.
+_CODERABBIT_SEVERITY = re.compile(
+    r"\A_[^_\n]*_\s*\|\s*_[^_|\n]*?(Critical|Major|Minor|Trivial)[^_|\n]*?_\s*\|"
+)
+
+#: Greptile renders a P-scale badge as an image whose ``alt`` text is the severity.
+#: `docs/agents/review.md`: *"its badges use the same P-scale as Codex, so they map straight
+#: across"*.
+_GREPTILE_SEVERITY = re.compile(r'<img\s+alt="(P\d)"')
+
+#: The severity floor from `docs/agents/review.md`, per metered provider. Codex is deliberately
+#: absent: it is the unmetered lane and can never spend a round, so parsing its badge would be dead
+#: code. Only these two logins reach :func:`_finding_is_blocking`.
+BLOCKING_SEVERITIES: dict[str, frozenset[str]] = {
+    "coderabbitai[bot]": frozenset({"Critical", "Major"}),
+    "greptile-apps[bot]": frozenset({"P1"}),
+}
+
+
+def _finding_is_blocking(entry: dict[str, Any]) -> bool:
+    """Whether an inline finding is at or above the severity floor, per the provider's own badge.
+
+    **Unreadable markup counts.** A provider that changes its rendering, a body this cannot parse, a
+    login not in the table - all take the counting answer, which is the direction the cap has failed
+    in since it was written. The cost of over-counting is a pull request capped early, which is
+    visible and recoverable; the cost of under-counting is an unbounded metered review budget, and
+    that is the expensive direction: #408 accumulated **nine** heads carrying findings against a
+    cap of two, and every one of those nine carried a genuinely blocking finding.
+
+    So this narrows the count **only where a provider has stated a severity below the floor** and
+    leaves every ambiguous case exactly where it was.
+    """
+    login = ((entry.get("user") or {}).get("login")) or ""
+    floor = BLOCKING_SEVERITIES.get(login)
+    if floor is None:
+        return True
+    body = entry.get("body")
+    if not isinstance(body, str):
+        return True
+    pattern = _CODERABBIT_SEVERITY if login == GATE_PROVIDER else _GREPTILE_SEVERITY
+    found = pattern.search(body)
+    if found is None:
+        return True  # rendering changed, or this is not a badged finding - count it
+    return found.group(1) in floor
+
+
 def _is_blocking(entry: dict[str, Any], is_reviews: bool) -> bool:
     """Whether this piece of metered evidence found something, and so spends a round (#399).
 
@@ -907,11 +970,21 @@ def _is_blocking(entry: dict[str, Any], is_reviews: bool) -> bool:
     at three metered reviews and every path out of it is a state something can act on.
 
     Blocking is *actionable output at the head reviewed*: a ``CHANGES_REQUESTED`` submission, or an
-    inline finding. A submission with a body and no findings is CodeRabbit's clean form and is
-    exactly what the gate asks for. A reply is neither (#396), and is filtered before this is asked.
+    inline finding **the provider itself badged at or above the severity floor**. A submission with a
+    body and no findings is CodeRabbit's clean form and is exactly what the gate asks for. A reply is
+    neither (#396), and is filtered before this is asked.
+
+    **The severity is read, not inferred from the comment's shape (#409).** Every inline finding used
+    to count, which is an approximation in the over-counting direction - safe on the cap, and
+    expensive: measured across this repository, 58% of CodeRabbit's inline findings are ``Minor``,
+    which `docs/agents/review.md` says to **defer** rather than fix. Two pull requests reached
+    ``agent:review-capped`` having been told nothing they were obliged to act on (#405 spent 4 such
+    rounds, #402 spent 2). Reading the badge is not a heuristic here: both metered providers emit a
+    fixed machine-readable severity, and 154 of 154 non-reply findings across thirteen pull requests
+    parsed.
     """
     if not is_reviews:
-        return True  # An inline finding is the actionable thing itself.
+        return _finding_is_blocking(entry)
     return entry.get("state") in BLOCKING_REVIEW_STATES
 
 
@@ -1271,9 +1344,18 @@ def _advance_state(
     # has answered round CAP still needs to request the convergence check ADR-0062 permits - a
     # review that finds nothing is the lane terminating, not a third round. Withholding here left
     # such a PR green, gated and unmergeable with nobody authorised to finish it (Codex P2 on
-    # #407). The draft phase stays subject to the cap, where a round really would be spent.
-    if capped and counted_from is _COUNT_NOTHING:
-        return _withdraw_advance(labels, remove, "not-eligible")
+    # #407).
+    #
+    # A `capped and counted_from is _COUNT_NOTHING` guard used to follow, for the capped-DRAFT case.
+    # It is gone, and #419 - which asked for a test of it - is closed by removing it rather than by
+    # pinning it, under that issue's own third criterion: *if the state turns out to be unreachable
+    # in practice, the branch is what changes.* It was reachable only because `_counts_as_round`
+    # asked about malformed data before it asked about the phase, so a timestamp-less metered review
+    # capped a draft (#423). With the phase asked first that cannot happen: `_counted_from` returns
+    # `_COUNT_NOTHING` only for a PR that is currently a draft and has NEVER been ready - a
+    # ready->draft excursion returns the ready instant, so rounds persist - and against that
+    # sentinel nothing counts, so `rounds` is 0 and `capped` is False. The two conditions are now
+    # mutually exclusive by construction.
     # A REVIEW MUST HAVE HAPPENED AT THIS HEAD, in every phase. The lane only ever advances out of
     # a state a provider has looked at: on a draft that is Codex coming back clean, and past it the
     # head has not moved since - marking a PR ready pushes nothing - so the same evidence is still

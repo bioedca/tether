@@ -1094,6 +1094,68 @@ def test_an_unreadable_timeline_counts_everything_rather_than_nothing(
     assert result["rounds"] == 1
 
 
+def test_a_draft_cannot_be_capped_by_reviews_the_payload_left_undated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#423: the malformed-data escape used to answer before the phase did, so a draft could cap.
+
+    `_counts_as_round` opened on *"no usable timestamp, so count it"*, which is the right answer
+    when the phase is unknown and the wrong one when the phase is **draft** — ADR-0062 says the
+    draft phase spends no rounds at all, and `_COUNT_NOTHING` exists to say so. The sentinel was
+    the last clause, so it almost never got asked: measured over the shapes `when` can take out of
+    a REST payload, nine of ten reached the counting answer on a draft.
+
+    Two metered reviews at different heads with no `submitted_at` is the reachable form. Before the
+    reorder this reported `rounds == 2` and `capped` on a pull request that has never been ready —
+    the state `_advance_state` carried a branch for, which is why #419 exists and why that branch
+    could be deleted rather than tested.
+    """
+    _, result = _run(
+        _routes(
+            pr=_pr(draft=True),
+            reviews=[_review(RABBIT, HEAD), _review(GREPTILE, OLDER)],
+            timeline=[],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0, "the draft phase spends no round, whatever the payload looks like"
+    assert result["capped"] is False
+    assert triage.CAPPED_LABEL not in result["added"]
+
+
+def test_the_reorder_changes_nothing_outside_the_draft_phase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control for #423, and the property that makes the reorder safe rather than merely small.
+
+    Fixing a fail-open by moving a clause is only correct if the clause it moved in front of still
+    answers everything else the same way. Both other values of `counted_from` are asserted here at
+    the unit, over every shape the payload can produce — a well-formed instant, an empty string,
+    `None`, and the non-string types a truncated or oddly-rendered response can yield.
+
+    `None` (timeline unreadable, so the phase is unknown) must still count everything: that is the
+    fail-closed direction #276 was filed for at nine rounds against a limit of two. A real instant
+    must still count the undated entry for the same reason.
+    """
+    shapes: list[object] = ["2026-08-06T00:00:00Z", "", None, 0, 123, True, [], {}]
+    for when in shapes:
+        assert triage._counts_as_round(when, None) is True, (
+            f"an unreadable phase must count {when!r} - that is the fail-closed direction"
+        )
+    for when in shapes:
+        if when == "2026-08-06T00:00:00Z":
+            continue  # a dated entry is compared, and this one predates the instant below
+        assert triage._counts_as_round(when, READY_TIME) is True, (
+            f"past the ready transition an undated entry still counts: {when!r}"
+        )
+    # And the one case that changed, at the unit rather than only through `triage()`.
+    for when in shapes:
+        assert triage._counts_as_round(when, triage._COUNT_NOTHING) is False, (
+            f"nothing counts on a draft, including {when!r}"
+        )
+
+
 # ------------------------------------------- #396: GitHub wraps a reply in a review submission
 #
 # Answering a review thread produces a review submission of its own - empty body, state COMMENTED,
