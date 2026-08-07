@@ -35,8 +35,15 @@ Each step begins only when the one before it has nothing blocking left.
 
    **That is a verdict a completed review reached, and it is recorded as one.** The evidence is the
    review itself, and it is four things together: its **permalink**, the **`commit_id` it read**
-   — which must be the final head — a **`submitted_at`**, with a state that is not `PENDING`, and a
-   **body** whose `Actionable comments posted:` count is zero.
+   — which must be the final head — a **`submitted_at`**, with a state of **`COMMENTED` or
+   `APPROVED`**, and a **body** whose `Actionable comments posted:` count is zero.
+
+   **Those two states are named, not excluded.** `triage.py` reads the same allowlist, and it is an
+   allowlist because the alternative — *anything but `CHANGES_REQUESTED`* — admitted `DISMISSED`,
+   which is a verdict being **withdrawn**. A worker who cannot converge can submit a review and
+   dismiss it, and the body outlives the dismissal, so the leftover body read as a provider
+   reporting cleanly (#415). An absent state and any state GitHub adds later prove nothing here for
+   the same reason.
 
    **`submitted_at` is what separates a review from a draft of one.** GitHub's schema says a review
    created in the `PENDING` state is *"not submitted and therefore does not include the
@@ -147,8 +154,10 @@ asking a provider to look **again** at work it has already reviewed this round.
   **`docs/agents/**`** — these pages are the contract, not commentary on it). *Non-material*: a clean
   `main` merge/rebase, formatting, comment/docstring edits, ADR renumbering. A material push re-arms
   the review and grants **no extra round**.
-- **Severity floor — the severity axis only.** Blocking: CodeRabbit `Critical`/`Major`, Codex `P1`,
-  **Greptile `P1`** — its badges use the same P-scale as Codex, so they map straight across, and a
+- **Severity floor — the severity axis only.** A floor is a threshold, so **anything at or above it
+  blocks**, Greptile's `P0` included; it is not a list of the two levels named. Blocking: CodeRabbit
+  `Major` and up (so `Major`, `Critical`), Codex `P1` and up, **Greptile `P1` and up** — its badges
+  use the same P-scale as Codex, so they map straight across, and a
   paid review whose findings could all be deferred would be a credit spent on nothing —
   and — whatever the label — a secret or private path, raw or unlicensed data, a weakened frozen
   oracle or tolerance, a §5 skeleton change without an ADR and version bump, any CodeQL or

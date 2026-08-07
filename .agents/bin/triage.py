@@ -178,14 +178,27 @@ BLOCKING_REVIEW_STATES = frozenset({"CHANGES_REQUESTED"})
 # `COMMENTED` is deliberately absent: it is what GitHub stamps on the wrapper it puts around a
 # reply to a review thread, and treating it as a verdict is exactly the over-count of #396.
 VERDICT_REVIEW_STATES = frozenset({"CHANGES_REQUESTED", "APPROVED", "DISMISSED"})
-# The same question asked on the GATE axis, where `DISMISSED` is deliberately absent (CodeRabbit on
-# #408). The set above includes it because on the ROUND axis a dismissal is still a submission that
-# happened, and counting it there is the fail-CLOSED direction. Here it is the opposite: a dismissal
-# is an administrative REMOVAL of a verdict, not a provider reporting, so an empty `DISMISSED`
-# submission at the head satisfied the mandatory gate with nothing showing CodeRabbit had ever
-# looked - fail-open on the one axis merges are decided on. Two names rather than one set, because
-# the axes want opposite answers from the same payload and sharing a constant hid that.
-GATE_VERDICT_STATES = frozenset({"CHANGES_REQUESTED", "APPROVED"})
+
+# The GATE's proving half, as an ALLOWLIST (#415). These are the submission states that can mean
+# *a review happened at this head and found nothing*; everything else proves nothing.
+#
+# The predicate used to be spelled by EXCLUSION - anything that was not `CHANGES_REQUESTED` proved
+# the gate - which is allow-by-default on the one axis merges are decided on. `DISMISSED` is the
+# state that made it a live defect: a worker who cannot converge can submit a review and then
+# `PUT /pulls/{n}/reviews/{id}/dismissals`, and the withdrawn verdict's BODY outlives it, so the
+# submission still looked like a provider reporting. #408 closed the empty case by taking
+# `DISMISSED` out of the set consulted here; it could not close the case with a body, because a
+# real `CHANGES_REQUESTED` review always has one.
+#
+# An allowlist also answers the states nobody has thought of yet. `PENDING`, an absent `state` and
+# whatever GitHub adds next all prove nothing - and, just as importantly, VOID nothing: retracting a
+# gate a genuine clean review already met would strand the lane with nothing to push. Voiding stays
+# the separate, fail-closed job of `BLOCKING_REVIEW_STATES`.
+GATE_PROVING_STATES = frozenset({"COMMENTED", "APPROVED"})
+#: The member of the set above that is a verdict in itself, so it proves the gate with no body.
+#: `COMMENTED` is not one: GitHub stamps it on reply wrappers too (#396), so it has to show that it
+#: reported something. `DISMISSED` is a verdict being *withdrawn* and is in neither place.
+GATE_VERDICT_STATE = "APPROVED"
 
 # A review someone has STARTED DRAFTING and not submitted (#400). GitHub's own schema for the
 # reviews endpoint says it outright: a review "created in the PENDING state" is "not submitted and
@@ -475,8 +488,9 @@ def _reviewed_head(entry: dict[str, Any]) -> str | None:
 
 #: Returned by :func:`_counted_from` for a pull request that is STILL a draft. A sentinel rather
 #: than ``None``, because ``None`` already means the opposite - count everything - and a bare
-#: timestamp cannot express "nothing counts yet". Sorts above every ISO-8601 instant, so the
-#: ordinary comparison in :func:`_counts_as_round` rejects each one without a special case.
+#: timestamp cannot express "nothing counts yet". It sorts above every ISO-8601 instant, but
+#: :func:`_counts_as_round` tests it by identity rather than relying on that: the comparison is the
+#: LAST clause there, and the malformed-data clauses in front of it used to answer first (#423).
 _COUNT_NOTHING = "9999-12-31T23:59:59Z"
 
 
@@ -486,10 +500,21 @@ def _counts_as_round(when: object, counted_from: str | None) -> bool:
     ISO-8601 UTC instants from the GitHub API are fixed-width and zero-padded, so lexicographic
     comparison is chronological; no parsing, and nothing to get wrong about time zones.
 
-    Evidence with no timestamp counts, deliberately. The alternative - dropping it - would let a
+    **The phase is asked first, and that ordering is the fix for #423.** This used to open on the
+    malformed-data clauses, which meant a metered review with no usable ``submitted_at`` counted
+    even against ``_COUNT_NOTHING`` - so a draft could be capped, which is the one thing ADR-0062
+    says the draft phase cannot do, and the state ``_advance_state`` used to carry a branch for.
+    Measured over every shape ``when`` can take out of the payload, nine of ten reached the counting
+    answer on a draft; only a well-formed instant did not.
+
+    Evidence with no timestamp still counts everywhere else, deliberately. Dropping it would let a
     provider response the API rendered oddly silently buy an extra round, and the cap is a safety
-    control: it fails toward counting.
+    control: it fails toward counting. That direction is unchanged for both other values of
+    ``counted_from``, and that is measured rather than argued - see
+    ``test_the_reorder_changes_nothing_outside_the_draft_phase``.
     """
+    if counted_from is _COUNT_NOTHING:
+        return False  # ADR-0062: the draft phase spends no rounds, whatever the payload looks like.
     if counted_from is None:
         return True
     return not isinstance(when, str) or not when or when >= counted_from
@@ -901,29 +926,34 @@ def _substantive_review_ids(comments: list[dict[str, Any]]) -> set[Any]:
     }
 
 
-def _says_something(entry: dict[str, Any], spoke: set[Any]) -> bool:
-    """Whether a submission carries evidence that its provider actually reported.
+def _proves_the_gate(entry: dict[str, Any], spoke: set[Any]) -> bool:
+    """Whether this submission is the gate provider reporting cleanly at this head.
 
-    A body is what every substantive review writes - #385's real review was 5667 bytes and all five
-    of its wrappers were 0 - a verdict state says something whether or not it is spelled out, and a
-    submission owning a non-reply comment has plainly reported. Anything else is a submission the
-    payload does not describe, and the gate does not accept those.
+    Two questions, in this order, and the order is the fix for #415.
 
-    ``GATE_VERDICT_STATES`` rather than ``VERDICT_REVIEW_STATES``: a ``DISMISSED`` submission is a
-    verdict being *withdrawn*, which is evidence of an administrative act rather than of a review,
-    and accepting it here satisfied the gate on an empty payload. See the note beside the constants.
+    **Is the state one that can mean a review happened?** An allowlist - see
+    ``GATE_PROVING_STATES``. Asking the complement instead ("not ``CHANGES_REQUESTED``") admitted
+    ``DISMISSED``, an absent state, and every state GitHub has yet to invent.
+
+    **Did the payload show it actually reported?** A body is what every substantive review writes -
+    #385's real review was 5667 bytes and all five of its wrappers were 0 - and a submission owning
+    a non-reply comment has plainly reported. ``APPROVED`` skips this: it is a verdict in itself.
+    Anything else is a submission the payload does not describe, and the gate does not accept those.
+
+    The two must both hold. Either alone is a defect this function has already had: state-only
+    admitted a dismissal, evidence-only admitted the body a dismissal leaves behind.
     """
-    return bool(
-        (entry.get("body") or "").strip()
-        or entry.get("state") in GATE_VERDICT_STATES
-        or entry.get("id") in spoke
-    )
+    if entry.get("state") not in GATE_PROVING_STATES:
+        return False
+    if entry.get("state") == GATE_VERDICT_STATE:
+        return True
+    return bool((entry.get("body") or "").strip() or entry.get("id") in spoke)
 
 
 def _gate_state(
     *,
     gate_blocked: bool,
-    capped: bool,
+    past_the_draft: bool,
     owed: bool,
     running: bool,
     converged: bool,
@@ -946,26 +976,95 @@ def _gate_state(
     So the gate asks for the thing ADR-0062 actually requires and nothing adjacent to it: that
     provider, that head, no findings.
 
-    **``capped`` is a proxy, and a deliberately conservative one.** What the gate actually needs to
-    exclude is the DRAFT phase: a clean review there ends nothing, because the Greptile step and the
-    ready transition are still to come, and reporting the gate satisfied would invite arming a merge
-    on an unfinished lane — the failure ``.agents/tasks/amend.md`` warns about, one step earlier.
-    ``capped`` excludes it because draft rounds do not count, so a draft is never capped.
+    **``past_the_draft`` asks the question directly, where ``capped`` used to stand in for it
+    (#411).** What the gate needs to exclude is the DRAFT phase: a clean review there ends nothing,
+    because the Greptile step and the ready transition are still to come, and reporting the gate
+    satisfied would invite arming a merge on an unfinished lane — the failure
+    ``.agents/tasks/amend.md`` warns about, one step earlier.
 
-    It excludes more than that, and the cost is known: a PR whose FIRST CodeRabbit review comes back
-    clean has met ADR-0062's gate — the cap is a ceiling, not a quota — and this reports ``open``
-    anyway. That direction is the safe one, since it at worst suggests a metered credit nobody
-    needed, where the other suggests a merge past the gate. Narrowing it to *"has been ready at
-    least once"* wants ``_counted_from(strict=True)``, which raises on an unreadable timeline rather
-    than returning the ``None`` that means *count everything*; reusing that ``None`` with the
-    opposite polarity is a live fail-open CodeRabbit found on #407. That helper arrives with #394,
-    so the narrowing is tracked in #411 rather than built on an unmerged sibling here.
+    ``capped`` did exclude it, because draft rounds do not count and a draft is therefore never
+    capped. It also excluded a PR whose FIRST CodeRabbit review came back clean — which has met
+    ADR-0062's gate, since the cap is a ceiling and not a quota — and reported ``open`` for it. The
+    run summary then told an operator the lane was unfinished when it was finished, which is an
+    invitation to spend a metered credit nobody needed.
+
+    The caller resolves the phase from ``_counted_from(strict=True)`` and hands the answer down as a
+    plain bool, so an unreadable timeline arrives here as ``False`` and reports ``open``. That
+    matters more than which helper is called: ``_counted_from`` answers ``None`` both for *opened
+    ready* and for *could not read*, and reusing that ``None`` here with the opposite polarity is a
+    live fail-open CodeRabbit found on #407.
     """
     if gate_blocked:
         return "blocked"
-    if capped and not owed and not running and converged:
+    if past_the_draft and not owed and not running and converged:
         return "satisfied"
     return "open"
+
+
+#: CodeRabbit renders a fixed three-field italic header on every inline finding:
+#: ``_<domain>_ | _<severity>_ | _<effort>_``. The capture is anchored on the **second** field, and
+#: that is the whole point rather than an implementation detail: `docs/agents/review.md` says in as
+#: many words that the *domain* label and the ``cr-indicator-types:`` marker are **not** severities
+#: and never promote a finding - ``potential_issue`` sits on ``Minor`` and ``Major`` alike. Reading
+#: field one, or grepping the body, would do exactly what that rule forbids.
+_CODERABBIT_SEVERITY = re.compile(
+    r"\A_[^_\n]*_\s*\|\s*_[^_|\n]*?(Critical|Major|Minor|Trivial)[^_|\n]*?_\s*\|"
+)
+
+#: Greptile renders a P-scale badge as an image whose ``alt`` text is the severity.
+#: `docs/agents/review.md`: *"its badges use the same P-scale as Codex, so they map straight
+#: across"*.
+_GREPTILE_SEVERITY = re.compile(r'<img\s+alt="(P\d)"')
+
+#: Each metered provider's severity scale, **most severe first**, paired with the floor
+#: `docs/agents/review.md` names for it. Codex is deliberately absent: it is the unmetered lane and
+#: can never spend a round, so parsing its badge would be dead code. Only these two logins reach
+#: :func:`_finding_is_blocking`.
+#:
+#: **The ordering is stated so the floor can be derived, and that is the fix for a real fail-open**
+#: (Greptile ``P1`` on #424). A floor means *at or above*, and the first version of this enumerated
+#: the blocking severities instead - which read Greptile's ``P0``, the level ABOVE the floor, as
+#: below it, and dropped the provider's most severe finding from the round count. Enumerating
+#: happened to be right for CodeRabbit and wrong for Greptile, which is exactly the kind of accident
+#: a derived value cannot have.
+SEVERITY_SCALES: dict[str, tuple[tuple[str, ...], str]] = {
+    "coderabbitai[bot]": (("Critical", "Major", "Minor", "Trivial"), "Major"),
+    "greptile-apps[bot]": (("P0", "P1", "P2", "P3"), "P1"),
+}
+
+
+def _finding_is_blocking(entry: dict[str, Any]) -> bool:
+    """Whether an inline finding is at or above the severity floor, per the provider's own badge.
+
+    **Unreadable markup counts.** A provider that changes its rendering, a body this cannot parse, a
+    login not in the table - all take the counting answer, which is the direction the cap has failed
+    in since it was written. The cost of over-counting is a pull request capped early, which is
+    visible and recoverable; the cost of under-counting is an unbounded metered review budget, and
+    that is the expensive direction: #408 accumulated **nine** heads carrying findings against a
+    cap of two, and every one of those nine carried a genuinely blocking finding.
+
+    So this narrows the count **only where a provider has stated a severity the scale places below
+    the floor** and leaves every ambiguous case exactly where it was. A level the scale does not
+    describe is ambiguous in that sense: ``P4`` looks less severe than ``P3`` and might be, but
+    guessing an order for a level nobody wrote down is how ``P0`` came to be read as *below*
+    ``P1`` in the first place.
+    """
+    login = ((entry.get("user") or {}).get("login")) or ""
+    known = SEVERITY_SCALES.get(login)
+    if known is None:
+        return True
+    scale, floor = known
+    body = entry.get("body")
+    if not isinstance(body, str):
+        return True
+    pattern = _CODERABBIT_SEVERITY if login == GATE_PROVIDER else _GREPTILE_SEVERITY
+    found = pattern.search(body)
+    if found is None:
+        return True  # rendering changed, or this is not a badged finding - count it
+    severity = found.group(1)
+    if severity not in scale:
+        return True  # a level this scale does not place - count it rather than rank it
+    return scale.index(severity) <= scale.index(floor)
 
 
 def _is_blocking(entry: dict[str, Any], is_reviews: bool) -> bool:
@@ -986,11 +1085,21 @@ def _is_blocking(entry: dict[str, Any], is_reviews: bool) -> bool:
     at three metered reviews and every path out of it is a state something can act on.
 
     Blocking is *actionable output at the head reviewed*: a ``CHANGES_REQUESTED`` submission, or an
-    inline finding. A submission with a body and no findings is CodeRabbit's clean form and is
-    exactly what the gate asks for. A reply is neither (#396), and is filtered before this is asked.
+    inline finding **the provider itself badged at or above the severity floor**. A submission with
+    a body and no findings is CodeRabbit's clean form and is exactly what the gate asks for. A reply
+    is neither (#396), and is filtered before this is asked.
+
+    **The severity is read, not inferred from the comment's shape (#409).** Every inline finding
+    used to count, which is an approximation in the over-counting direction - safe on the cap, and
+    expensive: measured across this repository, 58% of CodeRabbit's inline findings are ``Minor``,
+    which `docs/agents/review.md` says to **defer** rather than fix. Two pull requests reached
+    ``agent:review-capped`` having been told nothing they were obliged to act on (#405 spent 4 such
+    rounds, #402 spent 2). Reading the badge is not a heuristic here: both metered providers emit a
+    fixed machine-readable severity, and 154 of 154 non-reply findings across thirteen pull requests
+    parsed.
     """
     if not is_reviews:
-        return True  # An inline finding is the actionable thing itself.
+        return _finding_is_blocking(entry)
     return entry.get("state") in BLOCKING_REVIEW_STATES
 
 
@@ -1196,7 +1305,7 @@ def _review_state(
             if login == GATE_PROVIDER and not is_reply:
                 if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
                     gate_finding_here = True
-                elif _says_something(entry, spoke):
+                elif _proves_the_gate(entry, spoke):
                     # POSITIVE EVIDENCE, where the round axis above deliberately takes the absence
                     # of it. `_is_a_review` counts a submission with no body, no verdict and no
                     # comments, because it asks a submission to prove it is a *wrapper* - and on the
@@ -1285,7 +1394,6 @@ def _advance_state(
     counted_from: str | None,
     owed: bool,
     running: bool,
-    capped: bool,
     gate_blocked: bool,
     add: list[str],
     remove: list[str],
@@ -1309,9 +1417,11 @@ def _advance_state(
     * **The lane must be unfinished**, and only *ready and armed* is finished. A counted-phase pull
       request whose gate has not been asked for, or has passed with the merge not yet armed, still
       has a step left and is authorised. ``_counted_from`` reporting the draft sentinel is exactly
-      *"no ``ready_for_review`` has ever happened"*, and what that answer decides is which rules
-      apply — the cap binds in the draft phase, where a round really is spent — not whether the
-      lane is over.
+      *"no ``ready_for_review`` has ever happened"*, and that answer decides which phase the pull
+      request is in, not whether the lane is over. **It used to decide more than that**: this bullet
+      said the cap binds in the draft phase "where a round really is spent", which was true only
+      because a timestamp-less review could cap a draft. #423 closed that, so the draft phase now
+      spends nothing at all and there is no capped-draft state for this function to reason about.
     * **Nothing may be owed, and no AMEND may still be published.** An owed finding is still an
       AMEND. Publishing both would hand one claim two authorities and let the resumption that
       arrives first decide which. ``owed`` alone does not cover it: the label is a *published*
@@ -1324,8 +1434,10 @@ def _advance_state(
     * **A review must actually have happened at this head.** Otherwise a freshly opened draft would
       be authorised to leave the draft phase before the free provider had ever looked at it, which
       is the lane's whole point skipped.
-    * **Not past the cap.** Nothing is authorised past it, by any route.
-    * **Not gate-blocked**, which is #399 meeting #394 and belongs to neither branch alone. That
+    * **Not gate-blocked**, which is #399 meeting #394 and belongs to neither branch alone. It is
+      also what enforces *"nothing is authorised past the cap"* — a bullet that used to stand here
+      separately and said the same thing twice, once for a ``capped`` argument this function never
+      read. That argument is gone with it. That
       label means *the convergence verification came back blocking too, so no automatic state
       remains* — and an advance is automatic state. ``owed`` covers the moment the finding lands
       and stops covering it the instant the author answers and resolves the thread (#393), which is
@@ -1356,9 +1468,18 @@ def _advance_state(
     # has answered round CAP still needs to request the convergence check ADR-0062 permits - a
     # review that finds nothing is the lane terminating, not a third round. Withholding here left
     # such a PR green, gated and unmergeable with nobody authorised to finish it (Codex P2 on
-    # #407). The draft phase stays subject to the cap, where a round really would be spent.
-    if capped and counted_from is _COUNT_NOTHING:
-        return _withdraw_advance(labels, remove, "not-eligible")
+    # #407).
+    #
+    # A `capped and counted_from is _COUNT_NOTHING` guard used to follow, for the capped-DRAFT case.
+    # It is gone, and #419 - which asked for a test of it - is closed by removing it rather than by
+    # pinning it, under that issue's own third criterion: *if the state turns out to be unreachable
+    # in practice, the branch is what changes.* It was reachable only because `_counts_as_round`
+    # asked about malformed data before it asked about the phase, so a timestamp-less metered review
+    # capped a draft (#423). With the phase asked first that cannot happen: `_counted_from` returns
+    # `_COUNT_NOTHING` only for a PR that is currently a draft and has NEVER been ready - a
+    # ready->draft excursion returns the ready instant, so rounds persist - and against that
+    # sentinel nothing counts, so `rounds` is 0 and `capped` is False. The two conditions are now
+    # mutually exclusive by construction.
     # A REVIEW MUST HAVE HAPPENED AT THIS HEAD, in every phase. The lane only ever advances out of
     # a state a provider has looked at: on a draft that is Codex coming back clean, and past it the
     # head has not moved since - marking a PR ready pushes nothing - so the same evidence is still
@@ -1504,7 +1625,18 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     if not head:
         raise TriageError(f"PR #{pr['number']} has no head sha")
 
-    counted_from = _counted_from(pr)
+    # ONE timeline read, TWO polarities, and they are separated here rather than inferred from the
+    # answer (#411). `_counted_from` returns `None` both for a PR opened ready and for a timeline it
+    # could not read; that ambiguity is safe for the CAP, which wants "count everything" either way,
+    # and fail-OPEN for the gate, which would read the unreadable case as *past the draft* (Codex P2
+    # on #407). So the failure is caught once, where it is still distinguishable, and each axis is
+    # given the answer that fails closed for it.
+    try:
+        counted_from = _counted_from(pr, strict=True)
+        phase_read = True
+    except (claim.ClaimError, TriageError):
+        counted_from, phase_read = None, False
+    past_the_draft = phase_read and counted_from is not _COUNT_NOTHING
     reviewed, review_owed, read_head, converged = _review_state(pr["number"], head, counted_from)
     rounds = len(reviewed)
     running, failed = _suite_state(head)
@@ -1571,7 +1703,6 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         counted_from=counted_from,
         owed=owed,
         running=running,
-        capped=capped,
         gate_blocked=gate_blocked,
         add=add,
         remove=remove,
@@ -1597,7 +1728,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         # `test_a_greptile_round_does_not_satisfy_the_coderabbit_gate` is what holds that.
         "gate": _gate_state(
             gate_blocked=gate_blocked,
-            capped=capped,
+            past_the_draft=past_the_draft,
             owed=owed,
             running=running,
             converged=converged,
