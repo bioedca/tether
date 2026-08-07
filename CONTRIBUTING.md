@@ -261,7 +261,8 @@ Before requesting review / merging, confirm:
       provider's own quoted "nothing to review" for the head it read, a Codex 👍 included.
       **CodeRabbit with no actionable comments is required**, and that is a verdict a completed
       review reached rather than an absence of one: record the review itself — permalink,
-      `commit_id`, and the opening of its body. `docs/agents/review.md` §4 states what counts as
+      `commit_id`, `submitted_at` (a `PENDING` review has none, and is not a submitted one), and the
+      opening of its body. `docs/agents/review.md` §4 states what counts as
       that evidence and, in particular, why the clean verdict is written by the
       `Actionable comments posted:` line being **absent** rather than reading `0`. Neither silence
       nor a green `CodeRabbit` status check is the gate; both are also what a request that reviewed

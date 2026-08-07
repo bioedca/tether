@@ -34,9 +34,17 @@ Each step begins only when the one before it has nothing blocking left.
    CodeRabbit review with **no actionable comments**. Nothing merges without it.
 
    **That is a verdict a completed review reached, and it is recorded as one.** The evidence is the
-   review itself, and it is three things together: its **permalink**, the **`commit_id` it read**
-   — which must be the final head — and a **body** whose `Actionable comments posted:` count is
-   zero.
+   review itself, and it is four things together: its **permalink**, the **`commit_id` it read**
+   — which must be the final head — a **`submitted_at`**, with a state that is not `PENDING`, and a
+   **body** whose `Actionable comments posted:` count is zero.
+
+   **`submitted_at` is what separates a review from a draft of one.** GitHub's schema says a review
+   created in the `PENDING` state is *"not submitted and therefore does not include the
+   `submitted_at` property"*, and `triage.py` skips such an entry on every axis it has — not a
+   round, owing nothing, not a look at the head. A checklist that accepted one would let the
+   *documented* gate be satisfied by something the *code* has already decided is not a review. The
+   two disagreeing about what counts as a review is the defect this section exists to remove, so the
+   evidence names the same thing the counter does.
 
    **Zero is written by that line being ABSENT, and asking for the line is asking for something
    that does not exist.** Measured across every CodeRabbit review this repository has ever had:
