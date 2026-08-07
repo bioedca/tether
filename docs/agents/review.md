@@ -135,8 +135,15 @@ asking a provider to look **again** at work it has already reviewed this round.
   satisfaction. Reading *"a clean one is the lane terminating"* as covering every provider would let
   a free review stand in for the metered gate, which is the substitution ADR-0062 exists to refuse
   (CodeRabbit on #408).
-- **At the cap you may ask once more, and only to verify convergence.** Answer everything, push,
-  and request the final review. Clean satisfies the gate and the lane ends. Blocking again means the
+- **At the cap one more review is due, and the ADVANCE session is what asks for it.** The AMEND
+  answers every blocking finding, pushes, dispatches triage and exits — it does not request the
+  convergence check, even though it is the session that made the check due. Triage then publishes
+  `agent:needs-advance`, and the ADVANCE session it dispatches makes the one request, because that
+  is the session holding the `refs/lane-advances/` compare-and-swap that turns however many
+  launchers see the label into a single metered request. An AMEND asking as well does not bring the
+  gate forward; it spends a second review on the same head, since nothing stops the ADVANCE session
+  from asking too (CodeRabbit on #408).
+  Clean satisfies the gate and the lane ends. Blocking again means the
   count has passed the cap: `agent:gate-blocked` goes on, and it is **a maintainer's** — safety-class
   findings escalate, the rest become follow-ups, and you stop. **That escalation belongs here and
   not at the cap**, which is where this page used to put it: at `agent:review-capped` the round-2
