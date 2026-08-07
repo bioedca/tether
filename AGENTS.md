@@ -107,6 +107,10 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   Every AMEND is a fresh session whose task text the launcher injects with an explicit
   `ROUND = N of 2`; past the cap it injects none, so no worker ever holds authority for a third.
   Stop-list, not judgement: **never a review request while `agent:review-capped` is present**.
+- **A clean review resumes the claim too, and costs no round.** A review that finds nothing owes no
+  AMEND, so it used to publish nothing and the draft stranded before the gate. `agent:needs-advance`
+  is the authority to walk the lane on by **one** phase — `.agents/tasks/advance.md`, not AMEND, and
+  its ref is outside the round ledger.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to
   the merged head. Then **arm auto-merge and exit** — never wait, never poll.
