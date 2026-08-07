@@ -72,10 +72,46 @@ class Fake:
         return best[1] if best is not None else self.DEFAULTS.get(method, (200, None))
 
 
+class Paging(Fake):
+    """A `Fake` whose `/graphql` answer depends on the cursor the query asked for (#410).
+
+    The base class answers by `(method, path)` alone, so every request in a cursor-following walk
+    gets the same page. That is enough to prove the walk REFUSES a read it cannot finish, and
+    structurally unable to prove it ever COMPLETES one - so the paging code was covered only in the
+    direction where it declines to run.
+
+    The cursor lives in the request body, which the base class deliberately does not record:
+    `self.calls` is unpacked as 2-tuples elsewhere in this file, so widening it would be a change
+    to every other test. Recorded here instead, and only for this route.
+
+    `pages` maps the cursor a request carried - `None` on the first, since that is what
+    `_resolved_comment_ids` seeds and what GraphQL reads as `after: null` - to the payload it gets
+    back. An unlisted cursor raises `KeyError` rather than defaulting, because a walk that asked
+    for a page the test did not describe is the failure, not a case to paper over.
+    """
+
+    def __init__(self, routes: Routes, pages: dict[str | None, Any]) -> None:
+        super().__init__(routes)
+        self.pages = pages
+        #: The cursor each `/graphql` request carried, in order. `[None]` is a single-page walk.
+        self.cursors: list[str | None] = []
+
+    def __call__(self, method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if path != "/graphql":
+            return super().__call__(method, path, body)
+        cursor = ((body or {}).get("variables") or {}).get("cursor")
+        self.cursors.append(cursor)
+        self.calls.append((method, path))
+        return 200, self.pages[cursor]
+
+
 def _install(
-    monkeypatch: pytest.MonkeyPatch, routes: dict[tuple[str, str], tuple[int, Any]]
+    monkeypatch: pytest.MonkeyPatch,
+    routes: dict[tuple[str, str], tuple[int, Any]],
+    *,
+    pages: dict[str | None, Any] | None = None,
 ) -> Fake:
-    fake = Fake(routes)
+    fake = Fake(routes) if pages is None else Paging(routes, pages)
     # Patch the module OBJECTS, not dotted strings - these are file-loaded, not importable packages.
     monkeypatch.setattr(triage.claim, "_request", fake)
 
@@ -210,8 +246,13 @@ def _threads(nodes: list[dict[str, Any]], *, cursor: str | None = None) -> dict[
     }
 
 
-def _run(routes: Routes, monkeypatch: pytest.MonkeyPatch) -> tuple[Fake, dict[str, Any]]:
-    fake = _install(monkeypatch, routes)
+def _run(
+    routes: Routes,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    pages: dict[str | None, Any] | None = None,
+) -> tuple[Fake, dict[str, Any]]:
+    fake = _install(monkeypatch, routes, pages=pages)
     return fake, triage.triage(number=99, branch=None, dry_run=False)
 
 
@@ -1707,6 +1748,170 @@ def test_a_thread_whose_paging_is_unreadable_is_refused_too(
     )
     with pytest.raises(triage.TriageError, match="paging could not be read"):
         _run(routes, monkeypatch)
+
+
+def test_the_thread_walk_follows_the_cursor_and_joins_every_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SUCCESS direction of the page walk, which nothing could express until now (#410).
+
+    `Fake` answers by `(method, path)`, so every `/graphql` call in one test got the same page back
+    and the paging code was covered only where it refuses to run. A finding whose resolved thread
+    sits on page two would have stayed owed forever, and neither refusal test above can see it.
+    """
+    routes = _routes(
+        comments=[
+            _finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242),
+            _finding(RABBIT, HEAD, REAL_REVIEW_ID, 5353),
+        ],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    fake, result = _run(
+        routes,
+        monkeypatch,
+        pages={
+            None: _threads([_thread(4242, 4243, resolved=True)], cursor="CUR1"),
+            "CUR1": _threads([_thread(5353, 5354, resolved=True)]),
+        },
+    )
+    # Page two is requested `after` page one's `endCursor`, and there is no third request.
+    assert isinstance(fake, Paging)
+    assert fake.cursors == [None, "CUR1"]
+    # Both findings are cleared, so the resolved set is the UNION of the pages rather than
+    # whichever page happened to come back last.
+    assert result["review_owed"] is False
+    assert triage.AMEND_LABEL not in fake.added
+
+
+def test_a_walk_longer_than_the_page_budget_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`claim.MAX_PAGES` bounds the walk, and the arm that enforces it was never exercised.
+
+    `test_a_partial_thread_read_is_refused_rather_than_treated_as_complete` reaches the same
+    `raise` through the *unusable cursor* break, so the budget itself — a walk where every page
+    hands back a perfectly good cursor — had no coverage on any ref. Both arms share one message,
+    which is exactly how an untested one hides behind a tested one.
+
+    The map describes exactly `MAX_PAGES` responses, so it also pins WHERE the walk stops (#420).
+    Described one page longer, a walk that requested one page too many would still be answered,
+    still fall out of the loop, and still raise this same error — leaving the budget asserted and
+    its boundary not. `Paging` refuses an unlisted cursor with `KeyError` precisely so that an
+    overrun is the failure rather than a case to paper over, and this test now relies on it.
+    """
+    routes = _routes(
+        comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+        timeline=[_ready(READY_TIME)],
+        suites=GREEN,
+    )
+    # Every page is readable and every page has another after it, so only the budget stops this.
+    # The final page still hands back `CUR{MAX_PAGES}` — a perfectly good cursor that this map
+    # deliberately does not answer, so asking for it is a `KeyError` and not a longer walk.
+    pages = {
+        (None if n == 0 else f"CUR{n}"): _threads([], cursor=f"CUR{n + 1}")
+        for n in range(triage.claim.MAX_PAGES)
+    }
+    with pytest.raises(triage.TriageError, match="more review threads than this query will walk"):
+        _run(routes, monkeypatch, pages=pages)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (4242, 4242),
+        (3708430108123456789, 3708430108123456789),  # 64-bit, the case #405 already normalises
+        (0, None),
+        (-1, None),
+        (True, None),  # a bool IS an int in Python, and would compare equal to comment id 1
+        ("4242", None),  # the GraphQL node id is a string; truthy, and not this field
+        (None, None),
+    ],
+)
+def test_only_a_usable_comment_id_can_ever_clear_a_finding(
+    value: Any, expected: int | None
+) -> None:
+    """One field, one reading — `answerable` and the owed axis now share this predicate (#410)."""
+    assert triage._clearable_comment_id({"id": value}) == expected
+    assert triage._clearable_comment_id({}) is None
+
+
+def test_an_unusable_comment_id_owes_even_when_a_resolved_thread_names_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The direction guard, and the reason `answerable` was NOT widened to match (#410).
+
+    Aligning the two readings the other way — dropping `answerable`'s truthiness test so it agrees
+    with a bare membership check — reads as the tidier fix and is fail-OPEN. Here it would make
+    `answerable` true, populate `resolved` with `{0, 1}`, match the finding's `0` against it, and
+    withhold `agent:needs-amend` on a head whose external finding nothing has answered.
+
+    Unreachable against today's REST payload, which always sends a positive `id`. This pins the
+    direction rather than regressing a live defect, and it fails against that tidier fix.
+    """
+    fake, result = _run(
+        _routes(
+            comments=[dict(_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242), id=0)],
+            threads=[_thread(0, 1, resolved=True)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True
+    # And the query that could only ever have cleared it is not spent asking.
+    assert not [c for c in fake.calls if c[1] == "/graphql"]
+
+
+def test_a_boolean_graphql_id_cannot_clear_the_comment_it_compares_equal_to(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The BUILDER side of the same rule, and the half #410 left open (CodeRabbit `Major` on #413).
+
+    `_clearable_comment_id` refused a `bool` on the READER side, which is the axis that asks *can a
+    resolved thread ever clear this comment*. Nothing refused one on the side that BUILDS
+    `resolved`, and the two are halves of a single membership test — so a boolean `fullDatabaseId`
+    entered the set, `True == 1`, and `1 in {True}` cleared the REST comment numbered `1`.
+
+    That is fail-OPEN on the axis that decides AMEND authority: a real, unanswered external finding
+    stops owing, `agent:needs-amend` is withheld, and no session is ever issued to answer it. The
+    comment carrying it here is an ordinary CodeRabbit finding — the only unusual thing in the
+    payload is one boolean, on a different comment, in a different endpoint's response.
+
+    Reachable only from a malformed GraphQL payload, like its reader-side sibling above. Pinned for
+    the same reason: the two sides must agree about what a usable id is, and they now share one
+    predicate rather than two expressions that happen to match.
+    """
+    thread = _thread(1, 2, resolved=True)
+    # The finding's own node, with the one value that compares equal to REST comment id 1.
+    thread["comments"]["nodes"][0]["fullDatabaseId"] = True
+    fake, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 1)],
+            threads=[thread],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True, "a boolean id must not clear comment 1"
+    assert triage.AMEND_LABEL in fake.added
+
+
+@pytest.mark.parametrize(
+    ("raw", "usable"),
+    [
+        (4242, True),
+        (3708430108123456789, True),  # 64-bit, which is why `fullDatabaseId` replaced `databaseId`
+        (True, False),  # a bool IS an int, and equals the id of comment 1
+        (False, False),
+        (0, False),
+        (-1, False),
+        ("4242", False),  # the caller normalises a BigInt string BEFORE asking
+        (None, False),
+    ],
+)
+def test_both_sides_of_the_resolved_set_share_one_usability_rule(raw: object, usable: bool) -> None:
+    """One predicate, asked by the reader and the builder alike — that is the property here."""
+    assert triage._is_a_usable_comment_id(raw) is usable
 
 
 def test_a_head_carrying_only_replies_still_reads_the_threads(
