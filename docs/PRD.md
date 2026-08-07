@@ -1092,9 +1092,11 @@ nothing and *satisfying the gate* are separate, and only one of them is provider
 free, while the gate is **CodeRabbit at the current head**, because that is the review ADR-0062 makes mandatory and
 Greptile is the optional leg whose exhaustion never blocks. Two things are stop-list violations rather than judgement
 calls: more than one self-review pass before the first external request, and a review request on a PR labelled
-`agent:review-capped` **beyond the single convergence check** that state permits — everything answered, everything
-pushed, one final review. A second such request, or any request while `agent:gate-blocked` is present, is the
-violation.
+`agent:review-capped` **beyond the single convergence review** that state permits — everything answered, everything
+pushed, one final CodeRabbit review. What that allowance counts is a review that **completed**, on the same rule as
+the one-per-round limit above: a request the provider refused or dropped produced nothing and so spent nothing, and
+the retry is a wait. A second *completed* convergence review, or any request while `agent:gate-blocked` is present,
+is the violation.
 
 Blocking is decided on the **severity axis only**: CodeRabbit `Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its
 badges use the same P-scale as Codex, so they map straight across, and a review the seat paid a credit for must not be

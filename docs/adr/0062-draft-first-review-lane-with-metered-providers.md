@@ -71,9 +71,13 @@ record's own text.
 
 So the cap counts what it was always for — **how many times a provider found something that had to
 be fixed** — and after two such rounds one more request is permitted, purely to verify convergence.
-*Permitted*, not dispatched: this record grants the authority, and whoever is completing the lane
-spends it — by hand today, and from a session once #394's ADVANCE authority reaches the counted
-phase. Nothing here starts a worker for a capped pull request. If
+*Permitted, and dispatched exactly once.* This record grants the authority and #394's
+`agent:needs-advance` carries it: `_advance_state` withholds on the cap only in the **draft** phase,
+where a round really would be spent, so a capped pull request that is ready, green and owes nothing
+is handed one ADVANCE session to ask for the verification. Exactly one, because the
+`refs/lane-advances/` compare-and-swap below is what the session takes and the label alone cannot
+re-trigger — which is also what a maintainer watching such a pull request needs to know, since
+asking by hand as well spends a second metered review on the same head. If
 that verification is clean the gate is satisfied at no cost and the lane ends. If it finds blocking
 work too, the count passes `CAP` and `triage.py` publishes **`agent:gate-blocked`**: the lane is
 bounded at three post-ready counted reviews — the optional Greptile credit on the draft is metered
