@@ -144,9 +144,10 @@ threshold would make the ladder impossible to fix without a red `main`.
 
 Be precise about what "the label model" means, because parts of it still have no writer. Written by
 code: `agent:claude|codex|copilot` (`claim.py`), `agent:conflicted` and `agent:needs-amend`
-(`reaper.py` and `triage.py`), `agent:round-1` / `agent:review-capped`, and `agent:needs-advance`
+(`reaper.py` and `triage.py`), `agent:round-1` / `agent:review-capped`, `agent:needs-advance`
 (`triage.py`; ADR-0062 and issue #394 — a clean review on an unfinished lane, authorising exactly
-one advance session).
+one advance session), and `agent:gate-blocked` (`triage.py`; ADR-0062 and issue #399 — the
+convergence check found blocking work too, so nothing automatic remains, that advance included).
 `agent:round-2` is **provisioned but unreachable by code** — under a two-round cap `_round_label`
 publishes `agent:round-1` at one round and `agent:review-capped` at two, so nothing ever writes the
 middle value. The launcher still honours it if a maintainer applies it by hand, reading it as *both
@@ -158,8 +159,10 @@ rounds spent*. The remaining labels — `agent:human`, `preauth`, `size:*`, `ris
 The cap failed on #276 at **9 rounds against a limit of 2** because a prose rule was the only thing
 holding it. It is now two independent refusals, and neither is redundant:
 
-- **`triage.py` withholds `agent:needs-amend` at the cap**, so the authority to start an AMEND session
-  is never *published*.
+- **`triage.py` withholds `agent:needs-amend` once the gate is blocked**, so the authority to start
+  an AMEND session is never *published* after the lane has run out of moves. It is deliberately not
+  withheld *at* the cap: the round-two findings still have to be answered, and withholding one step
+  earlier stranded the very session that answers them (#399).
 - **`swarm_slots.py` refuses to inject an AMEND block past the cap**, so it is never *acted on* even
   when the label is wrong.
 

@@ -148,9 +148,23 @@ A review round is not yours to open. The launcher is the only issuer of AMEND tu
 them against the cap in `AGENTS.md` §Review gate. So:
 
 - **At most one self-review pass**, before the first external request.
-- **Never post a review-request comment on a PR carrying `agent:review-capped`.** At the cap,
-  safety-class findings escalate to the maintainer and the rest become follow-up issues. Asking for
-  another round is a contract violation, not diligence.
+- **`agent:review-capped` forbids another ROUND, and permits exactly one convergence check.** A
+  round is a metered review that found something **blocking**, so a clean one costs nothing — and
+  a clean **CodeRabbit** one also satisfies the gate, which is why that is the review to ask for
+  here. Without that one request a capped pull request could never merge at all.
+  A review whose only output is non-blocking is clean for this purpose: defer those to a follow-up
+  issue rather than fixing them here, and the round is still free.
+  **Which session asks matters.** An AMEND answers its round, pushes and exits; the ADVANCE session
+  triage dispatches next is the one that requests the convergence review, because it holds the
+  `refs/lane-advances/` compare-and-swap that turns any number of launchers into one request. An
+  AMEND asking as well spends a second metered review on the same head rather than arriving sooner.
+  A request that produced no review has not spent it: a fair-use refusal naming a retry time is a
+  *wait*, so wait it out and ask again, reading the status check first — `pending` is a review
+  running now that a second request destroys. What is forbidden is a second *completed* convergence
+  review, not a second attempt at getting the first.
+- **Never post a review-request comment on a PR carrying `agent:gate-blocked`.** That label means
+  the convergence check came back blocking too, so nothing automatic remains: safety-class findings
+  escalate to the maintainer and the rest become follow-up issues.
 
 ## Maintainer-side commands
 

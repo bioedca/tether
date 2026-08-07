@@ -73,8 +73,19 @@ The severity floor you classify against lives on `review.md`, not in the residen
 
 - **Do not fix a non-blocking finding.** That is scope breach, not diligence — and a `Deferred:` that
   points at an issue which does not exist is a contract violation, so file the follow-up first.
-- **Do not request another review round.** {{REMAINING}} remain, and they are not yours to spend: if
-  another is warranted, the launcher will start a further session. If this is round {{CAP}}, the next
-  state is not a third round — safety-class findings escalate to the maintainer and the rest become
-  follow-ups.
+- **Do not request another review round.** {{REMAINING}} remain, and they are not yours to spend:
+  if another is warranted, the launcher will start a further session.
+- **At round {{CAP}} the convergence check is due, and it is still not yours to request.** Answer
+  every blocking finding and push, exactly as at any other round; what differs is only that no
+  further AMEND follows. Triage then publishes `agent:needs-advance`, and the ADVANCE session it
+  dispatches asks for the final review — `.agents/tasks/advance.md` carries the wording, the
+  throttle rules, and the `refs/lane-advances/` compare-and-swap that makes the request happen
+  **exactly once**. Asking here as well does not make the gate arrive sooner; it spends a second
+  metered review on the same head, because nothing stops that ADVANCE session from asking too.
+  A round is a review that found something **blocking**, so the convergence check costs nothing, and
+  a clean **CodeRabbit** one is what satisfies the gate — it is neither a third round nor optional,
+  and without it a capped pull request can never merge. A review returning only non-blocking
+  findings is clean for that purpose: defer them, per the first rule above. If the check comes back
+  blocking too, `agent:gate-blocked` goes on: safety-class findings escalate to the maintainer, the
+  rest become follow-ups, and no further session is authorised.
 - Do not rebase or force-push a published branch, and do not open a second PR for this issue.

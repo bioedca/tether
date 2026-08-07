@@ -106,11 +106,24 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   the PR is ready for review, and only against metered providers — draft-phase Codex is uncounted.
   Every AMEND is a fresh session whose task text the launcher injects with an explicit
   `ROUND = N of 2`; past the cap it injects none, so no worker ever holds authority for a third.
-  Stop-list, not judgement: **never a review request while `agent:review-capped` is present**.
+- **A round is a metered review that found something blocking**, so a clean one costs nothing —
+  without which the gate and the cap contradict each other (#399). **Free is not the same as
+  finished**: any clean metered review is free, and only a clean **CodeRabbit** one at the current
+  head satisfies the gate and ends the lane, which is why that is the review to ask for at the cap.
+  So `agent:review-capped` forbids asking for another *round*, and permits exactly one convergence
+  check: everything answered, pushed, and one final CodeRabbit review. **The ADVANCE session asks
+  for it, not the AMEND session that answered the round** — it holds the `refs/lane-advances/`
+  compare-and-swap that makes one request out of however many launchers see the label, and an AMEND
+  asking as well merely spends a second metered review on the same head. Clean satisfies the gate;
+  blocking again publishes `agent:gate-blocked`. Stop-list, not judgement: **never a review request
+  while `agent:gate-blocked` is present**, and never a second *completed* convergence review under
+  `agent:review-capped`. A request that produced no review has not spent it — a fair-use refusal
+  naming a retry time is a wait, so wait it out and ask again after reading the status check.
 - **A clean review resumes the claim too, and costs no round.** A review that finds nothing owes no
   AMEND, so it used to publish nothing and the draft stranded before the gate. `agent:needs-advance`
   is the authority to walk the lane on by **one** phase — `.agents/tasks/advance.md`, not AMEND, and
-  its ref is outside the round ledger.
+  its ref is outside the round ledger. It is withheld under `agent:gate-blocked`: there the lane has
+  stopped terminating and a maintainer decides, so there is no next phase to authorise.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to
   the merged head. Then **arm auto-merge and exit** — never wait, never poll.

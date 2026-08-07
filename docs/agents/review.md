@@ -164,9 +164,44 @@ asking a provider to look **again** at work it has already reviewed this round.
   iteration while the PR is still a draft is uncounted, which is the point of doing the work there.
   `agent:round-N` and `agent:review-capped` therefore mean *post-draft, metered* rounds, and every
   AMEND is a fresh short-lived session whose task text the launcher injects with an explicit
-  `ROUND = N of 2`; past the cap it injects none, so no worker ever holds authority for a third. At
-  the cap, safety-class findings escalate to the maintainer and the rest become follow-ups.
-  Stop-list, not judgement: **never a review request while `agent:review-capped` is present**.
+  `ROUND = N of 2`; past the cap it injects none, so no worker ever holds authority for a third.
+  **A round is a metered review that found something blocking**, so a clean one is not a round and
+  costs nothing — which is what stops the cap and the gate contradicting each other. Without that
+  rule a round-2 review with findings left a PR needing a review at the head that answered them, and
+  forbidden to buy one: green, mergeable and unmergeable at once (#399, measured on #385).
+
+  **Free and terminating are different properties, and only one of them is provider-blind.** Any
+  clean metered review is free — a clean Greptile pass costs no round — but the lane ends only on
+  clean **CodeRabbit** evidence at the current head, which is what `triage.py` reads for gate
+  satisfaction. Reading *"a clean one is the lane terminating"* as covering every provider would let
+  a free review stand in for the metered gate, which is the substitution ADR-0062 exists to refuse
+  (CodeRabbit on #408).
+- **At the cap one more review is due, and the ADVANCE session is what asks for it.** The AMEND
+  answers every blocking finding, pushes, dispatches triage and exits — it does not request the
+  convergence check, even though it is the session that made the check due. Triage then publishes
+  `agent:needs-advance`, and the ADVANCE session it dispatches makes the one request, because that
+  is the session holding the `refs/lane-advances/` compare-and-swap that turns however many
+  launchers see the label into a single metered request. An AMEND asking as well does not bring the
+  gate forward; it spends a second review on the same head, since nothing stops the ADVANCE session
+  from asking too (CodeRabbit on #408).
+  Clean satisfies the gate and the lane ends. Blocking again means the
+  count has passed the cap: `agent:gate-blocked` goes on, and it is **a maintainer's** — safety-class
+  findings escalate, the rest become follow-ups, and you stop. **That escalation belongs here and
+  not at the cap**, which is where this page used to put it: at `agent:review-capped` the round-2
+  findings still have to be *fixed*, and a worker is still issued the session that fixes them, so
+  telling it to escalate and stop there would end the lane one step before the review the gate
+  requires (CodeRabbit on #408).
+  Stop-list, not judgement: **never a review request while `agent:gate-blocked` is present**, and
+  under `agent:review-capped` never more than that one *completed* convergence review. A request
+  that produced no review has not spent it — a fair-use refusal naming a retry time is a wait, so
+  wait it and ask again after reading the status check.
+- **The cap withholds AMEND authority past itself, not at itself**, and the distinction is what
+  makes the convergence check reachable. An AMEND answers a review; it is not a review, so it is not
+  a round. At `agent:review-capped` the round-2 findings still have to be fixed, and a worker is
+  still issued the session that fixes them — otherwise the lane could never reach the *everything
+  answered, everything pushed* state the convergence check requires, and the rule written to
+  un-deadlock the gate would deadlock it one step earlier (CodeRabbit on #408). Authority stops once
+  `agent:gate-blocked` is published, because then the convergence check has failed too.
 - **A clean review on an unfinished lane resumes the claim, and does not spend a round.** The lane
   is a sequence, and a review that finds nothing owes nothing — so under the AMEND-only signal it
   published no authority at all and the lane sat before the gate it cannot merge without (#394).
@@ -182,6 +217,13 @@ asking a provider to look **again** at work it has already reviewed this round.
   the authority is published for any phase with a step left, and withheld only once the lane is
   genuinely complete: ready **and** armed. Being at `agent:review-capped` does not withhold it,
   because the remaining steps are not rounds.
+
+  **`agent:gate-blocked` does withhold it**, and that rule belongs to neither issue alone. Past the
+  cap the convergence check came back blocking too, so a maintainer decides — and an advance is
+  precisely the automatic state that label says no longer remains. The window it closes is a real
+  one: `owed` stops holding the moment the author answers the findings and resolves the threads
+  (#393), which is exactly when a session would otherwise be dispatched to walk a lane that has
+  stopped terminating, toward a review it has no round left to buy.
 - **Capability is not quota, and the two fail differently.** A selected provider reporting nothing to
   review at the head it read satisfies its leg — including a Codex 👍 reaction, its documented form
   of "no suggestions". Quote the provider, never the author or another commenter. *Exhaustion* is not
