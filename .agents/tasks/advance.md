@@ -100,6 +100,11 @@ Read root `AGENTS.md`, `docs/agents/review.md` and `.agents/skills/tether-worker
    check, so arming before it has passed merges the PR straight past its own gate; and the advance
    ref is not merge authority, so arming without that authority merges code nobody authorised.
 
+   **`<SHA>` is the 40-hex head the clean review read, never the head re-read while arming** —
+   `docs/agents/review.md` §Merge is the rule, including why re-reading it makes the guard always
+   pass. This is the sharpest place to get it wrong: for BUILD and AMEND arming is a later phase
+   they hand off, and for this session it is the terminal step.
+
    **Then exit** — do not sit and poll. Last, and written last: an `exit` placed above the arming
    paragraph tells a worker reading in order to leave before the one command that ends the lane.
 

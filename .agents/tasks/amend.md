@@ -61,13 +61,9 @@ The severity floor you classify against lives on `review.md`, not in the residen
    arming merges the PR *past* the mandatory gate: CodeRabbit is not a required check, so nothing
    else is holding it. Answering a draft-phase finding is not the end of the lane.
 
-   **`<SHA>` is the 40-hex head that review read**, and supplying it is yours — nothing substitutes
-   it. It is the `commit_id` on the clean review, which is equally what `git rev-parse HEAD` prints
-   when you have pushed nothing since. Do **not** look the head up from the pull request while
-   arming: that answers with whatever the head is *now*, so `--match-head-commit` would agree with
-   itself and bind nothing — and that flag is the merge queue this repository cannot have. A short
-   or mismatched value fails closed, refusing the merge rather than making it against a head no
-   review covers.
+   **`<SHA>` is the 40-hex head the clean review read, never the head re-read while arming** —
+   `docs/agents/review.md` §Merge is the rule, including why re-reading it makes the guard always
+   pass. You have read that page; nothing merges without it.
 
    **Then, and only then, exit.** This is the last line of step 4 because it has to be: an `exit`
    written before the dispatch is an instruction to leave before running it, and a worker that

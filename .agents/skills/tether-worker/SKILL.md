@@ -128,12 +128,9 @@ gh pr merge N --auto --squash --match-head-commit <SHA>
 `--match-head-commit` binds the merge to the head your evidence covers. There is no merge queue on
 this repository (it needs an organization-owned repo), so that guard is what replaces it.
 
-**`<SHA>` is the 40-hex head the clean review read, and you supply it — nothing substitutes it.**
-It is the `commit_id` on that review, which is equally what `git rev-parse HEAD` prints when you
-have pushed nothing since. Do **not** re-read the head from the pull request while arming: that
-answers with whatever it is *now*, which makes the guard agree with itself and bind nothing — a
-guard that always passes is worse than none, because it reads as protection. A short or mismatched
-value fails closed, refusing the merge rather than making it against a head no review covers.
+**`<SHA>` is the 40-hex head the clean review read, never the head re-read while arming** —
+`docs/agents/review.md` §Merge is the rule, including why re-reading it makes the guard always
+pass. You have read that page; nothing merges without it.
 
 ## Rounds are issued to you, not requested by you
 

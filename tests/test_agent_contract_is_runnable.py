@@ -704,22 +704,47 @@ def test_a_rendered_task_is_runnable_in_the_lane_it_is_rendered_for() -> None:
 PROVIDER_HANDLES = ("@coderabbitai", "@greptileai", "@codex", "@copilot")
 
 
-def test_the_pull_request_template_carries_no_provider_handle() -> None:
-    """The template becomes the PR *body*, so a handle in it is a request on every pull request.
+#: The templates GitHub **posts** rather than the pages an agent reads. Both become the body of a
+#: real comment the moment someone opens a pull request or an issue from them.
+POSTED_TEMPLATES = [
+    _REPO / ".github" / "pull_request_template.md",
+    *sorted((_REPO / ".github" / "ISSUE_TEMPLATE").glob("*.yml")),
+]
 
-    Every other guarded page is prose an agent reads. This one is prose GitHub **posts**: whatever
-    it contains is published as a real comment the moment a PR is opened, and a mention there fires
-    the bot on a draft that is not ready for one — spending a fair-use review and throttling the PR
-    that was ready (`docs/agents/review.md`, measured 2026-08-03).
 
-    The template has always been clean, and nothing said so. #400 added the CodeRabbit gate's
-    evidence requirement to it, which is exactly the edit that invites naming the command; it names
-    it in prose — *"the full-review command"* — as `review.md` prescribes. This is the test that
-    keeps the next such edit honest.
+def test_no_posted_template_carries_a_provider_handle() -> None:
+    """A handle in a template GitHub posts is a review request on every item opened from it.
+
+    Every other guarded page is prose an agent *reads*. These are prose GitHub **publishes**:
+    whatever they contain becomes a real comment, and a mention there fires the bot on something
+    that is not ready for one — spending a fair-use review and throttling the pull request that was
+    (`docs/agents/review.md`, measured 2026-08-03).
+
+    **The rule is scoped to what is posted, and that scoping is the point.** `review.md` says its
+    own page is where the trigger strings belong, but `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`
+    and `.agents/tasks/build.md` all name a handle too — and none of them is a defect, because none
+    of them is published as a comment. A guard over every page would fail on four files that are
+    doing nothing wrong, and the fix would be to delete the exact command a worker needs. So the
+    line is drawn where the harm is: a file whose contents GitHub turns into a comment.
+
+    The templates have always been clean, and nothing said so. #400 added the CodeRabbit gate's
+    evidence requirement to the pull-request template, which is exactly the edit that invites naming
+    the command; it names it in prose — *"the full-review command"* — as `review.md` prescribes. The
+    issue forms are here for the same reason and were never covered.
+
+    Globbed, not listed: a hand-written tuple silently stops at the forms that existed when it was
+    written, which is the failure `.agents/tasks/*.md` already had once (#387).
     """
-    body = (_REPO / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
-    found = [handle for handle in PROVIDER_HANDLES if handle in body]
-    assert not found, (
-        f"{found} in the PR template fires a real review on every pull request opened from it; "
-        "name the command in prose instead"
+    assert len(POSTED_TEMPLATES) > 1, "the issue-form glob matched nothing; the path is wrong"
+    bad: list[str] = []
+    for path in POSTED_TEMPLATES:
+        body = path.read_text(encoding="utf-8")
+        bad += [
+            f"{path.relative_to(_REPO).as_posix()}: {handle}"
+            for handle in PROVIDER_HANDLES
+            if handle in body
+        ]
+    assert not bad, (
+        f"{bad} — a provider handle here fires a real review on everything opened from the "
+        "template; name the command in prose instead"
     )

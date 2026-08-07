@@ -45,7 +45,8 @@ task text adds only what is specific to this claim.
    the optional Greptile credit, marking ready, the mandatory CodeRabbit gate
    (`@coderabbitai full review`, never the bare `review`), and arming auto-merge
    (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`, where `<SHA>` is the 40-hex
-   head that clean review read and never the head re-read while arming) — each begin only after a
+   head the clean review read, never the head re-read while arming — `docs/agents/review.md` §Merge
+   is the rule, including why re-reading it makes the guard always pass) — each begin only after a
    review lands, and you must not wait for one. A later session continues from where you left it, so
    **write the lane state into the PR body before exiting**: which phase it is in, what was asked,
    and what is outstanding. That handoff is the only thing carrying the lane forward.
