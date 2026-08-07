@@ -80,11 +80,42 @@ except ImportError:  # pragma: no cover - exercised by the workflow's minimal en
 
 BIN = Path(__file__).resolve().parent
 
-_spec = importlib.util.spec_from_file_location("tether_claim", BIN / "claim.py")
-if _spec is None or _spec.loader is None:  # pragma: no cover - packaging accident
-    raise SystemExit("error: claim.py is missing next to scope_guard.py")
-claim = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(claim)
+
+def _load(name: str) -> Any:
+    """Import a sibling script by path, the way ``swarm_slots.py`` does."""
+    spec = importlib.util.spec_from_file_location(f"tether_{name}", BIN / f"{name}.py")
+    if spec is None or spec.loader is None:  # pragma: no cover - packaging accident
+        raise SystemExit(f"error: {name}.py is missing next to scope_guard.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+claim = _load("claim")
+
+# **This module used to reimplement the round counter rather than call it, and that was the wrong
+# trade.** The rationale was independence: a guard whose job is to notice disagreement with the
+# authoritative counter should not import the thing it audits. What it actually produced was a copy
+# that drifted, three times - the `original_commit_id` rewrite (#307), the reply wrapper (#396) and
+# the unsubmitted draft (#400) each had to be found and fixed twice - and every drift period was one
+# in which the "second opinion" disagreed with `triage` for reasons that had nothing to do with the
+# pull request being measured. A mirror that is wrong in a different way from the original is not a
+# check on it.
+#
+# The number is also not load-bearing: `_review_rounds` is called once, into `measure`'s reported
+# dict, and rendered into an advisory table. Nothing branches on it. So the independence bought
+# nothing and cost a recurring class of false alarm.
+#
+# #409 is what settles it. Severity-aware counting cannot be mirrored by inspecting comment shape at
+# all, so a copy would now over-report on every pull request carrying a non-blocking finding - which
+# is precisely the "evidence is ahead of the labels" signal this guard exists to raise. It would
+# manufacture the corruption report it was written to detect.
+#
+# `_load` builds a fresh module, so triage would arrive holding a SECOND `claim` object - a second
+# transport to authenticate and a second thing a test must patch. `swarm_slots.py` pushes the one
+# transport in for that reason; the same is done here, and a test pins it.
+triage = _load("triage")
+triage.claim = claim
 
 REPO = claim.REPO
 
@@ -507,152 +538,31 @@ def _prose_targets(entry: dict[str, Any]) -> list[str]:
     return [m.group(1) for line in reading for m in _PROSE_LITERAL_RE.finditer(line)]
 
 
-def _review_rounds(number: int) -> int:
-    """Distinct head SHAs at which an external provider reported, matching ``triage.py``'s counter.
+def _review_rounds(number: int) -> int | None:
+    """Distinct head SHAs at which a metered provider found something - ``triage.py``'s own count.
 
-    Reported rather than acted on. It shares the undercount that counter documents - a provider
-    answering in a plain issue comment carries no head binding - so it is a visible number for a
-    human audit, not an input to any decision here.
+    **Delegated, not mirrored.** This was ~145 lines reimplementing ``triage._review_state`` and
+    ``triage._counted_from``, kept separate so the guard would be a second opinion on the counter it
+    reports beside. In practice it was a second *implementation*, and it drifted from the original
+    three times - #307's ``original_commit_id`` rewrite, #396's reply wrapper, #400's unsubmitted
+    draft - each found and fixed twice, with a window in between where the two disagreed for reasons
+    having nothing to do with the pull request. See the note beside the import.
 
-    It shared the OVERCOUNT too, until #307. GitHub rewrites an inline review comment's
-    ``commit_id`` as the pull request advances, so one review counted once at the head it read and
-    again at the head that answered it. The head is ``original_commit_id`` when present - the same
-    fix, made in the same change, because a guard that disagrees with the counter it claims to
-    mirror is worse than one that does not mirror it at all.
-
-    **The 12 heads this reported for #276 on #290 came from the broken version and are inflated.**
-
-    It shared the *other* overcount too, until #396. GitHub wraps a bot's reply to a review thread
-    in a review submission of its own - empty body, state ``COMMENTED``, one comment carrying
-    ``in_reply_to_id`` - so answering a review counted as a round. Mirrored here for the same reason
-    the ``original_commit_id`` fix was: a guard reporting MORE rounds than the counter it claims to
-    mirror reads as "the evidence is ahead of the labels", which is a corruption report about
-    nothing.
-    """
-    heads: set[str] = set()
-    # Mirrors `triage.METERED_PROVIDERS`, not every external provider (ADR-0062). Codex is the
-    # unmetered lane and consumes no round; Greptile does, because a spent credit is a real one.
-    # Reported by name so a reader can see WHICH counter this claims to mirror.
-    providers = {"coderabbitai[bot]", "greptile-apps[bot]"}
-    counted_from = _counted_from(number)
-    reviews = claim._paginate(f"/repos/{REPO}/pulls/{number}/reviews", f"PR #{number} review state")
-    comments = claim._paginate(
-        f"/repos/{REPO}/pulls/{number}/comments", f"PR #{number} review state"
-    )
-    # `owns comments, and all of them are replies` - the same spelling `triage._reply_wrapper_ids`
-    # uses, and for the same reason: it asks a submission to prove it is a WRAPPER, so anything the
-    # payload does not describe fully is still counted.
-    only_replies: dict[Any, bool] = {}
-    for entry in comments:
-        review_id = entry.get("pull_request_review_id")
-        if review_id is not None:
-            only_replies[review_id] = only_replies.get(review_id, True) and bool(
-                entry.get("in_reply_to_id")
-            )
-    wrappers = {review_id for review_id, every in only_replies.items() if every}
-    for entries, is_reviews in ((reviews, True), (comments, False)):
-        for entry in entries:
-            login = ((entry.get("user") or {}).get("login")) or ""
-            sha = entry.get("original_commit_id") or entry.get("commit_id")
-            # A reply is not a review (#396). Stated inline rather than delegated because this
-            # module deliberately shares no code with `triage.py` - it is a second opinion, and one
-            # that imported the counter it audits would not be one.
-            if is_reviews:
-                # An unsubmitted draft review is not a round (#400), and it is asked FIRST because
-                # a `PENDING` review carrying a body would otherwise pass the `real` test below. It
-                # has no `submitted_at`, and the timestamp branch at the foot of this loop counts a
-                # timestamp-less entry deliberately - so leaving it in spends a round on a review
-                # its author has not sent. Mirrors `triage.UNSUBMITTED_REVIEW_STATE`, stated inline
-                # because this module shares no code with the counter it audits.
-                if entry.get("state") == "PENDING":
-                    continue
-                real = bool((entry.get("body") or "").strip()) or entry.get("id") not in wrappers
-                real = real or entry.get("state") in {"CHANGES_REQUESTED", "APPROVED", "DISMISSED"}
-                if not real:
-                    continue
-                # A round is a metered review that FOUND something (#399). A clean one is the lane
-                # terminating, and counting it here would report one round where triage reports
-                # zero on every PR CodeRabbit passes - "evidence ahead of the labels", which is the
-                # corruption signal this mirror exists to raise rather than to manufacture.
-                if entry.get("state") not in {"CHANGES_REQUESTED"}:
-                    continue
-            elif entry.get("in_reply_to_id"):
-                continue
-            # Path-appropriate, exactly as `triage._review_state` reads it, rather than
-            # `submitted_at or created_at`. The fallback spelling agrees with triage only by
-            # accident of payload shape - the reviews endpoint returns no `created_at`, so the
-            # `or` finds nothing and both fall through to "no timestamp, count it". Should a
-            # review ever carry one, scope_guard would use it and triage would not, and the guard
-            # would report FEWER rounds than the counter it mirrors: "labels ahead of the
-            # evidence", which is the corruption it exists to detect. A mirror should hold by
-            # construction, not by luck about which fields an endpoint happens to send.
-            when = entry.get("submitted_at") if is_reviews else entry.get("created_at")
-            if login not in providers or not isinstance(sha, str) or not sha:
-                continue
-            # Draft-phase rounds are free, so counting them here would report a PR as spent while
-            # triage correctly reports it as not - the disagreement this function exists to avoid.
-            if (
-                counted_from is None
-                or not isinstance(when, str)
-                or not when
-                or when >= counted_from
-            ):
-                heads.add(sha)
-    return len(heads)
-
-
-def _counted_from(number: int) -> str | None:
-    """The first ``ready_for_review`` instant, or ``None`` to count everything.
-
-    A read-only mirror of ``triage._counted_from``, and it has to mirror **every** branch of it, not
-    just the common one. A guard whose purpose is to notice disagreement with the authoritative
-    counter cannot afford to disagree with it itself: this function reported one round fewer than
-    ``triage`` for a PR opened ready that later took a draft excursion, which reads as *the labels
-    are ahead of the evidence* - the exact shape of the corruption it is watching for.
-
-    Advisory, so an unreadable timeline counts everything rather than failing the job.
+    ``None`` when the count could not be read. Advisory means *never fail the job*, and it does not
+    mean *report zero*: zero is a claim about a pull request, and a guard that answers it on a
+    transport error says "no rounds spent" about evidence nobody read. ``_render`` prints ``—``.
     """
     try:
-        events = claim._paginate(
-            f"/repos/{REPO}/issues/{number}/timeline", f"PR #{number} timeline"
-        )
-    except claim.ClaimError:
+        status, pull = claim._request("GET", f"/repos/{REPO}/pulls/{number}")
+        if status != 200 or not isinstance(pull, dict):
+            return None
+        head = str((pull.get("head") or {}).get("sha") or "")
+        if not head:
+            return None
+        reviewed, *_ = triage._review_state(number, head, triage._counted_from(pull))
+    except (claim.ClaimError, triage.TriageError):
         return None
-    ready = [
-        stamp
-        for event in events
-        if event.get("event") == "ready_for_review"
-        and isinstance(stamp := event.get("created_at"), str)
-        and stamp
-    ]
-    drafted = [
-        stamp
-        for event in events
-        if event.get("event") == "convert_to_draft"
-        and isinstance(stamp := event.get("created_at"), str)
-        and stamp
-    ]
-    # Opened READY: a PR created ready emits no `ready_for_review`, so a later draft excursion and
-    # return would make that return look like the first entry into the counted phase, discarding
-    # every round spent before it. A `convert_to_draft` earlier than any `ready_for_review` is the
-    # signal, and it means the clock started at creation.
-    if drafted and (not ready or min(drafted) < min(ready)):
-        return None
-    if ready:
-        return min(ready)
-    # No ready event and no draft excursion. A draft has taken no counted round - returning None
-    # here would mean "count everything" and report a Greptile review spent during the prescribed
-    # draft phase as a round.
-    return _COUNT_NOTHING if _is_draft(number) else None
-
-
-#: Sorts above every ISO-8601 instant, so the ordinary comparison rejects each entry.
-_COUNT_NOTHING = "9999-12-31T23:59:59Z"
-
-
-def _is_draft(number: int) -> bool:
-    status, pull = claim._request("GET", f"/repos/{REPO}/pulls/{number}")
-    return status == 200 and bool((pull or {}).get("draft"))
+    return len(reviewed)
 
 
 def _render(report: dict[str, Any]) -> str:
@@ -669,7 +579,8 @@ def _render(report: dict[str, Any]) -> str:
         f"| source / test added | {report['source_added']} / {report['test_added']} |",
         f"| proportional cap | {report['proportional_cap']} |",
         f"| linked issues | {', '.join(f'#{n}' for n in report['linked_issues']) or '—'} |",
-        f"| external review rounds | {report['review_rounds']} |",
+        f"| external review rounds | "
+        f"{report['review_rounds'] if report['review_rounds'] is not None else '—'} |",
         "",
     ]
     material = report.get("materiality")

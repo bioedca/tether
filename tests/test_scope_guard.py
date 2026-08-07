@@ -625,15 +625,85 @@ def test_a_file_too_large_to_read_is_material_not_unchanged(
 
 
 # --------------------------------------------------------------------------- reporting
+#
+# **Nine tests lived here, and they are gone with the code they tested.** Each pinned one property
+# of this module's private reimplementation of `triage`'s round counter against the original -
+# #307's `original_commit_id`, #396's reply wrapper, #399's clean review, #400's unsubmitted draft,
+# the draft-phase exemption, the `submitted_at` reading, the draft excursion. All nine asserted the
+# same thing in the end: *the copy agrees with the counter*. There is no copy now, so agreement is
+# not a property that can fail, and the properties themselves are pinned where they are implemented,
+# in `tests/test_triage.py`.
+#
+# What replaces them is the wiring - that the delegation happens, that both modules speak through
+# one transport, and that an unreadable count is unknown rather than zero - plus one end-to-end pass
+# through a real payload so the seam is proven and not merely declared.
 
 
-def test_review_rounds_counts_distinct_heads_like_triage_does(
+def test_the_round_count_is_triages_own_rather_than_a_copy_of_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Two providers at one head are ONE round, matching `triage.py`.
+    """The delegation, asserted at the seam (#409).
 
-    Reported, never acted on here - it shares the undercount that counter documents, and this is a
-    number for a human audit rather than an input to a decision.
+    A copy could no longer be right. `triage` now reads each provider's severity badge, and severity
+    is not recoverable from the comment *shape* a mirror can see - so a reimplementation would count
+    every non-blocking finding and report more rounds than the counter it audits on every pull
+    request carrying a `Minor`. That is the "evidence is ahead of the labels" signal this guard
+    exists to raise, manufactured by the guard itself.
+
+    Pinned by substitution rather than by comparing two numbers: a stub `_review_state` returning a
+    set nothing else could produce proves the value came from `triage` and not from anything here.
+    """
+    marker = {"1" * 40, "2" * 40, "3" * 40}
+    monkeypatch.setattr(
+        guard.triage, "_review_state", lambda *a, **k: (marker, False, False, False)
+    )
+    _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"])
+    assert guard.measure(99)["review_rounds"] == 3, "the count reported is whatever triage counted"
+    for gone in ("_counted_from", "_COUNT_NOTHING", "_is_draft"):
+        assert not hasattr(guard, gone), (
+            f"`{gone}` was part of the copy; leaving it behind is how the next drift starts"
+        )
+
+
+def test_the_guard_and_the_counter_speak_through_one_transport() -> None:
+    """`_load` builds a fresh module, so `triage` would otherwise arrive holding its own `claim`.
+
+    Two transports is two things to authenticate and two things a test must patch - and a
+    half-patched test is the failure `swarm_slots.py` pushes its one transport in to prevent. The
+    same is done here, so `_install` patching `guard.claim` is enough to redirect the delegated
+    read too.
+    """
+    assert guard.triage.claim is guard.claim
+
+
+def test_a_round_count_that_cannot_be_read_is_unknown_rather_than_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Advisory means never fail the job. It does not mean answer a question nobody could read.
+
+    Zero is a claim about the pull request - *no rounds spent* - and reporting it on a transport
+    error puts a number in the table that reads exactly like a real measurement. `None` renders as
+    `—`, which an operator can tell apart from a count.
+    """
+
+    def boom(*_args: Any, **_kwargs: Any) -> None:
+        raise guard.claim.ClaimError("review list could not be read")
+
+    _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"])
+    monkeypatch.setattr(guard.triage, "_review_state", boom)
+    report = guard.measure(99)
+    assert report["review_rounds"] is None
+    assert "| external review rounds | — |" in guard._render(report)
+
+
+def test_the_delegated_count_reaches_the_real_counter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One end-to-end pass, so the seam is proven against a payload rather than against a stub.
+
+    Two providers reporting at one head is ONE round, and Codex - the unmetered lane - is not a
+    round at all. Both facts belong to `triage` and are tested there; what this adds is that a real
+    payment through `guard.measure` arrives at them.
     """
     reviews = [
         {"user": {"login": "chatgpt-codex-connector[bot]"}, "commit_id": "c" * 40},
@@ -646,108 +716,6 @@ def test_review_rounds_counts_distinct_heads_like_triage_does(
     ]
     _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"], reviews=reviews)
     assert guard.measure(99)["review_rounds"] == 1
-
-
-def test_a_pr_opened_ready_keeps_the_rounds_it_spent_before_a_draft_excursion(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The mirror has to mirror *every* branch, not just the common one. Codex raised this on #385.
-
-    A PR opened ready emits no `ready_for_review`, so a later draft excursion and return makes that
-    return look like the first entry into the counted phase. Taking `min(ready)` therefore discarded
-    every round spent before it, and the guard reported one fewer than `triage` - which reads as
-    *the labels are ahead of the evidence*, the exact corruption this guard exists to detect. A
-    `convert_to_draft` earlier than any `ready_for_review` is the signal that the clock started at
-    creation.
-    """
-    timeline = [
-        {"event": "convert_to_draft", "created_at": "2026-08-02T00:00:00Z"},
-        {"event": "ready_for_review", "created_at": "2026-08-03T00:00:00Z"},
-    ]
-    reviews = [
-        # Before the draft excursion, so a `min(ready)` cutoff would drop it.
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "commit_id": "c" * 40,
-            "state": "CHANGES_REQUESTED",
-            "submitted_at": "2026-08-01T00:00:00Z",
-        },
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "commit_id": "e" * 40,
-            "state": "CHANGES_REQUESTED",
-            "submitted_at": "2026-08-03T12:00:00Z",
-        },
-    ]
-    _install(
-        monkeypatch,
-        files=[_file("x.py", 1)],
-        labels=["size:XS"],
-        reviews=reviews,
-        timeline=timeline,
-    )
-    assert guard.measure(99)["review_rounds"] == 2, "a draft excursion must refund no round"
-
-
-def test_a_review_timestamp_is_read_the_way_triage_reads_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Greptile's finding on #385, and the mirror argument taken one level further.
-
-    `submitted_at or created_at` agreed with `triage._review_state` only by accident of payload
-    shape: the reviews endpoint sends no `created_at`, so the fallback found nothing and both fell
-    through to "no timestamp, count it". Give a review one and they diverge — triage counts it
-    (`_counts_as_round(None, ...)` fails toward counting), scope_guard would compare the stray
-    `created_at` against `counted_from` and drop it, reporting FEWER rounds than the authoritative
-    counter. That reads as *the labels are ahead of the evidence*, which is what the guard exists to
-    detect, so it must hold by construction rather than by luck.
-    """
-    reviews = [
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "commit_id": "c" * 40,
-            "state": "CHANGES_REQUESTED",
-            # No `submitted_at`; a `created_at` that predates the ready transition. The `or`
-            # spelling picked this up and excluded the round.
-            "created_at": "2026-08-01T00:00:00Z",
-        }
-    ]
-    _install(
-        monkeypatch,
-        files=[_file("x.py", 1)],
-        labels=["size:XS"],
-        reviews=reviews,
-        timeline=[{"event": "ready_for_review", "created_at": "2026-08-02T00:00:00Z"}],
-    )
-    rounds = guard.measure(99)["review_rounds"]
-    assert rounds == 1, "a review with no submitted_at counts here, exactly as it does in triage"
-
-
-def test_a_review_taken_during_the_prescribed_draft_phase_is_not_a_round(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The other direction, and the reason the mirror needs the timeline at all.
-
-    A PR that has never been ready is in the free phase, so a metered review spent there costs no
-    round. Counting it would report the PR as spent while `triage` reports it as not.
-    """
-    reviews = [
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "commit_id": "c" * 40,
-            "state": "CHANGES_REQUESTED",
-            "submitted_at": "2026-08-01T00:00:00Z",
-        }
-    ]
-    _install(
-        monkeypatch,
-        files=[_file("x.py", 1)],
-        labels=["size:XS"],
-        reviews=reviews,
-        timeline=[],
-        draft=True,
-    )
-    assert guard.measure(99)["review_rounds"] == 0
 
 
 def test_the_report_always_declares_itself_advisory(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -925,164 +893,3 @@ def test_every_unexpected_exit_code_fails_the_job() -> None:
         "exit 2 must be covered by the default arm, not named - naming it is what left every "
         "other code falling through"
     )
-
-
-def test_the_guard_counts_the_head_a_provider_actually_read(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """#307 in the audit half. A guard that disagrees with the counter it mirrors is worse than one
-    that does not mirror it at all — the two would report different round counts for one PR and
-    there would be no way to tell which was right.
-    """
-    # A METERED provider: since ADR-0062 the guard mirrors `triage.METERED_PROVIDERS`, and Codex —
-    # the unmetered lane — consumes no round at all. The #307 property under test is the head
-    # attribution, not which provider it belongs to.
-    reviews = [
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "commit_id": "c" * 40,
-            "state": "CHANGES_REQUESTED",
-        },
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "original_commit_id": "c" * 40,
-            "commit_id": "d" * 40,
-            "state": "CHANGES_REQUESTED",
-        },
-    ]
-    _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"], reviews=reviews)
-    assert guard.measure(99)["review_rounds"] == 1
-
-
-def test_the_guard_does_not_count_a_clean_metered_review_as_a_round(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """#399 in the audit half. Codex P2 on that PR, and it is the mirror's whole purpose.
-
-    A round is a metered review that found something; a clean one is the lane terminating. Left
-    counting every metered head, this guard would report **one** round on every pull request
-    CodeRabbit passes while triage reports **zero** — which reads as *the evidence is ahead of the
-    labels*, the corruption signal this mirror exists to raise rather than to manufacture.
-    """
-    reviews = [
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "id": 1,
-            "body": "No actionable comments.",
-            "state": "COMMENTED",
-            "commit_id": "c" * 40,
-        }
-    ]
-    _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"], reviews=reviews)
-    assert guard.measure(99)["review_rounds"] == 0
-
-
-def test_the_guard_does_not_count_a_reply_wrapper_as_a_round(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """#396 in the audit half, for the same reason #307 was mirrored here.
-
-    A guard reporting MORE rounds than the counter it audits reads as *"the evidence is ahead of the
-    labels"* — a corruption report about nothing, and the one thing a second opinion must not
-    produce. The #385 shape: one real review at `c…`, one reply wrapper at `d…` whose only comment
-    carries `in_reply_to_id`. One round.
-    """
-    reviews = [
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "id": 1,
-            "body": "findings",
-            "state": "CHANGES_REQUESTED",
-            "commit_id": "c" * 40,
-        },
-        {"user": {"login": "coderabbitai[bot]"}, "id": 2, "body": "", "commit_id": "d" * 40},
-    ]
-    comments = [
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "id": 11,
-            "pull_request_review_id": 2,
-            "in_reply_to_id": 10,
-            "commit_id": "d" * 40,
-        }
-    ]
-    _install(
-        monkeypatch,
-        files=[_file("x.py", 1)],
-        labels=["size:XS"],
-        reviews=reviews,
-        comments=comments,
-    )
-    assert guard.measure(99)["review_rounds"] == 1
-
-
-def test_the_guard_still_counts_a_bodyless_review_that_carries_real_findings(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The control, and the safety direction: only a proven wrapper is dropped.
-
-    Identical to the case above but for `in_reply_to_id`, so a filter that had simply stopped
-    counting bodyless submissions would pass that test and fail this one. Undercounting is the
-    fail-open direction on the cap, which is why the mirror asks a submission to prove it is a
-    wrapper rather than to prove it is a review.
-    """
-    reviews = [
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "id": 1,
-            "body": "findings",
-            "state": "CHANGES_REQUESTED",
-            "commit_id": "c" * 40,
-        },
-        {"user": {"login": "coderabbitai[bot]"}, "id": 2, "body": "", "commit_id": "d" * 40},
-    ]
-    comments = [
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "id": 11,
-            "pull_request_review_id": 2,
-            "commit_id": "d" * 40,
-        }
-    ]
-    _install(
-        monkeypatch,
-        files=[_file("x.py", 1)],
-        labels=["size:XS"],
-        reviews=reviews,
-        comments=comments,
-    )
-    assert guard.measure(99)["review_rounds"] == 2
-
-
-def test_the_guard_does_not_count_a_review_still_being_drafted(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """#400 in the audit half, and it has to land here or the mirror manufactures a disagreement.
-
-    A `PENDING` review carries no `submitted_at`, and both counters treat a timestamp-less entry as
-    countable. Fixed in `triage.py` alone, this guard would report **two** rounds where triage
-    reports one on any pull request with a draft review open against it - "the evidence is ahead of
-    the labels", which is the corruption signal this mirror exists to raise rather than to invent.
-
-    The draft carries a body, which is what makes the ordering load-bearing: the `real` test one
-    line below accepts any submission with a body, so a `PENDING` check placed after it would never
-    be reached.
-    """
-    reviews = [
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "id": 1,
-            "body": "findings",
-            "state": "CHANGES_REQUESTED",
-            "commit_id": "c" * 40,
-        },
-        {
-            "user": {"login": "coderabbitai[bot]"},
-            "id": 2,
-            "body": "half-written",
-            "state": "PENDING",
-            "commit_id": "d" * 40,
-        },
-    ]
-    _install(monkeypatch, files=[_file("x.py", 1)], labels=["size:XS"], reviews=reviews)
-    assert guard.measure(99)["review_rounds"] == 1
