@@ -42,7 +42,33 @@ read. The launcher already resolves it in injected task text — `{{PYTHON}}` re
 `swarm_slots.LANE_PYTHON`, which is the same table as above — so `<py>` is for hand-driven runs. If
 neither name resolves, report it; do not paste a path.
 
-`gh` needs no such rule: it resolves from `PATH` in both shells.
+**`gh` needs no such token, and it does need a version.** The name resolves from `PATH` in both
+shells, so no `<gh>` spelling is required — but the two lanes resolve it to *different builds*, and
+that is not a matter of taste. This machine has WSL's apt package at **2.45.0** and a native install
+at **2.95.0**, and the scripts here are documented to run as `python3`, which is the WSL interpreter,
+so they get the older one.
+
+**[ADR-0060](../../../docs/adr/0060-in-app-update-mechanism-and-integrity-model.md) already pins
+`gh >= 2.67.0`** for this repository — `gh attestation verify` fails *open* below it
+(CVE-2025-25204). A lane below that floor is out of contract, not merely inconvenient. Two commands
+this contract requires are already broken at 2.45.0, and they fail differently:
+
+- The **`--slurp`** flag is rejected outright by the older build. Nothing here uses it any more:
+  `--paginate` already concatenates the pages of an array endpoint, so the flag bought nothing
+  ([#417](https://github.com/bioedca/tether/issues/417)).
+- The **`pr edit`** subcommand fails with a GraphQL error about `projectCards`, a field GitHub has
+  sunset and 2.45.0 still asks for. It names nothing about the real cause. **So the lane state is
+  written into the PR body through the REST endpoint instead** — the task templates carry the exact
+  command — rather than leaving the choice to the worker's judgement.
+
+Those two are named here as a **flag** and a **subcommand**, not as whole invocations, on purpose:
+`tests/test_agent_contract_is_runnable.py` scans every command on this page and would reject the
+very spellings this paragraph exists to forbid. The same reason a bare `python3` above is a mention
+rather than a command.
+
+If your `gh` is older than the floor, say so in the handoff and use `gh --version` to show it. Do not
+paste a path to the other lane's binary — that is the defect `<py>` exists to prevent, in the other
+direction.
 
 Where a command takes `--vendor`, pass **your own lane** — the `Vendor lane` row of the task text
 the launcher injected, or, hand-driven, the vendor of the CLI you are running.

@@ -260,9 +260,13 @@ Before requesting review / merging, confirm:
       result from every provider the lane reached — **either** a substantive review **or** that
       provider's own quoted "nothing to review" for the head it read, a Codex 👍 included.
       **CodeRabbit with no actionable comments is required**, and that is a verdict a completed
-      review reached rather than an absence of one: record the review itself — permalink,
-      `commit_id`, `submitted_at` (a `PENDING` review has none, and is not a submitted one), and the
-      opening of its body. `docs/agents/review.md` §4 states what counts as
+      review reached rather than an absence of one: record the review itself — permalink, the
+      `commit_id` it read, **which must be the final head**, `submitted_at` with a state of
+      **`COMMENTED` or `APPROVED`** (a `PENDING` review has no `submitted_at` and is not a submitted
+      one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing), and the
+      opening of its body. **A review of any earlier head does not qualify, however clean it was** —
+      answering a finding moves the head, so that review is evidence about a diff this one is no
+      longer. `docs/agents/review.md` §4 states what counts as
       that evidence and, in particular, why the clean verdict is written by the
       `Actionable comments posted:` line being **absent** rather than reading `0`. Neither silence
       nor a green `CodeRabbit` status check is the gate; both are also what a request that reviewed

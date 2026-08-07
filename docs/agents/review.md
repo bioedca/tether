@@ -100,7 +100,7 @@ running **right now**, and asking again cancels it, so the window is spent and n
 The bot's own comments are not that signal — *"Full review finished"* reports the pass that just
 ended and says nothing about what is still queued behind it.
 
-```
+```sh
 gh pr checks <PR> --json name,state,description --jq '.[] | select(.name == "CodeRabbit")'
 ```
 
@@ -256,7 +256,7 @@ asking a provider to look **again** at work it has already reviewed this round.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to
   the merged head. Then **arm auto-merge and exit** — never wait, never poll.
 
-  ```
+  ```sh
   gh pr merge <PR> --auto --squash --match-head-commit <SHA>
   ```
 

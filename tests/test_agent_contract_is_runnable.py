@@ -108,6 +108,28 @@ _MERGE_BINDING_FLAG = "--match-head-commit"
 
 _SLOTS = _REPO / ".agents" / "bin" / "swarm_slots.py"
 
+#: `gh` spellings that do not work on every `gh` a lane resolves, mapped to what to use instead.
+#:
+#: A DENYLIST of things measured broken, not a capability table. The full matrix of subcommand ×
+#: version is unmaintainable and would rot into a second source of truth about a tool nobody here
+#: controls; this is the short list of what has actually bitten, and each entry earns its place by
+#: having cost a real failure. `swarm_slots.LANE_GH` is a bare `gh`, and
+#: `test_the_launcher_injects_a_bare_name_for_every_lane` forbids it carrying arguments — so a
+#: version cannot be pinned at the call site and the page has to carry the rule instead.
+#:
+#: Measured 2026-08-07: WSL resolves the apt package at 2.45.0, native resolves 2.95.0, and the
+#: scripts are documented to run under `python3` - the WSL interpreter - so they get the older one.
+UNPORTABLE_GH = {
+    "--slurp": (
+        "`gh api --slurp` was added after gh 2.45.0, which the WSL lane resolves. `--paginate` "
+        "already concatenates an array endpoint's pages, so drop the flag (#417)."
+    ),
+    "pr edit": (
+        "`gh pr edit` queries the sunset `projectCards` field on gh 2.45.0 and fails for every "
+        "flag. Use `gh api -X PATCH repos/{owner}/{repo}/pulls/<PR>` instead (#418)."
+    ),
+}
+
 # Absolute-path spellings that pin a command to one machine or one shell. `/mnt/` is the WSL view of
 # a Windows drive and is just as unportable as `C:\` — it is meaningless natively.
 ABSOLUTE = ("C:\\", "c:\\", "/mnt/", "%APPDATA%", "Program Files", "$env:", "~/")
@@ -457,6 +479,7 @@ def test_every_first_token_rule_sees_past_an_env_prefix() -> None:
     prefixed = "QT_QPA_PLATFORM=offscreen python -m pytest"
     powershell = "$env:QT_QPA_PLATFORM='offscreen'; & gh.exe pr merge"
     absolute = "QT_QPA_PLATFORM=offscreen /mnt/c/Python/python.exe -m pytest"
+    prefixed_gh = "GH_TOKEN=redacted gh pr edit 1 --body-file body.md"
 
     assert _first_token(prefixed) == "python", "the executable, not the assignment"
     assert _first_token(powershell) == "&", "the call operator is the first token once stripped"
@@ -467,6 +490,16 @@ def test_every_first_token_rule_sees_past_an_env_prefix() -> None:
     assert _first_token(prefixed) in ("python", "python3"), "the interpreter rule must fire"
     assert any(marker in _gate_body(absolute) for marker in ABSOLUTE), "the path rule must fire"
     assert re.search(r"[/\\:%$]", _first_token(absolute)), "the bare-name rule must fire"
+
+    # The `gh`-portability rule (#418), added after this test was written — which is the case its
+    # docstring promises to cover and did not, because the list above is enumerated by hand.
+    # CodeRabbit read the rule as broken on a prefixed command (`Major` on #422); it is not, because
+    # it goes through `_first_token` like the others. What was missing is this line, so that a
+    # regression to raw `.split()[0]` fails here rather than silently governing nothing.
+    assert _first_token(prefixed_gh) == "gh", "the gh-portability rule must fire"
+    assert any(spelling in _gate_body(prefixed_gh) for spelling in UNPORTABLE_GH), (
+        "and must still see the unportable spelling once the prefix is stripped"
+    )
 
 
 def test_no_command_names_an_absolute_path() -> None:
@@ -718,12 +751,74 @@ def test_a_rendered_task_is_runnable_in_the_lane_it_is_rendered_for() -> None:
 PROVIDER_HANDLES = ("@coderabbitai", "@greptileai", "@codex", "@copilot")
 
 
+def test_no_page_both_lanes_read_names_a_gh_spelling_one_of_them_cannot_run() -> None:
+    """#418: `gh` resolves in both shells — to different builds, and two commands break on 2.45.
+
+    This is the interpreter rule's other half. `<py>` exists because the two lanes need *different
+    names*; `gh` needs the same name everywhere, so no token was ever added — and that was read as
+    "`gh` needs no rule", which `.agents/skills/tether-worker/SKILL.md` said in as many words. The
+    name resolving is not the same property as the command working. WSL resolves the apt package
+    (2.45.0 here), native resolves 2.95.0, and every `.agents/bin/*.py` is documented to run under
+    `python3`, so the scripts get the older one.
+
+    Asserted as a **denylist of measured breakages**, not a version matrix. A capability table for a
+    tool this repository does not control would rot into a second source of truth, and the honest
+    unit is "this spelling cost us a real failure". Both entries did: `--slurp` made the Greptile
+    balance unreadable, so the lane's own precondition for spending a credit could not be met, and
+    `pr edit` broke the PR-body handoff that `.agents/tasks/build.md` calls the only thing carrying
+    the lane forward.
+
+    Scoped to `BOTH_LANES`, so `CLAUDE.md` — which is allowed to name one lane's tooling — is exempt
+    for the same reason it may name `python3`.
+    """
+    bad: list[str] = []
+    scanned = 0
+    for path in BOTH_LANES:
+        for number, command in _commands(path):
+            body = _gate_body(command)
+            if _first_token(command) != "gh" and "{{GH}}" not in body:
+                continue
+            scanned += 1
+            bad += [
+                f"{_at(path, number, command)} — {why}"
+                for spelling, why in UNPORTABLE_GH.items()
+                if spelling in body
+            ]
+    # A denylist over an empty sample is a green light that means nothing, and #421 is an open
+    # finding about exactly that shape elsewhere in this file. The contract carries the merge
+    # command, the triage dispatch and the PR-body write on these pages, so this floor is well
+    # under the real count and only trips if the extractor stops seeing `gh` at all.
+    assert scanned >= 5, f"only {scanned} gh commands were scanned; this guard is passing vacuously"
+    assert not bad, (
+        "these pages hand a worker a `gh` spelling one of its two lanes cannot run: "
+        + "; ".join(bad)
+    )
+
+
+#: The issue forms GitHub posts. **`.md` as well as `.yml`** — GitHub supports and publishes both,
+#: and none of the Markdown kind exists here today, so globbing only `*.yml` was latent rather than
+#: broken (#421).
+#:
+#: `config.yml` is excluded **by name**: it is the issue-chooser configuration —
+#: `blank_issues_enabled`, `contact_links` — and its contents never become the body of anything. It
+#: carries no provider handle either, so including it changed no result; it was simply wrong about
+#: what this set means, and the set is named for that meaning.
+#: Named rather than inlined so it can be asserted on. GitHub posts `.md` issue templates as well
+#: as `.yml` ones, and **none of the Markdown kind exists here**, so dropping `.md` from the glob
+#: changes no result and no test that watches results can notice. Pinning the rule is the only way
+#: to pin it at all — found by mutation, not by reading.
+_ISSUE_FORM_SUFFIXES = ("*.yml", "*.yaml", "*.md")
+
+ISSUE_FORMS = sorted(
+    path
+    for suffix in _ISSUE_FORM_SUFFIXES
+    for path in (_REPO / ".github" / "ISSUE_TEMPLATE").glob(suffix)
+    if path.name not in {"config.yml", "config.yaml"}
+)
+
 #: The templates GitHub **posts** rather than the pages an agent reads. Both become the body of a
 #: real comment the moment someone opens a pull request or an issue from them.
-POSTED_TEMPLATES = [
-    _REPO / ".github" / "pull_request_template.md",
-    *sorted((_REPO / ".github" / "ISSUE_TEMPLATE").glob("*.yml")),
-]
+POSTED_TEMPLATES = [_REPO / ".github" / "pull_request_template.md", *ISSUE_FORMS]
 
 
 def test_no_posted_template_carries_a_provider_handle() -> None:
@@ -748,8 +843,25 @@ def test_no_posted_template_carries_a_provider_handle() -> None:
 
     Globbed, not listed: a hand-written tuple silently stops at the forms that existed when it was
     written, which is the failure `.agents/tasks/*.md` already had once (#387).
+
+    **The emptiness guard counts the issue forms specifically (#421).** It used to read
+    `len(POSTED_TEMPLATES) > 1` over the combined list, which `pull_request_template.md` plus the
+    chooser `config.yml` satisfied on their own — so if every issue form were renamed, moved or
+    converted to Markdown, the glob would have matched nothing real and this test would still have
+    passed. That is the same vacuity the glob was written to prevent, reintroduced one level up.
     """
-    assert len(POSTED_TEMPLATES) > 1, "the issue-form glob matched nothing; the path is wrong"
+    assert len(ISSUE_FORMS) > 1, (
+        "the issue-form glob matched nothing real; this guard is passing on the pull-request "
+        "template alone, which is the vacuity the glob exists to prevent"
+    )
+    assert len(POSTED_TEMPLATES) == len(ISSUE_FORMS) + 1, "and the PR template is still in the set"
+    # The `.md` half of that glob covers nothing today, so no assertion about the RESOLVED set can
+    # fail if it is dropped — confirmed by mutation. The rule is asserted instead, which is the only
+    # thing about it that can be. GitHub posts both kinds, and a Markdown form added later would
+    # otherwise be silently unguarded.
+    assert "*.md" in _ISSUE_FORM_SUFFIXES, (
+        "GitHub posts Markdown issue templates too; dropping the suffix would exempt one silently"
+    )
     bad: list[str] = []
     for path in POSTED_TEMPLATES:
         body = path.read_text(encoding="utf-8")

@@ -45,7 +45,9 @@ The severity floor you classify against lives on `review.md`, not in the residen
 3. Revalidate the fence before any authoritative write:
    `{{PYTHON}} .agents/bin/claim.py check --issue {{ISSUE}} --generation {{GENERATION}}`.
 4. Push, reply to every thread you answered, resolve the deferred ones, get the checks green, and
-   update the lane state in the PR body.
+   update the lane state in the PR body with
+   `{{GH}} api -X PATCH repos/{owner}/{repo}/pulls/<PR> -F body=@<file>` — **not `pr edit`**, which
+   fails on the older `gh` the WSL lane resolves (#418).
 
    **Dispatch triage LAST, after the push and every reply** — `{{GH}} workflow run agent-triage.yml
    -f pr=<PR> -f dry_run=false`. `pull_request_review_thread` is a webhook Actions does not
