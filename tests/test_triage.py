@@ -3589,8 +3589,8 @@ def test_a_state_the_gate_cannot_read_proves_nothing_and_voids_nothing(
     denylist that happens to include these states.
 
     Asserted on `converged` rather than on `result["gate"]` because that is the predicate #415 is
-    about. The reported gate additionally requires `capped`, which is a separate question (#411) and
-    would make a green here mean two things at once.
+    about. The reported gate additionally requires `past_the_draft`, which is a separate question
+    (#411, answered in this same change) and would make a green here mean two things at once.
     """
     odd: dict[str, Any] = {"user": {"login": RABBIT}, "commit_id": HEAD, "body": "..."}
     if state is not None:
