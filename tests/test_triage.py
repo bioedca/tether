@@ -3592,3 +3592,120 @@ def test_the_gate_blocked_label_is_part_of_the_merged_claims_mirror(
     fake = _install(monkeypatch, _merged_routes(labels=[triage.GATE_BLOCKED_LABEL]))
     triage.clear_mirror(number=99, dry_run=False)
     assert triage.GATE_BLOCKED_LABEL in fake.removed
+
+
+# ------------------------------------------- #409: severity read from the provider's own badge
+#
+# There was no test here at all when this landed. It was validated by driving the real predicate
+# over 154 findings from thirteen live pull requests, which proved the regexes parse and proved
+# nothing about the FLOOR - and the floor is where it was wrong. Greptile found it on #424: the
+# blocking severities were enumerated rather than derived from an ordering, so `P0` - the level
+# ABOVE the `P1` floor - was read as below it and dropped from the count. Live replay could not see
+# that, because no `P0` finding has ever been posted to this repository.
+
+
+def _badged(user: str, badge: str, **over: Any) -> dict[str, Any]:
+    """One inline finding carrying a provider's real severity markup."""
+    body = (
+        f"_📐 Maintainability & Code Quality_ | _{badge}_ | _⚡ Quick win_\n\n**Fix the thing.**"
+        if user == RABBIT
+        else f'<a href="#"><img alt="{badge}" src="https://x/badges/p.svg?v=9" align="top"></a> '
+        "**Fix the thing.**"
+    )
+    return dict(_finding(user, HEAD, REAL_REVIEW_ID, 4242), body=body, **over)
+
+
+@pytest.mark.parametrize(
+    ("user", "badge", "blocking"),
+    [
+        (RABBIT, "🔴 Critical", True),
+        (RABBIT, "🟠 Major", True),
+        (RABBIT, "🟡 Minor", False),
+        (RABBIT, "🔵 Trivial", False),
+        # `P0` is the regression. It is ABOVE the floor `docs/agents/review.md` names, and the first
+        # version of this code - a `frozenset({"P1"})` membership test - called it non-blocking.
+        (GREPTILE, "P0", True),
+        (GREPTILE, "P1", True),
+        (GREPTILE, "P2", False),
+        (GREPTILE, "P3", False),
+    ],
+)
+def test_the_floor_blocks_at_and_above_it_rather_than_at_it(
+    user: str, badge: str, blocking: bool
+) -> None:
+    """*Floor* means at or above, and enumerating the members only looked like saying so.
+
+    Enumerating was right for CodeRabbit by accident — `Critical` and `Major` happen to be the whole
+    of the top of that scale — and wrong for Greptile, whose `P0` sits above the named floor. That
+    is the kind of accident a derived value cannot have, so the ordering is written down once and
+    the answer is an index comparison.
+    """
+    assert triage._finding_is_blocking(_badged(user, badge)) is blocking
+
+
+@pytest.mark.parametrize(
+    ("entry", "why"),
+    [
+        ({"user": {"login": RABBIT}, "body": "no header at all"}, "unparseable markup"),
+        ({"user": {"login": GREPTILE}, "body": "no badge at all"}, "unparseable markup"),
+        ({"user": {"login": RABBIT}, "body": None}, "a body that is not a string"),
+        ({"user": {"login": "someone-new[bot]"}, "body": "_x_ | _🔵 Trivial_ | _y_"}, "a login"),
+        ({"user": {}, "body": "_x_ | _🔵 Trivial_ | _y_"}, "no login"),
+        # A P-level the scale does not place. It LOOKS less severe than `P3` and might be, but
+        # guessing an order for a level nobody wrote down is exactly how `P0` went wrong.
+        ({"user": {"login": GREPTILE}, "body": '<img alt="P7" src="x">'}, "an unplaced level"),
+    ],
+)
+def test_evidence_the_scale_cannot_place_still_counts(entry: dict[str, Any], why: str) -> None:
+    """The fail direction, which is the property — narrowing applies only to a STATED severity.
+
+    Over-counting caps a pull request early, which is visible and recoverable. Under-counting hands
+    out an unbounded metered budget, which is the failure the cap exists to prevent. So every case
+    the scale cannot place keeps the answer the counter gave before #409.
+    """
+    assert triage._finding_is_blocking(entry) is True, f"{why} must still count"
+
+
+def test_the_domain_label_cannot_promote_a_finding() -> None:
+    """The anchoring, and the reason it is the second field rather than a search of the body.
+
+    `docs/agents/review.md` says in as many words that CodeRabbit's *domain* label and its
+    `cr-indicator-types:` marker are **not** severities and never promote a finding. A finding whose
+    domain field reads `Major Bug Risk` is a `Minor` finding in a domain with `Major` in its name,
+    and grepping the body — or reading field one — would spend a round on it.
+    """
+    entry = dict(
+        _finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242),
+        body="_🛠️ Major Bug Risk_ | _🟡 Minor_ | _⚡ Quick win_\n\n**Fix the thing.**",
+    )
+    assert triage._finding_is_blocking(entry) is False, (
+        "the domain field carries the word Major; the severity field says Minor, and that is the "
+        "one this reads"
+    )
+
+
+def test_a_minor_finding_spends_no_round_but_still_blocks_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The two axes stay separate, which is what makes narrowing the cap safe (#409).
+
+    The severity floor governs whether a finding must be *fixed*; the gate asks whether there is an
+    actionable comment at this head at all. `docs/agents/review.md` states both, and a `Minor`
+    inline comment is non-blocking on the first and actionable on the second. Narrowing the round
+    counter without checking this would have let a PR merge past an unanswered finding.
+
+    This is #414's own shape: one `Minor`, which under the old rule spent that PR's third round and
+    put it at `agent:gate-blocked`.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
+            comments=[_badged(RABBIT, "🟡 Minor")],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0, "a finding the contract says to DEFER must not spend a round"
+    assert result["gate"] == "open", "and it is still an actionable comment, so the gate is not met"
+    assert result["review_owed"] is True, "it is owed an answer, which is the deferral reply"

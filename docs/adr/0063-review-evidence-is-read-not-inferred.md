@@ -58,8 +58,16 @@ to do with the pull request being measured.
 - **Severity comes from the provider's own badge.** CodeRabbit renders `_<domain>_ | _<severity>_ |
   _<effort>_`; Greptile renders `<img alt="P1">`. The capture is anchored on the **second** pipe
   field, because `docs/agents/review.md` says in as many words that the domain label is not a
-  severity and never promotes a finding. Blocking is CodeRabbit `{Critical, Major}` and Greptile
-  `{P1}` — the floor that page already defines, now read by the code that enforces it.
+  severity and never promotes a finding.
+
+  **The floor is a threshold on a stated ordering, not a list of members.** Each provider's scale is
+  written down most-severe-first — CodeRabbit `Critical > Major > Minor > Trivial`, Greptile
+  `P0 > P1 > P2 > P3` — and blocking is *at or above* the floor that page names. Enumerating the
+  members instead was the first version of this and it was wrong: it happened to be right for
+  CodeRabbit, whose two blocking levels are the whole top of its scale, and it read Greptile's `P0`
+  as **below** the `P1` floor, dropping the provider's most severe finding from the count. Greptile
+  found that on the pull request implementing this record, which is the kind of accident a derived
+  value cannot have and an enumerated one can.
 - **The gate's proving half is an allowlist**, `{COMMENTED, APPROVED}`, not "anything but
   `CHANGES_REQUESTED`". `DISMISSED`, `PENDING`, an absent state and every state GitHub has yet to
   invent prove nothing — and void nothing, which stays the separate job of the voiding half.
@@ -75,9 +83,12 @@ ready* and *could not be read* — are still distinguishable. The round axis kee
 the gate gets `False`. Neither infers the other's answer from a shared value.
 
 **3. Unreadable evidence still counts, everywhere.** Narrowing applies only where a provider has
-**stated** something below the floor. An unparseable body, an unknown login, a non-string payload and
-a login not in the severity table all take the counting answer. Over-counting caps a PR early, which
-is visible and recoverable; under-counting hands out an unbounded metered budget.
+stated a severity **the scale places below the floor**. An unparseable body, an unknown login, a
+non-string payload, a login not in the table, and a level the scale does not describe all take the
+counting answer. That last case is what makes decision 1's ordering safe rather than merely correct:
+a scale that is missing a level ranks nothing by guesswork, so `P0` counts even against a scale that
+has forgotten it exists. Over-counting caps a PR early, which is visible and recoverable;
+under-counting hands out an unbounded metered budget.
 
 **4. The scope guard delegates to the counter it reports beside.** `_review_rounds` calls
 `triage._review_state`; the guard's copies of `_counted_from`, `_COUNT_NOTHING`, `_is_draft` and the

@@ -154,8 +154,10 @@ asking a provider to look **again** at work it has already reviewed this round.
   **`docs/agents/**`** — these pages are the contract, not commentary on it). *Non-material*: a clean
   `main` merge/rebase, formatting, comment/docstring edits, ADR renumbering. A material push re-arms
   the review and grants **no extra round**.
-- **Severity floor — the severity axis only.** Blocking: CodeRabbit `Critical`/`Major`, Codex `P1`,
-  **Greptile `P1`** — its badges use the same P-scale as Codex, so they map straight across, and a
+- **Severity floor — the severity axis only.** A floor is a threshold, so **anything at or above it
+  blocks**, Greptile's `P0` included; it is not a list of the two levels named. Blocking: CodeRabbit
+  `Major` and up (so `Major`, `Critical`), Codex `P1` and up, **Greptile `P1` and up** — its badges
+  use the same P-scale as Codex, so they map straight across, and a
   paid review whose findings could all be deferred would be a credit spent on nothing —
   and — whatever the label — a secret or private path, raw or unlicensed data, a weakened frozen
   oracle or tolerance, a §5 skeleton change without an ADR and version bump, any CodeQL or

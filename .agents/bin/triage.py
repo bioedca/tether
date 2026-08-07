@@ -955,12 +955,20 @@ _CODERABBIT_SEVERITY = re.compile(
 #: across"*.
 _GREPTILE_SEVERITY = re.compile(r'<img\s+alt="(P\d)"')
 
-#: The severity floor from `docs/agents/review.md`, per metered provider. Codex is deliberately
-#: absent: it is the unmetered lane and can never spend a round, so parsing its badge would be dead
-#: code. Only these two logins reach :func:`_finding_is_blocking`.
-BLOCKING_SEVERITIES: dict[str, frozenset[str]] = {
-    "coderabbitai[bot]": frozenset({"Critical", "Major"}),
-    "greptile-apps[bot]": frozenset({"P1"}),
+#: Each metered provider's severity scale, **most severe first**, paired with the floor
+#: `docs/agents/review.md` names for it. Codex is deliberately absent: it is the unmetered lane and
+#: can never spend a round, so parsing its badge would be dead code. Only these two logins reach
+#: :func:`_finding_is_blocking`.
+#:
+#: **The ordering is stated so the floor can be derived, and that is the fix for a real fail-open**
+#: (Greptile ``P1`` on #424). A floor means *at or above*, and the first version of this enumerated
+#: the blocking severities instead - which read Greptile's ``P0``, the level ABOVE the floor, as
+#: below it, and dropped the provider's most severe finding from the round count. Enumerating
+#: happened to be right for CodeRabbit and wrong for Greptile, which is exactly the kind of accident
+#: a derived value cannot have.
+SEVERITY_SCALES: dict[str, tuple[tuple[str, ...], str]] = {
+    "coderabbitai[bot]": (("Critical", "Major", "Minor", "Trivial"), "Major"),
+    "greptile-apps[bot]": (("P0", "P1", "P2", "P3"), "P1"),
 }
 
 
@@ -974,13 +982,17 @@ def _finding_is_blocking(entry: dict[str, Any]) -> bool:
     that is the expensive direction: #408 accumulated **nine** heads carrying findings against a
     cap of two, and every one of those nine carried a genuinely blocking finding.
 
-    So this narrows the count **only where a provider has stated a severity below the floor** and
-    leaves every ambiguous case exactly where it was.
+    So this narrows the count **only where a provider has stated a severity the scale places below
+    the floor** and leaves every ambiguous case exactly where it was. A level the scale does not
+    describe is ambiguous in that sense: ``P4`` looks less severe than ``P3`` and might be, but
+    guessing an order for a level nobody wrote down is how ``P0`` came to be read as *below*
+    ``P1`` in the first place.
     """
     login = ((entry.get("user") or {}).get("login")) or ""
-    floor = BLOCKING_SEVERITIES.get(login)
-    if floor is None:
+    known = SEVERITY_SCALES.get(login)
+    if known is None:
         return True
+    scale, floor = known
     body = entry.get("body")
     if not isinstance(body, str):
         return True
@@ -988,7 +1000,10 @@ def _finding_is_blocking(entry: dict[str, Any]) -> bool:
     found = pattern.search(body)
     if found is None:
         return True  # rendering changed, or this is not a badged finding - count it
-    return found.group(1) in floor
+    severity = found.group(1)
+    if severity not in scale:
+        return True  # a level this scale does not place - count it rather than rank it
+    return scale.index(severity) <= scale.index(floor)
 
 
 def _is_blocking(entry: dict[str, Any], is_reviews: bool) -> bool:
