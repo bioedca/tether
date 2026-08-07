@@ -98,15 +98,25 @@ gap — that is what invalidated reviews across three PRs at once under the old 
 
 ## Finish
 
-**Open the PR as a draft**, get the checks green, record the review risk with its reason, and request
-the first Codex review. Then **exit** — do not sit and poll.
+**How you finish depends on which task you were given, and only the first step differs.**
 
-You open the lane in `docs/agents/review.md`; you do not walk it to the end. Every later phase — the
-optional Greptile credit, marking ready, the mandatory CodeRabbit gate, arming auto-merge — begins
-only *after* a review lands, and waiting for one is exactly what a short-lived worker must not do. So
-**write the lane state into the PR body before you go**: which phase it is in, what was asked, what
-is outstanding. A later session reads that and continues. It is the only thing carrying the lane
-forward.
+- **BUILD** (`.agents/tasks/build.md`) — **open the PR as a draft**, get the checks green, record the
+  review risk with its reason, and request the first Codex review.
+- **AMEND** (`.agents/tasks/amend.md`) — **the pull request already exists: continue it.** Push the
+  answer to this round's blocking findings onto the same branch, reply to each thread, and dispatch
+  triage. Never open a second PR, never re-draft the one that is open, and never re-record the risk —
+  it may only increase.
+- **ADVANCE** (`.agents/tasks/advance.md`) — the PR exists and owes nothing; move the lane on by
+  **exactly one** phase and stop.
+
+Then **exit** — do not sit and poll.
+
+A BUILD session opens the lane in `docs/agents/review.md`; no session walks it to the end. Every
+later phase — the optional Greptile credit, marking ready, the mandatory CodeRabbit gate, arming
+auto-merge — begins only *after* a review lands, and waiting for one is exactly what a short-lived
+worker must not do. So **whichever task you hold, write the lane state into the PR body before you
+go**: which phase it is in, what was asked, what is outstanding. A later session reads that and
+continues. It is the only thing carrying the lane forward.
 
 > **A later phase is somebody else's session, and it is issued to them.** A clean review on an
 > unfinished lane publishes `agent:needs-advance`, and the launcher turns that into one ADVANCE

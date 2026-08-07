@@ -95,7 +95,13 @@ _PY_DEFINED = re.compile(r"`<py>`[^`]{0,80}\binterpreter\b", re.DOTALL)
 # `<SHA>` is the same shape of problem as `<py>` and gets the same shape of guard: a placeholder
 # nothing substitutes, which is only a convention where the page says what to put there. Same
 # generous non-backtick window, matched on the pairing rather than on either token alone.
-_SHA_DEFINED = re.compile(r"`<SHA>`[^`]{0,80}40-hex", re.DOTALL)
+#
+# BOTH halves are required, and the width alone is not enough. A page saying only "supply a 40-hex
+# SHA" satisfies a reader who then supplies the head re-read from the pull request while arming —
+# which is 40 hex characters, and is the exact value that makes `--match-head-commit` compare the
+# head against itself. The width is checkable; the SOURCE is what makes it a binding. So the window
+# must also reach the review the value comes from.
+_SHA_DEFINED = re.compile(r"`<SHA>`[^`]{0,80}40-hex[^`]{0,60}\breview\b", re.DOTALL)
 
 #: The flag `<SHA>` is supplied to. It stands in for the merge queue this repository cannot have.
 _MERGE_BINDING_FLAG = "--match-head-commit"
@@ -771,8 +777,11 @@ def test_a_page_that_arms_the_merge_says_what_sha_to_supply() -> None:
 
     So this is the `<py>` rule applied to the other unsubstituted placeholder, and deliberately the
     same shape: **a page that carries the flag must also carry the rule.** Where `<py>` names a
-    resolution table, this names a source — the `commit_id` on the clean review — and the 40-hex
-    width is the part a reader can check, which is why the guard keys on it.
+    resolution table, this names a source — the `commit_id` on the clean review — and the guard
+    requires **both** halves in one window: the 40-hex width, which a reader can check, and the
+    review it comes from, which is what makes it a binding rather than a format. Requiring only the
+    width would accept a page whose reader then supplies the head re-read from the pull request,
+    since that value is also 40 hex characters and is precisely the one that binds nothing.
 
     Asserted over `GUARDED_FILES` rather than `BOTH_LANES`, because `CONTRIBUTING.md` carries the
     command too and a human following it can bind the wrong head just as easily. The pages
