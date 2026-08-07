@@ -266,9 +266,8 @@ Before requesting review / merging, confirm:
       one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing), and the
       opening of its body. **A review of any earlier head does not qualify, however clean it was** —
       answering a finding moves the head, so that review is evidence about a diff this one is no
-      longer. `docs/agents/review.md` §4 states what counts as
-      that evidence and, in particular, why the clean verdict is written by the
-      `Actionable comments posted:` line being **absent** rather than reading `0`. Neither silence
+      longer. The clean verdict is written by the `Actionable comments posted:` line being
+      **absent** rather than reading `0`. Neither silence
       nor a green `CodeRabbit` status check is the gate; both are also what a request that reviewed
       **nothing** leaves behind (see the full-review command below). Greptile is optional, and its absence
       for want of credits is recorded rather than excused as a review. Blocking
@@ -283,8 +282,7 @@ addressed **and all required CI checks are green** — wait for in-progress chec
 **never merge over a red or pending check**.
 
 Automated agents are peers, not a hierarchy: each claims one issue, opens one **draft**
-PR, opens the review lane on it, and **hands off and exits** rather than waiting on a
-reviewer. There is no coordinator. Auto-merge is armed at the **end** of the lane, and
+PR, gets it reviewed, and **hands off or merges** rather than sitting and polling. There is no coordinator. Auto-merge is armed at the **end** of the lane, and
 completing the lane is **not by itself authority to arm it** — `AGENTS.md` requires
 explicit per-PR merge authority, which is a separate grant that no amount of green
 checks confers. Arming it on a draft would merge the PR past the mandatory CodeRabbit
@@ -292,8 +290,8 @@ gate, since that gate is not a required check. The merge is bound to the head th
 `gh pr merge N --auto --squash --match-head-commit <SHA>` — that guard is what stands in
 for the merge queue, which needs an organization-owned repository and so is unavailable
 here. **`<SHA>` is the 40-hex head the clean review read, never the head re-read while
-arming** — `docs/agents/review.md` §Merge is the rule, including why re-reading it makes
-the guard always pass.
+arming** — `AGENTS.md` §Review is the rule, including why re-reading it makes the guard
+always pass.
 
 The `main-baseline` ruleset requires these **11** status checks:
 
@@ -391,13 +389,16 @@ head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is i
 any other commenter, never does. **Exhaustion is not incapacity**: a provider with nothing
 to say has reviewed, a provider with no budget left has not. Greptile out of credits is
 skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because it is the
-gate. Record which and why — capability, never quota. There are **at most two rounds**
-after the PR goes ready, counted against **metered providers only** — draft-phase Codex
-is uncounted, and so is Codex after the PR goes ready. Under the swarm model the
-launcher issues those rounds: do not request one yourself on a PR labelled
-`agent:review-capped`, and past the cap the launcher injects no task at all, so no
-worker ever holds authority for a third. Human sign-off is required
-only for releases, tags, signing, and new scientific claims.
+gate. Record which and why — and quota is *did not review*, never a pass.
+
+**Two asks per provider, then stop.** If a third pass would be needed, hand the pull
+request to the maintainer with a comment saying why. Nothing counts this for you; the
+merged history is auditable and you are trusted with it. On agent-layer paths
+(`.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules) a
+finding below the severity floor is **dropped rather than tracked**, because there the
+follow-up issue becomes another agent-layer pull request and the loop feeds itself
+(ADR-0064). Human sign-off is required only for releases, tags, signing, and new
+scientific claims.
 
 ## Reporting bugs & security issues
 
