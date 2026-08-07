@@ -1273,17 +1273,19 @@ def test_the_wrapper_filter_and_the_rewritten_commit_id_are_independent(
 # Same family as #396 - an artefact that is not a review being counted as one - and a distinct
 # cause: #396's wrapper is a SUBMITTED review with nothing in it, this is an UNSUBMITTED one.
 #
-# THESE THREE GO PARTLY VACUOUS WHEN #408 LANDS, and the successor has to re-pin them rather than
-# read three greens as coverage. #408 adds `_is_blocking`, which spends a round only on
-# `CHANGES_REQUESTED` or an inline finding - so `PENDING` stops counting on the round axis whether
-# or not the guard below exists, and the `rounds` assertions here stop binding it. Verified on this
-# branch by neutralising `UNSUBMITTED_REVIEW_STATE`: two of the three fail today, which is what
-# makes them real *now*.
+# THE FIRST THREE OF THESE ARE NOW PARTLY VACUOUS, and are kept as documentation of the round axis
+# rather than as its coverage. #399 landed `_is_blocking`, which spends a round only on
+# `CHANGES_REQUESTED` or an inline finding, so `PENDING` stops counting there whether or not the
+# guard exists. Measured across the merge, not inferred: neutralising `UNSUBMITTED_REVIEW_STATE`
+# failed two of the three before it and none of them after.
 #
-# The guard does not become redundant, it moves. Under #408 a `PENDING` submission carrying a body
-# reaches `_says_something` and would set `gate_review_here` - proving the mandatory gate from a
-# review its author has not sent. That is the axis to assert on afterwards, and #415 already owes
-# exactly that test: "an unknown, absent or PENDING state proves nothing and voids nothing".
+# The guard did not become redundant, it MOVED - to the gate, where a `PENDING` submission carrying
+# a body reaches `_says_something` and would prove the mandatory gate from a review its author has
+# not sent. `test_a_review_still_being_drafted_proves_no_gate` is what binds it now, and it fails
+# when the constant is neutralised. Keep that one; the three below may be deleted with the guard.
+#
+# This is the shape to watch for whenever two branches touch one predicate: a test can keep passing
+# because a SIBLING change started answering the same question, and green then means nothing.
 
 
 def test_a_review_still_being_drafted_is_not_a_round(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1355,6 +1357,41 @@ def test_a_timestampless_review_that_is_not_pending_still_counts(
         monkeypatch,
     )
     assert result["rounds"] == 1, "a malformed entry is still counted; only PENDING is exempt"
+
+
+def test_a_review_still_being_drafted_proves_no_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The axis the `PENDING` guard is load-bearing on once #399 landed — and the one that binds it.
+
+    **The three tests above went partly vacuous when #399 merged into this branch, and this is the
+    replacement rather than an addition.** `_is_blocking` spends a round only on
+    `CHANGES_REQUESTED` or an inline finding, so `PENDING` stops counting on the round axis whether
+    or not the guard exists. Measured, not assumed: neutralising `UNSUBMITTED_REVIEW_STATE` failed
+    two of those three before the merge and none of them after it.
+
+    The guard did not become redundant, it moved. On the gate axis a `PENDING` submission is the
+    fail-OPEN case: it is not in `BLOCKING_REVIEW_STATES`, so it falls to `_says_something`, and a
+    half-written review **with a body** answers yes. Without the guard `converged` would be true —
+    the mandatory gate satisfied by a review its author has not sent, at the head a merge is armed
+    against.
+
+    Asserted on `converged` from `_review_state` rather than on `result["gate"]`, for the reason
+    `test_an_empty_submission_is_a_round_but_not_a_gate` records: the summary is gated on the
+    counted phase and would report `open` here whichever way the evidence went.
+    """
+    _run(
+        _routes(
+            reviews=[
+                dict(_review(RABBIT, HEAD), state="PENDING", body="half-written, not sent"),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert converged is False, (
+        "an unsubmitted draft review must not satisfy the gate nothing may merge past"
+    )
 
 
 # ------------------------------------ #393: only a push used to clear `review_owed`
