@@ -5,10 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0063 — Review evidence is read from the payload, not inferred from its shape
 
-- **Status:** accepted; refines the §Round cap of [ADR-0062](0062-draft-first-review-lane-with-metered-providers.md)
-  and supersedes the no-shared-code rationale ADR-0057 gave the scope guard's round counter.
-  ADR-0062's lane, cap and gate are unchanged as *policy*; what changes is how the payload is read
-  to decide each one.
+- **Status:** accepted; refines the §Round cap of [ADR-0062](0062-draft-first-review-lane-with-metered-providers.md) and supersedes the no-shared-code rationale [ADR-0057](0057-github-native-swarm-coordination.md) gave the scope guard's round counter
 - **Date:** 2026-08-07
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)
@@ -17,9 +14,14 @@ SPDX-License-Identifier: GPL-3.0-or-later
 ## Context and problem statement
 
 `.agents/bin/triage.py` reconstructs the lane's state from GitHub REST payloads. It grew from 344 to
-1,316 lines in eight days, and six of the nine issues open against the agent layer on 2026-08-07
-share one root cause: **the module inferred lane state from the shape of a payload rather than from
-what the payload states.**
+1,316 lines in eight days, and the **five** issues below share one root cause: **the module inferred
+lane state from the shape of a payload rather than from what the payload states.**
+
+Two more of the same shape were found in the same sweep and fixed before this record was written —
+one field read two ways in [#410](https://github.com/bioedca/tether/issues/410), and an unsubmitted
+review counted as a round in [#400](https://github.com/bioedca/tether/issues/400) — so the pattern
+accounts for seven defects in one week, not five. They are named here rather than tabled because
+neither is decided by this record.
 
 Each inference was a separate inline predicate with its own fail direction, and the defects lived in
 the disagreements between them.

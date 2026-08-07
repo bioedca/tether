@@ -1394,7 +1394,6 @@ def _advance_state(
     counted_from: str | None,
     owed: bool,
     running: bool,
-    capped: bool,
     gate_blocked: bool,
     add: list[str],
     remove: list[str],
@@ -1418,9 +1417,11 @@ def _advance_state(
     * **The lane must be unfinished**, and only *ready and armed* is finished. A counted-phase pull
       request whose gate has not been asked for, or has passed with the merge not yet armed, still
       has a step left and is authorised. ``_counted_from`` reporting the draft sentinel is exactly
-      *"no ``ready_for_review`` has ever happened"*, and what that answer decides is which rules
-      apply — the cap binds in the draft phase, where a round really is spent — not whether the
-      lane is over.
+      *"no ``ready_for_review`` has ever happened"*, and that answer decides which phase the pull
+      request is in, not whether the lane is over. **It used to decide more than that**: this bullet
+      said the cap binds in the draft phase "where a round really is spent", which was true only
+      because a timestamp-less review could cap a draft. #423 closed that, so the draft phase now
+      spends nothing at all and there is no capped-draft state for this function to reason about.
     * **Nothing may be owed, and no AMEND may still be published.** An owed finding is still an
       AMEND. Publishing both would hand one claim two authorities and let the resumption that
       arrives first decide which. ``owed`` alone does not cover it: the label is a *published*
@@ -1433,8 +1434,10 @@ def _advance_state(
     * **A review must actually have happened at this head.** Otherwise a freshly opened draft would
       be authorised to leave the draft phase before the free provider had ever looked at it, which
       is the lane's whole point skipped.
-    * **Not past the cap.** Nothing is authorised past it, by any route.
-    * **Not gate-blocked**, which is #399 meeting #394 and belongs to neither branch alone. That
+    * **Not gate-blocked**, which is #399 meeting #394 and belongs to neither branch alone. It is
+      also what enforces *"nothing is authorised past the cap"* — a bullet that used to stand here
+      separately and said the same thing twice, once for a ``capped`` argument this function never
+      read. That argument is gone with it. That
       label means *the convergence verification came back blocking too, so no automatic state
       remains* — and an advance is automatic state. ``owed`` covers the moment the finding lands
       and stops covering it the instant the author answers and resolves the thread (#393), which is
@@ -1700,7 +1703,6 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         counted_from=counted_from,
         owed=owed,
         running=running,
-        capped=capped,
         gate_blocked=gate_blocked,
         add=add,
         remove=remove,

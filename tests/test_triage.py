@@ -2856,7 +2856,6 @@ def test_a_stale_amend_label_withholds_the_advance_it_would_contradict() -> None
         counted_from=triage._COUNT_NOTHING,
         owed=False,
         running=False,
-        capped=False,
         gate_blocked=False,
         add=add,
         remove=remove,
