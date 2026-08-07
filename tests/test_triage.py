@@ -1791,6 +1791,12 @@ def test_a_walk_longer_than_the_page_budget_is_refused(monkeypatch: pytest.Monke
     `raise` through the *unusable cursor* break, so the budget itself — a walk where every page
     hands back a perfectly good cursor — had no coverage on any ref. Both arms share one message,
     which is exactly how an untested one hides behind a tested one.
+
+    The map describes exactly `MAX_PAGES` responses, so it also pins WHERE the walk stops (#420).
+    Described one page longer, a walk that requested one page too many would still be answered,
+    still fall out of the loop, and still raise this same error — leaving the budget asserted and
+    its boundary not. `Paging` refuses an unlisted cursor with `KeyError` precisely so that an
+    overrun is the failure rather than a case to paper over, and this test now relies on it.
     """
     routes = _routes(
         comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
@@ -1798,9 +1804,11 @@ def test_a_walk_longer_than_the_page_budget_is_refused(monkeypatch: pytest.Monke
         suites=GREEN,
     )
     # Every page is readable and every page has another after it, so only the budget stops this.
+    # The final page still hands back `CUR{MAX_PAGES}` — a perfectly good cursor that this map
+    # deliberately does not answer, so asking for it is a `KeyError` and not a longer walk.
     pages = {
         (None if n == 0 else f"CUR{n}"): _threads([], cursor=f"CUR{n + 1}")
-        for n in range(triage.claim.MAX_PAGES + 1)
+        for n in range(triage.claim.MAX_PAGES)
     }
     with pytest.raises(triage.TriageError, match="more review threads than this query will walk"):
         _run(routes, monkeypatch, pages=pages)
