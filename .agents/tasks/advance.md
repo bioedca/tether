@@ -91,8 +91,10 @@ Read root `AGENTS.md`, `docs/agents/review.md` and `.agents/skills/tether-worker
      the lane state you write in 4 is *"gate satisfied, awaiting merge authority"*; the lane is
      finished and a person decides the merge. Arming is available even at `agent:review-capped`,
      because arming is not a review request — but that is about the *cap*, not about authority.
-4. **Write the new lane state into the PR body.** That record is the only thing carrying the lane to
-   the next session.
+4. **Write the new lane state into the PR body** with
+   `{{GH}} api -X PATCH repos/{owner}/{repo}/pulls/<PR> -F body=@<file>` — **not `pr edit`**, which
+   fails on the older `gh` the WSL lane resolves (#418). That record is the only thing carrying the
+   lane to the next session.
 
    Arm auto-merge **only** when both hold: the lane is complete — CodeRabbit returned no actionable
    comments at this head — **and** this session was given explicit merge authority for this PR

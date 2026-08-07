@@ -94,6 +94,28 @@ _PY_DEFINED = re.compile(r"`<py>`[^`]{0,80}\binterpreter\b", re.DOTALL)
 
 _SLOTS = _REPO / ".agents" / "bin" / "swarm_slots.py"
 
+#: `gh` spellings that do not work on every `gh` a lane resolves, mapped to what to use instead.
+#:
+#: A DENYLIST of things measured broken, not a capability table. The full matrix of subcommand ×
+#: version is unmaintainable and would rot into a second source of truth about a tool nobody here
+#: controls; this is the short list of what has actually bitten, and each entry earns its place by
+#: having cost a real failure. `swarm_slots.LANE_GH` is a bare `gh`, and
+#: `test_the_launcher_injects_a_bare_name_for_every_lane` forbids it carrying arguments — so a
+#: version cannot be pinned at the call site and the page has to carry the rule instead.
+#:
+#: Measured 2026-08-07: WSL resolves the apt package at 2.45.0, native resolves 2.95.0, and the
+#: scripts are documented to run under `python3` - the WSL interpreter - so they get the older one.
+UNPORTABLE_GH = {
+    "--slurp": (
+        "`gh api --slurp` was added after gh 2.45.0, which the WSL lane resolves. `--paginate` "
+        "already concatenates an array endpoint's pages, so drop the flag (#417)."
+    ),
+    "pr edit": (
+        "`gh pr edit` queries the sunset `projectCards` field on gh 2.45.0 and fails for every "
+        "flag. Use `gh api -X PATCH repos/{owner}/{repo}/pulls/<PR>` instead (#418)."
+    ),
+}
+
 # Absolute-path spellings that pin a command to one machine or one shell. `/mnt/` is the WSL view of
 # a Windows drive and is just as unportable as `C:\` — it is meaningless natively.
 ABSOLUTE = ("C:\\", "c:\\", "/mnt/", "%APPDATA%", "Program Files", "$env:", "~/")
@@ -697,3 +719,47 @@ def test_a_rendered_task_is_runnable_in_the_lane_it_is_rendered_for() -> None:
                 ):
                     bad.append(f"{task.name} [{vendor}]: {command}")
     assert not bad, f"a rendered task hands its worker an unrunnable command: {bad}"
+
+
+def test_no_page_both_lanes_read_names_a_gh_spelling_one_of_them_cannot_run() -> None:
+    """#418: `gh` resolves in both shells — to different builds, and two commands break on 2.45.
+
+    This is the interpreter rule's other half. `<py>` exists because the two lanes need *different
+    names*; `gh` needs the same name everywhere, so no token was ever added — and that was read as
+    "`gh` needs no rule", which `.agents/skills/tether-worker/SKILL.md` said in as many words. The
+    name resolving is not the same property as the command working. WSL resolves the apt package
+    (2.45.0 here), native resolves 2.95.0, and every `.agents/bin/*.py` is documented to run under
+    `python3`, so the scripts get the older one.
+
+    Asserted as a **denylist of measured breakages**, not a version matrix. A capability table for a
+    tool this repository does not control would rot into a second source of truth, and the honest
+    unit is "this spelling cost us a real failure". Both entries did: `--slurp` made the Greptile
+    balance unreadable, so the lane's own precondition for spending a credit could not be met, and
+    `pr edit` broke the PR-body handoff that `.agents/tasks/build.md` calls the only thing carrying
+    the lane forward.
+
+    Scoped to `BOTH_LANES`, so `CLAUDE.md` — which is allowed to name one lane's tooling — is exempt
+    for the same reason it may name `python3`.
+    """
+    bad: list[str] = []
+    scanned = 0
+    for path in BOTH_LANES:
+        for number, command in _commands(path):
+            body = _gate_body(command)
+            if _first_token(command) != "gh" and "{{GH}}" not in body:
+                continue
+            scanned += 1
+            bad += [
+                f"{_at(path, number, command)} — {why}"
+                for spelling, why in UNPORTABLE_GH.items()
+                if spelling in body
+            ]
+    # A denylist over an empty sample is a green light that means nothing, and #421 is an open
+    # finding about exactly that shape elsewhere in this file. The contract carries the merge
+    # command, the triage dispatch and the PR-body write on these pages, so this floor is well
+    # under the real count and only trips if the extractor stops seeing `gh` at all.
+    assert scanned >= 5, f"only {scanned} gh commands were scanned; this guard is passing vacuously"
+    assert not bad, (
+        "these pages hand a worker a `gh` spelling one of its two lanes cannot run: "
+        + "; ".join(bad)
+    )

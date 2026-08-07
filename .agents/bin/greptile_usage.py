@@ -75,6 +75,49 @@ class Unreadable(RuntimeError):
     """
 
 
+#: `gh` rejecting a flag it does not have. The message is stable across the versions in play and is
+#: the only part of the failure that names the cause; everything after it is usage text.
+_UNKNOWN_FLAG = re.compile(r"unknown flag:\s*(\S+)")
+
+#: The floor ADR-0060 already pins for this repository, for `gh attestation verify` (CVE-2025-25204
+#: made it fail open in 2.49.0-2.66.x). Stated here so a version failure names the requirement that
+#: already exists rather than inventing a new one.
+MINIMUM_GH = "2.67.0"
+
+
+def _gh_version() -> str:
+    """The `gh` build actually on PATH, for an error message. Never raises - this is diagnostics."""
+    try:
+        out = subprocess.run(  # noqa: S603
+            ["gh", "--version"], capture_output=True, check=True, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    first = out.stdout.decode("utf-8", "replace").strip().splitlines()
+    return first[0] if first else "unknown"
+
+
+def _why(exc: subprocess.CalledProcessError) -> str:
+    """Why `gh` failed, naming a rejected flag as one rather than echoing usage text (#417).
+
+    The last stderr line is the right default for an API or authorization failure, and the wrong one
+    for a missing flag: `gh` answers `unknown flag: --x` and then prints its whole usage block, so
+    the last line is a fragment of syntax help and the actual cause has scrolled past. That is how
+    `--slurp` on gh 2.45.0 presented, and it read as an unexplained failure of the seat count rather
+    than as a version mismatch anyone could act on.
+    """
+    stderr = exc.stderr.decode("utf-8", "replace") if exc.stderr else ""
+    rejected = _UNKNOWN_FLAG.search(stderr)
+    if rejected:
+        return (
+            f"the gh on PATH does not support {rejected.group(1)} - found {_gh_version()}, "
+            f"need >= {MINIMUM_GH}. In WSL this is usually the apt package, which pins an older "
+            f"build than the native install"
+        )
+    lines = stderr.strip().splitlines()
+    return lines[-1] if lines else "unreadable"
+
+
 def _gh(*args: str) -> object:
     try:
         out = subprocess.run(["gh", *args], capture_output=True, check=True)  # noqa: S603
@@ -129,8 +172,7 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
             "number,author,updatedAt",
         )
     except subprocess.CalledProcessError as exc:
-        message = exc.stderr.decode("utf-8", "replace").strip().splitlines()
-        raise Unreadable(f"{repo}: {message[-1] if message else 'unreadable'}") from exc
+        raise Unreadable(f"{repo}: {_why(exc)}") from exc
 
     credits = prs_seen = 0
     detail: list[tuple[int, int, str]] = []
@@ -142,22 +184,28 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
         try:
             # `--paginate`: a PR with more than one REST page of reviews would otherwise return
             # only the first, and a billed review after it reads as unspent credit.
-            reviews = _gh(
-                "api", "--paginate", "--slurp", f"repos/{repo}/pulls/{pull['number']}/reviews"
-            )
+            #
+            # Deliberately WITHOUT `--slurp` (#417). On an endpoint that answers with a JSON array,
+            # `--paginate` already concatenates the pages into one array, so `--slurp` only wrapped
+            # them in an outer list this then had to flatten back. It bought nothing and cost the
+            # whole read in the WSL lane: `--slurp` arrived after gh 2.45.0, which is what the
+            # Ubuntu package pins and what `python3` - the documented interpreter for this script -
+            # resolves `gh` to there. The failure was a `CalledProcessError` whose last stderr line
+            # is a line of usage text, so it read as a mystery rather than as a missing flag, and
+            # the balance a worker must consult before spending a metered credit was unreadable.
+            reviews = _gh("api", "--paginate", f"repos/{repo}/pulls/{pull['number']}/reviews")
         except subprocess.CalledProcessError as exc:
             # Same rule as the repository listing above, and the same reason: a PR whose reviews
             # could not be read is not a PR with zero reviews. Skipping it silently would subtract
             # from the spend and add to the apparent balance - the one direction that matters.
-            message = exc.stderr.decode("utf-8", "replace").strip().splitlines()
-            raise Unreadable(
-                f"{repo}#{pull['number']} reviews: {message[-1] if message else 'unreadable'}"
-            ) from exc
-        # `--slurp` wraps each page in an outer list; flatten before filtering.
-        flat = [r for page in reviews for r in page]  # type: ignore[union-attr]
+            raise Unreadable(f"{repo}#{pull['number']} reviews: {_why(exc)}") from exc
+        if not isinstance(reviews, list):
+            # A dict here is GitHub's error envelope, not a page of reviews. Treating it as empty
+            # would subtract from the spend in the one direction that matters.
+            raise Unreadable(f"{repo}#{pull['number']} reviews: not a list of reviews")
         hits = [
             review
-            for review in flat
+            for review in reviews
             if BOT in (review.get("user") or {}).get("login", "").lower()
             and (review.get("submitted_at") or "")[:7] == month
         ]

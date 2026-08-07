@@ -56,10 +56,12 @@ def _fake_gh(prs: dict[str, list], reviews: dict[int, list], fail: set[str] | No
             if repo in (fail or set()):
                 raise subprocess.CalledProcessError(1, args, stderr=b"rate limit exceeded")
             return prs.get(repo, [])
-        # `api --paginate --slurp repos/<owner>/<name>/pulls/<n>/reviews` — `--slurp` wraps each
-        # page in an outer list, so the fake returns one page rather than a bare list.
+        # `api --paginate repos/<owner>/<name>/pulls/<n>/reviews` — a bare list, because
+        # `--paginate` concatenates the pages of an array endpoint itself. It used to carry
+        # `--slurp`, which wrapped the pages in an outer list the caller flattened straight back
+        # out; dropping it (#417) is what makes this readable on gh 2.45.0 in the WSL lane.
         path = args[-1]
-        return [reviews.get(int(path.rsplit("/pulls/", 1)[1].split("/")[0]), [])]
+        return reviews.get(int(path.rsplit("/pulls/", 1)[1].split("/")[0]), [])
 
     return call
 
@@ -131,6 +133,44 @@ def test_a_missing_gh_is_unknown_not_over_budget(
     captured = capsys.readouterr()
     assert "gh" in captured.err
     assert "remaining" not in captured.out, "no balance may be printed when gh never ran"
+
+
+def test_a_gh_too_old_for_a_flag_is_reported_as_that_not_as_usage_text(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#417: a rejected flag must name the flag and the build found, not a fragment of help.
+
+    This is how `--slurp` failed in the WSL lane, where `gh` is the apt package at 2.45.0 and the
+    documented `python3` invocation resolves to it. `gh` answers `unknown flag: --x` and then prints
+    its **whole usage block**, so the last stderr line - which is what the handler used to report -
+    is a line of syntax help. The balance came back UNKNOWN, correctly, for a reason that named
+    nothing anyone could act on.
+
+    The flag is gone (`--paginate` already concatenates an array endpoint's pages), so this asserts
+    the *diagnosis* rather than the flag: any future flag this script grows must fail legibly on a
+    `gh` too old for it.
+    """
+    usage_text = (
+        "unknown flag: --slurp\n\nUsage:  gh api <endpoint> [flags]\n\nFlags:\n  --cache duration\n"
+    )
+
+    def _rejects_the_flag(*args: object, **_kwargs: object) -> object:
+        argv = args[0] if args else []
+        if isinstance(argv, list) and "--version" in argv:
+            return subprocess.CompletedProcess(argv, 0, stdout=b"gh version 2.45.0 (2025-07-18)\n")
+        raise subprocess.CalledProcessError(1, argv, stderr=usage_text.encode())
+
+    monkeypatch.setattr(subprocess, "run", _rejects_the_flag)
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == usage.EXIT_UNKNOWN
+    captured = capsys.readouterr()
+    assert "--slurp" in captured.err, "the rejected flag must be named"
+    assert "2.45.0" in captured.err, "the build actually found must be named"
+    assert usage.MINIMUM_GH in captured.err, "the required floor must be named"
+    assert "Usage:" not in captured.err, "the usage block is what this replaced"
+    assert "remaining" not in captured.out, (
+        "an unreadable seat must print no balance - the whole point of failing closed"
+    )
 
 
 def test_output_that_is_not_json_is_unknown_rather_than_zero(

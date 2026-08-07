@@ -47,7 +47,10 @@ task text adds only what is specific to this claim.
    (`{{GH}} pr merge <PR> --auto --squash --match-head-commit <SHA>`) — each begin only after a
    review lands, and you must not wait for one. A later session continues from where you left it, so
    **write the lane state into the PR body before exiting**: which phase it is in, what was asked,
-   and what is outstanding. That handoff is the only thing carrying the lane forward.
+   and what is outstanding. That handoff is the only thing carrying the lane forward. Write it with
+   `{{GH}} api -X PATCH repos/{owner}/{repo}/pulls/<PR> -F body=@<file>` — **not `pr edit`**, which
+   fails on the older `gh` the WSL lane resolves, with a GraphQL error about project cards that
+   names nothing about the cause ([#418](https://github.com/bioedca/tether/issues/418)).
 
    > **Autonomous dispatch is gated on TWO independent blockers, and both must land.**
    > [#394](https://github.com/bioedca/tether/issues/394): a clean review publishes no resumption
