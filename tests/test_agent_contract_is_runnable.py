@@ -479,6 +479,7 @@ def test_every_first_token_rule_sees_past_an_env_prefix() -> None:
     prefixed = "QT_QPA_PLATFORM=offscreen python -m pytest"
     powershell = "$env:QT_QPA_PLATFORM='offscreen'; & gh.exe pr merge"
     absolute = "QT_QPA_PLATFORM=offscreen /mnt/c/Python/python.exe -m pytest"
+    prefixed_gh = "GH_TOKEN=redacted gh pr edit 1 --body-file body.md"
 
     assert _first_token(prefixed) == "python", "the executable, not the assignment"
     assert _first_token(powershell) == "&", "the call operator is the first token once stripped"
@@ -489,6 +490,16 @@ def test_every_first_token_rule_sees_past_an_env_prefix() -> None:
     assert _first_token(prefixed) in ("python", "python3"), "the interpreter rule must fire"
     assert any(marker in _gate_body(absolute) for marker in ABSOLUTE), "the path rule must fire"
     assert re.search(r"[/\\:%$]", _first_token(absolute)), "the bare-name rule must fire"
+
+    # The `gh`-portability rule (#418), added after this test was written — which is the case its
+    # docstring promises to cover and did not, because the list above is enumerated by hand.
+    # CodeRabbit read the rule as broken on a prefixed command (`Major` on #422); it is not, because
+    # it goes through `_first_token` like the others. What was missing is this line, so that a
+    # regression to raw `.split()[0]` fails here rather than silently governing nothing.
+    assert _first_token(prefixed_gh) == "gh", "the gh-portability rule must fire"
+    assert any(spelling in _gate_body(prefixed_gh) for spelling in UNPORTABLE_GH), (
+        "and must still see the unportable spelling once the prefix is stripped"
+    )
 
 
 def test_no_command_names_an_absolute_path() -> None:
