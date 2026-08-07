@@ -321,6 +321,14 @@ def _open_ready() -> list[dict[str, Any]]:
     return [item for item in items if isinstance(item, dict) and not item.get("pull_request")]
 
 
+def _issue_now(number: int) -> dict[str, Any]:
+    """Re-read one issue at the moment of an authoritative write. Raises rather than guessing."""
+    status, issue = claim._request("GET", f"/repos/{REPO}/issues/{number}")
+    if status != 200 or not isinstance(issue, dict):
+        raise SlotError(f"#{number} could not be re-read (HTTP {status}); refusing to guess")
+    return issue
+
+
 def _amend_candidates(claimed: set[int]) -> list[dict[str, Any]]:
     """Issues whose claim is live and whose PR owes an AMEND session.
 
@@ -338,6 +346,38 @@ def _amend_candidates(claimed: set[int]) -> list[dict[str, Any]]:
         issue["number"] = number
         out.append(issue)
     return out
+
+
+def _terminal_refusal(number: int, spent: int, priority: int) -> dict[str, Any]:
+    """The refusal `agent:gate-blocked` produces, in the one shape both callers report.
+
+    The FAST one, from the published labels - not the authoritative one, which is the launcher's
+    own issuance count in `_authorise_amend`. This exists so a terminal issue costs no further API
+    calls, and it is reported rather than skipped: a launcher passing over it quietly would look
+    just like one with no work.
+
+    IT KEYS ON `agent:gate-blocked`, NOT ON THE CAP, and that is #399 (CodeRabbit on #408).
+    Refusing at `spent >= CAP` rebuilt the deadlock this PR exists to remove, one layer up:
+    `triage.py` publishes `agent:needs-amend` AT the cap so round-2's findings can be answered - a
+    round is a metered REVIEW, and an AMEND is the session that answers one - and the launcher then
+    refused to issue it. The lane could never reach the *everything answered, everything pushed*
+    state the convergence check requires, so the change that un-deadlocks the gate deadlocked it one
+    step earlier. Past the cap the convergence check found something too, and then there is
+    genuinely nothing left to authorise; that is what this label means and it is the only thing that
+    stops it.
+    """
+    return {
+        "issue": number,
+        "mode": "refuse",
+        "label_rounds": spent,
+        "reason": (
+            f"{GATE_BLOCKED_LABEL} is published for this claim: the convergence review ADR-0062 "
+            f"allows past the {CAP}-round cap found blocking work too, so no AMEND authority may "
+            "be issued. Safety-class findings escalate to the maintainer; the rest become "
+            "follow-ups."
+        ),
+        "priority": priority,
+    }
 
 
 def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
@@ -361,6 +401,14 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
         # mergeable PR with nobody authorised to finish it (Codex P1 on #407). Triage is the thing
         # that decides eligibility; a launcher that re-decides it from a different rule is how the
         # two came to disagree.
+        # THE TERMINAL LABEL IS TESTED FIRST, ahead of both authorities. `_advance_state` withholds
+        # the advance on `gate_blocked` and clears a stale label, but that happens on a triage run,
+        # and between the review that blocked the gate and the run that clears it both labels are
+        # published at once. Reading ADVANCE first launched a session to walk a lane that has
+        # stopped terminating (CodeRabbit on #408). Nothing is authorised past this point.
+        if GATE_BLOCKED_LABEL in labels:
+            plan.append(_terminal_refusal(number, spent, _priority(labels)))
+            continue
         if ADVANCE_LABEL in labels and AMEND_LABEL not in labels:
             # A clean review on an unfinished draft (#394). Not an AMEND: there are no blocking
             # findings to fix, and a session told to fix them would either invent work or stop.
@@ -376,37 +424,6 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
                         "agent:needs-advance is published for this claim: its draft is green, "
                         "owes nothing, and a review has come back clean, so the lane has a next "
                         "phase and nobody is walking it."
-                    ),
-                    "priority": _priority(labels),
-                }
-            )
-            continue
-        if GATE_BLOCKED_LABEL in labels:
-            # The FAST refusal, from the published labels. Not the authoritative one - that is the
-            # launcher's own issuance count in `_authorise_amend`, which does not depend on any
-            # label. This one exists so a terminal issue costs no further API calls, and it is
-            # reported rather than skipped: a launcher passing over it quietly would look just like
-            # one with no work.
-            #
-            # IT KEYS ON `agent:gate-blocked`, NOT ON THE CAP, and that is #399 (CodeRabbit on
-            # #408). Refusing at `spent >= CAP` rebuilt the deadlock this PR exists to remove, one
-            # layer up: `triage.py` publishes `agent:needs-amend` AT the cap so round-2's findings
-            # can be answered - a round is a metered REVIEW, and an AMEND is the session that
-            # answers one - and the launcher then refused to issue it. The lane could never reach
-            # the *everything answered, everything pushed* state the convergence check requires, so
-            # the change that un-deadlocks the gate deadlocked it one step earlier. Past the cap
-            # the convergence check found something too, and then there is genuinely nothing left
-            # to authorise; that is what this label means and it is the only thing that stops it.
-            plan.append(
-                {
-                    "issue": number,
-                    "mode": "refuse",
-                    "label_rounds": spent,
-                    "reason": (
-                        f"{GATE_BLOCKED_LABEL} is published for this claim: the convergence review "
-                        f"ADR-0062 allows past the {CAP}-round cap found blocking work too, so no "
-                        "AMEND authority may be issued. Safety-class findings escalate to the "
-                        "maintainer; the rest become follow-ups."
                     ),
                     "priority": _priority(labels),
                 }
@@ -874,7 +891,14 @@ def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
         # The label-side bound is still real, it is just the right label: `agent:gate-blocked` is
         # the state where nothing further is authorised, and it is published from a recount rather
         # than carried forward, so it cannot be cleared by tidying labels.
-        if issued >= CAP or item.get("gate_blocked"):
+        # RE-READ, not the plan's snapshot. `item["gate_blocked"]` was decided when the plan was
+        # built, and triage can publish the terminal label in the seconds between - so a stale False
+        # let the reservation create an AMEND ref for a lane that had stopped terminating
+        # (CodeRabbit on #408). This is the same rule `AGENTS.md` states for a claim: revalidate
+        # immediately before the authoritative write, never once for all of them. A read failure
+        # raises rather than defaulting, because defaulting here defaults toward issuing.
+        item["gate_blocked"] = GATE_BLOCKED_LABEL in _labels(_issue_now(number))
+        if issued >= CAP or item["gate_blocked"]:
             item["mode"] = "refuse"
             blocked = f", and {GATE_BLOCKED_LABEL} is published" if item.get("gate_blocked") else ""
             item["reason"] = (

@@ -2777,6 +2777,17 @@ def test_a_submission_that_proves_nothing_either_way_is_still_read_as_a_review(
     assert result["review_owed"] is False, (
         "and nothing is owed, so it is not a wrapper being hidden"
     )
+    # AND IT DOES NOT SATISFY THE GATE, which is the opposite answer from the same payload
+    # (CodeRabbit on #408). Counting the ambiguous case is fail-CLOSED on the cap and fail-OPEN on
+    # the gate: `converged` would be true with nothing showing that CodeRabbit reported anything at
+    # all, and that is the axis merges are decided on. So the round axis asks *is this a review*
+    # and the gate axis asks *did it say something*, and this submission answers yes and no.
+    #
+    # Asserted on `converged` rather than on `result["gate"]`, because that summary is gated on
+    # `capped` and reports `open` for an uncapped PR whichever way the evidence went - the first
+    # version of this assertion passed for that reason rather than for the rule.
+    _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert converged is False, "an empty submission is not evidence the gate was met"
 
     # The control: the same submission carrying one real finding is a round.
     _, blocking = _run(
@@ -2989,6 +3000,65 @@ def test_an_acknowledgement_does_not_retract_a_gate_that_was_already_satisfied(
         "the verification happened and found nothing; an acknowledgement afterwards is not a "
         "finding and must not take the gate back"
     )
+
+
+def test_a_bodiless_submission_from_the_gate_provider_does_not_satisfy_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fail-open half of `_is_a_review`'s deliberate fail-closed direction (CodeRabbit on #408).
+
+    `_reply_wrapper_ids` is written so a WRAPPER must be proven, which makes an unproven submission
+    count as a review - the safe direction on the cap, where undercounting is what fails open. The
+    gate needs the opposite: a submission with no body, no verdict and no comment of its own is a
+    submission the payload does not describe, and accepting it as the mandatory review would satisfy
+    the gate with no evidence that CodeRabbit reported anything.
+
+    The control below is the same payload with a body, which is what every real CodeRabbit pass
+    carries - so what separates the two cases is exactly the evidence, not the provider or the head.
+    """
+    empty = {"user": {"login": RABBIT}, "commit_id": HEAD, "state": "COMMENTED", "body": ""}
+    _run(_routes(reviews=[empty], timeline=[_ready(READY_TIME)], suites=GREEN), monkeypatch)
+    _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert converged is False, "no body, no verdict, no comment - so no evidence"
+
+    _run(
+        _routes(
+            reviews=[_clean_review(RABBIT, HEAD)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    _, _, _, with_body = triage._review_state(99, HEAD, READY_TIME)
+    assert with_body is True, "and the same review WITH a body is the gate met"
+
+
+def test_a_submission_owning_one_real_comment_is_evidence_even_with_no_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The third way a submission can prove it reported, and the reason it is not body-only.
+
+    A provider that writes only inline comments has plainly reviewed. Requiring a body would read
+    that as no evidence and strand a pull request whose gate really was met - the failure mode of
+    over-tightening, which is why `_says_something` takes three signals rather than one.
+
+    Here the comment is a FINDING, so the gate is blocked rather than satisfied; what the assertion
+    pins is that the submission registered at all, which `result["gate"] == "open"` would deny.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True, (
+        "the submission is evidence; its comment is what makes the evidence bad news"
+    )
+    _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert converged is False, "a finding at this head is the gate blocked, not merely unproven"
 
 
 def test_a_verification_that_finds_something_reports_why_the_pr_cannot_proceed(

@@ -243,6 +243,52 @@ def test_the_session_that_answers_round_two_is_still_issued_at_the_cap(
     assert (tmp_path / "_task-issue-7.md").exists(), "and it is handed real AMEND text"
 
 
+def test_the_terminal_label_beats_the_advance_authority(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Both labels can be published at once, and the order decided which one won (CodeRabbit #408).
+
+    `triage._advance_state` withholds the advance on `gate_blocked` and clears a stale
+    `agent:needs-advance` - but that happens on a triage RUN, and between the review that blocked
+    the gate and the run that clears the label both are present. Testing ADVANCE first launched a
+    session to walk a lane that has stopped terminating, which is the one thing the terminal label
+    exists to prevent.
+
+    Asserted on the mode rather than on the absence of a task file, because `advance` and `refuse`
+    both write nothing when the ref is lost.
+    """
+    issue = _issue(7, slots.ADVANCE_LABEL, slots.GATE_BLOCKED_LABEL, "priority:P0")
+    fake = _install(monkeypatch, claimed=[7], issues={7: issue})
+    _as_draft(fake, draft=True)
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse", "nothing is authorised past the terminal label"
+    assert fake.created_refs == [], "and no advance ref may be taken for it"
+
+
+def test_the_terminal_label_is_re_read_before_the_amend_is_reserved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The plan's snapshot is not the state at the write (CodeRabbit on #408).
+
+    `item["gate_blocked"]` is decided when the plan is built, and triage can publish the terminal
+    label in the seconds between - so a stale `False` let the reservation create an AMEND ref for a
+    lane that had already stopped terminating. `AGENTS.md` states this rule for claims: revalidate
+    immediately before every authoritative write, never once for all of them.
+
+    The re-read is what is being tested, so it is the re-read that is made to disagree with the
+    plan: at plan time the issue carries no terminal label, and at reservation time it does.
+    """
+    issue = _issue(7, slots.AMEND_LABEL, "priority:P0")
+    fake = _install(monkeypatch, claimed=[7], issues={7: issue})
+    monkeypatch.setattr(
+        slots, "_issue_now", lambda number: _issue(number, slots.GATE_BLOCKED_LABEL)
+    )
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse", "the state at the write is what decides"
+    assert fake.created_refs == [], "and no round may be taken for it"
+    assert not list(tmp_path.glob("_task-issue-*.md"))
+
+
 def test_a_refusal_is_reported_never_silently_skipped(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

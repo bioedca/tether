@@ -798,6 +798,37 @@ def _is_a_review(entry: dict[str, Any], wrappers: set[Any]) -> bool:
     return entry.get("id") not in wrappers
 
 
+def _substantive_review_ids(comments: list[dict[str, Any]]) -> set[Any]:
+    """Review ids owning at least one comment of their own - the POSITIVE spelling.
+
+    Deliberately not the complement of :func:`_reply_wrapper_ids`, and a separate function so the
+    two directions stay legible side by side. That one asks a submission to prove it is a
+    **wrapper**, so the unproven case counts as a review - the fail-closed direction on the cap.
+    This one asks a submission to prove it **said something**, so the unproven case is not evidence
+    - the fail-closed direction on the gate. One payload, two axes, opposite safe answers.
+    """
+    return {
+        entry["pull_request_review_id"]
+        for entry in comments
+        if entry.get("pull_request_review_id") is not None and not entry.get("in_reply_to_id")
+    }
+
+
+def _says_something(entry: dict[str, Any], spoke: set[Any]) -> bool:
+    """Whether a submission carries evidence that its provider actually reported.
+
+    A body is what every substantive review writes - #385's real review was 5667 bytes and all five
+    of its wrappers were 0 - a verdict state says something whether or not it is spelled out, and a
+    submission owning a non-reply comment has plainly reported. Anything else is a submission the
+    payload does not describe, and the gate does not accept those.
+    """
+    return bool(
+        (entry.get("body") or "").strip()
+        or entry.get("state") in VERDICT_REVIEW_STATES
+        or entry.get("id") in spoke
+    )
+
+
 def _gate_state(
     *,
     gate_blocked: bool,
@@ -956,6 +987,7 @@ def _review_state(
     )
 
     wrappers = _reply_wrapper_ids(comments)
+    spoke = _substantive_review_ids(comments)
     # Only asked when something might actually be cleared by it. A pull request with no external
     # inline FINDING at the current head cannot have an answered one, so the extra query buys
     # nothing there - and `clear_mirror` and the round-label paths run on every triage event.
@@ -1069,7 +1101,15 @@ def _review_state(
             if login == GATE_PROVIDER and not is_reply:
                 if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
                     gate_finding_here = True
-                else:
+                elif _says_something(entry, spoke):
+                    # POSITIVE EVIDENCE, where the round axis above deliberately takes the absence
+                    # of it. `_is_a_review` counts a submission with no body, no verdict and no
+                    # comments, because it asks a submission to prove it is a *wrapper* - and on the
+                    # cap, counting the unproven case is fail-closed. On the gate the identical
+                    # submission would set `converged` with nothing showing that CodeRabbit reported
+                    # anything at all, which is fail-OPEN on the axis that decides merges
+                    # (CodeRabbit on #408). Same payload, opposite safe directions, so the two axes
+                    # ask opposite questions of it.
                     gate_review_here = True
             if is_reviews:
                 # A CHANGES_REQUESTED submission is a SEPARATE signal, and resolving threads does
