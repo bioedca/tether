@@ -3918,5 +3918,15 @@ def test_a_minor_finding_spends_no_round_but_still_blocks_the_gate(
         monkeypatch,
     )
     assert result["rounds"] == 0, "a finding the contract says to DEFER must not spend a round"
-    assert result["gate"] == "open", "and it is still an actionable comment, so the gate is not met"
     assert result["review_owed"] is True, "it is owed an answer, which is the deferral reply"
+    # `result["gate"]` reads `open` here for THREE independent reasons - the finding voids it,
+    # something is owed, and the cap is not reached - so asserting on it proves none of them.
+    # Measured: mutating the voiding half so an inline finding stops setting `gate_finding_here`
+    # left `result["gate"]` at `open` and this test green. `converged` is the half that answers
+    # *is there an actionable comment at this head*, so that is what the claim is asserted on.
+    _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert converged is False, (
+        "a Minor is non-blocking on the SEVERITY axis and actionable on the GATE axis - "
+        "docs/agents/review.md keeps those separate, and so must this"
+    )
+    assert result["gate"] == "open"
