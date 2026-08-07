@@ -3002,6 +3002,37 @@ def test_an_acknowledgement_does_not_retract_a_gate_that_was_already_satisfied(
     )
 
 
+def test_a_dismissed_submission_is_not_evidence_the_gate_was_met(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A withdrawn verdict is an administrative act, not a review (CodeRabbit on #408).
+
+    `_says_something` read `VERDICT_REVIEW_STATES`, which carries `DISMISSED` because on the ROUND
+    axis a dismissal is still a submission that happened - counting it there is fail-CLOSED. On the
+    gate axis the same membership is fail-OPEN: an empty `DISMISSED` submission at the head made
+    `converged` true with nothing showing CodeRabbit had ever looked, on the one axis merges are
+    decided on.
+
+    The control is the identical payload under `APPROVED`, so what separates the two cases is the
+    state alone - not the provider, the head, or the empty body they share.
+    """
+    for state, expected in (("DISMISSED", False), ("APPROVED", True)):
+        _run(
+            _routes(
+                reviews=[
+                    {"user": {"login": RABBIT}, "commit_id": HEAD, "state": state, "body": ""}
+                ],
+                timeline=[_ready(READY_TIME)],
+                suites=GREEN,
+            ),
+            monkeypatch,
+        )
+        _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
+        assert converged is expected, f"{state} must {'' if expected else 'not '}satisfy the gate"
+    assert "DISMISSED" in triage.VERDICT_REVIEW_STATES, "still counted on the ROUND axis"
+    assert "DISMISSED" not in triage.GATE_VERDICT_STATES, "and never on the gate axis"
+
+
 def test_a_bodiless_submission_from_the_gate_provider_does_not_satisfy_the_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

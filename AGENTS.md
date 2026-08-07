@@ -111,8 +111,11 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   finished**: any clean metered review is free, and only a clean **CodeRabbit** one at the current
   head satisfies the gate and ends the lane, which is why that is the review to ask for at the cap.
   So `agent:review-capped` forbids asking for another *round*, and permits exactly one convergence
-  check: everything answered, pushed, and one final CodeRabbit review requested. Clean satisfies the
-  gate; blocking again publishes `agent:gate-blocked`. Stop-list, not judgement: **never a review request
+  check: everything answered, pushed, and one final CodeRabbit review. **The ADVANCE session asks
+  for it, not the AMEND session that answered the round** — it holds the `refs/lane-advances/`
+  compare-and-swap that makes one request out of however many launchers see the label, and an AMEND
+  asking as well merely spends a second metered review on the same head. Clean satisfies the gate;
+  blocking again publishes `agent:gate-blocked`. Stop-list, not judgement: **never a review request
   while `agent:gate-blocked` is present**, and never a second *completed* convergence review under
   `agent:review-capped`. A request that produced no review has not spent it — a fair-use refusal
   naming a retry time is a wait, so wait it out and ask again after reading the status check.

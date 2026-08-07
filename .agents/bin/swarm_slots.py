@@ -763,10 +763,27 @@ def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | Non
         )
         return None
     ref = f"refs/{prefix}{_lane_state_digest(pr)}"
+    # THE TERMINAL LABEL, re-read for the reason the AMEND path re-reads it: `_plan` decided from a
+    # snapshot taken before the pull request, its step token and its review list were fetched, and
+    # triage can publish `agent:gate-blocked` across any of them. This one is not a harmless extra
+    # worker either - every step in `advance.md` SPENDS something, a Greptile credit or the metered
+    # gate request - so advancing a lane that has stopped terminating costs real budget (CodeRabbit
+    # on #408).
+    if GATE_BLOCKED_LABEL in _labels(_issue_now(number)):
+        item["mode"] = "refuse"
+        item["reason"] = (
+            f"{GATE_BLOCKED_LABEL} was published for #{number} while its lane advance was being "
+            "authorised: the convergence review ADR-0062 permits past the cap found blocking work "
+            "too, so no automatic step remains and a maintainer decides from here."
+        )
+        return None
     # Same revalidation as the AMEND path, and this window is the WIDER of the two: the pull
     # request, its step token and its review list are all read between the generation above and
     # this write. CodeRabbit raised it against `_authorise_amend` only; leaving the twin would keep
     # a known instance of the same defect, and this one is the easier of the pair to hit.
+    #
+    # LAST, after the label read above, for the same reason it is last in the AMEND path: an
+    # unchanged generation is what licenses every earlier read in this function.
     lost = _reclaimed(number, generation)
     if lost is not None:
         item["mode"] = "lost"

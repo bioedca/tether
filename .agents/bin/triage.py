@@ -178,6 +178,14 @@ BLOCKING_REVIEW_STATES = frozenset({"CHANGES_REQUESTED"})
 # `COMMENTED` is deliberately absent: it is what GitHub stamps on the wrapper it puts around a
 # reply to a review thread, and treating it as a verdict is exactly the over-count of #396.
 VERDICT_REVIEW_STATES = frozenset({"CHANGES_REQUESTED", "APPROVED", "DISMISSED"})
+# The same question asked on the GATE axis, where `DISMISSED` is deliberately absent (CodeRabbit on
+# #408). The set above includes it because on the ROUND axis a dismissal is still a submission that
+# happened, and counting it there is the fail-CLOSED direction. Here it is the opposite: a dismissal
+# is an administrative REMOVAL of a verdict, not a provider reporting, so an empty `DISMISSED`
+# submission at the head satisfied the mandatory gate with nothing showing CodeRabbit had ever
+# looked - fail-open on the one axis merges are decided on. Two names rather than one set, because
+# the axes want opposite answers from the same payload and sharing a constant hid that.
+GATE_VERDICT_STATES = frozenset({"CHANGES_REQUESTED", "APPROVED"})
 
 
 class TriageError(RuntimeError):
@@ -821,10 +829,14 @@ def _says_something(entry: dict[str, Any], spoke: set[Any]) -> bool:
     of its wrappers were 0 - a verdict state says something whether or not it is spelled out, and a
     submission owning a non-reply comment has plainly reported. Anything else is a submission the
     payload does not describe, and the gate does not accept those.
+
+    ``GATE_VERDICT_STATES`` rather than ``VERDICT_REVIEW_STATES``: a ``DISMISSED`` submission is a
+    verdict being *withdrawn*, which is evidence of an administrative act rather than of a review,
+    and accepting it here satisfied the gate on an empty payload. See the note beside the constants.
     """
     return bool(
         (entry.get("body") or "").strip()
-        or entry.get("state") in VERDICT_REVIEW_STATES
+        or entry.get("state") in GATE_VERDICT_STATES
         or entry.get("id") in spoke
     )
 

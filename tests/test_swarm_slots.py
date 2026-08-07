@@ -1136,6 +1136,38 @@ def test_a_reclaim_during_authorisation_files_no_lane_advance(
     assert fake.created_refs == [], "no lane-advance ref under the dead generation either"
 
 
+def test_the_terminal_label_published_mid_authorisation_stops_a_lane_advance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The ADVANCE path checked ownership but never the terminal state (CodeRabbit on #408).
+
+    `_plan` tests `agent:gate-blocked` first, but that snapshot is taken before the pull request,
+    its step token and its whole review list are read - and triage can publish the label across any
+    of them. The AMEND path re-reads it; this one did not, so an ADVANCE ref could still be created
+    for a lane that had already stopped terminating.
+
+    Not a harmless extra worker, which is why this is the same severity as the AMEND case: every
+    step in `advance.md` spends something - the Greptile credit, or the metered CodeRabbit request -
+    so advancing past the terminal label costs real budget.
+    """
+    issue = _issue(7, slots.ADVANCE_LABEL, "priority:P0")
+    fake = _install(monkeypatch, claimed=[7], issues={7: issue})
+    _as_draft(fake, draft=True)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+    # The label lands only on the re-read, so the plan and the write genuinely disagree - which is
+    # the race, rather than a state the plan could have seen.
+    monkeypatch.setattr(slots, "_issue_now", lambda n: _issue(n, slots.GATE_BLOCKED_LABEL))
+
+    entry = _by_issue(
+        slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path), 7
+    )
+    assert entry["mode"] == "refuse", entry.get("reason")
+    assert slots.GATE_BLOCKED_LABEL in entry["reason"]
+    assert fake.created_refs == [], "no advance ref for a lane that has stopped terminating"
+    assert not list(tmp_path.glob("_task-issue-*.md")), "and no session spends a credit for it"
+
+
 def test_an_unreadable_issuance_count_never_authorises_an_amend(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

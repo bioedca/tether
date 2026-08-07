@@ -71,15 +71,17 @@ The severity floor you classify against lives on `review.md`, not in the residen
   points at an issue which does not exist is a contract violation, so file the follow-up first.
 - **Do not request another review round.** {{REMAINING}} remain, and they are not yours to spend:
   if another is warranted, the launcher will start a further session.
-- **At round {{CAP}}, one convergence check is the exception, and only that.** Answer every blocking
-  finding, push, and request the final review — a round is a review that found something
-  **blocking**, so a clean one costs nothing, and a clean **CodeRabbit** one is also what satisfies
-  the gate. A review returning only non-blocking findings is clean for this purpose: defer them, per
-  the first rule above, and the round stays free. It is not a third round and it is not optional —
-  without it a capped pull request can never merge. **A request that produced no review has not
-  spent it**: a fair-use refusal naming a retry time is a *wait*, so wait it out and ask again after
-  reading the status check — `pending` is a review running now that a second request destroys. What
-  is forbidden is a second *completed* convergence review, not a second attempt at getting the
-  first. If that check comes back blocking too, stop: `agent:gate-blocked` goes on, safety-class
-  findings escalate to the maintainer, and the rest become follow-ups.
+- **At round {{CAP}} the convergence check is due, and it is still not yours to request.** Answer
+  every blocking finding and push, exactly as at any other round; what differs is only that no
+  further AMEND follows. Triage then publishes `agent:needs-advance`, and the ADVANCE session it
+  dispatches asks for the final review — `.agents/tasks/advance.md` carries the wording, the
+  throttle rules, and the `refs/lane-advances/` compare-and-swap that makes the request happen
+  **exactly once**. Asking here as well does not make the gate arrive sooner; it spends a second
+  metered review on the same head, because nothing stops that ADVANCE session from asking too.
+  A round is a review that found something **blocking**, so the convergence check costs nothing, and
+  a clean **CodeRabbit** one is what satisfies the gate — it is neither a third round nor optional,
+  and without it a capped pull request can never merge. A review returning only non-blocking
+  findings is clean for that purpose: defer them, per the first rule above. If the check comes back
+  blocking too, `agent:gate-blocked` goes on: safety-class findings escalate to the maintainer, the
+  rest become follow-ups, and no further session is authorised.
 - Do not rebase or force-push a published branch, and do not open a second PR for this issue.

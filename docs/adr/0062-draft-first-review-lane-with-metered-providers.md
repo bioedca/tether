@@ -237,9 +237,16 @@ leg, and a quota refusal from it is recorded as *did not review*.
   toward the cap**: no pull request, or one that cannot be read, is the counted phase, because the
   uncapped phase has to be positively established.
 
-  `max(issued, label_rounds)` is unchanged for the counted phase. This changes which refs are
-  counted, never how the count is compared, so the launcher's bound remains at worst as strict as
-  the contract's.
+  Splitting the ledger changes which refs are counted, never how the count is compared. **What the
+  counted phase compares did change, and in this record's own amendment above**: it is now
+  `issued >= CAP`, the launcher's own issuance count, and no longer `max(issued, label_rounds)`.
+  Those two counters mean different things once a converged round is free — `label_rounds` counts
+  metered *reviews*, `issued` counts the *sessions that answer them* — and at the cap exactly one
+  session is still due, the one that fixes round two's findings so the convergence check has
+  something clean to verify. Comparing against the review count refused that session, which is
+  precisely the deadlock this record removes, rebuilt one layer up in the launcher. The label-side
+  bound is still real and is now the right label: `agent:gate-blocked`, recomputed rather than
+  carried forward, so tidying labels cannot clear it.
 
 ## Alternatives considered
 
