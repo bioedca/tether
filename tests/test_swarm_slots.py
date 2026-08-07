@@ -104,12 +104,18 @@ class Fake:
         return [r for r in self.created_refs if f"refs/{slots.AMEND_NAMESPACE}/" in r]
 
 
+# The launcher plans against claimable issues, and since #336 a claimable issue is one whose body
+# declares `agent-can-do-alone` - `claim._check_eligible` refuses an undeclared body outright, so a
+# fixture without this line describes an issue the launcher could never have been handed.
+GROOMED_BODY = "Acceptance criteria\n\n## Execution autonomy\n\nagent-can-do-alone\n"
+
+
 def _issue(number: int, *labels: str, state: str = "open") -> dict[str, Any]:
     return {
         "number": number,
         "state": state,
         "title": f"feat(io): thing {number}",
-        "body": "Acceptance criteria\n",
+        "body": GROOMED_BODY,
         "labels": [{"name": name} for name in labels],
         "assignees": [],
     }
