@@ -336,7 +336,11 @@ def test_a_review_list_holding_a_non_object_is_unknown_rather_than_a_traceback(
     it rather than treating the budget as unknown.
 
     The control is the same payload with a real review object, so what separates them is the entry
-    type alone and not the plumbing.
+    type alone and not the plumbing — and the control asserts the **count**, not the exit code.
+    `main() == 0` only means *under budget*, which is equally what a version that silently dropped
+    every review would produce, so an exit-code control would have passed against the failure it
+    exists to exclude (CodeRabbit `Minor` on #422 — in this very test, one round after the same
+    shape was fixed elsewhere in the stack).
     """
     monkeypatch.setattr(usage, "_gh", _fake_gh({"bioedca/tether": [_pr(1)]}, {1: [None]}))
     monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
@@ -346,7 +350,12 @@ def test_a_review_list_holding_a_non_object_is_unknown_rather_than_a_traceback(
     assert "UNKNOWN" in captured.err
 
     monkeypatch.setattr(usage, "_gh", _fake_gh({"bioedca/tether": [_pr(1)]}, {1: [_review()]}))
-    assert usage.main() == 0, "and a real review object still counts"
+    assert usage.main() == 0
+    counted = capsys.readouterr().out
+    assert f"used 1 of {usage.INCLUDED_CREDITS}" in counted, (
+        "the control must show the review was COUNTED; a zero exit only says under-budget"
+    )
+    assert f"{usage.INCLUDED_CREDITS - 1} remaining" in counted
 
 
 def test_an_error_envelope_where_a_review_list_belongs_is_unknown(
