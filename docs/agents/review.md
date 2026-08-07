@@ -124,11 +124,17 @@ asking a provider to look **again** at work it has already reviewed this round.
   `agent:round-N` and `agent:review-capped` therefore mean *post-draft, metered* rounds, and every
   AMEND is a fresh short-lived session whose task text the launcher injects with an explicit
   `ROUND = N of 2`; past the cap it injects none, so no worker ever holds authority for a third.
-  **A round is a metered review that found something blocking.** A clean one is the lane
-  *terminating*, not a round, so it costs nothing — which is what stops the cap and the gate
-  contradicting each other. Without that rule a round-2 review with findings left a PR needing a
-  review at the head that answered them, and forbidden to buy one: green, mergeable and unmergeable
-  at once (#399, measured on #385).
+  **A round is a metered review that found something blocking**, so a clean one is not a round and
+  costs nothing — which is what stops the cap and the gate contradicting each other. Without that
+  rule a round-2 review with findings left a PR needing a review at the head that answered them, and
+  forbidden to buy one: green, mergeable and unmergeable at once (#399, measured on #385).
+
+  **Free and terminating are different properties, and only one of them is provider-blind.** Any
+  clean metered review is free — a clean Greptile pass costs no round — but the lane ends only on
+  clean **CodeRabbit** evidence at the current head, which is what `triage.py` reads for gate
+  satisfaction. Reading *"a clean one is the lane terminating"* as covering every provider would let
+  a free review stand in for the metered gate, which is the substitution ADR-0062 exists to refuse
+  (CodeRabbit on #408).
 - **At the cap you may ask once more, and only to verify convergence.** Answer everything, push,
   and request the final review. Clean satisfies the gate and the lane ends. Blocking again means the
   count has passed the cap: `agent:gate-blocked` goes on, and it is **a maintainer's** — safety-class

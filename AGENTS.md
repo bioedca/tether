@@ -106,11 +106,13 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   the PR is ready for review, and only against metered providers — draft-phase Codex is uncounted.
   Every AMEND is a fresh session whose task text the launcher injects with an explicit
   `ROUND = N of 2`; past the cap it injects none, so no worker ever holds authority for a third.
-- **A round is a metered review that found something blocking.** A clean one is the lane
-  terminating and costs nothing — without which the gate and the cap contradict each other (#399).
+- **A round is a metered review that found something blocking**, so a clean one costs nothing —
+  without which the gate and the cap contradict each other (#399). **Free is not the same as
+  finished**: any clean metered review is free, and only a clean **CodeRabbit** one at the current
+  head satisfies the gate and ends the lane, which is why that is the review to ask for at the cap.
   So `agent:review-capped` forbids asking for another *round*, and permits exactly one convergence
-  check: everything answered, pushed, and one final review requested. Clean satisfies the gate;
-  blocking again publishes `agent:gate-blocked`. Stop-list, not judgement: **never a review request
+  check: everything answered, pushed, and one final CodeRabbit review requested. Clean satisfies the
+  gate; blocking again publishes `agent:gate-blocked`. Stop-list, not judgement: **never a review request
   while `agent:gate-blocked` is present**, and never a second *completed* convergence review under
   `agent:review-capped`. A request that produced no review has not spent it — a fair-use refusal
   naming a retry time is a wait, so wait it out and ask again after reading the status check.

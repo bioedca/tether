@@ -55,9 +55,13 @@ conflating them would let a worker reach `agent:review-capped` on the draft phas
 to, before the mandatory gate. Entering the counted phase is **permanent**: a PR converted back to draft keeps every round it has spent, or the
 cap would be opt-out by toggling draft.
 
-**A round is a metered review that found something blocking; a clean one is the lane terminating**
-(amended by [#399](https://github.com/bioedca/tether/issues/399)). As first written, the gate and
-the cap could contradict each other. The gate requires *"at least one CodeRabbit review with no
+**A round is a metered review that found something blocking, so a clean one costs nothing; and a
+clean CodeRabbit one at the current head is the lane terminating** (amended by
+[#399](https://github.com/bioedca/tether/issues/399)). **The two halves are separate on purpose**,
+and the shorter phrasing conflated them: *free* is a property of any clean metered review, while
+*terminating* names its provider. A clean Greptile pass costs no round and settles nothing.
+
+As first written, the gate and the cap could contradict each other. The gate requires *"at least one CodeRabbit review with no
 actionable comments"*; the cap allows two rounds. If the round-2 review posts actionable comments,
 answering them moves the head, and the gate then requires a review at *that* head — round 3, which
 the cap forbids. The pull request could satisfy neither rule, and no state it could reach would
