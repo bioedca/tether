@@ -717,10 +717,21 @@ def _resolved_comment_ids(pr_number: int) -> set[int]:
                 # `fullDatabaseId` is a GraphQL BigInt and arrives as a STRING, where the REST `id`
                 # compared against it is an int. Normalising here rather than at the comparison
                 # keeps the set one type.
+                #
+                # `isascii()` before `isdigit()`, because `isdigit()` is true for non-ASCII decimal
+                # digits ("١٢٣") that `int()` then happily parses into a number no GitHub id ever
+                # was. A payload that spells an id that way is malformed, and a malformed id must
+                # not clear a finding.
+                #
+                # Then the SAME usability rule the owed axis applies, and it has to be the same one:
+                # this set is one half of a membership test whose other half is
+                # `_clearable_comment_id`. Guarding only that half let a boolean `fullDatabaseId`
+                # into `resolved`, where `True == 1` matched a REST comment numbered `1` and cleared
+                # a finding nothing had answered (CodeRabbit `Major` on #413).
                 raw = comment.get("fullDatabaseId")
-                if isinstance(raw, str) and raw.isdigit():
-                    resolved.add(int(raw))
-                elif isinstance(raw, int):
+                if isinstance(raw, str) and raw.isascii() and raw.isdigit():
+                    raw = int(raw)
+                if _is_a_usable_comment_id(raw):
                     resolved.add(raw)
         if not page.get("hasNextPage"):
             return resolved
@@ -783,6 +794,29 @@ def _is_a_review(entry: dict[str, Any], wrappers: set[Any]) -> bool:
     return entry.get("id") not in wrappers
 
 
+def _is_a_usable_comment_id(value: object) -> bool:
+    """Whether a value may act as a comment id — on **either** side of the resolved set (#410).
+
+    The two sides normalise different types and share this rule, and the split is deliberate. REST
+    sends ``id`` as an int and a string there means the payload changed shape, so
+    :func:`_clearable_comment_id` refuses one. GraphQL sends ``fullDatabaseId`` as a BigInt
+    *string*, so :func:`_resolved_comment_ids` must accept one. What they cannot differ on is what
+    makes an id **usable**, because they are the two halves of one membership test.
+
+    ``bool`` is rejected explicitly, and that is not a curiosity about Python. It is a live
+    fail-open, found by CodeRabbit on the pull request that added the reader-side guard alone:
+    ``isinstance(True, int)``, ``True == 1`` and ``1 in {True}``, so a single boolean reaching
+    ``resolved`` from the GraphQL side would match a REST comment numbered ``1`` and clear a finding
+    nothing had answered — withholding ``agent:needs-amend`` on a head that still owes one. Guarding
+    the reader and not the builder left exactly half the hole open.
+
+    ``> 0`` because ``0`` is the value :func:`_clearable_comment_id` already refuses on the other
+    side; letting it into ``resolved`` would reintroduce the disagreement #410 closed, from the
+    opposite direction.
+    """
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
 def _clearable_comment_id(entry: dict[str, Any]) -> int | None:
     """This inline comment's id, if it is one a resolved thread could ever clear (#410).
 
@@ -802,13 +836,12 @@ def _clearable_comment_id(entry: dict[str, Any]) -> int | None:
     lets an unusable id reach ``resolved`` and stop owing, withholding AMEND authority on a head
     that still carries an unanswered external finding.
 
-    ``bool`` is rejected explicitly because it is an ``int`` in Python, so ``True`` would otherwise
-    be a usable id, and one that compares equal to a real comment numbered ``1``.
+    ``bool`` is rejected because it is an ``int`` in Python, so ``True`` would otherwise be a usable
+    id, and one that compares equal to a real comment numbered ``1``. See
+    :func:`_is_a_usable_comment_id`, which is the same rule the builder side applies.
     """
     cid = entry.get("id")
-    if not isinstance(cid, int) or isinstance(cid, bool) or cid <= 0:
-        return None
-    return cid
+    return cid if _is_a_usable_comment_id(cid) else None
 
 
 def _review_state(

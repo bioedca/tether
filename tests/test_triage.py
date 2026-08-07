@@ -1721,6 +1721,59 @@ def test_an_unusable_comment_id_owes_even_when_a_resolved_thread_names_it(
     assert not [c for c in fake.calls if c[1] == "/graphql"]
 
 
+def test_a_boolean_graphql_id_cannot_clear_the_comment_it_compares_equal_to(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The BUILDER side of the same rule, and the half #410 left open (CodeRabbit `Major` on #413).
+
+    `_clearable_comment_id` refused a `bool` on the READER side, which is the axis that asks *can a
+    resolved thread ever clear this comment*. Nothing refused one on the side that BUILDS
+    `resolved`, and the two are halves of a single membership test — so a boolean `fullDatabaseId`
+    entered the set, `True == 1`, and `1 in {True}` cleared the REST comment numbered `1`.
+
+    That is fail-OPEN on the axis that decides AMEND authority: a real, unanswered external finding
+    stops owing, `agent:needs-amend` is withheld, and no session is ever issued to answer it. The
+    comment carrying it here is an ordinary CodeRabbit finding — the only unusual thing in the
+    payload is one boolean, on a different comment, in a different endpoint's response.
+
+    Reachable only from a malformed GraphQL payload, like its reader-side sibling above. Pinned for
+    the same reason: the two sides must agree about what a usable id is, and they now share one
+    predicate rather than two expressions that happen to match.
+    """
+    thread = _thread(1, 2, resolved=True)
+    # The finding's own node, with the one value that compares equal to REST comment id 1.
+    thread["comments"]["nodes"][0]["fullDatabaseId"] = True
+    fake, result = _run(
+        _routes(
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 1)],
+            threads=[thread],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True, "a boolean id must not clear comment 1"
+    assert triage.AMEND_LABEL in fake.added
+
+
+@pytest.mark.parametrize(
+    ("raw", "usable"),
+    [
+        (4242, True),
+        (3708430108123456789, True),  # 64-bit, which is why `fullDatabaseId` replaced `databaseId`
+        (True, False),  # a bool IS an int, and equals the id of comment 1
+        (False, False),
+        (0, False),
+        (-1, False),
+        ("4242", False),  # the caller normalises a BigInt string BEFORE asking
+        (None, False),
+    ],
+)
+def test_both_sides_of_the_resolved_set_share_one_usability_rule(raw: object, usable: bool) -> None:
+    """One predicate, asked by the reader and the builder alike — that is the property here."""
+    assert triage._is_a_usable_comment_id(raw) is usable
+
+
 def test_a_head_carrying_only_replies_still_reads_the_threads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
