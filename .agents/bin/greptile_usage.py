@@ -187,7 +187,25 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
             #
             # Deliberately WITHOUT `--slurp` (#417). On an endpoint that answers with a JSON array,
             # `--paginate` already concatenates the pages into one array, so `--slurp` only wrapped
-            # them in an outer list this then had to flatten back. It bought nothing and cost the
+            # them in an outer list this then had to flatten back.
+            #
+            # **Measured, because two reviewers have now read the flag's documentation the other
+            # way** - Greptile `P1` and then CodeRabbit `Major`, both on #422, both concluding that
+            # a multi-page response would raise `JSONDecodeError` here. gh's manual does say pages
+            # arrive "as a separate JSON array or object", which is true of the OBJECT case and is
+            # the case `--slurp` exists for; for a REST array endpoint gh merges them. On gh
+            # **2.45.0** in WSL - the lane this change is about - `--paginate` over
+            # `pulls/408/reviews?per_page=1` returned **88 pages as ONE array of 88 elements**,
+            # 284 KB, parsed by a single `json.loads`. The unpaginated call answers 30, so the pages
+            # really were fetched and really were merged.
+            #
+            # If that ever stopped being true this fails CLOSED rather than short:
+            # `test_pages_that_arrive_unmerged_are_unknown_rather_than_a_short_count` drives exactly
+            # the concatenated shape and asserts the balance reports UNKNOWN, never a number. The
+            # feared behaviour is pinned as safe whether or not it can occur, which is why the fix
+            # for it is a measurement and a test rather than a page-splitting loop.
+            #
+            # It bought nothing and cost the
             # whole read in the WSL lane: `--slurp` arrived after gh 2.45.0, which is what the
             # Ubuntu package pins and what `python3` - the documented interpreter for this script -
             # resolves `gh` to there. The failure was a `CalledProcessError` whose last stderr line
