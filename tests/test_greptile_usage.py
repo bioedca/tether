@@ -187,6 +187,37 @@ def test_output_that_is_not_json_is_unknown_rather_than_zero(
     assert "remaining" not in capsys.readouterr().out
 
 
+def test_pages_that_arrive_unmerged_are_unknown_rather_than_a_short_count(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """If `--paginate` ever emitted one array per page, the answer must be UNKNOWN, never a number.
+
+    Raised as `P1` on #422 against dropping `--slurp`: the concern was that gh 2.45.0 emits separate
+    JSON arrays for a multi-page response, which `_gh` decodes as a single document.
+
+    **It does not** — measured against `pulls/385/reviews`, 112 reviews over four pages, on 2.45.0
+    itself: `--paginate` merges them and the whole script traverses that PR in the WSL lane. So this
+    is not pinning current behaviour.
+
+    What it pins is that the *feared* behaviour stays safe if a future `gh` ever adopts it.
+    Concatenated arrays are not valid JSON, so `json.loads` raises and `_gh` takes its `Unreadable`
+    arm. The balance is then unknown, which is the honest answer; the direction that would matter is
+    reading page one only and reporting the shortfall as spare budget, and nothing here can do that.
+    `--slurp` never protected against this either - it wrapped pages the caller unwrapped again -
+    so removing it neither created nor closed the hole.
+    """
+
+    def _unmerged_pages(*_args: str, **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(["gh"], 0, b'[{"id": 1}]\n[{"id": 2}]\n', b"")
+
+    monkeypatch.setattr(subprocess, "run", _unmerged_pages)
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == usage.EXIT_UNKNOWN
+    captured = capsys.readouterr()
+    assert "remaining" not in captured.out, "a partial page count must never print a balance"
+    assert "UNKNOWN" in captured.err
+
+
 def test_only_reviews_the_seat_is_billed_for_are_counted(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
