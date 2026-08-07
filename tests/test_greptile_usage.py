@@ -347,3 +347,28 @@ def test_a_review_list_holding_a_non_object_is_unknown_rather_than_a_traceback(
 
     monkeypatch.setattr(usage, "_gh", _fake_gh({"bioedca/tether": [_pr(1)]}, {1: [_review()]}))
     assert usage.main() == 0, "and a real review object still counts"
+
+
+def test_an_error_envelope_where_a_review_list_belongs_is_unknown(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The CONTAINER guard, which had no test of its own until now.
+
+    GitHub answers a failed read with an object — `{"message": "Not Found", ...}` — where the
+    reviews endpoint would answer an array. Iterating that yields its KEYS, so every truthy filter
+    below would run against strings and the pull request would contribute zero credits: a spend
+    subtracted, and a balance that reads higher than it is. That is the one direction this file
+    exists to avoid.
+
+    Written after a mutation sweep found that deleting `isinstance(reviews, list)` failed nothing.
+    It fails nothing because the entry check added beside it happens to reject the envelope's keys
+    too — so the behaviour is safe either way, and neither guard was pinned to the reason it exists.
+    """
+    monkeypatch.setattr(
+        usage, "_gh", _fake_gh({"bioedca/tether": [_pr(1)]}, {1: {"message": "Not Found"}})
+    )
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == usage.EXIT_UNKNOWN
+    captured = capsys.readouterr()
+    assert "remaining" not in captured.out, "an envelope must never be counted as zero reviews"
+    assert "UNKNOWN" in captured.err

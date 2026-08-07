@@ -803,9 +803,15 @@ def test_no_page_both_lanes_read_names_a_gh_spelling_one_of_them_cannot_run() ->
 #: `blank_issues_enabled`, `contact_links` — and its contents never become the body of anything. It
 #: carries no provider handle either, so including it changed no result; it was simply wrong about
 #: what this set means, and the set is named for that meaning.
+#: Named rather than inlined so it can be asserted on. GitHub posts `.md` issue templates as well
+#: as `.yml` ones, and **none of the Markdown kind exists here**, so dropping `.md` from the glob
+#: changes no result and no test that watches results can notice. Pinning the rule is the only way
+#: to pin it at all — found by mutation, not by reading.
+_ISSUE_FORM_SUFFIXES = ("*.yml", "*.yaml", "*.md")
+
 ISSUE_FORMS = sorted(
     path
-    for suffix in ("*.yml", "*.yaml", "*.md")
+    for suffix in _ISSUE_FORM_SUFFIXES
     for path in (_REPO / ".github" / "ISSUE_TEMPLATE").glob(suffix)
     if path.name not in {"config.yml", "config.yaml"}
 )
@@ -849,6 +855,13 @@ def test_no_posted_template_carries_a_provider_handle() -> None:
         "template alone, which is the vacuity the glob exists to prevent"
     )
     assert len(POSTED_TEMPLATES) == len(ISSUE_FORMS) + 1, "and the PR template is still in the set"
+    # The `.md` half of that glob covers nothing today, so no assertion about the RESOLVED set can
+    # fail if it is dropped — confirmed by mutation. The rule is asserted instead, which is the only
+    # thing about it that can be. GitHub posts both kinds, and a Markdown form added later would
+    # otherwise be silently unguarded.
+    assert "*.md" in _ISSUE_FORM_SUFFIXES, (
+        "GitHub posts Markdown issue templates too; dropping the suffix would exempt one silently"
+    )
     bad: list[str] = []
     for path in POSTED_TEMPLATES:
         body = path.read_text(encoding="utf-8")
