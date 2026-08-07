@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -92,6 +93,7 @@ triage.claim = claim
 REPO = claim.REPO
 CAP = triage.CAP
 AMEND_LABEL = triage.AMEND_LABEL
+ADVANCE_LABEL = triage.ADVANCE_LABEL
 CAPPED_LABEL = triage.CAPPED_LABEL
 ROUND_LABELS = triage.ROUND_LABELS
 
@@ -122,6 +124,20 @@ LANE_GH = "gh"
 # the ADR reservations. A custom namespace is the same compare-and-swap and invisible to every tag
 # consumer.
 AMEND_NAMESPACE = "amend-rounds"
+
+# A SEPARATE namespace, and that is what makes advancing cost no round (#394's third criterion).
+# The mechanism is the AMEND ledger's - `POST /git/refs` is the mutex, 201 to the winner and 422 to
+# everyone after, keyed to the claim generation - but a lane advance is not a review round, and
+# putting it in `amend-rounds` would spend one to move a PR from one phase to the next.
+ADVANCE_NAMESPACE = "lane-advances"
+
+#: How many times one lane STEP may be attempted at one head before the launcher stops serving it.
+#: A runaway stop, not a cap - see `ADVANCE_ATTEMPTS`'s use in `_authorise_advance`. A step ends by
+#: producing the evidence that moves `advance_step_token`; a step whose provider is throttled or
+#: silently suppressing produces none, so without a bound the launcher would either relaunch forever
+#: or (keyed on the step alone) refuse forever. Three covers an ordinary throttle-and-wait and is
+#: small enough that a genuinely stuck gate reaches a person quickly.
+ADVANCE_ATTEMPTS = 3
 
 # The draft phase's refs live under the same namespace with a `draft-` ordinal prefix, so both
 # ledgers are enumerated by one `matching-refs` call and neither can be mistaken for the other
@@ -333,6 +349,34 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
         labels = _labels(issue)
         number = int(issue["number"])
         spent = _rounds_spent(labels)
+        # ADVANCE IS TESTED BEFORE THE CAP, and the order is the fix rather than a preference. The
+        # cap bounds ROUNDS, and the steps this label authorises at the cap are not rounds: a PR
+        # whose gate has passed with both rounds spent still needs one session to arm the merge,
+        # and `triage._advance_state` deliberately keeps the label alive for it. With the refusal
+        # first, the launcher answered "at the cap" and started nothing, stranding a gated, green,
+        # mergeable PR with nobody authorised to finish it (Codex P1 on #407). Triage is the thing
+        # that decides eligibility; a launcher that re-decides it from a different rule is how the
+        # two came to disagree.
+        if ADVANCE_LABEL in labels and AMEND_LABEL not in labels:
+            # A clean review on an unfinished draft (#394). Not an AMEND: there are no blocking
+            # findings to fix, and a session told to fix them would either invent work or stop.
+            # AMEND wins if both are somehow present - answering a finding always precedes moving
+            # the lane on, and triage does not publish both, so this is a belt on a state that
+            # should not occur.
+            plan.append(
+                {
+                    "issue": number,
+                    "mode": "advance",
+                    "label_rounds": spent,
+                    "reason": (
+                        "agent:needs-advance is published for this claim: its draft is green, "
+                        "owes nothing, and a review has come back clean, so the lane has a next "
+                        "phase and nobody is walking it."
+                    ),
+                    "priority": _priority(labels),
+                }
+            )
+            continue
         if spent >= CAP:
             # The FAST refusal, from the published labels. Not the authoritative one - that is the
             # launcher's own issuance count in `_authorise_amend`, which does not depend on any
@@ -383,7 +427,7 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
 
     # AMEND and refusals first, then priority, then issue number. The number is the tie-break rather
     # than API order so two launchers on the same queue agree on what they are competing for.
-    order = {"refuse": 0, "lost": 0, "amend": 1, "build": 2}
+    order = {"refuse": 0, "lost": 0, "amend": 1, "advance": 2, "build": 3}
     plan.sort(key=lambda item: (order[item["mode"]], item["priority"], item["issue"]))
 
     # Refusals are reported however many there are; only launches consume a slot.
@@ -581,6 +625,168 @@ def _spawn(command: str) -> None:
     subprocess.Popen(command, shell=True)  # noqa: S602 - command is built here, not user-supplied
 
 
+def _authorise_advance(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
+    """Take the authority to advance this claim's lane by one phase, or return ``None`` (#394).
+
+    **One session per attempt, and attempts are bounded — not "exactly one session per step".**
+    This docstring asserted the stronger claim until Greptile read the two halves of the function
+    together on #407, and the difference is load-bearing. A label is a *state*: it stays published
+    until triage recomputes and withdraws it, so every launcher run in between would start another
+    session against the same phase - several workers all spending the Greptile credit, or all
+    marking the PR ready. So the label publishes the authority and this consumes it, by the same
+    compare-and-swap the AMEND ledger uses: ``201`` to the winner, ``422`` to everyone after, keyed
+    to the claim generation so a reclaim starts fresh.
+
+    An attempt ORDINAL settled only the simultaneous race, and Greptile's ``P1`` on #407 is that
+    gap: a launcher running *after* another's ref exists counts it, takes the next ordinal, and
+    collides with nothing, so two same-generation workers run one step and can spend a metered
+    credit twice. The ref is therefore keyed on :func:`_lane_state_digest` rather than a counter -
+    *the lane state the previous session recorded* - which is the one signal here that distinguishes
+    **reported back** from **still running**, and needs no lease, TTL or heartbeat (#412).
+
+    **In its own namespace**, which is what makes advancing cost no round. Reusing
+    ``amend-rounds`` would have spent one of the two metered rounds to move a pull request from one
+    phase to the next - and #391 has just finished making that ledger mean one thing.
+
+    Refs accumulate rather than stopping at one: a lane has several phases, and the worker that
+    spends the Greptile credit is not the worker that marks the PR ready. **The review cap does not
+    bind here** - none of these steps is a round - so what bounds a single step is
+    ``ADVANCE_ATTEMPTS``, a runaway ceiling on refs sharing one prefix, and what bounds the lane is
+    triage withdrawing the label the moment it has nowhere left to go. This paragraph said *"there
+    is no cap here"* until CodeRabbit read it beside the ceiling three screens below.
+    """
+    number = item["issue"]
+    record = _existing_claim(number, owner)
+    generation = int(record["generation"])
+    sha = reaper._read_ref(number)
+    if sha is None:
+        raise SlotError(f"#{number} claim ref vanished before its lane advance could be issued")
+    # Keyed to the concrete lane STEP, from the same evidence triage used to publish the label.
+    # Head-plus-phase was too coarse: several one-step sessions share a head - spend the Greptile
+    # credit, then mark ready; ask CodeRabbit, then arm the merge - so the second of any pair
+    # collided on `422` and stranded the lane (Codex P2 on #407).
+    pr = triage._pull_request(number=None, branch=record["branch"])
+    if not isinstance(pr, dict):
+        raise SlotError(f"#{number} has no open pull request to advance")
+    try:
+        phase = triage.advance_step_token(pr)
+    except (triage.TriageError, claim.ClaimError):
+        # A step token this launcher cannot compute is not one it may guess at: a coarser fallback
+        # keys the ref differently from the launcher that read successfully, and two names for one
+        # state is two workers (CodeRabbit on #407).
+        #
+        # Reported as a REFUSAL rather than raised, because the failure is transient and local to
+        # this claim. Raising would abort the whole run, so one flaky read on one pull request would
+        # strand every other claim in the plan - and this costs nothing to retry, since no ref has
+        # been taken and the next event recomputes it.
+        item["mode"] = "refuse"
+        item["reason"] = (
+            f"#{number}'s lane step could not be determined - the review list at this head was "
+            "unreadable - so no advance ref can be keyed to it. Nothing was consumed; the next "
+            "triage event reissues the authority."
+        )
+        return None
+    # AND TO AN ATTEMPT, because a step can fail to produce the evidence that ends it. The step
+    # token only moves when a provider submission appears at this head, so the session that ASKS
+    # CodeRabbit consumes `ready-0` before there is anything to see - and if that request is
+    # throttled, refused, or silently suppressed, no review ever arrives, the token stays put, and
+    # every later launcher collides on `422`. The mandatory gate would then be unretryable by
+    # construction (Codex P1 on #407), which is not hypothetical: this repository's own lane sat in
+    # exactly that state under CodeRabbit's adaptive limit.
+    #
+    # AND TO THE LANE STATE THE PREVIOUS ATTEMPT LEFT BEHIND, which is what makes the retry safe.
+    # An ordinal derived from the refs that merely EXIST settles only the SIMULTANEOUS race: two
+    # launchers at once compute the same number and the compare-and-swap gives the session to one of
+    # them, but a launcher arriving LATER counts the winner's ref, takes the next ordinal, and
+    # collides with nothing - so two same-generation workers run one step and can duplicate a
+    # metered request (Greptile `P1` on #407).
+    #
+    # Keying the ref on a digest of the PR BODY closes it without a lease, a TTL or a heartbeat,
+    # none of which `AGENTS.md` allows. `.agents/tasks/advance.md` requires every session to write
+    # the lane state into that body before it exits - including the stop-and-record path - so the
+    # digest moving IS the previous attempt reporting that it is over. While a worker is still
+    # running the digest is unchanged, the ref name is identical, and the second launcher takes
+    # `422` exactly as the simultaneous case does.
+    #
+    # It fails in the safe direction on the case it cannot see: a worker that dies WITHOUT recording
+    # leaves the digest unmoved, so no retry is issued and the lane stalls visibly, wanting a
+    # person. That is the direction every other control here takes, and it is the opposite of
+    # spending a credit twice in silence.
+    prefix = f"{ADVANCE_NAMESPACE}/{number}-{generation}-{sha[:12]}-{phase}-"
+    taken = _advance_attempts(prefix)
+    if taken >= ADVANCE_ATTEMPTS:
+        item["mode"] = "refuse"
+        item["reason"] = (
+            f"#{number}'s {phase} lane step has been attempted {taken} times at {sha[:7]} without "
+            f"producing the evidence that ends it, which is the {ADVANCE_ATTEMPTS}-attempt runaway "
+            "ceiling rather than the review cap. A provider is refusing or silently suppressing "
+            "the request; a maintainer decides, and no further session helps."
+        )
+        return None
+    ref = f"refs/{prefix}{_lane_state_digest(pr)}"
+    status, _ = claim._request("POST", f"/repos/{REPO}/git/refs", {"ref": ref, "sha": sha})
+    if status == 422:
+        item["mode"] = "lost"
+        item["reason"] = (
+            f"#{number}'s {phase} lane step is already held at {sha[:7]} - either another launcher "
+            "took it just now, or a session is still working it and has not yet recorded a lane "
+            "state to retry from"
+        )
+        return None
+    if status != 201:
+        raise SlotError(
+            f"the {phase}-phase lane advance for #{number} could not be claimed (HTTP {status})"
+        )
+    # `round` is what the ledger has ALREADY spent, not a round being taken - an advance takes
+    # none. Zero was the honest reading of "this session spends nothing" and a false reading of the
+    # row it renders: a capped pull request was handed *"metered rounds spent 0 of 2"* directly
+    # above *"rounds still available 0"*, two rows of one table contradicting each other, and the
+    # first of them telling the worker the cap was untouched (CodeRabbit on #407). The template
+    # says what this session spends in its own row, where it needs no number.
+    item["round"] = item["label_rounds"]
+    item["remaining"] = CAP - item["label_rounds"]
+    return record
+
+
+def _lane_state_digest(pr: dict[str, Any]) -> str:
+    """A short digest of the pull request body — *the lane state the last session left* (#394).
+
+    The advance ref is keyed on this so a retry becomes issuable only once something has reported
+    back. `.agents/tasks/advance.md` makes writing the lane state the last thing every session does,
+    stop-and-record paths included, so a moved digest means the previous attempt ended and an
+    unmoved one means it has not.
+
+    **Digest of the whole body, not of a parsed lane block.** Parsing would need the body to keep a
+    fixed shape, and the body is prose a human also edits; a parser that silently found nothing
+    would return one constant for every state and re-open the overlap this closes. Hashing
+    everything means an unrelated edit merely permits one extra attempt - bounded by
+    ``ADVANCE_ATTEMPTS`` - which is the harmless direction.
+
+    Hex-truncated because it lands in a ref name: 12 characters over a body-sized input is far past
+    the collision risk that matters here, where the only cost of a collision is one refused retry.
+    """
+    body = pr.get("body")
+    return hashlib.sha256((body if isinstance(body, str) else "").encode("utf-8")).hexdigest()[:12]
+
+
+def _advance_attempts(prefix: str) -> int:
+    """How many sessions have already been issued for this exact lane step.
+
+    Fails closed, like every other ledger read here: an unreadable answer reported as zero would
+    mint an attempt the ceiling should have refused. ``404`` from ``matching-refs`` is the ordinary
+    "nothing matches" answer and genuinely means none.
+    """
+    status, payload = claim._request("GET", f"/repos/{REPO}/git/matching-refs/{prefix}", None)
+    if status == 404:
+        return 0
+    if status != 200 or not isinstance(payload, list):
+        raise SlotError(
+            f"the lane-advance ledger for {prefix} could not be read (HTTP {status}); refusing to "
+            "treat an unreadable ledger as an empty one"
+        )
+    return len(payload)
+
+
 def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
     """Take AMEND authority for this issue, or return ``None`` having recorded why not.
 
@@ -678,19 +884,20 @@ def run(*, slots: int, vendor: str, owner: str, spawn: bool, tasks: Path) -> dic
     # property of the file alone, so there is no reason to discover it after taking a claim - which
     # would strand the ref until the reaper - or after authorising a round, which spends one of the
     # two irrevocably and launches nothing with it.
-    for mode in {item["mode"] for item in plan} & {"amend", "build"}:
+    for mode in {item["mode"] for item in plan} & {"amend", "advance", "build"}:
         _body(tasks / f"{mode}.md")
     results: list[dict[str, Any]] = []
     for item in plan:
         if item["mode"] == "refuse":
             results.append({**item, "launched": False})
             continue
-        if item["mode"] == "amend":
-            record = _authorise_amend(item, owner)
+        if item["mode"] in ("amend", "advance"):
+            authorise = _authorise_amend if item["mode"] == "amend" else _authorise_advance
+            record = authorise(item, owner)
             if record is None:
                 results.append({**item, "launched": False})
                 continue
-            task_file = tasks / "amend.md"
+            task_file = tasks / f"{item['mode']}.md"
         else:
             taken = _dispatch_build(item["issue"], vendor, owner)
             if taken is None:

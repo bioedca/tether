@@ -661,6 +661,95 @@ def _transport(monkeypatch: pytest.MonkeyPatch, reason: BaseException) -> None:
     )
 
 
+class _Answer:
+    """The little of a ``urlopen`` result ``_request`` actually touches, and no more."""
+
+    def __init__(self, payload: bytes | BaseException, status: int = 200) -> None:
+        """Carry either the bytes to hand back or the exception to raise instead of them."""
+        self._payload = payload
+        self.status = status
+
+    def __enter__(self) -> _Answer:
+        """``urlopen`` is used as a context manager, so this stands in for one."""
+        return self
+
+    def __exit__(self, *_exc: object) -> bool:
+        """Never suppress: a test that swallowed its own failure would pass for nothing."""
+        return False
+
+    def read(self) -> bytes:
+        """Hand back the body, or fail the way a real response fails part-way through one."""
+        if isinstance(self._payload, BaseException):
+            raise self._payload
+        return self._payload  # type: ignore[return-value]
+
+
+@pytest.mark.parametrize(
+    ("payload", "named"),
+    [
+        pytest.param(b"<html>502 Bad Gateway</html>", "JSONDecodeError", id="not-json"),
+        pytest.param(claim.http.client.IncompleteRead(b"{"), "IncompleteRead", id="cut-short"),
+        pytest.param(TimeoutError("timed out"), "TimeoutError", id="stalled-mid-read"),
+    ],
+)
+def test_an_answer_that_cannot_be_read_leaves_request_as_a_claim_error(
+    monkeypatch: pytest.MonkeyPatch, payload: bytes | BaseException, named: str
+) -> None:
+    """``ClaimError`` is the promise every caller holds; only the transport half of it was kept.
+
+    ``_request`` converted a socket failure and returned an HTTP status, so both of those arrive as
+    something a caller can handle. The success path did not: ``response.read()`` and ``json.loads``
+    ran *inside* the ``try`` but past every ``except``, so a proxy's HTML error page or a connection
+    dropped mid-body came out as a raw ``ValueError`` or ``IncompleteRead``.
+
+    That is not a tidiness point. ``triage._verdict_at_head`` documents itself as failing **soft** —
+    an unreadable comment list means *no verdict seen*, withholding an authority rather than
+    granting one — and implements it as ``except claim.ClaimError``. For anything but a transport
+    error the documented soft failure was a hard crash of the whole triage run (CodeRabbit on #407).
+    """
+    monkeypatch.setattr(claim, "_token", lambda: "t")
+    monkeypatch.setattr(claim.urllib.request, "urlopen", lambda *_a, **_k: _Answer(payload))
+    with pytest.raises(claim.ClaimError) as caught:
+        claim._request("GET", "/repos/o/r/issues/1/comments")
+    assert named in str(caught.value)
+    assert "could not be read" in str(caught.value)
+
+
+class _UnreadableBody:
+    """An ``HTTPError`` file object that fails where ``error.read()`` reads it."""
+
+    def read(self, *_a: object) -> bytes:
+        """The failure itself: the body ends before the length the headers promised."""
+        raise claim.http.client.IncompleteRead(b"{")
+
+    def close(self) -> None:
+        """``HTTPError`` closes its file object on the way out, and that must not fail too."""
+        return None
+
+
+def test_a_status_survives_a_body_that_cannot_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same defect one branch over, and Python's scoping is why (CodeRabbit's `Major` on #407).
+
+    ``error.read()`` runs INSIDE the ``HTTPError`` handler, and an exception raised inside a handler
+    is not offered to its siblings — so the guard added for the success path could never have caught
+    this one.
+
+    Degraded rather than raised, deliberately. The status line arrived intact, so the answer is
+    known even though the body is not, and it is the same loss the unparseable-body branch beside it
+    already accepts. ``_request`` promises HTTP errors are *returned* — 422 is an answer — and
+    raising here would falsify that for a 404 whose body happened to be truncated.
+    """
+    monkeypatch.setattr(claim, "_token", lambda: "t")
+    monkeypatch.setattr(
+        claim.urllib.request,
+        "urlopen",
+        _raises(
+            claim.urllib.error.HTTPError("https://api", 404, "Not Found", {}, _UnreadableBody())  # type: ignore[arg-type]
+        ),
+    )
+    assert claim._request("GET", "/repos/o/r/issues/1") == (404, None)
+
+
 def test_a_transport_failure_on_the_eligibility_read_is_an_error_not_a_verdict(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

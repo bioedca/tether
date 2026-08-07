@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -329,7 +330,17 @@ def _token() -> str:
 
 
 def _request(method: str, path: str, body: dict[str, Any] | None = None) -> tuple[int, Any]:
-    """Return (status, parsed-json). HTTP errors are returned, not raised: 422 is an answer."""
+    """Return (status, parsed-json). HTTP errors are returned, not raised: 422 is an answer.
+
+    **Every other failure leaves here as ``ClaimError``**, which is the promise callers actually
+    hold: the ones that fail closed catch it and stop, and the few documented to fail *soft* catch
+    it and carry on. Only the transport half of that was true — a truncated read or a body that is
+    not JSON escaped as ``IncompleteRead`` or ``ValueError`` from the success path, past every one
+    of those handlers, and took the whole run down (CodeRabbit on #407, against
+    ``triage._verdict_at_head``, whose docstring says an unreadable list means *no verdict seen*).
+    Caught at the source rather than at that one call site, because the promise is this function's
+    to keep and every caller was relying on it.
+    """
     data = json.dumps(body).encode("utf-8") if body is not None else None
     request = urllib.request.Request(  # noqa: S310 - fixed https API host
         f"{API}{path}",
@@ -350,13 +361,27 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None) -> tupl
             payload = response.read()
             return response.status, (json.loads(payload) if payload else None)
     except urllib.error.HTTPError as error:
-        payload = error.read()
+        # Inside a handler, so the sibling below CANNOT catch what this raises - which is the same
+        # defect one branch over, and CodeRabbit's `Major` on #407 for it. Degraded to `(code,
+        # None)` rather than raised, because it is the same loss as the unparseable body just
+        # below: the status line arrived intact, so the answer is known even when the body is not,
+        # and this function's contract is that HTTP errors are RETURNED. Raising would turn a
+        # perfectly legible 404 into an exception because its body was truncated.
+        try:
+            payload = error.read()
+        except (OSError, ValueError, http.client.HTTPException):
+            return error.code, None
         try:
             return error.code, json.loads(payload) if payload else None
         except ValueError:
             return error.code, None
     except urllib.error.URLError as exc:
         raise _transport_error(exc) from exc
+    except (OSError, ValueError, http.client.HTTPException) as exc:
+        # Ordering is load-bearing: `HTTPError` and `URLError` are both `OSError`, and both are
+        # answers rather than failures, so they are handled above and never reach here. What does
+        # is the response going wrong mid-read or arriving as something `json.loads` refuses.
+        raise ClaimError(f"the GitHub API answer could not be read ({type(exc).__name__})") from exc
 
 
 def _graphql(query: str, variables: dict[str, Any], what: str) -> dict[str, Any]:

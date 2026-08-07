@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -50,11 +51,19 @@ class Fake:
         # was taken in is written into it (#391), so a test that could only see the path could not
         # tell a draft session from a counted one.
         self.created_refs: list[str] = []
+        # Refs that already exist, so the compare-and-swap can answer `422` for THE NAME REQUESTED
+        # rather than for every request alike. A blanket `ref_status=422` made the overlap test pass
+        # whatever name the launcher computed, which is the one thing that test exists to check -
+        # found by mutation-testing #412's fix and watching the test not fail.
+        self.existing_refs: set[str] = set()
 
     def __call__(self, method: str, path: str, body: Any = None) -> tuple[int, Any]:
         self.calls.append((method, path))
         if method == "POST" and path.endswith("/git/refs") and isinstance(body, dict):
-            self.created_refs.append(str(body.get("ref", "")))
+            name = str(body.get("ref", ""))
+            if name in self.existing_refs:
+                return (422, None)
+            self.created_refs.append(name)
         best: tuple[int, tuple[int, Any]] | None = None
         for (m, prefix), response in self.routes.items():
             if m == method and path.startswith(prefix) and (best is None or len(prefix) > best[0]):
@@ -70,6 +79,10 @@ class Fake:
         generation's refs — which the real endpoint never would, and which made the
         generation-keying test pass for the wrong reason until `_amend_ordinals` started failing
         closed on a ref it could not attribute.
+
+        Load-bearing one level narrower too, since #394: a lane-advance ledger read is keyed to a
+        single STEP, so without this it would count every advance ref in the namespace and the
+        attempt and ceiling assertions would pass for a reason GitHub does not supply.
         """
         marker = "/git/matching-refs/"
         status, body = answer
@@ -110,6 +123,7 @@ def _install(
     issues: dict[int, dict[str, Any]] | None = None,
     ref_status: int = 201,
     issued_refs: list[dict[str, Any]] | None = None,
+    advance_refs: list[dict[str, Any]] | None = None,
 ) -> Fake:
     """Wire the fake transport and the claim-ref list.
 
@@ -135,6 +149,10 @@ def _install(
         ("GET", f"/repos/bioedca/tether/git/matching-refs/{slots.AMEND_NAMESPACE}/"): (
             200,
             issued_refs or [],
+        ),
+        ("GET", f"/repos/bioedca/tether/git/matching-refs/{slots.ADVANCE_NAMESPACE}/"): (
+            200,
+            advance_refs or [],
         ),
     }
     for number, issue in (issues or {}).items():
@@ -281,22 +299,49 @@ def _draft_ref(number: int, generation: int, ordinal: int) -> dict[str, Any]:
     }
 
 
-def _as_draft(fake: Fake, *, draft: bool) -> None:
+def _lane_ref(body: str = "lane state", *, phase: str = "draft-1") -> str:
+    """The advance ref a launcher computes for issue 7 at HEAD, given this PR body.
+
+    Derived rather than written out, because the digest half of the name is the whole point of
+    #412's fix and a hand-copied constant would stop tracking it the first time the input changed.
+    """
+    digest = slots._lane_state_digest({"body": body})
+    return f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-{phase}-{digest}"
+
+
+def _as_draft(fake: Fake, *, draft: bool, body: str = "lane state") -> None:
     """Point the claim's branch at a pull request in one phase or the other.
 
     `_in_draft_phase` goes through `triage._counted_from`, which reads the TIMELINE and not the
     `draft` flag alone - so a draft here means no `ready_for_review` has ever happened, which is
     what makes entering the counted phase permanent.
+
+    `body` is load-bearing since #412: the advance ref is keyed on its digest, so *the lane state
+    the previous session recorded* is what decides whether a retry is issuable at all.
     """
     fake.routes[("GET", "/repos/bioedca/tether/pulls?head=bioedca:agent/issue-7")] = (
         200,
         [{"number": 99}],
     )
-    fake.routes[("GET", "/repos/bioedca/tether/pulls/99")] = (200, {"number": 99, "draft": draft})
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99")] = (
+        200,
+        {"number": 99, "draft": draft, "head": {"sha": HEAD}, "body": body},
+    )
     fake.routes[("GET", "/repos/bioedca/tether/issues/99/timeline")] = (
         200,
         [] if draft else [{"event": "ready_for_review", "created_at": "2026-08-01T12:00:00Z"}],
     )
+    # The advance ref is keyed to the lane STEP, which triage derives from the provider evidence at
+    # the head, so the reviews list has to be answerable or the token falls back to the phase alone.
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99/reviews")] = (
+        200,
+        [{"user": {"login": "chatgpt-codex-connector[bot]"}, "commit_id": HEAD}],
+    )
+    # And the comment list beside it, because the token applies #396's reply filter and a reply
+    # wrapper is only identifiable from the join. Registered even though most tests leave it empty:
+    # `Fake` matches by prefix, so without it `…/pulls/99/comments` falls through to the
+    # `…/pulls/99` route, gets a dict where a list belongs, and every advance test refuses.
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99/comments")] = (200, [])
 
 
 def test_a_draft_claim_can_be_issued_more_amends_than_the_cap(
@@ -525,6 +570,387 @@ def test_the_draft_ledger_is_still_keyed_to_the_claim_generation(
     assert fake.amend_refs() == [
         f"refs/{slots.AMEND_NAMESPACE}/7-77-{slots.DRAFT_ORDINAL_PREFIX}1"
     ], "generation 77's draft ledger must start at 1 regardless of generation 76's"
+
+
+# ------------------------------------------- the lane advance is not a review round (#394)
+
+
+def test_an_advance_label_launches_the_advance_task_not_the_amend_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#394's second criterion: the session must be told which phase it is in.
+
+    Handing this claim `amend.md` would tell a worker to fix the blocking findings — and there are
+    none, which is the precondition of the whole state. It would then either invent work or stop.
+    """
+    fake = _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.ADVANCE_LABEL)})
+    _as_draft(fake, draft=True)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    report = slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    entry = _by_issue(report, 7)
+    assert entry["mode"] == "advance"
+    text = (tmp_path / entry["task_file"]).read_text(encoding="utf-8")
+    assert "ADVANCE" in text and "AMEND —" not in text
+    assert "{{" not in text
+
+
+def test_an_advance_takes_a_ref_outside_the_round_ledger(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#394's third criterion: advancing consumes no review round.
+
+    The ref is still taken — it is what makes the authority exactly one session — but in
+    `refs/lane-advances/`. In `refs/amend-rounds/` it would spend one of the two metered rounds to
+    move a pull request from one phase to the next.
+    """
+    fake = _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.ADVANCE_LABEL)})
+    _as_draft(fake, draft=True)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    assert fake.amend_refs() == [], "an advance must not touch the round ledger"
+    # Keyed to the claim, the head, the lane STEP and the attempt. The step is what stops two
+    # sessions racing on one state; the attempt is what stops a step whose provider never answered
+    # from becoming unretryable. Both halves are named here so a change to either is visible.
+    assert fake.created_refs == [_lane_ref()]
+
+
+# Codex `P1` — *the mandatory gate must not be unretryable by construction* — and Greptile `P1` —
+# *the retry that fixes it must not overlap two sessions on one step* — are answered together by
+# the two tests below rather than by an attempt ordinal. The ordinal satisfied the first and broke
+# the second; a digest of the recorded lane state satisfies both, because it distinguishes *the
+# previous session reported back* from *the previous session is still running*, which is the
+# distinction a counter cannot draw.
+
+
+def test_a_later_launcher_does_not_overlap_an_in_flight_advance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Greptile `P1` on #407: the SEQUENTIAL race an attempt ordinal does not close.
+
+    The compare-and-swap settles only the simultaneous case — two launchers at once compute the
+    same ordinal and one takes `422`. A launcher arriving *later* counted the winner's ref, took the
+    next ordinal, and collided with nothing, so two same-generation workers ran one step and could
+    spend a metered credit twice.
+
+    The fix is to key the ref on a digest of the PR BODY rather than on a counter. `advance.md`
+    makes writing the lane state the last act of every session, so a moved digest is the previous
+    attempt *reporting that it is over*; while a worker is still running the digest is unchanged,
+    the computed ref name is identical, and this launcher takes `422` exactly as it would have in
+    the simultaneous case. No lease, no TTL and no heartbeat, none of which `AGENTS.md` allows.
+
+    Here the previous attempt's ref already exists for THIS body, so nothing is issued.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL)},
+        # Attempt 1, taken by a launcher whose worker has not finished and so has recorded nothing.
+        advance_refs=[{"ref": _lane_ref()}],
+    )
+    # `422` for THIS NAME only. A blanket refusal would pass whatever the launcher computed, which
+    # is exactly what this test must not accept.
+    fake.existing_refs.add(_lane_ref())
+    _as_draft(fake, draft=True)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    report = slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    entry = _by_issue(report, 7)
+    assert entry["mode"] == "lost" and entry["launched"] is False, (
+        "a second worker must not be served for a step already being worked"
+    )
+    assert not list(tmp_path.glob("_task-issue-7*.md")), "and no ADVANCE task may be rendered"
+
+
+def test_a_recorded_lane_state_is_what_makes_the_retry_issuable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The other half of #412, and the reason the fix is a digest rather than a refusal.
+
+    Codex `P1` on #407 is still true: a session that asks a throttled provider produces no evidence,
+    so keyed on the step alone every later launcher collides forever and the mandatory gate is
+    unretryable by construction. That session still *exits*, and exiting means recording the lane
+    state — so the digest moves, the ref name differs from the one attempt 1 took, and the retry is
+    served.
+
+    Same claim, same head, same step as the test above. The only difference is that the previous
+    session reported back, which is exactly the distinction the ordinal could not draw.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL)},
+        advance_refs=[{"ref": _lane_ref("lane state")}],
+    )
+    _as_draft(fake, draft=True, body="lane state — CodeRabbit throttled, nothing spent")
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    assert fake.created_refs == [_lane_ref("lane state — CodeRabbit throttled, nothing spent")], (
+        "a session that recorded why it stopped must be retryable at the same head"
+    )
+
+
+def test_the_advance_table_never_tells_a_capped_worker_its_cap_is_untouched(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CodeRabbit on #407: two rows of one table, contradicting each other.
+
+    `{{ROUND}}` was hard-zero for an advance — true of what the session spends, false of the row it
+    renders. A pull request at the cap was handed *"metered rounds spent 0 of 2"* directly above
+    *"rounds still available 0"*, and the first of those is the row a worker reads to decide whether
+    another review request is affordable. What the session spends is now its own row, where it needs
+    no number and cannot be read as a ledger balance.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL, *slots.ROUND_LABELS)},
+    )
+    _as_draft(fake, draft=False)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    rendered = (tmp_path / "_task-issue-7.md").read_text(encoding="utf-8")
+    assert "**2 of 2**" in rendered, "the spent count must be the ledger's, not the session's"
+    assert "**0**" in rendered, "and it must agree with the remaining count beside it"
+    assert "**0 of 2**" not in rendered
+
+
+def test_an_unreadable_review_list_issues_no_advance_at_all(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CodeRabbit on #407: the step token must fail closed, not degrade to a coarser one.
+
+    `advance_step_token` used to swallow a `ClaimError` on the review list and return the bare
+    phase. That looked conservative and was not. The coarse token `draft` keys the prefix
+    `…-draft-`, which `…-draft-1-1` starts with — so this launcher counts the *successful*
+    launcher's ref, takes `…-draft-2`, and creates a name that collides with nothing. Two ref names
+    for one lane state, two workers, and a Greptile credit possibly spent twice.
+
+    It also made `_authorise_advance`'s own guard unreachable for the one failure it was written
+    for. Asserted as an absence — no ref created, no task rendered — because the defect produced a
+    ref that looked perfectly well-formed.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL)},
+        advance_refs=[{"ref": f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1-1"}],
+    )
+    _as_draft(fake, draft=True)
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99/reviews")] = (502, None)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    report = slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    assert fake.created_refs == [], "an unreadable step must issue no advance ref"
+    assert not list(tmp_path.glob("_task-issue-*.md")), "and no worker may be rendered for one"
+    refusals = [item for item in report["results"] if item["mode"] == "refuse"]
+    assert refusals and "unreadable" in refusals[0]["reason"], (
+        "reported as a refusal rather than raised: one flaky read on one claim must not abort the "
+        "run for every other claim in the plan"
+    )
+
+
+def test_answering_an_old_finding_does_not_look_like_a_new_lane_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#396's reply wrapper, reappearing in the step token this PR introduces (CodeRabbit on #407).
+
+    `_review_state` has excluded wrappers since #404; `advance_step_token` counted them. Answering a
+    thread makes GitHub wrap the reply in a `COMMENTED` submission carrying the CURRENT `commit_id`,
+    so a reply to an OLD finding reads as fresh provider evidence at this head. The token moves, the
+    ref prefix moves with it, `_authorise_advance` finds nothing at the new name, and the SAME lane
+    step is launched a second time — a Greptile credit possibly spent twice for one phase.
+
+    Asserted on the ref NAME because both readings create a ref, and only the name says which
+    happened: the STEP segment is `draft-1` if the wrapper was filtered and `draft-2` if it was
+    counted as a second piece of provider evidence.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL)},
+    )
+    _as_draft(fake, draft=True)
+    wrapper = 4242
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99/reviews")] = (
+        200,
+        [
+            {"user": {"login": "chatgpt-codex-connector[bot]"}, "commit_id": HEAD},
+            # The wrapper: empty body, no verdict, and GitHub's rewritten `commit_id` at the head.
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "id": wrapper,
+                "commit_id": HEAD,
+                "state": "COMMENTED",
+                "body": "",
+            },
+        ],
+    )
+    fake.routes[("GET", "/repos/bioedca/tether/pulls/99/comments")] = (
+        200,
+        [
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "pull_request_review_id": wrapper,
+                "in_reply_to_id": 11,
+                "commit_id": HEAD,
+                "original_commit_id": "0" * 40,
+            }
+        ],
+    )
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    assert fake.created_refs == [_lane_ref(phase="draft-1")], (
+        "a reply is not a lane step: the token must stay at the step the real review unlocked, so "
+        "the ref names step `draft-1` and never `draft-2`, which nothing produced"
+    )
+
+
+def test_a_lane_step_that_never_completes_stops_at_the_attempt_ceiling(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Retryable is not unbounded, which is the same distinction `DRAFT_CEILING` draws.
+
+    A step that has been attempted `ADVANCE_ATTEMPTS` times at one head without producing the
+    evidence that ends it is not going to; something outside this repository is refusing. Serving
+    attempt four would relaunch the same dead session forever, so the launcher refuses and says
+    which provider behaviour to look for.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL)},
+        advance_refs=[
+            {"ref": f"refs/{slots.ADVANCE_NAMESPACE}/7-77-{HEAD[:12]}-draft-1-{n}"}
+            for n in range(1, slots.ADVANCE_ATTEMPTS + 1)
+        ],
+    )
+    _as_draft(fake, draft=True)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    report = slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    assert fake.created_refs == [], "no further session is issued"
+    refusals = [item for item in report["results"] if item["mode"] == "refuse"]
+    assert refusals, "and the refusal is reported rather than looking like no work"
+    assert "runaway ceiling rather than the review cap" in refusals[0]["reason"]
+
+
+def test_losing_the_advance_race_launches_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`exactly one session` is the criterion, and a label alone cannot meet it.
+
+    A label is state: it stays published until triage recomputes, so every launcher run in between
+    would start another session against the same phase — several workers all spending the Greptile
+    credit, or all marking the PR ready. `422` is how the loser finds out.
+    """
+    fake = _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL)},
+        ref_status=422,
+    )
+    _as_draft(fake, draft=True)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    report = slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path)
+    entry = _by_issue(report, 7)
+    assert entry["mode"] == "lost"
+    assert entry["launched"] is False
+    assert "already held" in entry["reason"]
+    assert not list(tmp_path.glob("_task-issue-*"))
+
+
+def test_an_amend_wins_over_an_advance_when_both_are_somehow_published(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Answering a finding always precedes moving the lane on.
+
+    `triage.py` does not publish both, so this is a belt on a state that should not occur — but if
+    it does, the safe reading is the one that fixes something rather than the one that advances past
+    it.
+    """
+    _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.ADVANCE_LABEL, slots.AMEND_LABEL)},
+    )
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    entry = _by_issue(
+        slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path), 7
+    )
+    assert entry["mode"] == "amend"
+
+
+def test_the_advance_template_tells_a_worker_it_is_not_an_amend() -> None:
+    """The stop-list #394 asks for, asserted on the shipped text rather than on the launcher.
+
+    Advancing more than one phase is the failure this template exists to prevent: each step begins
+    only when the previous has nothing blocking left, and a worker cannot know that about a review
+    it has just requested.
+    """
+    # Whitespace-normalised: these are prose files, so an assertion on an exact string breaks the
+    # first time a sentence rewraps, which teaches the next author to rewrite the test rather than
+    # to keep the promise.
+    text = " ".join((TASKS / "advance.md").read_text(encoding="utf-8").split())
+    assert "NOT AN AMEND" in text.upper()
+    assert "Do not walk more than one phase" in text
+    assert "Exhaustion never blocks" in text, "a Greptile balance of zero must not stall the lane"
+
+
+def test_the_advance_template_carries_its_procedure_in_a_runnable_order() -> None:
+    """Presence is not the property; ORDER is (CodeRabbit `Major` on #407).
+
+    The check above asserts three phrases exist. That passes a file which fences the claim *after*
+    the write it protects, drops the PR-state record, or tells the worker to exit before the one
+    command that ends the lane — and the last of those was live here: step 4 read
+    `**Write the new lane state into the PR body**, then **exit**` with the `gh pr merge` command in
+    the paragraph *below* it, so a worker following the step in order left before arming. The same
+    defect CodeRabbit found in `amend.md` on #405, in the sibling file.
+
+    So this pins the sequence a worker actually executes, each anchor a phrase the file must keep
+    for its own sake rather than one planted for the assertion.
+    """
+    text = " ".join((TASKS / "advance.md").read_text(encoding="utf-8").split())
+    sequence = [
+        ("confirm the PR still holds the authorising state", "Confirm it is still"),
+        ("revalidate the claim fence before writing", "claim.py check --issue"),
+        ("choose exactly one lane phase", "Work out which lane phase is next"),
+        ("record the new lane state", "Write the new lane state into the PR body"),
+        ("arm the merge, which is the lane's last action", "pr merge <PR> --auto --squash"),
+        ("and only then exit", "Then exit"),
+    ]
+    seen = -1
+    for what, anchor in sequence:
+        at = text.find(anchor)
+        assert at != -1, f"the procedure must instruct the worker to {what} (`{anchor}`)"
+        assert at > seen, f"'{what}' must come after the step before it, not at {at}"
+        seen = at
+
+    # The instruction spelling is lowercase; the exit-CODE sense is capitalised (``Exit `5` means
+    # the claim was reaped``) and is deliberately not matched. An `exit` anywhere above the arming
+    # paragraph is the #405 defect, and a single ordered pair cannot see one that sits above both.
+    procedure = text.find("## Do ")
+    exits = [m.start() for m in re.finditer(r"\bexit\b", text) if m.start() > procedure]
+    assert exits and min(exits) == text.find("Then exit") + len("Then "), (
+        "the only exit instruction in the procedure must be the final one; an earlier one tells a "
+        "worker to leave before the phase it was issued to perform"
+    )
 
 
 def test_losing_the_amend_round_race_launches_nothing(
