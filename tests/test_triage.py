@@ -3371,14 +3371,21 @@ def test_a_timeline_that_cannot_be_read_reports_the_gate_open(
     plain `False`. The evidence is otherwise a gate-satisfying payload, so nothing but the
     unreadable timeline can explain `open`.
     """
-    routes = _routes(reviews=[_clean_review(RABBIT, HEAD)], suites=GREEN)
+    # A clean review at the head to satisfy the gate, AND a blocking one at an older head so the
+    # round assertion below can fail. With only the clean review, `rounds == 0` holds whatever
+    # `counted_from` is - a clean review never spends a round - so the assertion would have passed
+    # even if the round axis had stopped counting entirely (CodeRabbit on #424).
+    routes = _routes(
+        reviews=[_clean_review(RABBIT, HEAD), _review(RABBIT, OLDER)],
+        suites=GREEN,
+    )
     routes[("GET", "/repos/bioedca/tether/issues/99/timeline")] = (502, {"message": "upstream"})
     _, result = _run(routes, monkeypatch)
     assert result["gate"] == "open", (
         "an unreadable phase is not evidence the draft is behind this PR, and the gate is the one "
         "axis merges are decided on"
     )
-    assert result["rounds"] == 0, (
+    assert result["rounds"] == 1, (
         "and the ROUND axis keeps its own fail direction from the same failure - `None` there "
         "still means count everything, which is why the two cannot share one answer"
     )
