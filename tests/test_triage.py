@@ -1270,6 +1270,18 @@ def test_the_wrapper_filter_and_the_rewritten_commit_id_are_independent(
 #
 # Same family as #396 - an artefact that is not a review being counted as one - and a distinct
 # cause: #396's wrapper is a SUBMITTED review with nothing in it, this is an UNSUBMITTED one.
+#
+# THESE THREE GO PARTLY VACUOUS WHEN #408 LANDS, and the successor has to re-pin them rather than
+# read three greens as coverage. #408 adds `_is_blocking`, which spends a round only on
+# `CHANGES_REQUESTED` or an inline finding - so `PENDING` stops counting on the round axis whether
+# or not the guard below exists, and the `rounds` assertions here stop binding it. Verified on this
+# branch by neutralising `UNSUBMITTED_REVIEW_STATE`: two of the three fail today, which is what
+# makes them real *now*.
+#
+# The guard does not become redundant, it moves. Under #408 a `PENDING` submission carrying a body
+# reaches `_says_something` and would set `gate_review_here` - proving the mandatory gate from a
+# review its author has not sent. That is the axis to assert on afterwards, and #415 already owes
+# exactly that test: "an unknown, absent or PENDING state proves nothing and voids nothing".
 
 
 def test_a_review_still_being_drafted_is_not_a_round(monkeypatch: pytest.MonkeyPatch) -> None:

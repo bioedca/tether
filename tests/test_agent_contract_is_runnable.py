@@ -92,6 +92,14 @@ BOTH_LANES = [path for path in WORKER_FACING if path not in LANE_SPECIFIC]
 # generous and the match is on the pairing rather than on either word alone.
 _PY_DEFINED = re.compile(r"`<py>`[^`]{0,80}\binterpreter\b", re.DOTALL)
 
+# `<SHA>` is the same shape of problem as `<py>` and gets the same shape of guard: a placeholder
+# nothing substitutes, which is only a convention where the page says what to put there. Same
+# generous non-backtick window, matched on the pairing rather than on either token alone.
+_SHA_DEFINED = re.compile(r"`<SHA>`[^`]{0,80}40-hex", re.DOTALL)
+
+#: The flag `<SHA>` is supplied to. It stands in for the merge queue this repository cannot have.
+_MERGE_BINDING_FLAG = "--match-head-commit"
+
 _SLOTS = _REPO / ".agents" / "bin" / "swarm_slots.py"
 
 # Absolute-path spellings that pin a command to one machine or one shell. `/mnt/` is the WSL view of
@@ -747,4 +755,46 @@ def test_no_posted_template_carries_a_provider_handle() -> None:
     assert not bad, (
         f"{bad} — a provider handle here fires a real review on everything opened from the "
         "template; name the command in prose instead"
+    )
+
+
+def test_a_page_that_arms_the_merge_says_what_sha_to_supply() -> None:
+    """#400: a page that carries the merge-binding flag must say what `<SHA>` to supply.
+
+    `<SHA>` is a placeholder nothing substitutes, so a page that omits the rule hands a worker a
+    literal. `swarm_slots._render` consumes `{{...}}` tokens and refuses to dispatch when one
+    survives. It has no opinion about angle brackets, so `<SHA>` reaches the worker exactly as
+    written — on the one flag that stands in for the merge queue this repository cannot have. The
+    failure is not that the merge breaks loudly: it is that a worker guesses, and the obvious guess
+    is to re-read the head from the pull request while arming, which compares the head against
+    itself, binds nothing, and still reads as protection.
+
+    So this is the `<py>` rule applied to the other unsubstituted placeholder, and deliberately the
+    same shape: **a page that carries the flag must also carry the rule.** Where `<py>` names a
+    resolution table, this names a source — the `commit_id` on the clean review — and the 40-hex
+    width is the part a reader can check, which is why the guard keys on it.
+
+    Asserted over `GUARDED_FILES` rather than `BOTH_LANES`, because `CONTRIBUTING.md` carries the
+    command too and a human following it can bind the wrong head just as easily. The pages
+    themselves are allowed to point at `docs/agents/review.md` §Merge instead of restating it, and
+    all of them do — the rule sentence is what is required here, not the reasoning behind it.
+    """
+    arming = [
+        path
+        for path in GUARDED_FILES
+        if any(_MERGE_BINDING_FLAG in command for _number, command in _commands(path))
+    ]
+    assert len(arming) >= 5, (
+        f"only {len(arming)} pages appear to arm the merge; the command extractor has stopped "
+        "seeing them and this guard would pass vacuously"
+    )
+    undefined = [
+        path.relative_to(_REPO).as_posix()
+        for path in arming
+        if not _SHA_DEFINED.search(path.read_text(encoding="utf-8"))
+    ]
+    assert not undefined, (
+        "these pages hand a worker `<SHA>` without saying what to put there, so the placeholder "
+        "reaches the merge command as a literal and the binding guard is a guess: "
+        f"{undefined}. State that it is the 40-hex head the clean review read."
     )
