@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0063 — Review evidence is read from the payload, not inferred from its shape
 
-- **Status:** accepted; refines the §Round cap of [ADR-0062](0062-draft-first-review-lane-with-metered-providers.md) and supersedes the no-shared-code rationale [ADR-0057](0057-github-native-swarm-coordination.md) gave the scope guard's round counter
+- **Status:** **superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)**, which retires `triage.py` and `scope_guard.py` rather than correcting how they read a payload. Nothing below governs. Its measurements stand and are cited in ADR-0064 as evidence
 - **Date:** 2026-08-07
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)

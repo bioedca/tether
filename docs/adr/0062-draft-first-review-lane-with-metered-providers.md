@@ -5,10 +5,12 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0062 — Draft-first review lane: spend the free provider before the metered ones
 
-- **Status:** accepted; supersedes the §Review gate and §Round cap of [ADR-0057](0057-github-native-swarm-coordination.md)
-  ADR-0057 records the review gate, the round counter and the launcher as one architectural control.
-  This record changes two of those three; the launcher half, and the rest of ADR-0057, stand
-  unchanged.
+- **Status:** **superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)**,
+  which removes the round ledger, the launcher and the metered-provider lane this record designed.
+  Nothing below governs. Kept for its history: it superseded the §Review gate and §Round cap of
+  [ADR-0057](0057-github-native-swarm-coordination.md), and it is the record that established the
+  draft-first ordering, which survives in `AGENTS.md` §Review as a convention rather than as a
+  counter.
 - **Date:** 2026-08-03
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)

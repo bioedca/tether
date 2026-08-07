@@ -5,9 +5,12 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0057 — GitHub-native swarm coordination
 
-- **Status:** accepted (supersedes [ADR-0052](0052-concurrent-agent-swarm-coordination.md) and
-  [ADR-0053](0053-structured-backlog-intake-gates-swarm-admission.md); adopted in phases — see
-  [Adoption status](#adoption-status))
+- **Status:** accepted **in part** (supersedes [ADR-0052](0052-concurrent-agent-swarm-coordination.md)
+  and [ADR-0053](0053-structured-backlog-intake-gates-swarm-admission.md)). Its claim mutex,
+  generation fence, scheduled reaper and ADR-number reservation **govern**; its §Review gate,
+  §Round cap and slot launcher are **superseded by
+  [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)** — see
+  [Adoption status](#adoption-status)
 - **Date:** 2026-07-28
 - **Deciders:** bioedca
 - **PRD anchor:** §12.2–§12.5 (GitHub Flow, reviews, pull requests, issue planning)
@@ -128,17 +131,16 @@ number reservation; **the scheduled reaper** (`.agents/bin/reaper.py`, `agent-re
 **vendor label mirror** — and, with them, the removal of the coordinator, the leases and the run
 records from the contract. ADR-0052 no longer governs anything.
 
-Also in force since 2026-07-30: **event-driven triage and the review-round counter**
-(`.agents/bin/triage.py`, `agent-triage.yml`) and **the slot launcher** (`.agents/bin/swarm_slots.py`,
-`.agents/bin/gate.ps1`). Those two are one control and are recorded together deliberately — see
-[The two-round cap needs both halves](#the-two-round-cap-needs-both-halves).
-
-Also in force since 2026-07-30: **the advisory scope guard** (`.agents/bin/scope_guard.py`,
-`scope-guard.yml`), which measures the `size:*` diff budget and classifies a push as material or
-not — the two computations the review gate above already turns on and which were previously applied
-by judgement alone. It is **deliberately not a required context**: replayed over every merged PR of
-this rebuild the thresholds are miscalibrated for new-executable work, and promoting an untested
-threshold would make the ladder impossible to fix without a red `main`.
+**Retired by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md) (2026-08-07):**
+**event-driven triage and the review-round counter** (`.agents/bin/triage.py`, `agent-triage.yml`),
+**the slot launcher** (`.agents/bin/swarm_slots.py`, `.agents/bin/gate.ps1`), and **the advisory
+scope guard** (`.agents/bin/scope_guard.py`, `scope-guard.yml`). They ran from 2026-07-30. The
+launcher issued one review round in that time and the ADVANCE half issued none, so the two-round cap
+this record describes as mechanically enforced never was; ADR-0064 makes it a convention and says
+so. The scope guard was **deliberately not a required context** — its thresholds are miscalibrated
+for new-executable work — and nothing read its verdict to make a decision.
+See [The two-round cap needs both halves](#the-two-round-cap-needs-both-halves) for what was
+intended, which is history rather than governance.
 
 **Not yet implemented:** Projects/Discussions as coordination surfaces.
 
