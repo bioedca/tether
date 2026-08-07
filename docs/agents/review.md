@@ -123,8 +123,7 @@ asking a provider to look **again** at work it has already reviewed this round.
   iteration while the PR is still a draft is uncounted, which is the point of doing the work there.
   `agent:round-N` and `agent:review-capped` therefore mean *post-draft, metered* rounds, and every
   AMEND is a fresh short-lived session whose task text the launcher injects with an explicit
-  `ROUND = N of 2`; past the cap it injects none, so no worker ever holds authority for a third. At
-  the cap, safety-class findings escalate to the maintainer and the rest become follow-ups.
+  `ROUND = N of 2`; past the cap it injects none, so no worker ever holds authority for a third.
   **A round is a metered review that found something blocking.** A clean one is the lane
   *terminating*, not a round, so it costs nothing — which is what stops the cap and the gate
   contradicting each other. Without that rule a round-2 review with findings left a PR needing a
@@ -133,7 +132,11 @@ asking a provider to look **again** at work it has already reviewed this round.
 - **At the cap you may ask once more, and only to verify convergence.** Answer everything, push,
   and request the final review. Clean satisfies the gate and the lane ends. Blocking again means the
   count has passed the cap: `agent:gate-blocked` goes on, and it is **a maintainer's** — safety-class
-  findings escalate, the rest become follow-ups, and you stop.
+  findings escalate, the rest become follow-ups, and you stop. **That escalation belongs here and
+  not at the cap**, which is where this page used to put it: at `agent:review-capped` the round-2
+  findings still have to be *fixed*, and a worker is still issued the session that fixes them, so
+  telling it to escalate and stop there would end the lane one step before the review the gate
+  requires (CodeRabbit on #408).
   Stop-list, not judgement: **never a review request while `agent:gate-blocked` is present**, and
   under `agent:review-capped` never more than that one *completed* convergence review. A request
   that produced no review has not spent it — a fair-use refusal naming a retry time is a wait, so

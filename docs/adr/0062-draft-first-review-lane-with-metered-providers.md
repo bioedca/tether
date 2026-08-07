@@ -72,7 +72,9 @@ spends it — by hand today, and from a session once #394's ADVANCE authority re
 phase. Nothing here starts a worker for a capped pull request. If
 that verification is clean the gate is satisfied at no cost and the lane ends. If it finds blocking
 work too, the count passes `CAP` and `triage.py` publishes **`agent:gate-blocked`**: the lane is
-bounded at three metered reviews, and every way out of it is a state something can act on rather
+bounded at three post-ready counted reviews — the optional Greptile credit on the draft is metered
+as well and sits deliberately outside that count, so *three metered reviews* would understate what
+a lane can spend — and every way out of it is a state something can act on rather
 than a green pull request nobody may merge. That last one is a maintainer's, and a label rather than
 a comment because a workflow posting one trips `test_no_workflow_can_post_a_review_trigger`.
 

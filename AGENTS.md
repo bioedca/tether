@@ -111,7 +111,9 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   So `agent:review-capped` forbids asking for another *round*, and permits exactly one convergence
   check: everything answered, pushed, and one final review requested. Clean satisfies the gate;
   blocking again publishes `agent:gate-blocked`. Stop-list, not judgement: **never a review request
-  while `agent:gate-blocked` is present**, and never a second one under `agent:review-capped`.
+  while `agent:gate-blocked` is present**, and never a second *completed* convergence review under
+  `agent:review-capped`. A request that produced no review has not spent it — a fair-use refusal
+  naming a retry time is a wait, so wait it out and ask again after reading the status check.
 - **A clean review resumes the claim too, and costs no round.** A review that finds nothing owes no
   AMEND, so it used to publish nothing and the draft stranded before the gate. `agent:needs-advance`
   is the authority to walk the lane on by **one** phase — `.agents/tasks/advance.md`, not AMEND, and

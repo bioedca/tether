@@ -76,7 +76,10 @@ The severity floor you classify against lives on `review.md`, not in the residen
   **blocking**, so a clean one costs nothing, and a clean **CodeRabbit** one is also what satisfies
   the gate. A review returning only non-blocking findings is clean for this purpose: defer them, per
   the first rule above, and the round stays free. It is not a third round and it is not optional —
-  without it a capped pull request can never merge. If that check comes back blocking too, stop:
-  `agent:gate-blocked` goes on, safety-class findings escalate to the maintainer, and the rest
-  become follow-ups.
+  without it a capped pull request can never merge. **A request that produced no review has not
+  spent it**: a fair-use refusal naming a retry time is a *wait*, so wait it out and ask again after
+  reading the status check — `pending` is a review running now that a second request destroys. What
+  is forbidden is a second *completed* convergence review, not a second attempt at getting the
+  first. If that check comes back blocking too, stop: `agent:gate-blocked` goes on, safety-class
+  findings escalate to the maintainer, and the rest become follow-ups.
 - Do not rebase or force-push a published branch, and do not open a second PR for this issue.

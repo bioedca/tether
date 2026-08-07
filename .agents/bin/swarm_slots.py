@@ -95,6 +95,10 @@ CAP = triage.CAP
 AMEND_LABEL = triage.AMEND_LABEL
 ADVANCE_LABEL = triage.ADVANCE_LABEL
 CAPPED_LABEL = triage.CAPPED_LABEL
+#: The terminal state, and since #399 the only published label that withholds AMEND authority here.
+#: `agent:review-capped` bounds metered REVIEWS; an AMEND is the session that answers one and is not
+#: itself a review. See `_plan`.
+GATE_BLOCKED_LABEL = triage.GATE_BLOCKED_LABEL
 ROUND_LABELS = triage.ROUND_LABELS
 
 # `agent:human` is reserved for the maintainer; `needs:split` means the issue is over its diff
@@ -377,20 +381,31 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
                 }
             )
             continue
-        if spent >= CAP:
+        if GATE_BLOCKED_LABEL in labels:
             # The FAST refusal, from the published labels. Not the authoritative one - that is the
             # launcher's own issuance count in `_authorise_amend`, which does not depend on any
-            # label. This one exists so a capped issue costs no further API calls, and it is
+            # label. This one exists so a terminal issue costs no further API calls, and it is
             # reported rather than skipped: a launcher passing over it quietly would look just like
             # one with no work.
+            #
+            # IT KEYS ON `agent:gate-blocked`, NOT ON THE CAP, and that is #399 (CodeRabbit on
+            # #408). Refusing at `spent >= CAP` rebuilt the deadlock this PR exists to remove, one
+            # layer up: `triage.py` publishes `agent:needs-amend` AT the cap so round-2's findings
+            # can be answered - a round is a metered REVIEW, and an AMEND is the session that
+            # answers one - and the launcher then refused to issue it. The lane could never reach
+            # the *everything answered, everything pushed* state the convergence check requires, so
+            # the change that un-deadlocks the gate deadlocked it one step earlier. Past the cap
+            # the convergence check found something too, and then there is genuinely nothing left
+            # to authorise; that is what this label means and it is the only thing that stops it.
             plan.append(
                 {
                     "issue": number,
                     "mode": "refuse",
                     "label_rounds": spent,
                     "reason": (
-                        f"at the {CAP}-round cap ({CAPPED_LABEL} present or {spent} rounds spent); "
-                        "no AMEND authority may be issued. Safety-class findings escalate to the "
+                        f"{GATE_BLOCKED_LABEL} is published for this claim: the convergence review "
+                        f"ADR-0062 allows past the {CAP}-round cap found blocking work too, so no "
+                        "AMEND authority may be issued. Safety-class findings escalate to the "
                         "maintainer; the rest become follow-ups."
                     ),
                     "priority": _priority(labels),
@@ -407,6 +422,10 @@ def _plan(*, slots: int, vendor: str) -> list[dict[str, Any]]:
                 "issue": number,
                 "mode": "amend",
                 "label_rounds": spent,
+                # Carried so `_authorise_amend` can apply the label-side bound without re-reading
+                # the issue. False here by construction - the branch above returns on it - and
+                # named rather than assumed, because the refusal message reads it.
+                "gate_blocked": False,
                 "reason": (
                     "agent:needs-amend is published for this claim: a check suite is not "
                     "green, or a review at the current head is unanswered."
@@ -845,12 +864,23 @@ def _authorise_amend(item: dict[str, Any], owner: str) -> dict[str, Any] | None:
         # as strict as the contract's and never looser - the property the first version failed to
         # have, and one the draft split above must not weaken: it changes which refs are counted,
         # never how the count is compared.
-        if max(issued, item["label_rounds"]) >= CAP:
+        # `max` of the round labels and this count is what the first version compared, and since
+        # #399 that conflates two different things. `label_rounds` counts metered REVIEWS; this
+        # counts the SESSIONS THAT ANSWER THEM, and at the cap exactly one of the latter is still
+        # due - the one that fixes round-2's findings so the convergence check has something clean
+        # to verify. Comparing against the review count refused it, which is the deadlock #399
+        # removes from `triage.py` rebuilt here (CodeRabbit on #408).
+        #
+        # The label-side bound is still real, it is just the right label: `agent:gate-blocked` is
+        # the state where nothing further is authorised, and it is published from a recount rather
+        # than carried forward, so it cannot be cleared by tidying labels.
+        if issued >= CAP or item.get("gate_blocked"):
             item["mode"] = "refuse"
+            blocked = f", and {GATE_BLOCKED_LABEL} is published" if item.get("gate_blocked") else ""
             item["reason"] = (
-                f"at the {CAP}-round cap ({issued} AMEND session(s) already issued for generation "
-                f"{generation}; labels report {item['label_rounds']}). No further AMEND authority "
-                "may be issued. Safety-class findings escalate to the maintainer; the rest become "
+                f"no further AMEND authority may be issued ({issued} session(s) already issued for "
+                f"generation {generation}; labels report {item['label_rounds']} round(s)"
+                f"{blocked}). Safety-class findings escalate to the maintainer; the rest become "
                 "follow-ups."
             )
             return None

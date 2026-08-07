@@ -241,7 +241,7 @@ def test_no_amend_authority_is_issued_once_capped(monkeypatch: pytest.MonkeyPatc
     assert result["rounds"] == 3
     assert result["capped"] is True
     assert result["gate"] == "blocked"
-    assert result["amend"] == "withheld-at-cap"
+    assert result["amend"] == "gate-blocked"
     assert triage.AMEND_LABEL not in fake.added
     assert triage.CAPPED_LABEL in fake.added
 
@@ -527,7 +527,7 @@ def test_a_capped_pr_keeps_a_marker_the_reaper_applied(monkeypatch: pytest.Monke
         ),
         monkeypatch,
     )
-    assert result["amend"] == "withheld-at-cap"
+    assert result["amend"] == "gate-blocked"
     assert triage.AMEND_LABEL not in fake.removed
 
 
@@ -2424,7 +2424,7 @@ def test_a_stale_amend_label_withholds_the_advance_it_would_contradict() -> None
 
     Asserted on `_advance_state` DIRECTLY, and the reason is #399, which landed between that finding
     and this merge. The original test drove it through `triage()` with a capped pull request,
-    because the `withheld-at-cap` branch returned before the one that clears a stale
+    because the branch that withholds it returned before the one that clears a stale
     `agent:needs-amend` and so stranded the label. #399 moved that branch from *at* the cap to
     *past* it, which is what makes its convergence check reachable — and in doing so it removed the
     only route by which a stale label survives a green, unowed run.

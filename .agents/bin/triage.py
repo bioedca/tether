@@ -1414,7 +1414,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     # deadlocked it one step earlier (CodeRabbit on #408). Past `CAP` the convergence check itself
     # came back blocking, and then there is genuinely nothing left to authorise.
     if gate_blocked:
-        amend = "withheld-at-cap"
+        amend = "gate-blocked"
     elif owed and AMEND_LABEL not in labels:
         add.append(AMEND_LABEL)
         amend = "added"
@@ -1453,8 +1453,11 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         # out made the run summary tell an operator that "one convergence check is still permitted"
         # on a PR whose gate had just been met - an invitation to spend a second one, which is a
         # stop-list violation (CodeRabbit on #408). Clean evidence is free, so `rounds` and `capped`
-        # look identical either side of it; the distinguisher is that nothing is owed at a head a
-        # metered provider has already read.
+        # look identical either side of it; the distinguisher is `converged` - nothing owed at a
+        # head **`GATE_PROVIDER`** has reviewed cleanly. Not *a metered provider*, which is what
+        # this comment said until CodeRabbit caught the same conflation it had already caught once
+        # in this file: Greptile is metered and cannot satisfy this gate, and
+        # `test_a_greptile_round_does_not_satisfy_the_coderabbit_gate` is what holds that.
         "gate": _gate_state(
             gate_blocked=gate_blocked,
             capped=capped,

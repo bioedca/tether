@@ -198,31 +198,60 @@ def _by_issue(report: dict[str, Any], number: int) -> dict[str, Any]:
 # ------------------------------------------------------------------------------ the cap
 
 
-def test_the_launcher_refuses_to_issue_a_third_round(
+def test_the_launcher_refuses_once_the_convergence_check_has_failed_too(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """THE acceptance criterion of this change, and it must hold against a WRONG label.
 
-    `agent:needs-amend` is presented alongside `agent:review-capped` on purpose: the triage counter
-    can undercount, so the launcher must refuse on the cap rather than trust the amend flag. Two
-    independent refusals is the design; this is the second one.
+    `agent:needs-amend` is presented alongside the terminal label on purpose: the triage counter
+    can undercount, so the launcher must refuse on the published terminal state rather than trust
+    the amend flag. Two independent refusals is the design; this is the second one.
+
+    Since #399 that state is `agent:gate-blocked`, not `agent:review-capped`. The cap bounds metered
+    REVIEWS, and an AMEND is the session that answers one - see the test below, which is the half
+    the old rule refused.
     """
-    issue = _issue(7, slots.CAPPED_LABEL, slots.AMEND_LABEL, "priority:P0")
+    issue = _issue(7, slots.GATE_BLOCKED_LABEL, slots.AMEND_LABEL, "priority:P0")
     _install(monkeypatch, claimed=[7], issues={7: issue})
     report = _run(monkeypatch, tmp_path)
     entry = _by_issue(report, 7)
     assert entry["mode"] == "refuse"
     assert entry["launched"] is False
-    assert "cap" in entry["reason"] and "maintainer" in entry["reason"]
+    assert "maintainer" in entry["reason"]
     assert "command" not in entry, "a refusal must not produce something runnable"
-    assert not list(tmp_path.glob("_task-issue-*.md")), "no AMEND text may be written at the cap"
+    assert not list(tmp_path.glob("_task-issue-*.md")), "no AMEND text may be written past the cap"
+
+
+def test_the_session_that_answers_round_two_is_still_issued_at_the_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#399's deadlock, rebuilt one layer up in the launcher (CodeRabbit on #408).
+
+    `triage.py` publishes `agent:needs-amend` AT the cap deliberately: round 2's findings still have
+    to be fixed, and an AMEND is not a round - a round is a metered review, and this is the session
+    that answers one. The launcher refused it anyway, on `_rounds_spent(labels) >= CAP`, so the lane
+    could never reach the *everything answered, everything pushed* state the convergence check
+    requires. The rule written to un-deadlock the gate deadlocked it one step earlier.
+
+    Asserted as a LAUNCH rather than as the absence of a refusal, because a `refuse` entry and a
+    silently missing one look much the same in the report.
+    """
+    issue = _issue(7, slots.CAPPED_LABEL, slots.AMEND_LABEL, "priority:P0")
+    _install(monkeypatch, claimed=[7], issues={7: issue})
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "amend", "the cap bounds reviews, and this session is not one"
+    assert (tmp_path / "_task-issue-7.md").exists(), "and it is handed real AMEND text"
 
 
 def test_a_refusal_is_reported_never_silently_skipped(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A launcher that quietly passed over a capped PR looks identical to one with no work."""
-    _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.CAPPED_LABEL, slots.AMEND_LABEL)})
+    """A launcher that quietly passed over a terminal PR looks identical to one with no work."""
+    _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.GATE_BLOCKED_LABEL, slots.AMEND_LABEL)},
+    )
     report = _run(monkeypatch, tmp_path)
     assert [r["mode"] for r in report["results"]] == ["refuse"]
     assert report["cap"] == slots.CAP
@@ -1004,23 +1033,22 @@ def test_an_unreadable_issuance_count_never_authorises_an_amend(
 def test_a_hand_applied_round_2_label_is_treated_as_the_cap(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """`agent:round-2` means both rounds are spent, which IS the cap - so it refuses.
+    """`agent:round-2` means both rounds are spent - and since #399 that no longer refuses.
 
     Recording the asymmetry that this test exposed, because it is easy to misread: under `CAP = 2`
     `triage._round_label` publishes `agent:round-1` at one round and `agent:review-capped` at
     two, so **`agent:round-2` is never published by code**. It is provisioned on the repository
     and reachable only by hand.
 
-    `_rounds_spent` still honours it rather than ignoring it, because a maintainer applying it
-    by hand plainly means "two rounds are gone" - and reading that as zero would hand out a
-    fresh session at the cap. Whether the label should exist at all under a two-round cap is
-    tracked separately; the safe reading is pinned here either way.
+    `_rounds_spent` still honours it rather than ignoring it - a maintainer applying it by hand
+    plainly means "two rounds are gone" - but what follows from that changed. It bounds metered
+    reviews, not the sessions that answer them, so the AMEND is issued and `_authorise_amend`'s own
+    issuance ledger is what stops a runaway. The terminal refusal is `agent:gate-blocked`.
     """
     _install(monkeypatch, claimed=[7], issues={7: _issue(7, "agent:round-2", slots.AMEND_LABEL)})
     entry = _by_issue(_run(monkeypatch, tmp_path), 7)
-    assert entry["mode"] == "refuse"
-    assert entry["launched"] is False
-    assert not list(tmp_path.glob("_task-issue-*.md"))
+    assert slots._rounds_spent({"agent:round-2"}) == slots.CAP, "the label still reads as the cap"
+    assert entry["mode"] == "amend", "which bounds reviews, and an AMEND is not one"
 
 
 def test_a_live_claim_without_the_amend_label_is_left_alone(
@@ -1043,6 +1071,7 @@ def test_the_launcher_and_the_triage_share_one_vocabulary() -> None:
     assert slots.CAP == slots.triage.CAP
     assert slots.AMEND_LABEL == slots.triage.AMEND_LABEL
     assert slots.CAPPED_LABEL == slots.triage.CAPPED_LABEL
+    assert slots.GATE_BLOCKED_LABEL == slots.triage.GATE_BLOCKED_LABEL
     assert slots.ROUND_LABELS == slots.triage.ROUND_LABELS
 
 
@@ -1128,7 +1157,7 @@ def test_amend_comes_before_build_and_refusals_before_both(
     ready = [_issue(9, "status:ready", "priority:P0")]
     issues = {
         7: _issue(7, slots.AMEND_LABEL, "agent:round-1", "priority:P2"),
-        8: _issue(8, slots.CAPPED_LABEL, "priority:P2"),
+        8: _issue(8, slots.GATE_BLOCKED_LABEL, "priority:P2"),
         9: ready[0],
     }
     _install(monkeypatch, ready=ready, claimed=[7, 8], issues=issues)
@@ -1148,9 +1177,9 @@ def test_priority_orders_the_build_queue(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
 
 def test_only_launches_consume_a_slot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A capped PR must not eat the slot a workable issue could have used."""
+    """A terminal PR must not eat the slot a workable issue could have used."""
     ready = [_issue(11, "status:ready"), _issue(12, "status:ready")]
-    issues = {8: _issue(8, slots.CAPPED_LABEL), 11: ready[0], 12: ready[1]}
+    issues = {8: _issue(8, slots.GATE_BLOCKED_LABEL), 11: ready[0], 12: ready[1]}
     _install(monkeypatch, ready=ready, claimed=[8], issues=issues)
     report = _run(monkeypatch, tmp_path, slot_count=1)
     modes = [r["mode"] for r in report["results"]]
