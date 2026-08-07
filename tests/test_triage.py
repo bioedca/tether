@@ -102,7 +102,15 @@ def _pr(**over: Any) -> dict[str, Any]:
 
 
 def _review(user: str, sha: str) -> dict[str, Any]:
-    return {"user": {"login": user}, "commit_id": sha}
+    """A review that FOUND something, which is what "a round happened" means since #399.
+
+    The state is explicit because a round is now a metered review with blocking output, not merely
+    a metered review: a clean one is the lane terminating and costs nothing. Every test written
+    before that meant *a round was spent*, so the default carries a verdict rather than leaving the
+    payload silent. `_clean_review` is the other half, and the pair is what stops either rule from
+    being asserted vacuously.
+    """
+    return {"user": {"login": user}, "commit_id": sha, "state": "CHANGES_REQUESTED"}
 
 
 def _suites(*entries: dict[str, Any], total: int | None = None) -> dict[str, Any]:
@@ -211,19 +219,29 @@ def _run(routes: Routes, monkeypatch: pytest.MonkeyPatch) -> tuple[Fake, dict[st
 
 
 def test_no_amend_authority_is_issued_once_capped(monkeypatch: pytest.MonkeyPatch) -> None:
-    """THE cap. Two rounds spent and CI red - the one state that would otherwise owe an AMEND.
+    """THE cap. Authority stops once the convergence check has failed too, and not before.
 
     `agent:needs-amend` is the launcher's authority to start a session, so withholding it makes a
-    third round impossible rather than forbidden. #276 reached 9 rounds against a limit of 2
+    further round impossible rather than forbidden. #276 reached 9 rounds against a limit of 2
     because a prose rule was the only thing holding it.
+
+    THREE blocking rounds here, not two, and that is the correction rather than a stronger case:
+    withholding at exactly `CAP` also withheld the session that answers round 2, so the convergence
+    check could never happen (CodeRabbit on #408). Past the cap that check has itself come back
+    blocking, so there is genuinely nothing left to authorise — CI red as well, which is the state
+    that would otherwise owe an AMEND on its own.
     """
     fake, result = _run(
-        _routes(reviews=[_review(RABBIT, OLDER), _review(RABBIT, HEAD)], suites=RED),
+        _routes(
+            reviews=[_review(RABBIT, OLDER), _review(RABBIT, ROUND_2), _review(RABBIT, HEAD)],
+            suites=RED,
+        ),
         monkeypatch,
     )
-    assert result["rounds"] == 2
+    assert result["rounds"] == 3
     assert result["capped"] is True
-    assert result["amend"] == "withheld-at-cap"
+    assert result["gate"] == "blocked"
+    assert result["amend"] == "gate-blocked"
     assert triage.AMEND_LABEL not in fake.added
     assert triage.CAPPED_LABEL in fake.added
 
@@ -280,13 +298,20 @@ def test_the_author_never_consumes_a_round(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_round_labels_only_escalate(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Monotonic on purpose: stepping back from capped would re-authorise a spent round."""
+    """Monotonic on purpose: stepping back from capped would re-authorise a spent round.
+
+    The round is at `OLDER`, not `HEAD`: it was spent, answered, and the fix pushed. Putting a
+    blocking review at the current head would also owe an AMEND, which is a different axis and
+    would make the label assertions below about something other than monotonicity.
+    """
     fake, result = _run(
-        _routes(labels=[triage.CAPPED_LABEL], reviews=[_review(RABBIT, HEAD)], suites=GREEN),
+        _routes(labels=[triage.CAPPED_LABEL], reviews=[_review(RABBIT, OLDER)], suites=GREEN),
         monkeypatch,
     )
     assert result["rounds"] == 1
     # round-1 is BELOW the capped label already held, so nothing is written and nothing removed.
+    # Filtered to the ROUND labels: this test is about their monotonicity, and #394 gave the same
+    # run a second label to publish, so a blanket "added nothing" would be asserting two things.
     assert [n for n in fake.added if n in triage.ALL_ROUND_LABELS] == []
     assert triage.CAPPED_LABEL not in fake.removed
 
@@ -497,12 +522,12 @@ def test_a_capped_pr_keeps_a_marker_the_reaper_applied(monkeypatch: pytest.Monke
     fake, result = _run(
         _routes(
             labels=[triage.AMEND_LABEL],
-            reviews=[_review(RABBIT, OLDER), _review(RABBIT, HEAD)],
+            reviews=[_review(RABBIT, OLDER), _review(RABBIT, ROUND_2), _review(RABBIT, HEAD)],
             suites=GREEN,
         ),
         monkeypatch,
     )
-    assert result["amend"] == "withheld-at-cap"
+    assert result["amend"] == "gate-blocked"
     assert triage.AMEND_LABEL not in fake.removed
 
 
@@ -1210,29 +1235,6 @@ def test_an_empty_bodied_review_carrying_real_findings_counts_once(
     assert result["rounds"] == 1, "one non-reply comment makes the submission a review"
 
 
-def test_a_submission_that_proves_nothing_either_way_is_counted(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The safety direction, asserted rather than left to the reader of `_reply_wrapper_ids`.
-
-    A submission with no body, no verdict and no comments at all is *ambiguous*. It is counted,
-    because undercounting is the fail-open direction on the cap and ADR-0062 already settles the
-    tie the same way for an unreadable timeline: a safety control fails toward counting.
-
-    Written as `owns comments and all of them are replies` rather than `owns a non-reply comment`
-    precisely so this case lands here.
-    """
-    _, result = _run(
-        _routes(
-            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
-            timeline=[_ready(READY_TIME)],
-            suites=GREEN,
-        ),
-        monkeypatch,
-    )
-    assert result["rounds"] == 1
-
-
 def test_the_wrapper_filter_and_the_rewritten_commit_id_are_independent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1260,6 +1262,136 @@ def test_the_wrapper_filter_and_the_rewritten_commit_id_are_independent(
         monkeypatch,
     )
     assert result["rounds"] == 1
+
+
+# ----------------------------------------- #400: a review nobody submitted is not a review round
+#
+# GitHub's schema for the reviews endpoint says a review "created in the PENDING state" is "not
+# submitted and therefore does not include the `submitted_at` property". `_counts_as_round` counts a
+# timestamp-less entry on purpose, so an unsubmitted draft spent a round no review had taken.
+#
+# Same family as #396 - an artefact that is not a review being counted as one - and a distinct
+# cause: #396's wrapper is a SUBMITTED review with nothing in it, this is an UNSUBMITTED one.
+#
+# THE FIRST THREE OF THESE ARE NOW PARTLY VACUOUS, and are kept as documentation of the round axis
+# rather than as its coverage. #399 landed `_is_blocking`, which spends a round only on
+# `CHANGES_REQUESTED` or an inline finding, so `PENDING` stops counting there whether or not the
+# guard exists. Measured across the merge, not inferred: neutralising `UNSUBMITTED_REVIEW_STATE`
+# failed two of the three before it and none of them after.
+#
+# The guard did not become redundant, it MOVED - to the gate, where a `PENDING` submission carrying
+# a body reaches `_says_something` and would prove the mandatory gate from a review its author has
+# not sent. `test_a_review_still_being_drafted_proves_no_gate` is what binds it now, and it fails
+# when the constant is neutralised. Keep that one; the three below may be deleted with the guard.
+#
+# This is the shape to watch for whenever two branches touch one predicate: a test can keep passing
+# because a SIBLING change started answering the same question, and green then means nothing.
+
+
+def test_a_review_still_being_drafted_is_not_a_round(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#400: a `PENDING` review has no `submitted_at`, and the counter counted it for that.
+
+    One submitted review at `OLDER`, one still in someone's editor at `HEAD`. Only the first is a
+    review that happened. Before the fix the draft's missing timestamp took the
+    fail-toward-counting branch of `_counts_as_round` and this read **2** - a pull request capped by
+    a review nobody had sent, and one nothing could un-send.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[
+                dict(_review(RABBIT, OLDER), submitted_at=AFTER_READY),
+                dict(_review(RABBIT, HEAD), state="PENDING"),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1, "the unsubmitted draft is not a round"
+    assert result["capped"] is False
+
+
+def test_a_review_still_being_drafted_owes_nothing_either(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other axis. Nothing is owed an answer to a finding its author has not sent yet.
+
+    `owed` deliberately fails toward owing everywhere else - a threaded reply counts (#404), a draft
+    finding counts (#384) - because those are all things a provider has actually published. An
+    unsubmitted review is the one case where there is nothing on the pull request to answer, so the
+    skip covers both axes rather than only the round one.
+    """
+    fake, result = _run(
+        _routes(
+            reviews=[dict(_review(RABBIT, HEAD), state="PENDING", body="half-written")],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0
+    assert result["review_owed"] is False
+    assert triage.AMEND_LABEL not in fake.added
+
+
+def test_a_timestampless_review_that_is_not_pending_still_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control, and the half of #400 that is a REFUSAL to change something.
+
+    The fix must not arrive by teaching `_counts_as_round` to distrust a missing timestamp. That
+    function fails toward counting for malformed data by design (ADR-0062), and narrowing it would
+    trade a visible over-count for the fail-open direction #276 reached at 9 rounds against a limit
+    of 2. So a review with no timestamp and no state at all - the shape an oddly-rendered payload
+    would take - still spends its round, and only the explicitly `PENDING` one does not.
+
+    `counted_from` is set here on purpose: with no ready event `_counts_as_round` short-circuits on
+    `counted_from is None` and this would hold without exercising the branch under test.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_review(RABBIT, HEAD)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1, "a malformed entry is still counted; only PENDING is exempt"
+
+
+def test_a_review_still_being_drafted_proves_no_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The axis the `PENDING` guard is load-bearing on once #399 landed — and the one that binds it.
+
+    **The three tests above went partly vacuous when #399 merged into this branch, and this is the
+    replacement rather than an addition.** `_is_blocking` spends a round only on
+    `CHANGES_REQUESTED` or an inline finding, so `PENDING` stops counting on the round axis whether
+    or not the guard exists. Measured, not assumed: neutralising `UNSUBMITTED_REVIEW_STATE` failed
+    two of those three before the merge and none of them after it.
+
+    The guard did not become redundant, it moved. On the gate axis a `PENDING` submission is the
+    fail-OPEN case: it is not in `BLOCKING_REVIEW_STATES`, so it falls to `_says_something`, and a
+    half-written review **with a body** answers yes. Without the guard `converged` would be true —
+    the mandatory gate satisfied by a review its author has not sent, at the head a merge is armed
+    against.
+
+    Asserted on `converged` from `_review_state` rather than on `result["gate"]`, for the reason
+    `test_an_empty_submission_is_a_round_but_not_a_gate` records: the summary is gated on the
+    counted phase and would report `open` here whichever way the evidence went.
+    """
+    _run(
+        _routes(
+            reviews=[
+                dict(_review(RABBIT, HEAD), state="PENDING", body="half-written, not sent"),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert converged is False, (
+        "an unsubmitted draft review must not satisfy the gate nothing may merge past"
+    )
 
 
 # ------------------------------------ #393: only a push used to clear `review_owed`
@@ -2386,7 +2518,7 @@ def test_a_clean_review_on_an_unfinished_draft_publishes_advance_authority(
     fake, result = _run(
         _routes(
             pr=_drafted(),
-            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            reviews=[dict(_clean_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
             suites=GREEN,
         ),
         monkeypatch,
@@ -2417,41 +2549,72 @@ def test_an_owed_finding_is_still_an_amend_and_never_an_advance(
     assert result["advance"] != "added"
 
 
-def test_a_stale_amend_label_withholds_the_advance_it_would_contradict(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The same invariant, against the label rather than the finding (CodeRabbit on #407).
+def test_a_stale_amend_label_withholds_the_advance_it_would_contradict() -> None:
+    """The same invariant as above, against the label rather than the finding (CodeRabbit on #407).
 
-    A capped PR reaches the `withheld-at-cap` branch and returns before the one that would clear a
-    stale `agent:needs-amend`, and this function must not clear it either — that label has a second
-    writer. So the published amend outlives the finding that caused it, and everything
-    `_advance_state` asks about is then true: nothing owed, checks green, a review at the head.
+    Asserted on `_advance_state` DIRECTLY, and the reason is #399, which landed between that finding
+    and this merge. The original test drove it through `triage()` with a capped pull request,
+    because the branch that withholds it returned before the one that clears a stale
+    `agent:needs-amend` and so stranded the label. #399 moved that branch from *at* the cap to
+    *past* it, which is what makes its convergence check reachable — and in doing so it removed the
+    only route by which a stale label survives a green, unowed run.
+
+    Every remaining route is gate-blocked, where `_advance_state` withholds for that reason instead.
+    Driving this through `triage()` would therefore assert nothing about the AMEND guard: it would
+    pass with the guard deleted. So the guard is asserted where it lives.
 
     Both labels on one claim is the state `swarm_slots` assumes cannot happen. Precisely: its belt
-    at `swarm_slots.py` is `ADVANCE_LABEL in labels and AMEND_LABEL not in labels`, so the outcome
-    is *deterministic* — AMEND wins — and the failure is not a race. It is that the belt's own
-    stated justification, **"triage does not publish both"**, was false, and what it falls back to
-    is an AMEND session dispatched against a claim with nothing owed and no findings to fix.
-
-    So this test makes that comment true rather than papering over it, which is the direction this
-    repository requires: a belt may be redundant, but its reason may not be wrong.
+    is `ADVANCE_LABEL in labels and AMEND_LABEL not in labels`, so the outcome is *deterministic* —
+    AMEND wins — and the failure is not a race. It is that the belt's stated justification,
+    **"triage does not publish both"**, was false, and what it falls back to is an AMEND session
+    dispatched against a claim with nothing owed and no findings to fix.
     """
-    fake, result = _run(
+    add: list[str] = []
+    remove: list[str] = []
+    state = triage._advance_state(
+        labels={triage.AMEND_LABEL},
+        read_head=True,
+        armed=False,
+        counted_from=triage._COUNT_NOTHING,
+        owed=False,
+        running=False,
+        capped=False,
+        gate_blocked=False,
+        add=add,
+        remove=remove,
+    )
+    assert state == "not-eligible", "a published AMEND that still stands owns the claim"
+    assert triage.ADVANCE_LABEL not in add, "one claim, one authority"
+
+
+def test_a_gate_blocked_pull_request_is_never_advanced(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#399 meeting #394, and neither branch could have caught it alone.
+
+    `agent:gate-blocked` means the convergence verification came back blocking too, so no automatic
+    state remains and a maintainer decides. An advance is automatic state. The window is real rather
+    than theoretical: `owed` holds while the findings sit there and stops holding the moment the
+    author answers them and resolves the threads (#393) — which is exactly when a session would be
+    dispatched to walk a lane that has stopped terminating, toward a review it has no round left to
+    buy.
+
+    Three blocking rounds put it past the cap; the clean read at the head satisfies every OTHER
+    precondition, so what withholds the advance here can only be the gate-blocked one.
+    """
+    _, result = _run(
         _routes(
-            labels=[triage.CAPPED_LABEL, triage.AMEND_LABEL],
             reviews=[
                 dict(_review(RABBIT, OLDER), submitted_at=AFTER_READY),
-                dict(_review(RABBIT, HEAD), submitted_at=AFTER_READY),
+                dict(_review(RABBIT, ROUND_2), submitted_at=AFTER_READY),
+                dict(_review(RABBIT, ROUND_3), submitted_at=AFTER_READY),
+                dict(_clean_review(RABBIT, HEAD), submitted_at=AFTER_READY),
             ],
             timeline=[_ready(READY_TIME)],
             suites=GREEN,
         ),
         monkeypatch,
     )
-    assert result["capped"] is True, "the branch that strands the label only runs at the cap"
-    assert result["amend"] == "withheld-at-cap", "the stale label is left for its own writer"
-    assert result["advance"] != "added"
-    assert triage.ADVANCE_LABEL not in fake.added, "one claim, one authority"
+    assert result["rounds"] > triage.CAP, "the premise: the convergence check found something too"
+    assert result["advance"] == "gate-blocked"
 
 
 def test_the_run_that_retires_the_amend_is_the_run_that_publishes_the_advance(
@@ -2472,7 +2635,7 @@ def test_the_run_that_retires_the_amend_is_the_run_that_publishes_the_advance(
         _routes(
             pr=_drafted(),
             labels=[triage.AMEND_LABEL],
-            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            reviews=[dict(_clean_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
             suites=GREEN,
         ),
         monkeypatch,
@@ -2518,7 +2681,7 @@ def test_a_providers_reply_at_the_new_head_is_not_a_review_of_it(
             suites=GREEN,
         ),
     )
-    _, _, read_head = triage._review_state(99, HEAD, None)
+    _, _, read_head, _ = triage._review_state(99, HEAD, None)
     assert read_head is False, (
         "the only provider evidence at this head is a wrapper around a reply; nobody has reviewed "
         "the fix that produced it"
@@ -2538,7 +2701,7 @@ def test_a_ready_pull_request_with_the_merge_armed_is_the_lane_complete(
     _, result = _run(
         _routes(
             pr=_pr(auto_merge={"enabled_by": {"login": "bioedca"}}),
-            reviews=[dict(_review(RABBIT, HEAD), submitted_at=AFTER_READY)],
+            reviews=[dict(_clean_review(RABBIT, HEAD), submitted_at=AFTER_READY)],
             timeline=[_ready(READY_TIME)],
             suites=GREEN,
         ),
@@ -2557,7 +2720,7 @@ def test_a_ready_pull_request_awaiting_its_gate_is_still_advanced(
     """
     _, result = _run(
         _routes(
-            reviews=[dict(_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
+            reviews=[dict(_clean_review(CODEX, HEAD), submitted_at=DRAFT_TIME)],
             timeline=[_ready(READY_TIME)],
             suites=GREEN,
         ),
@@ -2598,12 +2761,17 @@ def test_the_cap_does_not_withhold_the_counted_phases_remaining_steps(
     _, result = _run(
         _routes(
             labels=[triage.CAPPED_LABEL],
-            reviews=[dict(_review(RABBIT, HEAD), submitted_at=AFTER_READY)],
+            reviews=[
+                dict(_review(RABBIT, OLDER), submitted_at=AFTER_READY),
+                dict(_review(RABBIT, ROUND_2), submitted_at=AFTER_READY),
+                dict(_clean_review(RABBIT, HEAD), submitted_at=AFTER_READY),
+            ],
             timeline=[_ready(READY_TIME)],
             suites=GREEN,
         ),
         monkeypatch,
     )
+    assert result["capped"] is True, "both rounds spent, or the test asserts nothing about the cap"
     assert result["advance"] == "added"
 
 
@@ -2688,3 +2856,495 @@ def test_the_advance_label_is_part_of_the_merged_claims_mirror(
     fake = _install(monkeypatch, _merged_routes(labels=[triage.ADVANCE_LABEL]))
     triage.clear_mirror(number=99, dry_run=False)
     assert triage.ADVANCE_LABEL in fake.removed
+
+
+def test_the_workflow_passes_merged_only_on_the_pull_request_event() -> None:
+    """The flag is set from the event; whether it MERGED is re-checked from the API in triage.py."""
+    step = next(
+        s
+        for s in _workflow()["jobs"]["triage"]["steps"]
+        if s.get("name") == "Publish review-round state"
+    )
+    assert step["env"]["MERGED"] == (
+        "${{ github.event_name == 'pull_request' && github.event.action == 'closed' }}"
+    )
+    assert "--merged" in step["run"]
+
+
+def _clean_review(user: str, sha: str, *, body: str = "No actionable comments.") -> dict[str, Any]:
+    """CodeRabbit's clean form: a body, state `COMMENTED`, and no inline findings.
+
+    Measured on #385 — every CodeRabbit submission there was `COMMENTED`, the dirty ones included,
+    so the state does not separate them. Only the absence of findings does.
+    """
+    return {"user": {"login": user}, "commit_id": sha, "state": "COMMENTED", "body": body}
+
+
+def test_a_submission_that_proves_nothing_either_way_is_still_read_as_a_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The safety direction of `_reply_wrapper_ids`, and where #399 takes over from #396.
+
+    A submission with no body, no verdict and no comments is *ambiguous* about whether it is a
+    review at all. #396's set is written as `owns comments and all of them are replies` rather than
+    `owns a non-reply comment` precisely so the ambiguous case is treated as a review — a wrapper
+    has to be proven, because undercounting is the fail-open direction on the cap.
+
+    It then spends no round, and that is #399 rather than a hole in #396: it found nothing, so it
+    is a convergence verification and free. The two rules compose in the order they are asked —
+    *is this a review*, then *did it find anything* — and this pins both halves, because a naive
+    implementation of either could produce this same zero for the wrong reason.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0, "it found nothing, so it converged rather than spending a round"
+    assert result["review_owed"] is False, (
+        "and nothing is owed, so it is not a wrapper being hidden"
+    )
+    # AND IT DOES NOT SATISFY THE GATE, which is the opposite answer from the same payload
+    # (CodeRabbit on #408). Counting the ambiguous case is fail-CLOSED on the cap and fail-OPEN on
+    # the gate: `converged` would be true with nothing showing that CodeRabbit reported anything at
+    # all, and that is the axis merges are decided on. So the round axis asks *is this a review*
+    # and the gate axis asks *did it say something*, and this submission answers yes and no.
+    #
+    # Asserted on `converged` rather than on `result["gate"]`, because that summary is gated on
+    # `capped` and reports `open` for an uncapped PR whichever way the evidence went - the first
+    # version of this assertion passed for that reason rather than for the rule.
+    _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert converged is False, "an empty submission is not evidence the gate was met"
+
+    # The control: the same submission carrying one real finding is a round.
+    _, blocking = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert blocking["rounds"] == 1
+
+
+# ---------------------------------------------- #399: the gate and the cap could deadlock a PR
+#
+# ADR-0062 requires "at least one CodeRabbit review with no actionable comments" AND allows two
+# rounds. If the round-2 review posts actionable comments, answering them moves the head, and the
+# gate then requires a review at THAT head - which would be round 3, which the cap forbids. #385
+# reached exactly that state: green on all 16 checks, 54 threads resolved, mergeStateStatus CLEAN,
+# and unmergeable by the lane's own text, with nothing anywhere saying why.
+#
+# The resolution: a round is a metered review that FOUND something. A clean one is the lane
+# terminating, not a round, so a capped PR may always ask once more to verify convergence.
+
+ROUND_1 = "1" * 40
+ROUND_2 = "2" * 40
+#: A third spent round, which only exists PAST the cap - the convergence check that found
+#: something too. Nothing but `agent:gate-blocked` follows from it.
+ROUND_3 = "3" * 40
+
+
+def _blocking_round(sha: str, comment_id: int) -> dict[str, list[dict[str, Any]]]:
+    """One metered round that found something, in the shape #385's actually had."""
+    return {
+        "reviews": [_submission(RABBIT, sha, comment_id * 10, body="findings")],
+        "comments": [_finding(RABBIT, sha, comment_id * 10, comment_id)],
+    }
+
+
+def test_two_blocking_rounds_then_a_clean_verification_leaves_the_lane_able_to_merge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE #385 deadlock, resolved. The third review is the one that terminates the lane.
+
+    Two rounds found things; both were answered and the fix pushed. The verification at the current
+    head comes back clean — which is exactly what the gate asks for — so it costs nothing and the
+    count stays at the cap rather than passing it.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _, result = _run(
+        _routes(
+            reviews=[*first["reviews"], *second["reviews"], _clean_review(RABBIT, HEAD)],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 2, "the verification found nothing, so it spent nothing"
+    assert result["capped"] is True
+    assert result["review_owed"] is False
+    assert result["gate"] == "satisfied", (
+        "clean evidence is free, so `rounds` and `capped` read the same either side of the "
+        "convergence check - and reporting `open` here told an operator that another check was "
+        "still permitted on a PR whose gate had just been met (CodeRabbit on #408)"
+    )
+
+
+def test_the_gate_is_not_satisfied_by_the_rounds_that_preceded_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The convergence check must have actually happened. Stale round evidence is not it.
+
+    Two blocking rounds, both answered and pushed, and the verification never requested. Everything
+    a capped PR reports looks identical to the converged case — `rounds == 2`, nothing owed, checks
+    green — because the only thing that differs is a review that does not exist.
+
+    Reading the gate off the round set said `satisfied` here, since answering a finding moves the
+    head and leaves those SHAs behind as stale non-empty evidence. That is the mandatory gate
+    reporting itself met with no clean review anywhere (CodeRabbit on #408).
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _, result = _run(
+        _routes(
+            reviews=[*first["reviews"], *second["reviews"]],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 2, "the two rounds still happened"
+    assert result["capped"] is True
+    assert result["review_owed"] is False, "both were answered and the fix pushed"
+    assert result["gate"] == "open", (
+        "no CodeRabbit review exists at this head, so the gate ADR-0062 makes mandatory has not "
+        "been met - and `open` is what tells the worker to go and buy it"
+    )
+
+
+def test_a_greptile_round_does_not_satisfy_the_coderabbit_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate names one provider, and the round set is provider-blind.
+
+    Greptile is metered, so its blocking review is a real round — but ADR-0062's gate is *CodeRabbit
+    with no actionable comments*, and Greptile is the optional leg whose exhaustion never blocks. A
+    clean Greptile pass at the head must therefore leave the gate open, or a PR could merge having
+    never satisfied the one review the lane requires.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _, result = _run(
+        _routes(
+            reviews=[
+                *first["reviews"],
+                *second["reviews"],
+                _clean_review(GREPTILE, HEAD),
+            ],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 2, "a clean review is free whoever wrote it"
+    assert result["gate"] == "open", "Greptile cannot stand in for the mandatory CodeRabbit gate"
+
+
+def test_a_reply_wrapper_at_the_head_is_not_the_convergence_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#396's wrapper, seen from the gate axis.
+
+    Answering the round-two threads produces an empty `COMMENTED` submission at the new head that
+    is byte-identical to a clean review. Counting it would let a PR satisfy its own gate by
+    replying to itself, without any provider having looked at the fix.
+
+    Today two independent things stop this, and only one of them is the gate signal: the reply also
+    leaves the head *owing*, because that axis deliberately does not filter replies (#396). So this
+    passes even against the pre-fix code. It is kept as a forward guard rather than a binding
+    regression, because #393 removes the other one — once a resolved thread stops owing, the reply
+    filter on this axis is all that is left.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _, result = _run(
+        _routes(
+            reviews=[
+                *first["reviews"],
+                *second["reviews"],
+                _submission(RABBIT, HEAD, WRAPPER_IDS[0]),
+            ],
+            comments=[
+                *first["comments"],
+                *second["comments"],
+                _reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500099),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["gate"] == "open", "the PR answered itself; nobody verified the fix"
+
+
+def test_an_acknowledgement_does_not_retract_a_gate_that_was_already_satisfied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deadlock this fix nearly rebuilt, caught in self-review before it shipped.
+
+    Two blocking rounds, the verification comes back clean at `HEAD` — the gate is satisfied — and
+    then CodeRabbit replies inside one of its own threads, as it routinely does after an answer.
+    Voiding the gate on *any* threaded comment made that acknowledgement retract a satisfied gate,
+    and nothing could restore it: the signal is head-bound, and a converged pull request has no
+    material change left to push. Green, gated, and unmergeable — #399's exact shape, arriving
+    through #399's own fix.
+
+    A reply is not an actionable comment (#396), so it is not asked here. The case it was guarding
+    against — a reply that really does carry a finding — is `owed`'s, which counts replies for that
+    reason (#404) and which `_gate_state` already requires to be false.
+
+    Asserted on `_review_state`'s convergence value rather than on `gate`, because on this branch
+    the reply also leaves the head **owed**, and `owed` alone would report `open` whichever way the
+    convergence value went. The deadlock becomes reachable when #393 lands and a resolved thread
+    stops owing, which is precisely when this assertion starts carrying the whole weight.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    _install(
+        monkeypatch,
+        _routes(
+            reviews=[
+                *first["reviews"],
+                *second["reviews"],
+                _clean_review(RABBIT, HEAD),
+                _submission(RABBIT, HEAD, WRAPPER_IDS[0]),
+            ],
+            comments=[
+                *first["comments"],
+                *second["comments"],
+                _reply(RABBIT, HEAD, WRAPPER_IDS[0], 3708500097),
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+    )
+    heads, owed, _, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert len(heads) == 2, "neither the clean review nor the reply is a round"
+    assert owed is True, "the reply is still owed an answer - that is #404's axis, and it stands"
+    assert converged is True, (
+        "the verification happened and found nothing; an acknowledgement afterwards is not a "
+        "finding and must not take the gate back"
+    )
+
+
+def test_a_dismissed_submission_is_not_evidence_the_gate_was_met(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A withdrawn verdict is an administrative act, not a review (CodeRabbit on #408).
+
+    `_says_something` read `VERDICT_REVIEW_STATES`, which carries `DISMISSED` because on the ROUND
+    axis a dismissal is still a submission that happened - counting it there is fail-CLOSED. On the
+    gate axis the same membership is fail-OPEN: an empty `DISMISSED` submission at the head made
+    `converged` true with nothing showing CodeRabbit had ever looked, on the one axis merges are
+    decided on.
+
+    The control is the identical payload under `APPROVED`, so what separates the two cases is the
+    state alone - not the provider, the head, or the empty body they share.
+    """
+    for state, expected in (("DISMISSED", False), ("APPROVED", True)):
+        _run(
+            _routes(
+                reviews=[
+                    {"user": {"login": RABBIT}, "commit_id": HEAD, "state": state, "body": ""}
+                ],
+                timeline=[_ready(READY_TIME)],
+                suites=GREEN,
+            ),
+            monkeypatch,
+        )
+        _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
+        assert converged is expected, f"{state} must {'' if expected else 'not '}satisfy the gate"
+    assert "DISMISSED" in triage.VERDICT_REVIEW_STATES, "still counted on the ROUND axis"
+    assert "DISMISSED" not in triage.GATE_VERDICT_STATES, "and never on the gate axis"
+
+
+def test_a_bodiless_submission_from_the_gate_provider_does_not_satisfy_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fail-open half of `_is_a_review`'s deliberate fail-closed direction (CodeRabbit on #408).
+
+    `_reply_wrapper_ids` is written so a WRAPPER must be proven, which makes an unproven submission
+    count as a review - the safe direction on the cap, where undercounting is what fails open. The
+    gate needs the opposite: a submission with no body, no verdict and no comment of its own is a
+    submission the payload does not describe, and accepting it as the mandatory review would satisfy
+    the gate with no evidence that CodeRabbit reported anything.
+
+    The control below is the same payload with a body, which is what every real CodeRabbit pass
+    carries - so what separates the two cases is exactly the evidence, not the provider or the head.
+    """
+    empty = {"user": {"login": RABBIT}, "commit_id": HEAD, "state": "COMMENTED", "body": ""}
+    _run(_routes(reviews=[empty], timeline=[_ready(READY_TIME)], suites=GREEN), monkeypatch)
+    _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert converged is False, "no body, no verdict, no comment - so no evidence"
+
+    _run(
+        _routes(
+            reviews=[_clean_review(RABBIT, HEAD)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    _, _, _, with_body = triage._review_state(99, HEAD, READY_TIME)
+    assert with_body is True, "and the same review WITH a body is the gate met"
+
+
+def test_a_submission_owning_one_real_comment_is_evidence_even_with_no_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The third way a submission can prove it reported, and the reason it is not body-only.
+
+    A provider that writes only inline comments has plainly reviewed. Requiring a body would read
+    that as no evidence and strand a pull request whose gate really was met - the failure mode of
+    over-tightening, which is why `_says_something` takes three signals rather than one.
+
+    Here the comment is a FINDING, so the gate is blocked rather than satisfied; what the assertion
+    pins is that the submission registered at all, which `result["gate"] == "open"` would deny.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_submission(RABBIT, HEAD, REAL_REVIEW_ID)],
+            comments=[_finding(RABBIT, HEAD, REAL_REVIEW_ID, 4242)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["review_owed"] is True, (
+        "the submission is evidence; its comment is what makes the evidence bad news"
+    )
+    _, _, _, converged = triage._review_state(99, HEAD, READY_TIME)
+    assert converged is False, "a finding at this head is the gate blocked, not merely unproven"
+
+
+def test_a_verification_that_finds_something_reports_why_the_pr_cannot_proceed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#399's third criterion: a PR in this state must say so, not sit green and mergeable.
+
+    Three blocking metered rounds. There is no state left that merges: the gate wants a clean
+    review, the cap forbids buying one, and nothing automatic can resolve it. That is a
+    maintainer's, and `agent:gate-blocked` is how they find out without hand-counting review ids as
+    #385 required.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    third = _blocking_round(HEAD, 33)
+    fake, result = _run(
+        _routes(
+            reviews=[*first["reviews"], *second["reviews"], *third["reviews"]],
+            comments=[*first["comments"], *second["comments"], *third["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 3
+    assert result["gate"] == "blocked"
+    assert triage.GATE_BLOCKED_LABEL in fake.added
+
+
+def test_the_cap_still_binds_on_rounds_that_found_something(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control. "A converged round is free" must not become "no round is ever counted".
+
+    Two blocking rounds still reach the cap — the property the whole counter exists for, and the one
+    a too-generous reading of #399 would destroy. Both were answered at heads that have since moved,
+    so nothing is owed at the current head and no session is needed; what the cap denies is a THIRD
+    round, and none is being asked for.
+    """
+    first, second = _blocking_round(ROUND_1, 11), _blocking_round(ROUND_2, 22)
+    fake, result = _run(
+        _routes(
+            reviews=[*first["reviews"], *second["reviews"]],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert (result["rounds"], result["capped"]) == (2, True)
+    assert triage.CAPPED_LABEL in fake.added
+    assert triage.AMEND_LABEL not in fake.added, "nothing is owed, so nothing is authorised"
+
+
+def test_a_blocking_review_at_the_cap_still_gets_the_session_that_answers_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CodeRabbit on #408: withholding AMEND *at* the cap made the convergence check unreachable.
+
+    An AMEND is not a round. A round is a metered REVIEW; this label authorises the session that
+    ANSWERS one. Refusing it at `rounds == CAP` meant the round-2 findings could never be fixed, so
+    the pull request could never reach the *everything answered, everything pushed* state the
+    convergence check requires — the change written to un-deadlock the gate deadlocking it one step
+    earlier, and in the one place the deadlock is hardest to see.
+
+    Distinguished from the test above by WHERE the second round landed: there both were answered and
+    the head moved on, here the second review is at the current head and still owes.
+    """
+    first = _blocking_round(ROUND_1, 11)
+    second = _blocking_round(HEAD, 22)
+    fake, result = _run(
+        _routes(
+            reviews=[*first["reviews"], *second["reviews"]],
+            comments=[*first["comments"], *second["comments"]],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert (result["rounds"], result["capped"]) == (2, True)
+    assert result["review_owed"] is True
+    assert result["gate"] == "open", "the gate is not satisfied while a finding is outstanding"
+    assert result["amend"] == "added"
+    assert triage.AMEND_LABEL in fake.added
+
+
+def test_a_clean_metered_review_alone_spends_no_round(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The narrow statement of the rule, so it is not only observable through the deadlock.
+
+    CodeRabbit's clean form is state `COMMENTED` with a body and no inline findings — measured on
+    #385, where the dirty reviews were `COMMENTED` too, so the state does not separate them and
+    only the absence of findings does.
+    """
+    _, result = _run(
+        _routes(
+            reviews=[_clean_review(RABBIT, HEAD)],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 0
+
+
+def test_a_changes_requested_submission_is_blocking_without_any_inline_finding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A verdict is actionable output whether or not it is spelled out line by line."""
+    _, result = _run(
+        _routes(
+            reviews=[
+                dict(_clean_review(RABBIT, HEAD, body="please fix"), state="CHANGES_REQUESTED")
+            ],
+            timeline=[_ready(READY_TIME)],
+            suites=GREEN,
+        ),
+        monkeypatch,
+    )
+    assert result["rounds"] == 1
+
+
+def test_the_gate_blocked_label_is_part_of_the_merged_claims_mirror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """It describes work in flight, so a merge clears it like every other mirror label (#308)."""
+    assert triage.GATE_BLOCKED_LABEL in triage.MIRROR_LABELS
+    fake = _install(monkeypatch, _merged_routes(labels=[triage.GATE_BLOCKED_LABEL]))
+    triage.clear_mirror(number=99, dry_run=False)
+    assert triage.GATE_BLOCKED_LABEL in fake.removed

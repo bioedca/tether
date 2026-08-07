@@ -80,11 +80,25 @@ EXTERNAL_PROVIDERS = frozenset(
 #: because a paid review that nothing answers is the worst of both.
 METERED_PROVIDERS = frozenset({"coderabbitai[bot]", "greptile-apps[bot]"})
 
+#: The one provider that can satisfy the mandatory gate. ADR-0062 names CodeRabbit specifically -
+#: Greptile is optional and its exhaustion never blocks - so the gate signal is keyed on this login
+#: alone. Reading it off ``METERED_PROVIDERS`` instead would let a spent Greptile credit report a
+#: CodeRabbit gate as met, which is the one substitution the lane does not allow.
+GATE_PROVIDER = "coderabbitai[bot]"
+
 CAP = 2
 ROUND_LABELS = ("agent:round-1", "agent:round-2")
 CAPPED_LABEL = "agent:review-capped"
 AMEND_LABEL = "agent:needs-amend"
 
+#: *This pull request cannot satisfy its own gate, and no automatic state remains.* Published when
+#: the convergence verification a capped PR is allowed (#399) itself came back blocking, so the
+#: count has passed ``CAP``. Without it such a PR sits green, mergeable and forbidden to merge, with
+#: nothing anywhere saying why - which is how #385 was found, by hand.
+#:
+#: Distinct from ``agent:review-capped``, which means *the budget is spent and the lane may still
+#: terminate*. This one means *the lane has stopped terminating*, and it is a maintainer's.
+GATE_BLOCKED_LABEL = "agent:gate-blocked"
 #: *This draft's lane has somewhere to go, and nobody is going there.* The lane (ADR-0062) is a
 #: multi-phase sequence - iterate Codex on the draft, optionally spend a Greptile credit, mark
 #: ready, ask CodeRabbit - but the only resumption signal the swarm had was ``agent:needs-amend``,
@@ -128,6 +142,7 @@ ALL_ROUND_LABELS = (*ROUND_LABELS, CAPPED_LABEL)
 MIRROR_LABELS = (
     "status:in-progress",
     AMEND_LABEL,
+    GATE_BLOCKED_LABEL,
     ADVANCE_LABEL,
     CONFLICTED_LABEL,
     *ALL_ROUND_LABELS,
@@ -163,6 +178,32 @@ BLOCKING_REVIEW_STATES = frozenset({"CHANGES_REQUESTED"})
 # `COMMENTED` is deliberately absent: it is what GitHub stamps on the wrapper it puts around a
 # reply to a review thread, and treating it as a verdict is exactly the over-count of #396.
 VERDICT_REVIEW_STATES = frozenset({"CHANGES_REQUESTED", "APPROVED", "DISMISSED"})
+# The same question asked on the GATE axis, where `DISMISSED` is deliberately absent (CodeRabbit on
+# #408). The set above includes it because on the ROUND axis a dismissal is still a submission that
+# happened, and counting it there is the fail-CLOSED direction. Here it is the opposite: a dismissal
+# is an administrative REMOVAL of a verdict, not a provider reporting, so an empty `DISMISSED`
+# submission at the head satisfied the mandatory gate with nothing showing CodeRabbit had ever
+# looked - fail-open on the one axis merges are decided on. Two names rather than one set, because
+# the axes want opposite answers from the same payload and sharing a constant hid that.
+GATE_VERDICT_STATES = frozenset({"CHANGES_REQUESTED", "APPROVED"})
+
+# A review someone has STARTED DRAFTING and not submitted (#400). GitHub's own schema for the
+# reviews endpoint says it outright: a review "created in the PENDING state" is "not submitted and
+# therefore does not include the `submitted_at` property". `_counts_as_round` counts a
+# timestamp-less entry deliberately, so without this an unsubmitted draft spends a round that no
+# review has taken - a cap consumed by work nobody has done.
+#
+# Skipped here rather than by teaching `_counts_as_round` about it. That function must keep failing
+# TOWARD counting for a missing or malformed timestamp, which is the direction ADR-0062 requires of
+# a safety control and the property #396 rests on; narrowing it to fix this would trade a visible
+# over-count for the fail-open one.
+#
+# **Not reachable through the identity this workflow runs as**, and the docstring says so rather
+# than claiming a defect nobody can trigger: GitHub keeps a pending review's comments "only visible
+# to you", so a metered provider's draft never appears in a payload this reads. What the guard buys
+# is that the count stays correct whichever identity reads it - a deployment property, not one this
+# module can assert about itself.
+UNSUBMITTED_REVIEW_STATE = "PENDING"
 
 
 class TriageError(RuntimeError):
@@ -783,17 +824,137 @@ def _is_a_review(entry: dict[str, Any], wrappers: set[Any]) -> bool:
     return entry.get("id") not in wrappers
 
 
+def _substantive_review_ids(comments: list[dict[str, Any]]) -> set[Any]:
+    """Review ids owning at least one comment of their own - the POSITIVE spelling.
+
+    Deliberately not the complement of :func:`_reply_wrapper_ids`, and a separate function so the
+    two directions stay legible side by side. That one asks a submission to prove it is a
+    **wrapper**, so the unproven case counts as a review - the fail-closed direction on the cap.
+    This one asks a submission to prove it **said something**, so the unproven case is not evidence
+    - the fail-closed direction on the gate. One payload, two axes, opposite safe answers.
+    """
+    return {
+        entry["pull_request_review_id"]
+        for entry in comments
+        if entry.get("pull_request_review_id") is not None and not entry.get("in_reply_to_id")
+    }
+
+
+def _says_something(entry: dict[str, Any], spoke: set[Any]) -> bool:
+    """Whether a submission carries evidence that its provider actually reported.
+
+    A body is what every substantive review writes - #385's real review was 5667 bytes and all five
+    of its wrappers were 0 - a verdict state says something whether or not it is spelled out, and a
+    submission owning a non-reply comment has plainly reported. Anything else is a submission the
+    payload does not describe, and the gate does not accept those.
+
+    ``GATE_VERDICT_STATES`` rather than ``VERDICT_REVIEW_STATES``: a ``DISMISSED`` submission is a
+    verdict being *withdrawn*, which is evidence of an administrative act rather than of a review,
+    and accepting it here satisfied the gate on an empty payload. See the note beside the constants.
+    """
+    return bool(
+        (entry.get("body") or "").strip()
+        or entry.get("state") in GATE_VERDICT_STATES
+        or entry.get("id") in spoke
+    )
+
+
+def _gate_state(
+    *,
+    gate_blocked: bool,
+    capped: bool,
+    owed: bool,
+    running: bool,
+    converged: bool,
+) -> str:
+    """``blocked`` | ``satisfied`` | ``open`` — what the mandatory gate is doing (#399).
+
+    Reported rather than acted on: nothing here writes a label for ``satisfied``, because the lane
+    ending is the absence of work rather than a state to publish. What it changes is the run
+    summary, which an operator reads to decide the next step.
+
+    ``satisfied`` is deliberately narrow, and it is read off ``converged`` — *a clean CodeRabbit
+    review at this exact head* — rather than off the round evidence. **The two are not
+    interchangeable, and using the rounds was a real defect.** ``reviewed`` holds the heads where a
+    metered provider found something *blocking*; answering a finding moves the head, so by the time
+    the lane is capped every SHA in that set is stale by construction. It is also provider-blind. A
+    capped PR whose two rounds were fixed but which never asked for the verification would therefore
+    have reported its mandatory gate satisfied with no clean review in existence, and a blocking
+    *Greptile* round would have satisfied a *CodeRabbit* gate (CodeRabbit on #408).
+
+    So the gate asks for the thing ADR-0062 actually requires and nothing adjacent to it: that
+    provider, that head, no findings.
+
+    **``capped`` is a proxy, and a deliberately conservative one.** What the gate actually needs to
+    exclude is the DRAFT phase: a clean review there ends nothing, because the Greptile step and the
+    ready transition are still to come, and reporting the gate satisfied would invite arming a merge
+    on an unfinished lane — the failure ``.agents/tasks/amend.md`` warns about, one step earlier.
+    ``capped`` excludes it because draft rounds do not count, so a draft is never capped.
+
+    It excludes more than that, and the cost is known: a PR whose FIRST CodeRabbit review comes back
+    clean has met ADR-0062's gate — the cap is a ceiling, not a quota — and this reports ``open``
+    anyway. That direction is the safe one, since it at worst suggests a metered credit nobody
+    needed, where the other suggests a merge past the gate. Narrowing it to *"has been ready at
+    least once"* wants ``_counted_from(strict=True)``, which raises on an unreadable timeline rather
+    than returning the ``None`` that means *count everything*; reusing that ``None`` with the
+    opposite polarity is a live fail-open CodeRabbit found on #407. That helper arrives with #394,
+    so the narrowing is tracked in #411 rather than built on an unmerged sibling here.
+    """
+    if gate_blocked:
+        return "blocked"
+    if capped and not owed and not running and converged:
+        return "satisfied"
+    return "open"
+
+
+def _is_blocking(entry: dict[str, Any], is_reviews: bool) -> bool:
+    """Whether this piece of metered evidence found something, and so spends a round (#399).
+
+    **A converged round is free.** ADR-0062's gate requires *"at least one CodeRabbit review with no
+    actionable comments"*, and its cap allows two rounds — and those two rules could contradict each
+    other. If the round-2 review posts actionable comments, answering them moves the head, and the
+    gate then requires a review at *that* head, which would be round 3. The cap forbids it. #385
+    reached exactly that state: green on all 16 checks, 54 threads resolved, ``mergeStateStatus:
+    CLEAN``, and unmergeable by the lane's own text.
+
+    So the cap counts what it was always for - *how many times a provider has found something that
+    had to be fixed* - and a review that finds nothing is not a round but the lane **terminating**.
+    After two blocking rounds a worker may therefore always ask once more to verify convergence:
+    clean satisfies the gate at no cost, and blocking again pushes the count past ``CAP``, which
+    publishes ``agent:gate-blocked`` rather than leaving the PR green and stuck. The lane is bounded
+    at three metered reviews and every path out of it is a state something can act on.
+
+    Blocking is *actionable output at the head reviewed*: a ``CHANGES_REQUESTED`` submission, or an
+    inline finding. A submission with a body and no findings is CodeRabbit's clean form and is
+    exactly what the gate asks for. A reply is neither (#396), and is filtered before this is asked.
+    """
+    if not is_reviews:
+        return True  # An inline finding is the actionable thing itself.
+    return entry.get("state") in BLOCKING_REVIEW_STATES
+
+
 def _review_state(
     pr_number: int, head: str, counted_from: str | None = None
-) -> tuple[set[str], bool, bool]:
-    """``(heads that spent a round, whether the CURRENT head owes an answer, whether it was read)``.
+) -> tuple[set[str], bool, bool, bool]:
+    """``(heads that spent a round, whether the CURRENT head owes an answer, read, converged)``.
 
-    The third value is *any* external provider having looked at the current head, counted phase or
-    not. It is not a third counter: it answers a question neither of the others can, which is
-    whether a **clean** review has happened at all (#394). ``heads`` counts only metered,
-    post-``ready_for_review`` evidence, so on a draft it is empty whatever Codex has done - and
+    The last two both look like *"a review happened"* and are not interchangeable — with each other
+    or with ``heads``. #394 and #399 landed one each, and this is where they meet.
+
+    ``read`` is *any* external provider having looked at the current head, counted phase or not. It
+    is not a third counter: it answers a question neither of the others can, which is whether a
+    **clean** review has happened at all (#394). ``heads`` counts only metered,
+    post-``ready_for_review`` evidence, so on a draft it is empty whatever Codex has done — and
     ``owed`` is false both when a review came back clean and when none was ever asked for. Those two
     states authorise opposite things, so telling them apart needs its own value.
+
+    ``converged`` is the mandatory gate itself: **a clean CodeRabbit review at this head** (#399).
+    Tracked apart from ``heads`` because the two answer opposite questions — the round set is *where
+    a provider found something*, the gate is *where one found nothing* — and apart from ``read``
+    because that one is satisfied by any provider at all. **A Codex thumbs-up is a ``read`` and is
+    not a gate**, which is why ``converged`` keys on ``GATE_PROVIDER`` and ``read`` deliberately
+    does not: substituting a free provider for the metered gate is exactly what ADR-0062 forbids.
+    See :func:`_gate_state` for what conflating a round with the gate did.
 
     ``counted_from`` is the instant the cap starts (see :func:`_counted_from`). Evidence older than
     it still decides whether the current head **owes an answer** — a finding does not stop mattering
@@ -856,6 +1017,7 @@ def _review_state(
     )
 
     wrappers = _reply_wrapper_ids(comments)
+    spoke = _substantive_review_ids(comments)
     # Only asked when something might actually be cleared by it. A pull request with no external
     # inline FINDING at the current head cannot have an answered one, so the extra query buys
     # nothing there - and `clear_mirror` and the round-label paths run on every triage event.
@@ -875,17 +1037,29 @@ def _review_state(
 
     heads: set[str] = set()
     owed = False
+    # The gate, tracked as two halves that must both hold: the provider submitted at THIS head, and
+    # it left no finding here. A `COMMENTED` submission is CodeRabbit's clean form, so the
+    # submission alone proves nothing — the absence of findings beside it is the actual signal.
+    gate_review_here = False
+    gate_finding_here = False
     # Seeded from the issue-comment channel, because that is where Codex's CLEAN verdict lands.
     # A dirty Codex pass submits a review; a clean one posts *"Codex Review: Didn't find any major
     # issues"* as a plain issue comment, or reacts 👍 — neither of which carries `commit_id`, so the
     # loop below can never see it (Codex P1 on #407). The draft that most deserves to advance is
     # exactly the one that produced no review object at all.
+    #
+    # Deliberately NOT seeding the gate the same way: that channel is where the FREE provider
+    # answers, and a gate satisfiable by Codex is no gate at all.
     read_head = _verdict_at_head(pr_number, head)
     for entries, is_reviews in ((reviews, True), (comments, False)):
         for entry in entries:
             login = ((entry.get("user") or {}).get("login")) or ""
             sha = _reviewed_head(entry)
             if login not in EXTERNAL_PROVIDERS or not isinstance(sha, str) or not sha:
+                continue
+            # An unsubmitted draft is not a review on ANY axis - not a round, and nothing is owed an
+            # answer to a finding its author has not sent yet. See `UNSUBMITTED_REVIEW_STATE`.
+            if is_reviews and entry.get("state") == UNSUBMITTED_REVIEW_STATE:
                 continue
             # A reply is not a *review*. On the comment axis `in_reply_to_id` says so outright; on
             # the review axis it takes the join, because the wrapper GitHub builds around a reply
@@ -915,11 +1089,62 @@ def _review_state(
             # mattering because it arrived on a draft, nor because the provider wrote it inside an
             # existing thread; a paid Greptile review that nothing answers is the worst case. This
             # is where the reply filter deliberately stops — see the docstring.
+            #
+            # A round is a metered review that found something BLOCKING (#399). A clean one is a
+            # convergence verification: it satisfies the gate, so charging it a round would make
+            # the gate and the cap contradict each other - see `_is_blocking`.
+            #
+            # All three conditions narrow the ROUND axis and none of them touches OWED. They compose
+            # rather than overlap: a reply is not a review at all, a draft round is free, and a
+            # clean round is the lane terminating.
             when = entry.get("submitted_at") if is_reviews else entry.get("created_at")
-            if not is_reply and login in METERED_PROVIDERS and _counts_as_round(when, counted_from):
+            if (
+                not is_reply
+                and login in METERED_PROVIDERS
+                and _counts_as_round(when, counted_from)
+                and _is_blocking(entry, is_reviews)
+            ):
                 heads.add(sha)
             if sha != head:
                 continue
+            # The gate is asked at the current head only, and the two halves fail in opposite
+            # directions on purpose. A *reply wrapper* is not the verification (#396), so it cannot
+            # prove the gate, and it does not void it either — **both halves skip replies, and the
+            # asymmetric version of this was a defect.** Voiding on any threaded comment looked like
+            # the safe direction (#404: a provider writing "that only half fixes it" inside its own
+            # thread is a finding wearing an acknowledgement's shape), but it made an ordinary
+            # CodeRabbit acknowledgement at the current head retract a gate that was already
+            # satisfied — permanently, since nothing clears it but moving the head, and a converged
+            # PR has nothing left to push. That is #399's own deadlock, rebuilt by the fix for it.
+            #
+            # The reply question belongs to `owed`, which counts replies deliberately and for
+            # exactly that reason, and which `_gate_state` already requires to be false. So this
+            # axis asks only what ADR-0062 asks — *actionable comments* — and a reply is not one.
+            #
+            # **The gate is RESOLUTION-BLIND where `owed` below is resolution-aware, deliberately.**
+            # #393 made a resolved finding stop owing, because a deferral answered it. It does not
+            # make the review that carried it clean: ADR-0062's gate is *a CodeRabbit review with no
+            # actionable comments*, and tidying the thread afterwards does not retroactively remove
+            # the comment from that review. So a deferred-and-resolved finding still needs a fresh
+            # review at this head before the gate is met — one more free review under #399's rule,
+            # never a deadlock, because a non-blocking round costs nothing to ask again.
+            #
+            # The asymmetry is the fail-closed direction on the axis that decides merges: reading
+            # `resolved` here would let the author satisfy the mandatory gate by resolving threads,
+            # which is precisely the substitution the gate exists to refuse.
+            if login == GATE_PROVIDER and not is_reply:
+                if not is_reviews or entry.get("state") in BLOCKING_REVIEW_STATES:
+                    gate_finding_here = True
+                elif _says_something(entry, spoke):
+                    # POSITIVE EVIDENCE, where the round axis above deliberately takes the absence
+                    # of it. `_is_a_review` counts a submission with no body, no verdict and no
+                    # comments, because it asks a submission to prove it is a *wrapper* - and on the
+                    # cap, counting the unproven case is fail-closed. On the gate the identical
+                    # submission would set `converged` with nothing showing that CodeRabbit reported
+                    # anything at all, which is fail-OPEN on the axis that decides merges
+                    # (CodeRabbit on #408). Same payload, opposite safe directions, so the two axes
+                    # ask opposite questions of it.
+                    gate_review_here = True
             if is_reviews:
                 # A CHANGES_REQUESTED submission is a SEPARATE signal, and resolving threads does
                 # not clear it (#393's third criterion). It is a verdict on the pull request rather
@@ -929,7 +1154,7 @@ def _review_state(
                     owed = True
             elif entry.get("id") not in resolved:
                 owed = True
-    return heads, owed, read_head
+    return heads, owed, read_head, gate_review_here and not gate_finding_here
 
 
 def advance_step_token(pr: dict[str, Any]) -> str:
@@ -998,6 +1223,7 @@ def _advance_state(
     owed: bool,
     running: bool,
     capped: bool,
+    gate_blocked: bool,
     add: list[str],
     remove: list[str],
 ) -> str:
@@ -1036,6 +1262,13 @@ def _advance_state(
       be authorised to leave the draft phase before the free provider had ever looked at it, which
       is the lane's whole point skipped.
     * **Not past the cap.** Nothing is authorised past it, by any route.
+    * **Not gate-blocked**, which is #399 meeting #394 and belongs to neither branch alone. That
+      label means *the convergence verification came back blocking too, so no automatic state
+      remains* — and an advance is automatic state. ``owed`` covers the moment the finding lands
+      and stops covering it the instant the author answers and resolves the thread (#393), which is
+      exactly when a session would be dispatched to walk a lane that has stopped terminating.
+      Checked on the recomputed ``rounds > CAP``, not on the label, so it cannot be cleared by
+      anyone tidying labels.
 
     The label is *published*, not consumed. ``swarm_slots`` takes the ref that makes it exactly one
     session; the label alone re-triggering would be an unbounded supply of them.
@@ -1049,6 +1282,12 @@ def _advance_state(
     # #394. So the question is whether the amend STANDS, not whether it was there when we looked.
     if owed or running or (AMEND_LABEL in labels and AMEND_LABEL not in remove):
         return _withdraw_advance(labels, remove, "not-eligible")
+    # #399's terminal state, which #394's branch could not see and #399's had nothing to withhold
+    # from. `gate_blocked` says a maintainer decides from here, and publishing advance authority
+    # beside it would dispatch a session to walk a lane that has stopped terminating - past the cap,
+    # so with no round to spend on the review that step would ask for.
+    if gate_blocked:
+        return _withdraw_advance(labels, remove, "gate-blocked")
     # The cap bounds ROUNDS, and the counted phase's remaining steps are not rounds. A PR whose
     # gate has passed with both rounds spent still needs a session to arm the merge, and one that
     # has answered round CAP still needs to request the convergence check ADR-0062 permits - a
@@ -1203,10 +1442,14 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         raise TriageError(f"PR #{pr['number']} has no head sha")
 
     counted_from = _counted_from(pr)
-    reviewed, review_owed, read_head = _review_state(pr["number"], head, counted_from)
+    reviewed, review_owed, read_head, converged = _review_state(pr["number"], head, counted_from)
     rounds = len(reviewed)
     running, failed = _suite_state(head)
     capped = rounds >= CAP
+    # PAST the cap, not at it. At the cap the lane can still terminate: one convergence
+    # verification is allowed and a clean one satisfies the gate at no cost (#399). Past it,
+    # that verification came back blocking too, so no automatic state remains.
+    gate_blocked = rounds > CAP
     # Either reason owes the same single AMEND session: CI to fix, or a review to answer.
     owed = failed or review_owed
 
@@ -1236,8 +1479,16 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
 
     # The whole mechanism: past the cap no AMEND authority is issued, so no third round can start.
     # An existing marker is left alone - see the module docstring on the two writers.
-    if capped:
-        amend = "withheld-at-cap"
+    #
+    # PAST the cap, not AT it, and the difference is what makes #399's convergence check reachable.
+    # An AMEND is not a round: a round is a metered REVIEW, and this authorises the session that
+    # ANSWERS one. Withholding at `rounds == CAP` meant the round-2 review's own findings could
+    # never be fixed - so the lane could not reach the "everything answered, everything pushed"
+    # state the convergence check requires, and the change that exists to un-deadlock the gate
+    # deadlocked it one step earlier (CodeRabbit on #408). Past `CAP` the convergence check itself
+    # came back blocking, and then there is genuinely nothing left to authorise.
+    if gate_blocked:
+        amend = "gate-blocked"
     elif owed and AMEND_LABEL not in labels:
         add.append(AMEND_LABEL)
         amend = "added"
@@ -1247,6 +1498,9 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
     else:
         amend = "unchanged"
 
+    if gate_blocked and GATE_BLOCKED_LABEL not in labels:
+        add.append(GATE_BLOCKED_LABEL)
+
     advance = _advance_state(
         labels=labels,
         read_head=read_head,
@@ -1255,6 +1509,7 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         owed=owed,
         running=running,
         capped=capped,
+        gate_blocked=gate_blocked,
         add=add,
         remove=remove,
     )
@@ -1267,6 +1522,23 @@ def triage(*, number: int | None, branch: str | None, dry_run: bool) -> dict[str
         "head": head,
         "rounds": rounds,
         "capped": capped,
+        # Three states, not two. `open` covers "the gate is still ahead of this PR"; `blocked` is
+        # the convergence check having come back blocking. `satisfied` is the third, and leaving it
+        # out made the run summary tell an operator that "one convergence check is still permitted"
+        # on a PR whose gate had just been met - an invitation to spend a second one, which is a
+        # stop-list violation (CodeRabbit on #408). Clean evidence is free, so `rounds` and `capped`
+        # look identical either side of it; the distinguisher is `converged` - nothing owed at a
+        # head **`GATE_PROVIDER`** has reviewed cleanly. Not *a metered provider*, which is what
+        # this comment said until CodeRabbit caught the same conflation it had already caught once
+        # in this file: Greptile is metered and cannot satisfy this gate, and
+        # `test_a_greptile_round_does_not_satisfy_the_coderabbit_gate` is what holds that.
+        "gate": _gate_state(
+            gate_blocked=gate_blocked,
+            capped=capped,
+            owed=owed,
+            running=running,
+            converged=converged,
+        ),
         "checks": "running" if running else ("failed" if failed else "green"),
         "review_owed": review_owed,
         "amend": amend,

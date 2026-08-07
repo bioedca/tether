@@ -558,9 +558,23 @@ def _review_rounds(number: int) -> int:
             # module deliberately shares no code with `triage.py` - it is a second opinion, and one
             # that imported the counter it audits would not be one.
             if is_reviews:
+                # An unsubmitted draft review is not a round (#400), and it is asked FIRST because
+                # a `PENDING` review carrying a body would otherwise pass the `real` test below. It
+                # has no `submitted_at`, and the timestamp branch at the foot of this loop counts a
+                # timestamp-less entry deliberately - so leaving it in spends a round on a review
+                # its author has not sent. Mirrors `triage.UNSUBMITTED_REVIEW_STATE`, stated inline
+                # because this module shares no code with the counter it audits.
+                if entry.get("state") == "PENDING":
+                    continue
                 real = bool((entry.get("body") or "").strip()) or entry.get("id") not in wrappers
                 real = real or entry.get("state") in {"CHANGES_REQUESTED", "APPROVED", "DISMISSED"}
                 if not real:
+                    continue
+                # A round is a metered review that FOUND something (#399). A clean one is the lane
+                # terminating, and counting it here would report one round where triage reports
+                # zero on every PR CodeRabbit passes - "evidence ahead of the labels", which is the
+                # corruption signal this mirror exists to raise rather than to manufacture.
+                if entry.get("state") not in {"CHANGES_REQUESTED"}:
                     continue
             elif entry.get("in_reply_to_id"):
                 continue

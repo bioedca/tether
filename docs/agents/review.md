@@ -33,6 +33,47 @@ Each step begins only when the one before it has nothing blocking left.
 4. **CodeRabbit is the last gate before merge** — `@coderabbitai full review` — at least one
    CodeRabbit review with **no actionable comments**. Nothing merges without it.
 
+   **That is a verdict a completed review reached, and it is recorded as one.** The evidence is the
+   review itself, and it is four things together: its **permalink**, the **`commit_id` it read**
+   — which must be the final head — a **`submitted_at`**, with a state that is not `PENDING`, and a
+   **body** whose `Actionable comments posted:` count is zero.
+
+   **`submitted_at` is what separates a review from a draft of one.** GitHub's schema says a review
+   created in the `PENDING` state is *"not submitted and therefore does not include the
+   `submitted_at` property"*, and `triage.py` skips such an entry on every axis it has — not a
+   round, owing nothing, not a look at the head. A checklist that accepted one would let the
+   *documented* gate be satisfied by something the *code* has already decided is not a review. The
+   two disagreeing about what counts as a review is the defect this section exists to remove, so the
+   evidence names the same thing the counter does.
+
+   **Zero is written by that line being ABSENT, and asking for the line is asking for something
+   that does not exist.** Measured across every CodeRabbit review this repository has ever had:
+   twenty-one carry `**Actionable comments posted: N**` with `N ≥ 1`, and the clean ones carry no
+   such line at all — the body opens directly on `🧹 Nitpick comments`. So the clean form is *a
+   review body that states no actionable-comment count, or states it as `0`*, and a rule demanding
+   the literal `Actionable comments posted: 0` would make the mandatory gate unsatisfiable by its
+   own evidence requirement. Quote the opening of the body, so a reader can see which of the two it
+   is.
+
+   **A body there must be.** An *absence* of comments is not this evidence, and neither is a green
+   `CodeRabbit` status check: both are also what the incremental command below leaves behind when it
+   reviews nothing, and the check answers *is one running*, never *did one happen*. A clean review
+   is not silent — it carries its nitpick section, which is why "no actionable comments" and "no
+   review" do not look alike once you read the body.
+
+   **Nitpicks are not actionable comments, and inline comments are.** CodeRabbit files what it
+   counts as actionable as inline review comments and puts `🔵 Trivial` nitpicks in the body, so a
+   body full of nitpicks with no inline comments *is* the clean form. A `🟡 Minor` inline comment
+   is still an actionable comment even though the severity floor says to defer rather than fix it:
+   the gate and the severity floor answer different questions, and this one is *is there an
+   actionable comment at this head*.
+
+   **Nothing automatic reads this, and that is the point.** `triage._review_state` reports the heads
+   a provider reviewed and whether the current one owes an answer; it does not parse a provider's
+   verdict text and has no convergence output. So the gate is an obligation on whoever completes the
+   lane, and the recorded evidence is the only thing that makes it auditable afterwards — by a human,
+   or by a reviewer asked to confirm the lane was walked rather than declared.
+
 **Never write a provider's handle in a comment you do not intend as a request.** A mention fires the
 bot even inside backticks — a code span is not an escape. Quoting the trigger while *describing* it
 spent a real fair-use review on a draft that was not ready for one, and throttled the PR that was
@@ -123,9 +164,44 @@ asking a provider to look **again** at work it has already reviewed this round.
   iteration while the PR is still a draft is uncounted, which is the point of doing the work there.
   `agent:round-N` and `agent:review-capped` therefore mean *post-draft, metered* rounds, and every
   AMEND is a fresh short-lived session whose task text the launcher injects with an explicit
-  `ROUND = N of 2`; past the cap it injects none, so no worker ever holds authority for a third. At
-  the cap, safety-class findings escalate to the maintainer and the rest become follow-ups.
-  Stop-list, not judgement: **never a review request while `agent:review-capped` is present**.
+  `ROUND = N of 2`; past the cap it injects none, so no worker ever holds authority for a third.
+  **A round is a metered review that found something blocking**, so a clean one is not a round and
+  costs nothing — which is what stops the cap and the gate contradicting each other. Without that
+  rule a round-2 review with findings left a PR needing a review at the head that answered them, and
+  forbidden to buy one: green, mergeable and unmergeable at once (#399, measured on #385).
+
+  **Free and terminating are different properties, and only one of them is provider-blind.** Any
+  clean metered review is free — a clean Greptile pass costs no round — but the lane ends only on
+  clean **CodeRabbit** evidence at the current head, which is what `triage.py` reads for gate
+  satisfaction. Reading *"a clean one is the lane terminating"* as covering every provider would let
+  a free review stand in for the metered gate, which is the substitution ADR-0062 exists to refuse
+  (CodeRabbit on #408).
+- **At the cap one more review is due, and the ADVANCE session is what asks for it.** The AMEND
+  answers every blocking finding, pushes, dispatches triage and exits — it does not request the
+  convergence check, even though it is the session that made the check due. Triage then publishes
+  `agent:needs-advance`, and the ADVANCE session it dispatches makes the one request, because that
+  is the session holding the `refs/lane-advances/` compare-and-swap that turns however many
+  launchers see the label into a single metered request. An AMEND asking as well does not bring the
+  gate forward; it spends a second review on the same head, since nothing stops the ADVANCE session
+  from asking too (CodeRabbit on #408).
+  Clean satisfies the gate and the lane ends. Blocking again means the
+  count has passed the cap: `agent:gate-blocked` goes on, and it is **a maintainer's** — safety-class
+  findings escalate, the rest become follow-ups, and you stop. **That escalation belongs here and
+  not at the cap**, which is where this page used to put it: at `agent:review-capped` the round-2
+  findings still have to be *fixed*, and a worker is still issued the session that fixes them, so
+  telling it to escalate and stop there would end the lane one step before the review the gate
+  requires (CodeRabbit on #408).
+  Stop-list, not judgement: **never a review request while `agent:gate-blocked` is present**, and
+  under `agent:review-capped` never more than that one *completed* convergence review. A request
+  that produced no review has not spent it — a fair-use refusal naming a retry time is a wait, so
+  wait it and ask again after reading the status check.
+- **The cap withholds AMEND authority past itself, not at itself**, and the distinction is what
+  makes the convergence check reachable. An AMEND answers a review; it is not a review, so it is not
+  a round. At `agent:review-capped` the round-2 findings still have to be fixed, and a worker is
+  still issued the session that fixes them — otherwise the lane could never reach the *everything
+  answered, everything pushed* state the convergence check requires, and the rule written to
+  un-deadlock the gate would deadlock it one step earlier (CodeRabbit on #408). Authority stops once
+  `agent:gate-blocked` is published, because then the convergence check has failed too.
 - **A clean review on an unfinished lane resumes the claim, and does not spend a round.** The lane
   is a sequence, and a review that finds nothing owes nothing — so under the AMEND-only signal it
   published no authority at all and the lane sat before the gate it cannot merge without (#394).
@@ -141,6 +217,13 @@ asking a provider to look **again** at work it has already reviewed this round.
   the authority is published for any phase with a step left, and withheld only once the lane is
   genuinely complete: ready **and** armed. Being at `agent:review-capped` does not withhold it,
   because the remaining steps are not rounds.
+
+  **`agent:gate-blocked` does withhold it**, and that rule belongs to neither issue alone. Past the
+  cap the convergence check came back blocking too, so a maintainer decides — and an advance is
+  precisely the automatic state that label says no longer remains. The window it closes is a real
+  one: `owed` stops holding the moment the author answers the findings and resolves the threads
+  (#393), which is exactly when a session would otherwise be dispatched to walk a lane that has
+  stopped terminating, toward a review it has no round left to buy.
 - **Capability is not quota, and the two fail differently.** A selected provider reporting nothing to
   review at the head it read satisfies its leg — including a Codex 👍 reaction, its documented form
   of "no suggestions". Quote the provider, never the author or another commenter. *Exhaustion* is not
@@ -162,5 +245,24 @@ asking a provider to look **again** at work it has already reviewed this round.
   triggers it, so pace the asks rather than batching them.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to
-  the merged head. Then **arm auto-merge and exit** — never wait, never poll. Squash with
-  `--match-head-commit`, which is what replaces the merge queue this repository cannot have.
+  the merged head. Then **arm auto-merge and exit** — never wait, never poll.
+
+  ```
+  gh pr merge <PR> --auto --squash --match-head-commit <SHA>
+  ```
+
+  `--match-head-commit` is what replaces the merge queue this repository cannot have — that needs an
+  organization-owned repository. **`<SHA>` is the 40-hex head the clean review read, and you supply
+  it; nothing substitutes it.** It is the `commit_id` on that review, which is equally what
+  `git rev-parse HEAD` prints when you have pushed nothing since. Do **not** re-read the head from
+  the pull request while arming: that answers with whatever it is *now*, so the flag compares the
+  head against itself, binds nothing, and still reads as protection — and a guard that always passes
+  is worse than no guard. A short or mismatched value is refused by the API, so the failure is the
+  merge not happening rather than a merge against a head no review covers.
+
+  **This paragraph is the rule, and the other pages point at it rather than restate it.**
+  `.agents/tasks/{build,amend,advance}.md`, `.agents/skills/tether-worker/SKILL.md` and
+  `CONTRIBUTING.md` carry the command and nothing else. [#400](https://github.com/bioedca/tether/issues/400)
+  had to correct one sentence on four pages and [#416](https://github.com/bioedca/tether/issues/416)
+  was the fifth it could not reach; that is what a paraphrase costs on the one command standing in
+  for a merge queue.
