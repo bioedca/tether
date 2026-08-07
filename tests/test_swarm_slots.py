@@ -198,31 +198,106 @@ def _by_issue(report: dict[str, Any], number: int) -> dict[str, Any]:
 # ------------------------------------------------------------------------------ the cap
 
 
-def test_the_launcher_refuses_to_issue_a_third_round(
+def test_the_launcher_refuses_once_the_convergence_check_has_failed_too(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """THE acceptance criterion of this change, and it must hold against a WRONG label.
 
-    `agent:needs-amend` is presented alongside `agent:review-capped` on purpose: the triage counter
-    can undercount, so the launcher must refuse on the cap rather than trust the amend flag. Two
-    independent refusals is the design; this is the second one.
+    `agent:needs-amend` is presented alongside the terminal label on purpose: the triage counter
+    can undercount, so the launcher must refuse on the published terminal state rather than trust
+    the amend flag. Two independent refusals is the design; this is the second one.
+
+    Since #399 that state is `agent:gate-blocked`, not `agent:review-capped`. The cap bounds metered
+    REVIEWS, and an AMEND is the session that answers one - see the test below, which is the half
+    the old rule refused.
     """
-    issue = _issue(7, slots.CAPPED_LABEL, slots.AMEND_LABEL, "priority:P0")
+    issue = _issue(7, slots.GATE_BLOCKED_LABEL, slots.AMEND_LABEL, "priority:P0")
     _install(monkeypatch, claimed=[7], issues={7: issue})
     report = _run(monkeypatch, tmp_path)
     entry = _by_issue(report, 7)
     assert entry["mode"] == "refuse"
     assert entry["launched"] is False
-    assert "cap" in entry["reason"] and "maintainer" in entry["reason"]
+    assert "maintainer" in entry["reason"]
     assert "command" not in entry, "a refusal must not produce something runnable"
-    assert not list(tmp_path.glob("_task-issue-*.md")), "no AMEND text may be written at the cap"
+    assert not list(tmp_path.glob("_task-issue-*.md")), "no AMEND text may be written past the cap"
+
+
+def test_the_session_that_answers_round_two_is_still_issued_at_the_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#399's deadlock, rebuilt one layer up in the launcher (CodeRabbit on #408).
+
+    `triage.py` publishes `agent:needs-amend` AT the cap deliberately: round 2's findings still have
+    to be fixed, and an AMEND is not a round - a round is a metered review, and this is the session
+    that answers one. The launcher refused it anyway, on `_rounds_spent(labels) >= CAP`, so the lane
+    could never reach the *everything answered, everything pushed* state the convergence check
+    requires. The rule written to un-deadlock the gate deadlocked it one step earlier.
+
+    Asserted as a LAUNCH rather than as the absence of a refusal, because a `refuse` entry and a
+    silently missing one look much the same in the report.
+    """
+    issue = _issue(7, slots.CAPPED_LABEL, slots.AMEND_LABEL, "priority:P0")
+    _install(monkeypatch, claimed=[7], issues={7: issue})
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "amend", "the cap bounds reviews, and this session is not one"
+    assert (tmp_path / "_task-issue-7.md").exists(), "and it is handed real AMEND text"
+
+
+def test_the_terminal_label_beats_the_advance_authority(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Both labels can be published at once, and the order decided which one won (CodeRabbit #408).
+
+    `triage._advance_state` withholds the advance on `gate_blocked` and clears a stale
+    `agent:needs-advance` - but that happens on a triage RUN, and between the review that blocked
+    the gate and the run that clears the label both are present. Testing ADVANCE first launched a
+    session to walk a lane that has stopped terminating, which is the one thing the terminal label
+    exists to prevent.
+
+    Asserted on the mode rather than on the absence of a task file, because `advance` and `refuse`
+    both write nothing when the ref is lost.
+    """
+    issue = _issue(7, slots.ADVANCE_LABEL, slots.GATE_BLOCKED_LABEL, "priority:P0")
+    fake = _install(monkeypatch, claimed=[7], issues={7: issue})
+    _as_draft(fake, draft=True)
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse", "nothing is authorised past the terminal label"
+    assert fake.created_refs == [], "and no advance ref may be taken for it"
+
+
+def test_the_terminal_label_is_re_read_before_the_amend_is_reserved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The plan's snapshot is not the state at the write (CodeRabbit on #408).
+
+    `item["gate_blocked"]` is decided when the plan is built, and triage can publish the terminal
+    label in the seconds between - so a stale `False` let the reservation create an AMEND ref for a
+    lane that had already stopped terminating. `AGENTS.md` states this rule for claims: revalidate
+    immediately before every authoritative write, never once for all of them.
+
+    The re-read is what is being tested, so it is the re-read that is made to disagree with the
+    plan: at plan time the issue carries no terminal label, and at reservation time it does.
+    """
+    issue = _issue(7, slots.AMEND_LABEL, "priority:P0")
+    fake = _install(monkeypatch, claimed=[7], issues={7: issue})
+    monkeypatch.setattr(
+        slots, "_issue_now", lambda number: _issue(number, slots.GATE_BLOCKED_LABEL)
+    )
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert entry["mode"] == "refuse", "the state at the write is what decides"
+    assert fake.created_refs == [], "and no round may be taken for it"
+    assert not list(tmp_path.glob("_task-issue-*.md"))
 
 
 def test_a_refusal_is_reported_never_silently_skipped(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A launcher that quietly passed over a capped PR looks identical to one with no work."""
-    _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.CAPPED_LABEL, slots.AMEND_LABEL)})
+    """A launcher that quietly passed over a terminal PR looks identical to one with no work."""
+    _install(
+        monkeypatch,
+        claimed=[7],
+        issues={7: _issue(7, slots.GATE_BLOCKED_LABEL, slots.AMEND_LABEL)},
+    )
     report = _run(monkeypatch, tmp_path)
     assert [r["mode"] for r in report["results"]] == ["refuse"]
     assert report["cap"] == slots.CAP
@@ -990,6 +1065,109 @@ def test_the_amend_ref_is_keyed_to_the_claim_generation(
     assert all("7-77-" in p for p in reads), "keyed to issue AND generation"
 
 
+def _reclaim_after_first_read(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """`claim._generation` answers 77 once and 78 thereafter - the reaper reclaiming mid-flight.
+
+    The first read is the one `_existing_claim` takes at the top of an authorisation; every later
+    one is the revalidation immediately before a write. Faked here rather than by moving the
+    activity route, so the test does not depend on how many API calls happen to sit between the two
+    - which is the detail the fix is about, and the one most likely to change under it.
+    """
+    seen: list[int] = []
+
+    def generation(number: int) -> int:
+        seen.append(number)
+        return 77 if len(seen) == 1 else 78
+
+    monkeypatch.setattr(slots.claim, "_generation", generation)
+    return seen
+
+
+def test_a_reclaim_during_authorisation_files_no_amend_round(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The generation is revalidated immediately before the write (CodeRabbit on #408).
+
+    `_existing_claim` reads it at the top, and the counted branch then spends three more round trips
+    - the draft lookup, the ledger read, the terminal label re-read - before `_take_amend_round`.
+    The reaper can reclaim across any of them, which is why `AGENTS.md` requires revalidation
+    immediately before every authoritative write rather than once for all of them.
+
+    What a stale write costs is worth stating, because *"this launcher loses a race"* understates
+    it: the ref lands under the DEAD generation, so the successor's `_issued_amends` cannot see a
+    round that really was issued, and the head recorded on it belongs to a different claim.
+    Generation keying is what makes a reclaim start fresh, and that only holds while refs are filed
+    under the generation that was live when they were written.
+    """
+    fake = _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.AMEND_LABEL)})
+    _as_draft(fake, draft=False)
+    seen = _reclaim_after_first_read(monkeypatch)
+
+    entry = _by_issue(_run(monkeypatch, tmp_path), 7)
+    assert len(seen) > 1, "the plan's generation must be re-read, not trusted, before the write"
+    assert entry["mode"] == "lost", entry.get("reason")
+    assert "reclaimed" in entry["reason"] and "78" in entry["reason"], "and it says which way"
+    assert fake.amend_refs() == [], "nothing may be filed under a generation this launcher lost"
+    assert not list(tmp_path.glob("_task-issue-*.md")), "and no worker starts against it"
+
+
+def test_a_reclaim_during_authorisation_files_no_lane_advance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The twin, whose window is the wider of the two.
+
+    CodeRabbit raised the race against `_authorise_amend` alone. `_authorise_advance` reads the
+    generation at the same place and then reads the pull request, its step token and its whole
+    review list before writing - more round trips than the AMEND path, so it is the easier of the
+    pair to hit. Fixing only the reported one would have left a known instance of one defect behind
+    on the argument that nobody pointed at it.
+    """
+    fake = _install(monkeypatch, claimed=[7], issues={7: _issue(7, slots.ADVANCE_LABEL)})
+    _as_draft(fake, draft=True)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+    seen = _reclaim_after_first_read(monkeypatch)
+
+    entry = _by_issue(
+        slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path), 7
+    )
+    assert len(seen) > 1, "the advance path revalidates too"
+    assert entry["mode"] == "lost", entry.get("reason")
+    assert fake.created_refs == [], "no lane-advance ref under the dead generation either"
+
+
+def test_the_terminal_label_published_mid_authorisation_stops_a_lane_advance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The ADVANCE path checked ownership but never the terminal state (CodeRabbit on #408).
+
+    `_plan` tests `agent:gate-blocked` first, but that snapshot is taken before the pull request,
+    its step token and its whole review list are read - and triage can publish the label across any
+    of them. The AMEND path re-reads it; this one did not, so an ADVANCE ref could still be created
+    for a lane that had already stopped terminating.
+
+    Not a harmless extra worker, which is why this is the same severity as the AMEND case: every
+    step in `advance.md` spends something - the Greptile credit, or the metered CodeRabbit request -
+    so advancing past the terminal label costs real budget.
+    """
+    issue = _issue(7, slots.ADVANCE_LABEL, "priority:P0")
+    fake = _install(monkeypatch, claimed=[7], issues={7: issue})
+    _as_draft(fake, draft=True)
+    for name in ("build.md", "amend.md", "advance.md"):
+        (tmp_path / name).write_text((TASKS / name).read_text(encoding="utf-8"), encoding="utf-8")
+    # The label lands only on the re-read, so the plan and the write genuinely disagree - which is
+    # the race, rather than a state the plan could have seen.
+    monkeypatch.setattr(slots, "_issue_now", lambda n: _issue(n, slots.GATE_BLOCKED_LABEL))
+
+    entry = _by_issue(
+        slots.run(slots=2, vendor="claude", owner="bioedca", spawn=False, tasks=tmp_path), 7
+    )
+    assert entry["mode"] == "refuse", entry.get("reason")
+    assert slots.GATE_BLOCKED_LABEL in entry["reason"]
+    assert fake.created_refs == [], "no advance ref for a lane that has stopped terminating"
+    assert not list(tmp_path.glob("_task-issue-*.md")), "and no session spends a credit for it"
+
+
 def test_an_unreadable_issuance_count_never_authorises_an_amend(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1004,23 +1182,22 @@ def test_an_unreadable_issuance_count_never_authorises_an_amend(
 def test_a_hand_applied_round_2_label_is_treated_as_the_cap(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """`agent:round-2` means both rounds are spent, which IS the cap - so it refuses.
+    """`agent:round-2` means both rounds are spent - and since #399 that no longer refuses.
 
     Recording the asymmetry that this test exposed, because it is easy to misread: under `CAP = 2`
     `triage._round_label` publishes `agent:round-1` at one round and `agent:review-capped` at
     two, so **`agent:round-2` is never published by code**. It is provisioned on the repository
     and reachable only by hand.
 
-    `_rounds_spent` still honours it rather than ignoring it, because a maintainer applying it
-    by hand plainly means "two rounds are gone" - and reading that as zero would hand out a
-    fresh session at the cap. Whether the label should exist at all under a two-round cap is
-    tracked separately; the safe reading is pinned here either way.
+    `_rounds_spent` still honours it rather than ignoring it - a maintainer applying it by hand
+    plainly means "two rounds are gone" - but what follows from that changed. It bounds metered
+    reviews, not the sessions that answer them, so the AMEND is issued and `_authorise_amend`'s own
+    issuance ledger is what stops a runaway. The terminal refusal is `agent:gate-blocked`.
     """
     _install(monkeypatch, claimed=[7], issues={7: _issue(7, "agent:round-2", slots.AMEND_LABEL)})
     entry = _by_issue(_run(monkeypatch, tmp_path), 7)
-    assert entry["mode"] == "refuse"
-    assert entry["launched"] is False
-    assert not list(tmp_path.glob("_task-issue-*.md"))
+    assert slots._rounds_spent({"agent:round-2"}) == slots.CAP, "the label still reads as the cap"
+    assert entry["mode"] == "amend", "which bounds reviews, and an AMEND is not one"
 
 
 def test_a_live_claim_without_the_amend_label_is_left_alone(
@@ -1043,6 +1220,7 @@ def test_the_launcher_and_the_triage_share_one_vocabulary() -> None:
     assert slots.CAP == slots.triage.CAP
     assert slots.AMEND_LABEL == slots.triage.AMEND_LABEL
     assert slots.CAPPED_LABEL == slots.triage.CAPPED_LABEL
+    assert slots.GATE_BLOCKED_LABEL == slots.triage.GATE_BLOCKED_LABEL
     assert slots.ROUND_LABELS == slots.triage.ROUND_LABELS
 
 
@@ -1128,7 +1306,7 @@ def test_amend_comes_before_build_and_refusals_before_both(
     ready = [_issue(9, "status:ready", "priority:P0")]
     issues = {
         7: _issue(7, slots.AMEND_LABEL, "agent:round-1", "priority:P2"),
-        8: _issue(8, slots.CAPPED_LABEL, "priority:P2"),
+        8: _issue(8, slots.GATE_BLOCKED_LABEL, "priority:P2"),
         9: ready[0],
     }
     _install(monkeypatch, ready=ready, claimed=[7, 8], issues=issues)
@@ -1148,9 +1326,9 @@ def test_priority_orders_the_build_queue(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
 
 def test_only_launches_consume_a_slot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A capped PR must not eat the slot a workable issue could have used."""
+    """A terminal PR must not eat the slot a workable issue could have used."""
     ready = [_issue(11, "status:ready"), _issue(12, "status:ready")]
-    issues = {8: _issue(8, slots.CAPPED_LABEL), 11: ready[0], 12: ready[1]}
+    issues = {8: _issue(8, slots.GATE_BLOCKED_LABEL), 11: ready[0], 12: ready[1]}
     _install(monkeypatch, ready=ready, claimed=[8], issues=issues)
     report = _run(monkeypatch, tmp_path, slot_count=1)
     modes = [r["mode"] for r in report["results"]]

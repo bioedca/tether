@@ -1079,12 +1079,26 @@ Review evidence **survives a non-material push**, so responding to findings does
 rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
 non-material, while executable code, scientific claims, data, schema, locks, CI/release configuration and the
 governance text itself (`AGENTS.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`, `.agents/**`,
-`docs/agents/**`) are material. A material push re-arms the review but grants **no additional round**, and a PR gets **at most two
-rounds** — a third means the issue was scoped too large. Under the swarm model the **launcher issues rounds**: a
+`docs/agents/**`) are material. A material push re-arms the review but grants **no additional round**, and a PR gets
+**at most two blocking rounds plus one convergence check** — needing a third *blocking* round means the issue was
+scoped too large. A convergence check that itself finds blocking work takes the count past the cap: that third count
+records **failed convergence** and publishes `agent:gate-blocked`, and it issues no third AMEND session — the lane
+stops for the maintainer rather than continuing. Under the swarm model the **launcher issues rounds**: a
 worker is short-lived, every AMEND is a new session whose task text the launcher injects with an explicit
-`ROUND = N of 2`, and past the cap it injects none — so no worker holds authority for a third. Two things are
-stop-list violations rather than judgement calls: more than one self-review pass before the first external request,
-and any review request on a PR labelled `agent:review-capped`.
+`ROUND = N of 2`, and past the cap it injects none — so no worker holds authority for a third. A **round** is a
+metered review that produced blocking output, and one that finds nothing costs nothing — without which the mandatory
+CodeRabbit gate and the two-round cap contradict each other and a PR can sit green, correct and unmergeable. Costing
+nothing and *satisfying the gate* are separate, and only one of them is provider-blind: any clean metered review is
+free, while the gate is **CodeRabbit at the current head**, because that is the review ADR-0062 makes mandatory and
+Greptile is the optional leg whose exhaustion never blocks. Two things are stop-list violations rather than judgement
+calls: more than one self-review pass before the first external request, and a review request on a PR labelled
+`agent:review-capped` **beyond the single convergence review** that state permits — everything answered, everything
+pushed, one final CodeRabbit review — requested by the **ADVANCE** session triage dispatches next, not by the AMEND
+session that answered the round, because only the former holds the `refs/lane-advances/` compare-and-swap that turns
+any number of launchers into a single request. What that allowance counts is a review that **completed**, on the same
+rule as the one-per-round limit above: a request the provider refused or dropped produced nothing and so spent
+nothing, and the retry is a wait. A second *completed* convergence review, or any request while `agent:gate-blocked`
+is present, is the violation.
 
 Blocking is decided on the **severity axis only**: CodeRabbit `Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its
 badges use the same P-scale as Codex, so they map straight across, and a review the seat paid a credit for must not be
