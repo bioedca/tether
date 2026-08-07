@@ -243,8 +243,13 @@ def _clear_conflicted(number: int, *, dry_run: bool) -> bool:
     return status == 200
 
 
-def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = None) -> None:
+def _requeue(
+    number: int, *, dry_run: bool, expect: tuple[int, str] | None = None
+) -> dict[str, str | None] | None:
     """Delete the claim ref and put the issue back on the queue.
+
+    Returns ``_retire_ref``'s tombstone - which sha was archived at the moment of deletion - or
+    ``None`` when nothing was retired (a dry run, or a ref that had already gone).
 
     Order matters. Everything that can fail is checked BEFORE anything destructive happens:
 
@@ -259,7 +264,7 @@ def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = Non
       ``status:ready`` is invisible to every future sweep.
     """
     if dry_run:
-        return
+        return None
 
     status, issue = claim._request("GET", f"/repos/{REPO}/issues/{number}")
     if status != 200 or not isinstance(issue, dict):
@@ -295,7 +300,7 @@ def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = Non
     # activity, kept the claim, and never repaired the labels. Creating the archive ref is additive
     # and harmless if the reap is then abandoned.
     if _prepare_retire(number) is None:
-        return
+        return None
 
     # ORDER IS THE RECOVERY MECHANISM. Labels next, ref deletion last.
     #
@@ -323,7 +328,7 @@ def _requeue(number: int, *, dry_run: bool, expect: tuple[int, str] | None = Non
                 "its claim ref is deliberately left in place so the next sweep retries"
             )
 
-    _retire_ref(number)
+    return _retire_ref(number)
 
 
 def _read_ref(number: int) -> str | None:
@@ -352,10 +357,14 @@ def _prepare_retire(number: int) -> str | None:
     a push that landed in between, unarchived.
 
     So: read the tip, copy it to ``refs/reaped/issue-<N>-<sha>``, read it again, and let the caller
-    delete only if it is unchanged. A push during those steps aborts the reap. A push between the
-    final read and the caller's DELETE is the irreducible remainder: one round-trip wide. Three
-    things keep even that from being a loss - the tip is archived, the worker still holds the
-    commits locally, and its next `claim check` fails on the generation fence.
+    delete only if it is unchanged. A push during those steps aborts the reap.
+
+    The archive taken here is the **floor**, not the whole story: ``_retire_ref`` re-reads and
+    re-archives immediately before the DELETE, so a push landing after the final read below is
+    preserved too. The remaining window is that last round-trip, it is irreducible, and ADR-0064
+    records the decision to accept it (#278). Three things keep even that from being a loss - the
+    tip is archived, the worker still holds the commits locally, and its next `claim check` fails
+    on the generation fence.
 
     Returns the archived sha, or ``None`` when there is no ref left to retire.
     """
@@ -368,12 +377,29 @@ def _prepare_retire(number: int) -> str | None:
     # and accepting the second would delete a tip that was never preserved. With the full sha the
     # ref name identifies the commit exactly, so 422 can only mean the identical archive is already
     # there. The ambiguity is removed rather than checked for.
-    status, _ = claim._request(
-        "POST",
-        f"/repos/{REPO}/git/refs",
-        {"ref": f"refs/reaped/issue-{number}-{before}", "sha": before},
-    )
-    archive = f"refs/reaped/issue-{number}-{before}"
+    _archive_tip(number, before)
+
+    # Only let the caller delete the tip we actually archived. If it moved while we were archiving,
+    # the worker is alive and this reap is abandoned - before any label has changed.
+    after = _read_ref(number)
+    if after != before:
+        raise ReaperError(
+            f"#{number} claim ref moved while being archived; refusing to delete an unarchived tip"
+        )
+    return before
+
+
+def _archive_tip(number: int, sha: str) -> None:
+    """Copy a claim tip to ``refs/reaped/issue-<N>-<sha>``. Idempotent; raises if it cannot.
+
+    The **full** sha, not a prefix. With an 8-character prefix a 422 was ambiguous - it could mean
+    "this exact archive exists" or "a different commit sharing that prefix was archived earlier",
+    and accepting the second would delete a tip that was never preserved. With the full sha the ref
+    name identifies the commit exactly, so 422 can only mean the identical archive is already there.
+    The ambiguity is removed rather than checked for.
+    """
+    archive = f"refs/reaped/issue-{number}-{sha}"
+    status, _ = claim._request("POST", f"/repos/{REPO}/git/refs", {"ref": archive, "sha": sha})
     if status not in (201, 422):
         raise ReaperError(
             f"#{number} claim ref could not be archived (HTTP {status}); refusing to delete it"
@@ -387,30 +413,51 @@ def _prepare_retire(number: int) -> str | None:
             "GET", f"/repos/{REPO}/git/ref/{archive.removeprefix('refs/')}"
         )
         target = existing.get("object", {}).get("sha") if isinstance(existing, dict) else None
-        if status != 200 or target != before:
+        if status != 200 or target != sha:
             raise ReaperError(
                 f"#{number} archive {archive} is absent or points elsewhere; refusing to delete"
             )
 
-    # Only let the caller delete the tip we actually archived. If it moved while we were archiving,
-    # the worker is alive and this reap is abandoned - before any label has changed.
-    after = _read_ref(number)
-    if after != before:
-        raise ReaperError(
-            f"#{number} claim ref moved while being archived; refusing to delete an unarchived tip"
-        )
-    return before
 
+def _retire_ref(number: int) -> dict[str, str | None]:
+    """Commit the retirement: re-archive the tip as late as possible, then delete the ref.
 
-def _retire_ref(number: int) -> None:
-    """Commit the retirement: delete the ref whose tip ``_prepare_retire`` already archived.
+    **This is the commit point and it must never abort** - the labels have already flipped, and an
+    abort here is the exact defect the prepare/retire split was made to fix: a live claim ref beside
+    a falsely `status:ready` issue, which every later sweep then kept and never repaired.
 
-    This is the commit point. Everything that can abort has already run, and every failure after it
-    leaves the ref in place for the next sweep to re-decide and retry.
+    ADR-0064 records the decision #278 asked for, and this is it. `DELETE /git/refs` accepts no
+    expected-SHA, so GitHub offers no compare-and-swap for ref deletion and the race **cannot be
+    closed** - the issue says so itself, and re-reading once more only moves the window. What it
+    can be is *narrowed*, and what is deleted can be made as likely as possible to have been
+    archived:
+
+    - `_prepare_retire` archives the tip and confirms it has not moved. That archive is the floor.
+    - Here, immediately before the DELETE, the tip is read again and archived again. A push that
+      landed after `_prepare_retire`'s final read is therefore preserved too, where previously it
+      was deleted unarchived.
+
+    The remaining window is the one round-trip between this final read and the DELETE below, and
+    that is irreducible. The second archive is **best-effort on purpose**: if it fails, the
+    prepare-time archive still stands, so proceeding is no worse than the previous behaviour -
+    whereas raising would strand the claim exactly as the old ordering did. Returns what was
+    archived so the run summary can carry a tombstone rather than deleting silently.
     """
+    record: dict[str, str | None] = {"archived": None, "archive_error": None}
+    try:
+        final = _read_ref(number)
+        if final is not None:
+            _archive_tip(number, final)
+            record["archived"] = final
+    except (ReaperError, claim.ClaimError) as exc:
+        # Never fatal here. The prepare-time archive is the floor, and stranding the claim to
+        # protect a best-effort improvement would trade a bounded risk for the unbounded one.
+        record["archive_error"] = str(exc)
+
     status, _ = claim._request("DELETE", f"/repos/{REPO}/git/refs/heads/{BRANCH_PREFIX}{number}")
     if status not in (204, 404):
         raise ReaperError(f"#{number} claim ref could not be deleted (HTTP {status})")
+    return record
 
 
 def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
@@ -436,8 +483,12 @@ def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
             if age_min < NO_PR_MINUTES:
                 actions.append({"issue": number, "action": "keep", "reason": "recent-activity"})
                 continue
-            _requeue(number, dry_run=dry_run, expect=expect)
-            actions.append({"issue": number, "action": "requeue", "reason": "no-open-pr"})
+            reaped = _requeue(number, dry_run=dry_run, expect=expect)
+            # The tombstone #278 asked for: say which sha was archived at the moment of deletion,
+            # so a lost push is at least attributable after the fact rather than silent.
+            actions.append(
+                {"issue": number, "action": "requeue", "reason": "no-open-pr", **(reaped or {})}
+            )
             continue
 
         if pr.get("mergeable_state") == "dirty":
