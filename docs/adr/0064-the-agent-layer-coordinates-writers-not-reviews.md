@@ -15,7 +15,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 > **What of ADR-0057 survives.** Its claim mutex, generation fence, scheduled reaper and
 > atomic ADR-number reservation **govern unchanged** — this record supersedes only its review
-> gate, round cap and slot launcher. That distinction is the whole decision, and it is stated
+> gate, round cap, slot launcher and advisory scope guard. That distinction is the whole decision, and it is stated
 > here rather than in the `Status` bullet because `scripts/gen_adr_index.py` extracts that
 > field with a single-line pattern and copies it verbatim into the index.
 
@@ -142,7 +142,7 @@ ledger and a launcher.**
 
 ### What is kept, and why each earns its place
 
-Two concurrent agents can corrupt each other in exactly five ways. Each is a write-write conflict
+Two concurrent agents can corrupt each other in exactly four ways. Each is a write-write conflict
 resolved by a compare-and-swap on a namespace GitHub already provides:
 
 | hazard | mechanism |
@@ -151,7 +151,14 @@ resolved by a compare-and-swap on a namespace GitHub already provides:
 | a superseded agent writes after being replaced | `claim.py check` — the generation fence |
 | a dead agent holds a claim forever | `reaper.py` + `agent-reaper.yml` |
 | two agents pick one ADR number | `claim.py reserve-adr` |
-| an agent works unapproved scope | `claim.py scope-hash`, `_check_eligible` |
+
+**The scope check is kept too, and it is deliberately outside that table.** `claim.py scope-hash`
+and `_check_eligible` read the issue and its comment pages and mutate nothing — no ref, no label,
+no write verb anywhere in the path — so listing them as a compare-and-swap would misdescribe both
+what they do and why they matter. They are the *precondition* ADR-0057 states: eligibility decides
+**whether** an issue may be worked, the mutex decides only **who** works it, and a claim taken on
+unapproved or since-edited scope is invalid however cleanly the race was won. That is why the check
+runs before the ref is created, and why a refusal leaves no ref behind for anyone to inherit.
 
 `greptile_usage.py` is kept for a different reason: it is the only control on a shared, metered,
 cross-repository budget, and it has produced no defects. `.greptile/config.json` is kept because
