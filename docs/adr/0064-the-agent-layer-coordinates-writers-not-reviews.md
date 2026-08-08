@@ -18,19 +18,28 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > gate, round cap, slot launcher and advisory scope guard. That distinction is the whole decision, and it is stated
 > here rather than in the `Status` bullet because `scripts/gen_adr_index.py` extracts that
 > field with a single-line pattern and copies it verbatim into the index.
-
+>
 > **Where every number below comes from.** All counts in this record were taken at
 > **`d3fd78ce638a141c7f7402905c6371364bc5cecc`** (`d3fd78c`, 2026-08-07), the commit this record
-> branched from, and are `git show <sha>:<path> | wc -l` over these sets: **scripts** = the 7 files
-> in `.agents/bin/`; **tests** = `test_{triage,swarm_slots,claim,agent_contract_is_runnable,`
-> `scope_guard,reaper,greptile_usage,greptile_config,agent_entry_points}.py`; **workflows** =
-> `agent-reaper.yml`, `agent-triage.yml`, `scope-guard.yml`; **prose** = `AGENTS.md`, `CLAUDE.md`,
-> both `SKILL.md`, `agents/openai.yaml`, `.agents/tasks/*.md`, `docs/agents/*.md`,
-> `.greptile/README.md`; **ADRs** = 0052, 0053, 0057, 0061, 0062, 0063. A reader can re-derive each
-> figure from that SHA without trusting this page. The remote-ref and issue-search counts further
-> down name their own commands and are as of the same date; unlike the line counts they read live
-> state, so they are reproducible only as a lower bound — refs and issues can be added later, and
-> `ls-remote` never reports a deletion.
+> branched from, and are `git show <sha>:<path> | wc -l` over these sets — call this the **agent
+> pathspec**: **scripts** = the 7 files in `.agents/bin/`; **tests** =
+> `test_{triage,swarm_slots,claim,agent_contract_is_runnable,scope_guard,reaper,greptile_usage,`
+> `greptile_config,agent_entry_points}.py`; **workflows** = `agent-reaper.yml`,
+> `agent-triage.yml`, `scope-guard.yml`; **prose** = `AGENTS.md`, `CLAUDE.md`, both `SKILL.md`,
+> `agents/openai.yaml`, `.agents/tasks/*.md`, `docs/agents/*.md`, `.greptile/README.md`; **ADRs**
+> = 0052, 0053, 0057, 0061, 0062, 0063. A reader can re-derive each figure from that SHA without
+> trusting this page.
+>
+> **Three kinds of evidence, and only the first is reproducible from a SHA.** The line counts
+> above are. The **remote-ref and issue-search counts** name their own commands and are as of the
+> same date, but they read live state, so they stand only as a **lower bound** — more refs and
+> issues can appear later, and `ls-remote` never reports a deletion. (Re-running it while this
+> pull request was open returned six ADR reservations rather than five, the sixth being this
+> record's own — which is the append-only property below behaving exactly as claimed.) The
+> **vendor quota terms** cannot be pinned to any revision this repository controls; where the
+> argument leans on one, it cites the in-repo artifact that encodes it — `INCLUDED_CREDITS = 50`
+> in `.agents/bin/greptile_usage.py` and `.greptile/README.md` — which is versioned here even
+> though the vendor's own terms are not.
 
 The agent layer is **17,773 lines** — 5,469 of scripts, 10,407 of tests, 502 of workflows and 1,395
 of contract prose, task templates and skills — against `src/tether`'s 42,796. **41% the size of the
@@ -39,12 +48,11 @@ product it exists to help build**, with a further 1,071 lines of ADRs about itse
 
 It did not exist on 2026-07-21. It has since become the only thing being worked on:
 
-- **The last 18 commits on `main` are all `(agents)`**, unbroken back to a product ADR on 07-30.
-  52% of the last 60 are.
-- `git diff --shortstat 2c27171 origin/main -- src/tether` returns **empty**. Zero changed product
-  lines since 2026-07-30, against **+9,708** in the agent layer over the same window.
-- Agent paths delete 20% of what they add (`+18,874 / −3,807` in 16 days); `src/tether` deletes 2%.
-  That ratio is the signature of repeated rewriting, not of accretion.
+- **The last 18 commits are all `(agents)`**, unbroken — the 19th is a product ADR. **35 of the
+  last 60** are (`git log --format=%s -60 d3fd78c | grep -c '(agents)'`).
+- `git diff --shortstat 2c27171 d3fd78c -- src/tether` returns **empty**: zero changed product
+  lines since 2026-07-30, against **+9,809 / −264** in the agent layer over the same window (the
+  same command, with the agent pathspec above in place of `src/tether`).
 
 Two mechanisms produce this, and they are independent. Removing either alone leaves the other
 running.
@@ -312,10 +320,15 @@ pull request, three times over.
 behind it, which deliberately re-exposes the failure mode of #276 — nine rounds against a limit of
 two. Three things make that acceptable now and did not exist then. The single long-lived coordinator
 session that made nine rounds possible was abolished by ADR-0057, whose own text says *"what makes
-either enforceable is that a worker is short-lived."* Greptile is hard-capped by the vendor at 50
-credits per seat per month, so a runaway's worst case is that the seat empties and reviews stop —
-bounded, self-healing, and nothing is billed. CodeRabbit is fair-use-limited by the vendor, and its
-one unbounded path is the usage-based-billing offer, which the contract forbids taking.
+either enforceable is that a worker is short-lived."* Greptile is hard-capped at 50 credits per seat
+per month — a vendor term, so not pinnable to any revision here, but one this repository encodes and
+versions as `INCLUDED_CREDITS = 50` in `.agents/bin/greptile_usage.py` and documents in
+`.greptile/README.md` — so a runaway's worst case is that the seat empties and reviews stop:
+bounded, self-healing, and nothing is billed. CodeRabbit is fair-use-limited by the vendor on terms
+it does not publish and adapts to usage, so no figure is quoted for it here; its one unbounded path
+is the usage-based-billing offer, which the contract forbids taking. **If either vendor changes
+those terms, this paragraph is the part of the record that stops holding** — the decision to drop
+the counter rests on them, and nothing in this repository would detect the change.
 
 Also lost: the advisory diff-budget report, whose thresholds ADR-0057 already records as
 miscalibrated for new-executable work; the materiality digest, which no decision reads; and
