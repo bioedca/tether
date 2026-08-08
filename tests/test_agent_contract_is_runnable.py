@@ -821,9 +821,11 @@ def test_a_page_that_arms_the_merge_says_what_sha_to_supply() -> None:
     themselves are allowed to point at `AGENTS.md` §Review instead of restating it, and all of them
     do — the rule sentence is what is required here, not the reasoning behind it.
 
-    The floor was **five** when the arming line was repeated across the skill, the three
-    `.agents/tasks/*.md` templates and `CONTRIBUTING.md`. ADR-0064 deletes the task templates, so
-    fewer pages carry it and the floor is three. It exists to catch the extractor going blind, not
+    The floor was five against **six** guarded pages carrying the arming line: the skill, the three
+    `.agents/tasks/*.md` templates, `CONTRIBUTING.md` and `docs/agents/review.md`, which reaches
+    `GUARDED_FILES` through the `docs/agents/*.md` glob in `SHARED_PAGES`. ADR-0064 deletes the
+    templates and folds `review.md` into `AGENTS.md`, which now carries the command itself, so three
+    pages carry it and the floor is three. The floor exists to catch the extractor going blind, not
     to require a particular number of copies — and fewer copies was the point.
     """
     arming = [
