@@ -29,6 +29,7 @@ from one implementation rather than two.
 from __future__ import annotations
 
 import argparse
+import calendar
 import hashlib
 import http.client
 import json
@@ -686,9 +687,15 @@ def _check_eligible(number: int, owner: str) -> dict[str, Any]:
 
     comments = _paginate(f"/repos/{REPO}/issues/{number}/comments", f"#{number} comments")
     if not _approval_binds(issue, comments, owner):
+        # One message covers three situations a worker cannot tell apart - never approved, approved
+        # then edited so the hash no longer binds, or a malformed marker - and only the second is
+        # the worker's doing (#326). Rather than guess here, point at the command that distinguishes
+        # them. Naming it in the message rather than in `AGENTS.md` costs nothing on every other
+        # call, and it is read exactly when it is needed.
         raise IneligibleError(
             f"#{number} has no maintainer approval binding its current title and body; "
-            "it may have been edited after approval"
+            "it may have been edited after approval. Run `claim.py doctor` to see whether the "
+            "marker is absent, stale or malformed"
         )
     return issue
 
@@ -985,6 +992,172 @@ def _cmd_reserve_adr(args: argparse.Namespace) -> None:
     raise ClaimError(f"could not reserve an ADR number in {args.attempts} attempts")
 
 
+#: How many `#N` references `doctor` resolves per blocked issue. Each costs one request, and a body
+#: can name dozens; anything past this is counted in `not_looked_up` rather than dropped silently.
+MENTION_CAP = 20
+
+#: How long a finished pull request may sit unarmed before `doctor` mentions it. A worker that has
+#: just pushed is mid-flight, not stranded, and flagging it would teach a reader to ignore the list.
+UNARMED_GRACE_MINUTES = 45
+
+
+def _doctor_ready(owner: str) -> list[dict[str, Any]]:
+    """Every `status:ready` issue, and whether its approval marker actually admits it.
+
+    Mode A of #326. The distinction that makes this worth printing is **absent** versus **present
+    but no longer binding**, because the remedies differ: post a marker, or re-approve after an
+    edit.
+
+    It reuses `_approval_binds` and `_scope_hash` rather than re-deriving them, so it cannot
+    drift from admission. That is not tidiness - ADR-0063 spent a week removing a ~145-line
+    reimplementation of a counter from `scope_guard.py` that had drifted from the original three
+    separate times. A reporter that disagrees with the gate it reports on is worse than none.
+    """
+    issues = _paginate(f"/repos/{REPO}/issues?state=open&labels={REQUIRED_LABEL}", "ready issues")
+    out = []
+    for issue in issues:
+        if issue.get("pull_request"):
+            continue
+        number = issue["number"]
+        comments = _paginate(f"/repos/{REPO}/issues/{number}/comments", f"#{number} comments")
+        markers = [
+            match
+            for comment in comments
+            if (comment.get("user") or {}).get("login") == owner
+            for match in READY_RE.findall(comment.get("body") or "")
+        ]
+        if _approval_binds(issue, comments, owner):
+            marker = "binds"
+        elif not markers:
+            marker = "absent"
+        else:
+            malformed = True
+            for raw in markers:
+                try:
+                    record = json.loads(raw)
+                except ValueError:
+                    continue
+                digest = record.get("criteria_sha256") if isinstance(record, dict) else None
+                if isinstance(digest, str) and HASH_RE.fullmatch(digest):
+                    malformed = False
+            marker = "malformed" if malformed else "stale"
+        out.append(
+            {
+                "issue": number,
+                "title": issue.get("title", "")[:60],
+                "marker": marker,
+                "autonomy": _autonomy_refusal(issue.get("body") or "") is None,
+            }
+        )
+    return out
+
+
+def _doctor_blocked() -> list[dict[str, Any]]:
+    """Every `status:blocked` issue with each `#N` its body mentions, and that number's state.
+
+    Mode B of #326, deliberately **raw data**. The issue asks for issues whose declared blockers
+    have all closed, then concedes the parse is heuristic - the Dependencies section is prose, its
+    wording varies, and #261 names no issue number at all. It also says *"a false 'unblocked' here
+    is worse than a miss."*
+
+    So this never emits the word *unblocked* and never adjudicates. It prints what the body mentions
+    and what those items are, and a human decides. A report that must not be trusted is a report
+    nobody reads; a report that only claims what it can see is one that can be.
+    """
+    issues = _paginate(f"/repos/{REPO}/issues?state=open&labels=status:blocked", "blocked issues")
+    out = []
+    for issue in issues:
+        if issue.get("pull_request"):
+            continue
+        mentioned = sorted({int(n) for n in re.findall(r"#(\d+)", issue.get("body") or "")})
+        # Bounded, and the bound is REPORTED rather than silent: a body can name dozens of numbers
+        # and each costs a request. A truncation nobody is told about reads as "these are all the
+        # references", which is the one thing this report must never imply.
+        #
+        # A reference the API would not answer for is the same hazard arriving by a different door,
+        # so it is reported too. Dropping it made `mentions` say nothing where it should say *I
+        # could not tell*: with both lookups failing, an issue naming two blockers rendered as
+        # `{"mentions": {}}`, byte-identical to an issue that names none.
+        states = {}
+        unreadable = []
+        for ref in mentioned[:MENTION_CAP]:
+            status, other = _request("GET", f"/repos/{REPO}/issues/{ref}")
+            if status == 200 and isinstance(other, dict):
+                # `pull_request` is present on EVERY pull request the issues API returns - open,
+                # closed-unmerged and merged alike - so its mere presence says nothing about
+                # whether the thing landed. Only `merged_at` does. Keying on presence reported
+                # every referenced pull request as `merged`, which is the one direction this
+                # function must never err in: it exists to hand a maintainer raw dependency state,
+                # and a blocker reported as merged when it is open is worse than not reporting it
+                # (Greptile P1 on #432).
+                pull_request = other.get("pull_request") or {}
+                merged = bool(pull_request.get("merged_at"))
+                states[ref] = "merged" if merged else other.get("state", "?")
+            else:
+                unreadable.append(ref)
+        record = {"issue": issue["number"], "mentions": states}
+        if unreadable:
+            record["unreadable"] = unreadable
+        if len(mentioned) > MENTION_CAP:
+            record["not_looked_up"] = len(mentioned) - MENTION_CAP
+        out.append(record)
+    return out
+
+
+def _doctor_unarmed(now: float) -> list[dict[str, Any]]:
+    """Open pull requests that are finished and that nothing will ever merge.
+
+    Mode C of #326. Every gate the merge asks for is satisfied - not a draft, mergeable, every check
+    passing, no auto-merge armed - and the contract's last step, arming it, did not happen. All four
+    fields are on the REST pull-request object, so this needs no GraphQL and no new transport.
+    """
+    out = []
+    for summary in _paginate(f"/repos/{REPO}/pulls?state=open", "open pull requests"):
+        if summary.get("draft"):
+            continue
+        status, pr = _request("GET", f"/repos/{REPO}/pulls/{summary['number']}")
+        if status != 200 or not isinstance(pr, dict):
+            continue
+        if pr.get("auto_merge") or pr.get("mergeable_state") != "clean":
+            continue
+        # `calendar.timegm`, not `time.mktime`: GitHub stamps UTC and `mktime` reads a struct as
+        # LOCAL time, which shifts every age by the machine's offset and can make a stale pull
+        # request look fresh. Found by the Mode C test on a UTC-negative machine.
+        updated = calendar.timegm(time.strptime(pr["updated_at"], "%Y-%m-%dT%H:%M:%SZ"))
+        idle = (now - updated) / 60
+        if idle < UNARMED_GRACE_MINUTES:
+            continue
+        out.append({"pr": pr["number"], "idle_minutes": int(idle), "head": pr["head"]["sha"][:8]})
+    return out
+
+
+def _cmd_doctor(args: argparse.Namespace) -> None:
+    """Report why the claimable queue looks the way it does. **Reports; never writes.**
+
+    #326: an autonomous session landed #318 and then had nothing left to claim while 52 issues
+    were open. The queue was empty for bookkeeping reasons and nothing detected it - an
+    over-blocked issue costs nothing visible, so nothing ever prompts a re-check.
+
+    Filed as a scheduled workflow; built as a subcommand instead. Every remedy is maintainer
+    authority - posting an approval marker, promoting a label, arming someone else's merge - so
+    nothing acts while nobody is looking, and a report published thirty minutes ago into a
+    workflow summary is strictly worse, at the moment someone looks, than one that answers now.
+    It also adds no file, no workflow and no schedule to a layer being shrunk (ADR-0064).
+
+    *Report, never act* is a property of this subcommand rather than of the module: `claim`,
+    `release` and `reserve-adr` all write - the last creates a ref - so the guarantee has to be
+    about `doctor` itself. Every call it makes is a GET, and `test_doctor_writes_nothing` asserts
+    no POST, PATCH, PUT or DELETE is issued, which is what makes it checkable rather than claimed.
+    """
+    report = {
+        "version": 1,
+        "ready": _doctor_ready(args.owner),
+        "blocked": _doctor_blocked(),
+        "unarmed": _doctor_unarmed(time.time()),
+    }
+    print(json.dumps(report, indent=2, sort_keys=True))
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Claim an issue by atomic ref creation.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1020,6 +1193,12 @@ def _parser() -> argparse.ArgumentParser:
     reserve = subparsers.add_parser("reserve-adr", help="atomically reserve the next ADR number")
     reserve.add_argument("--attempts", type=int, default=16)
     reserve.set_defaults(func=_cmd_reserve_adr)
+
+    doctor = subparsers.add_parser(
+        "doctor", help="report why the claimable queue looks the way it does; writes nothing"
+    )
+    doctor.add_argument("--owner", default="bioedca")
+    doctor.set_defaults(func=_cmd_doctor)
     return parser
 
 
