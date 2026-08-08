@@ -74,17 +74,18 @@ def test_both_lanes_entry_points_are_tracked() -> None:
     )
 
 
-def test_the_adaptation_names_the_contract_as_authoritative() -> None:
-    """Duplication needs a tie-breaker, or a drift has no defined resolution.
+def test_the_pointer_names_the_contract_as_authoritative() -> None:
+    """A pointer must say where the contract is before it says anything else.
 
-    Stated up front, where it is read before anything it might contradict: `AGENTS.md` wins and
-    `CLAUDE.md` is the bug. Without that sentence an agent finding a discrepancy has to guess, and
-    the guess is the whole risk of keeping two copies.
+    This outlived the duplication it was written for. It used to be the tie-breaker between two
+    copies — `AGENTS.md` wins, `CLAUDE.md` is the bug — and a pointer cannot contradict its target,
+    so that job is gone. What remains is placement: an agent reads the top of this file first, and
+    a pointer whose target is named further down is one an agent can start acting without.
     """
     head = "\n".join(CLAUDE_ENTRY.read_text(encoding="utf-8").splitlines()[:20])
     assert "AGENTS.md" in head, "the contract must be named up front, not buried"
     assert re.search(r"`?AGENTS\.md`?\*{0,2}\s+is authoritative", head), (
-        "the adaptation must say AGENTS.md wins on conflict"
+        "the pointer must name AGENTS.md as the authoritative text"
     )
 
 
@@ -93,10 +94,9 @@ def test_the_claude_entry_point_is_a_pointer_not_a_second_contract() -> None:
 
     Those guards bound a hand-written *adaptation*: every `##` section of `AGENTS.md` had to appear
     in `CLAUDE.md`, and the two had to stay within a factor of two in size. They worked, and the
-    thing they were protecting was the problem. Two files said the same eight things in different
-    words — only 49 of ~150 lines byte-identical — so every contract edit cost two files and a test
-    run, and ADR-0057's third driver (contract text is resident context, so its size is a running
-    cost) was being paid twice for one contract.
+    thing they were protecting was the problem. Two files said the same things in different words,
+    so every contract edit cost two files and a test run, and ADR-0057's third driver (contract text
+    is resident context, so its size is a running cost) was being paid twice for one contract.
 
     A pointer cannot drift, so the property worth binding changes: not *does it adapt every section*
     but *is it still a pointer*. `.claude/skills/tether-worker/SKILL.md` is bound the same way by
