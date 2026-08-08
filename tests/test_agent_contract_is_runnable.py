@@ -81,10 +81,13 @@ HUMAN_FACING = frozenset({_REPO / "CONTRIBUTING.md"})
 WORKER_FACING = [path for path in GUARDED_FILES if path not in HUMAN_FACING]
 
 # Which lanes read a page decides what it may name. A page both lanes read may not spell either
-# lane's interpreter, because one of the two spellings is always wrong there; a lane's own
-# adaptation may spell its own. `CLAUDE.md` is that adaptation — `AGENTS.md` is authoritative and it
-# exists because Claude Code loads it instead — and `.claude/skills/` is its skill pointer.
-LANE_SPECIFIC = frozenset({CLAUDE_SKILL, _REPO / "CLAUDE.md"})
+# lane's interpreter, because one of the two spellings is always wrong there.
+#
+# `CLAUDE.md` used to sit here: it was the Claude *adaptation*, its reader was always the WSL lane,
+# and `python3` was therefore correct in it. ADR-0064 made it a pointer to `AGENTS.md` carrying no
+# commands at all, so the exception has nothing left to except and it is gone. `.claude/skills/` is
+# still listed because it is the skill pointer and the same reasoning applies to it.
+LANE_SPECIFIC = frozenset({CLAUDE_SKILL})
 BOTH_LANES = [path for path in WORKER_FACING if path not in LANE_SPECIFIC]
 
 # `<py>` is only a convention if the page says what it stands for. Both existing definitions read
@@ -629,31 +632,24 @@ def test_a_page_both_lanes_read_resolves_the_interpreter_instead_of_naming_one()
     )
 
 
-def test_a_lane_specific_page_may_name_its_own_interpreter() -> None:
-    """The distinction the rule above rests on, asserted rather than assumed (#390).
+def test_the_claude_entry_point_carries_no_commands_at_all() -> None:
+    """What replaces the lane-specific-interpreter exception (#390, retired by ADR-0064).
 
-    `CLAUDE.md` is the Claude adaptation — `AGENTS.md` is authoritative, and this copy exists only
-    because Claude Code loads `CLAUDE.md` and not `AGENTS.md`. Its reader is always the WSL lane, so
-    `python3` there is *correct*, and banning the spelling repository-wide would force a resolver on
-    the one file that has nothing to resolve. Pinned so a later tightening of the rule above cannot
-    quietly swallow the exception.
+    That test asserted `CLAUDE.md` named `python3` and only `python3`, because it was the Claude
+    adaptation and its reader was always the WSL lane. Its own failure message said what to do when
+    that stopped being true — *"either drop it from LANE_SPECIFIC or restore a command that uses
+    it"* — and this takes the first branch.
+
+    `CLAUDE.md` is now a pointer to `AGENTS.md`. A pointer that carries commands is drifting back
+    into an adaptation, which is the thing ADR-0064 removed, so the property worth pinning is that
+    it carries none.
     """
     claude_md = _REPO / "CLAUDE.md"
-    assert claude_md in LANE_SPECIFIC and claude_md not in BOTH_LANES
-    named = [
-        command
-        for _number, command in _commands(claude_md)
-        if _first_token(command) in ("python", "python3")
-    ]
-    assert named, (
-        "CLAUDE.md no longer names its own lane's interpreter. That is allowed, but the exception "
-        "is now untested — either drop it from LANE_SPECIFIC or restore a command that uses it"
-    )
-    lane_python = _load_slots().LANE_PYTHON["claude"]
-    wrong = [command for command in named if _first_token(command) != lane_python]
-    assert not wrong, (
-        f"CLAUDE.md may name its own lane's interpreter, which is {lane_python!r} per LANE_PYTHON; "
-        f"these name a different one: {wrong}"
+    assert claude_md not in LANE_SPECIFIC, "the exception is retired; nothing should re-add it"
+    commands = [command for _number, command in _commands(claude_md)]
+    assert not commands, (
+        "CLAUDE.md is a pointer to AGENTS.md and must carry no runnable commands; it now has "
+        f"{commands}"
     )
 
 
