@@ -255,14 +255,49 @@ def test_every_spelling_of_agent_can_do_alone_in_the_live_corpus_admits(
     assert [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
 
 
+def test_no_refusal_token_depends_on_the_separator_it_is_written_with() -> None:
+    """Re-spelling an `AUTONOMY_REFUSES` entry must not change any verdict.
+
+    The flattener's whole job is that a separator never decides a safety verdict, and the
+    table is the one place a future edit can quietly undo that. `external/human` is the only
+    entry carrying a `/`, and until this test existed the flattener widened `[\\s_-]+` but not
+    `/`: writing that entry as `external - human` instead left it unable to match the body it
+    was there to refuse, re-opening the exact fail-open Greptile found on #428 - silently, in a
+    table edit that reads as a formatting change.
+
+    So this asserts the property over **every** entry rather than the one that broke. Each is
+    re-spelled with each separator and must still refuse a body that opens with an admitting
+    prefix, which is the case a literal-token match gets wrong.
+    """
+    separators = (" ", "-", "_", "/")
+    for token in claim.AUTONOMY_REFUSES:
+        canonical = claim._flatten_autonomy(token)
+        body = f"## Execution autonomy\n\nagent-can-do-alone; {token} applies here\n"
+        for separator in separators:
+            respelled = canonical.replace(" ", separator)
+            assert claim._flatten_autonomy(respelled) == canonical, (
+                f"{token!r} re-spelled as {respelled!r} flattens differently"
+            )
+            patched = tuple(
+                respelled if entry == token else entry for entry in claim.AUTONOMY_REFUSES
+            )
+            original = claim.AUTONOMY_REFUSES
+            try:
+                claim.AUTONOMY_REFUSES = patched
+                assert claim._autonomy_refusal(body) is not None, (
+                    f"{token!r} written as {respelled!r} stopped refusing - fail-open"
+                )
+            finally:
+                claim.AUTONOMY_REFUSES = original
+
+
 def test_a_grooming_block_supersedes_a_stale_body_declaration(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The grooming block wins, and it is the restrictive one here.
 
-    Those blocks open by declaring themselves authoritative - *"This section is authoritative for
-    readiness where earlier text is stale"* - and they exist because the body above them went out
-    of date. Reading the body first would admit on a value a grooming pass had already replaced.
+    Those blocks exist to restate readiness after the body above them went stale, so reading the
+    body first would admit on a value a grooming pass had already replaced.
     """
     body = (
         "## Execution autonomy\n\nagent-can-do-alone\n\n"

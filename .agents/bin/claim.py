@@ -510,22 +510,31 @@ def _normalize_autonomy(value: str) -> str:
 
 
 def _flatten_autonomy(value: str) -> str:
-    """The **comparison** form: hyphens and underscores become spaces, and runs collapse.
+    """The **comparison** form: separators become spaces, and runs collapse.
 
-    The corpus spells one concept several ways - `maintainer decision`, `maintainer-decision`,
-    `needs-maintainer-input` - and matching the literal token would let a separator decide a safety
-    verdict. `agent-can-do-alone; maintainer-decision required` opens with an admitting prefix and
-    names a restriction the spaced token cannot see, so it would have been **admitted**: a fail-open
-    in the one gate whose whole purpose is to fail closed (Greptile on #428).
+    The corpus already spells one concept two ways - `maintainer decision` in 51 issue bodies and
+    `needs-maintainer-input` in one - so matching a literal token lets a separator decide a safety
+    verdict. `agent-can-do-alone; maintainer-decision required`, the hyphenated form Greptile
+    constructed on #428, opens with an admitting prefix and names a restriction the spaced token
+    cannot see, so it would have been **admitted**: a fail-open in the one gate whose whole purpose
+    is to fail closed.
 
-    Both sides are flattened, so `AUTONOMY_ADMITS` and `AUTONOMY_REFUSES` may be written either way
-    and a new spelling of an existing concept cannot smuggle work past this.
+    Both sides are flattened, so `AUTONOMY_ADMITS` and `AUTONOMY_REFUSES` may use spaces, hyphens,
+    underscores or slashes interchangeably. `/` is in that set for `external/human`, the only entry
+    carrying one: without it, re-spelling that entry as `external - human` would silently re-open
+    the fail-open this function exists to close, for a body that opens with an admitting prefix.
+
+    **It closes the separator class and nothing wider.** A restriction phrased outside
+    `AUTONOMY_REFUSES` altogether - "needs maintainer sign-off", "human review required" - is still
+    admitted, because this compares against a list rather than reading English. The list is the
+    guarantee; the flattener only stops punctuation defeating it. Every phrasing the corpus actually
+    uses is on the list, which is why the list is not speculatively widened.
 
     **Separators are widened before the markup strip, not after.** `_MARKUP` removes `_` because it
     is Markdown emphasis, so running it first turns `needs_human_action` into `needshumanaction` -
     one word, matching nothing, admitted. Widening first makes it `needs human action`.
     """
-    widened = re.sub(r"[\s_-]+", " ", value)
+    widened = re.sub(r"[\s_/-]+", " ", value)
     return re.sub(r"\s+", " ", _normalize_autonomy(widened)).strip()
 
 
