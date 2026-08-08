@@ -26,11 +26,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > missing file aborts rather than quietly counting zero:
 >
 > ```bash
-> set -eu
+> set -euo pipefail
 > S=${1:-d3fd78c}
 > git rev-parse --verify -q "$S^{commit}" >/dev/null
-> count() { for f in "$@"; do git show "$S:$f"; done | wc -l; }
-> have()  { for f in "$@"; do git cat-file -e "$S:$f" 2>/dev/null && echo "$f"; done; }
 > mods='triage swarm_slots claim agent_contract_is_runnable scope_guard
 > reaper greptile_usage greptile_config agent_entry_points issue_forms'
 > contract='AGENTS.md CLAUDE.md .agents/skills/tether-worker/SKILL.md
@@ -39,32 +37,50 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > prosefiles='AGENTS.md CLAUDE.md .greptile/README.md
 > .claude/skills/tether-worker/SKILL.md .agents/skills/tether-worker/SKILL.md
 > .agents/skills/tether-worker/agents/openai.yaml'
+> removed='tests/test_triage.py tests/test_swarm_slots.py tests/test_scope_guard.py
+> docs/agents/evidence.md docs/agents/gates.md docs/agents/review.md
+> docs/agents/tools.md'
+> for f in $(for m in $mods; do echo tests/test_$m.py; done) $contract $prosefiles; do
+>   git cat-file -e "$S:$f" 2>/dev/null && continue
+>   case " $(echo $removed) " in *" $f "*) continue ;; esac
+>   echo "unexpected missing path: $f" >&2; exit 1
+> done
+> count() { for f in "$@"; do git show "$S:$f"; done | wc -l; }
+> keep()  { for f in "$@"; do git cat-file -e "$S:$f" 2>/dev/null && echo "$f"; done; true; }
 > scripts=$(count $(git ls-tree -r --name-only $S -- .agents/bin))
-> tests=$(count $(have $(for m in $mods; do echo tests/test_$m.py; done)))
+> tests=$(count $(keep $(for m in $mods; do echo tests/test_$m.py; done)))
 > flows=$(count $(git ls-tree -r --name-only $S -- .github/workflows |
 >                 grep -e agent- -e scope-guard))
-> prose=$(count $(have $prosefiles) \
+> prose=$(count $(keep $prosefiles) \
 >               $(git ls-tree -r --name-only $S -- .agents/tasks docs/agents))
 > adrs=$(count $(git ls-tree -r --name-only $S -- docs/adr |
 >                grep -e /0052- -e /0053- -e /0057- -e /0061- -e /0062- -e /0063-))
 > echo "scripts=$scripts tests=$tests flows=$flows prose=$prose"
-> echo "layer=$((scripts+tests+flows+prose)) contract=$(count $(have $contract))"
+> echo "layer=$((scripts+tests+flows+prose)) contract=$(count $(keep $contract))"
 > echo "product=$(count $(git ls-tree -r --name-only $S -- src/tether)) adrs=$adrs"
 > for f in $(git ls-tree -r --name-only $S -- src/tether); do echo "$(count $f) $f"; done |
 >   sort -rn | head -1        # largest product file, against tests/test_triage.py
-> # d3fd78c -> scripts=5469 tests=10407 flows=502 prose=1395
-> #            layer=17773 contract=991 product=42796 adrs=1071
-> #            2186 src/tether/gui/shell.py
-> # after   -> scripts=1837 tests=3982 flows=84 prose=545
-> #            layer=6448 contract=429 product=42796 adrs=1071
+> # d3fd78c  -> scripts=5469 tests=10407 flows=502 prose=1395
+> #             layer=17773 contract=991 product=42796 adrs=1071
+> #             2186 src/tether/gui/shell.py
+> # 89f15f29 -> scripts=1837 tests=3982 flows=84 prose=545
+> #             layer=6448 contract=429 product=42796 adrs=1071
 > ```
 >
-> `have` is where the deliberate omissions live, and the only place a missing file is tolerated: the
-> cut deletes four of the nine contract files and six of the ten test modules, so the same two lists
-> give 991 and 10,407 before, 429 and 3,982 after. Everywhere else a missing path is an error. The
-> last line settles the `test_triage.py` comparison — the largest file in `src/tether` is 2,186 lines
-> against its 3,932. One figure is **not** from this script and says so where it is made: the
-> ADR-0052 comparison, taken at `6d53c98`, the commit that retired it.
+> **The allowlist is the whole of the fail-closed claim.** `removed` names the seven paths the cut
+> deletes — three of the ten test modules and four of the nine contract files — and the loop above
+> aborts on any *other* missing path, so `keep` can only ever drop something already declared. That
+> is why one pair of lists gives 991 and 10,407 before and 429 and 3,982 after. `pipefail` matters
+> here rather than being boilerplate: without it a failing `git show` inside `count` would be masked
+> by `wc -l` succeeding, and the total would come out quietly short. Checked three ways — a bad
+> revision exits 1, an unexpected missing path exits 1 naming the file, and the two good revisions
+> print the values in the comment.
+>
+> `89f15f29` is the head of the branch implementing the cut when this was written. It is a branch
+> under review, not an immutable record: **if it changes before merge, re-run the script against its
+> merge commit.** The figures are measured rather than projected, but they are measured against
+> something still moving, and that is a weaker claim than the `d3fd78c` column. One figure is not
+> from this script at all and says so where it is made: the ADR-0052 comparison, at `6d53c98`.
 >
 > **Three kinds of evidence, and only the first is reproducible from a SHA.** The line counts
 > above are. The **remote-ref and issue-search counts** name their own commands and are as of the
@@ -364,12 +380,14 @@ become two, two ref namespaces retire. The required `test` job stops carrying mo
 of agent tests on every product pull request, three times over.
 
 > These two are the only figures here that describe a future state, so they are measured rather than
-> estimated: re-running the script above against the branch that implements the cut yields
-> `1837 3982 84 545` and a 6,448 total. An earlier draft of this record projected ~4,800 and −73%
-> before the work existed, and the implementation did not reach it — the launcher's removal returned
-> less than guessed and `claim.py` grew to absorb the autonomy gate and `doctor`. The measured number
-> is used here in preference to the projection, and the difference is left visible rather than
-> restated as a target that was met.
+> estimated: re-running the script above at **`89f15f29`**, the head of the branch implementing the
+> cut when this was written, yields `1837 3982 84 545`, a 6,448 total and a 429 contract. An earlier
+> draft projected ~4,800 and −73% before the work existed, and the implementation did not reach it —
+> the launcher's removal returned less than guessed and `claim.py` grew to absorb the autonomy gate
+> and `doctor`. The measured numbers are used in preference to the projection and the shortfall is
+> left visible rather than restated as a target that was met. **That branch is still in review, so
+> unlike the `d3fd78c` figures these are pinned to something that can still move: re-run the script
+> against the merge commit if it does.**
 
 **Bad, and named rather than minimised.** The two-round cap becomes a convention with no counter
 behind it, which deliberately re-exposes the failure mode of #276 — nine rounds against a limit of
