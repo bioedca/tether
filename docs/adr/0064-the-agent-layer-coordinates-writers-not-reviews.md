@@ -96,10 +96,15 @@ refs/lane-advances/*                               0   none, ever
 of review rounds"* — have issued **one** round in their life, and the file appears in no workflow,
 hook or configuration anywhere in the repository's history. The ADVANCE subsystem (~2,000 lines
 merged 08-05 → 08-07 across #394, #407, #408, #411, #414, #419, #423 and ADR-0063) has **never taken
-a single ref**. Of the six labels `triage.py` publishes, four have no live reader: `agent:round-1`
-and `agent:round-2` are read only by `triage.py` itself — ADR-0057 already records that round-2 is
-*"provisioned but unreachable by code"* — and `agent:review-capped` and `agent:needs-advance` are
-read only by the launcher.
+a single ref**. Of the **seven** labels `triage.py` publishes, **five have no live reader**:
+`agent:round-1`, `agent:round-2`, `agent:review-capped`, `agent:needs-advance` and
+`agent:gate-blocked` are read by `triage.py` itself and by `swarm_slots.py`, and by nothing else —
+and `swarm_slots.py` is the launcher no workflow, hook or configuration invokes. ADR-0057 already
+records that round-2 is *"provisioned but unreachable by code"*. Only `agent:needs-amend` and
+`agent:conflicted` reach a reader that actually runs: `reaper.py`, on the `agent-reaper.yml` cron.
+(The launcher's read of the two round labels is `ROUND_LABELS = triage.ROUND_LABELS` at
+`swarm_slots.py:102`, consumed at `:203` — an imported constant, so grepping the label text alone
+finds neither and reports a smaller reader set than exists.)
 
 So the cap that `AGENTS.md` describes as mechanically enforced is not.
 [#300](https://github.com/bioedca/tether/issues/300) concedes this in its own title and proposes a
