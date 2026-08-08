@@ -113,20 +113,22 @@ over one convention.
 
 ### 2. The deferral rule converts review nitpicks into work, at better than one per fix
 
-`docs/agents/review.md` requires *"one follow-up issue per PR, reply `Deferred: … Tracked in #N`"*.
-On an agent-layer pull request that closes a loop: a sub-floor nitpick becomes an issue, the issue
-becomes a pull request, that pull request is read by three providers, and they find more nitpicks.
-Measured with `gh search issues --repo bioedca/tether "Deferred from"`:
+Up to this record, `docs/agents/review.md` required *"one follow-up issue per PR, reply `Deferred: …
+Tracked in #N`"*, with no exception for the agent layer — and on an agent-layer pull request that
+closed a loop: a sub-floor nitpick became an issue, the issue became a pull request, that pull
+request was read by three providers, and they found more nitpicks. **The drop rule in this record is
+what ends it**, so everything in this section is the state that motivated the decision, not current
+policy. Measured with `gh search issues --repo bioedca/tether "Deferred from"`:
 
 | window | agent-layer issues spawned by deferred findings |
 |---|---|
 | 2026-07-29 → 07-30 | 3 |
 | **2026-08-03 → 08-07** | **13** (#387, #391, #395, #399, #400, #409, #410, #411, #412, #419, #420, #421, #425) |
 
-Sixteen in ten days, thirteen of them in the last five, and accelerating. #425's first line is
-*"Deferred from #424, where CodeRabbit raised it as `Trivial`"*; #426 was *"reached live on #422
-within hours of #424 merging."* This is why deleting code alone would not settle anything — the mill
-would simply grind whatever remained.
+Sixteen in ten days, thirteen of them in the last five, and accelerating at the point this was
+written. #425's first line was *"Deferred from #424, where CodeRabbit raised it as `Trivial`"*; #426
+was *"reached live on #422 within hours of #424 merging."* This is why deleting code alone would not
+have settled anything — the mill would simply have ground whatever remained.
 
 ## Decision drivers
 
