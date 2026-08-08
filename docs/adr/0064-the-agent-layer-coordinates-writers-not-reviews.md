@@ -225,15 +225,28 @@ once by a human, `AGENTS.md` is read on every model call by every agent.
 ### Adoption status
 
 This record is the decision; the removals land as a sequence of subtractive pull requests, so this
-section is the authority on what is actually gone. **In force on merge of this record:** the drop
-rule, the feature-complete freeze, and the three decisions above — all three are written into
-`docs/agents/review.md`, `AGENTS.md` and `CLAUDE.md` by this same pull request, because a rule
+section is the authority on what is actually gone.
+
+**In force on merge of this record, because this pull request writes them into
+`docs/agents/review.md`, `AGENTS.md` and `CLAUDE.md`:** the **drop rule** and the
+**feature-complete freeze**. Those two are behavioural rules an agent must follow, and a rule
 recorded only in an ADR while the contract still says the opposite is not a rule (Greptile P1 on
-issue `#427`). **Landing separately:** the
-`CLAUDE.md` collapse, the reaper shrink with #278's archive, the launcher removal, the
-triage-and-scope-guard removal (one pull request — they are one unit), and the contract rewrite.
-Until each lands, the code it names still runs and still governs. The remote labels and the
-`refs/amend-rounds/*` namespace are retired **after** the reaper stops writing them, never before.
+issue `#427`).
+
+**Recorded here and nowhere else:** the decisions for issues `#278`, `#303` and `#300`. They are
+findings about this repository's own machinery rather than instructions to a worker, so they do not
+belong in resident contract text. The two halves of `#303` additionally re-point their module
+docstrings — `claim.py::_unfenced_claim` and `reaper.py`'s `activity-unknown` branch — at this
+record, which is what that issue's third criterion asks for.
+
+**Landing separately:** the `CLAUDE.md` collapse, the reaper shrink with `#278`'s archive, the
+launcher removal, the triage-and-scope-guard removal (one pull request — they are one unit), and the
+contract rewrite. Until each lands, the code it names still runs and still governs.
+
+The five retired labels and the `refs/amend-rounds/*` namespace go **after `triage.py` stops writing
+them**, which is the triage-and-scope-guard removal — not before, because
+`POST /repos/{owner}/{repo}/issues/{number}/labels` auto-creates a missing label and a surviving
+writer would silently recreate what was just deleted.
 
 ## Consequences
 

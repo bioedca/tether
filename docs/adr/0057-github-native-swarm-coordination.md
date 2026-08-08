@@ -143,6 +143,14 @@ intended, which is history rather than governance.
 
 **Not yet implemented:** Projects/Discussions as coordination surfaces.
 
+> **Everything from here to the end of the next section is pre-ADR-0064 history, written in the
+> present tense of 2026-07-30.** `triage.py`, `swarm_slots.py`, `gate.ps1` and `scope_guard.py` are
+> retired, and with them `agent:round-1`, `agent:round-2`, `agent:review-capped`,
+> `agent:needs-advance` and `agent:gate-blocked`. What survives of the label model is
+> `agent:claude|codex|copilot` from `claim.py`, and `agent:conflicted` and `agent:needs-amend` from
+> `reaper.py`. The two-round cap is now a convention rather than two mechanical refusals — read the
+> next section for what was intended, not for what governs.
+
 Be precise about what "the label model" means, because parts of it still have no writer. Written by
 code: `agent:claude|codex|copilot` (`claim.py`), `agent:conflicted` and `agent:needs-amend`
 (`reaper.py` and `triage.py`), `agent:round-1` / `agent:review-capped`, `agent:needs-advance`
