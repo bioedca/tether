@@ -5,13 +5,19 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0064 — The agent layer coordinates writers, not reviews
 
-- **Status:** accepted; supersedes [ADR-0062](0062-draft-first-review-lane-with-metered-providers.md) and [ADR-0063](0063-review-evidence-is-read-not-inferred.md) in full, and the §Review gate, §Round cap and launcher of [ADR-0057](0057-github-native-swarm-coordination.md). ADR-0057's claim mutex, generation fence, scheduled reaper and ADR-number reservation stand
+- **Status:** accepted; supersedes [ADR-0062](0062-draft-first-review-lane-with-metered-providers.md) and [ADR-0063](0063-review-evidence-is-read-not-inferred.md), and the review gate, round cap and launcher of [ADR-0057](0057-github-native-swarm-coordination.md)
 - **Date:** 2026-08-07
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)
 - **Milestone:** M11 - Agent-swarm infrastructure
 
 ## Context and problem statement
+
+> **What of ADR-0057 survives.** Its claim mutex, generation fence, scheduled reaper and
+> atomic ADR-number reservation **govern unchanged** — this record supersedes only its review
+> gate, round cap and slot launcher. That distinction is the whole decision, and it is stated
+> here rather than in the `Status` bullet because `scripts/gen_adr_index.py` extracts that
+> field with a single-line pattern and copies it verbatim into the index.
 
 The agent layer is **17,772 lines** — 5,469 of scripts, 10,407 of tests, 498 of workflows and 1,398
 of contract prose, task templates and skills — against `src/tether`'s 42,796. **41% the size of the
@@ -52,7 +58,7 @@ longest track record here, and that record is unambiguous.
 **And it is bookkeeping nobody collects.** `git ls-remote origin` returns the complete set of refs
 the layer has ever created:
 
-```
+```text
 refs/adr-reservations/{0058,0059,0061,0062,0063}   5   used, works
 refs/reaped/issue-400-b6d9aa1…                     1
 refs/amend-rounds/252-38550159308-1                1   one AMEND, ever
@@ -185,8 +191,14 @@ as `Trivial`"*). Most of the thirteen deferred issues of the last five days are 
 
 ### The layer is feature-complete
 
-`.agents/` and the contract files accept **bug fixes and safety fixes only**. A capability change
-requires a maintainer-opened issue and may not originate in a review finding. This is recorded here
+**The same path set as the drop rule above, deliberately** — `.agents/`, `docs/agents/`,
+`AGENTS.md`, `CLAUDE.md` and the agent test modules. Two rules governing one layer must not disagree
+about where that layer is: a test module inside one set and outside the other leaves the
+maintainer-issue requirement ambiguous exactly where an agent would be most tempted to resolve the
+ambiguity in its own favour.
+
+Those paths accept **bug fixes and safety fixes only**. A capability change requires a
+maintainer-opened issue and may not originate in a review finding. The reasoning is recorded here
 rather than in `AGENTS.md` precisely because of the resident-context driver above: an ADR is read
 once by a human, `AGENTS.md` is read on every model call by every agent.
 
@@ -217,7 +229,7 @@ section is the authority on what is actually gone. **In force on merge of this r
 rule, the feature-complete freeze, and the three decisions above — all three are written into
 `docs/agents/review.md`, `AGENTS.md` and `CLAUDE.md` by this same pull request, because a rule
 recorded only in an ADR while the contract still says the opposite is not a rule (Greptile P1 on
-#427). **Landing separately:** the
+issue `#427`). **Landing separately:** the
 `CLAUDE.md` collapse, the reaper shrink with #278's archive, the launcher removal, the
 triage-and-scope-guard removal (one pull request — they are one unit), and the contract rewrite.
 Until each lands, the code it names still runs and still governs. The remote labels and the

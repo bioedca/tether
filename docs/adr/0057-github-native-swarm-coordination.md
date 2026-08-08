@@ -5,12 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0057 — GitHub-native swarm coordination
 
-- **Status:** accepted **in part** (supersedes [ADR-0052](0052-concurrent-agent-swarm-coordination.md)
-  and [ADR-0053](0053-structured-backlog-intake-gates-swarm-admission.md)). Its claim mutex,
-  generation fence, scheduled reaper and ADR-number reservation **govern**; its §Review gate,
-  §Round cap and slot launcher are **superseded by
-  [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)** — see
-  [Adoption status](#adoption-status)
+- **Status:** accepted in part; supersedes [ADR-0052](0052-concurrent-agent-swarm-coordination.md) and [ADR-0053](0053-structured-backlog-intake-gates-swarm-admission.md); its review gate, round cap and launcher superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)
 - **Date:** 2026-07-28
 - **Deciders:** bioedca
 - **PRD anchor:** §12.2–§12.5 (GitHub Flow, reviews, pull requests, issue planning)
@@ -122,9 +117,13 @@ parts are live. **ADR-0052 is fully switched off** as of 2026-07-30 — nothing 
 longer. **ADR-0053's intake gates remain in force**: what is not yet replaced still governs, and
 superseded means *decided*, not automatically *already switched off*.
 
-**In force now:** the review gate (material-change rule, severity floor, two-round cap,
-capability-vs-quota) in `docs/agents/review.md`, which `AGENTS.md` points to as a bar to acting;
-`main` without the strict up-to-date rule; `sidecar / parity`
+**In force 2026-07-30 → 08-07, and superseded below.** The review gate (material-change rule,
+severity floor, **two-round cap**, capability-vs-quota) in `docs/agents/review.md`: ADR-0064 retired
+the round ledger and the launcher that enforced the cap, so the cap is now a convention and the gate
+lives in `AGENTS.md` §Review. Read that paragraph as history rather than as the live rule — this
+section is the authority on what governs, and what governs is the *Retired by ADR-0064* block below.
+
+**In force now:** `main` without the strict up-to-date rule; `sidecar / parity`
 reporting post-merge; the prose-drift guard retired. Since 2026-07-30: **the claim mutex**
 (`.agents/bin/claim.py`) and `agent/issue-<N>` branches, including generation fencing and atomic ADR
 number reservation; **the scheduled reaper** (`.agents/bin/reaper.py`, `agent-reaper.yml`); the

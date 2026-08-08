@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0063 — Review evidence is read from the payload, not inferred from its shape
 
-- **Status:** **superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)**, which retires `triage.py` and `scope_guard.py` rather than correcting how they read a payload. Nothing below governs. Its measurements stand and are cited in ADR-0064 as evidence
+- **Status:** superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md); its measurements stand as evidence
 - **Date:** 2026-08-07
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)

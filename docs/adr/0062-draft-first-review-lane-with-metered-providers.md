@@ -5,18 +5,21 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0062 — Draft-first review lane: spend the free provider before the metered ones
 
-- **Status:** **superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)**,
-  which removes the round ledger, the launcher and the metered-provider lane this record designed.
-  Nothing below governs. Kept for its history: it superseded the §Review gate and §Round cap of
-  [ADR-0057](0057-github-native-swarm-coordination.md), and it is the record that established the
-  draft-first ordering, which survives in `AGENTS.md` §Review as a convention rather than as a
-  counter.
+- **Status:** superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)
 - **Date:** 2026-08-03
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)
 - **Milestone:** M11 - Agent-swarm infrastructure
 
 ## Context and problem statement
+
+> **Superseded 2026-08-07 by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md).**
+> What that record retired is the **round ledger and the launcher** this one designed — the
+> counter, the `agent:round-*` labels and the slot launcher that issued AMEND turns. The
+> **provider lane itself survives** and is now stated in `AGENTS.md` §Review: draft-first
+> ordering, reading the Greptile balance before spending a credit, and one CodeRabbit review
+> with no actionable comments as the last gate. This record established that ordering, and
+> that part of it still governs.
 
 The review gate routed by *risk*: `low`/`standard` to Codex, `high` to Codex and CodeRabbit
 together. That was written when every provider was effectively free, and it stopped being true.
