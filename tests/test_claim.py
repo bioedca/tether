@@ -1419,6 +1419,43 @@ DOCTOR_ROUTES: Routes = {
 }
 
 
+def test_doctor_calls_a_pull_request_merged_only_when_it_merged(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`pull_request` on the issues API means "is a PR", never "landed" (Greptile P1 on #432).
+
+    It is present on every pull request the endpoint returns — open, closed-unmerged and merged
+    alike — so keying on its presence reported *every* referenced pull request as `merged`. That is
+    the one direction Mode B must never err in: it hands a maintainer raw dependency state, and a
+    blocker reported as merged when it is still open is worse than not reporting it at all. Only
+    `merged_at` distinguishes them.
+    """
+    routes = dict(DOCTOR_ROUTES)
+    routes[("GET", "/repos/bioedca/tether/issues?state=open&labels=status:blocked")] = (
+        200,
+        [{"number": 9, "body": "Blocked by #30, #31 and #32.", "title": "blocked"}],
+    )
+    for ref, payload in (
+        (30, {"number": 30, "state": "open", "pull_request": {"merged_at": None}}),
+        (31, {"number": 31, "state": "closed", "pull_request": {"merged_at": None}}),
+        (
+            32,
+            {
+                "number": 32,
+                "state": "closed",
+                "pull_request": {"merged_at": "2026-08-01T00:00:00Z"},
+            },
+        ),
+    ):
+        routes[("GET", f"/repos/bioedca/tether/issues/{ref}")] = (200, payload)
+        routes[("GET", f"/repos/bioedca/tether/issues/{ref}/comments")] = (200, [])
+    _install(monkeypatch, Fake(routes))
+
+    claim._cmd_doctor(_args(owner="bioedca"))
+    mentions = json.loads(capsys.readouterr().out)["blocked"][0]["mentions"]
+    assert mentions == {"30": "open", "31": "closed", "32": "merged"}
+
+
 def _doctor(monkeypatch: pytest.MonkeyPatch, over: Routes | None = None) -> dict[str, Any]:
     routes = dict(DOCTOR_ROUTES)
     routes.update(over or {})

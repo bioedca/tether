@@ -1062,7 +1062,16 @@ def _doctor_blocked() -> list[dict[str, Any]]:
         for ref in mentioned[:20]:
             status, other = _request("GET", f"/repos/{REPO}/issues/{ref}")
             if status == 200 and isinstance(other, dict):
-                states[ref] = "merged" if other.get("pull_request") else other.get("state", "?")
+                # `pull_request` is present on EVERY pull request the issues API returns - open,
+                # closed-unmerged and merged alike - so its mere presence says nothing about
+                # whether the thing landed. Only `merged_at` does. Keying on presence reported
+                # every referenced pull request as `merged`, which is the one direction this
+                # function must never err in: it exists to hand a maintainer raw dependency state,
+                # and a blocker reported as merged when it is open is worse than not reporting it
+                # (Greptile P1 on #432).
+                pull_request = other.get("pull_request") or {}
+                merged = bool(pull_request.get("merged_at"))
+                states[ref] = "merged" if merged else other.get("state", "?")
         out.append({"issue": issue["number"], "mentions": states})
     return out
 
