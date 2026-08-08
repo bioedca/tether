@@ -11,11 +11,10 @@ session no project instructions at all — and the copy that happened to exist o
 the swarm rebuild, describing a worktree-per-concern flow with no claim, no mutex and no generation
 fence while reading as though it were the contract.
 
-``CLAUDE.md`` is now tracked and is an **adaptation** of ``AGENTS.md``: the same rules, in the file
-this lane actually loads, so an agent has them resident rather than one indirection away.
-Duplication is the deliberate trade and its cost is drift — so the copies are bound here.
-``AGENTS.md`` is authoritative; a section it grows that ``CLAUDE.md`` has not adapted fails this
-module.
+``CLAUDE.md`` is now tracked, and since ADR-0064 it is a **pointer** to ``AGENTS.md`` rather than an
+adaptation of it. It was an adaptation, and the cost of that was drift in two files at once — so
+what is bound here is no longer "every section is adapted" but "this is still a pointer": it names
+its target, carries no sections of its own, and stays far shorter than the contract.
 
 Stdlib only, so it runs on the base 3-OS ``test`` matrix.
 """
