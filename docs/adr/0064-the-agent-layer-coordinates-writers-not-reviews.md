@@ -286,6 +286,9 @@ automatic resumption of a stranded pull request, which the empty `refs/lane-adva
 shows has never once occurred.
 
 **Reversible.** Every removal is subtractive and restorable with `git revert`. The one irreversible
-step is deleting the remote labels, which is sequenced after the reaper stops writing them —
+step is deleting the remote labels, which is sequenced after **`triage.py`** stops writing them —
 `POST /repos/{owner}/{repo}/issues/{number}/labels` auto-creates a missing label, so retiring them
-while a writer survives would silently recreate them.
+while a writer survives would silently recreate them. `triage.py` is the writer that matters here
+and it is the one the removal deletes; the reaper writes only `agent:needs-amend` and
+`agent:conflicted`, which are kept, so waiting on the reaper would wait on an event that never
+comes.

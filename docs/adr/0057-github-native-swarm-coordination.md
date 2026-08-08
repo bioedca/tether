@@ -121,7 +121,8 @@ superseded means *decided*, not automatically *already switched off*.
 severity floor, **two-round cap**, capability-vs-quota) in `docs/agents/review.md`: ADR-0064 retired
 the round ledger and the launcher that enforced the cap, so the cap is now a convention and the gate
 lives in `AGENTS.md` §Review. Read that paragraph as history rather than as the live rule — this
-section is the authority on what governs, and what governs is the *Retired by ADR-0064* block below.
+section is the authority on what governs, and what governs is the *Superseded by ADR-0064; removal
+pending* block below.
 
 **In force now:** `main` without the strict up-to-date rule; `sidecar / parity`
 reporting post-merge; the prose-drift guard retired. Since 2026-07-30: **the claim mutex**
