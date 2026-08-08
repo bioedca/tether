@@ -2,7 +2,6 @@
 # CLAUDE.md is NOT here: it is Claude Code's entry point and carries the contract adapted for that
 # lane, so a fresh clone must have it (#312). It used to be ignored, which meant a clone got no
 # agent instructions at all while the Codex lane got AGENTS.md.
-PLAN.md
 # Claude Code working directory. Named paths rather than a blanket `.claude/`: a directory-wide
 # ignore silently swallows anything an agent leaves there, including files that should have been
 # reviewed. Everything currently on disk stays ignored — `scheduled_tasks.lock` via `*.lock` below.

@@ -20,7 +20,7 @@ object table -> property segment -> heap cell ``value + 2`` — that it walks on
 real file. The output reproduces the original coordinate access path exactly
 (``temp/ParticlesColocalized`` cell -> HDF5 object reference -> ``(17, N)``
 ``findColoc`` matrix in ``#refs#``), so the committed test genuinely decodes a
-real file rather than a stub. The full ``.tdat`` stays external (PLAN §2.1/§2.2).
+real file rather than a stub. The full ``.tdat`` stays external (PRD §8 NFR-FIXTURES).
 
 Regenerate with::
 

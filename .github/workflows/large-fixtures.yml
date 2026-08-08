@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# large-fixtures — the gated heavy-data tier (PRD §8 NFR-FIXTURES, §2.2; PLAN §2.2).
+# large-fixtures — the gated heavy-data tier (PRD §8 NFR-FIXTURES, §2.2).
 # Runs the `@pytest.mark.large` suite, which the required `test` matrix in ci.yml
 # deliberately excludes (`-m "not large and not sidecar"`) so a structural CI run
 # never blocks on a Git-LFS pull. This workflow pulls the LFS gated fixtures and

@@ -24,7 +24,7 @@ coordinates (its ``molecule_key`` is the movie ``sha256`` + quantized ``donor_xy
 which would collide to one identical key for every molecule when coordinates are
 absent — breaking the ``/labels`` join), and refuses an all-zero trace. An
 analysis-only source has none of that. Fabricating a stub movie or fake coordinates
-to satisfy it would violate the "never fabricate" rule (PLAN §0.4). So this module
+to satisfy it would violate the "never fabricate" rule (AGENTS.md §Agile execution). So this module
 is a small, honest, **movie-less** writer that (like :func:`export_subset_tether`,
 which proves a ``/movies``-row-less store is first-class) writes only additive data
 under the M0-frozen skeleton (``schema-guard`` stays green — no ``schema.py`` touch):
