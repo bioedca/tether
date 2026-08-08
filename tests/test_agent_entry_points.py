@@ -105,8 +105,16 @@ def test_the_claude_entry_point_is_a_pointer_not_a_second_contract() -> None:
     applied one level up.
     """
     text = CLAUDE_ENTRY.read_text(encoding="utf-8")
-    assert "AGENTS.md" in text, "it must name its target"
     assert CONTRACT.is_file(), "the pointer's target does not exist"
+
+    # The IMPORT, not a prose mention. `@AGENTS.md` on a line of its own is what makes the contract
+    # resident in a Claude Code session; the surrounding sentences only explain why. A substring
+    # check for "AGENTS.md" passed on those sentences alone, so deleting the operative line left
+    # this test green while the lane silently stopped loading the contract (Greptile on #430).
+    assert any(line.strip() == "@AGENTS.md" for line in text.splitlines()), (
+        "CLAUDE.md must carry `@AGENTS.md` on its own line — that import is what makes the "
+        "contract resident, and prose naming the file is not a substitute"
+    )
 
     contract_lines = len(CONTRACT.read_text(encoding="utf-8").splitlines())
     entry_lines = len(text.splitlines())
