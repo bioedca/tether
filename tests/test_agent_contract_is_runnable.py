@@ -685,11 +685,10 @@ def test_no_page_both_lanes_read_names_a_gh_spelling_one_of_them_cannot_run() ->
     tool this repository does not control would rot into a second source of truth, and the honest
     unit is "this spelling cost us a real failure". Both entries did: `--slurp` made the Greptile
     balance unreadable, so the lane's own precondition for spending a credit could not be met, and
-    `pr edit` broke the PR-body handoff that `.agents/tasks/build.md` calls the only thing carrying
-    the lane forward.
+    `pr edit` broke the PR-body handoff that the worker skill calls the only thing carrying the lane
+    forward.
 
-    Scoped to `BOTH_LANES`, so `CLAUDE.md` — which is allowed to name one lane's tooling — is exempt
-    for the same reason it may name `python3`.
+    Scoped to `BOTH_LANES`.
     """
     bad: list[str] = []
     scanned = 0
@@ -753,11 +752,11 @@ def test_no_posted_template_carries_a_provider_handle() -> None:
     that is not ready for one — spending a fair-use review and throttling the pull request that was
     (`AGENTS.md` §Review, measured 2026-08-03).
 
-    **The rule is scoped to what is posted, and that scoping is the point.** `AGENTS.md` says its
-    own page is where the trigger strings belong, but `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`
-    and `.agents/tasks/build.md` all name a handle too — and none of them is a defect, because none
-    of them is published as a comment. A guard over every page would fail on four files that are
-    doing nothing wrong, and the fix would be to delete the exact command a worker needs. So the
+    **The rule is scoped to what is posted, and that scoping is the point.** Governance pages name
+    provider handles — `CONTRIBUTING.md` and `.greptile/README.md` among them — and none of that is
+    a defect, because none of them is published as a comment. A guard over every page would fail on
+    files that are doing nothing wrong, and the fix would be to delete the exact command a worker
+    needs. So the
     line is drawn where the harm is: a file whose contents GitHub turns into a comment.
 
     The templates have always been clean, and nothing said so. #400 added the CodeRabbit gate's
@@ -822,10 +821,10 @@ def test_a_page_that_arms_the_merge_says_what_sha_to_supply() -> None:
     themselves are allowed to point at `AGENTS.md` §Review instead of restating it, and all of them
     do — the rule sentence is what is required here, not the reasoning behind it.
 
-    The floor was **five** while the arming line was repeated across `AGENTS.md`, `CLAUDE.md`,
-    `docs/agents/review.md`, the skill and `.agents/tasks/*.md`. ADR-0064 left three pages carrying
-    it, so the floor is three. It exists to catch the extractor going blind, not to require a
-    particular number of copies — and fewer copies was the point.
+    The floor was **five** when the arming line was repeated across the skill, the three
+    `.agents/tasks/*.md` templates and `CONTRIBUTING.md`. ADR-0064 deletes the task templates, so
+    fewer pages carry it and the floor is three. It exists to catch the extractor going blind, not
+    to require a particular number of copies — and fewer copies was the point.
     """
     arming = [
         path

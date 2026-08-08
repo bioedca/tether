@@ -159,9 +159,9 @@ validity turns on it being the right test — must satisfy both.
   `Noted; below the floor on an agent-layer path and not tracked (ADR-0064)` and resolve the thread.
   This inverts the rule above deliberately and only here, because only here does the output feed back
   into the input — sixteen agent-layer issues came from that loop in ten days.
-- **The agent layer is feature-complete** (ADR-0064). `.agents/` and this file accept bug fixes and
-  safety fixes only; a capability change needs a maintainer-opened issue and may not originate in a
-  review finding.
+- **The agent layer is feature-complete** (ADR-0064), over **the same paths as the rule above**.
+  They accept bug fixes and safety fixes only; a capability change needs a maintainer-opened issue
+  and may not originate in a review finding.
 - **Two asks per provider, then stop.** If a third pass would be needed, hand the PR to the
   maintainer with a comment saying why. Nothing counts this for you; the merged history is auditable.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
