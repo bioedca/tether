@@ -32,11 +32,17 @@ MARKER = '<!-- tether-agent-ready {"version":1,"criteria_sha256":"' + DIGEST + '
 HEAD = "c" * 40
 
 
+# A claimable issue is a GROOMED one, and since #336 that includes an Execution-autonomy
+# declaration the body carries itself. The default fixture therefore declares it; a test that wants
+# an ungroomed body passes `body=` explicitly.
+GROOMED_BODY = "Acceptance criteria\n\n## Execution autonomy\n\nagent-can-do-alone\n"
+
+
 def _issue(**overrides: Any) -> dict[str, Any]:
     issue = {
         "state": "open",
         "title": "feat(io): a thing",
-        "body": "Acceptance criteria\n",
+        "body": GROOMED_BODY,
         "labels": [{"name": "status:ready"}],
         "assignees": [],
     }
@@ -146,6 +152,195 @@ def test_claim_ignores_an_approval_from_a_non_maintainer(
         claim._cmd_claim(_args(issue=7))
     assert exit_info.value.code == claim.EXIT_INELIGIBLE
     assert "no maintainer approval" in capsys.readouterr().err
+
+
+# ------------------------------------------------------- what the issue says about itself (#336)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("## Execution autonomy\n\nexternal/human action required\n", "human action"),
+        ("## Execution autonomy\n\nmaintainer decision required\n", "maintainer decision"),
+        ("Acceptance criteria\n", "declares no Execution autonomy"),
+        (
+            "## Execution autonomy\n\n`needs-human-action` - a desktop installer\n",
+            "needs-human-action",
+        ),
+        (
+            "## Execution autonomy\n\n`agent-can-do-alone` for the drafting; the rest is a "
+            "maintainer decision\n",
+            "maintainer decision",
+        ),
+        # Greptile on #428: a separator must not decide a safety verdict. This opens with an
+        # admitting prefix and names its restriction with a hyphen, so a literal-token match saw
+        # nothing and ADMITTED it - a fail-open in the one gate whose purpose is failing closed.
+        (
+            "## Execution autonomy\n\nagent-can-do-alone; maintainer-decision required\n",
+            "maintainer decision",
+        ),
+        (
+            "## Execution autonomy\n\nagent-can-do-alone, needs_human_action for the upload\n",
+            "human action",
+        ),
+    ],
+    ids=[
+        "external-human",
+        "maintainer-decision",
+        "absent",
+        "legacy-spelling",
+        "split-declaration",
+        "hyphenated-restriction",
+        "underscored-restriction",
+    ],
+)
+def test_an_issue_whose_body_says_no_agent_can_do_it_is_not_claimable(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    body: str,
+    expected: str,
+) -> None:
+    """The regression for #336, and it must fail against the pre-#336 `_check_eligible`.
+
+    Every issue here is open, `status:ready`, unassigned and carries a marker that binds - so all
+    four checks that existed before this passed, and the mutex was issued. #246 is why that matters:
+    its body records that *"a wrong first upload cannot be replaced (PyPI forbids re-uploading a
+    version)"*, so an agent reaching that step produces a permanent public artifact with wrong
+    metadata. Most admission mistakes waste a worker; that one cannot be undone.
+    """
+    routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+    fake = _install(monkeypatch, Fake(routes))
+    with pytest.raises(SystemExit) as exit_info:
+        claim._cmd_claim(_args(issue=7))
+    assert exit_info.value.code == claim.EXIT_INELIGIBLE
+    assert expected in capsys.readouterr().err
+    # Eligibility is a precondition of the claim: the ref must never have been created.
+    assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "## Execution autonomy\n\nagent-can-do-alone\n",
+        "### Execution autonomy\n\n`agent-can-do-alone`.\n",
+        "## Autonomy\n\nagent-can-do-alone\n",
+        "- **Autonomy:** agent-can-do-alone\n",
+        "- **Autonomy:** agent can complete alone\n",
+        "## Execution autonomy\n\n`agent-can-do-alone`, unless the sizing note says otherwise.\n",
+        "<!-- tether-grooming-v1 -->\n\n- **Autonomy after unblock:** agent-can-do-alone\n",
+    ],
+    ids=[
+        "heading",
+        "backticked",
+        "short-heading",
+        "bullet",
+        "legacy-prose",
+        "qualified",
+        "after-unblock",
+    ],
+)
+def test_every_spelling_of_agent_can_do_alone_in_the_live_corpus_admits(
+    monkeypatch: pytest.MonkeyPatch, body: str
+) -> None:
+    """The spellings the live corpus uses, plus the qualified and after-unblock forms.
+
+    `after-unblock` admits deliberately: it answers *what kind of work is this*, and whether the
+    issue is still blocked is the `status:` label's question. #214's grooming block reads
+    `**Status:** unblocked` two lines above `**Autonomy after unblock:**`, so refusing on the
+    qualifier would bar work that is ready.
+    """
+    routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+    fake = _install(monkeypatch, Fake(routes))
+    claim._cmd_claim(_args(issue=7))
+    assert [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
+
+
+def test_no_refusal_token_depends_on_the_separator_it_is_written_with() -> None:
+    """Re-spelling an `AUTONOMY_REFUSES` entry must not change any verdict.
+
+    The flattener's whole job is that a separator never decides a safety verdict, and the
+    table is the one place a future edit can quietly undo that. `external/human` is the only
+    entry carrying a `/`, and until this test existed the flattener widened `[\\s_-]+` but not
+    `/`: writing that entry as `external - human` instead left it unable to match the body it
+    was there to refuse, re-opening the exact fail-open Greptile found on #428 - silently, in a
+    table edit that reads as a formatting change.
+
+    So this asserts the property over **every** entry rather than the one that broke. Each is
+    re-spelled with each separator and must still refuse a body that opens with an admitting
+    prefix, which is the case a literal-token match gets wrong.
+    """
+    separators = (" ", "-", "_", "/")
+    for token in claim.AUTONOMY_REFUSES:
+        canonical = claim._flatten_autonomy(token)
+        body = f"## Execution autonomy\n\nagent-can-do-alone; {token} applies here\n"
+        for separator in separators:
+            respelled = canonical.replace(" ", separator)
+            assert claim._flatten_autonomy(respelled) == canonical, (
+                f"{token!r} re-spelled as {respelled!r} flattens differently"
+            )
+            patched = tuple(
+                respelled if entry == token else entry for entry in claim.AUTONOMY_REFUSES
+            )
+            original = claim.AUTONOMY_REFUSES
+            try:
+                claim.AUTONOMY_REFUSES = patched
+                assert claim._autonomy_refusal(body) is not None, (
+                    f"{token!r} written as {respelled!r} stopped refusing - fail-open"
+                )
+            finally:
+                claim.AUTONOMY_REFUSES = original
+
+
+def test_a_grooming_block_supersedes_a_stale_body_declaration(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The grooming block wins, and it is the restrictive one here.
+
+    Those blocks exist to restate readiness after the body above them went stale, so reading the
+    body first would admit on a value a grooming pass had already replaced.
+    """
+    body = (
+        "## Execution autonomy\n\nagent-can-do-alone\n\n"
+        "<!-- tether-grooming-v1 -->\n\n"
+        "- **Status:** blocked.\n"
+        "- **Autonomy:** needs maintainer input (the dataset decision)\n"
+    )
+    routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+    fake = _install(monkeypatch, Fake(routes))
+    with pytest.raises(SystemExit) as exit_info:
+        claim._cmd_claim(_args(issue=7))
+    assert exit_info.value.code == claim.EXIT_INELIGIBLE
+    assert "maintainer input" in capsys.readouterr().err
+    assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
+
+
+def test_the_refusal_names_the_declared_value_so_a_worker_knows_not_to_retry(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    body = "## Execution autonomy\n\nexternal/human action required\n"
+    routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+    _install(monkeypatch, Fake(routes))
+    with pytest.raises(SystemExit):
+        claim._cmd_claim(_args(issue=7))
+    err = capsys.readouterr().err
+    assert "external/human action required" in err
+    assert "agent-can-do-alone" in err
+
+
+def test_autonomy_is_read_before_the_comment_page_is_fetched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A body that bars agent work is decided from the issue alone - no comment pagination.
+
+    Not a micro-optimisation: `_paginate` walks up to twenty pages, and an issue no agent may work
+    should cost one GET to refuse.
+    """
+    body = "## Execution autonomy\n\nexternal/human action required\n"
+    routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+    fake = _install(monkeypatch, Fake(routes))
+    with pytest.raises(SystemExit):
+        claim._cmd_claim(_args(issue=7))
+    assert not [c for c in fake.calls if "comments" in c[1]]
 
 
 # --------------------------------------------------------------------- the mutex
@@ -855,12 +1050,16 @@ def test_the_decided_answers_are_enumerated_and_stay_enumerated() -> None:
     — the server told us what the number is — while the `status != 200` beside it is not. A later
     edit that reaches for `IneligibleError` somewhere new shows up here rather than as a worker
     silently skipping approved work.
+
+    The sixth arrived with #336: what the issue *body* declares about the autonomy the work needs.
+    It belongs here on the same reasoning as the other five — it is a decided answer about the
+    issue, read from the issue, and not a failure to ask.
     """
     source = (ROOT / ".agents" / "bin" / "claim.py").read_text(encoding="utf-8")
     eligible = source.partition("def _check_eligible")[2].partition("\ndef ")[0]
     fetch = source.partition("def _issue")[2].partition("\ndef ")[0]
-    assert source.count("raise IneligibleError") == 5, "the verdicts are exactly five"
-    assert eligible.count("raise IneligibleError") == 4
+    assert source.count("raise IneligibleError") == 6, "the verdicts are exactly six"
+    assert eligible.count("raise IneligibleError") == 5
     assert fetch.count("raise IneligibleError") == 1
     assert "could not be read" in fetch, "a failed read sits beside it and must NOT be a verdict"
     assert fetch.count("raise ClaimError") == 1

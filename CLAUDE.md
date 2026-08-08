@@ -45,6 +45,9 @@ If they conflict, stop, choose the safe option, and ask.
   the mutex: `201` to the first writer, `422` to everyone after. Exit `3` is ineligible, `4` is lost;
   in both cases stop, and never open a second branch or PR for that item. Eligibility is a
   *precondition* of the claim, never a consequence.
+- **The issue's own `Execution autonomy` is part of that precondition**, and no label overrides it.
+  Anything but `agent-can-do-alone` — including a body that declares nothing — exits `3` naming the
+  value.
 - **No lease, no TTL, no heartbeat.** Each claim carries a server-assigned generation: revalidate
   with `claim.py check` immediately before every authoritative write and stop writing on exit `5`.
   Release your own with `claim.py release` rather than abandoning it. The scheduled reaper is the
