@@ -1540,6 +1540,34 @@ def test_doctor_never_says_unblocked_and_only_reports_what_it_can_see(
     assert blocked == [{"issue": 9, "mentions": {"1": "closed", "2": "open"}}]
 
 
+def test_doctor_says_it_could_not_read_a_reference_rather_than_omitting_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A lookup that failed is not a reference that does not exist.
+
+    The loop recorded a reference only on `200`, with no other branch, so a `404`, a `403` or a
+    `500` dropped it. That is the silent truncation the comment above the loop says this report
+    must never produce, arriving through a different door than the cap it does report: with every
+    lookup failing, an issue naming two blockers rendered as `{"mentions": {}}` — byte-identical
+    to an issue that names none, and read by a maintainer as *nothing is blocking this*.
+
+    Fails against the pre-fix loop, which emits no `unreadable` key at all.
+    """
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/issues/1"): (404, None),
+            ("GET", "/repos/bioedca/tether/issues/2"): (500, None),
+            ("GET", "/repos/bioedca/tether/issues/9/comments"): (200, []),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    blocked = json.loads(capsys.readouterr().out)["blocked"]
+    assert blocked == [{"issue": 9, "mentions": {}, "unreadable": [1, 2]}], (
+        "an unreadable reference must be reported, not dropped into an empty `mentions`"
+    )
+
+
 def test_doctor_reports_a_finished_pr_that_nothing_will_ever_merge(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

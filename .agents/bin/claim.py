@@ -1065,7 +1065,13 @@ def _doctor_blocked() -> list[dict[str, Any]]:
         # Bounded, and the bound is REPORTED rather than silent: a body can name dozens of numbers
         # and each costs a request. A truncation nobody is told about reads as "these are all the
         # references", which is the one thing this report must never imply.
+        #
+        # A reference the API would not answer for is the same hazard arriving by a different door,
+        # so it is reported too. Dropping it made `mentions` say nothing where it should say *I
+        # could not tell*: with both lookups failing, an issue naming two blockers rendered as
+        # `{"mentions": {}}`, byte-identical to an issue that names none.
         states = {}
+        unreadable = []
         for ref in mentioned[:MENTION_CAP]:
             status, other = _request("GET", f"/repos/{REPO}/issues/{ref}")
             if status == 200 and isinstance(other, dict):
@@ -1079,7 +1085,11 @@ def _doctor_blocked() -> list[dict[str, Any]]:
                 pull_request = other.get("pull_request") or {}
                 merged = bool(pull_request.get("merged_at"))
                 states[ref] = "merged" if merged else other.get("state", "?")
+            else:
+                unreadable.append(ref)
         record = {"issue": issue["number"], "mentions": states}
+        if unreadable:
+            record["unreadable"] = unreadable
         if len(mentioned) > MENTION_CAP:
             record["not_looked_up"] = len(mentioned) - MENTION_CAP
         out.append(record)
