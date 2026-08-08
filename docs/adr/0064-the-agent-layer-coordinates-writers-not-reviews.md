@@ -21,29 +21,40 @@ SPDX-License-Identifier: GPL-3.0-or-later
 >
 > **Where every number below comes from.** All counts were taken at
 > **`d3fd78ce638a141c7f7402905c6371364bc5cecc`** (`d3fd78c`, 2026-08-07), the commit this record
-> branched from. This is the script; it emits every line-count figure in this record, so no set has
-> to be taken on trust:
+> branched from. This is the script, and it takes the revision as an argument so the same run
+> produces both the before and the after:
 >
 > ```bash
-> S=d3fd78c
-> count() { for f in "$@"; do git show "$S:$f"; done | wc -l; }
+> S=${1:-d3fd78c}
+> count() { for f in "$@"; do git show "$S:$f" 2>/dev/null; done | wc -l; }
+> mods='triage swarm_slots claim agent_contract_is_runnable scope_guard
+> reaper greptile_usage greptile_config agent_entry_points issue_forms'
+> contract='AGENTS.md CLAUDE.md .agents/skills/tether-worker/SKILL.md
+> docs/agents/adr.md docs/agents/evidence.md docs/agents/gates.md
+> docs/agents/hpc.md docs/agents/review.md docs/agents/tools.md'
 > scripts=$(count $(git ls-tree -r --name-only $S -- .agents/bin))
-> tests=$(count $(git ls-tree -r --name-only $S -- tests | grep -E \
->   'test_(triage|swarm_slots|claim|agent_contract_is_runnable|scope_guard|reaper|\
-> greptile_usage|greptile_config|agent_entry_points|issue_forms)\.py$'))
-> flows=$(count .github/workflows/{agent-reaper,agent-triage,scope-guard}.yml)
+> tests=$(count $(for m in $mods; do echo tests/test_$m.py; done))
+> flows=$(count $(git ls-tree -r --name-only $S -- .github/workflows |
+>                 grep -e agent- -e scope-guard))
 > prose=$(count AGENTS.md CLAUDE.md .greptile/README.md \
->   .agents/skills/tether-worker/SKILL.md .agents/skills/tether-worker/agents/openai.yaml \
->   .claude/skills/tether-worker/SKILL.md \
->   $(git ls-tree -r --name-only $S -- .agents/tasks docs/agents))
-> product=$(count $(git ls-tree -r --name-only $S -- src/tether))
-> adrs=$(count $(git ls-tree -r --name-only $S -- docs/adr | grep -E '00(52|53|57|61|62|63)-'))
-> echo "$scripts $tests $flows $prose $((scripts+tests+flows+prose)) $product $adrs"
-> # 5469 10407 502 1395 17773 42796 1071
+>               .claude/skills/tether-worker/SKILL.md \
+>               .agents/skills/tether-worker/SKILL.md \
+>               .agents/skills/tether-worker/agents/openai.yaml \
+>               $(git ls-tree -r --name-only $S -- .agents/tasks docs/agents))
+> echo "scripts=$scripts tests=$tests flows=$flows prose=$prose" \
+>      "layer=$((scripts+tests+flows+prose))" \
+>      "contract=$(count $contract)" \
+>      "product=$(count $(git ls-tree -r --name-only $S -- src/tether))"
+> # d3fd78c  -> scripts=5469 tests=10407 flows=502 prose=1395 layer=17773
+> #             contract=991 product=42796
+> # after    -> scripts=1837 tests=3982  flows=84  prose=545  layer=6448
+> #             contract=429 product=42796
 > ```
 >
-> The ADR-0052 comparison is the one figure taken at a different commit, and it says so where it is
-> made: `6d53c98`, the commit that retired it.
+> `contract` is the nine-file mandatory-read set; four of those files are deleted by the cut and
+> `count` skips what a revision does not have, which is why the same list gives 991 before and 429
+> after. Two figures are **not** from this script and say so where they are made: the 1,071 lines of
+> agent ADRs, and the ADR-0052 comparison, which is taken at `6d53c98` — the commit that retired it.
 >
 > **Three kinds of evidence, and only the first is reproducible from a SHA.** The line counts
 > above are. The **remote-ref and issue-search counts** name their own commands and are as of the
