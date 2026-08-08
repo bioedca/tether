@@ -77,9 +77,10 @@ class ClaimError(RuntimeError):
 class IneligibleError(ClaimError):
     """A **decided answer about the issue**, and the only thing that may reach exit ``3``.
 
-    Exactly five: the number is a pull request rather than an issue (:func:`_issue`), or the issue
-    is not open, not ``status:ready``, assigned to someone else, or carries no maintainer approval
-    binding its current snapshot (:func:`_check_eligible`). ``AGENTS.md`` defines exit ``3`` as
+    Exactly six: the number is a pull request rather than an issue (:func:`_issue`), or the issue
+    is not open, not ``status:ready``, assigned to someone else, carries no maintainer approval
+    binding its current snapshot, or declares an autonomy this file may not claim
+    (:func:`_check_eligible`). ``AGENTS.md`` defines exit ``3`` as
     *ineligible - do not work it*, and a compliant agent obeys it, so anything reported that way
     must be something the server actually told us about the issue.
 
@@ -654,8 +655,8 @@ def _issue(number: int) -> dict[str, Any]:
         # Not a verdict: we failed to read it. A 403 or a 5xx says nothing about the issue.
         raise ClaimError(f"issue #{number} could not be read")
     if issue.get("pull_request"):
-        # A verdict, and the fifth one: the server told us what this number is, and it is not
-        # claimable work. The other four are in `_check_eligible`.
+        # A verdict, and the only one raised outside `_check_eligible`: the server told us what
+        # this number is, and it is not claimable work. The other five are in `_check_eligible`.
         raise IneligibleError(f"#{number} is a pull request, not an issue")
     return issue
 
