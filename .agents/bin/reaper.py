@@ -484,6 +484,13 @@ def sweep(*, dry_run: bool) -> list[dict[str, Any]]:
         # claim.py's own `201 but no activity record appeared` path exists for exactly that - so
         # reclaiming here would reap brand-new claims, and `expect` would be None so the later
         # fingerprint recheck could not catch it either.
+        #
+        # A record that never appears at all is the residual, and ADR-0064 decides it (#303): keep
+        # reporting, and a maintainer resolves it. Reclaiming past some maximum age was rejected
+        # because there is no trustworthy clock to measure that age with - ADR-0057 requires
+        # server-recorded liveness precisely because commit metadata is client-settable, and a ref
+        # with no activity record has no server-recorded time. claim.py::_unfenced_claim is the
+        # other half of this decision.
         if last is None or expect is None:
             actions.append({"issue": number, "action": "keep", "reason": "activity-unknown"})
             continue

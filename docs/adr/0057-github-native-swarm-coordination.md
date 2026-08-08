@@ -5,9 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0057 — GitHub-native swarm coordination
 
-- **Status:** accepted (supersedes [ADR-0052](0052-concurrent-agent-swarm-coordination.md) and
-  [ADR-0053](0053-structured-backlog-intake-gates-swarm-admission.md); adopted in phases — see
-  [Adoption status](#adoption-status))
+- **Status:** accepted in part; supersedes [ADR-0052](0052-concurrent-agent-swarm-coordination.md) and [ADR-0053](0053-structured-backlog-intake-gates-swarm-admission.md); its review gate, round cap, launcher and advisory scope guard superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)
 - **Date:** 2026-07-28
 - **Deciders:** bioedca
 - **PRD anchor:** §12.2–§12.5 (GitHub Flow, reviews, pull requests, issue planning)
@@ -119,28 +117,42 @@ parts are live. **ADR-0052 is fully switched off** as of 2026-07-30 — nothing 
 longer. **ADR-0053's intake gates remain in force**: what is not yet replaced still governs, and
 superseded means *decided*, not automatically *already switched off*.
 
-**In force now:** the review gate (material-change rule, severity floor, two-round cap,
-capability-vs-quota) in `docs/agents/review.md`, which `AGENTS.md` points to as a bar to acting;
-`main` without the strict up-to-date rule; `sidecar / parity`
+**In force 2026-07-30 → 08-07, and superseded below.** The review gate (material-change rule,
+severity floor, **two-round cap**, capability-vs-quota) in `docs/agents/review.md`: ADR-0064 retired
+the round ledger and the launcher that enforced the cap, so the cap is now a convention and the gate
+lives in `AGENTS.md` §Review. Read that paragraph as history rather than as the live rule — this
+section is the authority on what governs, and what governs is the *Superseded by ADR-0064; removal
+pending* block below.
+
+**In force now:** `main` without the strict up-to-date rule; `sidecar / parity`
 reporting post-merge; the prose-drift guard retired. Since 2026-07-30: **the claim mutex**
 (`.agents/bin/claim.py`) and `agent/issue-<N>` branches, including generation fencing and atomic ADR
 number reservation; **the scheduled reaper** (`.agents/bin/reaper.py`, `agent-reaper.yml`); the
 **vendor label mirror** — and, with them, the removal of the coordinator, the leases and the run
 records from the contract. ADR-0052 no longer governs anything.
 
-Also in force since 2026-07-30: **event-driven triage and the review-round counter**
-(`.agents/bin/triage.py`, `agent-triage.yml`) and **the slot launcher** (`.agents/bin/swarm_slots.py`,
-`.agents/bin/gate.ps1`). Those two are one control and are recorded together deliberately — see
-[The two-round cap needs both halves](#the-two-round-cap-needs-both-halves).
+**Superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md); removal
+pending.** The decision is made against **event-driven triage and the review-round counter**
+(`.agents/bin/triage.py`, `agent-triage.yml`), **the slot launcher** (`.agents/bin/swarm_slots.py`,
+`.agents/bin/gate.ps1`) and **the advisory scope guard** (`.agents/bin/scope_guard.py`,
+`scope-guard.yml`) — but they still run until the subtractive pull request that deletes them lands,
+so until then they still govern.
 
-Also in force since 2026-07-30: **the advisory scope guard** (`.agents/bin/scope_guard.py`,
-`scope-guard.yml`), which measures the `size:*` diff budget and classifies a push as material or
-not — the two computations the review gate above already turns on and which were previously applied
-by judgement alone. It is **deliberately not a required context**: replayed over every merged PR of
-this rebuild the thresholds are miscalibrated for new-executable work, and promoting an untested
-threshold would make the ladder impossible to fix without a red `main`.
+**What is not superseded:** the provider lane itself. Draft-first ordering, reading the Greptile
+balance before spending a credit, and one CodeRabbit review with no actionable comments as the last
+gate all survive, and now live in `AGENTS.md` §Review. What ADR-0064 removes is the ledger that
+counted rounds, not the requirement to be reviewed.
+
+See [The two-round cap needs both halves](#the-two-round-cap-needs-both-halves) for what the cap was
+intended to be — history rather than governance.
 
 **Not yet implemented:** Projects/Discussions as coordination surfaces.
+
+> **Everything from here to the end of the next section is pre-ADR-0064 history, written in the
+> present tense of 2026-07-30.** ADR-0064 supersedes the machinery it describes; the removal lands
+> separately. What survives of the label model is `agent:claude|codex|copilot` from `claim.py`, and
+> `agent:conflicted` and `agent:needs-amend` from `reaper.py`. Read the next section for what the
+> two-round cap was intended to be, not for what governs.
 
 Be precise about what "the label model" means, because parts of it still have no writer. Written by
 code: `agent:claude|codex|copilot` (`claim.py`), `agent:conflicted` and `agent:needs-amend`

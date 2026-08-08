@@ -167,6 +167,17 @@ asking a provider to look **again** at work it has already reviewed this round.
   one follow-up issue per PR, reply `Deferred: … Tracked in #N` — never at an issue that does not
   exist — and resolve the thread. **Never fix a non-blocking finding in the PR**: that is scope
   breach, not diligence.
+- **On agent-layer paths that rule inverts: a sub-floor finding is dropped, not tracked.** The paths
+  are `.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules. Reply
+  `Noted; below the floor on an agent-layer path and not tracked (ADR-0064)` and resolve the thread.
+  Blocking findings are unaffected and CodeRabbit remains the gate. Only here does the output feed
+  back into the input — a follow-up issue on an agent-layer PR becomes another agent-layer PR, which
+  is read by three providers, which produces more sub-floor findings. Measured: **sixteen**
+  agent-layer issues came from that loop in ten days, thirteen of them in the last five.
+- **The agent layer is feature-complete** (ADR-0064), over **the same paths as the drop rule above**
+  — `.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules. They accept bug
+  fixes and safety fixes only; a capability change needs a maintainer-opened issue and may not
+  originate in a review finding.
 - **Two rounds after the draft, issued by the launcher, not requested by you.** One round = a review
   at a declared-final green head plus the answer to its blocking findings. **The cap counts only
   rounds taken once the PR is ready for review, and only against metered providers** — Codex

@@ -5,16 +5,26 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0062 — Draft-first review lane: spend the free provider before the metered ones
 
-- **Status:** accepted; supersedes the §Review gate and §Round cap of [ADR-0057](0057-github-native-swarm-coordination.md)
-  ADR-0057 records the review gate, the round counter and the launcher as one architectural control.
-  This record changes two of those three; the launcher half, and the rest of ADR-0057, stand
-  unchanged.
+- **Status:** superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)
 - **Date:** 2026-08-03
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)
 - **Milestone:** M11 - Agent-swarm infrastructure
 
 ## Context and problem statement
+
+> **Superseded 2026-08-07 by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md).**
+> What that record retired is the **round ledger and the launcher** this one designed — the
+> counter, the `agent:round-*` labels and the slot launcher that issued AMEND turns. The
+> **provider lane itself survives** and is now stated in `AGENTS.md` §Review: draft-first
+> ordering, reading the Greptile balance before spending a credit, and one CodeRabbit review
+> with no actionable comments as the last gate. This record established that ordering, and
+> that part of it still governs.
+>
+> **Superseded is not removed.** `triage.py`, `swarm_slots.py`, `gate.ps1` and `scope_guard.py`
+> still run, and until the subtractive pull request that deletes them lands they still govern.
+> Read the round-cap and launcher detail below as the design of record for code that is live,
+> not as a description of something already gone.
 
 The review gate routed by *risk*: `low`/`standard` to Codex, `high` to Codex and CodeRabbit
 together. That was written when every provider was effectively free, and it stopped being true.

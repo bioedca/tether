@@ -134,6 +134,12 @@ If they conflict, stop, choose the safe option, and ask.
   is the authority to walk the lane on by **one** phase — `.agents/tasks/advance.md`, not AMEND, and
   its ref is outside the round ledger. It is withheld under `agent:gate-blocked`: there the lane has
   stopped terminating and a maintainer decides, so there is no next phase to authorise.
+- **On agent-layer paths a sub-floor finding is dropped, not tracked** (ADR-0064). The paths are
+  `.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules. Reply
+  `Noted; below the floor on an agent-layer path and not tracked (ADR-0064)` and resolve the
+  thread. Only there does the output feed back into the input. **The agent layer is also
+  feature-complete**: bug and safety fixes only, and a capability change needs a
+  maintainer-opened issue rather than a review finding.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green, threads resolved, and evidence bound to
   the merged head. Then **arm auto-merge and exit** — never wait, never poll.
