@@ -214,7 +214,10 @@ once by a human, `AGENTS.md` is read on every model call by every agent.
 
 This record is the decision; the removals land as a sequence of subtractive pull requests, so this
 section is the authority on what is actually gone. **In force on merge of this record:** the drop
-rule, the feature-complete freeze, and the three decisions above. **Landing separately:** the
+rule, the feature-complete freeze, and the three decisions above — all three are written into
+`docs/agents/review.md`, `AGENTS.md` and `CLAUDE.md` by this same pull request, because a rule
+recorded only in an ADR while the contract still says the opposite is not a rule (Greptile P1 on
+#427). **Landing separately:** the
 `CLAUDE.md` collapse, the reaper shrink with #278's archive, the launcher removal, the
 triage-and-scope-guard removal (one pull request — they are one unit), and the contract rewrite.
 Until each lands, the code it names still runs and still governs. The remote labels and the
