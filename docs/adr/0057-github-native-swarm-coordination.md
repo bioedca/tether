@@ -130,26 +130,28 @@ number reservation; **the scheduled reaper** (`.agents/bin/reaper.py`, `agent-re
 **vendor label mirror** — and, with them, the removal of the coordinator, the leases and the run
 records from the contract. ADR-0052 no longer governs anything.
 
-**Retired by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md) (2026-08-07):**
-**event-driven triage and the review-round counter** (`.agents/bin/triage.py`, `agent-triage.yml`),
-**the slot launcher** (`.agents/bin/swarm_slots.py`, `.agents/bin/gate.ps1`), and **the advisory
-scope guard** (`.agents/bin/scope_guard.py`, `scope-guard.yml`). They ran from 2026-07-30. The
-launcher issued one review round in that time and the ADVANCE half issued none, so the two-round cap
-this record describes as mechanically enforced never was; ADR-0064 makes it a convention and says
-so. The scope guard was **deliberately not a required context** — its thresholds are miscalibrated
-for new-executable work — and nothing read its verdict to make a decision.
-See [The two-round cap needs both halves](#the-two-round-cap-needs-both-halves) for what was
-intended, which is history rather than governance.
+**Superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md); removal
+pending.** The decision is made against **event-driven triage and the review-round counter**
+(`.agents/bin/triage.py`, `agent-triage.yml`), **the slot launcher** (`.agents/bin/swarm_slots.py`,
+`.agents/bin/gate.ps1`) and **the advisory scope guard** (`.agents/bin/scope_guard.py`,
+`scope-guard.yml`) — but they still run until the subtractive pull request that deletes them lands,
+so until then they still govern.
+
+**What is not superseded:** the provider lane itself. Draft-first ordering, reading the Greptile
+balance before spending a credit, and one CodeRabbit review with no actionable comments as the last
+gate all survive, and now live in `AGENTS.md` §Review. What ADR-0064 removes is the ledger that
+counted rounds, not the requirement to be reviewed.
+
+See [The two-round cap needs both halves](#the-two-round-cap-needs-both-halves) for what the cap was
+intended to be — history rather than governance.
 
 **Not yet implemented:** Projects/Discussions as coordination surfaces.
 
 > **Everything from here to the end of the next section is pre-ADR-0064 history, written in the
-> present tense of 2026-07-30.** `triage.py`, `swarm_slots.py`, `gate.ps1` and `scope_guard.py` are
-> retired, and with them `agent:round-1`, `agent:round-2`, `agent:review-capped`,
-> `agent:needs-advance` and `agent:gate-blocked`. What survives of the label model is
-> `agent:claude|codex|copilot` from `claim.py`, and `agent:conflicted` and `agent:needs-amend` from
-> `reaper.py`. The two-round cap is now a convention rather than two mechanical refusals — read the
-> next section for what was intended, not for what governs.
+> present tense of 2026-07-30.** ADR-0064 supersedes the machinery it describes; the removal lands
+> separately. What survives of the label model is `agent:claude|codex|copilot` from `claim.py`, and
+> `agent:conflicted` and `agent:needs-amend` from `reaper.py`. Read the next section for what the
+> two-round cap was intended to be, not for what governs.
 
 Be precise about what "the label model" means, because parts of it still have no writer. Written by
 code: `agent:claude|codex|copilot` (`claim.py`), `agent:conflicted` and `agent:needs-amend`
