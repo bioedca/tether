@@ -148,7 +148,7 @@ have settled anything — the mill would simply have ground whatever remained.
 ## Decision drivers
 
 - **ADR-0057's own third driver, applied to its successor:** *"Contract text is resident context, so
-  its size is a running cost, not a one-off."* The mandatory-read contract has grown from 151 lines
+  its size is a running cost, not a one-off."* The mandatory-read contract has grown from 149 lines
   to **991 across nine files**, every one of them declared "a bar to acting". Extracting sections
   into `docs/agents/` (#294) moved the cost, it did not remove it — and the three task templates the
   launcher injects add 287 more.
@@ -244,7 +244,7 @@ problem, not a concurrency problem.
 delegate to `triage`, so they are now one unit rather than the two independent opinions ADR-0057
 intended.
 
-The review gate becomes ~24 lines in `AGENTS.md`, keeping the four rules that are load-bearing and
+The review gate becomes 45 lines in `AGENTS.md`, keeping the four rules that are load-bearing and
 have never been the source of a defect: the authoring agent is never the only reviewer; work on a
 draft so the metered providers see a green diff; read the credit balance before spending one and
 never accept a usage-based-billing offer; and one CodeRabbit review with no actionable comments is
@@ -337,11 +337,18 @@ failing, so nothing in the audit trail would show it.
 
 ## Consequences
 
-**Good.** The layer falls from 17,773 lines to ~4,800 (−73%), and the mandatory-read contract from
-991 lines across nine files to ~285 across five (−71%). Three workflows become one, seven labels
-become two, two ref namespaces
-retire. The required `test` job stops carrying most of 10,407 lines of agent tests on every product
-pull request, three times over.
+**Good.** The layer falls from 17,773 lines to **6,448 (−64%)**, and the mandatory-read contract from
+991 lines across nine files to **429 across five (−57%)**. Three workflows become one, seven labels
+become two, two ref namespaces retire. The required `test` job stops carrying most of 10,407 lines
+of agent tests on every product pull request, three times over.
+
+> These two are the only figures here that describe a future state, so they are measured rather than
+> estimated: re-running the script above against the branch that implements the cut yields
+> `1837 3982 84 545` and a 6,448 total. An earlier draft of this record projected ~4,800 and −73%
+> before the work existed, and the implementation did not reach it — the launcher's removal returned
+> less than guessed and `claim.py` grew to absorb the autonomy gate and `doctor`. The measured number
+> is used here in preference to the projection, and the difference is left visible rather than
+> restated as a target that was met.
 
 **Bad, and named rather than minimised.** The two-round cap becomes a convention with no counter
 behind it, which deliberately re-exposes the failure mode of #276 — nine rounds against a limit of
