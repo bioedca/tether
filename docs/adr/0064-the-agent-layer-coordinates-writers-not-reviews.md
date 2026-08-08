@@ -249,8 +249,9 @@ record, which is what that issue's third criterion asks for.
 launcher removal, the triage-and-scope-guard removal (one pull request — they are one unit), and the
 contract rewrite. Until each lands, the code it names still runs and still governs.
 
-**`docs/PRD.md` §12 is part of that contract rewrite and is therefore stale between this record
-merging and that one.** It still describes ADR-0062's round cap and launcher as current governance.
+**The [PRD](https://github.com/bioedca/tether/blob/main/docs/PRD.md) §12 is part of that contract
+rewrite and is therefore stale between this record merging and that one.** It still describes
+ADR-0062's round cap and launcher as current governance.
 That is deliberate rather than overlooked — the PRD paragraph and the `AGENTS.md` §Review rewrite
 describe one lane and must change together, in the pull request that actually deletes the machinery
 — but a reader arriving in the gap should know which of the two to believe. **This record wins**: it
