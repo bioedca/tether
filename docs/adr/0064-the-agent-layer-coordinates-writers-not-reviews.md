@@ -19,17 +19,31 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > here rather than in the `Status` bullet because `scripts/gen_adr_index.py` extracts that
 > field with a single-line pattern and copies it verbatim into the index.
 >
-> **Where every number below comes from.** All counts in this record were taken at
+> **Where every number below comes from.** All counts were taken at
 > **`d3fd78ce638a141c7f7402905c6371364bc5cecc`** (`d3fd78c`, 2026-08-07), the commit this record
-> branched from, and are `git show <sha>:<path> | wc -l` over these sets — call this the **agent
-> pathspec**: **scripts** = the 7 files in `.agents/bin/`; **tests** =
-> `test_{triage,swarm_slots,claim,agent_contract_is_runnable,scope_guard,reaper,greptile_usage,`
-> `greptile_config,agent_entry_points,issue_forms}.py` — **ten** modules; **workflows** =
-> `agent-reaper.yml`,
-> `agent-triage.yml`, `scope-guard.yml`; **prose** = `AGENTS.md`, `CLAUDE.md`, both `SKILL.md`,
-> `agents/openai.yaml`, `.agents/tasks/*.md`, `docs/agents/*.md`, `.greptile/README.md`; **ADRs**
-> = 0052, 0053, 0057, 0061, 0062, 0063. A reader can re-derive each figure from that SHA without
-> trusting this page.
+> branched from. This is the script; it emits every line-count figure in this record, so no set has
+> to be taken on trust:
+>
+> ```bash
+> S=d3fd78c
+> count() { for f in "$@"; do git show "$S:$f"; done | wc -l; }
+> scripts=$(count $(git ls-tree -r --name-only $S -- .agents/bin))
+> tests=$(count $(git ls-tree -r --name-only $S -- tests | grep -E \
+>   'test_(triage|swarm_slots|claim|agent_contract_is_runnable|scope_guard|reaper|\
+> greptile_usage|greptile_config|agent_entry_points|issue_forms)\.py$'))
+> flows=$(count .github/workflows/{agent-reaper,agent-triage,scope-guard}.yml)
+> prose=$(count AGENTS.md CLAUDE.md .greptile/README.md \
+>   .agents/skills/tether-worker/SKILL.md .agents/skills/tether-worker/agents/openai.yaml \
+>   .claude/skills/tether-worker/SKILL.md \
+>   $(git ls-tree -r --name-only $S -- .agents/tasks docs/agents))
+> product=$(count $(git ls-tree -r --name-only $S -- src/tether))
+> adrs=$(count $(git ls-tree -r --name-only $S -- docs/adr | grep -E '00(52|53|57|61|62|63)-'))
+> echo "$scripts $tests $flows $prose $((scripts+tests+flows+prose)) $product $adrs"
+> # 5469 10407 502 1395 17773 42796 1071
+> ```
+>
+> The ADR-0052 comparison is the one figure taken at a different commit, and it says so where it is
+> made: `6d53c98`, the commit that retired it.
 >
 > **Three kinds of evidence, and only the first is reproducible from a SHA.** The line counts
 > above are. The **remote-ref and issue-search counts** name their own commands and are as of the
