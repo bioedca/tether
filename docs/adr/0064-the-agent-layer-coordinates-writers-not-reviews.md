@@ -24,7 +24,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > branched from, and are `git show <sha>:<path> | wc -l` over these sets — call this the **agent
 > pathspec**: **scripts** = the 7 files in `.agents/bin/`; **tests** =
 > `test_{triage,swarm_slots,claim,agent_contract_is_runnable,scope_guard,reaper,greptile_usage,`
-> `greptile_config,agent_entry_points}.py`; **workflows** = `agent-reaper.yml`,
+> `greptile_config,agent_entry_points,issue_forms}.py` — **ten** modules; **workflows** =
+> `agent-reaper.yml`,
 > `agent-triage.yml`, `scope-guard.yml`; **prose** = `AGENTS.md`, `CLAUDE.md`, both `SKILL.md`,
 > `agents/openai.yaml`, `.agents/tasks/*.md`, `docs/agents/*.md`, `.greptile/README.md`; **ADRs**
 > = 0052, 0053, 0057, 0061, 0062, 0063. A reader can re-derive each figure from that SHA without
@@ -137,10 +138,15 @@ have settled anything — the mill would simply have ground whatever remained.
   to **991 across nine files**, every one of them declared "a bar to acting". Extracting sections
   into `docs/agents/` (#294) moved the cost, it did not remove it — and the three task templates the
   launcher injects add 287 more.
-- ADR-0052 was retired after a measured **3.48 billion input tokens, 44 hours and two merged pull
-  requests**, for a 2,594-line implementation (a 1,504-line helper and a 1,090-line test). The
+- ADR-0052 was retired for a **2,594-line** implementation — `swarm_lease.py` at 1,504 lines and
+  `tests/test_swarm_lease.py` at 1,090, both measured at `6d53c98`, the commit that retired it. The
   scripts and tests that replaced it are **15,876 lines — 6.1× the size of what was too expensive
-  to keep.**
+  to keep.** ADR-0057 §Context additionally reports *"~3.48 billion input tokens, 83 points of a
+  weekly quota, 44 hours, two merged PRs"* for that run, and states its own source: the
+  2026-07-26 → 07-28 session logs. **Those logs are not in this repository and no command here
+  re-derives them**, so that sentence is a citation to a prior record rather than a measurement
+  this ADR can stand behind — which is why the size comparison above rests on the line counts,
+  which are reproducible, and not on the token figure, which is not.
 - No agent workflow is a required check. The `main-baseline` ruleset requires `lint`, `test` on three
   operating systems, `pre-commit`, `commitlint`, `secret-scan`, `conda-lock-verify`, `docs-build`,
   `schema-guard` and `sidecar / parity` — eleven contexts, all product CI. Everything removed here
