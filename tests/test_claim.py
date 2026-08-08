@@ -172,8 +172,27 @@ def test_claim_ignores_an_approval_from_a_non_maintainer(
             "maintainer decision\n",
             "maintainer decision",
         ),
+        # Greptile on #428: a separator must not decide a safety verdict. This opens with an
+        # admitting prefix and names its restriction with a hyphen, so a literal-token match saw
+        # nothing and ADMITTED it - a fail-open in the one gate whose purpose is failing closed.
+        (
+            "## Execution autonomy\n\nagent-can-do-alone; maintainer-decision required\n",
+            "maintainer decision",
+        ),
+        (
+            "## Execution autonomy\n\nagent-can-do-alone, needs_human_action for the upload\n",
+            "human action",
+        ),
     ],
-    ids=["external-human", "maintainer-decision", "absent", "legacy-spelling", "split-declaration"],
+    ids=[
+        "external-human",
+        "maintainer-decision",
+        "absent",
+        "legacy-spelling",
+        "split-declaration",
+        "hyphenated-restriction",
+        "underscored-restriction",
+    ],
 )
 def test_an_issue_whose_body_says_no_agent_can_do_it_is_not_claimable(
     monkeypatch: pytest.MonkeyPatch,

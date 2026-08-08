@@ -501,12 +501,40 @@ _MARKUP = re.compile(r"[`*_]+")
 
 
 def _normalize_autonomy(value: str) -> str:
-    """Lowercase, strip Markdown emphasis, collapse whitespace, drop a trailing period."""
+    """Lowercase, strip Markdown emphasis, collapse whitespace, drop a trailing period.
+
+    The **display** form: what a refusal message quotes back, so it still looks like what the issue
+    says. Comparison uses :func:`_flatten_autonomy` instead.
+    """
     return _MARKUP.sub("", value).strip().rstrip(".").strip().lower()
 
 
+def _flatten_autonomy(value: str) -> str:
+    """The **comparison** form: hyphens and underscores become spaces, and runs collapse.
+
+    The corpus spells one concept several ways - `maintainer decision`, `maintainer-decision`,
+    `needs-maintainer-input` - and matching the literal token would let a separator decide a safety
+    verdict. `agent-can-do-alone; maintainer-decision required` opens with an admitting prefix and
+    names a restriction the spaced token cannot see, so it would have been **admitted**: a fail-open
+    in the one gate whose whole purpose is to fail closed (Greptile on #428).
+
+    Both sides are flattened, so `AUTONOMY_ADMITS` and `AUTONOMY_REFUSES` may be written either way
+    and a new spelling of an existing concept cannot smuggle work past this.
+
+    **Separators are widened before the markup strip, not after.** `_MARKUP` removes `_` because it
+    is Markdown emphasis, so running it first turns `needs_human_action` into `needshumanaction` -
+    one word, matching nothing, admitted. Widening first makes it `needs human action`.
+    """
+    widened = re.sub(r"[\s_-]+", " ", value)
+    return re.sub(r"\s+", " ", _normalize_autonomy(widened)).strip()
+
+
 def _declared_autonomy(body: str) -> tuple[str, str] | None:
-    """The issue's own Execution-autonomy declaration as ``(value, where)``, or ``None``.
+    """The issue's own Execution-autonomy declaration as ``(raw value, where)``, or ``None``.
+
+    The value is returned **unnormalized**. `_normalize_autonomy` strips `_` as Markdown
+    emphasis, so normalizing here would glue `needs_human_action` into one word before
+    `_flatten_autonomy` could widen it - the caller needs the raw text to do both.
 
     The corpus renders this four ways and they do not agree, so the order below is the decision.
     Measured over all 202 issues in this repository on 2026-08-07: 73 use an `## Execution autonomy`
@@ -534,12 +562,12 @@ def _declared_autonomy(body: str) -> tuple[str, str] | None:
         for match in _AUTONOMY_BULLET.finditer(source):
             qualifier = _normalize_autonomy(match.group("qualifier"))
             label = f"{where} bullet" + (f" ({qualifier})" if qualifier else "")
-            return _normalize_autonomy(match.group("value")), label
+            return match.group("value"), label
         heading = _AUTONOMY_HEADING.search(source)
         if heading:
             lines = [ln.strip() for ln in heading.group(1).split("\n") if ln.strip()]
             if lines:
-                return _normalize_autonomy(lines[0]), f"{where} heading"
+                return lines[0], f"{where} heading"
     return None
 
 
@@ -564,9 +592,13 @@ def _autonomy_refusal(body: str) -> str | None:
             "declares no Execution autonomy, so it has not been groomed for agent work. An absent "
             "declaration is refused rather than assumed - add one to the issue"
         )
-    value, where = declared
-    refused = [token for token in AUTONOMY_REFUSES if token in value]
-    admits = any(value.startswith(token) for token in AUTONOMY_ADMITS)
+    raw, where = declared
+    # Quote the issue verbatim; decide on the flattened form. Showing the normalized value
+    # would print `needshumanaction` for a body that says `needs_human_action`.
+    value = raw.strip()
+    flat = _flatten_autonomy(raw)
+    refused = [token for token in AUTONOMY_REFUSES if _flatten_autonomy(token) in flat]
+    admits = any(flat.startswith(_flatten_autonomy(token)) for token in AUTONOMY_ADMITS)
     if refused and admits:
         return (
             f"declares autonomy {value!r} ({where}). That is a split declaration - it also names "
