@@ -55,8 +55,14 @@ about the agent layer in the seventeen days since ADR-0052 (07-21). Each of the 
 one produced a larger counter and more issues. Continuing to refine it is the option with the
 longest track record here, and that record is unambiguous.
 
-**And it is bookkeeping nobody collects.** `git ls-remote origin` returns the complete set of refs
-the layer has ever created:
+**And it is bookkeeping nobody collects.** `git ls-remote origin` lists what exists on the remote
+**now** — it does not report deleted refs, so a live listing is not by itself a history. It is one
+here because these four namespaces are **append-only by construction**: `swarm_slots.py` records
+each AMEND as a compare-and-swap ref and states that *"refs here are never deleted"*, ADR numbers
+are reserved and never reused or renumbered, `refs/reaped/` is the archive a reap writes and never
+removes, and nothing in `.agents/bin/` issues a `DELETE` against any of them (the reaper deletes
+`refs/heads/agent/issue-<N>` only). So for these namespaces the current set is the ever-created set,
+and that is why the counts below are historical:
 
 ```text
 refs/adr-reservations/{0058,0059,0061,0062,0063}   5   used, works
@@ -242,6 +248,14 @@ record, which is what that issue's third criterion asks for.
 **Landing separately:** the `CLAUDE.md` collapse, the reaper shrink with `#278`'s archive, the
 launcher removal, the triage-and-scope-guard removal (one pull request — they are one unit), and the
 contract rewrite. Until each lands, the code it names still runs and still governs.
+
+**`docs/PRD.md` §12 is part of that contract rewrite and is therefore stale between this record
+merging and that one.** It still describes ADR-0062's round cap and launcher as current governance.
+That is deliberate rather than overlooked — the PRD paragraph and the `AGENTS.md` §Review rewrite
+describe one lane and must change together, in the pull request that actually deletes the machinery
+— but a reader arriving in the gap should know which of the two to believe. **This record wins**: it
+is the later decision, and the PRD text it contradicts is a description of tooling that is on its
+way out.
 
 The five retired labels and the `refs/amend-rounds/*` namespace go **after `triage.py` stops writing
 them**, which is the triage-and-scope-guard removal — not before, because
