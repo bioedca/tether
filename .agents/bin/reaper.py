@@ -360,11 +360,17 @@ def _prepare_retire(number: int) -> str | None:
     delete only if it is unchanged. A push during those steps aborts the reap.
 
     The archive taken here is the **floor**, not the whole story: ``_retire_ref`` re-reads and
-    re-archives immediately before the DELETE, so a push landing after the final read below is
-    preserved too. The remaining window is that last round-trip, it is irreducible, and ADR-0064
-    records the decision to accept it (#278). Three things keep even that from being a loss - the
-    tip is archived, the worker still holds the commits locally, and its next `claim check` fails
-    on the generation fence.
+    re-archives immediately before the DELETE, so a push landing between this function's final read
+    and that one is preserved as well. What remains is the last round-trip - a push landing between
+    ``_retire_ref``'s read and its DELETE - and it is irreducible; ADR-0064 records the decision to
+    accept it (#278).
+
+    **Be exact about that residual: the tip deleted inside it is the one that was NOT archived.**
+    An earlier tip is archived, so the reap never destroys everything, but the pushed commit itself
+    is gone from the remote. Two things keep that from being a loss of work, and the archive is not
+    one of them: the worker still holds its commits locally, and its next `claim check` fails on the
+    generation fence, so it learns it was superseded rather than writing over a successor. Claiming
+    the archive covers this window is the precise error recorded above as already made once.
 
     Returns the archived sha, or ``None`` when there is no ref left to retire.
     """
@@ -394,9 +400,13 @@ def _archive_tip(number: int, sha: str) -> None:
 
     The **full** sha, not a prefix. With an 8-character prefix a 422 was ambiguous - it could mean
     "this exact archive exists" or "a different commit sharing that prefix was archived earlier",
-    and accepting the second would delete a tip that was never preserved. With the full sha the ref
-    name identifies the commit exactly, so 422 can only mean the identical archive is already there.
-    The ambiguity is removed rather than checked for.
+    and accepting the second would delete a tip that was never preserved. The full sha removes
+    *that* ambiguity: the ref name identifies the commit exactly, so a 422 meaning "already exists"
+    can only be the identical archive.
+
+    It does **not** make every 422 mean "already exists". The status also covers validation
+    failures - an unknown sha, a malformed ref name - so the body below still verifies that the
+    archive is present and points where we think it does before letting the delete proceed.
     """
     archive = f"refs/reaped/issue-{number}-{sha}"
     status, _ = claim._request("POST", f"/repos/{REPO}/git/refs", {"ref": archive, "sha": sha})
