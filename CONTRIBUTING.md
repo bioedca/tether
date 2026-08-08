@@ -385,7 +385,15 @@ two axes and left every `Minor` ambiguous.
 
 Defer everything else to **one** follow-up issue per PR and resolve the thread with a
 link; do not fix non-blocking findings in the same PR, and never point a deferral at an
-issue that does not exist. If a **selected** provider reports nothing to review at the
+issue that does not exist. **On agent-layer paths that rule inverts and a sub-floor
+finding is dropped rather than tracked** (ADR-0064) — the paths are `.agents/`,
+`docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules. Reply `Noted; below
+the floor on an agent-layer path and not tracked (ADR-0064)` and resolve the thread.
+Blocking findings are unaffected. The reason is that only there does the output feed back
+into the input: a follow-up issue on an agent-layer PR becomes another agent-layer PR,
+read by the same providers, producing more sub-floor findings. `docs/agents/review.md`
+carries the full rule; this paragraph exists so the two pages cannot be read as
+disagreeing. If a **selected** provider reports nothing to review at the
 head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is its documented
 "no suggestions" — that satisfies its leg; quote it. A statement from the author, or from
 any other commenter, never does. **Exhaustion is not incapacity**: a provider with nothing
