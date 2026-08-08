@@ -225,7 +225,7 @@ def test_an_issue_whose_body_says_no_agent_can_do_it_is_not_claimable(
         "### Execution autonomy\n\n`agent-can-do-alone`.\n",
         "## Autonomy\n\nagent-can-do-alone\n",
         "- **Autonomy:** agent-can-do-alone\n",
-        "- **Execution autonomy:** agent can complete alone\n",
+        "- **Autonomy:** agent can complete alone\n",
         "## Execution autonomy\n\n`agent-can-do-alone`, unless the sizing note says otherwise.\n",
         "<!-- tether-grooming-v1 -->\n\n- **Autonomy after unblock:** agent-can-do-alone\n",
     ],
@@ -242,7 +242,7 @@ def test_an_issue_whose_body_says_no_agent_can_do_it_is_not_claimable(
 def test_every_spelling_of_agent_can_do_alone_in_the_live_corpus_admits(
     monkeypatch: pytest.MonkeyPatch, body: str
 ) -> None:
-    """Each form here was counted in this repository's 202 issues on 2026-08-07.
+    """The spellings the live corpus uses, plus the qualified and after-unblock forms.
 
     `after-unblock` admits deliberately: it answers *what kind of work is this*, and whether the
     issue is still blocked is the `status:` label's question. #214's grooming block reads

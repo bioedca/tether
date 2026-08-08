@@ -467,11 +467,11 @@ def _scope_hash(title: str, body: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-#: The one declared autonomy an agent may claim under. Every issue form renders `Execution autonomy`
-#: as a three-option dropdown - `agent-can-do-alone`, `maintainer decision required`, and
-#: `external/human action required` - so this is an enumeration, not a guess. The two extra
-#: spellings are legacy prose from before the dropdown existed; both appear in the live corpus.
-AUTONOMY_ADMITS = ("agent-can-do-alone", "agent can complete alone", "agent can do alone")
+#: The one declared autonomy an agent may claim under. The issue forms that collect this field offer
+#: three values - `agent-can-do-alone`, `maintainer decision required`, `external/human action
+#: required` - so this is an enumeration rather than a guess. `agent can complete alone` is a legacy
+#: prose spelling that predates the dropdown and is still on live issues.
+AUTONOMY_ADMITS = ("agent-can-do-alone", "agent can complete alone")
 
 #: Any of these anywhere in the declared value refuses it, even when it *opens* with an admitting
 #: token. A value like "agent-can-do-alone for the drafting; the membership question is a
@@ -501,10 +501,10 @@ _MARKUP = re.compile(r"[`*_]+")
 
 
 def _normalize_autonomy(value: str) -> str:
-    """Lowercase, strip Markdown emphasis, collapse whitespace, drop a trailing period.
+    """Lowercase, strip Markdown emphasis, trim the ends, drop a trailing period.
 
-    The **display** form: what a refusal message quotes back, so it still looks like what the issue
-    says. Comparison uses :func:`_flatten_autonomy` instead.
+    Feeds :func:`_flatten_autonomy`, which is what comparison uses. Internal whitespace is left
+    alone here; the flattener collapses it.
     """
     return _MARKUP.sub("", value).strip().rstrip(".").strip().lower()
 
@@ -536,20 +536,17 @@ def _declared_autonomy(body: str) -> tuple[str, str] | None:
     emphasis, so normalizing here would glue `needs_human_action` into one word before
     `_flatten_autonomy` could widen it - the caller needs the raw text to do both.
 
-    The corpus renders this four ways and they do not agree, so the order below is the decision.
-    Measured over all 202 issues in this repository on 2026-08-07: 73 use an `## Execution autonomy`
-    heading, 8 an `## Autonomy` heading, 79 a ``- **Autonomy:**`` bullet, and 38 carry a
-    ``<!-- tether-grooming-v1 -->`` block.
+    The corpus renders this several ways - an `## Execution autonomy` heading, a shorter
+    `## Autonomy` one, a ``- **Autonomy:**`` bullet, and a ``<!-- tether-grooming-v1 -->`` block -
+    and they do not always agree, so the order below is the decision.
 
-    **A grooming block wins.** Those blocks open by saying so - *"This section is authoritative for
-    readiness where earlier text is stale"* - and they exist precisely because the body above them
-    went out of date. Reading the body first would let a superseded value admit work the grooming
+    **A grooming block wins**, because those blocks exist to restate readiness after the body above
+    them went stale. Reading the body first would let a superseded value admit work the grooming
     pass had already restricted.
 
-    **`Autonomy after unblock` declares autonomy like any other spelling.** Eight issues phrase it
-    that way (#168, #171, #175, #177, #182, #183, #185, #186) and it is tempting to read it as
-    conditional and refuse - but that conflates two questions. *What kind of work is this* is what
-    this function answers; *is it still blocked* is what the `status:` label answers, and #336
+    **`Autonomy after unblock` declares autonomy like any other spelling.** It is tempting to read
+    it as conditional and refuse, but that conflates two questions. *What kind of work is this* is
+    what this function answers; *is it still blocked* is what the `status:` label answers, and #336
     scopes dependency parsing out of this check deliberately. Refusing on the qualifier produced a
     measured false negative: #214's own grooming block reads `**Status:** unblocked` two lines above
     `**Autonomy after unblock:** agent-can-do-alone`, so the condition it names is already met and
