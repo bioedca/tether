@@ -391,9 +391,12 @@ finding is dropped rather than tracked** (ADR-0064) — the paths are `.agents/`
 the floor on an agent-layer path and not tracked (ADR-0064)` and resolve the thread.
 Blocking findings are unaffected. The reason is that only there does the output feed back
 into the input: a follow-up issue on an agent-layer PR becomes another agent-layer PR,
-read by the same providers, producing more sub-floor findings. `docs/agents/review.md`
-carries the full rule; this paragraph exists so the two pages cannot be read as
-disagreeing. If a **selected** provider reports nothing to review at the
+which re-enters this same lane, producing more sub-floor findings. **Those paths are also
+feature-complete**: they take bug and safety fixes only, so a capability change needs a
+maintainer-opened issue and may never originate in a review finding — dropping the
+sub-floor finding without that rule still leaves a reviewer able to commission new agent
+machinery through the deferral above. `docs/agents/review.md` carries the full rule; this
+paragraph exists so the two pages cannot be read as disagreeing. If a **selected** provider reports nothing to review at the
 head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is its documented
 "no suggestions" — that satisfies its leg; quote it. A statement from the author, or from
 any other commenter, never does. **Exhaustion is not incapacity**: a provider with nothing

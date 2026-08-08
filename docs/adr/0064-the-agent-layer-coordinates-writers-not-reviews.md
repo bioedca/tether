@@ -21,40 +21,50 @@ SPDX-License-Identifier: GPL-3.0-or-later
 >
 > **Where every number below comes from.** All counts were taken at
 > **`d3fd78ce638a141c7f7402905c6371364bc5cecc`** (`d3fd78c`, 2026-08-07), the commit this record
-> branched from. This is the script, and it takes the revision as an argument so the same run
-> produces both the before and the after:
+> branched from. This is the script. It takes the revision as an argument, so one run gives the
+> before and another the after, and it **fails closed** — an unknown revision or an unexpectedly
+> missing file aborts rather than quietly counting zero:
 >
 > ```bash
+> set -eu
 > S=${1:-d3fd78c}
-> count() { for f in "$@"; do git show "$S:$f" 2>/dev/null; done | wc -l; }
+> git rev-parse --verify -q "$S^{commit}" >/dev/null
+> count() { for f in "$@"; do git show "$S:$f"; done | wc -l; }
+> have()  { for f in "$@"; do git cat-file -e "$S:$f" 2>/dev/null && echo "$f"; done; }
 > mods='triage swarm_slots claim agent_contract_is_runnable scope_guard
 > reaper greptile_usage greptile_config agent_entry_points issue_forms'
 > contract='AGENTS.md CLAUDE.md .agents/skills/tether-worker/SKILL.md
 > docs/agents/adr.md docs/agents/evidence.md docs/agents/gates.md
 > docs/agents/hpc.md docs/agents/review.md docs/agents/tools.md'
+> prosefiles='AGENTS.md CLAUDE.md .greptile/README.md
+> .claude/skills/tether-worker/SKILL.md .agents/skills/tether-worker/SKILL.md
+> .agents/skills/tether-worker/agents/openai.yaml'
 > scripts=$(count $(git ls-tree -r --name-only $S -- .agents/bin))
-> tests=$(count $(for m in $mods; do echo tests/test_$m.py; done))
+> tests=$(count $(have $(for m in $mods; do echo tests/test_$m.py; done)))
 > flows=$(count $(git ls-tree -r --name-only $S -- .github/workflows |
 >                 grep -e agent- -e scope-guard))
-> prose=$(count AGENTS.md CLAUDE.md .greptile/README.md \
->               .claude/skills/tether-worker/SKILL.md \
->               .agents/skills/tether-worker/SKILL.md \
->               .agents/skills/tether-worker/agents/openai.yaml \
+> prose=$(count $(have $prosefiles) \
 >               $(git ls-tree -r --name-only $S -- .agents/tasks docs/agents))
-> echo "scripts=$scripts tests=$tests flows=$flows prose=$prose" \
->      "layer=$((scripts+tests+flows+prose))" \
->      "contract=$(count $contract)" \
->      "product=$(count $(git ls-tree -r --name-only $S -- src/tether))"
-> # d3fd78c  -> scripts=5469 tests=10407 flows=502 prose=1395 layer=17773
-> #             contract=991 product=42796
-> # after    -> scripts=1837 tests=3982  flows=84  prose=545  layer=6448
-> #             contract=429 product=42796
+> adrs=$(count $(git ls-tree -r --name-only $S -- docs/adr |
+>                grep -e /0052- -e /0053- -e /0057- -e /0061- -e /0062- -e /0063-))
+> echo "scripts=$scripts tests=$tests flows=$flows prose=$prose"
+> echo "layer=$((scripts+tests+flows+prose)) contract=$(count $(have $contract))"
+> echo "product=$(count $(git ls-tree -r --name-only $S -- src/tether)) adrs=$adrs"
+> for f in $(git ls-tree -r --name-only $S -- src/tether); do echo "$(count $f) $f"; done |
+>   sort -rn | head -1        # largest product file, against tests/test_triage.py
+> # d3fd78c -> scripts=5469 tests=10407 flows=502 prose=1395
+> #            layer=17773 contract=991 product=42796 adrs=1071
+> #            2186 src/tether/gui/shell.py
+> # after   -> scripts=1837 tests=3982 flows=84 prose=545
+> #            layer=6448 contract=429 product=42796 adrs=1071
 > ```
 >
-> `contract` is the nine-file mandatory-read set; four of those files are deleted by the cut and
-> `count` skips what a revision does not have, which is why the same list gives 991 before and 429
-> after. Two figures are **not** from this script and say so where they are made: the 1,071 lines of
-> agent ADRs, and the ADR-0052 comparison, which is taken at `6d53c98` — the commit that retired it.
+> `have` is where the deliberate omissions live, and the only place a missing file is tolerated: the
+> cut deletes four of the nine contract files and six of the ten test modules, so the same two lists
+> give 991 and 10,407 before, 429 and 3,982 after. Everywhere else a missing path is an error. The
+> last line settles the `test_triage.py` comparison — the largest file in `src/tether` is 2,186 lines
+> against its 3,932. One figure is **not** from this script and says so where it is made: the
+> ADR-0052 comparison, taken at `6d53c98`, the commit that retired it.
 >
 > **Three kinds of evidence, and only the first is reproducible from a SHA.** The line counts
 > above are. The **remote-ref and issue-search counts** name their own commands and are as of the
