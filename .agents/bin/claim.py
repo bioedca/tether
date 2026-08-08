@@ -663,8 +663,9 @@ def _issue(number: int) -> dict[str, Any]:
 
 def _check_eligible(number: int, owner: str) -> dict[str, Any]:
     issue = _issue(number)
-    # These five raises, and only these five, are decided answers about the issue - so these five,
-    # and only these five, are `IneligibleError` and reach exit 3. Everything else this function can
+    # These five raises are decided answers about the issue. With the pull-request refusal inside
+    # `_issue`, called on the line above, they are the **six** that reach exit 3 - the count in
+    # `IneligibleError`'s docstring, which is the list of record. Everything else this function can
     # raise (no token, a 403, a 5xx, a TLS refusal) is a failure to ask, and exits 2. See #315.
     if issue.get("state") != "open":
         raise IneligibleError(f"#{number} is not open")
