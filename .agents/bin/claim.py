@@ -984,6 +984,10 @@ def _cmd_reserve_adr(args: argparse.Namespace) -> None:
     raise ClaimError(f"could not reserve an ADR number in {args.attempts} attempts")
 
 
+#: How many `#N` references `doctor` resolves per blocked issue. Each costs one request, and a body
+#: can name dozens; anything past this is counted in `not_looked_up` rather than dropped silently.
+MENTION_CAP = 20
+
 #: How long a finished pull request may sit unarmed before `doctor` mentions it. A worker that has
 #: just pushed is mid-flight, not stranded, and flagging it would teach a reader to ignore the list.
 UNARMED_GRACE_MINUTES = 45
@@ -1058,8 +1062,11 @@ def _doctor_blocked() -> list[dict[str, Any]]:
         if issue.get("pull_request"):
             continue
         mentioned = sorted({int(n) for n in re.findall(r"#(\d+)", issue.get("body") or "")})
+        # Bounded, and the bound is REPORTED rather than silent: a body can name dozens of numbers
+        # and each costs a request. A truncation nobody is told about reads as "these are all the
+        # references", which is the one thing this report must never imply.
         states = {}
-        for ref in mentioned[:20]:
+        for ref in mentioned[:MENTION_CAP]:
             status, other = _request("GET", f"/repos/{REPO}/issues/{ref}")
             if status == 200 and isinstance(other, dict):
                 # `pull_request` is present on EVERY pull request the issues API returns - open,
@@ -1072,7 +1079,10 @@ def _doctor_blocked() -> list[dict[str, Any]]:
                 pull_request = other.get("pull_request") or {}
                 merged = bool(pull_request.get("merged_at"))
                 states[ref] = "merged" if merged else other.get("state", "?")
-        out.append({"issue": issue["number"], "mentions": states})
+        record = {"issue": issue["number"], "mentions": states}
+        if len(mentioned) > MENTION_CAP:
+            record["not_looked_up"] = len(mentioned) - MENTION_CAP
+        out.append(record)
     return out
 
 
@@ -1116,8 +1126,10 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
     workflow summary is strictly worse, at the moment someone looks, than one that answers now.
     It also adds no file, no workflow and no schedule to a layer being shrunk (ADR-0064).
 
-    `claim.py` has no write path outside `claim` and `release`, so *report, never act* is true here
-    by construction rather than by discipline.
+    *Report, never act* is a property of this subcommand rather than of the module: `claim`,
+    `release` and `reserve-adr` all write - the last creates a ref - so the guarantee has to be
+    about `doctor` itself. Every call it makes is a GET, and `test_doctor_writes_nothing` asserts
+    no POST, PATCH, PUT or DELETE is issued, which is what makes it checkable rather than claimed.
     """
     report = {
         "version": 1,

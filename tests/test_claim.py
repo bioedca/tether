@@ -1408,7 +1408,9 @@ DOCTOR_ROUTES: Routes = {
     ),
     ("GET", "/repos/bioedca/tether/pulls?state=open"): (200, []),
     # `_paginate` raises on a non-list body, so every comment page a walk reaches needs a route.
-    # The per-issue overrides below win on longest prefix.
+    # `Fake` returns the FIRST matching prefix in insertion order, not the longest, so a test that
+    # overrides one of these must place its entry ahead of the general one rather than rely on
+    # specificity.
     ("GET", "/repos/bioedca/tether/issues/1/comments"): (200, []),
     ("GET", "/repos/bioedca/tether/issues/2/comments"): (200, []),
     ("GET", "/repos/bioedca/tether/issues/3/comments"): (200, []),
