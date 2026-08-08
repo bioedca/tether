@@ -19,7 +19,20 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > here rather than in the `Status` bullet because `scripts/gen_adr_index.py` extracts that
 > field with a single-line pattern and copies it verbatim into the index.
 
-The agent layer is **17,772 lines** — 5,469 of scripts, 10,407 of tests, 498 of workflows and 1,398
+> **Where every number below comes from.** All counts in this record were taken at
+> **`d3fd78ce638a141c7f7402905c6371364bc5cecc`** (`d3fd78c`, 2026-08-07), the commit this record
+> branched from, and are `git show <sha>:<path> | wc -l` over these sets: **scripts** = the 7 files
+> in `.agents/bin/`; **tests** = `test_{triage,swarm_slots,claim,agent_contract_is_runnable,`
+> `scope_guard,reaper,greptile_usage,greptile_config,agent_entry_points}.py`; **workflows** =
+> `agent-reaper.yml`, `agent-triage.yml`, `scope-guard.yml`; **prose** = `AGENTS.md`, `CLAUDE.md`,
+> both `SKILL.md`, `agents/openai.yaml`, `.agents/tasks/*.md`, `docs/agents/*.md`,
+> `.greptile/README.md`; **ADRs** = 0052, 0053, 0057, 0061, 0062, 0063. A reader can re-derive each
+> figure from that SHA without trusting this page. The remote-ref and issue-search counts further
+> down name their own commands and are as of the same date; unlike the line counts they read live
+> state, so they are reproducible only as a lower bound — refs and issues can be added later, and
+> `ls-remote` never reports a deletion.
+
+The agent layer is **17,773 lines** — 5,469 of scripts, 10,407 of tests, 502 of workflows and 1,395
 of contract prose, task templates and skills — against `src/tether`'s 42,796. **41% the size of the
 product it exists to help build**, with a further 1,071 lines of ADRs about itself.
 `tests/test_triage.py` alone is 3,932 lines, larger than any single file in `src/tether`.
@@ -119,7 +132,8 @@ would simply grind whatever remained.
   was advisory. Note also that the agent tests are stdlib-only *by design*, so they run inside the
   required `test` job — **three times, on every product pull request.**
 - The layer's purpose is to let two vendors work one backlog concurrently. That is a
-  compare-and-swap problem, and it was solved on 2026-07-29.
+  mutual-exclusion problem, and the compare-and-swap that solves it landed on 2026-07-29
+  ([#275](https://github.com/bioedca/tether/issues/275)).
 
 ## Considered options
 
@@ -135,27 +149,38 @@ would simply grind whatever remained.
 
 ## Decision outcome
 
-**Cross-agent coordination is a compare-and-swap problem, solved completely by four atomic ref
-operations plus a scheduled reclaim. Code review is a per-PR, single-owner concern with no
+**Cross-agent coordination is a ref-namespace problem, solved completely by four controls over
+namespaces GitHub already provides. Code review is a per-PR, single-owner concern with no
 concurrency content, and is governed by convention rather than by a label state machine, a round
 ledger and a launcher.**
 
 ### What is kept, and why each earns its place
 
-Two concurrent agents can corrupt each other in exactly four ways. Each is a write-write conflict
-resolved by a compare-and-swap on a namespace GitHub already provides:
+Two concurrent agents can corrupt each other in exactly four ways, and each has a control:
 
-| hazard | mechanism |
-|---|---|
-| two agents work one issue | `claim.py claim` — atomic ref create, `201`/`422` |
-| a superseded agent writes after being replaced | `claim.py check` — the generation fence |
-| a dead agent holds a claim forever | `reaper.py` + `agent-reaper.yml` |
-| two agents pick one ADR number | `claim.py reserve-adr` |
+| hazard | mechanism | kind |
+|---|---|---|
+| two agents work one issue | `claim.py claim` — atomic ref create, `201`/`422` | compare-and-swap |
+| two agents pick one ADR number | `claim.py reserve-adr` — the same create, different namespace | compare-and-swap |
+| a superseded agent writes after being replaced | `claim.py check` — the generation fence | pre-write check |
+| a dead agent holds a claim forever | `reaper.py` + `agent-reaper.yml` | scheduled reclaim |
+
+**Only two of the four are compare-and-swap, and the difference is load-bearing rather than
+pedantic.** The two ref creations are genuinely atomic: the server admits exactly one writer and
+tells the loser so, which is why a claim needs no lease and no heartbeat. The other two do not have
+that property and must not be read as though they did. The generation fence is a *read* immediately
+before an authoritative write, so it narrows the window in which a superseded agent can act but
+does not close it — that is why the contract says revalidate before **every** such write rather
+than once per session. And the reaper's `DELETE /git/refs` accepts no expected-SHA precondition at
+all, so its reclaim is unconditional; [#278](https://github.com/bioedca/tether/issues/278) is the
+record that this residual is irreducible on GitHub's API and that the mitigation is to archive the
+tip immediately before deleting, converting an unarchived loss into a recoverable one. A reader who
+took the whole table for compare-and-swap would conclude the layer is safer than it is.
 
 **The scope check is kept too, and it is deliberately outside that table.** `claim.py scope-hash`
 and `_check_eligible` read the issue and its comment pages and mutate nothing — no ref, no label,
-no write verb anywhere in the path — so listing them as a compare-and-swap would misdescribe both
-what they do and why they matter. They are the *precondition* ADR-0057 states: eligibility decides
+no write verb anywhere in the path — so listing them as a coordination control would misdescribe
+both what they do and why they matter. They are the *precondition* ADR-0057 states: eligibility decides
 **whether** an issue may be worked, the mutex decides only **who** works it, and a claim taken on
 unapproved or since-edited scope is invalid however cleanly the race was won. That is why the check
 runs before the ref is created, and why a refusal leaves no ref behind for anyone to inherit.
@@ -277,7 +302,7 @@ failing, so nothing in the audit trail would show it.
 
 ## Consequences
 
-**Good.** The layer falls from 17,772 lines to ~4,800 (−73%), and the mandatory-read contract from
+**Good.** The layer falls from 17,773 lines to ~4,800 (−73%), and the mandatory-read contract from
 991 lines across nine files to ~285 across five (−71%). Three workflows become one, seven labels
 become two, two ref namespaces
 retire. The required `test` job stops carrying most of 10,407 lines of agent tests on every product
