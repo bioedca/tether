@@ -13,6 +13,7 @@ import ast
 import importlib.util
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -1386,3 +1387,179 @@ def test_no_other_subcommand_turns_a_transport_failure_into_a_verdict(
     ):
         with pytest.raises(claim.TransportError):
             call()
+
+
+# ------------------------------------------------------------------ doctor (#326)
+
+
+DOCTOR_ROUTES: Routes = {
+    ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:ready"): (
+        200,
+        [
+            _issue(number=1, title="binds"),
+            _issue(number=2, title="no marker"),
+            _issue(number=3, title="edited since approval"),
+            _issue(number=4, title="malformed marker"),
+        ],
+    ),
+    ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:blocked"): (
+        200,
+        [{"number": 9, "body": "Depends on #1 and #2.", "title": "blocked"}],
+    ),
+    ("GET", "/repos/bioedca/tether/pulls?state=open"): (200, []),
+    # `_paginate` raises on a non-list body, so every comment page a walk reaches needs a route.
+    # The per-issue overrides below win on longest prefix.
+    ("GET", "/repos/bioedca/tether/issues/1/comments"): (200, []),
+    ("GET", "/repos/bioedca/tether/issues/2/comments"): (200, []),
+    ("GET", "/repos/bioedca/tether/issues/3/comments"): (200, []),
+    ("GET", "/repos/bioedca/tether/issues/4/comments"): (200, []),
+    ("GET", "/repos/bioedca/tether/issues/9/comments"): (200, []),
+    ("GET", "/repos/bioedca/tether/issues/1"): (200, {"number": 1, "state": "closed"}),
+    ("GET", "/repos/bioedca/tether/issues/2"): (200, {"number": 2, "state": "open"}),
+}
+
+
+def _doctor(monkeypatch: pytest.MonkeyPatch, over: Routes | None = None) -> dict[str, Any]:
+    routes = dict(DOCTOR_ROUTES)
+    routes.update(over or {})
+    _install(monkeypatch, Fake(routes))
+    return routes
+
+
+def test_doctor_tells_an_absent_marker_from_one_that_no_longer_binds(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The distinction #326 calls "the valuable part", because the remedies differ.
+
+    Absent means post a marker; stale means re-approve after an edit; malformed means the marker is
+    there and unreadable. One exit-3 message covers all three, and a worker burns a session finding
+    out which.
+    """
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/issues/1/comments"): (
+                200,
+                [{"user": {"login": "bioedca"}, "body": MARKER}],
+            ),
+            ("GET", "/repos/bioedca/tether/issues/2/comments"): (200, []),
+            ("GET", "/repos/bioedca/tether/issues/3/comments"): (
+                200,
+                [
+                    {
+                        "user": {"login": "bioedca"},
+                        "body": '<!-- tether-agent-ready {"version":1,"criteria_sha256":"'
+                        + OTHER
+                        + '"} -->',
+                    }
+                ],
+            ),
+            ("GET", "/repos/bioedca/tether/issues/4/comments"): (
+                200,
+                [
+                    {
+                        "user": {"login": "bioedca"},
+                        "body": "<!-- tether-agent-ready "
+                        '{"version":1,"criteria_sha256":"nope"} -->',
+                    }
+                ],
+            ),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    report = json.loads(capsys.readouterr().out)
+    assert {r["issue"]: r["marker"] for r in report["ready"]} == {
+        1: "binds",
+        2: "absent",
+        3: "stale",
+        4: "malformed",
+    }
+
+
+def test_doctor_never_says_unblocked_and_only_reports_what_it_can_see(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mode B is raw data on purpose.
+
+    #326 concedes the Dependencies parse is heuristic — the section is prose, its wording varies,
+    and #261 names no issue number at all — and says "a false 'unblocked' here is worse than a
+    miss". So the report prints what a body mentions and what those items are, and adjudicates
+    nothing. A report that must not be trusted is one nobody reads.
+    """
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/issues/1"): (200, {"number": 1, "state": "closed"}),
+            ("GET", "/repos/bioedca/tether/issues/2"): (200, {"number": 2, "state": "open"}),
+            ("GET", "/repos/bioedca/tether/issues/9/comments"): (200, []),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    out = capsys.readouterr().out
+    assert "unblocked" not in out.lower(), "Mode B must never adjudicate"
+    blocked = json.loads(out)["blocked"]
+    assert blocked == [{"issue": 9, "mentions": {"1": "closed", "2": "open"}}]
+
+
+def test_doctor_reports_a_finished_pr_that_nothing_will_ever_merge(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mode C: every gate the merge asks for is satisfied and the last step did not happen."""
+    stale = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    fresh = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 60))
+    pr = {
+        "number": 50,
+        "draft": False,
+        "auto_merge": None,
+        "mergeable_state": "clean",
+        "updated_at": stale,
+        "head": {"sha": HEAD},
+    }
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/pulls?state=open"): (
+                200,
+                [pr, {**pr, "number": 51}, {**pr, "number": 52}],
+            ),
+            ("GET", "/repos/bioedca/tether/pulls/50"): (200, pr),
+            # armed already, so not stranded
+            ("GET", "/repos/bioedca/tether/pulls/51"): (200, {**pr, "auto_merge": {"x": 1}}),
+            # pushed a minute ago: mid-flight, not stranded
+            ("GET", "/repos/bioedca/tether/pulls/52"): (200, {**pr, "updated_at": fresh}),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    unarmed = json.loads(capsys.readouterr().out)["unarmed"]
+    assert [u["pr"] for u in unarmed] == [50]
+
+
+def test_doctor_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ "Report, never act" is the whole safety property, and #326 reserves every remedy.
+
+    Posting an approval marker, promoting a label and arming someone else's merge are maintainer
+    authority. Asserted over every write verb rather than trusted to the implementation.
+    """
+    fake = _install(monkeypatch, Fake(dict(DOCTOR_ROUTES)))
+    claim._cmd_doctor(_args(owner="bioedca"))
+    capsys.readouterr()
+    assert not [c for c in fake.calls if c[0] in {"POST", "PATCH", "PUT", "DELETE"}]
+
+
+def test_the_exit_three_message_points_at_doctor(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One message covers three situations; it should say where to find out which.
+
+    Named in the message rather than in `AGENTS.md` deliberately — resident contract is a running
+    cost on every model call, and this is read exactly when it is needed.
+    """
+    routes = _routes(
+        {("GET", "/repos/bioedca/tether/issues/7/comments"): (200, [])},
+    )
+    _install(monkeypatch, Fake(routes))
+    with pytest.raises(SystemExit):
+        claim._cmd_claim(_args(issue=7))
+    assert "doctor" in capsys.readouterr().err
