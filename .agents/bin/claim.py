@@ -384,40 +384,6 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None) -> tupl
         raise ClaimError(f"the GitHub API answer could not be read ({type(exc).__name__})") from exc
 
 
-def _graphql(query: str, variables: dict[str, Any], what: str) -> dict[str, Any]:
-    """Run one GraphQL query and return ``data``. Raises ``ClaimError`` on anything else.
-
-    A second query path exists because a few facts are simply **not on REST**. The first is review
-    *thread resolution* (#393): ``/pulls/{n}/comments`` carries the comment but never whether its
-    thread was resolved, so the only mechanism the contract prescribes for a non-blocking finding —
-    reply, resolve, link a follow-up, do not push — was invisible to ``triage.py``, which therefore
-    kept owing an AMEND forever.
-
-    Deliberately thin. It shares ``_token`` and ``_ssl_context`` with :func:`_request`, so the
-    ADR-0061 transport behaviour — including ``TETHER_ALLOW_NONSTRICT_X509`` and the transport-vs-
-    verdict distinction #388 turns on — is the same code and not a second copy of it.
-
-    **GraphQL answers 200 with an ``errors`` array**, so an unchecked caller reads a failed query as
-    an empty result. That is the fail-open direction for every use this has, and it is why this
-    raises rather than returning a status: the caller decides what an unreadable answer means, and
-    cannot do that if the failure looks like data.
-    """
-    status, payload = _request("POST", "/graphql", {"query": query, "variables": variables})
-    if status != 200 or not isinstance(payload, dict):
-        raise ClaimError(f"{what} could not be read (HTTP {status})")
-    if payload.get("errors"):
-        messages = "; ".join(
-            str(error.get("message", error))
-            for error in payload["errors"]
-            if isinstance(error, dict)
-        )
-        raise ClaimError(f"{what} could not be read: {messages or 'GraphQL reported an error'}")
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        raise ClaimError(f"{what} returned no data")
-    return data
-
-
 def _paginate(path: str, what: str) -> list[Any]:
     """Walk every page of a list endpoint.
 
@@ -467,6 +433,148 @@ def _scope_hash(title: str, body: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+#: The one declared autonomy an agent may claim under. The issue forms that collect this field offer
+#: three values - `agent-can-do-alone`, `maintainer decision required`, `external/human action
+#: required` - so this is an enumeration rather than a guess. `agent can complete alone` is a legacy
+#: prose spelling that predates the dropdown and is still on live issues.
+AUTONOMY_ADMITS = ("agent-can-do-alone", "agent can complete alone")
+
+#: Any of these anywhere in the declared value refuses it, even when it *opens* with an admitting
+#: token. A value like "agent-can-do-alone for the drafting; the membership question is a
+#: maintainer decision" declares two things, and the safe reading of a split declaration is the
+#: restrictive one.
+AUTONOMY_REFUSES = (
+    "maintainer decision",
+    "maintainer input",
+    "human action",
+    "needs-maintainer-input",
+    "needs-human-action",
+    "human-executed",
+    "external/human",
+)
+
+_AUTONOMY_HEADING = re.compile(
+    r"^\#{1,6}[ \t]*(?:execution[ \t]+)?autonomy[ \t]*$\n(.*?)(?=^\#{1,6}[ \t]|\Z)",
+    re.M | re.S | re.I,
+)
+_AUTONOMY_BULLET = re.compile(
+    r"^[-*][ \t]*\*\*[ \t]*(?:execution[ \t]+)?autonomy(?P<qualifier>[^:*]*)[:*]*\*\*"
+    r"[: \t]*(?P<value>.+)$",
+    re.M | re.I,
+)
+_GROOMING_BLOCK = re.compile(r"<!--[ \t]*tether-grooming-v1[ \t]*-->(.*?)(?=<!--|\Z)", re.S)
+_MARKUP = re.compile(r"[`*_]+")
+
+
+def _normalize_autonomy(value: str) -> str:
+    """Lowercase, strip Markdown emphasis, trim the ends, drop a trailing period.
+
+    Feeds :func:`_flatten_autonomy`, which is what comparison uses. Internal whitespace is left
+    alone here; the flattener collapses it.
+    """
+    return _MARKUP.sub("", value).strip().rstrip(".").strip().lower()
+
+
+def _flatten_autonomy(value: str) -> str:
+    """The **comparison** form: hyphens and underscores become spaces, and runs collapse.
+
+    The corpus spells one concept several ways - `maintainer decision`, `maintainer-decision`,
+    `needs-maintainer-input` - and matching the literal token would let a separator decide a safety
+    verdict. `agent-can-do-alone; maintainer-decision required` opens with an admitting prefix and
+    names a restriction the spaced token cannot see, so it would have been **admitted**: a fail-open
+    in the one gate whose whole purpose is to fail closed (Greptile on #428).
+
+    Both sides are flattened, so `AUTONOMY_ADMITS` and `AUTONOMY_REFUSES` may be written either way
+    and a new spelling of an existing concept cannot smuggle work past this.
+
+    **Separators are widened before the markup strip, not after.** `_MARKUP` removes `_` because it
+    is Markdown emphasis, so running it first turns `needs_human_action` into `needshumanaction` -
+    one word, matching nothing, admitted. Widening first makes it `needs human action`.
+    """
+    widened = re.sub(r"[\s_-]+", " ", value)
+    return re.sub(r"\s+", " ", _normalize_autonomy(widened)).strip()
+
+
+def _declared_autonomy(body: str) -> tuple[str, str] | None:
+    """The issue's own Execution-autonomy declaration as ``(raw value, where)``, or ``None``.
+
+    The value is returned **unnormalized**. `_normalize_autonomy` strips `_` as Markdown
+    emphasis, so normalizing here would glue `needs_human_action` into one word before
+    `_flatten_autonomy` could widen it - the caller needs the raw text to do both.
+
+    The corpus renders this several ways - an `## Execution autonomy` heading, a shorter
+    `## Autonomy` one, a ``- **Autonomy:**`` bullet, and a ``<!-- tether-grooming-v1 -->`` block -
+    and they do not always agree, so the order below is the decision.
+
+    **A grooming block wins**, because those blocks exist to restate readiness after the body above
+    them went stale. Reading the body first would let a superseded value admit work the grooming
+    pass had already restricted.
+
+    **`Autonomy after unblock` declares autonomy like any other spelling.** It is tempting to read
+    it as conditional and refuse, but that conflates two questions. *What kind of work is this* is
+    what this function answers; *is it still blocked* is what the `status:` label answers, and #336
+    scopes dependency parsing out of this check deliberately. Refusing on the qualifier produced a
+    measured false negative: #214's own grooming block reads `**Status:** unblocked` two lines above
+    `**Autonomy after unblock:** agent-can-do-alone`, so the condition it names is already met and
+    refusing it would bar work that is genuinely ready. The qualifier is kept in the returned label
+    so a refusal message can still quote where the value came from.
+    """
+    for source, where in ((_grooming_section(body), "grooming block"), (body, "body")):
+        if not source:
+            continue
+        for match in _AUTONOMY_BULLET.finditer(source):
+            qualifier = _normalize_autonomy(match.group("qualifier"))
+            label = f"{where} bullet" + (f" ({qualifier})" if qualifier else "")
+            return match.group("value"), label
+        heading = _AUTONOMY_HEADING.search(source)
+        if heading:
+            lines = [ln.strip() for ln in heading.group(1).split("\n") if ln.strip()]
+            if lines:
+                return lines[0], f"{where} heading"
+    return None
+
+
+def _grooming_section(body: str) -> str:
+    """The text of a ``tether-grooming-v1`` block, or ``""``. Joined when there are several."""
+    return "\n".join(m.group(1) for m in _GROOMING_BLOCK.finditer(body))
+
+
+def _autonomy_refusal(body: str) -> str | None:
+    """Why this issue's declared autonomy bars a claim, or ``None`` when it admits.
+
+    Fails **closed** in all three directions, because the cost is asymmetric. Refusing work an agent
+    could have done wastes a claim attempt and is corrected by a re-groom. Admitting work an agent
+    must not do is #246: *"a wrong first upload cannot be replaced (PyPI forbids re-uploading a
+    version)"* - a permanent public artifact with wrong metadata, on a registry that will not take
+    it back. So an absent declaration refuses too: an issue that never declared autonomy was never
+    groomed, and silence is not consent.
+    """
+    declared = _declared_autonomy(body)
+    if declared is None:
+        return (
+            "declares no Execution autonomy, so it has not been groomed for agent work. An absent "
+            "declaration is refused rather than assumed - add one to the issue"
+        )
+    raw, where = declared
+    # Quote the issue verbatim; decide on the flattened form. Showing the normalized value
+    # would print `needshumanaction` for a body that says `needs_human_action`.
+    value = raw.strip()
+    flat = _flatten_autonomy(raw)
+    refused = [token for token in AUTONOMY_REFUSES if _flatten_autonomy(token) in flat]
+    admits = any(flat.startswith(_flatten_autonomy(token)) for token in AUTONOMY_ADMITS)
+    if refused and admits:
+        return (
+            f"declares autonomy {value!r} ({where}). That is a split declaration - it also names "
+            f"{refused[0]!r} - and the restrictive half governs, so it needs a maintainer"
+        )
+    if refused or not admits:
+        return (
+            f"declares autonomy {value!r} ({where}); only {AUTONOMY_ADMITS[0]!r} may be claimed "
+            "by an agent"
+        )
+    return None
+
+
 def _ready_marker(digest: str) -> str:
     """Render the approval marker a maintainer posts to accept a scope snapshot.
 
@@ -511,8 +619,8 @@ def _issue(number: int) -> dict[str, Any]:
 
 def _check_eligible(number: int, owner: str) -> dict[str, Any]:
     issue = _issue(number)
-    # These four raises, and only these four, are decided answers about the issue - so these four,
-    # and only these four, are `IneligibleError` and reach exit 3. Everything else this function can
+    # These five raises, and only these five, are decided answers about the issue - so these five,
+    # and only these five, are `IneligibleError` and reach exit 3. Everything else this function can
     # raise (no token, a 403, a 5xx, a TLS refusal) is a failure to ask, and exits 2. See #315.
     if issue.get("state") != "open":
         raise IneligibleError(f"#{number} is not open")
@@ -522,6 +630,14 @@ def _check_eligible(number: int, owner: str) -> dict[str, Any]:
     assignees = [a["login"] for a in issue.get("assignees", [])]
     if [a for a in assignees if a != owner]:
         raise IneligibleError(f"#{number} is assigned to someone else")
+
+    # What the issue says about itself, which no label can override. `status:ready` and an approval
+    # marker are both applied *to* an issue; this is the issue's own statement about what finishing
+    # it requires, and until #336 nothing read it - so a body saying no agent can do this work was
+    # claimable anyway, on the strength of two labels that say nothing about the question (#246).
+    refusal = _autonomy_refusal(issue.get("body") or "")
+    if refusal is not None:
+        raise IneligibleError(f"#{number} {refusal}")
 
     comments = _paginate(f"/repos/{REPO}/issues/{number}/comments", f"#{number} comments")
     if not _approval_binds(issue, comments, owner):

@@ -13,7 +13,7 @@ Dependency-free and stdlib-only: it reads Markdown as text and parses ``mkdocs.y
 matrix without the scientific stack.
 
 **What counts as a pointer.** A reference that invites the reader to go and read the document. A
-path named as the *scope of a rule* is not one — ``docs/agents/review.md`` enumerates
+path named as the *scope of a rule* is not one — ``AGENTS.md`` §Review enumerates
 ``docs/PRD.md`` in the list of paths whose edits are material, alongside ``AGENTS.md`` and
 ``.agents/**``, and rewriting that as a hyperlink would misrepresent a glob as a citation.
 """
