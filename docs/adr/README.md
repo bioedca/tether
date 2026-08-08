@@ -9,16 +9,31 @@ prose harmonization of the PRD (PRD §12.7).
 
 - New file: `NNNN-kebab-title.md`, copied from [`0000-template.md`](0000-template.md),
   `NNNN` = the next zero-padded integer.
-- **Incremental rule (PLAN §0.4 DoD).** A PR that *implements* a still-unhomed
-  resolved PRD decision lands that decision's ADR **in the same PR**.
+- **Incremental rule.** A PR that *implements* a still-unhomed resolved PRD
+  decision lands that decision's ADR **in the same PR** (`AGENTS.md` §Agile
+  execution).
 - **M9 gate.** The M9 docs PR fails unless this index is complete (no placeholder
   gaps) — closing PRD §12.7's "home the resolved decisions" deliverable.
+
+## A note on `PLAN §N` references in historical records
+
+Some records below cite `PLAN §N` or `PLAN M<n> S<n>`. Those refer to a private
+development-planning document retired on 2026-08-02. It was never tracked in this
+repository and is not recoverable from it. The durable content it carried — the
+load-bearing invariants and the fixture and validation-oracle map — lives in
+[the PRD](https://github.com/bioedca/tether/blob/main/docs/PRD.md) §8 and §9.
+(The PRD is kept in the repository rather than published to this site, so that
+link goes to GitHub.)
+
+Those citations are left **exactly as written**. An accepted record states the
+reasoning that was actually used at the time, and rewriting it to point somewhere
+else would make it a worse historical record in exchange for a working link.
 
 ## Index
 
 <!-- gen:adr-index start (scripts/gen_adr_index.py --write) -->
 
-### Foundational, cross-cutting (M0 seed — PLAN M0 S1)
+### Foundational, cross-cutting (M0 seed)
 
 | ADR | Title | Status | PRD anchor |
 |----:|-------|--------|------------|

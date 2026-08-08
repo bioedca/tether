@@ -3,7 +3,7 @@
 """Engineered per-trace quality features (PRD §7.5 FR-ML).
 
 The classical, GPU-free feature layer the per-condition quality **ranker** (PRD
-§7.5, PLAN §9 M5) consumes: each molecule's windowed donor/acceptor intensity
+§7.5) consumes: each molecule's windowed donor/acceptor intensity
 trace is reduced to a small, deterministic feature vector. Engineered-feature
 quality classification is the field-standard route to automated smFRET trace
 selection — AutoSiM [Li2020], DeepFRET [Thomsen2020] and Deep-LASI [Wanninger2023]

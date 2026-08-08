@@ -4,7 +4,7 @@
 
 This is the cross-platform guard for the deliberate base-lock bump (ADR-0004)
 that added ``scikit-learn`` + ``xgboost`` for the per-condition quality ranker
-(PRD §7.5, PLAN §9 M5). Running it in the 3-OS ``test`` matrix proves the two
+(PRD §7.5). Running it in the 3-OS ``test`` matrix proves the two
 deps actually install and import from the committed ``conda-lock.yml`` on
 ubuntu/macos/windows — not merely that the spec solved.
 """

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Store-integrated engineered-feature extraction to ``/features`` (PRD §7.5; FR-ML).
 
-The **headless** writer behind the M5 quality ranker's feature layer (PLAN §9 M5):
+The **headless** writer behind the M5 quality ranker's feature layer (PRD §7.5):
 it reads a project's extracted molecules + traces, reduces each to its
 trace-derived :class:`~tether.ml.features.TraceFeatures`
 (:func:`tether.ml.features.compute_trace_features`) plus its spatial-crowding

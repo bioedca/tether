@@ -320,7 +320,7 @@ def _isolate(gen, monkeypatch, tmp_path: Path, records: list[tuple[str, str]], i
 def _wrap(rows: str) -> str:
     return (
         "## Index\n\n"
-        f"{gen_start()}\n\n### Foundational, cross-cutting (M0 seed — PLAN M0 S1)\n\n"
+        f"{gen_start()}\n\n### Foundational, cross-cutting (M0 seed)\n\n"
         "| ADR | Title | Status | PRD anchor |\n|----:|-------|--------|------------|\n"
         f"{rows}\n{gen_end()}\n"
     )
