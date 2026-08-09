@@ -226,7 +226,7 @@ def test_an_issue_whose_body_says_no_agent_can_do_it_is_not_claimable(
         "### Execution autonomy\n\n`agent-can-do-alone`.\n",
         "## Autonomy\n\nagent-can-do-alone\n",
         "- **Autonomy:** agent-can-do-alone\n",
-        "- **Execution autonomy:** agent can complete alone\n",
+        "- **Autonomy:** agent can complete alone\n",
         "## Execution autonomy\n\n`agent-can-do-alone`, unless the sizing note says otherwise.\n",
         "<!-- tether-grooming-v1 -->\n\n- **Autonomy after unblock:** agent-can-do-alone\n",
     ],
@@ -243,7 +243,7 @@ def test_an_issue_whose_body_says_no_agent_can_do_it_is_not_claimable(
 def test_every_spelling_of_agent_can_do_alone_in_the_live_corpus_admits(
     monkeypatch: pytest.MonkeyPatch, body: str
 ) -> None:
-    """Each form here was counted in this repository's 202 issues on 2026-08-07.
+    """The spellings the live corpus uses, plus the qualified and after-unblock forms.
 
     `after-unblock` admits deliberately: it answers *what kind of work is this*, and whether the
     issue is still blocked is the `status:` label's question. #214's grooming block reads
@@ -256,14 +256,128 @@ def test_every_spelling_of_agent_can_do_alone_in_the_live_corpus_admits(
     assert [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
 
 
+def test_no_refusal_token_depends_on_the_separator_it_is_written_with() -> None:
+    """Re-spelling an `AUTONOMY_REFUSES` entry must not change any verdict.
+
+    The flattener's whole job is that a separator never decides a safety verdict, and the
+    table is the one place a future edit can quietly undo that. `external/human` is the only
+    entry carrying a `/`, and until this test existed the flattener widened `[\\s_-]+` but not
+    `/`: writing that entry as `external - human` instead left it unable to match the body it
+    was there to refuse, re-opening the exact fail-open Greptile found on #428 - silently, in a
+    table edit that reads as a formatting change.
+
+    So this asserts the property over **every** entry rather than the one that broke. Each is
+    re-spelled with each separator and must still refuse a body that opens with an admitting
+    prefix, which is the case a literal-token match gets wrong.
+    """
+    separators = (" ", "-", "_", "/")
+    for token in claim.AUTONOMY_REFUSES:
+        canonical = claim._flatten_autonomy(token)
+        body = f"## Execution autonomy\n\nagent-can-do-alone; {token} applies here\n"
+        for separator in separators:
+            respelled = canonical.replace(" ", separator)
+            assert claim._flatten_autonomy(respelled) == canonical, (
+                f"{token!r} re-spelled as {respelled!r} flattens differently"
+            )
+            patched = tuple(
+                respelled if entry == token else entry for entry in claim.AUTONOMY_REFUSES
+            )
+            original = claim.AUTONOMY_REFUSES
+            try:
+                claim.AUTONOMY_REFUSES = patched
+                assert claim._autonomy_refusal(body) is not None, (
+                    f"{token!r} written as {respelled!r} stopped refusing - fail-open"
+                )
+            finally:
+                claim.AUTONOMY_REFUSES = original
+
+
+def test_a_restrictive_declaration_governs_wherever_it_sits_in_the_source(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Two declarations in one source: the restrictive one governs, whichever is found first.
+
+    `_declared_autonomy` used to return the **first** match and stop, and it looked for bullets
+    before headings. So a body whose `## Execution autonomy` section said `maintainer decision
+    required` was admitted outright if any bullet anywhere else in it read `agent-can-do-alone` -
+    the heading was never read. That is a fail-open in the gate whose entire purpose is to fail
+    closed, reachable by an ordinary issue body that declares the same thing twice.
+
+    The precedence that *is* deliberate is between sources: a grooming block supersedes the body
+    above it, which the neighbouring test covers. Within one source there is no such argument -
+    two disagreeing declarations mean the issue is not clearly groomed, and the restrictive half
+    governs exactly as it already does when one value names both.
+
+    Asserted in both orders, because the defect was an ordering artefact and a fix that only
+    reversed the search order would pass one and fail the other.
+    """
+    bodies = {
+        "heading first": (
+            "## Execution autonomy\n\nmaintainer decision required\n\n"
+            "- **Autonomy:** agent-can-do-alone\n"
+        ),
+        "bullet first": (
+            "- **Autonomy:** agent-can-do-alone\n\n"
+            "## Execution autonomy\n\nmaintainer decision required\n"
+        ),
+        # Two headings, which the first fix still got wrong: it collected every bullet but took
+        # only `_AUTONOMY_HEADING.search()`, so a second `## Execution autonomy` restricting the
+        # issue was invisible behind an admitting first one. Same defect, one level down.
+        "two headings, restrictive second": (
+            "## Execution autonomy\n\nagent-can-do-alone\n\n"
+            "## Execution autonomy\n\nmaintainer decision required\n"
+        ),
+        "two headings, restrictive first": (
+            "## Execution autonomy\n\nmaintainer decision required\n\n"
+            "## Execution autonomy\n\nagent-can-do-alone\n"
+        ),
+        # And two bullets, for the same reason in the other direction.
+        "two bullets, restrictive second": (
+            "- **Autonomy:** agent-can-do-alone\n- **Autonomy:** maintainer decision required\n"
+        ),
+        # A heading section is more than its first line. Taking only `lines[0]` dropped the rest,
+        # so a restriction written as the sentence *under* the declaration was never read.
+        "heading section, restrictive second line": (
+            "## Execution autonomy\n\nagent-can-do-alone\n"
+            "The upload step is a maintainer decision.\n"
+        ),
+        # `_GROOMING_BLOCK` stopped capturing at the next `<!--`, so any nested comment truncated
+        # the authoritative source and hid everything after it.
+        "grooming block split by a nested comment": (
+            "<!-- tether-grooming-v1 -->\n\n"
+            "- **Autonomy:** agent-can-do-alone\n"
+            "<!-- a note from the groomer -->\n"
+            "- **Autonomy:** maintainer decision required\n"
+        ),
+        # The bullet pattern required `**`, so a plainly written bullet was invisible and an
+        # emphasized one below it governed. Markdown does not require the emphasis and neither
+        # should a safety verdict.
+        "plain bullet restrictive, emphasized bullet admitting": (
+            "- Autonomy: maintainer decision required\n- **Autonomy:** agent-can-do-alone\n"
+        ),
+    }
+    for where, body in bodies.items():
+        assert claim._autonomy_refusal(body) is not None, (
+            f"{where}: a restrictive declaration was ignored - fail-open"
+        )
+        routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+        fake = _install(monkeypatch, Fake(routes))
+        with pytest.raises(SystemExit) as exit_info:
+            claim._cmd_claim(_args(issue=7))
+        assert exit_info.value.code == 3, where
+        assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]], (
+            f"{where}: a claim ref was created for an issue a maintainer must decide"
+        )
+        assert "maintainer" in capsys.readouterr().err
+
+
 def test_a_grooming_block_supersedes_a_stale_body_declaration(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The grooming block wins, and it is the restrictive one here.
 
-    Those blocks open by declaring themselves authoritative - *"This section is authoritative for
-    readiness where earlier text is stale"* - and they exist because the body above them went out
-    of date. Reading the body first would admit on a value a grooming pass had already replaced.
+    Those blocks exist to restate readiness after the body above them went stale, so reading the
+    body first would admit on a value a grooming pass had already replaced.
     """
     body = (
         "## Execution autonomy\n\nagent-can-do-alone\n\n"
@@ -278,6 +392,75 @@ def test_a_grooming_block_supersedes_a_stale_body_declaration(
     assert exit_info.value.code == claim.EXIT_INELIGIBLE
     assert "maintainer input" in capsys.readouterr().err
     assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
+
+
+def test_ordinary_prose_under_the_declaration_does_not_refuse_a_ready_issue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reading the whole heading section must not turn every sentence into a verdict.
+
+    The sibling above makes a restrictive line *under* an admitting one govern, which it must. The
+    obvious way to get that — treat each line as its own declaration — over-refuses badly: an
+    issue that declares `agent-can-do-alone` and then explains itself in a sentence would be
+    refused because the sentence does not *admit*, and that is a false negative on exactly the
+    well-groomed issues this gate is meant to let through.
+
+    So the section is read as **one** value, and judged by the rule already written for a value
+    that names two things: it must open with an admitting token and must not contain a refusing
+    one. Prose that does neither changes nothing. This asserts the permissive half, because a
+    fail-closed fix that quietly stopped admitting anything would pass every other test here.
+    """
+    body = (
+        "## Execution autonomy\n\nagent-can-do-alone\n\n"
+        "The tests are already written and the scope is small, so this is self-contained.\n"
+    )
+    assert claim._autonomy_refusal(body) is None, "ordinary prose was read as a restriction"
+    routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+    fake = _install(monkeypatch, Fake(routes))
+    claim._cmd_claim(_args(issue=7))
+    assert [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]], (
+        "a ready issue was refused because it explained itself"
+    )
+
+
+def test_a_grooming_block_that_declares_no_autonomy_does_not_fall_back_to_the_body(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A present grooming block is authoritative even when it declares nothing.
+
+    The sibling above establishes that a grooming block supersedes a stale body. That rule had a
+    hole: the source loop skipped a source that yielded no declarations, so a grooming block
+    carrying a `Status:` and no `Autonomy:` fell through to the body — and the body's stale
+    `agent-can-do-alone` admitted the claim. That is precisely the value the grooming pass dropped,
+    governing because it was dropped, which inverts the rule it is supposed to serve.
+
+    Refusing here is the fail-closed reading and it costs little: an issue whose latest grooming
+    pass did not state an autonomy has not stated one, and `_autonomy_refusal` already treats
+    silence as refusal rather than consent. A re-groom corrects it.
+    """
+    stale = "## Execution autonomy\n\nagent-can-do-alone\n\n"
+    bodies = {
+        "block with content but no autonomy": (
+            stale + "<!-- tether-grooming-v1 -->\n\n- **Status:** blocked.\n- **Owner:** bioedca\n"
+        ),
+        # The capture is *exactly* empty here - the marker ends the body with no trailing newline -
+        # so keying the source choice on the captured text rather than on the marker sent it
+        # straight back to the stale heading above. An empty groom is still a groom.
+        "marker at end of body, empty capture": stale + "<!-- tether-grooming-v1 -->",
+        "block holding only a nested comment": (
+            stale + "<!-- tether-grooming-v1 --><!-- nothing to report -->"
+        ),
+    }
+    for where, body in bodies.items():
+        routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+        fake = _install(monkeypatch, Fake(routes))
+        with pytest.raises(SystemExit) as exit_info:
+            claim._cmd_claim(_args(issue=7))
+        assert exit_info.value.code == claim.EXIT_INELIGIBLE, where
+        assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]], (
+            f"{where}: the stale declaration the grooming pass dropped created a claim ref"
+        )
+        assert "autonomy" in capsys.readouterr().err.lower(), where
 
 
 def test_the_refusal_names_the_declared_value_so_a_worker_knows_not_to_retry(

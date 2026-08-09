@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / ".agents" / "bin" / "reaper.py"
@@ -197,7 +198,17 @@ def test_a_silent_claim_with_no_pr_is_reclaimed(monkeypatch: pytest.MonkeyPatch)
     )
     fake = _install(monkeypatch, routes)
     actions = reaper.sweep(dry_run=False)
-    assert actions == [{"issue": 7, "action": "requeue", "reason": "no-open-pr"}]
+    # A reclaim now carries its tombstone: which sha was archived at the moment of deletion, so a
+    # loss inside the residual window is attributable rather than silent (#278, ADR-0064).
+    assert actions == [
+        {
+            "issue": 7,
+            "action": "requeue",
+            "reason": "no-open-pr",
+            "archived": "abc12345" + "0" * 32,
+            "archive_error": None,
+        }
+    ]
     assert fake.did("DELETE", "git/refs/heads/agent/issue-7")
     assert fake.did("POST", "/issues/7/labels")
 
@@ -399,11 +410,23 @@ def test_a_genuinely_empty_pr_list_still_permits_reclamation(
     assert fake.did("DELETE", "git/refs/heads/agent/issue-7")
 
 
-def test_the_workflow_grants_checks_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`statuses: read` does not cover /check-suites, and an unlisted scope is `none`."""
-    workflow = (ROOT / ".github" / "workflows" / "agent-reaper.yml").read_text(encoding="utf-8")
-    permissions = workflow.split("permissions:", 1)[1].split("concurrency:", 1)[0]
-    assert "checks: read" in permissions
+def test_the_workflow_grants_checks_read() -> None:
+    """`statuses: read` does not cover /check-suites, and an unlisted scope is `none`.
+
+    Parsed rather than sliced (#338). The previous form asserted `"checks: read" in permissions`,
+    where `permissions` was `workflow.split("permissions:", 1)[1].split("concurrency:", 1)[0]` - a
+    substring delimited by two *unrelated* keys. That assertion changed meaning for reasons that had
+    nothing to do with the permission it claims to check: reorder the block, rename `concurrency:`,
+    or add a second `permissions:` mapping and it silently starts measuring something else. It had
+    already moved once, when #277 narrowed the pull-request scope in that same block.
+
+    `tests/test_triage.py` already parses its own workflow this way, so the pattern is established
+    in-repo rather than introduced here.
+    """
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "agent-reaper.yml").read_text(encoding="utf-8")
+    )
+    assert workflow["permissions"]["checks"] == "read"
 
 
 # ------------------------------------------------- decide-then-mutate (TOCTOU) properties
@@ -867,3 +890,97 @@ def test_json_output_is_machine_readable(monkeypatch: pytest.MonkeyPatch) -> Non
     _install(monkeypatch, _routes())
     payload = {"version": 1, "dry_run": False, "actions": reaper.sweep(dry_run=False)}
     assert json.loads(json.dumps(payload))["actions"][0]["issue"] == 7
+
+
+# ------------------------------------------------- the residual deletion window (#278, ADR-0064)
+
+
+def _archived_shas(posts: list[tuple[str, Any]]) -> set[str]:
+    """Every sha copied to ``refs/reaped/`` during a sweep."""
+    return {
+        body["ref"].rsplit("-", 1)[1]
+        for path, body in posts
+        if path.endswith("/git/refs") and isinstance(body, dict) and "refs/reaped/" in body["ref"]
+    }
+
+
+def _reclaimable(monkeypatch: pytest.MonkeyPatch) -> Fake:
+    """A claim with no PR, silent for 91 minutes: the one path that still deletes a ref."""
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    return _install(monkeypatch, routes)
+
+
+def test_the_tip_deleted_is_the_tip_archived_even_when_a_push_lands_late(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A push after `_prepare_retire`'s final read is still archived before the DELETE.
+
+    This is the bound ADR-0064 decided on for #278, and it **fails against the implementation
+    before it**: the only archive was of the tip read at the *start* of `_prepare_retire`, so a
+    push landing after its verification read was deleted unarchived. `_retire_ref` now re-reads and
+    re-archives immediately before the delete, so that push is preserved too.
+
+    The window is narrowed, not closed. `DELETE /git/refs` accepts no expected-SHA, so a push
+    inside the final round-trip is irreducible — that residual is what ADR-0064 accepts rather than
+    pretends to have fixed.
+
+    Exercised through the ordinary fake transport, as #278 requires: the ref simply answers a
+    different sha on its third read, which is what a live push looks like from here.
+    """
+    late = "e" * 40
+    fake = _reclaimable(monkeypatch)
+    original = fake.__call__
+    posts: list[tuple[str, Any]] = []
+    reads = {"n": 0}
+
+    def pushing_late(method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if method == "POST":
+            posts.append((path, body))
+        if method == "GET" and "git/ref/heads/agent/issue-7" in path:
+            reads["n"] += 1
+            # Reads 1 and 2 are `_prepare_retire`'s archive-then-verify pair, so the reap proceeds.
+            # Read 3 is `_retire_ref`'s, and by then the worker has pushed.
+            if reads["n"] >= 3:
+                return 200, {"object": {"sha": late}}
+        return original(method, path, body)
+
+    monkeypatch.setattr(reaper.claim, "_request", pushing_late)
+    actions = reaper.sweep(dry_run=False)
+
+    assert late in _archived_shas(posts), "the late push was deleted without being archived"
+    assert fake.did("DELETE", "git/refs/heads/agent/issue-7")
+    # The tombstone names it, so a loss inside the residual window is attributable, not silent.
+    assert [a for a in actions if a.get("archived") == late]
+
+
+def test_a_failed_late_archive_does_not_strand_the_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The second archive is best-effort on purpose, and this pins that it stays so.
+
+    `_retire_ref` runs *after* the labels have flipped. Raising there is the exact defect the
+    prepare/retire split was made to fix — a live claim ref beside a falsely `status:ready` issue,
+    which every later sweep then kept and never repaired. The prepare-time archive is still the
+    floor, so proceeding is no worse than the behaviour before #278, whereas stranding the claim to
+    protect a best-effort improvement would trade a bounded risk for an unbounded one.
+    """
+    fake = _reclaimable(monkeypatch)
+    original = fake.__call__
+    seen = {"archives": 0}
+
+    def failing_second_archive(method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if method == "POST" and path.endswith("/git/refs"):
+            seen["archives"] += 1
+            if seen["archives"] >= 2:
+                return 500, None
+        return original(method, path, body)
+
+    monkeypatch.setattr(reaper.claim, "_request", failing_second_archive)
+    actions = reaper.sweep(dry_run=False)
+
+    assert fake.did("DELETE", "git/refs/heads/agent/issue-7"), "the claim must not be stranded"
+    assert [a for a in actions if a.get("archive_error")], "and the failure is reported, not hidden"
