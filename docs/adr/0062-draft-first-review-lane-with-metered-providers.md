@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0062 — Draft-first review lane: spend the free provider before the metered ones
 
-- **Status:** superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md); its mechanisms still run and still govern until the subtractive pull request removes them
+- **Status:** superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)
 - **Date:** 2026-08-03
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)

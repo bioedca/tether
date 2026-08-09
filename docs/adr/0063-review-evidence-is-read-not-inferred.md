@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0063 — Review evidence is read from the payload, not inferred from its shape
 
-- **Status:** superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md); its measurements stand as evidence, and its mechanisms still run and still govern until the subtractive pull request removes them
+- **Status:** superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md); its measurements stand as evidence
 - **Date:** 2026-08-07
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)
@@ -14,7 +14,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 ## Context and problem statement
 
 > **Superseded 2026-08-07 by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md),
-> which removes `triage.py` rather than correcting it again — the growth measured below is the
+> which decides to retire `triage.py` rather than correct it again — the growth measured below is
 > evidence for that decision.** **Deciding is not doing.** ADR-0064 records the decision to retire
 > `triage.py`; it does not delete the module, and neither does the pull request that adds it. The
 > module still runs and still governs until the separate subtractive pull request that deletes it
