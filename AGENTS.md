@@ -175,8 +175,10 @@ validity turns on it being the right test — must satisfy both.
 - **The agent layer is feature-complete** (ADR-0064), over **the same paths as the rule above**.
   They accept bug fixes and safety fixes only; a capability change needs a maintainer-opened issue
   and may not originate in a review finding.
-- **Two completed reviews per provider, then stop.** The cap bounds how many times a provider is
-  made to *read the diff*, so **a request that produced no review is not one of the two** — a
+- **Two completed reviews per METERED provider, then stop.** The cap bounds how many times a
+  provider whose reads cost money or quota is made to *read the diff*, so **Codex on the draft is
+  uncapped** — it is unmetered, and throttling it bought nothing but slower convergence.
+  Otherwise **a request that produced no review is not one of the two** — a
   throttle, a quota refusal or a failed run reviewed nothing, which is *quota is did not review*
   seen from the other side. Counting those would make the gate unsatisfiable exactly when the
   provider is rate-limiting: both asks spent on refusals and no review obtainable. It does **not**

@@ -397,8 +397,9 @@ to say has reviewed, a provider with no budget left has not. Greptile out of cre
 skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because it is the
 gate. Record which and why — and quota is *did not review*, never a pass.
 
-**Two completed reviews per provider, then stop.** The cap bounds how many times a provider
-is made to *read the diff*, so a request that produced nothing (a throttle, a quota refusal,
+**Two completed reviews per metered provider, then stop.** The cap bounds how many times a
+provider whose reads cost money or quota is made to *read the diff*, so **Codex on the draft
+is uncapped** — it is unmetered, which is the whole reason it goes first. Otherwise a request that produced nothing (a throttle, a quota refusal,
 a failed run) is not one of the two — counting those would make the gate unsatisfiable
 exactly when the provider is rate-limiting. It does **not** license a third review, and it
 does not license hammering: honour the retry interval the refusal names, and never

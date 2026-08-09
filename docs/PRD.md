@@ -1061,7 +1061,9 @@ nothing blocking — it is the free provider, and throttling it bought nothing b
 one Greptile credit**, if the seat has budget; then ready-for-review; then **CodeRabbit with no actionable comments,
 which is the last gate before merge**. The round
 ledger that used to count this is gone — ADR-0064 retired it along with the launcher that consumed it, leaving **two
-asks per provider** as a convention a worker keeps rather than a counter that publishes labels. The cap bounds how many times a provider is made to **read the diff**, so a request that produced
+asks per METERED provider** as a convention a worker keeps rather than a counter that publishes labels — **Codex on the draft is
+uncapped**, being unmetered. The cap bounds how many times a provider whose reads cost money or quota is made to **read the
+diff**, so a request that produced
 nothing — a throttle, a quota refusal, a failed run — is not one of the two; counting those would make the gate
 unsatisfiable exactly when the provider is rate-limiting. It licenses neither a third review nor hammering: the retry
 interval a refusal names **shall** be honoured. Greptile is **one credit in practice** — two is the shared ceiling, not a second credit
