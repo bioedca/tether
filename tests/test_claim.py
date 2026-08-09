@@ -319,6 +319,21 @@ def test_a_restrictive_declaration_governs_wherever_it_sits_in_the_source(
             "- **Autonomy:** agent-can-do-alone\n\n"
             "## Execution autonomy\n\nmaintainer decision required\n"
         ),
+        # Two headings, which the first fix still got wrong: it collected every bullet but took
+        # only `_AUTONOMY_HEADING.search()`, so a second `## Execution autonomy` restricting the
+        # issue was invisible behind an admitting first one. Same defect, one level down.
+        "two headings, restrictive second": (
+            "## Execution autonomy\n\nagent-can-do-alone\n\n"
+            "## Execution autonomy\n\nmaintainer decision required\n"
+        ),
+        "two headings, restrictive first": (
+            "## Execution autonomy\n\nmaintainer decision required\n\n"
+            "## Execution autonomy\n\nagent-can-do-alone\n"
+        ),
+        # And two bullets, for the same reason in the other direction.
+        "two bullets, restrictive second": (
+            "- **Autonomy:** agent-can-do-alone\n- **Autonomy:** maintainer decision required\n"
+        ),
     }
     for where, body in bodies.items():
         assert claim._autonomy_refusal(body) is not None, (

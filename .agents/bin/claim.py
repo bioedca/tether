@@ -580,8 +580,10 @@ def _declared_autonomy(body: str) -> list[tuple[str, str]]:
             qualifier = _normalize_autonomy(match.group("qualifier"))
             label = f"{where} bullet" + (f" ({qualifier})" if qualifier else "")
             found.append((match.group("value"), label))
-        heading = _AUTONOMY_HEADING.search(source)
-        if heading:
+        # `finditer`, not `search`: a body can carry the heading twice, and taking only the first
+        # hid a second one that restricted the issue behind an admitting first one - the same
+        # first-match-wins defect this function was just fixed for, one level down.
+        for heading in _AUTONOMY_HEADING.finditer(source):
             lines = [ln.strip() for ln in heading.group(1).split("\n") if ln.strip()]
             if lines:
                 found.append((lines[0], f"{where} heading"))
