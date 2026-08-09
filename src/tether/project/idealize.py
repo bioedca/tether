@@ -3,7 +3,7 @@
 """Store-integrated one-click idealization (PRD §5, §7.4; FR-IDEALIZE; ADR-0024).
 
 This is the **headless** half of the M2 "one-click vbFRET from the dock" feature
-(PLAN §6 S6): it turns a selection of extracted molecules in a ``.tether`` store
+(PRD §7.4): it turns a selection of extracted molecules in a ``.tether`` store
 into a fitted idealization written back under the frozen ``/idealization`` group.
 The GUI (``I`` key + Viterbi step overlay) is a thin layer over :func:`idealize_molecules`
 and lands separately.

@@ -147,7 +147,7 @@ def _seed_weight_of(path: Path, source: str = LABEL_SOURCE_DEEPLASI) -> float:
 
 
 def test_recompute_decays_provisional_below_one_fifth_after_five_human_labels(tmp_path) -> None:
-    # PLAN §9 M5 weight-decay acceptance. One deeplasi-provisional seed on keys[0]; five *other*
+    # PRD §7.5 weight-decay acceptance. One deeplasi-provisional seed on keys[0]; five *other*
     # molecules get a human accept/reject (n_human = 5). After recompute the seed's effective
     # weight is w₀/(1+5) = w₀/6 < 0.2·w₀.
     proj, keys = _one_condition_store(tmp_path / "p.tether", n=6)

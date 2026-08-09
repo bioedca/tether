@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Quality-ranking evaluation and the never-auto-drop ranking contract (PRD §7.5; FR-ML).
 
-The evaluation substrate the per-condition quality ranker (PRD §7.5, PLAN §9 M5) is
+The evaluation substrate the per-condition quality ranker (PRD §7.5) is
 measured on, and the invariant it must obey — both defined *independently of which model
 produces the scores*:
 

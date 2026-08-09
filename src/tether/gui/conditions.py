@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The condition-validation / confirm-correct / merge dialog (PRD §5.1, §7.6; FR-ANNOTATE).
 
-The GUI surface for the M4 annotation step (PLAN §8 PR-2b). Its headless core landed
+The GUI surface for the M4 annotation step (PRD §7 FR-ANNOTATE). Its headless core landed
 earlier: :func:`tether.project.conditions.validate_conditions` (referential-integrity
 report), :func:`~tether.project.conditions.sync_conditions` (materialize provisional
 rows), and the transactional re-key + human-confirmed merge
