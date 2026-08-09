@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Gradient-boosting quality ranker — the precision@k objective (PRD §7.5; FR-ML).
 
-The trained scorer the M5 quality ranker is built on (PRD §7.5, PLAN §9 M5): a
+The trained scorer the M5 quality ranker is built on (PRD §7.5): a
 gradient-boosting model [Chen2016] fitted on a condition's human accept/reject
 ``/labels`` that turns each molecule's engineered :mod:`tether.ml.features` vector into a
 scalar **quality score**, which :func:`tether.ml.ranking.rank_by_score` orders into a

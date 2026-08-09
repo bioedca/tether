@@ -21,7 +21,7 @@ Three budgets (PRD §8, "Targets"):
   volume; :func:`project_overnight` scales that across the condition and checks it fits
   the unattended :data:`OVERNIGHT_WINDOW_HOURS` window. This is an envelope, **not** a
   full-movie SLA — the full ≈0.9 GB movie and the real vbFRET sidecar are measured in the
-  gated ``large-fixtures.yml`` tier (PLAN §2.2), never the default matrix.
+  gated ``large-fixtures.yml`` tier (PRD §8 NFR-FIXTURES), never the default matrix.
 * **A bounded ``.tether`` size envelope per condition** — a molecule's stored cost is
   dominated by its six redundant float32 intensity layers
   ({donor,acceptor}×{raw,corrected,background}, PRD §5.1 = ``6·4 = 24`` B/frame);

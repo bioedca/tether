@@ -46,7 +46,7 @@ def test_seed_weight_decays_monotonically_toward_zero() -> None:
 
 
 def test_weight_decay_boundary_below_one_fifth_after_five_human_labels() -> None:
-    # PLAN §9 M5 weight-decay acceptance: a provisional label's effective weight < 0.2·w₀ once a
+    # PRD §7.5 weight-decay acceptance: a provisional label's effective weight < 0.2·w₀ once a
     # handful of human labels exist. w = w₀/(1+n) < 0.2·w₀  <=>  n >= 5.
     w0 = DEFAULT_SEED_WEIGHT
     assert seed_weight(4, w0=w0) == pytest.approx(0.2 * w0)  # exactly the threshold at n=4

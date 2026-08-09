@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for structured conditions + referential validation (M4, PRD §5.1/§7.6).
 
-Covers the M4 annotation gates (PLAN §8, FR-ANNOTATE): a condition aggregates
+Covers the M4 annotation gates (PRD §7 FR-ANNOTATE): a condition aggregates
 molecules across ≥ 2 files; near-miss strings stay separate (keep-separate-by-
 default); a molecule's ``condition_id`` is valid only when it resolves to a
 ``/conditions`` row built from that key (referential validation); the transactional

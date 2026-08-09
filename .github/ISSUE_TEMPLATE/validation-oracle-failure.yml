@@ -153,7 +153,7 @@ body:
     id: fixture-tier
     attributes:
       label: Fixture tier
-      description: Where the failing fixture lives (PRD §8 NFR-FIXTURES, PLAN §2).
+      description: Where the failing fixture lives (PRD §8 NFR-FIXTURES).
       options:
         - "committed small (tests/fixtures/)"
         - "gated large (tests/fixtures/large/, LFS — large-fixtures.yml)"

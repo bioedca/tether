@@ -8,7 +8,7 @@ integrated donor trace ``don`` for every molecule, so we crop the donor
 neighbourhood of a handful of molecules out of the ~0.9 GB UCKOPSB movie and
 pair each crop with its oracle ``don`` slice. The crops are tiny (21x21 = the
 aperture window) and committed; the full movie + ``.mat`` stay external
-(PLAN §2.1/§2.2).
+(PRD §8 NFR-FIXTURES).
 
 Coordinate convention (verified against the oracle): ``fret_pairs`` columns are
 ``[x_donor, y_donor, x_acc, y_acc]`` with ``x`` = column, ``y`` = row, 0-based

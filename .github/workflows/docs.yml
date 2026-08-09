@@ -35,7 +35,7 @@ permissions:
   contents: read
 
 # Never cancel a deploy mid-push (a half-pushed gh-pages is worse than a queue),
-# matching the release pipeline's cancel-in-progress:false posture (PLAN §13).
+# matching the release pipeline's cancel-in-progress:false posture (PRD §12.6).
 concurrency:
   group: docs-deploy
   cancel-in-progress: false

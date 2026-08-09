@@ -54,7 +54,7 @@ stamped into a single self-describing project file, and the trace ⇄ movie
 git clone https://github.com/bioedca/tether.git
 cd tether
 # environment + editable install instructions arrive with the M0 package
-# skeleton (PLAN M0 S2); see CONTRIBUTING.md.
+# skeleton; see CONTRIBUTING.md.
 ```
 
 The base application stack (Python, NumPy, Numba, napari/PySide6/pyqtgraph) is
