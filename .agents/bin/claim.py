@@ -1082,7 +1082,17 @@ def _doctor_ready(owner: str) -> list[dict[str, Any]]:
         if issue.get("pull_request"):
             continue
         number = issue["number"]
-        comments = _paginate(f"/repos/{REPO}/issues/{number}/comments", f"#{number} comments")
+        # One unreadable comment page must not take the whole report with it. `_paginate` raises on
+        # any 401, 403 or 5xx, and an uncaught raise here loses Mode B and Mode C as well - three
+        # diagnostics silenced by one transient failure on an issue nobody was asking about. Same
+        # rule as the unreadable blocker and the unreadable pull request: say what could not be
+        # read, keep going, and never let an absence read as an answer.
+        try:
+            comments = _paginate(f"/repos/{REPO}/issues/{number}/comments", f"#{number} comments")
+        except ClaimError as exc:
+            title = issue.get("title", "")[:60]
+            out.append({"issue": number, "title": title, "unreadable": str(exc)})
+            continue
         markers = [
             match
             for comment in comments

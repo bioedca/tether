@@ -1725,6 +1725,36 @@ def test_doctor_never_says_unblocked_and_only_reports_what_it_can_see(
     assert blocked == [{"issue": 9, "mentions": {"1": "closed", "2": "open"}}]
 
 
+def test_doctor_survives_a_ready_issue_whose_comments_cannot_be_read(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One unreadable page must cost one issue, not the whole report.
+
+    `_paginate` raises on any 401, 403 or 5xx, and Mode A walked every `status:ready` issue's
+    comments without catching it — so a single transient failure propagated out of `_cmd_doctor`
+    and printed nothing at all. That silences Mode B and Mode C too: three diagnostics lost to one
+    issue nobody was asking about, and the operator sees a traceback rather than the report.
+
+    Same rule as the unreadable blocker and the unreadable pull request, which this PR already
+    applies twice: name what could not be read, keep going, and never let an absence read as an
+    answer.
+    """
+    _doctor(
+        monkeypatch,
+        {("GET", "/repos/bioedca/tether/issues/2/comments"): (500, {"message": "server error"})},
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    report = json.loads(capsys.readouterr().out)
+    ready = {r["issue"]: r for r in report["ready"]}
+    assert set(ready) == {1, 2, 3, 4}, "an unreadable issue was dropped instead of reported"
+    assert "unreadable" in ready[2], "#2's failure was not reported as unreadable"
+    assert "marker" not in ready[2], "an unreadable issue must not be given a marker verdict"
+    assert all("marker" in ready[n] for n in (1, 3, 4)), "the other issues stopped being assessed"
+    assert "blocked" in report and "unarmed" in report, (
+        "one unreadable ready issue took the other two modes down with it"
+    )
+
+
 def test_doctor_reports_backlog_issues_too_and_lists_a_dual_labelled_one_once(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
