@@ -334,6 +334,20 @@ def test_a_restrictive_declaration_governs_wherever_it_sits_in_the_source(
         "two bullets, restrictive second": (
             "- **Autonomy:** agent-can-do-alone\n- **Autonomy:** maintainer decision required\n"
         ),
+        # A heading section is more than its first line. Taking only `lines[0]` dropped the rest,
+        # so a restriction written as the sentence *under* the declaration was never read.
+        "heading section, restrictive second line": (
+            "## Execution autonomy\n\nagent-can-do-alone\n"
+            "The upload step is a maintainer decision.\n"
+        ),
+        # `_GROOMING_BLOCK` stopped capturing at the next `<!--`, so any nested comment truncated
+        # the authoritative source and hid everything after it.
+        "grooming block split by a nested comment": (
+            "<!-- tether-grooming-v1 -->\n\n"
+            "- **Autonomy:** agent-can-do-alone\n"
+            "<!-- a note from the groomer -->\n"
+            "- **Autonomy:** maintainer decision required\n"
+        ),
     }
     for where, body in bodies.items():
         assert claim._autonomy_refusal(body) is not None, (
@@ -371,6 +385,35 @@ def test_a_grooming_block_supersedes_a_stale_body_declaration(
     assert exit_info.value.code == claim.EXIT_INELIGIBLE
     assert "maintainer input" in capsys.readouterr().err
     assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
+
+
+def test_ordinary_prose_under_the_declaration_does_not_refuse_a_ready_issue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reading the whole heading section must not turn every sentence into a verdict.
+
+    The sibling above makes a restrictive line *under* an admitting one govern, which it must. The
+    obvious way to get that — treat each line as its own declaration — over-refuses badly: an
+    issue that declares `agent-can-do-alone` and then explains itself in a sentence would be
+    refused because the sentence does not *admit*, and that is a false negative on exactly the
+    well-groomed issues this gate is meant to let through.
+
+    So the section is read as **one** value, and judged by the rule already written for a value
+    that names two things: it must open with an admitting token and must not contain a refusing
+    one. Prose that does neither changes nothing. This asserts the permissive half, because a
+    fail-closed fix that quietly stopped admitting anything would pass every other test here.
+    """
+    body = (
+        "## Execution autonomy\n\nagent-can-do-alone\n\n"
+        "The tests are already written and the scope is small, so this is self-contained.\n"
+    )
+    assert claim._autonomy_refusal(body) is None, "ordinary prose was read as a restriction"
+    routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+    fake = _install(monkeypatch, Fake(routes))
+    claim._cmd_claim(_args(issue=7))
+    assert [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]], (
+        "a ready issue was refused because it explained itself"
+    )
 
 
 def test_a_grooming_block_that_declares_no_autonomy_does_not_fall_back_to_the_body(

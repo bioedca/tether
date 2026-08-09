@@ -497,7 +497,16 @@ _AUTONOMY_BULLET = re.compile(
     r"[: \t]*(?P<value>.+)$",
     re.M | re.I,
 )
-_GROOMING_BLOCK = re.compile(r"<!--[ \t]*tether-grooming-v1[ \t]*-->(.*?)(?=<!--|\Z)", re.S)
+#: A grooming block runs to the **next grooming marker** or the end of the body - not to the next
+#: HTML comment of any kind. Terminating on any `<!--` meant one nested comment truncated the
+#: authoritative source, so a declaration written above it governed and a restriction written below
+#: it was never read: the same fail-open direction as the other defects in this path. Nested
+#: comments are stripped from the captured text by `_grooming_section` instead of ending it.
+_GROOMING_BLOCK = re.compile(
+    r"<!--[ \t]*tether-grooming-v1[ \t]*-->(.*?)(?=<!--[ \t]*tether-grooming-v1|\Z)", re.S
+)
+#: Any HTML comment, so a nested one can be removed from a grooming block rather than truncate it.
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 _MARKUP = re.compile(r"[`*_]+")
 
 
@@ -593,13 +602,28 @@ def _declared_autonomy(body: str) -> list[tuple[str, str]]:
     for heading in _AUTONOMY_HEADING.finditer(source):
         lines = [ln.strip() for ln in heading.group(1).split("\n") if ln.strip()]
         if lines:
-            found.append((lines[0], f"{where} heading"))
+            # The **whole section**, not `lines[0]`. A restriction is often written as the
+            # sentence under the declaration - "agent-can-do-alone" then "the upload step is a
+            # maintainer decision" - and reading one line dropped it. Joined into a single value
+            # rather than one declaration per line, because per-line would refuse any issue that
+            # explains itself: a prose sentence does not *admit*, so it would fail the admits
+            # check and turn every well-groomed issue into a refusal. As one value it meets the
+            # rule already written for a value naming two things - open with an admitting token,
+            # contain no refusing one - under which explanatory prose changes nothing.
+            found.append((" ".join(lines), f"{where} heading"))
     return found
 
 
 def _grooming_section(body: str) -> str:
-    """The text of a ``tether-grooming-v1`` block, or ``""``. Joined when there are several."""
-    return "\n".join(m.group(1) for m in _GROOMING_BLOCK.finditer(body))
+    """The text of a ``tether-grooming-v1`` block, or ``""``. Joined when there are several.
+
+    Nested HTML comments are **removed** rather than allowed to end the block. They used to end it,
+    which silently truncated the authoritative source: a groomer's aside between two declarations
+    hid every line after it, so an admitting line above governed and a restriction below was never
+    read. Removing them keeps the whole block authoritative and cannot itself admit anything, since
+    a comment carries no declaration.
+    """
+    return "\n".join(_HTML_COMMENT.sub("", m.group(1)) for m in _GROOMING_BLOCK.finditer(body))
 
 
 def _autonomy_refusal(body: str) -> str | None:
