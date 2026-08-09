@@ -58,13 +58,15 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > echo "scripts=$scripts tests=$tests flows=$flows prose=$prose"
 > echo "layer=$((scripts+tests+flows+prose)) contract=$(count $(keep $contract))"
 > echo "product=$(count $(git ls-tree -r --name-only $S -- src/tether)) adrs=$adrs"
+> echo "test_triage=$(count $(keep tests/test_triage.py))"   # 0 after the cut deletes it
 > for f in $(git ls-tree -r --name-only $S -- src/tether); do echo "$(count $f) $f"; done |
->   sort -rn | head -1        # largest product file, against tests/test_triage.py
+>   sort -rn | head -1        # largest product file, to compare against test_triage above
 > # d3fd78c  -> scripts=5469 tests=10407 flows=502 prose=1395
 > #             layer=17773 contract=991 product=42796 adrs=1071
-> #             2186 src/tether/gui/shell.py
+> #             test_triage=3932 | 2186 src/tether/gui/shell.py
 > # 1d6318c  -> scripts=1972 tests=4289 flows=84 prose=550
 > #             layer=6895 contract=434 product=42796 adrs=1078
+> #             test_triage=0 (deleted) | 2186 src/tether/gui/shell.py
 > ```
 >
 > **The allowlist is the whole of the fail-closed claim.** `removed` names the seven paths the cut
@@ -89,9 +91,11 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > **Three kinds of evidence, and only the first is reproducible from a SHA.** The line counts
 > above are. The **remote-ref and issue-search counts** name their own commands and are as of the
 > same date, but they read live state, so they stand only as a **lower bound** — more refs and
-> issues can appear later, and `ls-remote` never reports a deletion. (Re-running it while this
-> pull request was open returned six ADR reservations rather than five, the sixth being this
-> record's own — which is the append-only property below behaving exactly as claimed.) The
+> issues can appear later, and `ls-remote` never reports a deletion. The ref table below is
+> therefore **dated and is the pre-`0064` baseline**, and it says so where it stands: re-running it
+> while this pull request was open returned six reservations rather than five, the sixth being this
+> record's own. Keeping the earlier reading is deliberate, so the argument rests on refs that
+> existed before the argument did. The
 > **vendor quota terms** cannot be pinned to any revision this repository controls; where the
 > argument leans on one, it cites the in-repo artifact that encodes it — `INCLUDED_CREDITS = 50`
 > in `.agents/bin/greptile_usage.py` and `.greptile/README.md` — which is versioned here even
@@ -142,11 +146,19 @@ removes, and nothing in `.agents/bin/` issues a `DELETE` against any of them (th
 and that is why the counts below are historical:
 
 ```text
+# git ls-remote origin, 2026-08-07 — BEFORE this record reserved 0064
 refs/adr-reservations/{0058,0059,0061,0062,0063}   5   used, works
 refs/reaped/issue-400-b6d9aa1…                     1
 refs/amend-rounds/252-38550159308-1                1   one AMEND, ever
 refs/lane-advances/*                               0   none, ever
 ```
+
+That is the **baseline**, and it is dated because the set is append-only and therefore moves in one
+direction: re-running it while this pull request was open returned **six** reservations, the sixth
+being `0064` — this record's own. The table is deliberately the earlier reading, so the argument
+rests on refs that existed before the argument did; counting its own reservation would be circular.
+The two numbers do not disagree, and the increase is the append-only property behaving as claimed
+rather than an inconsistency.
 
 `swarm_slots.py` and its test — 2,796 lines, and the component `AGENTS.md` calls *"the only issuer
 of review rounds"* — have issued **one** round in their life, and the file appears in no workflow,
