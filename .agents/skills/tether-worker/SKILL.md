@@ -1,6 +1,6 @@
 ---
 name: tether-worker
-description: Work one accepted Tether issue as a short-lived peer worker — claim it with the atomic ref mutex, implement it in an isolated worktree, open a draft pull request, get it reviewed, and hand off or merge. Use when an agent is asked to solve, resume, or hand off a single work item. There is no coordinator to ask.
+description: Work one accepted Tether issue as a short-lived peer worker — claim it with the atomic ref mutex, implement it in an isolated worktree, open a draft pull request, get it reviewed, and finish with either a PR-ready handoff or an explicitly authorized merge — never infer merge authority. Use when an agent is asked to solve, resume, or hand off a single work item. There is no coordinator to ask.
 ---
 
 # Tether worker

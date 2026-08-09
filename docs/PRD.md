@@ -1056,8 +1056,10 @@ becomes the squash commit and feeds the changelog. CodeQL remains enforced throu
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
 `AGENTS.md` §Review, recorded in ADR-0064: every PR requires substantive independent review, and the providers are
 spent **cheapest first** rather than routed by risk. **Open as a draft** — every required check runs on a draft, so the
-diff reaches green before anything metered is asked. Then **optionally one Greptile credit**, if the seat has budget;
-then ready-for-review; then **CodeRabbit with no actionable comments, which is the last gate before merge**. The round
+diff reaches green before anything metered is asked. Then **Codex on that green draft, uncapped**, until it surfaces
+nothing blocking — it is the free provider, and throttling it bought nothing but slower convergence. Then **optionally
+one Greptile credit**, if the seat has budget; then ready-for-review; then **CodeRabbit with no actionable comments,
+which is the last gate before merge**. The round
 ledger that used to count this is gone — ADR-0064 retired it along with the launcher that consumed it, leaving **two
 asks per provider** as a convention a worker keeps rather than a counter that publishes labels. An ask is a **completed
 review**: a throttle, a quota refusal or a failed run produced nothing and counts as nothing, which is *quota is did not
