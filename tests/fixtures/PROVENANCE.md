@@ -8,7 +8,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 Small, defensible fixtures **derived** from the read-only `example-data/`
 sibling (the real Mondragón-Lab acquisitions cited in `docs/PRD.md`). The large
 originals — the ~0.9 GB UCKOPSB movie and full `.tdat`/`.tmap` — are **never**
-committed (PLAN §2.1, §2.2). Regenerate with:
+committed (PRD §8 NFR-FIXTURES). Regenerate with:
 
 ```sh
 uv run --no-project --with h5py --with tifffile --with numpy \
@@ -270,7 +270,7 @@ kinSoftChallenge `kinsoft_sim.hdf5` (above) is tracked the same way.
 
 The §9 M1 acceptance oracle (`tether.project.oracle`) was run on the **uncommitted**
 gated UCKOPSB pair via `scripts/run_m1_oracle.py` (imported `.tmap` leg), recorded here
-as the durable measurement (the movie is never committed — PLAN §2.2):
+as the durable measurement (the movie is never committed — PRD §8 NFR-FIXTURES):
 
 - **Source:** `Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif` (1700×512×512, 891,955,083 B,
   SHA-256 `c4293f00ed2ac72d…`) + `DeepLASI_MAP_…20250718…13-40.tmap`

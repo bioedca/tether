@@ -11,11 +11,10 @@ session no project instructions at all — and the copy that happened to exist o
 the swarm rebuild, describing a worktree-per-concern flow with no claim, no mutex and no generation
 fence while reading as though it were the contract.
 
-``CLAUDE.md`` is now tracked and is an **adaptation** of ``AGENTS.md``: the same rules, in the file
-this lane actually loads, so an agent has them resident rather than one indirection away.
-Duplication is the deliberate trade and its cost is drift — so the copies are bound here.
-``AGENTS.md`` is authoritative; a section it grows that ``CLAUDE.md`` has not adapted fails this
-module.
+``CLAUDE.md`` is now tracked, and since ADR-0064 it is a **pointer** to ``AGENTS.md`` rather than an
+adaptation of it. It was an adaptation, and the cost of that was drift in two files at once — so
+what is bound here is no longer "every section is adapted" but "this is still a pointer": it names
+its target, carries no sections of its own, and stays far shorter than the contract.
 
 Stdlib only, so it runs on the base 3-OS ``test`` matrix.
 """
@@ -75,17 +74,18 @@ def test_both_lanes_entry_points_are_tracked() -> None:
     )
 
 
-def test_the_adaptation_names_the_contract_as_authoritative() -> None:
-    """Duplication needs a tie-breaker, or a drift has no defined resolution.
+def test_the_pointer_names_the_contract_as_authoritative() -> None:
+    """A pointer must say where the contract is before it says anything else.
 
-    Stated up front, where it is read before anything it might contradict: `AGENTS.md` wins and
-    `CLAUDE.md` is the bug. Without that sentence an agent finding a discrepancy has to guess, and
-    the guess is the whole risk of keeping two copies.
+    This outlived the duplication it was written for. It used to be the tie-breaker between two
+    copies — `AGENTS.md` wins, `CLAUDE.md` is the bug — and a pointer cannot contradict its target,
+    so that job is gone. What remains is placement: an agent reads the top of this file first, and
+    a pointer whose target is named further down is one an agent can start acting without.
     """
     head = "\n".join(CLAUDE_ENTRY.read_text(encoding="utf-8").splitlines()[:20])
     assert "AGENTS.md" in head, "the contract must be named up front, not buried"
     assert re.search(r"`?AGENTS\.md`?\*{0,2}\s+is authoritative", head), (
-        "the adaptation must say AGENTS.md wins on conflict"
+        "the pointer must name AGENTS.md as the authoritative text"
     )
 
 
@@ -94,10 +94,9 @@ def test_the_claude_entry_point_is_a_pointer_not_a_second_contract() -> None:
 
     Those guards bound a hand-written *adaptation*: every `##` section of `AGENTS.md` had to appear
     in `CLAUDE.md`, and the two had to stay within a factor of two in size. They worked, and the
-    thing they were protecting was the problem. Two files said the same eight things in different
-    words — only 49 of ~150 lines byte-identical — so every contract edit cost two files and a test
-    run, and ADR-0057's third driver (contract text is resident context, so its size is a running
-    cost) was being paid twice for one contract.
+    thing they were protecting was the problem. Two files said the same things in different words,
+    so every contract edit cost two files and a test run, and ADR-0057's third driver (contract text
+    is resident context, so its size is a running cost) was being paid twice for one contract.
 
     A pointer cannot drift, so the property worth binding changes: not *does it adapt every section*
     but *is it still a pointer*. `.claude/skills/tether-worker/SKILL.md` is bound the same way by
@@ -105,8 +104,16 @@ def test_the_claude_entry_point_is_a_pointer_not_a_second_contract() -> None:
     applied one level up.
     """
     text = CLAUDE_ENTRY.read_text(encoding="utf-8")
-    assert "AGENTS.md" in text, "it must name its target"
     assert CONTRACT.is_file(), "the pointer's target does not exist"
+
+    # The IMPORT, not a prose mention. `@AGENTS.md` on a line of its own is what makes the contract
+    # resident in a Claude Code session; the surrounding sentences only explain why. A substring
+    # check for "AGENTS.md" passed on those sentences alone, so deleting the operative line left
+    # this test green while the lane silently stopped loading the contract (Greptile on #430).
+    assert any(line.strip() == "@AGENTS.md" for line in text.splitlines()), (
+        "CLAUDE.md must carry `@AGENTS.md` on its own line — that import is what makes the "
+        "contract resident, and prose naming the file is not a substitute"
+    )
 
     contract_lines = len(CONTRACT.read_text(encoding="utf-8").splitlines())
     entry_lines = len(text.splitlines())

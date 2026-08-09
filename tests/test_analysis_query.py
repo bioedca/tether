@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for the cross-movie condition query/filter (M4, PRD §5.1/§7.7; FR-ANNOTATE).
 
-Covers the M4 query gate (PLAN §8): a query aggregates the right molecule set
+Covers the M4 query gate (PRD §7 FR-ANNOTATE): a query aggregates the right molecule set
 across a condition's many files; filtering by key fields / category / tags (ANDed);
 unconditioned molecules are never returned; key filtering only sees materialized
 conditions and rejects an unknown field; empty filters are inert; and the

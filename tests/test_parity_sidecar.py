@@ -84,7 +84,7 @@ def test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance(tmp_path):
     """Two self-reseeded ebFRET fits of the 281-mol SMD agree within its tolerance.
 
     The **ebFRET (empirical-Bayes HMM)** arm of the M6 idealization-parity oracle
-    (PLAN §10; PRD §9 M6). ebFRET pools information across the population of molecules
+    (PRD §9 M6). ebFRET pools information across the population of molecules
     to infer a consensus kinetic model, sharpening state/rate estimates that vary
     widely trace-by-trace [vandeMeent2014]; its reproducibility is an established
     benchmark axis for smFRET idealizers [Hadzic2018].
