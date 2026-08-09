@@ -539,8 +539,8 @@ def _flatten_autonomy(value: str) -> str:
     return re.sub(r"\s+", " ", _normalize_autonomy(widened)).strip()
 
 
-def _declared_autonomy(body: str) -> tuple[str, str] | None:
-    """The issue's own Execution-autonomy declaration as ``(raw value, where)``, or ``None``.
+def _declared_autonomy(body: str) -> list[tuple[str, str]]:
+    """Every Execution-autonomy declaration in the authoritative source, as ``(raw value, where)``.
 
     The value is returned **unnormalized**. `_normalize_autonomy` strips `_` as Markdown
     emphasis, so normalizing here would glue `needs_human_action` into one word before
@@ -554,6 +554,15 @@ def _declared_autonomy(body: str) -> tuple[str, str] | None:
     them went stale. Reading the body first would let a superseded value admit work the grooming
     pass had already restricted.
 
+    **Within one source there is no such precedence, so every declaration in it is returned and the
+    caller refuses if any of them does.** This returned only the first match and looked for bullets
+    before headings, which meant a body whose `## Execution autonomy` section read `maintainer
+    decision required` was admitted outright when any bullet elsewhere read `agent-can-do-alone` -
+    the heading was never reached. Nothing justifies a bullet outranking a heading the way a
+    grooming block outranks a stale body; two disagreeing declarations in one source mean the issue
+    is not clearly groomed, which is the case this gate exists to refuse. It is the same rule
+    `_autonomy_refusal` already applies to a single value that names both.
+
     **`Autonomy after unblock` declares autonomy like any other spelling.** It is tempting to read
     it as conditional and refuse, but that conflates two questions. *What kind of work is this* is
     what this function answers; *is it still blocked* is what the `status:` label answers, and #336
@@ -566,16 +575,19 @@ def _declared_autonomy(body: str) -> tuple[str, str] | None:
     for source, where in ((_grooming_section(body), "grooming block"), (body, "body")):
         if not source:
             continue
+        found: list[tuple[str, str]] = []
         for match in _AUTONOMY_BULLET.finditer(source):
             qualifier = _normalize_autonomy(match.group("qualifier"))
             label = f"{where} bullet" + (f" ({qualifier})" if qualifier else "")
-            return match.group("value"), label
+            found.append((match.group("value"), label))
         heading = _AUTONOMY_HEADING.search(source)
         if heading:
             lines = [ln.strip() for ln in heading.group(1).split("\n") if ln.strip()]
             if lines:
-                return lines[0], f"{where} heading"
-    return None
+                found.append((lines[0], f"{where} heading"))
+        if found:
+            return found
+    return []
 
 
 def _grooming_section(body: str) -> str:
@@ -593,29 +605,32 @@ def _autonomy_refusal(body: str) -> str | None:
     it back. So an absent declaration refuses too: an issue that never declared autonomy was never
     groomed, and silence is not consent.
     """
-    declared = _declared_autonomy(body)
-    if declared is None:
+    declarations = _declared_autonomy(body)
+    if not declarations:
         return (
             "declares no Execution autonomy, so it has not been groomed for agent work. An absent "
             "declaration is refused rather than assumed - add one to the issue"
         )
-    raw, where = declared
-    # Quote the issue verbatim; decide on the flattened form. Showing the normalized value
-    # would print `needshumanaction` for a body that says `needs_human_action`.
-    value = raw.strip()
-    flat = _flatten_autonomy(raw)
-    refused = [token for token in AUTONOMY_REFUSES if _flatten_autonomy(token) in flat]
-    admits = any(flat.startswith(_flatten_autonomy(token)) for token in AUTONOMY_ADMITS)
-    if refused and admits:
-        return (
-            f"declares autonomy {value!r} ({where}). That is a split declaration - it also names "
-            f"{refused[0]!r} - and the restrictive half governs, so it needs a maintainer"
-        )
-    if refused or not admits:
-        return (
-            f"declares autonomy {value!r} ({where}); only {AUTONOMY_ADMITS[0]!r} may be claimed "
-            "by an agent"
-        )
+    # Every declaration in the authoritative source must admit. One restrictive line is enough to
+    # refuse however many admitting ones sit beside it - the same asymmetry as a single value that
+    # names both, applied across the source rather than within one string.
+    for raw, where in declarations:
+        # Quote the issue verbatim; decide on the flattened form. Showing the normalized value
+        # would print `needshumanaction` for a body that says `needs_human_action`.
+        value = raw.strip()
+        flat = _flatten_autonomy(raw)
+        refused = [token for token in AUTONOMY_REFUSES if _flatten_autonomy(token) in flat]
+        admits = any(flat.startswith(_flatten_autonomy(token)) for token in AUTONOMY_ADMITS)
+        if refused and admits:
+            return (
+                f"declares autonomy {value!r} ({where}). That is a split declaration - it also "
+                f"names {refused[0]!r} - and the restrictive half governs, so it needs a maintainer"
+            )
+        if refused or not admits:
+            return (
+                f"declares autonomy {value!r} ({where}); only {AUTONOMY_ADMITS[0]!r} may be "
+                "claimed by an agent"
+            )
     return None
 
 

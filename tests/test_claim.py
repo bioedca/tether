@@ -291,6 +291,50 @@ def test_no_refusal_token_depends_on_the_separator_it_is_written_with() -> None:
                 claim.AUTONOMY_REFUSES = original
 
 
+def test_a_restrictive_declaration_governs_wherever_it_sits_in_the_source(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Two declarations in one source: the restrictive one governs, whichever is found first.
+
+    `_declared_autonomy` used to return the **first** match and stop, and it looked for bullets
+    before headings. So a body whose `## Execution autonomy` section said `maintainer decision
+    required` was admitted outright if any bullet anywhere else in it read `agent-can-do-alone` -
+    the heading was never read. That is a fail-open in the gate whose entire purpose is to fail
+    closed, reachable by an ordinary issue body that declares the same thing twice.
+
+    The precedence that *is* deliberate is between sources: a grooming block supersedes the body
+    above it, which the neighbouring test covers. Within one source there is no such argument -
+    two disagreeing declarations mean the issue is not clearly groomed, and the restrictive half
+    governs exactly as it already does when one value names both.
+
+    Asserted in both orders, because the defect was an ordering artefact and a fix that only
+    reversed the search order would pass one and fail the other.
+    """
+    bodies = {
+        "heading first": (
+            "## Execution autonomy\n\nmaintainer decision required\n\n"
+            "- **Autonomy:** agent-can-do-alone\n"
+        ),
+        "bullet first": (
+            "- **Autonomy:** agent-can-do-alone\n\n"
+            "## Execution autonomy\n\nmaintainer decision required\n"
+        ),
+    }
+    for where, body in bodies.items():
+        assert claim._autonomy_refusal(body) is not None, (
+            f"{where}: a restrictive declaration was ignored - fail-open"
+        )
+        routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+        fake = _install(monkeypatch, Fake(routes))
+        with pytest.raises(SystemExit) as exit_info:
+            claim._cmd_claim(_args(issue=7))
+        assert exit_info.value.code == 3, where
+        assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]], (
+            f"{where}: a claim ref was created for an issue a maintainer must decide"
+        )
+        assert "maintainer" in capsys.readouterr().err
+
+
 def test_a_grooming_block_supersedes_a_stale_body_declaration(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
