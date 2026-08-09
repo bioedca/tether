@@ -365,8 +365,11 @@ quoting a trigger while describing it spends a real review. Break the handle, or
 Review evidence **survives a non-material push**, so addressing findings does not
 restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
 renumbering are all non-material, while executable code, scientific claims, data,
-schema, locks, CI/release config and the governance text itself (`AGENTS.md`, this
-file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`) are material. A material push
+schema, locks, CI/release config and the governance text itself (`AGENTS.md`,
+`CLAUDE.md`, this file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`,
+`.claude/**`, `.github/pull_request_template.md`, `.greptile/**`) are material — the
+list is *every file that states a rule*, because a push changing what the gate requires
+must not keep evidence gathered under the old requirement. A material push
 re-arms the review but grants no extra round, and there are **at most two rounds**.
 
 Fix blocking findings. Blocking is decided on the **severity axis only**: CodeRabbit

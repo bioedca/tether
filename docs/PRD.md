@@ -1083,8 +1083,10 @@ step recorded as spent, never discarded as unsolicited.
 Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
 rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
 non-material, while executable code, scientific claims, data, schema, locks, CI/release configuration and the
-governance text itself (`AGENTS.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`, `.agents/**`,
-`docs/agents/**`) are material. A material push re-arms the review, and a PR gets **at most two asks per provider** —
+governance text itself (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`,
+`.agents/**`, `docs/agents/**`, `.claude/**`, `.github/pull_request_template.md` and
+`.greptile/**`) are material — the list is *every file that states a rule*, because a push that
+changes what the gate requires must not keep evidence gathered under the old requirement. A material push re-arms the review, and a PR gets **at most two asks per provider** —
 needing a third means the issue was scoped too large, and the lane stops for the maintainer rather than continuing.
 
 That bound is a **convention a worker keeps, not a counter that publishes labels.** ADR-0064 retired the round ledger,

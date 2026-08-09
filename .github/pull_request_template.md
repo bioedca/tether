@@ -36,7 +36,7 @@ linked work maps to one. The checklist, not CI, enforces those fields.
 - Greptile: spent one credit | skipped — no budget this month | skipped (say why). Balance from `<py> .agents/bin/greptile_usage.py`, where `<py>` is your lane's interpreter
 - **CodeRabbit — the last gate**: no actionable comments (quote the review — permalink, the **full 40-hex** `commit_id` it read **which must be the final head**, its `submitted_at`, its state — **`COMMENTED` or `APPROVED`**, since `DISMISSED` is a verdict withdrawn and `PENDING` is unsubmitted — and the opening of its body. A review of an earlier head does not qualify, a `PENDING` one is not submitted, a `DISMISSED` one is a verdict withdrawn, and a green status check with no review body is **not** the gate) | in flight (status check `pending` — never re-request, it aborts the run) | throttled, retrying after the stated interval *and* a non-pending status check (a wait, not a freeze) | unavailable (freezes the PR)
 - Provider that did not review: none | which, and why — **quota is *did not review*, never a pass**
-- Findings: <N> serious (fixed) | <M> below the floor (deferred to #____, or dropped if this is an agent-layer path — ADR-0064)
+- Findings: `<N>` serious (fixed) | `<M>` below the floor (deferred to #____, or dropped if this is an agent-layer path — ADR-0064)
 - Human sign-off: n/a | release/tag/signing | new scientific claim **or citation** (reviewer and evidence)
 
 ## Type of change
