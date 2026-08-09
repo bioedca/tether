@@ -64,8 +64,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > # d3fd78c  -> scripts=5469 tests=10407 flows=502 prose=1395
 > #             layer=17773 contract=991 product=42796 adrs=1071
 > #             test_triage=3932 | 2186 src/tether/gui/shell.py
-> # 1d6318c  -> scripts=1972 tests=4289 flows=84 prose=550
-> #             layer=6895 contract=434 product=42796 adrs=1078
+> # 71ef502  -> scripts=1972 tests=4289 flows=84 prose=560
+> #             layer=6905 contract=440 product=42796 adrs=1078
 > #             test_triage=0 (deleted) | 2186 src/tether/gui/shell.py
 > ```
 >
@@ -78,7 +78,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > revision exits 1, an unexpected missing path exits 1 naming the file, and the two good revisions
 > print the values in the comment.
 >
-> `1d6318c` is the head of the branch implementing the cut. It is a branch under review, not an
+> `71ef502` is the head of the branch implementing the cut. It is a branch under review, not an
 > immutable record: **if it changes again before merge, re-run the script against its merge
 > commit** — and it already has once. These figures were first taken at `89f15f29` and read
 > `layer=6448 contract=429`; merging `main` back in afterwards, to absorb the seven autonomy fixes
@@ -390,21 +390,25 @@ failing, so nothing in the audit trail would show it.
 
 ## Consequences
 
-**Good.** The layer falls from 17,773 lines to **6,895 (−61%)**, and the mandatory-read contract from
-991 lines across nine files to **434 across five (−56%)**. Three workflows become one, seven labels
+**Good.** The layer falls from 17,773 lines to **6,905 (−61%)**, and the mandatory-read contract from
+991 lines across nine files to **440 across five (−56%)**. Three workflows become one, seven labels
 become two, two ref namespaces retire. The required `test` job stops carrying most of 10,407 lines
 of agent tests on every product pull request, three times over.
 
 > These two are the only figures here that describe a future state, so they are measured rather than
-> estimated: re-running the script above at **`1d6318c`**, the head of the branch implementing the
-> cut, yields `1972 4289 84 550`, a 6,895 total and a 434 contract. An earlier draft projected
+> estimated: re-running the script above at **`71ef502`**, the head of the branch implementing the
+> cut, yields `1972 4289 84 560`, a 6,905 total and a 440 contract. An earlier draft projected
 > ~4,800 and −73% before the work existed, and the implementation did not reach it — the launcher's
 > removal returned less than guessed and `claim.py` grew to absorb the autonomy gate and `doctor`.
 > The measured numbers are used in preference to the projection and the shortfall is left visible
 > rather than restated as a target that was met. **That branch is still in review, so unlike the
 > `d3fd78c` figures these are pinned to something that can still move: re-run the script against
-> the merge commit if it does.** It already moved once — `89f15f29` gave `6448`/`429` before the
-> branch merged `main` back in — which is why this paragraph names a SHA rather than a branch.
+> the merge commit if it does.** It has already moved twice — `89f15f29` gave `6448`/`429` before the branch
+> merged `main` back in, and `1d6318c` gave `6895`/`434` before its review round — which is why
+> this paragraph names a SHA rather than a branch. **The percentages are what the decision rests
+> on, and they have not moved through either:** both re-measurements changed the totals by tens of
+> lines and left −61% and −56% unchanged. A reader finding the last digits stale should re-run the
+> script rather than conclude the record is wrong about the magnitude.
 
 **Bad, and named rather than minimised.** The two-round cap becomes a convention with no counter
 behind it, which deliberately re-exposes the failure mode of #276 — nine rounds against a limit of
