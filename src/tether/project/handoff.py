@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Bidirectional tMAVEN hand-off + non-destructive return-leg re-import (PRD §7.4, §5.3).
 
-This is the **headless** core of the M2 "Hand to tMAVEN" round trip (PLAN §6 S7,
+This is the **headless** core of the M2 "Hand to tMAVEN" round trip (PRD §7.4,
 FR-IDEALIZE); the interactive per-trace reconcile *dialog* is a thin GUI layer over
 it and lands separately.
 

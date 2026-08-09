@@ -5,7 +5,7 @@
 The M1 extraction-vs-Deep-LASI acceptance oracle (PRD §9 M1, §8 NFR-VALID (a))
 reads Deep-LASI's own export as ground truth via :mod:`tether.io.deeplasi`. The
 full exports are large (≈ 9 MB ``.mat`` + ≈ 7.7 MB ``.txt``) and stay external
-(PLAN §2.1/§2.2); this script derives a tiny, plain-git slice of each so the
+(PRD §8 NFR-FIXTURES); this script derives a tiny, plain-git slice of each so the
 required ``test`` matrix exercises the reader without the external files:
 
 * ``tests/fixtures/deeplasi_export_slice.mat`` — the first ``N_MOL`` molecules ×

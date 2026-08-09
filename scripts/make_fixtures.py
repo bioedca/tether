@@ -5,7 +5,7 @@
 The ``example-data/`` sibling holds the real lab acquisitions cited in the PRD
 (big-endian movie, tMAVEN SMDs, the 281-molecule population + its vbHMM model).
 The large originals are **never** committed; this tool derives the small,
-defensible fixtures that live in the repo (PLAN §2.1) and records their
+defensible fixtures that live in the repo (PRD §8 NFR-FIXTURES) and records their
 provenance.
 
 This is a **developer-only** regeneration tool — it never runs in CI. The
@@ -149,7 +149,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 Small, defensible fixtures **derived** from the read-only `example-data/`
 sibling (the real Mondragón-Lab acquisitions cited in `docs/PRD.md`). The large
 originals — the ~0.9 GB UCKOPSB movie and full `.tdat`/`.tmap` — are **never**
-committed (PLAN §2.1, §2.2). Regenerate with:
+committed (PRD §8 NFR-FIXTURES). Regenerate with:
 
 ```sh
 uv run --no-project --with h5py --with tifffile --with numpy \\

@@ -71,6 +71,13 @@ is a pull request rather than an issue, or the issue is not open, not `status:re
 elsewhere, or carries no approval binding its current snapshot. Everything else propagates to
 `main`'s `error:` / exit `2`.
 
+[#336](https://github.com/bioedca/tether/issues/336) later added a sixth — an issue that declares
+an autonomy no agent may claim, **or declares none at all**, which includes one whose
+`tether-grooming-v1` block is present and silent on autonomy: silence is refused rather than read
+as consent, so both reach the same exit — so the count above is five *as of this record*. The
+decision is the enumeration, not the number: a verdict is added deliberately, and the docstring on
+`IneligibleError` is the list that must be kept in step with the code.
+
 This is the second attempt, and the first one is worth recording because it looked sufficient. It
 subtyped the *failures* — a `TransportError` caught ahead of a blanket `except ClaimError` — and
 Codex's P1 on #388 showed the guarantee was still false: `_token` raises a plain `ClaimError` when

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shape/dtype and size-budget checks for the committed test fixtures.
 
-These lock the fixtures derived by ``scripts/make_fixtures.py`` (PLAN §2.1) so a
+These lock the fixtures derived by ``scripts/make_fixtures.py`` (PRD §8 NFR-FIXTURES) so a
 silent corruption or an over-size commit is caught by CI. The large-tier
 fixtures live in Git-LFS and are not pulled by the default checkout, so their
 check is ``@pytest.mark.large`` and skips on an unmaterialized LFS pointer.

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for the single-writer ``.lock`` lifecycle (M2 S9, PRD §5.4/§7.10; FR-CONCURRENCY).
 
-Covers the S9 gate (PLAN §6 S9): the ``<file>.lock`` prevents a second writer;
+Covers the M2 single-writer gate (PRD §5.4/§7.10): the ``<file>.lock`` prevents a second writer;
 steal-lock recovers and a cross-machine lock/stale/steal case is exercised
 (simulated host/PID); and a locked-out non-owner opens the canonical file
 read-only yet writes curation ``/labels`` to a separate split ``.tether`` keyed by
