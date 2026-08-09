@@ -1589,6 +1589,8 @@ DOCTOR_ROUTES: Routes = {
         200,
         [{"number": 9, "body": "Depends on #1 and #2.", "title": "blocked"}],
     ),
+    # Mode B queries both holding labels; #326's table is three-sevenths `status:backlog`.
+    ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:backlog"): (200, []),
     ("GET", "/repos/bioedca/tether/pulls?state=open"): (200, []),
     # `_paginate` raises on a non-list body, so every comment page a walk reaches needs a route.
     # `Fake` returns the FIRST matching prefix in insertion order, not the longest, so a test that
@@ -1723,6 +1725,87 @@ def test_doctor_never_says_unblocked_and_only_reports_what_it_can_see(
     assert blocked == [{"issue": 9, "mentions": {"1": "closed", "2": "open"}}]
 
 
+def test_doctor_reports_backlog_issues_too_and_lists_a_dual_labelled_one_once(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mode B holds on two labels, because #326's own evidence does.
+
+    The first implementation queried `status:blocked` alone. #326's table is the specification and
+    three of its seven rows are `status:backlog` — #298, #257 and #258, each naming a dependency
+    that has since merged — so a single-label query answered a narrower question than the issue
+    asked and dropped nearly half the evidence it was raised on. That is a silent miss: the report
+    looks complete because nothing says which labels it covered.
+
+    The dedupe is asserted as well. Nothing stops an issue carrying both labels, and a union that
+    listed it twice would read as two stranded issues where there is one.
+    """
+    dual = {"number": 11, "body": "Blocked by #1.", "title": "both labels"}
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:blocked"): (
+                200,
+                [{"number": 9, "body": "Depends on #1.", "title": "blocked"}, dual],
+            ),
+            ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:backlog"): (
+                200,
+                [{"number": 10, "body": "Start after #2 merges.", "title": "backlog"}, dual],
+            ),
+            ("GET", "/repos/bioedca/tether/issues/9/comments"): (200, []),
+            ("GET", "/repos/bioedca/tether/issues/10/comments"): (200, []),
+            ("GET", "/repos/bioedca/tether/issues/11/comments"): (200, []),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    blocked = json.loads(capsys.readouterr().out)["blocked"]
+    numbers = [b["issue"] for b in blocked]
+    assert sorted(numbers) == [9, 10, 11], "a status:backlog issue was dropped from Mode B"
+    assert numbers.count(11) == 1, "an issue carrying both labels was reported twice"
+    by_issue = {b["issue"]: b["mentions"] for b in blocked}
+    assert by_issue[10] == {"2": "open"}, "the backlog issue's mentions were not looked up"
+
+
+def test_doctor_rereads_draft_and_state_from_the_detail_response(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The list page is a snapshot; the detail response is the current answer.
+
+    Mode C filtered `draft` from the list entry and never re-read it, and never read `state` at
+    all. On a busy repository the list can be minutes stale, so a pull request closed or returned
+    to draft in between would be reported as finished-and-stranded — advice to arm something that
+    must not be armed.
+    """
+    stale = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    pr = {
+        "number": 70,
+        "draft": False,
+        "state": "open",
+        "auto_merge": None,
+        "mergeable_state": "clean",
+        "updated_at": stale,
+        "head": {"sha": HEAD},
+    }
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/pulls?state=open"): (
+                200,
+                [pr, {**pr, "number": 71}, {**pr, "number": 72}],
+            ),
+            ("GET", "/repos/bioedca/tether/pulls/70"): (200, pr),
+            # closed since the list page was built
+            ("GET", "/repos/bioedca/tether/pulls/71"): (200, {**pr, "state": "closed"}),
+            # returned to draft since the list page was built
+            ("GET", "/repos/bioedca/tether/pulls/72"): (200, {**pr, "draft": True}),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    unarmed = json.loads(capsys.readouterr().out)["unarmed"]
+    assert [u["pr"] for u in unarmed] == [70], (
+        "a pull request closed or re-drafted since the list page was built was reported as stranded"
+    )
+
+
 def test_doctor_says_it_could_not_read_a_reference_rather_than_omitting_it(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1760,6 +1843,7 @@ def test_doctor_reports_a_finished_pr_that_nothing_will_ever_merge(
     pr = {
         "number": 50,
         "draft": False,
+        "state": "open",
         "auto_merge": None,
         "mergeable_state": "clean",
         "updated_at": stale,
@@ -1802,6 +1886,7 @@ def test_doctor_reports_a_pull_request_it_could_not_read_rather_than_dropping_it
     pr = {
         "number": 60,
         "draft": False,
+        "state": "open",
         "auto_merge": None,
         "mergeable_state": "clean",
         "updated_at": stale,

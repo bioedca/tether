@@ -1116,7 +1116,7 @@ def _doctor_ready(owner: str) -> list[dict[str, Any]]:
 
 
 def _doctor_blocked() -> list[dict[str, Any]]:
-    """Every `status:blocked` issue with each `#N` its body mentions, and that number's state.
+    """Every held issue with each `#N` its body mentions, and that number's state.
 
     Mode B of #326, deliberately **raw data**. The issue asks for issues whose declared blockers
     have all closed, then concedes the parse is heuristic - the Dependencies section is prose, its
@@ -1126,8 +1126,21 @@ def _doctor_blocked() -> list[dict[str, Any]]:
     So this never emits the word *unblocked* and never adjudicates. It prints what the body mentions
     and what those items are, and a human decides. A report that must not be trusted is a report
     nobody reads; a report that only claims what it can see is one that can be.
+
+    **Both holding labels, not just `status:blocked`.** #326's own table is the specification and
+    three of its seven rows are `status:backlog` - #298, #257 and #258, each naming a dependency
+    that has since merged. Querying one label answered a narrower question than the issue asked and
+    dropped nearly half of the evidence it was raised on. The two queries are unioned and
+    deduplicated by number, because a future issue carrying both labels must appear once.
     """
-    issues = _paginate(f"/repos/{REPO}/issues?state=open&labels=status:blocked", "blocked issues")
+    issues = []
+    seen: set[int] = set()
+    for label in ("status:blocked", "status:backlog"):
+        query = f"/repos/{REPO}/issues?state=open&labels={label}"
+        for issue in _paginate(query, f"{label} issues"):
+            if issue["number"] not in seen:
+                seen.add(issue["number"])
+                issues.append(issue)
     out = []
     for issue in issues:
         if issue.get("pull_request"):
@@ -1179,6 +1192,18 @@ def _doctor_unarmed(now: float) -> list[dict[str, Any]]:
     omitting an unreadable blocker in :func:`_doctor_blocked`: the report reads as *nothing is
     wrong here* when the truth is *nobody looked*. The remedy differs too - a transport failure is
     retried, a genuinely unarmed pull request is armed - so the two must not print alike.
+
+    **`draft` and `state` are re-read from the detail response**, not trusted from the list page.
+    The list is a snapshot that can be minutes old on a busy repository, so a pull request that has
+    since been closed or returned to draft would otherwise be reported as stranded.
+
+    **`mergeable_state == "clean"` is what proves the review conversations are resolved**, and that
+    is a property of this repository's ruleset rather than of GitHub. `main-baseline` sets
+    ``required_review_thread_resolution: true``, so an unresolved thread makes the state ``blocked``
+    even while ``mergeable`` still reads ``MERGEABLE`` - the two answer different questions, and
+    only the second is about conflicts. Verified live on #432: four unresolved threads,
+    ``mergeable=MERGEABLE``, ``mergeStateStatus=BLOCKED``. If that ruleset setting is ever turned
+    off this check stops carrying that meaning, which is why the dependency is written down here.
     """
     out = []
     for summary in _paginate(f"/repos/{REPO}/pulls?state=open", "open pull requests"):
@@ -1187,6 +1212,8 @@ def _doctor_unarmed(now: float) -> list[dict[str, Any]]:
         status, pr = _request("GET", f"/repos/{REPO}/pulls/{summary['number']}")
         if status != 200 or not isinstance(pr, dict):
             out.append({"pr": summary["number"], "unreadable": status})
+            continue
+        if pr.get("draft") or pr.get("state") != "open":
             continue
         if pr.get("auto_merge") or pr.get("mergeable_state") != "clean":
             continue

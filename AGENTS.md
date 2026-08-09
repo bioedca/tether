@@ -52,6 +52,19 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   successor owns it. Release your own with `claim.py release` rather than abandoning it. The scheduled
   reaper (`agent-reaper.yml`) reclaims dead claims while everyone is asleep and is the only thing that
   may; never delete another owner's claim ref by hand.
+- **When the queue looks empty, ask why with `<py> .agents/bin/claim.py doctor`.** It **reports and
+  never writes** — every call it makes is a `GET`, and a test asserts no `POST`, `PATCH`, `PUT` or
+  `DELETE` is issued — so it is safe to run at any time and it fixes nothing by itself. It prints
+  JSON with three sections: `ready`, every `status:ready` issue and whether its approval marker
+  `binds`, is `absent`, `stale` or `malformed`, plus whether its autonomy admits; `blocked`, every
+  `status:blocked` **or** `status:backlog` issue with each `#N` its body mentions and that number's
+  state — raw data that never says *unblocked*, because the dependency parse is prose and #326 says
+  a false clean there is worse than a miss; and `unarmed`, open pull requests that are finished and
+  that nothing will merge. It looks up at most **20** mentions per issue and reports the remainder
+  as `not_looked_up`, allows a **45-minute** grace before calling a pull request stranded, and
+  reports anything it could not read as `unreadable` rather than omitting it. Every remedy is
+  maintainer authority — post a marker, promote a label, arm someone else's merge — which is why it
+  reports rather than acts.
 - Each worker owns its own worktree lifecycle — fetch/prune, add/remove, LFS pulls. Keep the root
   `main` worktree clean, and never use repository-wide stash, `git clean -fdx`, destructive reset,
   forced worktree removal, or another owner's branch. Coordinate before editing overlapping files.
