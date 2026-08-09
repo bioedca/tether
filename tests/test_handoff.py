@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Bidirectional tMAVEN hand-off + non-destructive return-leg re-import (M2 S7; FR-IDEALIZE).
 
-Locks the headless core of "Hand to tMAVEN" (PLAN §6 S7, PRD §7.4/§5.3):
+Locks the headless core of "Hand to tMAVEN" (PRD §7.4/§5.3):
 
 * the outbound SMD export (superset coords/ids + analysis windows ride along);
 * the return leg's **exact intensity-trace matching** against the retained store —

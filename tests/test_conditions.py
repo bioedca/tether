@@ -4,7 +4,7 @@
 
 All ``@pytest.mark.gui``: they build a real :class:`~tether.gui.conditions.ConditionKeyEditor`
 / :class:`~tether.gui.conditions.ConditionValidationDialog` on the pytest-qt
-``QApplication`` over a seeded on-disk ``.tether`` and assert the M4 gates (PLAN §8):
+``QApplication`` over a seeded on-disk ``.tether`` and assert the M4 gates (PRD §7 FR-ANNOTATE):
 a mis-parsed id re-keys **all** affected molecules transactionally with an audit entry,
 and a **merge is human-confirmed** (never silent). The key editor's round-trip and the
 shell menu wiring are covered too. Pixel rendering is left to the live smoke.

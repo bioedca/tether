@@ -158,7 +158,7 @@ def _source_files(rows: np.ndarray) -> list[str]:
 
 
 def test_two_curator_split_and_merge(tmp_path) -> None:
-    # PLAN §9 M5 acceptance: split-file labels merge back on molecule_key, weights recompute
+    # PRD §7.5 acceptance: split-file labels merge back on molecule_key, weights recompute
     # centrally, and human-vs-human conflicts surface (§7.10). Owner "alice", contributor "bob".
     owner = tmp_path / "owner.tether"
     split = tmp_path / "split.tether"

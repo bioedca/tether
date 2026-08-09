@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for curation accept/reject logging to ``/labels`` (M2 S5, PRD §5.1/§7.5).
 
-Covers the S5 gate (PLAN §6 S5): every accept/reject writes a fully-provenanced
+Covers the M2 curation gate (PRD §5.1/§7.5): every accept/reject writes a fully-provenanced
 ``/labels`` row and sets the molecule's ``curation_label``; reject is a reversible
 sticky tag carrying the toggleable exclusion filter (§7.5). All headless (no Qt) —
 plus one Qt-free :class:`CurationController` wiring smoke showing the GUI seam.

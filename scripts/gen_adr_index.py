@@ -47,7 +47,7 @@ END = "<!-- gen:adr-index end -->"
 # created, and it is a constant here rather than per-record metadata because no record carries it.
 FOUNDATIONAL_MAX = 8
 SECTIONS = (
-    (0, FOUNDATIONAL_MAX, "### Foundational, cross-cutting (M0 seed — PLAN M0 S1)"),
+    (0, FOUNDATIONAL_MAX, "### Foundational, cross-cutting (M0 seed)"),
     (FOUNDATIONAL_MAX + 1, 9999, "### Homed incrementally by implementing PRs"),
 )
 
