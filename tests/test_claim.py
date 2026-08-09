@@ -348,6 +348,12 @@ def test_a_restrictive_declaration_governs_wherever_it_sits_in_the_source(
             "<!-- a note from the groomer -->\n"
             "- **Autonomy:** maintainer decision required\n"
         ),
+        # The bullet pattern required `**`, so a plainly written bullet was invisible and an
+        # emphasized one below it governed. Markdown does not require the emphasis and neither
+        # should a safety verdict.
+        "plain bullet restrictive, emphasized bullet admitting": (
+            "- Autonomy: maintainer decision required\n- **Autonomy:** agent-can-do-alone\n"
+        ),
     }
     for where, body in bodies.items():
         assert claim._autonomy_refusal(body) is not None, (
@@ -431,22 +437,29 @@ def test_a_grooming_block_that_declares_no_autonomy_does_not_fall_back_to_the_bo
     pass did not state an autonomy has not stated one, and `_autonomy_refusal` already treats
     silence as refusal rather than consent. A re-groom corrects it.
     """
-    body = (
-        "## Execution autonomy\n\nagent-can-do-alone\n\n"
-        "<!-- tether-grooming-v1 -->\n\n"
-        "- **Status:** blocked.\n"
-        "- **Owner:** maintainer\n"
-    )
-    assert claim._grooming_section(body), "fixture is wrong: no grooming block was parsed"
-    routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
-    fake = _install(monkeypatch, Fake(routes))
-    with pytest.raises(SystemExit) as exit_info:
-        claim._cmd_claim(_args(issue=7))
-    assert exit_info.value.code == claim.EXIT_INELIGIBLE
-    assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]], (
-        "the stale body declaration the grooming pass dropped created a claim ref"
-    )
-    assert "autonomy" in capsys.readouterr().err.lower()
+    stale = "## Execution autonomy\n\nagent-can-do-alone\n\n"
+    bodies = {
+        "block with content but no autonomy": (
+            stale + "<!-- tether-grooming-v1 -->\n\n- **Status:** blocked.\n- **Owner:** bioedca\n"
+        ),
+        # The capture is *exactly* empty here - the marker ends the body with no trailing newline -
+        # so keying the source choice on the captured text rather than on the marker sent it
+        # straight back to the stale heading above. An empty groom is still a groom.
+        "marker at end of body, empty capture": stale + "<!-- tether-grooming-v1 -->",
+        "block holding only a nested comment": (
+            stale + "<!-- tether-grooming-v1 --><!-- nothing to report -->"
+        ),
+    }
+    for where, body in bodies.items():
+        routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+        fake = _install(monkeypatch, Fake(routes))
+        with pytest.raises(SystemExit) as exit_info:
+            claim._cmd_claim(_args(issue=7))
+        assert exit_info.value.code == claim.EXIT_INELIGIBLE, where
+        assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]], (
+            f"{where}: the stale declaration the grooming pass dropped created a claim ref"
+        )
+        assert "autonomy" in capsys.readouterr().err.lower(), where
 
 
 def test_the_refusal_names_the_declared_value_so_a_worker_knows_not_to_retry(

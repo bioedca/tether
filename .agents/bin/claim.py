@@ -492,8 +492,12 @@ _AUTONOMY_HEADING = re.compile(
     r"^\#{1,6}[ \t]*(?:execution[ \t]+)?autonomy[ \t]*$\n(.*?)(?=^\#{1,6}[ \t]|\Z)",
     re.M | re.S | re.I,
 )
+#: The `**` emphasis is **optional**. Requiring it meant a plainly written `- Autonomy: ...` bullet
+#: was invisible to this gate, so a restriction written without emphasis was skipped and an
+#: emphasized declaration below it governed. Markdown does not require the emphasis, issue authors
+#: do not reliably use it, and a safety verdict must not turn on typography.
 _AUTONOMY_BULLET = re.compile(
-    r"^[-*][ \t]*\*\*[ \t]*(?:execution[ \t]+)?autonomy(?P<qualifier>[^:*]*)[:*]*\*\*"
+    r"^[-*][ \t]*\*{0,2}[ \t]*(?:execution[ \t]+)?autonomy(?P<qualifier>[^:*\n]*)[:*]*\*{0,2}"
     r"[: \t]*(?P<value>.+)$",
     re.M | re.I,
 )
@@ -507,6 +511,11 @@ _GROOMING_BLOCK = re.compile(
 )
 #: Any HTML comment, so a nested one can be removed from a grooming block rather than truncate it.
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+#: The marker alone. Source selection keys on **this**, never on the text the block yields: a
+#: marker ending the body with no trailing newline captures exactly `""`, as does one holding only
+#: a nested comment, and treating either as "no grooming block" handed the decision back to the
+#: stale body the block was written to supersede. An empty groom is still a groom.
+_GROOMING_MARKER = re.compile(r"<!--[ \t]*tether-grooming-v1[ \t]*-->")
 _MARKUP = re.compile(r"[`*_]+")
 
 
@@ -585,12 +594,17 @@ def _declared_autonomy(body: str) -> list[tuple[str, str]]:
     refusing it would bar work that is genuinely ready. The qualifier is kept in the returned label
     so a refusal message can still quote where the value came from.
     """
-    grooming = _grooming_section(body)
-    # A grooming block is authoritative **when it is present**, including when it declares no
-    # autonomy at all. Falling through to the body there let the stale value a grooming pass had
-    # dropped govern the claim *because* it was dropped, which inverts the rule this precedence
-    # exists to serve. Silence in the latest pass is silence, and silence already refuses.
-    source, where = (grooming, "grooming block") if grooming else (body, "body")
+    # A grooming block is authoritative **when its marker is present**, including when it declares
+    # no autonomy and including when it captures nothing at all. Falling through to the body let
+    # the stale value a grooming pass had dropped govern the claim *because* it was dropped, which
+    # inverts the rule this precedence exists to serve. Keying on the captured text rather than the
+    # marker left the same hole open for a block that yields `""` - a marker ending the body with
+    # no trailing newline, or one holding only a nested comment. Silence in the latest pass is
+    # silence, and silence already refuses.
+    if _GROOMING_MARKER.search(body):
+        source, where = _grooming_section(body), "grooming block"
+    else:
+        source, where = body, "body"
     found: list[tuple[str, str]] = []
     for match in _AUTONOMY_BULLET.finditer(source):
         qualifier = _normalize_autonomy(match.group("qualifier"))
@@ -638,7 +652,9 @@ def _autonomy_refusal(body: str) -> str | None:
     """
     declarations = _declared_autonomy(body)
     if not declarations:
-        where = "its grooming block" if _grooming_section(body) else "its body"
+        # Same rule as the source choice above: the marker decides, not what it captured. An empty
+        # block reported "its body" and sent the reader to fix the wrong half of the issue.
+        where = "its grooming block" if _GROOMING_MARKER.search(body) else "its body"
         return (
             f"declares no Execution autonomy in {where}, so it has not been groomed for agent "
             "work. An absent declaration is refused rather than assumed - add one to the issue"
