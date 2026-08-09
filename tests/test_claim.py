@@ -1836,6 +1836,45 @@ def test_doctor_rereads_draft_and_state_from_the_detail_response(
     )
 
 
+def test_doctor_diagnoses_a_pull_request_marked_ready_since_the_list_was_built(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Staleness cuts both ways, and the first fix only closed one direction.
+
+    The sibling above stops a pull request that became draft or closed from being reported. This is
+    the mirror: the loop still skipped on the **list's** `draft` before fetching anything, so one
+    marked ready since the list was built was dropped before its current state was ever read.
+
+    That is the worse direction of the two. A pull request that just went ready, is green and is
+    unarmed is exactly the finished-and-stranded case Mode C exists to find — so the filter was
+    most likely to discard the very thing it was looking for. Nothing now filters on the summary;
+    the detail response decides.
+    """
+    stale = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    ready = {
+        "number": 80,
+        "draft": False,
+        "state": "open",
+        "auto_merge": None,
+        "mergeable_state": "clean",
+        "updated_at": stale,
+        "head": {"sha": HEAD},
+    }
+    _doctor(
+        monkeypatch,
+        {
+            # the LIST still says draft; the detail response says it is ready
+            ("GET", "/repos/bioedca/tether/pulls?state=open"): (200, [{**ready, "draft": True}]),
+            ("GET", "/repos/bioedca/tether/pulls/80"): (200, ready),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    unarmed = json.loads(capsys.readouterr().out)["unarmed"]
+    assert [u["pr"] for u in unarmed] == [80], (
+        "a pull request marked ready since the list page was built was never diagnosed"
+    )
+
+
 def test_doctor_says_it_could_not_read_a_reference_rather_than_omitting_it(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

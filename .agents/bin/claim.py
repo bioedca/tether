@@ -1217,8 +1217,11 @@ def _doctor_unarmed(now: float) -> list[dict[str, Any]]:
     """
     out = []
     for summary in _paginate(f"/repos/{REPO}/pulls?state=open", "open pull requests"):
-        if summary.get("draft"):
-            continue
+        # No filtering from the summary at all - the detail response decides everything. Skipping
+        # here on the list's `draft` left the staleness only half closed: a pull request marked
+        # ready since the list was built was dropped before anything read its current state, so the
+        # very pull request most likely to be finished-and-stranded was the one never diagnosed.
+        # The cost is one detail call per open pull request, which is what a correct answer costs.
         status, pr = _request("GET", f"/repos/{REPO}/pulls/{summary['number']}")
         if status != 200 or not isinstance(pr, dict):
             out.append({"pr": summary["number"], "unreadable": status})
