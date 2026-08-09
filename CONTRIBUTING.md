@@ -370,7 +370,8 @@ schema, locks, CI/release config and the governance text itself (`AGENTS.md`,
 `.claude/**`, `.github/pull_request_template.md`, `.greptile/**`) are material — the
 list is *every file that states a rule*, because a push changing what the gate requires
 must not keep evidence gathered under the old requirement. A material push
-re-arms the review but grants no extra round, and there are **at most two rounds**.
+re-arms the review but grants no extra round, and there are **at most two completed reviews per
+metered provider** (Codex, being unmetered, is uncapped — see below).
 
 Fix blocking findings. Blocking is decided on the **severity axis only**: CodeRabbit
 `Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its badges use the same P-scale as
