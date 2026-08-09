@@ -373,6 +373,39 @@ def test_a_grooming_block_supersedes_a_stale_body_declaration(
     assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
 
 
+def test_a_grooming_block_that_declares_no_autonomy_does_not_fall_back_to_the_body(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A present grooming block is authoritative even when it declares nothing.
+
+    The sibling above establishes that a grooming block supersedes a stale body. That rule had a
+    hole: the source loop skipped a source that yielded no declarations, so a grooming block
+    carrying a `Status:` and no `Autonomy:` fell through to the body — and the body's stale
+    `agent-can-do-alone` admitted the claim. That is precisely the value the grooming pass dropped,
+    governing because it was dropped, which inverts the rule it is supposed to serve.
+
+    Refusing here is the fail-closed reading and it costs little: an issue whose latest grooming
+    pass did not state an autonomy has not stated one, and `_autonomy_refusal` already treats
+    silence as refusal rather than consent. A re-groom corrects it.
+    """
+    body = (
+        "## Execution autonomy\n\nagent-can-do-alone\n\n"
+        "<!-- tether-grooming-v1 -->\n\n"
+        "- **Status:** blocked.\n"
+        "- **Owner:** maintainer\n"
+    )
+    assert claim._grooming_section(body), "fixture is wrong: no grooming block was parsed"
+    routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+    fake = _install(monkeypatch, Fake(routes))
+    with pytest.raises(SystemExit) as exit_info:
+        claim._cmd_claim(_args(issue=7))
+    assert exit_info.value.code == claim.EXIT_INELIGIBLE
+    assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]], (
+        "the stale body declaration the grooming pass dropped created a claim ref"
+    )
+    assert "autonomy" in capsys.readouterr().err.lower()
+
+
 def test_the_refusal_names_the_declared_value_so_a_worker_knows_not_to_retry(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -550,9 +550,13 @@ def _declared_autonomy(body: str) -> list[tuple[str, str]]:
     `## Autonomy` one, a ``- **Autonomy:**`` bullet, and a ``<!-- tether-grooming-v1 -->`` block -
     and they do not always agree, so the order below is the decision.
 
-    **A grooming block wins**, because those blocks exist to restate readiness after the body above
-    them went stale. Reading the body first would let a superseded value admit work the grooming
-    pass had already restricted.
+    **A grooming block wins whenever one is present** - not merely when it happens to declare an
+    autonomy - because those blocks exist to restate readiness after the body above them went
+    stale. Reading the body first would let a superseded value admit work the grooming pass had
+    already restricted, and *falling back* to the body when the block declares nothing is the same
+    failure wearing a different hat: the value the pass dropped would govern because it was
+    dropped. A block that says nothing about autonomy has said nothing, and the caller refuses
+    silence.
 
     **Within one source there is no such precedence, so every declaration in it is returned and the
     caller refuses if any of them does.** This returned only the first match and looked for bullets
@@ -572,24 +576,25 @@ def _declared_autonomy(body: str) -> list[tuple[str, str]]:
     refusing it would bar work that is genuinely ready. The qualifier is kept in the returned label
     so a refusal message can still quote where the value came from.
     """
-    for source, where in ((_grooming_section(body), "grooming block"), (body, "body")):
-        if not source:
-            continue
-        found: list[tuple[str, str]] = []
-        for match in _AUTONOMY_BULLET.finditer(source):
-            qualifier = _normalize_autonomy(match.group("qualifier"))
-            label = f"{where} bullet" + (f" ({qualifier})" if qualifier else "")
-            found.append((match.group("value"), label))
-        # `finditer`, not `search`: a body can carry the heading twice, and taking only the first
-        # hid a second one that restricted the issue behind an admitting first one - the same
-        # first-match-wins defect this function was just fixed for, one level down.
-        for heading in _AUTONOMY_HEADING.finditer(source):
-            lines = [ln.strip() for ln in heading.group(1).split("\n") if ln.strip()]
-            if lines:
-                found.append((lines[0], f"{where} heading"))
-        if found:
-            return found
-    return []
+    grooming = _grooming_section(body)
+    # A grooming block is authoritative **when it is present**, including when it declares no
+    # autonomy at all. Falling through to the body there let the stale value a grooming pass had
+    # dropped govern the claim *because* it was dropped, which inverts the rule this precedence
+    # exists to serve. Silence in the latest pass is silence, and silence already refuses.
+    source, where = (grooming, "grooming block") if grooming else (body, "body")
+    found: list[tuple[str, str]] = []
+    for match in _AUTONOMY_BULLET.finditer(source):
+        qualifier = _normalize_autonomy(match.group("qualifier"))
+        label = f"{where} bullet" + (f" ({qualifier})" if qualifier else "")
+        found.append((match.group("value"), label))
+    # `finditer`, not `search`: a source can carry the heading twice, and taking only the first
+    # hid a second one that restricted the issue behind an admitting first one - the same
+    # first-match-wins defect this function was just fixed for, one level down.
+    for heading in _AUTONOMY_HEADING.finditer(source):
+        lines = [ln.strip() for ln in heading.group(1).split("\n") if ln.strip()]
+        if lines:
+            found.append((lines[0], f"{where} heading"))
+    return found
 
 
 def _grooming_section(body: str) -> str:
@@ -609,9 +614,10 @@ def _autonomy_refusal(body: str) -> str | None:
     """
     declarations = _declared_autonomy(body)
     if not declarations:
+        where = "its grooming block" if _grooming_section(body) else "its body"
         return (
-            "declares no Execution autonomy, so it has not been groomed for agent work. An absent "
-            "declaration is refused rather than assumed - add one to the issue"
+            f"declares no Execution autonomy in {where}, so it has not been groomed for agent "
+            "work. An absent declaration is refused rather than assumed - add one to the issue"
         )
     # Every declaration in the authoritative source must admit. One restrictive line is enough to
     # refuse however many admitting ones sit beside it - the same asymmetry as a single value that
