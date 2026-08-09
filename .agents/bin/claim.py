@@ -1102,6 +1102,12 @@ def _doctor_unarmed(now: float) -> list[dict[str, Any]]:
     Mode C of #326. Every gate the merge asks for is satisfied - not a draft, mergeable, every check
     passing, no auto-merge armed - and the contract's last step, arming it, did not happen. All four
     fields are on the REST pull-request object, so this needs no GraphQL and no new transport.
+
+    **A pull request whose detail call fails is reported, not dropped.** Silently skipping it makes
+    an unreadable pull request indistinguishable from an armed one, which is the same defect as
+    omitting an unreadable blocker in :func:`_doctor_blocked`: the report reads as *nothing is
+    wrong here* when the truth is *nobody looked*. The remedy differs too - a transport failure is
+    retried, a genuinely unarmed pull request is armed - so the two must not print alike.
     """
     out = []
     for summary in _paginate(f"/repos/{REPO}/pulls?state=open", "open pull requests"):
@@ -1109,6 +1115,7 @@ def _doctor_unarmed(now: float) -> list[dict[str, Any]]:
             continue
         status, pr = _request("GET", f"/repos/{REPO}/pulls/{summary['number']}")
         if status != 200 or not isinstance(pr, dict):
+            out.append({"pr": summary["number"], "unreadable": status})
             continue
         if pr.get("auto_merge") or pr.get("mergeable_state") != "clean":
             continue

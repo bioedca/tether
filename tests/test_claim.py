@@ -1601,6 +1601,47 @@ def test_doctor_reports_a_finished_pr_that_nothing_will_ever_merge(
     assert [u["pr"] for u in unarmed] == [50]
 
 
+def test_doctor_reports_a_pull_request_it_could_not_read_rather_than_dropping_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An unreadable pull request must not print the same as an armed one.
+
+    Mode C skipped any pull request whose detail call failed, so a transport failure and a
+    correctly armed pull request produced identical output: absence. That is the defect
+    `test_doctor_says_it_could_not_read_a_reference_rather_than_omitting_it` fixes for Mode B, in
+    the mode that reports what nothing will ever merge — and it is the direction #326 calls out as
+    the costly one, because *nothing is wrong here* is what a maintainer acts on by looking away.
+
+    The remedies differ as well: a failed read is retried, a genuinely unarmed pull request is
+    armed. Reporting them alike sends the reader to the wrong one.
+    """
+    stale = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    pr = {
+        "number": 60,
+        "draft": False,
+        "auto_merge": None,
+        "mergeable_state": "clean",
+        "updated_at": stale,
+        "head": {"sha": HEAD},
+    }
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/pulls?state=open"): (
+                200,
+                [pr, {**pr, "number": 61}, {**pr, "number": 62}],
+            ),
+            ("GET", "/repos/bioedca/tether/pulls/60"): (200, pr),
+            ("GET", "/repos/bioedca/tether/pulls/61"): (404, {}),
+            ("GET", "/repos/bioedca/tether/pulls/62"): (500, {}),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    unarmed = json.loads(capsys.readouterr().out)["unarmed"]
+    assert sorted(u["pr"] for u in unarmed) == [60, 61, 62]
+    assert {u["pr"]: u.get("unreadable") for u in unarmed} == {60: None, 61: 404, 62: 500}
+
+
 def test_doctor_writes_nothing(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
