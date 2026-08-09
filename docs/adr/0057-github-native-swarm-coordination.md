@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0057 — GitHub-native swarm coordination
 
-- **Status:** accepted in part; supersedes [ADR-0052](0052-concurrent-agent-swarm-coordination.md) and [ADR-0053](0053-structured-backlog-intake-gates-swarm-admission.md); its review gate, round cap, launcher and advisory scope guard superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)
+- **Status:** accepted in part; supersedes [ADR-0052](0052-concurrent-agent-swarm-coordination.md) in full and [ADR-0053](0053-structured-backlog-intake-gates-swarm-admission.md) only in its admitting mechanism — ADR-0053’s intake gates remain in force as the claim precondition; its review gate, round cap, launcher and advisory scope guard superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md)
 - **Date:** 2026-07-28
 - **Deciders:** bioedca
 - **PRD anchor:** §12.2–§12.5 (GitHub Flow, reviews, pull requests, issue planning)

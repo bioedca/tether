@@ -295,7 +295,8 @@ problem, not a concurrency problem.
 ### What is removed
 
 `triage.py`, `scope_guard.py`, `swarm_slots.py`, `gate.ps1`, `agent-triage.yml`, `scope-guard.yml`,
-`.agents/tasks/*`, `docs/agents/review.md` and their tests. The labels `agent:round-1`,
+`.agents/tasks/*`, and four of the nine contract pages — `docs/agents/review.md`, `evidence.md`,
+`gates.md` and `tools.md`, folded into `AGENTS.md` — and their tests. The labels `agent:round-1`,
 `agent:round-2`, `agent:review-capped`, `agent:needs-advance` and `agent:gate-blocked`, and the
 `refs/amend-rounds/*` and `refs/lane-advances/*` namespaces. `agent:needs-amend` and
 `agent:conflicted` survive: the reaper both writes and reads them.
