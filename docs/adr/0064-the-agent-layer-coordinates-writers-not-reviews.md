@@ -22,8 +22,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > **Where every number below comes from.** All counts were taken at
 > **`d3fd78ce638a141c7f7402905c6371364bc5cecc`** (`d3fd78c`, 2026-08-07), the commit this record
 > branched from. This is the script. It takes the revision as an argument, so one run gives the
-> before and another the after, and it **fails closed** — an unknown revision or an unexpectedly
-> missing file aborts rather than quietly counting zero:
+> before and another the after. It **fails closed on an unknown revision, and on an unexpectedly
+> missing file in the three explicitly listed sets** — tests, contract and prose — rather than
+> quietly counting a smaller number:
 >
 > ```bash
 > set -euo pipefail
@@ -69,24 +70,30 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > #             test_triage=0 (deleted) | 2186 src/tether/gui/shell.py
 > ```
 >
-> **The allowlist is the whole of the fail-closed claim.** `removed` names the seven paths the cut
-> deletes — three of the ten test modules and four of the nine contract files — and the loop above
-> aborts on any *other* missing path, so `keep` can only ever drop something already declared. That
-> is why one pair of lists gives 991 and 10,407 before and 429 and 3,982 after. `pipefail` matters
+> **The allowlist is the whole of the fail-closed claim, and the claim is narrower than it looks.**
+> `removed` names the seven paths the cut deletes — three of the ten test modules and four of the
+> nine contract files — and the loop above aborts on any *other* missing path in those lists, so
+> `keep` can only ever drop something already declared. That is why one pair of lists gives 991 and
+> 10,407 before and 440 and 4,289 after.
+>
+> **The directory-derived sets are not covered by it, deliberately.** `scripts`, `flows`, `adrs`,
+> `product` and the `.agents/tasks`/`docs/agents` half of `prose` come from `git ls-tree`, which
+> enumerates what a revision *has*: a file deleted there is absent from the listing rather than a
+> missing input, so nothing aborts and the count is simply smaller. That is the correct semantics
+> for measuring a directory whose shrinking **is the subject** — requiring an allowlist there would
+> mean declaring `triage.py` and its three siblings as expected-missing in order to measure the
+> removal of `triage.py` and its three siblings. What is protected is the two lists whose
+> membership is asserted rather than discovered. `pipefail` matters
 > here rather than being boilerplate: without it a failing `git show` inside `count` would be masked
 > by `wc -l` succeeding, and the total would come out quietly short. Checked three ways — a bad
 > revision exits 1, an unexpected missing path exits 1 naming the file, and the two good revisions
 > print the values in the comment.
 >
-> `71ef502` is the head of the branch implementing the cut. It is a branch under review, not an
-> immutable record: **if it changes again before merge, re-run the script against its merge
-> commit** — and it already has once. These figures were first taken at `89f15f29` and read
-> `layer=6448 contract=429`; merging `main` back in afterwards, to absorb the seven autonomy fixes
-> and the corrected contract text, added 447 lines and moved them to `6895` and `434`. The numbers
-> here are the second measurement, not the first, which is the difference between a measured figure
-> and a stale one. That whole column is a weaker claim than the `d3fd78c` one for exactly this
-> reason. One figure is not from this script at all and says so where it is made: the ADR-0052
-> comparison, at `6d53c98`.
+> `71ef502` is the head of the branch implementing the cut — a branch under review, not an
+> immutable record, so **if it changes again before merge, re-run the script against its merge
+> commit.** That whole column is a weaker claim than the `d3fd78c` one for exactly this reason, and
+> §Consequences records what has happened to it so far in one place rather than two. One figure is
+> not from this script at all and says so where it is made: the ADR-0052 comparison, at `6d53c98`.
 >
 > **Three kinds of evidence, and only the first is reproducible from a SHA.** The line counts
 > above are. The **remote-ref and issue-search counts** name their own commands and are as of the
