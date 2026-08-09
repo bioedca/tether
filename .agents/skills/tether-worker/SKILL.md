@@ -32,8 +32,8 @@ Where a command takes `--vendor`, pass your own lane.
 
 1. Confirm the issue number and the terminal condition. Eligibility is a **precondition** of the
    claim, not a consequence: open, `status:ready`, no competing assignee, a body declaring
-   `agent-can-do-alone`, and a maintainer approval bound to the exact title/body snapshot you are
-   about to act on.
+   `agent-can-do-alone` (or the older `agent can complete alone`, which `claim.py` still accepts),
+   and a maintainer approval bound to the exact title/body snapshot you are about to act on.
 2. Take the mutex. One call decides it — `201` is yours, `422` means someone else got there first:
 
    ```sh

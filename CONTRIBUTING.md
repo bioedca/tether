@@ -394,9 +394,12 @@ to say has reviewed, a provider with no budget left has not. Greptile out of cre
 skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because it is the
 gate. Record which and why — and quota is *did not review*, never a pass.
 
-**Two asks per provider, then stop — and an ask is a completed review.** A request that
-produced nothing (a throttle, a quota refusal, a failed run) did not review and does not
-count, which is *quota is did not review* seen from the other side. **Greptile is one
+**Two completed reviews per provider, then stop.** The cap bounds how many times a provider
+is made to *read the diff*, so a request that produced nothing (a throttle, a quota refusal,
+a failed run) is not one of the two — counting those would make the gate unsatisfiable
+exactly when the provider is rate-limiting. It does **not** license a third review, and it
+does not license hammering: honour the retry interval the refusal names, and never
+re-request while the status check reads `pending`. **Greptile is one
 credit in practice**: two is the shared ceiling, not a second credit to plan on, so ask
 again only if the first found something blocking and the seat still has budget. If a third
 pass would be needed, hand the pull
