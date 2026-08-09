@@ -312,9 +312,12 @@ Copilot is optional, while every PR needs substantive independent review request
 checks are green and the diff is declared final. **Every PR walks the same lane,
 cheapest provider first: Codex on the draft, uncapped; then optionally one metered
 Greptile credit if the seat has budget; then CodeRabbit with no actionable comments,
-which is the last gate before merge.** A PR **opened ready** is allowed and skips the
-free draft phase — it pays for that, because with no `ready_for_review` transition to
-count from, every round it has ever taken is a counted one. Record the reason in the PR. Author-side or local review, and status-only
+which is the last gate before merge.** **Open as a draft and get it green there** — every
+required check runs on a draft, so the diff reaches fully green before anyone is asked to
+read it, and that is what makes the sequence affordable rather than a policy nobody keeps.
+Opening ready is not forbidden, but it spends a metered provider on a diff no cheap one has
+seen; the old rationale for allowing it turned on the round counter ADR-0064 retires, so
+what remains is simply that it costs more for nothing. Record the reason in the PR. Author-side or local review, and status-only
 output, do not satisfy it. **Exhaustion is not incapacity** — a provider with no budget
 left has not reviewed: Greptile out of credits is skippable and never blocks, while
 CodeRabbit unavailable freezes the PR.
@@ -391,14 +394,19 @@ to say has reviewed, a provider with no budget left has not. Greptile out of cre
 skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because it is the
 gate. Record which and why — and quota is *did not review*, never a pass.
 
-**Two asks per provider, then stop.** If a third pass would be needed, hand the pull
+**Two asks per provider, then stop — and an ask is a completed review.** A request that
+produced nothing (a throttle, a quota refusal, a failed run) did not review and does not
+count, which is *quota is did not review* seen from the other side. **Greptile is one
+credit in practice**: two is the shared ceiling, not a second credit to plan on, so ask
+again only if the first found something blocking and the seat still has budget. If a third
+pass would be needed, hand the pull
 request to the maintainer with a comment saying why. Nothing counts this for you; the
 merged history is auditable and you are trusted with it. On agent-layer paths
 (`.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules) a
 finding below the severity floor is **dropped rather than tracked**, because there the
 follow-up issue becomes another agent-layer pull request and the loop feeds itself
-(ADR-0064). Human sign-off is required only for releases, tags, signing, and new
-scientific claims.
+(ADR-0064). Human sign-off is required only for releases, tags, signing, and any new
+scientific claim **or citation**.
 
 ## Reporting bugs & security issues
 

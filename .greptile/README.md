@@ -90,5 +90,9 @@ cannot read makes the total **unknown** rather than silently small.
 
 The review lane this configuration serves is specified in [`AGENTS.md`](../AGENTS.md) §Review and
 decided in [ADR-0064](../docs/adr/0064-the-agent-layer-coordinates-writers-not-reviews.md). In
-short: Greptile is optional and metered — asked once on a draft that is already green, and skipped
-without ceremony when the seat has no budget. CodeRabbit, not Greptile, is the gate.
+short: Greptile is optional and metered — asked on a draft that is already green, and skipped
+without ceremony when the seat has no budget. **One credit in practice**: the two-asks-per-provider
+ceiling in `AGENTS.md` §Review applies here as everywhere, but it is a ceiling rather than a second
+credit to plan on, so ask again only if the first found something blocking and the seat still has
+budget. A request that produced no review — a throttle, a quota refusal, a failed run — is not an
+ask and spends nothing. CodeRabbit, not Greptile, is the gate.
