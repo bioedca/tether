@@ -62,9 +62,13 @@ and templates add detail. If they conflict, stop, choose the safe option, and as
   a false clean there is worse than a miss; and `unarmed`, open pull requests that are finished and
   that nothing will merge. It looks up at most **20** mentions per issue and reports the remainder
   as `not_looked_up`, allows a **45-minute** grace before calling a pull request stranded, and
-  reports anything it could not read as `unreadable` rather than omitting it. Every remedy is
-  maintainer authority — post a marker, promote a label, arm someone else's merge — which is why it
-  reports rather than acts.
+  reports anything it could not read as `unreadable` rather than omitting it — **at every level**:
+  a single reference, a single issue, or a whole collection, the last carrying a `collection`
+  field naming which listing failed, so one unreadable query costs its own section and not the
+  report. A held issue whose body contains no `#N` at all reports `unparseable` rather than an
+  empty `mentions`, because an empty set reads as *every dependency resolved* and #326 names
+  that false clean as worse than a miss. Every remedy is maintainer authority — post a marker,
+  promote a label, arm someone else's merge — which is why it reports rather than acts.
 - Each worker owns its own worktree lifecycle — fetch/prune, add/remove, LFS pulls. Keep the root
   `main` worktree clean, and never use repository-wide stash, `git clean -fdx`, destructive reset,
   forced worktree removal, or another owner's branch. Coordinate before editing overlapping files.

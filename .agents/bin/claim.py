@@ -1076,7 +1076,13 @@ def _doctor_ready(owner: str) -> list[dict[str, Any]]:
     reimplementation of a counter from `scope_guard.py` that had drifted from the original three
     separate times. A reporter that disagrees with the gate it reports on is worse than none.
     """
-    issues = _paginate(f"/repos/{REPO}/issues?state=open&labels={REQUIRED_LABEL}", "ready issues")
+    # The COLLECTION read fails the same way a single issue does, and must report the same way.
+    # Letting it raise loses the other two modes with it - the item-level catch below closed
+    # that hole one level down and left this one open.
+    try:
+        issues = _paginate(f"/repos/{REPO}/issues?state=open&labels={REQUIRED_LABEL}", "ready")
+    except ClaimError as exc:
+        return [{"collection": f"{REQUIRED_LABEL} issues", "unreadable": str(exc)}]
     out = []
     for issue in issues:
         if issue.get("pull_request"):
@@ -1145,13 +1151,20 @@ def _doctor_blocked() -> list[dict[str, Any]]:
     """
     issues = []
     seen: set[int] = set()
+    out = []
+    # Each label is read independently: one failing query must not suppress the other, and a
+    # label that could not be read is named rather than silently contributing nothing.
     for label in ("status:blocked", "status:backlog"):
         query = f"/repos/{REPO}/issues?state=open&labels={label}"
-        for issue in _paginate(query, f"{label} issues"):
+        try:
+            found = _paginate(query, f"{label} issues")
+        except ClaimError as exc:
+            out.append({"collection": f"{label} issues", "unreadable": str(exc)})
+            continue
+        for issue in found:
             if issue["number"] not in seen:
                 seen.add(issue["number"])
                 issues.append(issue)
-    out = []
     for issue in issues:
         if issue.get("pull_request"):
             continue
@@ -1182,6 +1195,14 @@ def _doctor_blocked() -> list[dict[str, Any]]:
             else:
                 unreadable.append(ref)
         record = {"issue": issue["number"], "mentions": states}
+        # An empty `mentions` is ambiguous and must not be left so: it is what a body naming
+        # NO issue number produces, and also what a body whose every named blocker has closed
+        # would produce if the states dict were filtered. #326 names #261 as an issue whose
+        # Dependencies section is prose with no `#N` at all, and says a false "unblocked" is
+        # worse than a miss - so the case where nothing could be parsed says so in as many
+        # words rather than rendering as an empty set an operator will read as "all clear".
+        if not mentioned:
+            record["unparseable"] = "no #N reference in the body"
         if unreadable:
             record["unreadable"] = unreadable
         if len(mentioned) > MENTION_CAP:
@@ -1216,7 +1237,11 @@ def _doctor_unarmed(now: float) -> list[dict[str, Any]]:
     off this check stops carrying that meaning, which is why the dependency is written down here.
     """
     out = []
-    for summary in _paginate(f"/repos/{REPO}/pulls?state=open", "open pull requests"):
+    try:
+        summaries = _paginate(f"/repos/{REPO}/pulls?state=open", "open pull requests")
+    except ClaimError as exc:
+        return [{"collection": "open pull requests", "unreadable": str(exc)}]
+    for summary in summaries:
         # No filtering from the summary at all - the detail response decides everything. Skipping
         # here on the list's `draft` left the staleness only half closed: a pull request marked
         # ready since the list was built was dropped before anything read its current state, so the

@@ -1725,6 +1725,74 @@ def test_doctor_never_says_unblocked_and_only_reports_what_it_can_see(
     assert blocked == [{"issue": 9, "mentions": {"1": "closed", "2": "open"}}]
 
 
+def test_doctor_reports_an_unreadable_collection_instead_of_printing_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The three collection reads fail the same way one issue does, and must report the same way.
+
+    Catching the per-issue comments walk closed this hole one level down and left it open one level
+    up: a failed `status:ready` listing, label query or pull-request listing still propagated out of
+    `_cmd_doctor` and printed nothing. Each of the three is now caught where it is made, so a
+    failure costs its own section and nothing else.
+
+    Asserted one collection at a time, because a single test that broke all three would pass
+    against a version that only caught the first.
+    """
+    collections = {
+        "ready": "/repos/bioedca/tether/issues?state=open&labels=status:ready",
+        "blocked": "/repos/bioedca/tether/issues?state=open&labels=status:blocked",
+        "unarmed": "/repos/bioedca/tether/pulls?state=open",
+    }
+    for section, route in collections.items():
+        _doctor(monkeypatch, {("GET", route): (500, {"message": "server error"})})
+        claim._cmd_doctor(_args(owner="bioedca"))
+        report = json.loads(capsys.readouterr().out)
+        assert set(report) >= {"ready", "blocked", "unarmed"}, (
+            f"{section}: one unreadable collection suppressed the whole report"
+        )
+        assert any("unreadable" in r for r in report[section]), (
+            f"{section}: the failure was not reported"
+        )
+        others = [k for k in ("ready", "blocked", "unarmed") if k != section]
+        for other in others:
+            assert not any(
+                r.get("collection", "").startswith(("status:", "open pull")) and "unreadable" in r
+                for r in report[other]
+            ), f"{section} failing marked {other} unreadable too"
+
+
+def test_doctor_says_a_dependency_section_was_unparseable_rather_than_empty(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`"mentions": {}` is ambiguous, and the ambiguity points the wrong way.
+
+    A body naming no `#N` produced an empty set, which an operator reads as *every dependency is
+    resolved* — the false-clean direction #326 names as worse than a miss. It cites #261 as an
+    issue whose Dependencies section is prose with no issue number in it at all, so this is the
+    corpus's own case rather than a hypothetical.
+
+    The report now says `unparseable` in as many words. It still adjudicates nothing: it reports
+    that it could not find a reference, not that there is no dependency.
+    """
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:blocked"): (
+                200,
+                [{"number": 12, "body": "Blocked by the review-gate rewrite.", "title": "prose"}],
+            ),
+            ("GET", "/repos/bioedca/tether/issues/12/comments"): (200, []),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    blocked = {b["issue"]: b for b in json.loads(capsys.readouterr().out)["blocked"]}
+    assert 12 in blocked, "the issue was dropped"
+    assert blocked[12]["mentions"] == {}, "nothing was parseable, so nothing should be reported"
+    assert "unparseable" in blocked[12], (
+        "an unparseable dependency section rendered as an empty set, which reads as all-clear"
+    )
+
+
 def test_doctor_survives_a_ready_issue_whose_comments_cannot_be_read(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
