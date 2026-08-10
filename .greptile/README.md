@@ -90,7 +90,7 @@ cannot read makes the total **unknown** rather than silently small.
 
 The review lane this configuration serves is specified in [`AGENTS.md`](../AGENTS.md) §Review and
 decided in [ADR-0064](../docs/adr/0064-the-agent-layer-coordinates-writers-not-reviews.md). In
-short: Greptile is optional and metered — asked after Codex, on a draft that is already green, and
+short: Greptile is optional and metered — asked after Codex, on a diff that is already green, and
 skipped without ceremony when the seat has no budget. Draft-first is the default rather than a
 precondition: a pull request opened ready with its reason recorded is asked there, at the same point
 in the lane and on the same green checks. What does not change either way is the order — Codex

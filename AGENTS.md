@@ -11,7 +11,10 @@ templates add detail. If they conflict, stop, choose the safe option, and ask.
 
 Two pages remain outside this file, and both are *conditional* — read them only when you are about
 to do the thing they govern: [`docs/agents/adr.md`](docs/agents/adr.md) before adding an ADR, and
-[`docs/agents/hpc.md`](docs/agents/hpc.md) before touching a cluster.
+[`docs/agents/hpc.md`](docs/agents/hpc.md) before touching a cluster. The **`tether-worker`** skill
+is conditional in the same way and required for work-item work (§Outcome and authority): it carries
+the peer-worker procedure — claim, worktree, handoff — and by its own first line neither restates
+nor relaxes anything here.
 
 **`<py>` is your lane's interpreter — `python3` in WSL bash, `python` in native PowerShell.** Naming
 one of them in this file would strand the other lane, so every command below writes `<py>` and you
@@ -141,11 +144,13 @@ validity turns on it being the right test — must satisfy both.
   reaches fully green before anyone is asked to read it. Opening ready is **not forbidden** but is
   never free: it spends a metered provider on a diff no unmetered one has read, so record the
   reason in the PR.
-- **The lane is cheapest provider first, and the order is the point.** On the green draft,
-  **Codex** — unmetered, so uncapped — until it surfaces nothing blocking. Then **optionally one
-  Greptile credit**, if the seat has budget. Then ready-for-review, and **CodeRabbit last**. Codex
-  is not optional: it is what makes the metered providers affordable, and skipping it is the same
-  spend as opening ready. Record each leg in the PR.
+- **The lane is cheapest provider first, and the order is the point.** On the green diff — the
+  draft by default, or the ready PR whose reason is recorded — **Codex** first, unmetered and so
+  uncapped, until it surfaces nothing blocking. Then **optionally one Greptile review**, if the
+  seat has budget: a *review*, since a standard one costs a credit and a TREX one three. Then
+  ready-for-review if it is not already, and **CodeRabbit last**. Codex is not optional: it is what
+  makes the metered providers affordable, and skipping it is the same spend as opening ready.
+  Record each leg in the PR.
 - **Review evidence survives a non-material push, so answering findings does not restart the
   gate.** **The non-material list is a set of exceptions and it wins**, so a change touching a
   material path is still non-material when the change itself is one of them: merging `main` in
@@ -187,7 +192,7 @@ validity turns on it being the right test — must satisfy both.
   They accept bug fixes and safety fixes only; a capability change needs a maintainer-opened issue
   and may not originate in a review finding.
 - **Two completed reviews per METERED provider, then stop.** The cap bounds how many times a
-  provider whose reads cost money or quota is made to *read the diff*, so **Codex on the draft is
+  provider whose reads cost money or quota is made to *read the diff*, so **Codex is
   uncapped** — it is unmetered, and throttling it bought nothing but slower convergence.
   Otherwise **a request that produced no review is not one of the two** — a
   throttle, a quota refusal or a failed run reviewed nothing, which is the same rule — a refusal

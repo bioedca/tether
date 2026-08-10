@@ -11,8 +11,8 @@ Tether is currently maintained **solo (account `bioedca`) with CI and a fixed
 review lane as merge gates**: branch protection on `main` requires
 green required CI plus a self-review checklist on every PR, while `AGENTS.md`
 requires a substantive final-head review on one fixed lane, cheapest provider first:
-**Codex on the draft until nothing blocking remains, then optionally one metered
-Greptile credit, then CodeRabbit with no actionable comments before merge.**
+**Codex on the green diff until nothing blocking remains, then optionally one metered
+Greptile review, then CodeRabbit with no actionable comments before merge.**
 Copilot is advisory only and never satisfies a leg. The ruleset still requires zero GitHub approval
 reviews; load-bearing changes additionally need any qualified human/domain judgment
 specified in `AGENTS.md`. This scales to required human reviews + `CODEOWNERS` if
@@ -310,9 +310,10 @@ is what PRD §12.8 recommends for a solo maintainer — and is gated by a separa
 every check is green. Classify the final diff before merge and follow `AGENTS.md`:
 Copilot is optional, while every PR needs substantive independent review requested once
 checks are green and the diff is declared final. **Every PR walks the same lane,
-cheapest provider first: Codex on the draft, uncapped; then optionally one metered
-Greptile credit if the seat has budget; then CodeRabbit with no actionable comments,
-which is the last gate before merge.** **Open as a draft and get it green there** — every
+cheapest provider first: Codex on the green diff, uncapped — the draft by default, or the
+ready PR whose reason is recorded; then optionally one metered Greptile **review** if the
+seat has budget, a review being one credit as a standard and three as a TREX; then
+CodeRabbit with no actionable comments, which is the last gate before merge.** **Open as a draft and get it green there** — every
 required check runs on a draft, so the diff reaches fully green before anyone is asked to
 read it, and that is what makes the sequence affordable rather than a policy nobody keeps.
 Opening ready is not forbidden, but it spends a metered provider on a diff no cheap one has
@@ -400,7 +401,7 @@ skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because i
 gate. Record which and why — and a quota refusal means the provider **did not review**, and never counts as a pass.
 
 **Two completed reviews per metered provider, then stop.** The cap bounds how many times a
-provider whose reads cost money or quota is made to *read the diff*, so **Codex on the draft
+provider whose reads cost money or quota is made to *read the diff*, so **Codex
 is uncapped** — it is unmetered, which is the whole reason it goes first. Otherwise a request that produced nothing (a throttle, a quota refusal,
 a failed run) is not one of the two — counting those would make the gate unsatisfiable
 exactly when the provider is rate-limiting. It does **not** license a third review, and it

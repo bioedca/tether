@@ -1056,12 +1056,15 @@ becomes the squash commit and feeds the changelog. CodeQL remains enforced throu
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
 `AGENTS.md` §Review, recorded in ADR-0064: every PR requires substantive independent review, and the providers are
 spent **cheapest first** rather than routed by risk. **Open as a draft** — opening ready is permitted but must record its reason, since it spends a metered provider on a diff no unmetered one has read — every required check runs on a draft, so the
-diff reaches green before anything metered is asked. Then **Codex on that green draft, uncapped**, until it surfaces
-nothing blocking — it is the free provider, and throttling it bought nothing but slower convergence. Then **optionally
-one Greptile credit**, if the seat has budget; then ready-for-review; then **CodeRabbit with no actionable comments,
+diff reaches green before anything metered is asked. Then **Codex on that green diff, uncapped** — the draft by default,
+or the ready PR whose reason is recorded, since what the order protects is that no metered provider reads a diff Codex
+has not — until it surfaces
+nothing blocking; it is the free provider, and throttling it bought nothing but slower convergence. Then **optionally
+one Greptile review**, if the seat has budget — a *review*, not a credit, since a standard one costs one credit and a
+TREX one three; then ready-for-review if it is not already; then **CodeRabbit with no actionable comments,
 which is the last gate before merge**. The round
 ledger that used to count this is gone — ADR-0064 retired it along with the launcher that consumed it, leaving **two
-asks per METERED provider** as a convention a worker keeps rather than a counter that publishes labels — **Codex on the draft is
+asks per METERED provider** as a convention a worker keeps rather than a counter that publishes labels — **Codex is
 uncapped**, being unmetered. The cap bounds how many times a provider whose reads cost money or quota is made to **read the
 diff**, so a request that produced
 nothing — a throttle, a quota refusal, a failed run — is not one of the two; counting those would make the gate
