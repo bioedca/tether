@@ -372,6 +372,24 @@ _METRICS = (
 #: The kinSoft level-3 rate matrix, in the order the page prints it.
 _LEVEL3_RATES = ("k12", "k14", "k21", "k23", "k32", "k41")
 
+#: ``kbright=7 s^-1`` inside the level-3 ``note``, keyed on the name.
+_BLINKING_RE = r"\b{name}\s*=\s*([0-9.]+)"
+
+
+def _blinking_rate(name: str) -> object:
+    """``kbright`` / ``kdark`` as the level-3 ``note`` records them.
+
+    These two are the one pair the artifact keeps inside free text — *"blinking kbright=7
+    s^-1, kdark=0.007 s^-1"* — rather than as fields of ``rates_s_inv``, so they are read
+    with a regex bounded to the key name instead of a pointer. Restating the literal here
+    would make the pin assert the test's own copy of the number, and a pin that reads
+    nothing is prose.
+    """
+    note = str(at(KINSOFT, "$.levels.level3.ground_truth.note"))
+    match = re.search(_BLINKING_RE.format(name=name), note)
+    assert match, f"the level-3 note no longer records `{name}=`; re-read it before pinning"
+    return ast.literal_eval(match.group(1))
+
 
 def _registry() -> list[Pin]:
     pins: list[Pin] = []
@@ -653,9 +671,12 @@ def _registry() -> list[Pin]:
         Prose(_KINSOFT_SECTION, rates3, rate, f"{rates3}.{rate}", at(KINSOFT, f"{rates3}.{rate}"))
         for rate in _LEVEL3_RATES
     ]
+    note = "$.levels.level3.ground_truth.note"
     pins += [
-        Quote(_KINSOFT_SECTION, rates3, f"`{name}` {{}} s⁻¹", f"$.levels.level3 {name}", value)
-        for name, value in (("kbright", 7), ("kdark", 0.007))
+        Quote(
+            _KINSOFT_SECTION, rates3, f"`{name}` {{}} s⁻¹", f"{note} {name}", _blinking_rate(name)
+        )
+        for name in ("kbright", "kdark")
     ]
 
     return pins
@@ -876,6 +897,13 @@ def _mutate(section: str, old: str, new: str) -> str:
             "k32 0.680",
             "k32 0.690",
             "$.levels.level3.ground_truth.rates_s_inv.k32",
+        ),
+        # A blinking rate, which is the one pair read out of the artifact's free text.
+        (
+            _KINSOFT_SECTION,
+            "`kbright` 7 s⁻¹",
+            "`kbright` 8 s⁻¹",
+            "$.levels.level3.ground_truth.note kbright",
         ),
     ],
 )
