@@ -386,40 +386,6 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None) -> tupl
         raise ClaimError(f"the GitHub API answer could not be read ({type(exc).__name__})") from exc
 
 
-def _graphql(query: str, variables: dict[str, Any], what: str) -> dict[str, Any]:
-    """Run one GraphQL query and return ``data``. Raises ``ClaimError`` on anything else.
-
-    A second query path exists because a few facts are simply **not on REST**. The first is review
-    *thread resolution* (#393): ``/pulls/{n}/comments`` carries the comment but never whether its
-    thread was resolved, so the only mechanism the contract prescribes for a non-blocking finding —
-    reply, resolve, link a follow-up, do not push — was invisible to ``triage.py``, which therefore
-    kept owing an AMEND forever.
-
-    Deliberately thin. It shares ``_token`` and ``_ssl_context`` with :func:`_request`, so the
-    ADR-0061 transport behaviour — including ``TETHER_ALLOW_NONSTRICT_X509`` and the transport-vs-
-    verdict distinction #388 turns on — is the same code and not a second copy of it.
-
-    **GraphQL answers 200 with an ``errors`` array**, so an unchecked caller reads a failed query as
-    an empty result. That is the fail-open direction for every use this has, and it is why this
-    raises rather than returning a status: the caller decides what an unreadable answer means, and
-    cannot do that if the failure looks like data.
-    """
-    status, payload = _request("POST", "/graphql", {"query": query, "variables": variables})
-    if status != 200 or not isinstance(payload, dict):
-        raise ClaimError(f"{what} could not be read (HTTP {status})")
-    if payload.get("errors"):
-        messages = "; ".join(
-            str(error.get("message", error))
-            for error in payload["errors"]
-            if isinstance(error, dict)
-        )
-        raise ClaimError(f"{what} could not be read: {messages or 'GraphQL reported an error'}")
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        raise ClaimError(f"{what} returned no data")
-    return data
-
-
 def _paginate(path: str, what: str) -> list[Any]:
     """Walk every page of a list endpoint.
 

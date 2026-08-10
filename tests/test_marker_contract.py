@@ -535,7 +535,7 @@ def _steps(text: str) -> list[dict]:
     A parser tells a step's ``uses`` key from a string that merely looks like one, which no
     regex over the same text can. ``yaml`` is on the base 3-OS ``test`` matrix already --
     ``test_issue_forms``, ``test_docs_prd_pointers``, ``test_citation_metadata``,
-    ``test_scope_guard`` and ``test_triage`` all import it -- so this costs no dependency.
+    the surviving agent suites all import it -- so this costs no dependency.
     """
     workflow = yaml.safe_load(text)
     return [

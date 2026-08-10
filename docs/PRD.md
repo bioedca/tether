@@ -1054,19 +1054,30 @@ Small, **milestone-scoped** PRs are the unit of work (ideally one issue ↔ one 
 as a **draft PR** and cannot merge. The PR title is a Conventional-Commits string (§12.2) — it
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
-`AGENTS.md` review lane, specified in `docs/agents/review.md` and recorded in ADR-0062: every PR requires substantive
-independent review, and the providers are spent **cheapest first** rather than routed by risk. **Open as a draft** —
-every required check runs on a draft, so the diff reaches green before anything metered is asked. **Codex iterates on
-the draft, uncapped**, until nothing blocking remains; then **optionally one Greptile credit**, if the seat has budget;
-then ready-for-review, where the two-round cap begins — counting **metered providers only**, so Codex remains uncounted
-after the transition as well as before it; then **CodeRabbit with no actionable comments, which is the last
-gate before merge**. Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
+`AGENTS.md` §Review, recorded in ADR-0064: every PR requires substantive independent review, and the providers are
+spent **cheapest first** rather than routed by risk. **Open as a draft** — opening ready is permitted but must record its reason, since it spends a metered provider on a diff no unmetered one has read — every required check runs on a draft, so the
+diff reaches green before anything metered is asked. Then **Codex on that green diff, uncapped** — the draft by default,
+or the ready PR whose reason is recorded, since what the order protects is that no metered provider reads a diff Codex
+has not — until it surfaces
+nothing blocking; it is the free provider, and throttling it bought nothing but slower convergence. Then **optionally
+one Greptile review**, if the seat has budget — a *review*, not a credit, since a standard one costs one credit and a
+TREX one three; then ready-for-review if it is not already; then **CodeRabbit with no actionable comments,
+which is the last gate before merge**. The round
+ledger that used to count this is gone — ADR-0064 retired it along with the launcher that consumed it, leaving **at most
+two completed reviews per metered provider** as a convention a worker keeps rather than a counter that publishes
+labels — **Codex is
+uncapped**, being unmetered. The cap bounds how many times a provider whose reads cost money or quota is made to **read the
+diff**, so a request that produced
+nothing — a throttle, a quota refusal, a failed run — is not one of the two; counting those would make the gate
+unsatisfiable exactly when the provider is rate-limiting. It licenses neither a third review nor hammering: the retry
+interval a refusal names **shall** be honoured. Greptile is **one *review* in practice**, and a review is not always one credit — a standard review costs one and a TREX review three. Two is the shared ceiling, not a second review
+to plan on. Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
 no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
 **Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
-works in, one per completed review; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
-leg, and a quota refusal from it is *did not review*, not a pass. Exhaustion and incapacity differ: Greptile out of
+works in, billed per **completed review** — one credit for a standard review, **three for a TREX** one; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
+leg, and a quota refusal from it means the provider **did not review**, never a pass. Exhaustion and incapacity differ: Greptile out of
 credits is skippable, CodeRabbit unavailable **freezes the PR** — though a fair-use refusal that names a retry time
-is a **wait**, not unavailability, and a request that produced no review has not spent the one-per-round allowance.
+is a **wait**, not unavailability, and a request that produced no review is not one of the two completed reviews.
 Author-side/local review and a green or status-only
 result do not satisfy the gate. **No provider auto-reviews this repository** — CodeRabbit reports auto reviews
 disabled, Greptile is held by `.greptile/config.json`'s `skipReview: "AUTOMATIC"`, and Codex fires only on
@@ -1077,28 +1088,20 @@ step recorded as spent, never discarded as unsolicited.
 
 Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
 rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
-non-material, while executable code, scientific claims, data, schema, locks, CI/release configuration and the
-governance text itself (`AGENTS.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`, `.agents/**`,
-`docs/agents/**`) are material. A material push re-arms the review but grants **no additional round**, and a PR gets
-**at most two blocking rounds plus one convergence check** — needing a third *blocking* round means the issue was
-scoped too large. A convergence check that itself finds blocking work takes the count past the cap: that third count
-records **failed convergence** and publishes `agent:gate-blocked`, and it issues no third AMEND session — the lane
-stops for the maintainer rather than continuing. Under the swarm model the **launcher issues rounds**: a
-worker is short-lived, every AMEND is a new session whose task text the launcher injects with an explicit
-`ROUND = N of 2`, and past the cap it injects none — so no worker holds authority for a third. A **round** is a
-metered review that produced blocking output, and one that finds nothing costs nothing — without which the mandatory
-CodeRabbit gate and the two-round cap contradict each other and a PR can sit green, correct and unmergeable. Costing
-nothing and *satisfying the gate* are separate, and only one of them is provider-blind: any clean metered review is
-free, while the gate is **CodeRabbit at the current head**, because that is the review ADR-0062 makes mandatory and
-Greptile is the optional leg whose exhaustion never blocks. Two things are stop-list violations rather than judgement
-calls: more than one self-review pass before the first external request, and a review request on a PR labelled
-`agent:review-capped` **beyond the single convergence review** that state permits — everything answered, everything
-pushed, one final CodeRabbit review — requested by the **ADVANCE** session triage dispatches next, not by the AMEND
-session that answered the round, because only the former holds the `refs/lane-advances/` compare-and-swap that turns
-any number of launchers into a single request. What that allowance counts is a review that **completed**, on the same
-rule as the one-per-round limit above: a request the provider refused or dropped produced nothing and so spent
-nothing, and the retry is a wait. A second *completed* convergence review, or any request while `agent:gate-blocked`
-is present, is the violation.
+non-material — and those exceptions WIN over the material paths, which is what lets an ADR renumber-only change keep its review evidence — while executable code, scientific claims, data, schema, locks, CI/release configuration and the
+governance text itself (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`,
+`.agents/**`, `docs/agents/**`, `.claude/**`, `.github/pull_request_template.md` and
+`.greptile/**`) are material — the list is *every file that states a rule*, because a push that
+changes what the gate requires must not keep evidence gathered under the old requirement. A material push re-arms the review, and a PR gets **at most two completed reviews per metered provider**, Codex being unmetered and uncapped —
+needing a third means the issue was scoped too large, and the lane stops for the maintainer rather than continuing.
+
+That bound is a **convention a worker keeps, not a counter that publishes labels.** ADR-0064 retired the round ledger,
+the `agent:round-*` / `agent:review-capped` / `agent:gate-blocked` labels and the launcher that consumed them, after
+`git ls-remote` showed the launcher had issued **one** review round in its life and the advance half none at all: the
+mechanism the cap was said to rest on had never run, so the cap was already a convention and only the bookkeeping was
+real. What replaces it is the property that made it enforceable in the first place — a worker is short-lived — plus
+each vendor's own ceiling, and a merged history that is auditable after the fact. A quota refusal from any provider means the provider
+**did not review**, and never counts as a pass.
 
 Blocking is decided on the **severity axis only**: CodeRabbit `Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its
 badges use the same P-scale as Codex, so they map straight across, and a review the seat paid a credit for must not be
