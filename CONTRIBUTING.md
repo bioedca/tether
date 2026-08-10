@@ -11,8 +11,8 @@ Tether is currently maintained **solo (account `bioedca`) with CI and a fixed
 review lane as merge gates**: branch protection on `main` requires
 green required CI plus a self-review checklist on every PR, while `AGENTS.md`
 requires a substantive final-head review on one fixed lane, cheapest provider first:
-**Codex on the draft until nothing blocking remains, then optionally one metered
-Greptile credit, then CodeRabbit with no actionable comments before merge.**
+**Codex on the green diff until nothing blocking remains, then optionally one metered
+Greptile review, then CodeRabbit with no actionable comments before merge.**
 Copilot is advisory only and never satisfies a leg. The ruleset still requires zero GitHub approval
 reviews; load-bearing changes additionally need any qualified human/domain judgment
 specified in `AGENTS.md`. This scales to required human reviews + `CODEOWNERS` if
@@ -266,9 +266,8 @@ Before requesting review / merging, confirm:
       one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing), and the
       opening of its body. **A review of any earlier head does not qualify, however clean it was** —
       answering a finding moves the head, so that review is evidence about a diff this one is no
-      longer. `docs/agents/review.md` §4 states what counts as
-      that evidence and, in particular, why the clean verdict is written by the
-      `Actionable comments posted:` line being **absent** rather than reading `0`. Neither silence
+      longer. The clean verdict is written by the `Actionable comments posted:` line being
+      **absent** rather than reading `0`. Neither silence
       nor a green `CodeRabbit` status check is the gate; both are also what a request that reviewed
       **nothing** leaves behind (see the full-review command below). Greptile is optional, and its absence
       for want of credits is recorded rather than excused as a review. Blocking
@@ -283,8 +282,7 @@ addressed **and all required CI checks are green** — wait for in-progress chec
 **never merge over a red or pending check**.
 
 Automated agents are peers, not a hierarchy: each claims one issue, opens one **draft**
-PR, opens the review lane on it, and **hands off and exits** rather than waiting on a
-reviewer. There is no coordinator. Auto-merge is armed at the **end** of the lane, and
+PR, gets it reviewed, and **hands off or merges** rather than sitting and polling. There is no coordinator. Auto-merge is armed at the **end** of the lane, and
 completing the lane is **not by itself authority to arm it** — `AGENTS.md` requires
 explicit per-PR merge authority, which is a separate grant that no amount of green
 checks confers. Arming it on a draft would merge the PR past the mandatory CodeRabbit
@@ -292,8 +290,8 @@ gate, since that gate is not a required check. The merge is bound to the head th
 `gh pr merge N --auto --squash --match-head-commit <SHA>` — that guard is what stands in
 for the merge queue, which needs an organization-owned repository and so is unavailable
 here. **`<SHA>` is the 40-hex head the clean review read, never the head re-read while
-arming** — `docs/agents/review.md` §Merge is the rule, including why re-reading it makes
-the guard always pass.
+arming** — `AGENTS.md` §Review is the rule, including why re-reading it makes the guard
+always pass.
 
 The `main-baseline` ruleset requires these **11** status checks:
 
@@ -312,11 +310,15 @@ is what PRD §12.8 recommends for a solo maintainer — and is gated by a separa
 every check is green. Classify the final diff before merge and follow `AGENTS.md`:
 Copilot is optional, while every PR needs substantive independent review requested once
 checks are green and the diff is declared final. **Every PR walks the same lane,
-cheapest provider first: Codex on the draft, uncapped; then optionally one metered
-Greptile credit if the seat has budget; then CodeRabbit with no actionable comments,
-which is the last gate before merge.** A PR **opened ready** is allowed and skips the
-free draft phase — it pays for that, because with no `ready_for_review` transition to
-count from, every round it has ever taken is a counted one. Record the reason in the PR. Author-side or local review, and status-only
+cheapest provider first: Codex on the green diff, uncapped — the draft by default, or the
+ready PR whose reason is recorded; then optionally one metered Greptile **review** if the
+seat has budget, a review being one credit as a standard and three as a TREX; then
+CodeRabbit with no actionable comments, which is the last gate before merge.** **Open as a draft and get it green there** — every
+required check runs on a draft, so the diff reaches fully green before anyone is asked to
+read it, and that is what makes the sequence affordable rather than a policy nobody keeps.
+Opening ready is not forbidden, but it spends a metered provider on a diff no cheap one has
+seen; the old rationale for allowing it turned on the round counter ADR-0064 retires, so
+what remains is simply that it costs more for nothing. Record the reason in the PR. Author-side or local review, and status-only
 output, do not satisfy it. **Exhaustion is not incapacity** — a provider with no budget
 left has not reviewed: Greptile out of credits is skippable and never blocks, while
 CodeRabbit unavailable freezes the PR.
@@ -342,8 +344,8 @@ reads a great deal like a review that found nothing.
 CodeRabbit's fair-use limit is **adaptive**: several reviews in one sitting drop the
 seat to a per-interval allowance, and the refusal names when the next included review
 is due. That is a **wait**, not unavailability — wait it out and ask again, which
-spends neither a round nor the one-request-per-round allowance, since a request that
-produced no review has not been spent. It also offers to proceed through usage-based
+spends nothing against the two-completed-reviews ceiling, since a request that
+produced no review is not one of the two. It also offers to proceed through usage-based
 billing; that is the maintainer's spending decision, never a worker's. Pace review
 requests rather than batching them.
 
@@ -363,10 +365,15 @@ quoting a trigger while describing it spends a real review. Break the handle, or
 
 Review evidence **survives a non-material push**, so addressing findings does not
 restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
-renumbering are all non-material, while executable code, scientific claims, data,
-schema, locks, CI/release config and the governance text itself (`AGENTS.md`, this
-file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`) are material. A material push
-re-arms the review but grants no extra round, and there are **at most two rounds**.
+renumbering (renumber-only — touching a word of the decision is not) are all non-material, and
+that exception list WINS over the material paths below, while executable code, scientific claims, data,
+schema, locks, CI/release config and the governance text itself (`AGENTS.md`,
+`CLAUDE.md`, this file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`,
+`.claude/**`, `.github/pull_request_template.md`, `.greptile/**`) are material — the
+list is *every file that states a rule*, because a push changing what the gate requires
+must not keep evidence gathered under the old requirement. A material push
+re-arms the review but raises no ceiling: there are **at most two completed reviews per
+metered provider** however many pushes precede them (Codex, being unmetered, is uncapped — see below).
 
 Fix blocking findings. Blocking is decided on the **severity axis only**: CodeRabbit
 `Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its badges use the same P-scale as
@@ -385,30 +392,38 @@ two axes and left every `Minor` ambiguous.
 
 Defer everything else to **one** follow-up issue per PR and resolve the thread with a
 link; do not fix non-blocking findings in the same PR, and never point a deferral at an
-issue that does not exist. **On agent-layer paths that rule inverts and a sub-floor
-finding is dropped rather than tracked** (ADR-0064) — the paths are `.agents/`,
-`docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules. Reply `Noted; below
-the floor on an agent-layer path and not tracked (ADR-0064)` and resolve the thread.
-Blocking findings are unaffected. The reason is that only there does the output feed back
-into the input: a follow-up issue on an agent-layer PR becomes another agent-layer PR,
-which re-enters this same lane, producing more sub-floor findings. **Those paths are also
-feature-complete**: they take bug and safety fixes only, so a capability change needs a
-maintainer-opened issue and may never originate in a review finding — dropping the
-sub-floor finding without that rule still leaves a reviewer able to commission new agent
-machinery through the deferral above. `docs/agents/review.md` carries the full rule; this
-paragraph exists so the two pages cannot be read as disagreeing. If a **selected** provider reports nothing to review at the
+issue that does not exist. On agent-layer paths that rule inverts and the finding is
+dropped rather than tracked, which is stated in full below; **those same paths are also
+feature-complete** (ADR-0064) — they take bug and safety fixes only, so a capability
+change needs a maintainer-opened issue and may never originate in a review finding.
+Dropping the sub-floor finding without that second rule would still leave a reviewer able
+to commission new agent machinery through the deferral above. If a **selected** provider reports nothing to review at the
 head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is its documented
 "no suggestions" — that satisfies its leg; quote it. A statement from the author, or from
 any other commenter, never does. **Exhaustion is not incapacity**: a provider with nothing
 to say has reviewed, a provider with no budget left has not. Greptile out of credits is
 skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because it is the
-gate. Record which and why — capability, never quota. There are **at most two rounds**
-after the PR goes ready, counted against **metered providers only** — draft-phase Codex
-is uncounted, and so is Codex after the PR goes ready. Under the swarm model the
-launcher issues those rounds: do not request one yourself on a PR labelled
-`agent:review-capped`, and past the cap the launcher injects no task at all, so no
-worker ever holds authority for a third. Human sign-off is required
-only for releases, tags, signing, and new scientific claims.
+gate. Record which and why — and a quota refusal means the provider **did not review**, and never counts as a pass.
+
+**Two completed reviews per metered provider, then stop.** The cap bounds how many times a
+provider whose reads cost money or quota is made to *read the diff*, so **Codex
+is uncapped** — it is unmetered, which is the whole reason it goes first. Otherwise a request that produced nothing (a throttle, a quota refusal,
+a failed run) is not one of the two — counting those would make the gate unsatisfiable
+exactly when the provider is rate-limiting. It does **not** license a third review, and it
+does not license hammering: honour the retry interval the refusal names, and never
+re-request while the status check reads `pending`. **Greptile is one *review* in practice**, and a review is not always one
+credit — a standard review costs one, a TREX review three. Two is the shared ceiling, not a second review to plan on, so ask
+again only if the first found something blocking and the seat still has budget. If a third
+pass would be needed, hand the pull
+request to the maintainer with a comment saying why. Nothing counts this for you; the
+merged history is auditable and you are trusted with it. On agent-layer paths
+(`.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules) a
+finding below the severity floor is **dropped rather than tracked**, because there the
+follow-up issue becomes another agent-layer pull request and the loop feeds itself
+(ADR-0064). Dropped is not silent: reply on the thread in the wording `AGENTS.md`
+§Review gives, and resolve it — untracked and unanswered are different things, and only
+the reply leaves the decision on the record. Human sign-off is required only for releases, tags, signing, and any new
+scientific claim **or citation**.
 
 ## Reporting bugs & security issues
 

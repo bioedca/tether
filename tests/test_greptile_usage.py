@@ -5,7 +5,7 @@
 `tests/test_greptile_config.py` already pins the configuration that stops Greptile firing unasked.
 This file covers the other half: the number a worker is told to read before spending a credit.
 
-An earlier draft of this file asserted phrases and their textual order in `docs/agents/review.md`.
+An earlier draft of this file asserted phrases and their textual order in the review-gate prose.
 Codex rejected that on PR #385, correctly: it reinstates the prose-drift category
 `.agents/bin/scope_guard.py` retired, where a harmless rewording turns the base matrix red while
 executable behaviour can contradict the document and still pass. So what is asserted below is what

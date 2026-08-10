@@ -88,8 +88,14 @@ it bills twice. Reconcile against Settings → Usage before treating the remaini
 authoritative. What it will not do is read *low by accident* — a repository or a pull request it
 cannot read makes the total **unknown** rather than silently small.
 
-The review lane this configuration serves is specified in
-[`docs/agents/review.md`](../docs/agents/review.md) and decided in
-[ADR-0062](../docs/adr/0062-draft-first-review-lane-with-metered-providers.md). In short: Greptile is
-**step 2 of 4**, asked once on a draft that is already green and has already survived free Codex
-iteration, and skipped without ceremony when the seat has no budget.
+The review lane this configuration serves is specified in [`AGENTS.md`](../AGENTS.md) §Review and
+decided in [ADR-0064](../docs/adr/0064-the-agent-layer-coordinates-writers-not-reviews.md). In
+short: Greptile is optional and metered — asked after Codex, on a diff that is already green, and
+skipped without ceremony when the seat has no budget. Draft-first is the default rather than a
+precondition: a pull request opened ready with its reason recorded is asked there, at the same point
+in the lane and on the same green checks. What does not change either way is the order — Codex
+reads the diff before any metered provider does. **One *review* in practice**, and a review is not always one credit — a standard review costs one, a TREX review three (see above), so a second ask is a real spend rather than a free retry. The ceiling of **at most two completed
+reviews per metered provider** in `AGENTS.md` §Review applies here as everywhere, but it is a
+ceiling rather than a second credit to plan on, so ask again only if the first found something blocking and the seat still has
+budget. A request that produced no review — a throttle, a quota refusal, a failed run — is not an
+ask and spends nothing. CodeRabbit, not Greptile, is the gate.

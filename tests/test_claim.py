@@ -13,6 +13,7 @@ import ast
 import importlib.util
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -1569,3 +1570,509 @@ def test_no_other_subcommand_turns_a_transport_failure_into_a_verdict(
     ):
         with pytest.raises(claim.TransportError):
             call()
+
+
+# ------------------------------------------------------------------ doctor (#326)
+
+
+DOCTOR_ROUTES: Routes = {
+    ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:ready"): (
+        200,
+        [
+            _issue(number=1, title="binds"),
+            _issue(number=2, title="no marker"),
+            _issue(number=3, title="edited since approval"),
+            _issue(number=4, title="malformed marker"),
+        ],
+    ),
+    ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:blocked"): (
+        200,
+        [{"number": 9, "body": "Depends on #1 and #2.", "title": "blocked"}],
+    ),
+    # Mode B queries both holding labels; #326's table is three-sevenths `status:backlog`.
+    ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:backlog"): (200, []),
+    ("GET", "/repos/bioedca/tether/pulls?state=open"): (200, []),
+    # `_paginate` raises on a non-list body, so every comment page a walk reaches needs a route.
+    # `Fake` returns the FIRST matching prefix in insertion order, not the longest, so a test that
+    # overrides one of these must place its entry ahead of the general one rather than rely on
+    # specificity.
+    ("GET", "/repos/bioedca/tether/issues/1/comments"): (200, []),
+    ("GET", "/repos/bioedca/tether/issues/2/comments"): (200, []),
+    ("GET", "/repos/bioedca/tether/issues/3/comments"): (200, []),
+    ("GET", "/repos/bioedca/tether/issues/4/comments"): (200, []),
+    ("GET", "/repos/bioedca/tether/issues/9/comments"): (200, []),
+    ("GET", "/repos/bioedca/tether/issues/1"): (200, {"number": 1, "state": "closed"}),
+    ("GET", "/repos/bioedca/tether/issues/2"): (200, {"number": 2, "state": "open"}),
+}
+
+
+def test_doctor_calls_a_pull_request_merged_only_when_it_merged(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`pull_request` on the issues API means "is a PR", never "landed" (Greptile P1 on #432).
+
+    It is present on every pull request the endpoint returns — open, closed-unmerged and merged
+    alike — so keying on its presence reported *every* referenced pull request as `merged`. That is
+    the one direction Mode B must never err in: it hands a maintainer raw dependency state, and a
+    blocker reported as merged when it is still open is worse than not reporting it at all. Only
+    `merged_at` distinguishes them.
+    """
+    routes = dict(DOCTOR_ROUTES)
+    routes[("GET", "/repos/bioedca/tether/issues?state=open&labels=status:blocked")] = (
+        200,
+        [{"number": 9, "body": "Blocked by #30, #31 and #32.", "title": "blocked"}],
+    )
+    for ref, payload in (
+        (30, {"number": 30, "state": "open", "pull_request": {"merged_at": None}}),
+        (31, {"number": 31, "state": "closed", "pull_request": {"merged_at": None}}),
+        (
+            32,
+            {
+                "number": 32,
+                "state": "closed",
+                "pull_request": {"merged_at": "2026-08-01T00:00:00Z"},
+            },
+        ),
+    ):
+        routes[("GET", f"/repos/bioedca/tether/issues/{ref}")] = (200, payload)
+        routes[("GET", f"/repos/bioedca/tether/issues/{ref}/comments")] = (200, [])
+    _install(monkeypatch, Fake(routes))
+
+    claim._cmd_doctor(_args(owner="bioedca"))
+    mentions = json.loads(capsys.readouterr().out)["blocked"][0]["mentions"]
+    assert mentions == {"30": "open", "31": "closed", "32": "merged"}
+
+
+def _doctor(monkeypatch: pytest.MonkeyPatch, over: Routes | None = None) -> dict[str, Any]:
+    routes = dict(DOCTOR_ROUTES)
+    routes.update(over or {})
+    _install(monkeypatch, Fake(routes))
+    return routes
+
+
+def test_doctor_tells_an_absent_marker_from_one_that_no_longer_binds(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The distinction #326 calls "the valuable part", because the remedies differ.
+
+    Absent means post a marker; stale means re-approve after an edit; malformed means the marker is
+    there and unreadable. One exit-3 message covers all three, and a worker burns a session finding
+    out which.
+    """
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/issues/1/comments"): (
+                200,
+                [{"user": {"login": "bioedca"}, "body": MARKER}],
+            ),
+            ("GET", "/repos/bioedca/tether/issues/2/comments"): (200, []),
+            ("GET", "/repos/bioedca/tether/issues/3/comments"): (
+                200,
+                [
+                    {
+                        "user": {"login": "bioedca"},
+                        "body": '<!-- tether-agent-ready {"version":1,"criteria_sha256":"'
+                        + OTHER
+                        + '"} -->',
+                    }
+                ],
+            ),
+            ("GET", "/repos/bioedca/tether/issues/4/comments"): (
+                200,
+                [
+                    {
+                        "user": {"login": "bioedca"},
+                        "body": "<!-- tether-agent-ready "
+                        '{"version":1,"criteria_sha256":"nope"} -->',
+                    }
+                ],
+            ),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    report = json.loads(capsys.readouterr().out)
+    assert {r["issue"]: r["marker"] for r in report["ready"]} == {
+        1: "binds",
+        2: "absent",
+        3: "stale",
+        4: "malformed",
+    }
+
+
+def test_doctor_never_says_unblocked_and_only_reports_what_it_can_see(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mode B is raw data on purpose.
+
+    #326 concedes the Dependencies parse is heuristic — the section is prose, its wording varies,
+    and #261 names no issue number at all — and says "a false 'unblocked' here is worse than a
+    miss". So the report prints what a body mentions and what those items are, and adjudicates
+    nothing. A report that must not be trusted is one nobody reads.
+    """
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/issues/1"): (200, {"number": 1, "state": "closed"}),
+            ("GET", "/repos/bioedca/tether/issues/2"): (200, {"number": 2, "state": "open"}),
+            ("GET", "/repos/bioedca/tether/issues/9/comments"): (200, []),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    out = capsys.readouterr().out
+    assert "unblocked" not in out.lower(), "Mode B must never adjudicate"
+    blocked = json.loads(out)["blocked"]
+    assert blocked == [{"issue": 9, "mentions": {"1": "closed", "2": "open"}}]
+
+
+def test_doctor_reports_an_unreadable_collection_instead_of_printing_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The three collection reads fail the same way one issue does, and must report the same way.
+
+    Catching the per-issue comments walk closed this hole one level down and left it open one level
+    up: a failed `status:ready` listing, label query or pull-request listing still propagated out of
+    `_cmd_doctor` and printed nothing. Each of the three is now caught where it is made, so a
+    failure costs its own section and nothing else.
+
+    Asserted one collection at a time, because a single test that broke all three would pass
+    against a version that only caught the first.
+    """
+    collections = {
+        "ready": "/repos/bioedca/tether/issues?state=open&labels=status:ready",
+        "blocked": "/repos/bioedca/tether/issues?state=open&labels=status:blocked",
+        "unarmed": "/repos/bioedca/tether/pulls?state=open",
+    }
+    for section, route in collections.items():
+        _doctor(monkeypatch, {("GET", route): (500, {"message": "server error"})})
+        claim._cmd_doctor(_args(owner="bioedca"))
+        report = json.loads(capsys.readouterr().out)
+        assert set(report) >= {"ready", "blocked", "unarmed"}, (
+            f"{section}: one unreadable collection suppressed the whole report"
+        )
+        assert any("unreadable" in r for r in report[section]), (
+            f"{section}: the failure was not reported"
+        )
+        others = [k for k in ("ready", "blocked", "unarmed") if k != section]
+        for other in others:
+            assert not any(
+                r.get("collection", "").startswith(("status:", "open pull")) and "unreadable" in r
+                for r in report[other]
+            ), f"{section} failing marked {other} unreadable too"
+
+
+def test_doctor_says_a_dependency_section_was_unparseable_rather_than_empty(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`"mentions": {}` is ambiguous, and the ambiguity points the wrong way.
+
+    A body naming no `#N` produced an empty set, which an operator reads as *every dependency is
+    resolved* — the false-clean direction #326 names as worse than a miss. It cites #261 as an
+    issue whose Dependencies section is prose with no issue number in it at all, so this is the
+    corpus's own case rather than a hypothetical.
+
+    The report now says `unparseable` in as many words. It still adjudicates nothing: it reports
+    that it could not find a reference, not that there is no dependency.
+    """
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:blocked"): (
+                200,
+                [{"number": 12, "body": "Blocked by the review-gate rewrite.", "title": "prose"}],
+            ),
+            ("GET", "/repos/bioedca/tether/issues/12/comments"): (200, []),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    blocked = {b["issue"]: b for b in json.loads(capsys.readouterr().out)["blocked"]}
+    assert 12 in blocked, "the issue was dropped"
+    assert blocked[12]["mentions"] == {}, "nothing was parseable, so nothing should be reported"
+    assert "unparseable" in blocked[12], (
+        "an unparseable dependency section rendered as an empty set, which reads as all-clear"
+    )
+
+
+def test_doctor_survives_a_ready_issue_whose_comments_cannot_be_read(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One unreadable page must cost one issue, not the whole report.
+
+    `_paginate` raises on any 401, 403 or 5xx, and Mode A walked every `status:ready` issue's
+    comments without catching it — so a single transient failure propagated out of `_cmd_doctor`
+    and printed nothing at all. That silences Mode B and Mode C too: three diagnostics lost to one
+    issue nobody was asking about, and the operator sees a traceback rather than the report.
+
+    Same rule as the unreadable blocker and the unreadable pull request, which this PR already
+    applies twice: name what could not be read, keep going, and never let an absence read as an
+    answer.
+    """
+    _doctor(
+        monkeypatch,
+        {("GET", "/repos/bioedca/tether/issues/2/comments"): (500, {"message": "server error"})},
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    report = json.loads(capsys.readouterr().out)
+    ready = {r["issue"]: r for r in report["ready"]}
+    assert set(ready) == {1, 2, 3, 4}, "an unreadable issue was dropped instead of reported"
+    assert "unreadable" in ready[2], "#2's failure was not reported as unreadable"
+    assert "marker" not in ready[2], "an unreadable issue must not be given a marker verdict"
+    assert all("marker" in ready[n] for n in (1, 3, 4)), "the other issues stopped being assessed"
+    assert "blocked" in report and "unarmed" in report, (
+        "one unreadable ready issue took the other two modes down with it"
+    )
+
+
+def test_doctor_reports_backlog_issues_too_and_lists_a_dual_labelled_one_once(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mode B holds on two labels, because #326's own evidence does.
+
+    The first implementation queried `status:blocked` alone. #326's table is the specification and
+    three of its seven rows are `status:backlog` — #298, #257 and #258, each naming a dependency
+    that has since merged — so a single-label query answered a narrower question than the issue
+    asked and dropped nearly half the evidence it was raised on. That is a silent miss: the report
+    looks complete because nothing says which labels it covered.
+
+    The dedupe is asserted as well. Nothing stops an issue carrying both labels, and a union that
+    listed it twice would read as two stranded issues where there is one.
+    """
+    dual = {"number": 11, "body": "Blocked by #1.", "title": "both labels"}
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:blocked"): (
+                200,
+                [{"number": 9, "body": "Depends on #1.", "title": "blocked"}, dual],
+            ),
+            ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:backlog"): (
+                200,
+                [{"number": 10, "body": "Start after #2 merges.", "title": "backlog"}, dual],
+            ),
+            ("GET", "/repos/bioedca/tether/issues/9/comments"): (200, []),
+            ("GET", "/repos/bioedca/tether/issues/10/comments"): (200, []),
+            ("GET", "/repos/bioedca/tether/issues/11/comments"): (200, []),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    blocked = json.loads(capsys.readouterr().out)["blocked"]
+    numbers = [b["issue"] for b in blocked]
+    assert sorted(numbers) == [9, 10, 11], "a status:backlog issue was dropped from Mode B"
+    assert numbers.count(11) == 1, "an issue carrying both labels was reported twice"
+    by_issue = {b["issue"]: b["mentions"] for b in blocked}
+    assert by_issue[10] == {"2": "open"}, "the backlog issue's mentions were not looked up"
+
+
+def test_doctor_rereads_draft_and_state_from_the_detail_response(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The list page is a snapshot; the detail response is the current answer.
+
+    Mode C filtered `draft` from the list entry and never re-read it, and never read `state` at
+    all. On a busy repository the list can be minutes stale, so a pull request closed or returned
+    to draft in between would be reported as finished-and-stranded — advice to arm something that
+    must not be armed.
+    """
+    stale = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    pr = {
+        "number": 70,
+        "draft": False,
+        "state": "open",
+        "auto_merge": None,
+        "mergeable_state": "clean",
+        "updated_at": stale,
+        "head": {"sha": HEAD},
+    }
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/pulls?state=open"): (
+                200,
+                [pr, {**pr, "number": 71}, {**pr, "number": 72}],
+            ),
+            ("GET", "/repos/bioedca/tether/pulls/70"): (200, pr),
+            # closed since the list page was built
+            ("GET", "/repos/bioedca/tether/pulls/71"): (200, {**pr, "state": "closed"}),
+            # returned to draft since the list page was built
+            ("GET", "/repos/bioedca/tether/pulls/72"): (200, {**pr, "draft": True}),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    unarmed = json.loads(capsys.readouterr().out)["unarmed"]
+    assert [u["pr"] for u in unarmed] == [70], (
+        "a pull request closed or re-drafted since the list page was built was reported as stranded"
+    )
+
+
+def test_doctor_diagnoses_a_pull_request_marked_ready_since_the_list_was_built(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Staleness cuts both ways, and the first fix only closed one direction.
+
+    The sibling above stops a pull request that became draft or closed from being reported. This is
+    the mirror: the loop still skipped on the **list's** `draft` before fetching anything, so one
+    marked ready since the list was built was dropped before its current state was ever read.
+
+    That is the worse direction of the two. A pull request that just went ready, is green and is
+    unarmed is exactly the finished-and-stranded case Mode C exists to find — so the filter was
+    most likely to discard the very thing it was looking for. Nothing now filters on the summary;
+    the detail response decides.
+    """
+    stale = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    ready = {
+        "number": 80,
+        "draft": False,
+        "state": "open",
+        "auto_merge": None,
+        "mergeable_state": "clean",
+        "updated_at": stale,
+        "head": {"sha": HEAD},
+    }
+    _doctor(
+        monkeypatch,
+        {
+            # the LIST still says draft; the detail response says it is ready
+            ("GET", "/repos/bioedca/tether/pulls?state=open"): (200, [{**ready, "draft": True}]),
+            ("GET", "/repos/bioedca/tether/pulls/80"): (200, ready),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    unarmed = json.loads(capsys.readouterr().out)["unarmed"]
+    assert [u["pr"] for u in unarmed] == [80], (
+        "a pull request marked ready since the list page was built was never diagnosed"
+    )
+
+
+def test_doctor_says_it_could_not_read_a_reference_rather_than_omitting_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A lookup that failed is not a reference that does not exist.
+
+    The loop recorded a reference only on `200`, with no other branch, so a `404`, a `403` or a
+    `500` dropped it. That is the silent truncation the comment above the loop says this report
+    must never produce, arriving through a different door than the cap it does report: with every
+    lookup failing, an issue naming two blockers rendered as `{"mentions": {}}` — byte-identical
+    to an issue that names none, and read by a maintainer as *nothing is blocking this*.
+
+    Fails against the pre-fix loop, which emits no `unreadable` key at all.
+    """
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/issues/1"): (404, None),
+            ("GET", "/repos/bioedca/tether/issues/2"): (500, None),
+            ("GET", "/repos/bioedca/tether/issues/9/comments"): (200, []),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    blocked = json.loads(capsys.readouterr().out)["blocked"]
+    assert blocked == [{"issue": 9, "mentions": {}, "unreadable": [1, 2]}], (
+        "an unreadable reference must be reported, not dropped into an empty `mentions`"
+    )
+
+
+def test_doctor_reports_a_finished_pr_that_nothing_will_ever_merge(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mode C: every gate the merge asks for is satisfied and the last step did not happen."""
+    stale = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    fresh = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 60))
+    pr = {
+        "number": 50,
+        "draft": False,
+        "state": "open",
+        "auto_merge": None,
+        "mergeable_state": "clean",
+        "updated_at": stale,
+        "head": {"sha": HEAD},
+    }
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/pulls?state=open"): (
+                200,
+                [pr, {**pr, "number": 51}, {**pr, "number": 52}],
+            ),
+            ("GET", "/repos/bioedca/tether/pulls/50"): (200, pr),
+            # armed already, so not stranded
+            ("GET", "/repos/bioedca/tether/pulls/51"): (200, {**pr, "auto_merge": {"x": 1}}),
+            # pushed a minute ago: mid-flight, not stranded
+            ("GET", "/repos/bioedca/tether/pulls/52"): (200, {**pr, "updated_at": fresh}),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    unarmed = json.loads(capsys.readouterr().out)["unarmed"]
+    assert [u["pr"] for u in unarmed] == [50]
+
+
+def test_doctor_reports_a_pull_request_it_could_not_read_rather_than_dropping_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An unreadable pull request must not print the same as an armed one.
+
+    Mode C skipped any pull request whose detail call failed, so a transport failure and a
+    correctly armed pull request produced identical output: absence. That is the defect
+    `test_doctor_says_it_could_not_read_a_reference_rather_than_omitting_it` fixes for Mode B, in
+    the mode that reports what nothing will ever merge — and it is the direction #326 calls out as
+    the costly one, because *nothing is wrong here* is what a maintainer acts on by looking away.
+
+    The remedies differ as well: a failed read is retried, a genuinely unarmed pull request is
+    armed. Reporting them alike sends the reader to the wrong one.
+    """
+    stale = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    pr = {
+        "number": 60,
+        "draft": False,
+        "state": "open",
+        "auto_merge": None,
+        "mergeable_state": "clean",
+        "updated_at": stale,
+        "head": {"sha": HEAD},
+    }
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/pulls?state=open"): (
+                200,
+                [pr, {**pr, "number": 61}, {**pr, "number": 62}],
+            ),
+            ("GET", "/repos/bioedca/tether/pulls/60"): (200, pr),
+            ("GET", "/repos/bioedca/tether/pulls/61"): (404, {}),
+            ("GET", "/repos/bioedca/tether/pulls/62"): (500, {}),
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    unarmed = json.loads(capsys.readouterr().out)["unarmed"]
+    assert sorted(u["pr"] for u in unarmed) == [60, 61, 62]
+    assert {u["pr"]: u.get("unreadable") for u in unarmed} == {60: None, 61: 404, 62: 500}
+
+
+def test_doctor_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ "Report, never act" is the whole safety property, and #326 reserves every remedy.
+
+    Posting an approval marker, promoting a label and arming someone else's merge are maintainer
+    authority. Asserted over every write verb rather than trusted to the implementation.
+    """
+    fake = _install(monkeypatch, Fake(dict(DOCTOR_ROUTES)))
+    claim._cmd_doctor(_args(owner="bioedca"))
+    capsys.readouterr()
+    assert not [c for c in fake.calls if c[0] in {"POST", "PATCH", "PUT", "DELETE"}]
+
+
+def test_the_exit_three_message_points_at_doctor(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One message covers three situations; it should say where to find out which.
+
+    Named in the message rather than in `AGENTS.md` deliberately — resident contract is a running
+    cost on every model call, and this is read exactly when it is needed.
+    """
+    routes = _routes(
+        {("GET", "/repos/bioedca/tether/issues/7/comments"): (200, [])},
+    )
+    _install(monkeypatch, Fake(routes))
+    with pytest.raises(SystemExit):
+        claim._cmd_claim(_args(issue=7))
+    assert "doctor" in capsys.readouterr().err

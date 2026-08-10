@@ -1,6 +1,6 @@
 ---
 name: tether-worker
-description: Work one accepted Tether issue as a short-lived peer worker — claim it with the atomic ref mutex, implement in an isolated worktree, hand off, and exit. A BUILD session opens the draft PR and the review lane on it; an AMEND session continues the pull request that already exists, answering one round on it; an ADVANCE session continues it too, moving the lane on by exactly one phase and taking no round. Neither of the latter two re-opens or re-drafts a pull request. Use when an agent is asked to solve, resume, or hand off a single work item, or when a launcher injects a task from .agents/tasks/. There is no coordinator to ask.
+description: Work one accepted Tether issue or private security advisory as a short-lived peer worker — claim it with the atomic ref mutex, implement it in an isolated worktree, open a draft pull request, get it reviewed, and finish with either a PR-ready handoff or an explicitly authorized merge — never infer merge authority. Use when an agent is asked to solve, resume, or hand off a single work item. There is no coordinator to ask.
 ---
 
 # Tether worker
@@ -8,76 +8,32 @@ description: Work one accepted Tether issue as a short-lived peer worker — cla
 Root `AGENTS.md` is the operational contract and `docs/PRD.md` the product detail. This skill adds
 only what is specific to being **one peer worker among several**; it never restates or relaxes them.
 
-**GitHub is the coordinator; there is no coordinator agent** (ADR-0057). Nothing serializes you,
-nothing renews a lease for you, and nothing merges on your behalf. You are short-lived: claim, work,
-push, open the review lane, hand off, exit. Auto-merge is armed at the **end** of that lane, by
-whoever completes it — see §Finish. Arming it earlier merges the PR past the mandatory CodeRabbit
-gate, because that gate is not a required check and nothing else is holding the merge.
+**GitHub is the coordinator; there is no coordinator agent** (ADR-0057). Nothing serializes you and
+nothing renews a lease for you. You are short-lived: claim, work, push, get reviewed, hand off or
+merge, exit.
 
 ## Shell
 
-The lanes are dispatched into **different shells**: `claude` runs inside WSL bash, `codex` and
-`copilot` run in native PowerShell. This file is **not templated** — both lanes read these same
-lines — so every command below is written to be valid in either: a bare executable name followed by
-arguments. Never the PowerShell `&` call operator, and never an absolute path such as
+The lanes run in **different shells**: `claude` in WSL bash, `codex` and `copilot` in native
+PowerShell. This file is **not templated** — both lanes read these same lines — so every command
+below is written to be valid in either: a bare executable name followed by arguments. Never the
+PowerShell `&` call operator, and never an absolute path such as
 `C:\Program Files\GitHub CLI\gh.exe`, which does not exist inside WSL.
 
-**Resolve the interpreter for your lane before running anything below.** One name does not fit both,
-and pretending otherwise is the defect this section exists to prevent:
+`<py>` is your lane's interpreter — **`python3` in WSL bash, `python` in native PowerShell**. WSL
+provides no `python` at all, and on Windows the python.org installer registers `python` while
+`python3` may be an unconfigured Store stub, so neither name is safe for both. Substitute it as you
+read; that single token is the entire difference. If neither name resolves, report it; do not paste
+a path. `gh` needs no such rule.
 
-| lane | shell | interpreter |
-|---|---|---|
-| `claude` | WSL bash | `python3` |
-| `codex` | native PowerShell | `python` |
-| `copilot` | native PowerShell | `python` |
-
-WSL provides no `python` at all, and on Windows the python.org installer registers `python` while
-`python3` may be an unconfigured Store stub — so neither name is safe for both.
-
-So the commands below write **`<py>`**, and `<py>` is your lane's interpreter from the table above —
-`python3` in WSL bash, `python` in native PowerShell. Substitute it as you read; that single token is
-the entire difference, and no other part of any command changes between lanes. Writing one lane's
-name here instead would be a command the other lane cannot run, on a page both lanes are required to
-read. The launcher already resolves it in injected task text — `{{PYTHON}}` renders from
-`swarm_slots.LANE_PYTHON`, which is the same table as above — so `<py>` is for hand-driven runs. If
-neither name resolves, report it; do not paste a path.
-
-**`gh` needs no such token, and it does need a version.** The name resolves from `PATH` in both
-shells, so no `<gh>` spelling is required — but the two lanes resolve it to *different builds*, and
-that is not a matter of taste. This machine has WSL's apt package at **2.45.0** and a native install
-at **2.95.0**, and the scripts here are documented to run as `python3`, which is the WSL interpreter,
-so they get the older one.
-
-**[ADR-0060](../../../docs/adr/0060-in-app-update-mechanism-and-integrity-model.md) already pins
-`gh >= 2.67.0`** for this repository — `gh attestation verify` fails *open* below it
-(CVE-2025-25204). A lane below that floor is out of contract, not merely inconvenient. Two commands
-this contract requires are already broken at 2.45.0, and they fail differently:
-
-- The **`--slurp`** flag is rejected outright by the older build. Nothing here uses it any more:
-  `--paginate` already concatenates the pages of an array endpoint, so the flag bought nothing
-  ([#417](https://github.com/bioedca/tether/issues/417)).
-- The **`pr edit`** subcommand fails with a GraphQL error about `projectCards`, a field GitHub has
-  sunset and 2.45.0 still asks for. It names nothing about the real cause. **So the lane state is
-  written into the PR body through the REST endpoint instead** — the task templates carry the exact
-  command — rather than leaving the choice to the worker's judgement.
-
-Those two are named here as a **flag** and a **subcommand**, not as whole invocations, on purpose:
-`tests/test_agent_contract_is_runnable.py` scans every command on this page and would reject the
-very spellings this paragraph exists to forbid. The same reason a bare `python3` above is a mention
-rather than a command.
-
-If your `gh` is older than the floor, say so in the handoff and use `gh --version` to show it. Do not
-paste a path to the other lane's binary — that is the defect `<py>` exists to prevent, in the other
-direction.
-
-Where a command takes `--vendor`, pass **your own lane** — the `Vendor lane` row of the task text
-the launcher injected, or, hand-driven, the vendor of the CLI you are running.
+Where a command takes `--vendor`, pass your own lane.
 
 ## Claim
 
 1. Confirm the issue number and the terminal condition. Eligibility is a **precondition** of the
-   claim, not a consequence: open, `status:ready`, no competing assignee, and a maintainer approval
-   bound to the exact title/body snapshot you are about to act on.
+   claim, not a consequence: open, `status:ready`, no competing assignee, a body declaring
+   `agent-can-do-alone` (or the older `agent can complete alone`, which `claim.py` still accepts),
+   and a maintainer approval bound to the exact title/body snapshot you are about to act on.
 2. Take the mutex. One call decides it — `201` is yours, `422` means someone else got there first:
 
    ```sh
@@ -124,73 +80,24 @@ gap — that is what invalidated reviews across three PRs at once under the old 
 
 ## Finish
 
-**How you finish depends on which task you were given, and only the first step differs.**
+**Open the PR as a draft** and get the checks green there. Then follow `AGENTS.md` §Review: an
+external provider reads the final head, you fix what is serious and defer or drop the rest, and
+CodeRabbit with no actionable comments is the last gate before merge.
 
-- **BUILD** (`.agents/tasks/build.md`) — **open the PR as a draft**, get the checks green, record the
-  review risk with its reason, and request the first Codex review.
-- **AMEND** (`.agents/tasks/amend.md`) — **the pull request already exists: continue it.** Push the
-  answer to this round's blocking findings onto the same branch, reply to each thread, and dispatch
-  triage. Never open a second PR, never re-draft the one that is open, and never re-record the risk —
-  it may only increase.
-- **ADVANCE** (`.agents/tasks/advance.md`) — the PR exists and owes nothing; move the lane on by
-  **exactly one** phase and stop.
+You do not have to sit and watch it. A review takes as long as it takes, and a short-lived worker
+that polls is spending tokens to wait — so **write the state into the PR body before you go**:
+which step it is on, what was asked, what is outstanding. A later session reads that and continues.
 
-Then **exit** — do not sit and poll.
-
-A BUILD session opens the lane in `docs/agents/review.md`; no session walks it to the end. Every
-later phase — the optional Greptile credit, marking ready, the mandatory CodeRabbit gate, arming
-auto-merge — begins only *after* a review lands, and waiting for one is exactly what a short-lived
-worker must not do. So **whichever task you hold, write the lane state into the PR body before you
-go**: which phase it is in, what was asked, what is outstanding. A later session reads that and
-continues. It is the only thing carrying the lane forward.
-
-> **A later phase is somebody else's session, and it is issued to them.** A clean review on an
-> unfinished lane publishes `agent:needs-advance`, and the launcher turns that into one ADVANCE
-> session holding `.agents/tasks/advance.md` ([#394](https://github.com/bioedca/tether/issues/394)).
-> Draft-phase sessions do not spend the launcher's cap
-> ([#391](https://github.com/bioedca/tether/issues/391)), so the free Codex loop costs no metered
-> round — **uncapped, not unbounded**. A separate runaway stop, `DRAFT_CEILING`, bounds how many
-> times the launcher will relaunch the same free session; it sits far above any real draft phase and
-> binds only when nothing is progressing. None of that is yours to start: never work around it by
-> polling, by marking a PR ready before its draft phase is done, or by merging without the
-> CodeRabbit gate.
-
-Auto-merge is armed at the **end** of the lane, by whoever completes it — not on the draft:
+Merge under explicit per-PR authority, then arm and exit:
 
 ```sh
 gh pr merge N --auto --squash --match-head-commit <SHA>
 ```
 
-`--match-head-commit` binds the merge to the head your evidence covers. There is no merge queue on
-this repository (it needs an organization-owned repo), so that guard is what replaces it.
-
-**`<SHA>` is the 40-hex head the clean review read, never the head re-read while arming** —
-`docs/agents/review.md` §Merge is the rule, including why re-reading it makes the guard always
-pass. You have read that page; nothing merges without it.
-
-## Rounds are issued to you, not requested by you
-
-A review round is not yours to open. The launcher is the only issuer of AMEND turns and it counts
-them against the cap in `AGENTS.md` §Review gate. So:
-
-- **At most one self-review pass**, before the first external request.
-- **`agent:review-capped` forbids another ROUND, and permits exactly one convergence check.** A
-  round is a metered review that found something **blocking**, so a clean one costs nothing — and
-  a clean **CodeRabbit** one also satisfies the gate, which is why that is the review to ask for
-  here. Without that one request a capped pull request could never merge at all.
-  A review whose only output is non-blocking is clean for this purpose: defer those to a follow-up
-  issue rather than fixing them here, and the round is still free.
-  **Which session asks matters.** An AMEND answers its round, pushes and exits; the ADVANCE session
-  triage dispatches next is the one that requests the convergence review, because it holds the
-  `refs/lane-advances/` compare-and-swap that turns any number of launchers into one request. An
-  AMEND asking as well spends a second metered review on the same head rather than arriving sooner.
-  A request that produced no review has not spent it: a fair-use refusal naming a retry time is a
-  *wait*, so wait it out and ask again, reading the status check first — `pending` is a review
-  running now that a second request destroys. What is forbidden is a second *completed* convergence
-  review, not a second attempt at getting the first.
-- **Never post a review-request comment on a PR carrying `agent:gate-blocked`.** That label means
-  the convergence check came back blocking too, so nothing automatic remains: safety-class findings
-  escalate to the maintainer and the rest become follow-up issues.
+`<SHA>` is the 40-hex head the clean review read, and you supply it from that review. Re-reading it
+from the pull request while arming compares the head against itself and binds nothing. There is no
+merge queue on this repository — it needs an organization-owned repo — so that flag is what
+replaces it.
 
 ## Maintainer-side commands
 

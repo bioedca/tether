@@ -29,6 +29,7 @@ from one implementation rather than two.
 from __future__ import annotations
 
 import argparse
+import calendar
 import hashlib
 import http.client
 import json
@@ -385,40 +386,6 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None) -> tupl
         raise ClaimError(f"the GitHub API answer could not be read ({type(exc).__name__})") from exc
 
 
-def _graphql(query: str, variables: dict[str, Any], what: str) -> dict[str, Any]:
-    """Run one GraphQL query and return ``data``. Raises ``ClaimError`` on anything else.
-
-    A second query path exists because a few facts are simply **not on REST**. The first is review
-    *thread resolution* (#393): ``/pulls/{n}/comments`` carries the comment but never whether its
-    thread was resolved, so the only mechanism the contract prescribes for a non-blocking finding —
-    reply, resolve, link a follow-up, do not push — was invisible to ``triage.py``, which therefore
-    kept owing an AMEND forever.
-
-    Deliberately thin. It shares ``_token`` and ``_ssl_context`` with :func:`_request`, so the
-    ADR-0061 transport behaviour — including ``TETHER_ALLOW_NONSTRICT_X509`` and the transport-vs-
-    verdict distinction #388 turns on — is the same code and not a second copy of it.
-
-    **GraphQL answers 200 with an ``errors`` array**, so an unchecked caller reads a failed query as
-    an empty result. That is the fail-open direction for every use this has, and it is why this
-    raises rather than returning a status: the caller decides what an unreadable answer means, and
-    cannot do that if the failure looks like data.
-    """
-    status, payload = _request("POST", "/graphql", {"query": query, "variables": variables})
-    if status != 200 or not isinstance(payload, dict):
-        raise ClaimError(f"{what} could not be read (HTTP {status})")
-    if payload.get("errors"):
-        messages = "; ".join(
-            str(error.get("message", error))
-            for error in payload["errors"]
-            if isinstance(error, dict)
-        )
-        raise ClaimError(f"{what} could not be read: {messages or 'GraphQL reported an error'}")
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        raise ClaimError(f"{what} returned no data")
-    return data
-
-
 def _paginate(path: str, what: str) -> list[Any]:
     """Walk every page of a list endpoint.
 
@@ -749,9 +716,15 @@ def _check_eligible(number: int, owner: str) -> dict[str, Any]:
 
     comments = _paginate(f"/repos/{REPO}/issues/{number}/comments", f"#{number} comments")
     if not _approval_binds(issue, comments, owner):
+        # One message covers three situations a worker cannot tell apart - never approved, approved
+        # then edited so the hash no longer binds, or a malformed marker - and only the second is
+        # the worker's doing (#326). Rather than guess here, point at the command that distinguishes
+        # them. Naming it in the message rather than in `AGENTS.md` costs nothing on every other
+        # call, and it is read exactly when it is needed.
         raise IneligibleError(
             f"#{number} has no maintainer approval binding its current title and body; "
-            "it may have been edited after approval"
+            "it may have been edited after approval. Run `claim.py doctor` to see whether the "
+            "marker is absent, stale or malformed"
         )
     return issue
 
@@ -1055,6 +1028,244 @@ def _cmd_reserve_adr(args: argparse.Namespace) -> None:
     raise ClaimError(f"could not reserve an ADR number in {args.attempts} attempts")
 
 
+#: How many `#N` references `doctor` resolves per blocked issue. Each costs one request, and a body
+#: can name dozens; anything past this is counted in `not_looked_up` rather than dropped silently.
+MENTION_CAP = 20
+
+#: How long a finished pull request may sit unarmed before `doctor` mentions it. A worker that has
+#: just pushed is mid-flight, not stranded, and flagging it would teach a reader to ignore the list.
+UNARMED_GRACE_MINUTES = 45
+
+
+def _doctor_ready(owner: str) -> list[dict[str, Any]]:
+    """Every `status:ready` issue, and whether its approval marker actually admits it.
+
+    Mode A of #326. The distinction that makes this worth printing is **absent** versus **present
+    but no longer binding**, because the remedies differ: post a marker, or re-approve after an
+    edit.
+
+    It reuses `_approval_binds` and `_scope_hash` rather than re-deriving them, so it cannot
+    drift from admission. That is not tidiness - ADR-0063 spent a week removing a ~145-line
+    reimplementation of a counter from `scope_guard.py` that had drifted from the original three
+    separate times. A reporter that disagrees with the gate it reports on is worse than none.
+    """
+    # The COLLECTION read fails the same way a single issue does, and must report the same way.
+    # Letting it raise loses the other two modes with it - the item-level catch below closed
+    # that hole one level down and left this one open.
+    try:
+        issues = _paginate(f"/repos/{REPO}/issues?state=open&labels={REQUIRED_LABEL}", "ready")
+    except ClaimError as exc:
+        return [{"collection": f"{REQUIRED_LABEL} issues", "unreadable": str(exc)}]
+    out = []
+    for issue in issues:
+        if issue.get("pull_request"):
+            continue
+        number = issue["number"]
+        # One unreadable comment page must not take the whole report with it. `_paginate` raises on
+        # any 401, 403 or 5xx, and an uncaught raise here loses Mode B and Mode C as well - three
+        # diagnostics silenced by one transient failure on an issue nobody was asking about. Same
+        # rule as the unreadable blocker and the unreadable pull request: say what could not be
+        # read, keep going, and never let an absence read as an answer.
+        try:
+            comments = _paginate(f"/repos/{REPO}/issues/{number}/comments", f"#{number} comments")
+        except ClaimError as exc:
+            title = issue.get("title", "")[:60]
+            out.append({"issue": number, "title": title, "unreadable": str(exc)})
+            continue
+        markers = [
+            match
+            for comment in comments
+            if (comment.get("user") or {}).get("login") == owner
+            for match in READY_RE.findall(comment.get("body") or "")
+        ]
+        if _approval_binds(issue, comments, owner):
+            marker = "binds"
+        elif not markers:
+            marker = "absent"
+        else:
+            malformed = True
+            for raw in markers:
+                try:
+                    record = json.loads(raw)
+                except ValueError:
+                    continue
+                digest = record.get("criteria_sha256") if isinstance(record, dict) else None
+                if isinstance(digest, str) and HASH_RE.fullmatch(digest):
+                    malformed = False
+            marker = "malformed" if malformed else "stale"
+        out.append(
+            {
+                "issue": number,
+                "title": issue.get("title", "")[:60],
+                "marker": marker,
+                "autonomy": _autonomy_refusal(issue.get("body") or "") is None,
+            }
+        )
+    return out
+
+
+def _doctor_blocked() -> list[dict[str, Any]]:
+    """Every held issue with each `#N` its body mentions, and that number's state.
+
+    Mode B of #326, deliberately **raw data**. The issue asks for issues whose declared blockers
+    have all closed, then concedes the parse is heuristic - the Dependencies section is prose, its
+    wording varies, and #261 names no issue number at all. It also says *"a false 'unblocked' here
+    is worse than a miss."*
+
+    So this never emits the word *unblocked* and never adjudicates. It prints what the body mentions
+    and what those items are, and a human decides. A report that must not be trusted is a report
+    nobody reads; a report that only claims what it can see is one that can be.
+
+    **Both holding labels, not just `status:blocked`.** #326's own table is the specification and
+    three of its seven rows are `status:backlog` - #298, #257 and #258, each naming a dependency
+    that has since merged. Querying one label answered a narrower question than the issue asked and
+    dropped nearly half of the evidence it was raised on. The two queries are unioned and
+    deduplicated by number, because a future issue carrying both labels must appear once.
+    """
+    issues = []
+    seen: set[int] = set()
+    out = []
+    # Each label is read independently: one failing query must not suppress the other, and a
+    # label that could not be read is named rather than silently contributing nothing.
+    for label in ("status:blocked", "status:backlog"):
+        query = f"/repos/{REPO}/issues?state=open&labels={label}"
+        try:
+            found = _paginate(query, f"{label} issues")
+        except ClaimError as exc:
+            out.append({"collection": f"{label} issues", "unreadable": str(exc)})
+            continue
+        for issue in found:
+            if issue["number"] not in seen:
+                seen.add(issue["number"])
+                issues.append(issue)
+    for issue in issues:
+        if issue.get("pull_request"):
+            continue
+        mentioned = sorted({int(n) for n in re.findall(r"#(\d+)", issue.get("body") or "")})
+        # Bounded, and the bound is REPORTED rather than silent: a body can name dozens of numbers
+        # and each costs a request. A truncation nobody is told about reads as "these are all the
+        # references", which is the one thing this report must never imply.
+        #
+        # A reference the API would not answer for is the same hazard arriving by a different door,
+        # so it is reported too. Dropping it made `mentions` say nothing where it should say *I
+        # could not tell*: with both lookups failing, an issue naming two blockers rendered as
+        # `{"mentions": {}}`, byte-identical to an issue that names none.
+        states = {}
+        unreadable = []
+        for ref in mentioned[:MENTION_CAP]:
+            status, other = _request("GET", f"/repos/{REPO}/issues/{ref}")
+            if status == 200 and isinstance(other, dict):
+                # `pull_request` is present on EVERY pull request the issues API returns - open,
+                # closed-unmerged and merged alike - so its mere presence says nothing about
+                # whether the thing landed. Only `merged_at` does. Keying on presence reported
+                # every referenced pull request as `merged`, which is the one direction this
+                # function must never err in: it exists to hand a maintainer raw dependency state,
+                # and a blocker reported as merged when it is open is worse than not reporting it
+                # (Greptile P1 on #432).
+                pull_request = other.get("pull_request") or {}
+                merged = bool(pull_request.get("merged_at"))
+                states[ref] = "merged" if merged else other.get("state", "?")
+            else:
+                unreadable.append(ref)
+        record = {"issue": issue["number"], "mentions": states}
+        # An empty `mentions` is ambiguous and must not be left so: it is what a body naming
+        # NO issue number produces, and also what a body whose every named blocker has closed
+        # would produce if the states dict were filtered. #326 names #261 as an issue whose
+        # Dependencies section is prose with no `#N` at all, and says a false "unblocked" is
+        # worse than a miss - so the case where nothing could be parsed says so in as many
+        # words rather than rendering as an empty set an operator will read as "all clear".
+        if not mentioned:
+            record["unparseable"] = "no #N reference in the body"
+        if unreadable:
+            record["unreadable"] = unreadable
+        if len(mentioned) > MENTION_CAP:
+            record["not_looked_up"] = len(mentioned) - MENTION_CAP
+        out.append(record)
+    return out
+
+
+def _doctor_unarmed(now: float) -> list[dict[str, Any]]:
+    """Open pull requests that are finished and that nothing will ever merge.
+
+    Mode C of #326. Every gate the merge asks for is satisfied - not a draft, mergeable, every check
+    passing, no auto-merge armed - and the contract's last step, arming it, did not happen. All four
+    fields are on the REST pull-request object, so this needs no GraphQL and no new transport.
+
+    **A pull request whose detail call fails is reported, not dropped.** Silently skipping it makes
+    an unreadable pull request indistinguishable from an armed one, which is the same defect as
+    omitting an unreadable blocker in :func:`_doctor_blocked`: the report reads as *nothing is
+    wrong here* when the truth is *nobody looked*. The remedy differs too - a transport failure is
+    retried, a genuinely unarmed pull request is armed - so the two must not print alike.
+
+    **`draft` and `state` are re-read from the detail response**, not trusted from the list page.
+    The list is a snapshot that can be minutes old on a busy repository, so a pull request that has
+    since been closed or returned to draft would otherwise be reported as stranded.
+
+    **`mergeable_state == "clean"` is what proves the review conversations are resolved**, and that
+    is a property of this repository's ruleset rather than of GitHub. `main-baseline` sets
+    ``required_review_thread_resolution: true``, so an unresolved thread makes the state ``blocked``
+    even while ``mergeable`` still reads ``MERGEABLE`` - the two answer different questions, and
+    only the second is about conflicts. Verified live on #432: four unresolved threads,
+    ``mergeable=MERGEABLE``, ``mergeStateStatus=BLOCKED``. If that ruleset setting is ever turned
+    off this check stops carrying that meaning, which is why the dependency is written down here.
+    """
+    out = []
+    try:
+        summaries = _paginate(f"/repos/{REPO}/pulls?state=open", "open pull requests")
+    except ClaimError as exc:
+        return [{"collection": "open pull requests", "unreadable": str(exc)}]
+    for summary in summaries:
+        # No filtering from the summary at all - the detail response decides everything. Skipping
+        # here on the list's `draft` left the staleness only half closed: a pull request marked
+        # ready since the list was built was dropped before anything read its current state, so the
+        # very pull request most likely to be finished-and-stranded was the one never diagnosed.
+        # The cost is one detail call per open pull request, which is what a correct answer costs.
+        status, pr = _request("GET", f"/repos/{REPO}/pulls/{summary['number']}")
+        if status != 200 or not isinstance(pr, dict):
+            out.append({"pr": summary["number"], "unreadable": status})
+            continue
+        if pr.get("draft") or pr.get("state") != "open":
+            continue
+        if pr.get("auto_merge") or pr.get("mergeable_state") != "clean":
+            continue
+        # `calendar.timegm`, not `time.mktime`: GitHub stamps UTC and `mktime` reads a struct as
+        # LOCAL time, which shifts every age by the machine's offset and can make a stale pull
+        # request look fresh. Found by the Mode C test on a UTC-negative machine.
+        updated = calendar.timegm(time.strptime(pr["updated_at"], "%Y-%m-%dT%H:%M:%SZ"))
+        idle = (now - updated) / 60
+        if idle < UNARMED_GRACE_MINUTES:
+            continue
+        out.append({"pr": pr["number"], "idle_minutes": int(idle), "head": pr["head"]["sha"][:8]})
+    return out
+
+
+def _cmd_doctor(args: argparse.Namespace) -> None:
+    """Report why the claimable queue looks the way it does. **Reports; never writes.**
+
+    #326: an autonomous session landed #318 and then had nothing left to claim while 52 issues
+    were open. The queue was empty for bookkeeping reasons and nothing detected it - an
+    over-blocked issue costs nothing visible, so nothing ever prompts a re-check.
+
+    Filed as a scheduled workflow; built as a subcommand instead. Every remedy is maintainer
+    authority - posting an approval marker, promoting a label, arming someone else's merge - so
+    nothing acts while nobody is looking, and a report published thirty minutes ago into a
+    workflow summary is strictly worse, at the moment someone looks, than one that answers now.
+    It also adds no file, no workflow and no schedule to a layer being shrunk (ADR-0064).
+
+    *Report, never act* is a property of this subcommand rather than of the module: `claim`,
+    `release` and `reserve-adr` all write - the last creates a ref - so the guarantee has to be
+    about `doctor` itself. Every call it makes is a GET, and `test_doctor_writes_nothing` asserts
+    no POST, PATCH, PUT or DELETE is issued, which is what makes it checkable rather than claimed.
+    """
+    report = {
+        "version": 1,
+        "ready": _doctor_ready(args.owner),
+        "blocked": _doctor_blocked(),
+        "unarmed": _doctor_unarmed(time.time()),
+    }
+    print(json.dumps(report, indent=2, sort_keys=True))
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Claim an issue by atomic ref creation.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1090,6 +1301,12 @@ def _parser() -> argparse.ArgumentParser:
     reserve = subparsers.add_parser("reserve-adr", help="atomically reserve the next ADR number")
     reserve.add_argument("--attempts", type=int, default=16)
     reserve.set_defaults(func=_cmd_reserve_adr)
+
+    doctor = subparsers.add_parser(
+        "doctor", help="report why the claimable queue looks the way it does; writes nothing"
+    )
+    doctor.add_argument("--owner", default="bioedca")
+    doctor.set_defaults(func=_cmd_doctor)
     return parser
 
 

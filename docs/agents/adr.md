@@ -43,6 +43,6 @@ the same PR as the implementation, and `docs/adr/README.md` must list it there t
 
 ## Renumbering
 
-Renumbering an ADR is explicitly **non-material** under the [review gate](review.md) — the record's
-body does not change, only its name — so it neither re-arms a review nor grants a round. It does
-require the index and every inbound cross-link to move with it in the same PR.
+Renumbering an ADR changes the record's name and not its body, so it is not a substantive change
+and needs no fresh review of its own. It does require the index and every inbound cross-link to move
+with it in the same PR.

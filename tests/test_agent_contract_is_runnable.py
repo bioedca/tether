@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The commands the contract hands a worker must run in the shell it was dispatched into.
 
-The launcher puts the lanes in **different shells** — `claude` inside WSL bash, `codex` and
-`copilot` in native PowerShell (`swarm_slots._inner_command`) — but `SKILL.md` is not templated, so
-both lanes read the same lines. Every command in it therefore has to be valid in either shell.
+The lanes run in **different shells** — `claude` inside WSL bash, `codex` and `copilot` in native
+PowerShell — but `SKILL.md` is not templated, so both lanes read the same lines. Every command in it
+therefore has to be valid in either shell.
 
 It was valid in neither reliably (#382). Six ```` ```powershell ```` blocks told a bash session to
 run `python`, which Ubuntu does not provide under that name, and to arm auto-merge through
@@ -24,7 +24,6 @@ Stdlib only, so it runs on the base 3-OS `test` matrix.
 
 from __future__ import annotations
 
-import importlib.util
 import re
 from pathlib import Path
 
@@ -32,8 +31,10 @@ _REPO = Path(__file__).resolve().parents[1]
 
 CODEX_SKILL = _REPO / ".agents" / "skills" / "tether-worker" / "SKILL.md"
 CLAUDE_SKILL = _REPO / ".claude" / "skills" / "tether-worker" / "SKILL.md"
-TASKS = sorted((_REPO / ".agents" / "tasks").glob("*.md"))
-CONTRACT_FILES = [CODEX_SKILL, CLAUDE_SKILL, *TASKS]
+# `.agents/tasks/*.md` used to be in this set — the task text the launcher injected verbatim as a
+# worker's whole prompt, and the reason the rules below exist at all. ADR-0064 retired the launcher
+# and the templates with it, so the dispatched-worker set is the two skill files.
+CONTRACT_FILES = [CODEX_SKILL, CLAUDE_SKILL]
 
 # The governance pages outside the dispatched-worker set that still carry commands an agent is
 # expected to run. #382 removed a defect class from `CONTRACT_FILES`; nothing stopped it re-entering
@@ -109,16 +110,13 @@ _SHA_DEFINED = re.compile(r"`<SHA>`[^`]{0,80}40-hex[^`]{0,60}\breview\b", re.DOT
 #: The flag `<SHA>` is supplied to. It stands in for the merge queue this repository cannot have.
 _MERGE_BINDING_FLAG = "--match-head-commit"
 
-_SLOTS = _REPO / ".agents" / "bin" / "swarm_slots.py"
-
 #: `gh` spellings that do not work on every `gh` a lane resolves, mapped to what to use instead.
 #:
 #: A DENYLIST of things measured broken, not a capability table. The full matrix of subcommand ×
 #: version is unmaintainable and would rot into a second source of truth about a tool nobody here
 #: controls; this is the short list of what has actually bitten, and each entry earns its place by
-#: having cost a real failure. `swarm_slots.LANE_GH` is a bare `gh`, and
-#: `test_the_launcher_injects_a_bare_name_for_every_lane` forbids it carrying arguments — so a
-#: version cannot be pinned at the call site and the page has to carry the rule instead.
+#: having cost a real failure. The pages spell a bare `gh`, so a version cannot be pinned at the
+#: call site and the page has to carry the rule instead.
 #:
 #: Measured 2026-08-07: WSL resolves the apt package at 2.45.0, native resolves 2.95.0, and the
 #: scripts are documented to run under `python3` - the WSL interpreter - so they get the older one.
@@ -263,14 +261,6 @@ _SHELL_SPECIFIC = frozenset(
 )
 
 
-def _load_slots():  # noqa: ANN202 - a module object; the launcher is not importable by name
-    spec = importlib.util.spec_from_file_location("tether_slots_runnable", _SLOTS)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def _fences(path: Path) -> list[tuple[int, str, list[str]]]:
     """Every fenced block as ``(line number of the opening fence, language, body lines)``."""
     blocks: list[tuple[int, str, list[str]]] = []
@@ -336,11 +326,9 @@ def test_the_sample_is_not_empty() -> None:
         f"the worker skill should carry the claim/check/release/reserve/arm/scope-hash "
         f"commands; found {counts}"
     )
-    assert all(_commands(t) for t in TASKS), f"a task template names no command at all: {counts}"
-
-    # Named individually rather than asserted over the whole set: `docs/agents/evidence.md` and
-    # `docs/agents/tools.md` are routing pages that carry no commands at all, and requiring one of
-    # every page would only invite a decorative command to satisfy the test.
+    # Named individually rather than asserted over the whole set: requiring a command of every page
+    # would only invite a decorative one to satisfy the test. `AGENTS.md` now carries the local
+    # gates that `docs/agents/gates.md` used to, so it is the page that must not go quiet.
     for page in (_REPO / "AGENTS.md", _REPO / "CONTRIBUTING.md", _REPO / "docs/agents/adr.md"):
         assert _commands(page), f"{page.name} carries no command; the widened guard reads nothing"
 
@@ -377,7 +365,7 @@ def test_a_resolver_led_command_is_visible_to_the_parser() -> None:
     ]
     assert not missed, f"no rule below applies to a command the parser cannot see: {missed}"
 
-    gates = _commands(_REPO / "docs" / "agents" / "gates.md")
+    gates = _commands(_REPO / "AGENTS.md")
     assert any("dump_schema.py" in command for _number, command in gates), (
         "the schema gate's command is a required local gate and must be inside the sample"
     )
@@ -656,95 +644,31 @@ def test_the_claude_entry_point_carries_no_commands_at_all() -> None:
 def test_the_skill_resolves_the_interpreter_instead_of_naming_one() -> None:
     """A bare `python3` in an untemplated file is the same defect mirrored, not a fix.
 
-    Codex's P1 on #386: `LANE_PYTHON` selects `python` for the native lanes, so a skill that says
-    only `python3` contradicts this very patch and strands a hand-driven claim, release, reserve or
-    scope-hash on any machine where the native `python3` alias is absent. What the shared file owes
-    the reader is a *rule*, so §Shell names both interpreters and which lane takes which.
+    Codex's P1 on #386: the native lanes take `python`, so a skill that says only `python3` strands
+    a hand-driven claim, release, reserve or scope-hash on any machine where the native `python3`
+    alias is absent. What a file both lanes read owes the reader is a *rule*, so §Shell names both
+    interpreters and which shell takes which.
 
-    Asserted as **pairings**, not membership. Codex's follow-up P2: checking only that every lane
-    name and every interpreter name appear *somewhere* in §Shell passes just as happily when the
-    mappings are swapped, or when every lane is mapped to `python` — the section already mentions
-    all four strings. The table and the launcher could then drift in exactly the way this test
-    claims to prevent. So each row is parsed and matched against `LANE_PYTHON` directly.
+    Asserted as **pairings**, not membership. Codex's follow-up P2: checking only that every name
+    appears *somewhere* in §Shell passes just as happily when the mappings are swapped — the section
+    already mentions all four strings.
+
+    This used to compare the section against `swarm_slots.LANE_PYTHON`, the launcher's own table.
+    ADR-0064 retired the launcher, so there is no second table to agree with and the pairing itself
+    is what is bound. That is the whole property: nothing rendered task text from this any more, so
+    a table was ceremony where two sentences do.
     """
-    shell = CODEX_SKILL.read_text(encoding="utf-8").partition("## Shell")[2].partition("\n## ")[0]
+    body = CODEX_SKILL.read_text(encoding="utf-8").partition("## Shell")[2]
+    shell = body.partition("\n## ")[0]
     assert shell.strip(), "the skill must carry a §Shell section"
+    assert "`<py>`" in shell, "the skill must resolve `<py>` rather than naming one interpreter"
 
-    documented = {}
-    for row in re.findall(r"^\|(.+)\|\s*$", shell, flags=re.MULTILINE):
-        cells = [c.strip() for c in row.split("|")]
-        if len(cells) != 3 or not cells[0].startswith("`"):
-            continue  # the header and its separator
-        documented[cells[0].strip("`")] = cells[2].strip("`")
-
-    slots = _load_slots()
-    assert documented == slots.LANE_PYTHON, (
-        f"§Shell's table says {documented}, the launcher renders {{PYTHON}} from "
-        f"{slots.LANE_PYTHON}; a worker and its task text would disagree about the interpreter"
-    )
-
-
-def test_the_launcher_injects_a_bare_name_for_every_lane() -> None:
-    """The templates delegate the interpreter to the launcher, so the launcher owes a bare name.
-
-    `SKILL.md` cannot be templated — both lanes read it — but the task text *is*, and the launcher
-    is the only party that knows which shell it is dispatching into. That makes `{{PYTHON}}` the
-    resolver the issue asked for rather than a second hard-coded name; this asserts what it
-    resolves to.
-    """
-    slots = _load_slots()
-    names = [*slots.LANE_PYTHON.values(), slots.LANE_GH]
-    bad = [name for name in names if re.search(r"[/\\:%$\s]", name)]
-    assert not bad, f"the launcher injects something that is not a bare executable name: {bad}"
-
-
-def test_the_interpreter_table_covers_every_lane_and_has_no_fallback() -> None:
-    """A lane the table does not name has no interpreter, and must not inherit another lane's.
-
-    `LANE_PYTHON` is indexed once per rendered task, so a missing vendor decides which interpreter a
-    worker is told to run. Both available fallbacks are wrong for one of the two shells — `python3`
-    is an unconfigured Store stub on Windows, `python` does not exist in Ubuntu — so a default here
-    reinstates #382 for the lane it was added to protect. The launcher refuses instead (#387), and
-    this asserts both halves: every vendor is present, and nothing absorbs the ones that are not.
-    """
-    slots = _load_slots()
-    assert set(slots.LANE_PYTHON) == set(slots.claim.VENDORS), (
-        f"LANE_PYTHON covers {sorted(slots.LANE_PYTHON)} but the vendors are "
-        f"{sorted(slots.claim.VENDORS)}; a lane with no interpreter cannot be dispatched"
-    )
-    assert not hasattr(slots, "DEFAULT_PYTHON"), (
-        "a default interpreter makes an unregistered lane render a task whose commands do not run, "
-        "and it does so silently; `_lane_python` refuses instead"
-    )
-
-
-def test_a_rendered_task_is_runnable_in_the_lane_it_is_rendered_for() -> None:
-    """End to end: what a worker actually receives, for every lane, must pass the same rules.
-
-    The lanes are read from `claim.VENDORS` rather than listed here, so a fourth lane is covered the
-    moment it is added. A hand-written tuple silently stops at three (#387).
-    """
-    slots = _load_slots()
-    record = {"issue": 7, "branch": "agent/issue-7", "generation": 5, "base_sha": "a" * 40}
-    bad: list[str] = []
-    for task in TASKS:
-        for vendor in slots.claim.VENDORS:
-            item = {"vendor": vendor, "round": 1, "remaining": 1, "reason": "because"}
-            for span in re.findall(r"`([^`]+)`", slots._render(task, record, item)):
-                command = span.strip()
-                if not _INVOCATION.search(command):
-                    continue
-                token = _first_token(command)
-                if any(m in _gate_body(command) for m in ABSOLUTE) or (
-                    token and re.search(r"[/\\:%$]", token)
-                ):
-                    bad.append(f"{task.name} [{vendor}]: {command}")
-    assert not bad, f"a rendered task hands its worker an unrunnable command: {bad}"
-
-
-#: The provider triggers. `docs/agents/review.md` states the rule these fire under: a mention fires
-#: the bot **even inside backticks**, because a code span is not an escape.
-PROVIDER_HANDLES = ("@coderabbitai", "@greptileai", "@codex", "@copilot")
+    for interpreter, sibling in (("python3", "WSL"), ("python`", "PowerShell")):
+        window = shell[shell.index(interpreter) : shell.index(interpreter) + 90]
+        assert sibling in window, (
+            f"§Shell names {interpreter!r} without pairing it with {sibling!r} nearby; a reader "
+            "cannot tell which shell takes which, which is the defect this rule exists for"
+        )
 
 
 def test_no_page_both_lanes_read_names_a_gh_spelling_one_of_them_cannot_run() -> None:
@@ -761,11 +685,10 @@ def test_no_page_both_lanes_read_names_a_gh_spelling_one_of_them_cannot_run() ->
     tool this repository does not control would rot into a second source of truth, and the honest
     unit is "this spelling cost us a real failure". Both entries did: `--slurp` made the Greptile
     balance unreadable, so the lane's own precondition for spending a credit could not be met, and
-    `pr edit` broke the PR-body handoff that `.agents/tasks/build.md` calls the only thing carrying
-    the lane forward.
+    `pr edit` broke the PR-body handoff that the worker skill calls the only thing carrying the lane
+    forward.
 
-    Scoped to `BOTH_LANES`, so `CLAUDE.md` — which is allowed to name one lane's tooling — is exempt
-    for the same reason it may name `python3`.
+    Scoped to `BOTH_LANES`.
     """
     bad: list[str] = []
     scanned = 0
@@ -816,6 +739,10 @@ ISSUE_FORMS = sorted(
 #: real comment the moment someone opens a pull request or an issue from them.
 POSTED_TEMPLATES = [_REPO / ".github" / "pull_request_template.md", *ISSUE_FORMS]
 
+#: The provider triggers. `AGENTS.md` §Review states the rule these fire under: a mention fires the
+#: bot **even inside backticks**, because a code span is not an escape.
+PROVIDER_HANDLES = ("@coderabbitai", "@greptileai", "@codex", "@copilot")
+
 
 def test_no_posted_template_carries_a_provider_handle() -> None:
     """A handle in a template GitHub posts is a review request on every item opened from it.
@@ -823,18 +750,18 @@ def test_no_posted_template_carries_a_provider_handle() -> None:
     Every other guarded page is prose an agent *reads*. These are prose GitHub **publishes**:
     whatever they contain becomes a real comment, and a mention there fires the bot on something
     that is not ready for one — spending a fair-use review and throttling the pull request that was
-    (`docs/agents/review.md`, measured 2026-08-03).
+    (`AGENTS.md` §Review, measured 2026-08-03).
 
-    **The rule is scoped to what is posted, and that scoping is the point.** `review.md` says its
-    own page is where the trigger strings belong, but `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`
-    and `.agents/tasks/build.md` all name a handle too — and none of them is a defect, because none
-    of them is published as a comment. A guard over every page would fail on four files that are
-    doing nothing wrong, and the fix would be to delete the exact command a worker needs. So the
+    **The rule is scoped to what is posted, and that scoping is the point.** Governance pages name
+    provider handles — `CONTRIBUTING.md` and `.greptile/README.md` among them — and none of that is
+    a defect, because none of them is published as a comment. A guard over every page would fail on
+    files that are doing nothing wrong, and the fix would be to delete the exact command a worker
+    needs. So the
     line is drawn where the harm is: a file whose contents GitHub turns into a comment.
 
     The templates have always been clean, and nothing said so. #400 added the CodeRabbit gate's
     evidence requirement to the pull-request template, which is exactly the edit that invites naming
-    the command; it names it in prose — *"the full-review command"* — as `review.md` prescribes. The
+    the command; it names it in prose — *"the full-review command"* — as `AGENTS.md` prescribes. The
     issue forms are here for the same reason and were never covered.
 
     Globbed, not listed: a hand-written tuple silently stops at the forms that existed when it was
@@ -876,9 +803,7 @@ def test_a_page_that_arms_the_merge_says_what_sha_to_supply() -> None:
     """#400: a page that carries the merge-binding flag must say what `<SHA>` to supply.
 
     `<SHA>` is a placeholder nothing substitutes, so a page that omits the rule hands a worker a
-    literal. `swarm_slots._render` consumes `{{...}}` tokens and refuses to dispatch when one
-    survives. It has no opinion about angle brackets, so `<SHA>` reaches the worker exactly as
-    written — on the one flag that stands in for the merge queue this repository cannot have. The
+    literal — on the one flag that stands in for the merge queue this repository cannot have. The
     failure is not that the merge breaks loudly: it is that a worker guesses, and the obvious guess
     is to re-read the head from the pull request while arming, which compares the head against
     itself, binds nothing, and still reads as protection.
@@ -893,15 +818,22 @@ def test_a_page_that_arms_the_merge_says_what_sha_to_supply() -> None:
 
     Asserted over `GUARDED_FILES` rather than `BOTH_LANES`, because `CONTRIBUTING.md` carries the
     command too and a human following it can bind the wrong head just as easily. The pages
-    themselves are allowed to point at `docs/agents/review.md` §Merge instead of restating it, and
-    all of them do — the rule sentence is what is required here, not the reasoning behind it.
+    themselves are allowed to point at `AGENTS.md` §Review instead of restating it, and all of them
+    do — the rule sentence is what is required here, not the reasoning behind it.
+
+    The floor was five against **six** guarded pages carrying the arming line: the skill, the three
+    `.agents/tasks/*.md` templates, `CONTRIBUTING.md` and `docs/agents/review.md`, which reaches
+    `GUARDED_FILES` through the `docs/agents/*.md` glob in `SHARED_PAGES`. ADR-0064 deletes the
+    templates and folds `review.md` into `AGENTS.md`, which now carries the command itself, so three
+    pages carry it and the floor is three. The floor exists to catch the extractor going blind, not
+    to require a particular number of copies — and fewer copies was the point.
     """
     arming = [
         path
         for path in GUARDED_FILES
         if any(_MERGE_BINDING_FLAG in command for _number, command in _commands(path))
     ]
-    assert len(arming) >= 5, (
+    assert len(arming) >= 3, (
         f"only {len(arming)} pages appear to arm the merge; the command extractor has stopped "
         "seeing them and this guard would pass vacuously"
     )
