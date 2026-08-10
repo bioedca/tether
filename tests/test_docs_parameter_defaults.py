@@ -385,8 +385,23 @@ def _registry() -> list[_Entry]:
             ),
         ),
         (
+            # ``include_first`` is one printed default governing two surfaces: the dwell
+            # survival fit and the kinetics rate estimator. Same tokens and same live
+            # value, so ``_claims`` merges them into the single ``False`` the page prints
+            # -- and the merge is by value, so the day one of them changes they split
+            # again and the row is asked for a literal it does not carry.
             ("include_first",),
             function_default("tether.analysis.dwell", "population_dwell_times", "include_first"),
+        ),
+        (
+            ("include_first",),
+            function_default("tether.analysis.kinetics", "pooled_exit_rates", "include_first"),
+        ),
+        (
+            # Disambiguated on its module: ``state`` is a short, reusable word and a bare
+            # entry would bind any future row that happens to backtick it.
+            ("state", "tether.analysis.dwell"),
+            function_default("tether.analysis.dwell", "population_dwell_times", "state"),
         ),
         (
             ("per_molecule_equal_weight",),
@@ -460,6 +475,13 @@ def _registry() -> list[_Entry]:
         # Analysis — rendering defaults.
         (("DEFAULT_NBINS",), module_constant("tether.analysis.histogram", "DEFAULT_NBINS")),
         (("DEFAULT_RANGE",), module_constant("tether.analysis.histogram", "DEFAULT_RANGE")),
+        (
+            # The A1 overlay grid. Both entry points default it to the constant itself,
+            # which ``function_default`` refuses on purpose, so the constant is the only
+            # honest way to pin it -- and pinning it once covers both.
+            ("DEFAULT_OVERLAY_POINTS",),
+            module_constant("tether.analysis.histogram", "DEFAULT_OVERLAY_POINTS"),
+        ),
         (("DEFAULT_TIME_BINS",), module_constant("tether.analysis.histogram", "DEFAULT_TIME_BINS")),
         (
             ("DEFAULT_SIGNAL_BINS",),
@@ -518,6 +540,23 @@ def _registry() -> list[_Entry]:
             module_constant("tether.analysis.transition_prob", "DEFAULT_TPROB_KDE_POINTS"),
         ),
         (
+            # The transition-probability KDE switch, bound on BOTH signatures. Two
+            # entries that merge while the pair agrees, exactly as ``min_separation``
+            # does -- the single/population defaults drifting apart is precisely what
+            # this is here to catch. Disambiguated on its module because the raw-FRET
+            # cloud has a ``kde`` of its own further down the same table: a bare
+            # ``("kde",)`` entry binds whichever row it lands on, and the two rows
+            # agreeing on ``True`` today is what would make that silent.
+            ("kde", "tether.analysis.transition_prob"),
+            function_default("tether.analysis.transition_prob", "transition_prob_histogram", "kde"),
+        ),
+        (
+            ("kde", "tether.analysis.transition_prob"),
+            function_default(
+                "tether.analysis.transition_prob", "population_transition_prob_histogram", "kde"
+            ),
+        ),
+        (
             ("DEFAULT_STATE_NUMBER_LOW",),
             module_constant("tether.analysis.state_number", "DEFAULT_STATE_NUMBER_LOW"),
         ),
@@ -559,7 +598,12 @@ def _registry() -> list[_Entry]:
             ("time_range",),
             function_default("tether.analysis.cloud", "raw_fret_cloud", "time_range"),
         ),
-        (("kde",), function_default("tether.analysis.cloud", "raw_fret_cloud", "kde")),
+        (
+            # Disambiguated for the same reason as the transition-probability pair above:
+            # each ``kde`` must bind its own row and only its own.
+            ("kde", "tether.analysis.cloud"),
+            function_default("tether.analysis.cloud", "raw_fret_cloud", "kde"),
+        ),
         (("DEFAULT_ELBOW_K_MAX",), module_constant("tether.analysis.cloud", "DEFAULT_ELBOW_K_MAX")),
         (
             ("DEFAULT_ELBOW_RESTARTS",),
