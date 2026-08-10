@@ -33,7 +33,7 @@ linked work maps to one. The checklist, not CI, enforces those fields.
 - Risk (may only increase): low | standard | high
 - Risk rationale:
 - Final head SHA:
-- Greptile: spent one credit | skipped — no budget this month | skipped (say why). Balance from `<py> .agents/bin/greptile_usage.py`, where `<py>` is your lane's interpreter
+- Greptile: spent N credits (a standard review is 1, a TREX review 3) | skipped — no budget this month | skipped (say why). Balance from `<py> .agents/bin/greptile_usage.py`, where `<py>` is your lane's interpreter
 - **CodeRabbit — the last gate**: no actionable comments (quote the review — permalink, the **full 40-hex** `commit_id` it read **which must be the final head**, its `submitted_at`, its state — **`COMMENTED` or `APPROVED`**, since `DISMISSED` is a verdict withdrawn and `PENDING` is unsubmitted — and the opening of its body, which must show that **`Actionable comments posted:` is ABSENT**: zero is written by that line not being there, and a clean body opens straight onto `🧹 Nitpick comments` or `No actionable comments were generated`. A review of an earlier head does not qualify, a `PENDING` one is not submitted, a `DISMISSED` one is a verdict withdrawn, and a green status check with no review body is **not** the gate) | in flight (status check `pending` — never re-request, it aborts the run) | throttled, retrying after the stated interval *and* a non-pending status check (a wait, not a freeze) | unavailable (freezes the PR)
 - Provider that did not review: none | which, and why — a quota refusal means the provider **did not review**, and never counts as a pass
 - Findings: `<N>` serious (fixed) | `<M>` below the floor (deferred to #____, or dropped if this is an agent-layer path — ADR-0064)

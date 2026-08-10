@@ -1070,7 +1070,7 @@ interval a refusal names **shall** be honoured. Greptile is **one *review* in pr
 to plan on. Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
 no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
 **Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
-works in, one per completed review; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
+works in, billed per **completed review** — one credit for a standard review, **three for a TREX** one; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
 leg, and a quota refusal from it means the provider **did not review**, never a pass. Exhaustion and incapacity differ: Greptile out of
 credits is skippable, CodeRabbit unavailable **freezes the PR** — though a fair-use refusal that names a retry time
 is a **wait**, not unavailability, and a request that produced no review has not spent the one-per-round allowance.
@@ -1096,8 +1096,8 @@ the `agent:round-*` / `agent:review-capped` / `agent:gate-blocked` labels and th
 `git ls-remote` showed the launcher had issued **one** review round in its life and the advance half none at all: the
 mechanism the cap was said to rest on had never run, so the cap was already a convention and only the bookkeeping was
 real. What replaces it is the property that made it enforceable in the first place — a worker is short-lived — plus
-each vendor's own ceiling, and a merged history that is auditable after the fact. A quota refusal from any provider is
-*did not review*, never a pass.
+each vendor's own ceiling, and a merged history that is auditable after the fact. A quota refusal from any provider means the provider
+**did not review**, and never counts as a pass.
 
 Blocking is decided on the **severity axis only**: CodeRabbit `Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its
 badges use the same P-scale as Codex, so they map straight across, and a review the seat paid a credit for must not be
