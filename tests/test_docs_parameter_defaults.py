@@ -991,7 +991,18 @@ _CONSTANT_BACKED_SURFACES = [
         "n_points",
         "DEFAULT_OVERLAY_POINTS",
     ),
+    # Every ``w0`` surface the page's Set via cell names. Naming a surface is claiming
+    # its default, and the ``w0`` row prints one ``0.3`` for all of them -- so any one of
+    # these signatures drifting off the constant would leave the row wrong about that
+    # surface while the constant, and therefore the printed value, stayed put.
+    ("tether.project.gbranking", "train_ranker", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.weighting", "recompute_label_weights", "w0", "DEFAULT_SEED_WEIGHT"),
     ("tether.project.deep_dataset", "build_deep_dataset", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.gbranking", "weighted_training_set", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.gbranking", "score_molecules", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.gbranking", "ranker_ranking", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.gbranking", "ranker_precision_at_k", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.active", "next_recommendation", "w0", "DEFAULT_SEED_WEIGHT"),
 ]
 
 
