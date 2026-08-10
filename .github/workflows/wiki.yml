@@ -8,17 +8,20 @@
 # workflow is a mechanical mirror: it never authors, and it runs only from `main`, so nothing
 # reaches the wiki without review.
 #
-# The mirror is EXACT — root-level `*.md` pages absent from `wiki/` are deleted. That is the
-# point: a page edited in the wiki's own editor would silently drift from the docs site, which
-# is the failure mode #189 exists to close. Add a page by adding it to `wiki/` in a PR.
+# The mirror is EXACT — root-level `*.md` pages absent from `wiki/` are deleted, and an edit made
+# in the wiki's own editor is discarded on the next push to `main`. That is the point: such an
+# edit would otherwise drift silently from the docs site, which is the failure mode #189 exists
+# to close. Add a page by adding it to `wiki/` in a pull request.
 name: wiki
 
 on:
   push:
     branches: [main]
-    paths:
-      - .github/workflows/wiki.yml
-      - wiki/**
+    # Deliberately NO `paths:` filter. Drift comes from someone editing the wiki in its own
+    # editor, which touches nothing here — so a filter on `wiki/**` would leave that edit live
+    # until a later push happened to touch the source, i.e. possibly never. Syncing on every
+    # push is what makes "exact mirror" true rather than aspirational; when nothing changed the
+    # job says so and exits without a commit.
   workflow_dispatch:
 
 # Read-only by default (repo convention); the one job elevates `contents` because a wiki push

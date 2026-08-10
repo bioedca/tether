@@ -1,7 +1,7 @@
 <!--
 Source of truth: `wiki/Home.md` in https://github.com/bioedca/tether. The `wiki` workflow mirrors
-that file here on every push to `main`, so edits made in the GitHub wiki editor are overwritten
-without warning — change this page by opening a pull request against the repository instead.
+that file here on every push to `main`, so an edit made in the GitHub wiki editor is discarded the
+next time anything lands — change this page by opening a pull request against the repository.
 -->
 
 > **This wiki is an index only.** The canonical documentation is the
