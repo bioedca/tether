@@ -991,10 +991,12 @@ _CONSTANT_BACKED_SURFACES = [
         "n_points",
         "DEFAULT_OVERLAY_POINTS",
     ),
-    # Every ``w0`` surface the page's Set via cell names. Naming a surface is claiming
-    # its default, and the ``w0`` row prints one ``0.3`` for all of them -- so any one of
-    # these signatures drifting off the constant would leave the row wrong about that
-    # surface while the constant, and therefore the printed value, stayed put.
+    # EVERY public ``w0`` surface, not merely the three the row names as entry points.
+    # The row's claim is that the same keyword carries the same default across the whole
+    # weighting/ranking seam, which is a claim about all of them; and the printed ``0.3``
+    # comes from the constant, so any one signature could drift off it while the page
+    # stayed green. Enumerated rather than sampled on purpose -- three successive review
+    # passes each found one more surface the previous list had missed.
     ("tether.project.gbranking", "train_ranker", "w0", "DEFAULT_SEED_WEIGHT"),
     ("tether.project.weighting", "recompute_label_weights", "w0", "DEFAULT_SEED_WEIGHT"),
     ("tether.project.deep_dataset", "build_deep_dataset", "w0", "DEFAULT_SEED_WEIGHT"),
@@ -1003,7 +1005,34 @@ _CONSTANT_BACKED_SURFACES = [
     ("tether.project.gbranking", "ranker_ranking", "w0", "DEFAULT_SEED_WEIGHT"),
     ("tether.project.gbranking", "ranker_precision_at_k", "w0", "DEFAULT_SEED_WEIGHT"),
     ("tether.project.active", "next_recommendation", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.ml.weighting", "seed_weight", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.ml.weighting", "effective_weights", "w0", "DEFAULT_SEED_WEIGHT"),
 ]
+
+
+def test_the_w0_surface_list_is_exhaustive() -> None:
+    """No public ``w0`` keyword may exist outside :data:`_CONSTANT_BACKED_SURFACES`.
+
+    The list above is enumerated, and an enumeration rots: three review passes each found
+    a surface the previous list had missed, and the page now claims the default holds
+    across the *whole* seam. So the enumeration is checked rather than trusted -- add a
+    ``w0=`` keyword anywhere under ``src/`` and this fails until the table admits it.
+    """
+    covered = {(mod, func) for mod, func, param, _ in _CONSTANT_BACKED_SURFACES if param == "w0"}
+    found: set[tuple[str, str]] = set()
+    for path in sorted(SRC.rglob("*.py")):
+        dotted = ".".join(path.relative_to(SRC).with_suffix("").parts)
+        for stmt in ast.parse(path.read_text(encoding="utf-8"), filename=str(path)).body:
+            if not isinstance(stmt, ast.FunctionDef) or stmt.name.startswith("_"):
+                continue
+            args = stmt.args
+            named = args.posonlyargs + args.args + args.kwonlyargs
+            if any(a.arg == "w0" for a in named):
+                found.add((dotted, stmt.name))
+    assert found == covered, (
+        "the public w0 surfaces and _CONSTANT_BACKED_SURFACES have diverged — "
+        f"unbound: {sorted(found - covered)}; stale entries: {sorted(covered - found)}"
+    )
 
 
 @pytest.mark.parametrize(
