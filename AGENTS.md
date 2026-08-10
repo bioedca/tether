@@ -141,6 +141,11 @@ validity turns on it being the right test — must satisfy both.
   reaches fully green before anyone is asked to read it. Opening ready is **not forbidden** but is
   never free: it spends a metered provider on a diff no unmetered one has read, so record the
   reason in the PR.
+- **The lane is cheapest provider first, and the order is the point.** On the green draft,
+  **Codex** — unmetered, so uncapped — until it surfaces nothing blocking. Then **optionally one
+  Greptile credit**, if the seat has budget. Then ready-for-review, and **CodeRabbit last**. Codex
+  is not optional: it is what makes the metered providers affordable, and skipping it is the same
+  spend as opening ready. Record each leg in the PR.
 - **Review evidence survives a non-material push, so answering findings does not restart the
   gate.** **The non-material list is a set of exceptions and it wins**, so a change touching a
   material path is still non-material when the change itself is one of them: merging `main` in

@@ -1073,7 +1073,7 @@ no single one was sufficient — the lane keeps that property while spending the
 works in, billed per **completed review** — one credit for a standard review, **three for a TREX** one; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
 leg, and a quota refusal from it means the provider **did not review**, never a pass. Exhaustion and incapacity differ: Greptile out of
 credits is skippable, CodeRabbit unavailable **freezes the PR** — though a fair-use refusal that names a retry time
-is a **wait**, not unavailability, and a request that produced no review has not spent the one-per-round allowance.
+is a **wait**, not unavailability, and a request that produced no review is not one of the two completed reviews.
 Author-side/local review and a green or status-only
 result do not satisfy the gate. **No provider auto-reviews this repository** — CodeRabbit reports auto reviews
 disabled, Greptile is held by `.greptile/config.json`'s `skipReview: "AUTOMATIC"`, and Codex fires only on

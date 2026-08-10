@@ -343,8 +343,8 @@ reads a great deal like a review that found nothing.
 CodeRabbit's fair-use limit is **adaptive**: several reviews in one sitting drop the
 seat to a per-interval allowance, and the refusal names when the next included review
 is due. That is a **wait**, not unavailability — wait it out and ask again, which
-spends neither a round nor the one-request-per-round allowance, since a request that
-produced no review has not been spent. It also offers to proceed through usage-based
+spends nothing against the two-completed-reviews ceiling, since a request that
+produced no review is not one of the two. It also offers to proceed through usage-based
 billing; that is the maintainer's spending decision, never a worker's. Pace review
 requests rather than batching them.
 
@@ -371,8 +371,8 @@ schema, locks, CI/release config and the governance text itself (`AGENTS.md`,
 `.claude/**`, `.github/pull_request_template.md`, `.greptile/**`) are material — the
 list is *every file that states a rule*, because a push changing what the gate requires
 must not keep evidence gathered under the old requirement. A material push
-re-arms the review but grants no extra round, and there are **at most two completed reviews per
-metered provider** (Codex, being unmetered, is uncapped — see below).
+re-arms the review but raises no ceiling: there are **at most two completed reviews per
+metered provider** however many pushes precede them (Codex, being unmetered, is uncapped — see below).
 
 Fix blocking findings. Blocking is decided on the **severity axis only**: CodeRabbit
 `Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its badges use the same P-scale as
@@ -414,7 +414,9 @@ merged history is auditable and you are trusted with it. On agent-layer paths
 (`.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules) a
 finding below the severity floor is **dropped rather than tracked**, because there the
 follow-up issue becomes another agent-layer pull request and the loop feeds itself
-(ADR-0064). Human sign-off is required only for releases, tags, signing, and any new
+(ADR-0064). Dropped is not silent: reply on the thread in the wording `AGENTS.md`
+§Review gives, and resolve it — untracked and unanswered are different things, and only
+the reply leaves the decision on the record. Human sign-off is required only for releases, tags, signing, and any new
 scientific claim **or citation**.
 
 ## Reporting bugs & security issues
