@@ -1,0 +1,91 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# wiki — mirror the reviewed `wiki/` source onto this repository's GitHub wiki (#189).
+#
+# The wiki is an INDEX of https://bioedca.github.io/tether/, never a second home for
+# documentation. Content is therefore authored only in the normal branch/PR flow, and this
+# workflow is a mechanical mirror: it never authors, and it runs only from `main`, so nothing
+# reaches the wiki without review.
+#
+# The mirror is EXACT — root-level `*.md` pages absent from `wiki/` are deleted. That is the
+# point: a page edited in the wiki's own editor would silently drift from the docs site, which
+# is the failure mode #189 exists to close. Add a page by adding it to `wiki/` in a PR.
+name: wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/wiki.yml
+      - wiki/**
+  workflow_dispatch:
+
+# Read-only by default (repo convention); the one job elevates `contents` because a wiki push
+# is authorized by the parent repository's write permission. No repository setting is changed.
+permissions:
+  contents: read
+
+concurrency:
+  group: wiki-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Only from reviewed `main`, and only on the upstream repository. A `workflow_dispatch`
+    # aimed at any other ref skips rather than publishing an unreviewed branch's `wiki/`.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'bioedca/tether'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Mirror wiki/ to the wiki repository
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          # Feed the short-lived token to git over askpass rather than the remote URL, so it is
+          # never written into .git/config and never appears in a process listing.
+          askpass="$RUNNER_TEMP/tether-wiki-askpass"
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'ASKPASS'
+          #!/usr/bin/env bash
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$GH_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          ASKPASS
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+
+          checkout="$RUNNER_TEMP/tether-wiki"
+          git clone --depth 1 "https://github.com/$REPOSITORY.wiki.git" "$checkout"
+
+          rm -f "$checkout"/*.md
+          cp wiki/*.md "$checkout/"
+
+          cd "$checkout"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "wiki already matches $SOURCE_SHA; nothing to publish"
+          else
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit -m "docs(wiki): mirror wiki/ from $SOURCE_SHA"
+            git push origin HEAD
+          fi
