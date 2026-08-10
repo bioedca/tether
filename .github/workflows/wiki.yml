@@ -89,9 +89,9 @@ jobs:
             exit 1
           fi
 
-          # Replace the whole tree, not just root *.md. A wiki page whose title contains "/" is
-          # stored nested, and the wiki editor can upload attachments, so a root-glob sync would
-          # leave both live forever — and "exact mirror" would be false the moment either exists.
+          # Replace the whole tree, not just root *.md. The wiki clone is an ordinary git repo and
+          # can hold files a root glob never matches — nested paths, non-Markdown assets — so a
+          # root-glob sync would leave them live forever and "exact mirror" would be false.
           find "$checkout" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           cp -R wiki/. "$checkout/"
 
