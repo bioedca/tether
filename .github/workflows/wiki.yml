@@ -8,10 +8,10 @@
 # workflow is a mechanical mirror: it never authors, and it runs only from `main`, so nothing
 # reaches the wiki without review.
 #
-# The mirror is EXACT — root-level `*.md` pages absent from `wiki/` are deleted, and an edit made
-# in the wiki's own editor is discarded on the next push to `main`. That is the point: such an
-# edit would otherwise drift silently from the docs site, which is the failure mode #189 exists
-# to close. Add a page by adding it to `wiki/` in a pull request.
+# The mirror is EXACT — the wiki tree is replaced by `wiki/`, so anything not in `wiki/` is
+# deleted and an edit made in the wiki's own editor is discarded on the next push to `main`.
+# That is the point: such an edit would otherwise drift silently from the docs site, which is
+# the failure mode #189 exists to close. Add a page by adding it to `wiki/` in a pull request.
 name: wiki
 
 on:
@@ -81,11 +81,18 @@ jobs:
           # nothing and would make the push depend on the server accepting a shallow update.
           git clone "https://github.com/$REPOSITORY.wiki.git" "$checkout"
 
-          rm -f "$checkout"/*.md
-          # If `wiki/` ever holds no pages the glob does not expand and `cp` fails the job under
-          # `set -e`. That is the wanted behaviour, not an oversight: an empty source almost
-          # certainly means a mistake, and failing loudly beats deleting every live wiki page.
-          cp wiki/*.md "$checkout/"
+          # Refuse to publish nothing. An empty source is a mistake far more often than an
+          # intended deletion of every page, and failing loudly beats emptying the live wiki.
+          if [ -z "$(find wiki -maxdepth 1 -name '*.md' -print -quit)" ]; then
+            echo "::error::wiki/ holds no page at its root; refusing to publish an empty wiki"
+            exit 1
+          fi
+
+          # Replace the whole tree, not just root *.md. A wiki page whose title contains "/" is
+          # stored nested, and the wiki editor can upload attachments, so a root-glob sync would
+          # leave both live forever — and "exact mirror" would be false the moment either exists.
+          find "$checkout" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R wiki/. "$checkout/"
 
           cd "$checkout"
           git add -A
