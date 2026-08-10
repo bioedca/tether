@@ -74,7 +74,9 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
 
           checkout="$RUNNER_TEMP/tether-wiki"
-          git clone --depth 1 "https://github.com/$REPOSITORY.wiki.git" "$checkout"
+          # Full clone, not --depth 1: the wiki is a single page, so the shallow history buys
+          # nothing and would make the push depend on the server accepting a shallow update.
+          git clone "https://github.com/$REPOSITORY.wiki.git" "$checkout"
 
           rm -f "$checkout"/*.md
           cp wiki/*.md "$checkout/"
