@@ -142,8 +142,12 @@ validity turns on it being the right test — must satisfy both.
   never free: it spends a metered provider on a diff no unmetered one has read, so record the
   reason in the PR.
 - **Review evidence survives a non-material push, so answering findings does not restart the
-  gate.** Merging `main` in cleanly, formatting, comment and docstring edits and ADR renumbering
-  are non-material. Executable code, scientific claims, data, schema, locks, CI and release
+  gate.** **The non-material list is a set of exceptions and it wins**, so a change touching a
+  material path is still non-material when the change itself is one of them: merging `main` in
+  cleanly, formatting, comment and docstring edits, and an ADR **renumber-only** change — which
+  is why `docs/agents/adr.md` can say a renumber needs no fresh review even though `docs/adr/**`
+  is a material path. A renumber that also edits a word of the decision is not renumber-only.
+  Otherwise: Executable code, scientific claims, data, schema, locks, CI and release
   configuration, and **every file that states a rule** — `AGENTS.md`, `CLAUDE.md`,
   `CONTRIBUTING.md`, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`, `.claude/**`,
   `.github/pull_request_template.md`, `.greptile/**` — are material, and a material push re-arms

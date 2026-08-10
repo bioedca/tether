@@ -364,7 +364,8 @@ quoting a trigger while describing it spends a real review. Break the handle, or
 
 Review evidence **survives a non-material push**, so addressing findings does not
 restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
-renumbering are all non-material, while executable code, scientific claims, data,
+renumbering (renumber-only — touching a word of the decision is not) are all non-material, and
+that exception list WINS over the material paths below, while executable code, scientific claims, data,
 schema, locks, CI/release config and the governance text itself (`AGENTS.md`,
 `CLAUDE.md`, this file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`,
 `.claude/**`, `.github/pull_request_template.md`, `.greptile/**`) are material — the
