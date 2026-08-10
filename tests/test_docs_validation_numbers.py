@@ -39,10 +39,18 @@ The artifacts are read with :mod:`json` and the module constants with :mod:`ast`
 guard is dependency-free: no ``tether`` import, no SciPy/h5py, and it runs unmarked on
 the plain 3-OS ``test`` matrix.
 
-**What is deliberately not pinned** is enumerated in :data:`EXCLUSIONS` with a reason
-for each, because an unexplained omission on a validation page is indistinguishable from
-an oversight. In short: figures whose source is upstream git history, a historical
-Actions run, or a prose record of a local run that produced no machine-readable artifact.
+**Scope.** The pinned set is the one #214's accepted criteria enumerate: both frozen
+tolerance blocks, both ``pooled_worst`` blocks, the kinSoft matrices, the measurement
+counts, and every module constant the page prints a value for. Within that set,
+:data:`EXCLUSIONS` records what is deliberately left unpinned and why, because on a
+validation page an unexplained omission and an oversight look identical.
+
+This is **not** a page-wide numerical-coverage manifest. The page restates some pinned
+values a second time in running prose — ``RMS ≤ 0.5 px`` in (a)'s enforcing-tests
+paragraph, the rounded ``$.pooled_worst`` figures in (b)'s blockquote — and those
+restatements sit outside the table row or anchored paragraph each pin selects, so they
+are unguarded. Closing that is #435, deliberately kept separate from the scope #214's
+title/body snapshot was approved against.
 """
 
 from __future__ import annotations
@@ -242,14 +250,15 @@ def _states(cell: str, value: object) -> bool:
         candidates = {cell.strip(), cell.strip().strip("`").strip('"')}
         candidates |= set(_BACKTICKED_RE.findall(cell)) | set(_QUOTED_RE.findall(cell))
         return value in candidates
+    numbers: list[object] = []
     for text in _NUMBER_RE.findall(cell):
-        try:
-            parsed = ast.literal_eval(text)
-        except (SyntaxError, ValueError):  # pragma: no cover - defensive
-            continue
-        if type(parsed) is type(value) and parsed == value:
-            return True
-    return False
+        with contextlib.suppress(SyntaxError, ValueError):
+            numbers.append(ast.literal_eval(text))
+    # Every number in the cell must agree, not merely one of them: `0.9 (also 0.8)` keeps
+    # the right value while publishing a contradiction, which is the same defect the
+    # Prose branch rejects. Every pinned Value cell states exactly one number today.
+    comparable = [x for x in numbers if _same_kind(x, value)]
+    return bool(comparable) and all(type(x) is type(value) and x == value for x in comparable)
 
 
 # --- The three pin kinds -------------------------------------------------------
@@ -306,10 +315,14 @@ class Quote(NamedTuple):
     def label(self) -> str:
         return f"{self.anchor}|{self.template}"
 
-    def rendered(self) -> str:
+    def value_text(self) -> str:
+        """The live value as the page spells it."""
         if isinstance(self.value, str):
-            return self.template.format(self.value)
-        return self.template.format(f"{self.value * self.scale:g}")
+            return self.value
+        return f"{self.value * self.scale:g}"
+
+    def rendered(self) -> str:
+        return self.template.format(self.value_text())
 
 
 Pin = Cell | Prose | Quote
@@ -375,6 +388,19 @@ def paragraph(text: str, section: str, anchor: str) -> str:
     return matches[0]
 
 
+def _template_regex(template: str) -> re.Pattern[str]:
+    """``"Paper doi `{}`"`` as a pattern that captures whatever value is printed there.
+
+    Used so a :class:`Quote` can check *every* place its claim is made rather than
+    stopping at the first. The placeholder captures a run of non-space characters, which
+    is what every pinned value is; the surrounding words are matched literally, so the
+    pattern only fires where the claim is actually being made.
+    """
+    head, placeholder, tail = template.partition("{}")
+    assert placeholder, f"a Quote template needs a {{}} placeholder: {template!r}"
+    return re.compile(re.escape(head) + r"(\S+?)" + re.escape(tail))
+
+
 def _flat(text: str) -> str:
     """One line, single-spaced — so a pinned phrase survives Markdown re-wrapping.
 
@@ -416,7 +442,10 @@ def satisfied(text: str, pin: Pin) -> bool:
         return bool(comparable) and all(
             type(x) is type(pin.value) and x == pin.value for x in comparable
         )
-    return _flat(pin.rendered()) in _flat(paragraph(text, pin.section, pin.anchor))
+    # Every occurrence of the claim must carry the live value. A substring test would
+    # accept a paragraph that keeps `(5 % average)` and adds `(6 % average)` beside it.
+    stated = _template_regex(pin.template).findall(_flat(paragraph(text, pin.section, pin.anchor)))
+    return bool(stated) and all(found == pin.value_text() for found in stated)
 
 
 # --- The registry --------------------------------------------------------------
@@ -658,7 +687,10 @@ def _registry() -> list[Pin]:
         for key, template, value in (
             ("doi", "Paper doi `{}`", at(KINSOFT, "$.source.doi")),
             ("data_doi", "data doi `{}`", at(KINSOFT, "$.source.data_doi")),
-            ("license", "({})", at(KINSOFT, "$.source.license")),
+            # The licence follows the data DOI's closing backtick. A bare "({})" would
+            # also fire on the "(2022)" of the citation two clauses earlier, so the
+            # template keeps just enough context to name the one place it belongs.
+            ("license", "` ({})", at(KINSOFT, "$.source.license")),
         )
     ]
 
@@ -823,6 +855,13 @@ EXCLUSIONS: dict[str, str] = {
         "docs/adr/0022 as prose. There is no machine-readable artifact, so a pin would "
         "only assert that two transcriptions of the same paragraph agree."
     ),
+    "second restatements of a pinned value elsewhere in the page's prose": (
+        "Each pin selects one table row or one anchored paragraph, so a value the page "
+        "also states somewhere else -- `RMS <= 0.5 px` in (a)'s enforcing-tests "
+        "paragraph, the rounded pooled-worst figures in (b)'s blockquote -- is outside "
+        "every selected region. A page-wide numerical manifest is real work and real "
+        "scope, and #214's criteria enumerate a specific set; tracked in #435."
+    ),
     "the paper's '14 published analyses', '17 %' and '9-14 %' figures": (
         "Facts of Gotz et al. 2022. kinsoft_reference.json records them only inside the "
         "free-text `spread_source` and `deferred_reason` strings, which the page "
@@ -964,12 +1003,12 @@ def test_the_deferred_matrix_still_says_every_unlisted_rate_is_zero() -> None:
     page = _flat(paragraph(PAGE_TEXT, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER))
     note = str(at(KINSOFT, _LEVEL3_NOTE_POINTER))
     for label, text in (("the artifact note", note), ("docs/validation.md", page)):
-        match = _ALL_OTHER_RE.search(text)
-        assert match, f"{label} no longer states what the unlisted off-diagonal rates are"
-        stated = match.group(1).rstrip(".,;)")
-        assert stated in _ZERO_WORDS, (
-            f"{label} says the unlisted off-diagonal rates are {stated!r}, not zero"
-        )
+        # Every occurrence, not the first: a second, contradictory clause added after a
+        # correct one would otherwise never be looked at.
+        clauses = [m.group(1).rstrip(".,;)") for m in _ALL_OTHER_RE.finditer(text)]
+        assert clauses, f"{label} no longer states what the unlisted off-diagonal rates are"
+        wrong = [c for c in clauses if c not in _ZERO_WORDS]
+        assert not wrong, f"{label} says the unlisted off-diagonal rates are {wrong}, not zero"
     listed = at(KINSOFT, _LEVEL3_RATES_POINTER)
     assert isinstance(listed, dict)
     assert set(listed) == set(_LEVEL3_RATES), (
@@ -1142,6 +1181,56 @@ def test_swapping_the_two_dois_fails() -> None:
     for pin in (p for p in REGISTRY if p.source in ("$.source.doi", "$.source.data_doi")):
         assert satisfied(PAGE_TEXT, pin)
         assert not satisfied(swapped, pin), f"{pin.source} was accepted under the wrong label"
+
+
+@pytest.mark.parametrize(
+    ("section", "old", "new", "source"),
+    [
+        # A table cell that keeps the right value and publishes a stale one beside it.
+        (
+            _PARITY_SECTION,
+            "| `viterbi_min_agreement` | floor | 0.95 |",
+            "| `viterbi_min_agreement` | floor | 0.95 (was 0.93) |",
+            "$.tolerance.viterbi_min_agreement",
+        ),
+        # The same shape in a Quote's paragraph rather than a cell.
+        (
+            _KINSOFT_SECTION,
+            "(5 % average)",
+            "(5 % average), or (6 % average)",
+            "$.levels.level1.reported_inter_tool_spread.rate_mean_rel_dev_from_gt",
+        ),
+    ],
+)
+def test_a_contradiction_beside_a_correct_value_fails(
+    section: str, old: str, new: str, source: str
+) -> None:
+    """Keeping the right number is not enough if a wrong one is published beside it.
+
+    Cell, Prose and Quote all have to agree about this. They did not: only the Prose
+    branch rejected a contradiction, so the same stale restatement passed or failed
+    depending on whether the page happened to print it in a table.
+    """
+    mutated = _mutate(section, old, new)
+    pins = [p for p in REGISTRY if p.source == source]
+    assert pins, f"no registry entry sources {source}"
+    for pin in pins:
+        assert satisfied(PAGE_TEXT, pin), f"{source} does not hold on the unmutated page"
+        assert not satisfied(mutated, pin), (
+            f"{source} was accepted while the page also stated a contradicting value"
+        )
+
+
+def test_a_second_contradictory_zero_clause_fails() -> None:
+    """The zero clause is checked everywhere it appears, not just the first time."""
+    doubled = PAGE_TEXT.replace(
+        "all other off-diagonal rates zero",
+        "all other off-diagonal rates zero, and all other off-diagonal rates 0.01",
+    )
+    text = _flat(paragraph(doubled, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER))
+    clauses = [m.group(1).rstrip(".,;)") for m in _ALL_OTHER_RE.finditer(text)]
+    assert len(clauses) == 2, clauses
+    assert [c for c in clauses if c not in _ZERO_WORDS] == ["0.01"]
 
 
 def test_a_nonzero_all_other_clause_fails() -> None:
