@@ -22,9 +22,16 @@ own number; it *locates a region first* and then asks that region what it states
   ``` `viterbi_agreement` 0.9355949176941853 ``` binds that number to that key, and
   moving the number next to a different key breaks the pin rather than passing because
   the digits are still somewhere on the page.
-* :class:`Quote` renders a live artifact value into a fixed phrase and requires the
-  phrase verbatim in the selected paragraph. It carries the two figures the page prints
-  as percentages and the two DOIs.
+* :class:`Quote` renders a live artifact value into a fixed phrase and requires the phrase
+  verbatim in the selected paragraph, whitespace-normalised so a re-wrap cannot break it.
+  The phrase carries the words that say *which* field the value is, so swapping the paper
+  DOI with the data DOI fails even though both remain present. It also pins the
+  measurement counts, the licence, and the two figures the page prints as percentages.
+
+Section, table, row, column and paragraph selection each assert a **unique** match, and a
+repeated ``##`` heading is an error rather than a last-one-wins overwrite — a stale
+duplicate section inserted above the canonical one would otherwise be read by nothing here
+and published anyway.
 
 The artifacts are read with :mod:`json` and the module constants with :mod:`ast`, so the
 guard is dependency-free: no ``tether`` import, no SciPy/h5py, and it runs unmarked on
@@ -93,7 +100,9 @@ def module_constant(dotted: str, name: str) -> object:
 
 # --- Reading the page ----------------------------------------------------------
 
-_HEADING_RE = re.compile(r"^## (.+)$")
+#: A level-2 heading only. The negative lookahead keeps a future ``### Sub-heading`` from
+#: parsing as a section literally named ``# Sub-heading``.
+_HEADING_RE = re.compile(r"^## (?!#)(.+)$")
 _SEPARATOR_RE = re.compile(r"^\|[\s:|-]+\|$")
 _BACKTICKED_RE = re.compile(r"`([^`]+)`")
 _QUOTED_RE = re.compile(r'"([^"]*)"')
@@ -128,20 +137,35 @@ def _cells(line: str) -> list[str]:
 
 
 def _sections(text: str) -> dict[str, str]:
-    """The page split on its ``##`` headings. Prose above the first one is dropped."""
+    """The page split on its ``##`` headings. Prose above the first one is dropped.
+
+    A repeated heading is an error, not a last-one-wins overwrite. A stale duplicate of
+    a validation section inserted *before* the canonical one would otherwise be invisible
+    to every pin here — they would all read the later copy — while the contradictory
+    earlier copy stayed published and the suite stayed green.
+    """
     out: dict[str, str] = {}
     name: str | None = None
     buf: list[str] = []
+
+    def close() -> None:
+        assert name is not None
+        assert name not in out, (
+            f"docs/validation.md has two '## {name}' sections. Every pin would read only "
+            "the later one while the earlier stayed published; de-duplicate the page."
+        )
+        out[name] = "\n".join(buf)
+
     for line in text.split("\n"):
         heading = _HEADING_RE.match(line)
         if heading:
             if name is not None:
-                out[name] = "\n".join(buf)
+                close()
             name, buf = heading.group(1).strip(), []
         else:
             buf.append(line)
     if name is not None:
-        out[name] = "\n".join(buf)
+        close()
     return out
 
 
@@ -330,15 +354,33 @@ def cell_text(text: str, pin: Cell) -> str:
 
 
 def paragraph(text: str, section: str, anchor: str) -> str:
-    """The one non-table paragraph of ``section`` whose backticked tokens carry ``anchor``."""
-    matches = [
-        p for p in _prose_paragraphs(_section(text, section)) if anchor in _BACKTICKED_RE.findall(p)
-    ]
+    """The one non-table paragraph of ``section`` selected by ``anchor``.
+
+    ``anchor`` is normally a backticked token, matched by equality so that
+    ``$.levels.level1`` never resolves through ``$.levels.level1.ground_truth``. A few
+    paragraphs the page never labels with a pointer — ``**Measured result.**`` — are
+    reachable by their bold lead-in instead, and that fallback is only consulted when the
+    token form matched nothing, so no existing anchor changes meaning.
+    """
+    paragraphs = _prose_paragraphs(_section(text, section))
+    matches = [p for p in paragraphs if anchor in _BACKTICKED_RE.findall(p)]
+    if not matches:
+        matches = [p for p in paragraphs if p.lstrip().startswith(anchor)]
     assert len(matches) == 1, (
-        f"'{section}' must hold exactly one non-table paragraph naming `{anchor}`; "
+        f"'{section}' must hold exactly one non-table paragraph selected by {anchor!r}; "
         f"found {len(matches)} — re-anchor the pin rather than relaxing it"
     )
     return matches[0]
+
+
+def _flat(text: str) -> str:
+    """One line, single-spaced — so a pinned phrase survives Markdown re-wrapping.
+
+    The page hard-wraps at 90-odd columns, so ``Paper doi`` and the DOI that belongs to it
+    sit on different lines. Without this a label-bound phrase would be unmatchable purely
+    because of where the paragraph happened to break.
+    """
+    return " ".join(text.split())
 
 
 def satisfied(text: str, pin: Pin) -> bool:
@@ -348,7 +390,7 @@ def satisfied(text: str, pin: Pin) -> bool:
     if isinstance(pin, Prose):
         owned = _owned_literals(paragraph(text, pin.section, pin.anchor)).get(pin.key, set())
         return any(type(x) is type(pin.value) and x == pin.value for x in owned)
-    return pin.rendered() in paragraph(text, pin.section, pin.anchor)
+    return _flat(pin.rendered()) in _flat(paragraph(text, pin.section, pin.anchor))
 
 
 # --- The registry --------------------------------------------------------------
@@ -461,6 +503,35 @@ def _registry() -> list[Pin]:
         )
     )
 
+    # (b) — how much measurement stands behind those blocks. These are machine-readable
+    # fields, so leaving them neither pinned nor excluded would let a re-measure with a
+    # different run count keep the page's "20 fits / 39 comparisons" sentence green.
+    vbconhmm_spread = at(PARITY, "$.spread_by_fixture")
+    assert isinstance(vbconhmm_spread, dict)
+    pins += [
+        Quote(
+            _PARITY_SECTION,
+            "**Measured result.**",
+            "{} self-reseeded fits per fixture",
+            "$.method.n_runs_per_fixture",
+            at(PARITY, "$.method.n_runs_per_fixture"),
+        ),
+        Quote(
+            _PARITY_SECTION,
+            "**Measured result.**",
+            "{} recorded comparisons pooled",
+            "sum of $.spread_by_fixture.*.n_comparisons",
+            sum(fixture["n_comparisons"] for fixture in vbconhmm_spread.values()),
+        ),
+        Quote(
+            _PARITY_SECTION,
+            ebhmm,
+            "{} cross-seed comparisons",
+            f"{ebhmm}.spread_by_fixture.smd_281mol.n_comparisons",
+            at(PARITY, f"{ebhmm}.spread_by_fixture.smd_281mol.n_comparisons"),
+        ),
+    ]
+
     # (b) — the artifact's own provenance, both as prose and in the build table.
     pins += [
         Prose(
@@ -545,12 +616,15 @@ def _registry() -> list[Pin]:
         Prose(_KINSOFT_SECTION, "schema/kinsoft_reference.json", key, f"$.{key}", KINSOFT[key])
         for key in ("schema_version", "frozen_at_milestone", "measured_utc")
     ]
+    # Each citation carries the words that identify *which* field it is. A bare `{}` would
+    # let the paper doi and the data doi swap places on the page and still pass, because
+    # both values would still be somewhere in the same paragraph.
     pins += [
-        Quote(_KINSOFT_SECTION, "schema/kinsoft_reference.json", "{}", f"$.source.{key}", value)
-        for key, value in (
-            ("doi", at(KINSOFT, "$.source.doi")),
-            ("data_doi", at(KINSOFT, "$.source.data_doi")),
-            ("license", at(KINSOFT, "$.source.license")),
+        Quote(_KINSOFT_SECTION, "schema/kinsoft_reference.json", template, f"$.source.{key}", value)
+        for key, template, value in (
+            ("doi", "Paper doi `{}`", at(KINSOFT, "$.source.doi")),
+            ("data_doi", "data doi `{}`", at(KINSOFT, "$.source.data_doi")),
+            ("license", "({})", at(KINSOFT, "$.source.license")),
         )
     ]
 
@@ -806,15 +880,53 @@ def test_every_constant_the_page_states_a_value_for_is_pinned() -> None:
     )
 
 
-def test_the_page_quotes_the_artifacts_verbatim() -> None:
-    """Two claims on the page are explicitly *quotations*, so they must still be exact."""
-    assert "never gates main" in at(KINSOFT, "$.description"), (
-        "docs/validation.md says `$.description` states 'never gates main' verbatim"
+#: Claims the page presents as *quotations* of an artifact, as
+#: ``(fragment, artifact, pointer, section, anchor)``. Each is checked in **both**
+#: directions. A one-sided check — the fragment is still in the artifact — passes a page
+#: that stopped quoting it, or quotes its opposite; the page saying `$.description`
+#: "never gates main" is only true while *both* halves hold.
+_VERBATIM_QUOTES = (
+    ("never gates main", KINSOFT, "$.description", _KINSOFT_SECTION, "$.description"),
+    (
+        "vbconhmm (vb Consensus HMM)",
+        PARITY,
+        "$.coverage.measured_methods",
+        _PARITY_SECTION,
+        "$.coverage.measured_methods",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("fragment", "artifact", "pointer", "section", "anchor"),
+    _VERBATIM_QUOTES,
+    ids=[pointer for _, _, pointer, _, _ in _VERBATIM_QUOTES],
+)
+def test_the_page_quotes_the_artifact_verbatim(
+    fragment: str, artifact: dict, pointer: str, section: str, anchor: str
+) -> None:
+    """A quotation has two sides, and the page owns one of them."""
+    held = at(artifact, pointer)
+    source = held if isinstance(held, str) else "\n".join(str(item) for item in held)  # type: ignore[union-attr]
+    assert fragment in source, (
+        f"docs/validation.md presents {fragment!r} as a verbatim quote of {pointer}, "
+        "but the artifact no longer says it"
     )
-    assert at(PARITY, "$.coverage.measured_methods") == ["vbconhmm (vb Consensus HMM)"], (
-        "docs/validation.md quotes `$.coverage.measured_methods` as exactly "
-        '["vbconhmm (vb Consensus HMM)"]'
+    assert fragment in _flat(paragraph(PAGE_TEXT, section, anchor)), (
+        f"{pointer} still says {fragment!r} but docs/validation.md no longer quotes it "
+        "where it claims to"
     )
+
+
+def test_only_one_method_was_measured_as_the_page_says() -> None:
+    """The page says `$.coverage.measured_methods` records *only* that one method.
+
+    The verbatim check above proves the string is present on both sides; "only" is the
+    separate claim that nothing joined it, which a second measured method would falsify
+    while every quotation still matched.
+    """
+    sole = next(q[0] for q in _VERBATIM_QUOTES if q[2] == "$.coverage.measured_methods")
+    assert at(PARITY, "$.coverage.measured_methods") == [sole]
 
 
 def test_provisional_still_equals_the_frozen_tolerance() -> None:
@@ -945,6 +1057,47 @@ def test_a_number_moved_to_a_neighbouring_key_fails() -> None:
         assert not satisfied(swapped_text, pin), (
             f"{metric} was accepted next to another metric's value"
         )
+
+
+def test_swapping_the_two_dois_fails() -> None:
+    """A citation value must carry the words saying *which* field it is.
+
+    Both DOIs stay present and distinct through the swap, so a pin that only asked
+    whether each value appears somewhere in the paragraph would call the page correct
+    while it attributed the Zenodo data deposit to the paper.
+    """
+    paper = at(KINSOFT, "$.source.doi")
+    data = at(KINSOFT, "$.source.data_doi")
+    swapped = PAGE_TEXT.replace(f"`{paper}`", "@@PAPER@@").replace(f"`{data}`", f"`{paper}`")
+    swapped = swapped.replace("@@PAPER@@", f"`{data}`")
+    assert str(paper) in swapped and str(data) in swapped  # nothing was lost, only moved
+    for pin in (p for p in REGISTRY if p.source in ("$.source.doi", "$.source.data_doi")):
+        assert satisfied(PAGE_TEXT, pin)
+        assert not satisfied(swapped, pin), f"{pin.source} was accepted under the wrong label"
+
+
+def test_a_stale_duplicate_section_fails_rather_than_being_shadowed() -> None:
+    """A second copy of a section must not hide behind the canonical one.
+
+    Dictionary assignment used to be last-one-wins, so a stale duplicate inserted *above*
+    the real section was read by nothing and published anyway.
+    """
+    heading = f"## {_KINSOFT_SECTION}"
+    duplicated = PAGE_TEXT.replace(
+        heading,
+        f"{heading}\n\nA stale copy with `$.band.rate_rel_deviation_max = 0.99`.\n\n{heading}",
+        1,
+    )
+    with pytest.raises(AssertionError, match="two '## External benchmark' sections"):
+        _sections(duplicated)
+
+
+def test_a_dropped_quotation_fails_even_though_the_artifact_still_says_it() -> None:
+    """The page owns one side of every quotation it presents as verbatim."""
+    fragment, artifact, pointer, section, anchor = _VERBATIM_QUOTES[0]
+    assert fragment in str(at(artifact, pointer))  # the artifact side is untouched
+    reworded = PAGE_TEXT.replace(f'it "{fragment}"', "it says otherwise")
+    assert fragment not in _flat(paragraph(reworded, section, anchor))
 
 
 def test_an_ambiguous_anchor_fails_loudly_rather_than_picking_one() -> None:
