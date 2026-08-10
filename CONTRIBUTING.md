@@ -392,7 +392,12 @@ two axes and left every `Minor` ambiguous.
 
 Defer everything else to **one** follow-up issue per PR and resolve the thread with a
 link; do not fix non-blocking findings in the same PR, and never point a deferral at an
-issue that does not exist. If a **selected** provider reports nothing to review at the
+issue that does not exist. On agent-layer paths that rule inverts and the finding is
+dropped rather than tracked, which is stated in full below; **those same paths are also
+feature-complete** (ADR-0064) — they take bug and safety fixes only, so a capability
+change needs a maintainer-opened issue and may never originate in a review finding.
+Dropping the sub-floor finding without that second rule would still leave a reviewer able
+to commission new agent machinery through the deferral above. If a **selected** provider reports nothing to review at the
 head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is its documented
 "no suggestions" — that satisfies its leg; quote it. A statement from the author, or from
 any other commenter, never does. **Exhaustion is not incapacity**: a provider with nothing

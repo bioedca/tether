@@ -5,13 +5,21 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0063 — Review evidence is read from the payload, not inferred from its shape
 
-- **Status:** accepted; refines the §Round cap of [ADR-0062](0062-draft-first-review-lane-with-metered-providers.md) and supersedes the no-shared-code rationale [ADR-0057](0057-github-native-swarm-coordination.md) gave the scope guard's round counter
+- **Status:** superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md); its measurements stand as evidence
 - **Date:** 2026-08-07
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)
 - **Milestone:** M11 - Agent-swarm infrastructure
 
 ## Context and problem statement
+
+> **Superseded 2026-08-07 by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md),
+> which decides to retire `triage.py` rather than correct it again — the growth measured below is
+> evidence for that decision.** **Deciding is not doing.** ADR-0064 records the decision to retire
+> `triage.py`; it does not delete the module, and neither does the pull request that adds it. The
+> module still runs and still governs until the separate subtractive pull request that deletes it
+> lands, so the fixes recorded here remain the live behaviour until then. The measurements stand as
+> evidence either way.
 
 `.agents/bin/triage.py` reconstructs the lane's state from GitHub REST payloads. It grew from 344 to
 1,316 lines in eight days, and the **five** issues below share one root cause: **the module inferred

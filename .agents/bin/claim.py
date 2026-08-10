@@ -852,7 +852,14 @@ def _unfenced_claim(branch: str) -> None:
     The residual is tracked rather than hidden: if the activity record NEVER appears - as opposed to
     appearing late, which is what was actually observed - the reaper reads it as `activity-unknown`
     and *keeps* the ref rather than reclaiming it, by design (``reaper.py``: absent is unknown, not
-    stale). That leaves a ref no automated path clears. See #303.
+    stale). That leaves a ref no automated path clears.
+
+    **Decided in ADR-0064 (#303): report it and leave it to a maintainer, which is what this does.**
+    Bounding the unknown would need a clock that ADR-0057 establishes does not exist for a ref with
+    no activity record - commit metadata is client-settable - and a separate ownership token would
+    redesign the claim identity to serve a case never observed. Only the *lag* has been seen: once,
+    in seconds, on 2026-07-30. ``reaper.py``'s `activity-unknown` branch is the other half of this
+    decision and says so too.
     """
     raise ClaimError(
         f"the claim ref {branch} exists but its activity record never appeared, so it cannot be "
