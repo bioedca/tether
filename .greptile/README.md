@@ -94,8 +94,8 @@ short: Greptile is optional and metered — asked after Codex, on a diff that is
 skipped without ceremony when the seat has no budget. Draft-first is the default rather than a
 precondition: a pull request opened ready with its reason recorded is asked there, at the same point
 in the lane and on the same green checks. What does not change either way is the order — Codex
-reads the diff before any metered provider does. **One *review* in practice**, and a review is not always one credit — a standard review costs one, a TREX review three (see above), so a second ask is a real spend rather than a free retry. The two-asks-per-metered-provider
-ceiling in `AGENTS.md` §Review applies here as everywhere, but it is a ceiling rather than a second
-credit to plan on, so ask again only if the first found something blocking and the seat still has
+reads the diff before any metered provider does. **One *review* in practice**, and a review is not always one credit — a standard review costs one, a TREX review three (see above), so a second ask is a real spend rather than a free retry. The ceiling of **at most two completed
+reviews per metered provider** in `AGENTS.md` §Review applies here as everywhere, but it is a
+ceiling rather than a second credit to plan on, so ask again only if the first found something blocking and the seat still has
 budget. A request that produced no review — a throttle, a quota refusal, a failed run — is not an
 ask and spends nothing. CodeRabbit, not Greptile, is the gate.
