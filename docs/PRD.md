@@ -1071,7 +1071,7 @@ to plan on. Measured on the reaper change, two providers' findings barely inters
 no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
 **Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
 works in, one per completed review; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
-leg, and a quota refusal from it is *did not review*, not a pass. Exhaustion and incapacity differ: Greptile out of
+leg, and a quota refusal from it means the provider **did not review**, never a pass. Exhaustion and incapacity differ: Greptile out of
 credits is skippable, CodeRabbit unavailable **freezes the PR** — though a fair-use refusal that names a retry time
 is a **wait**, not unavailability, and a request that produced no review has not spent the one-per-round allowance.
 Author-side/local review and a green or status-only

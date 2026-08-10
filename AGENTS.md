@@ -157,7 +157,7 @@ validity turns on it being the right test — must satisfy both.
   across `tether`, `Yeliztli` and `tbox-finder` — read the balance with
   `<py> .agents/bin/greptile_usage.py` before spending one, and if the seat is empty record
   *"Greptile: no credits this month"* and move on; exhaustion never blocks. **A quota refusal from
-  any provider is *did not review*, never a pass.** Copilot is advisory and satisfies nothing.
+  any provider means the provider **did not review**, and never counts as a pass.** Copilot is advisory and satisfies nothing.
 - **CodeRabbit is the last gate**: at least one review with no actionable comments, asked with the
   **full-review** command (the bare incremental one applies only where automatic reviews are
   *paused*; they are *disabled* here, so it reviews nothing and says so in words that read like a
@@ -185,7 +185,8 @@ validity turns on it being the right test — must satisfy both.
   provider whose reads cost money or quota is made to *read the diff*, so **Codex on the draft is
   uncapped** — it is unmetered, and throttling it bought nothing but slower convergence.
   Otherwise **a request that produced no review is not one of the two** — a
-  throttle, a quota refusal or a failed run reviewed nothing, which is *quota is did not review*
+  throttle, a quota refusal or a failed run reviewed nothing, which is the same rule — a refusal
+  means the provider did not review —
   seen from the other side. Counting those would make the gate unsatisfiable exactly when the
   provider is rate-limiting: both asks spent on refusals and no review obtainable. It does **not**
   license a third review, and it does not license hammering — **honour the retry interval the

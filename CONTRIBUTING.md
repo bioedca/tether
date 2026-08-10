@@ -397,7 +397,7 @@ head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is i
 any other commenter, never does. **Exhaustion is not incapacity**: a provider with nothing
 to say has reviewed, a provider with no budget left has not. Greptile out of credits is
 skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because it is the
-gate. Record which and why — and quota is *did not review*, never a pass.
+gate. Record which and why — and a quota refusal means the provider **did not review**, and never counts as a pass.
 
 **Two completed reviews per metered provider, then stop.** The cap bounds how many times a
 provider whose reads cost money or quota is made to *read the diff*, so **Codex on the draft
