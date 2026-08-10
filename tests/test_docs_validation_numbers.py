@@ -21,7 +21,9 @@ own number; it *locates a region first* and then asks that region what it states
   token, then attributes each literal in it to the nearest *preceding* name token. So
   ``` `viterbi_agreement` 0.9355949176941853 ``` binds that number to that key, and
   moving the number next to a different key breaks the pin rather than passing because
-  the digits are still somewhere on the page.
+  the digits are still somewhere on the page. *Every* literal attributed to a key has to
+  agree, not just one, so a key stated twice in one paragraph cannot keep a stale
+  contradictory restatement alive behind a correct one.
 * :class:`Quote` renders a live artifact value into a fixed phrase and requires the phrase
   verbatim in the selected paragraph, whitespace-normalised so a re-wrap cannot break it.
   The phrase carries the words that say *which* field the value is, so swapping the paper
@@ -383,13 +385,37 @@ def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
+def _same_kind(literal: object, value: object) -> bool:
+    """Could ``literal`` be a *restatement* of ``value``, right or wrong?
+
+    Any two numbers are candidates for the same claim even when their Python types
+    differ, so ``11`` counts as a contradiction of ``10.0`` rather than being waved
+    through as a different kind of thing. Equality itself stays type-exact.
+    """
+    numeric = (int, float)
+    if isinstance(literal, bool) or isinstance(value, bool):
+        return type(literal) is type(value)
+    if isinstance(literal, numeric) and isinstance(value, numeric):
+        return True
+    return type(literal) is type(value)
+
+
 def satisfied(text: str, pin: Pin) -> bool:
     """Does ``text`` still state this pin's live value where the pin says it does?"""
     if isinstance(pin, Cell):
         return _states(cell_text(text, pin), pin.value)
     if isinstance(pin, Prose):
         owned = _owned_literals(paragraph(text, pin.section, pin.anchor)).get(pin.key, set())
-        return any(type(x) is type(pin.value) and x == pin.value for x in owned)
+        # EVERY comparable literal must agree, not merely one of them. A key stated twice
+        # in a paragraph -- `DEFAULT_SHIP_BAR_PTS` is -- would otherwise keep a stale
+        # contradictory restatement published as long as one occurrence stayed right.
+        # Scoped by kind because the nearest-name rule legitimately sweeps up a trailing
+        # count of another kind: "`measured_utc` `"2026-07-08"`, 19 cross-seed comparisons"
+        # attributes both to `measured_utc`, and only the date is a restatement of it.
+        comparable = [x for x in owned if _same_kind(x, pin.value)]
+        return bool(comparable) and all(
+            type(x) is type(pin.value) and x == pin.value for x in comparable
+        )
     return _flat(pin.rendered()) in _flat(paragraph(text, pin.section, pin.anchor))
 
 
@@ -413,6 +439,14 @@ _METRICS = (
 )
 #: The kinSoft level-3 rate matrix, in the order the page prints it.
 _LEVEL3_RATES = ("k12", "k14", "k21", "k23", "k32", "k41")
+_LEVEL3_RATES_POINTER = "$.levels.level3.ground_truth.rates_s_inv"
+_LEVEL3_NOTE_POINTER = "$.levels.level3.ground_truth.note"
+
+#: The clause that turns six numbers into a 4x4 matrix, on either side. The artifact
+#: writes "are 0" and the page writes "zero", so it is matched by shape and the captured
+#: word is then required to *mean* zero — which "0.01" does not.
+_ALL_OTHER_RE = re.compile(r"all other off-diagonal rates (?:are )?([A-Za-z0-9.]+)")
+_ZERO_WORDS = frozenset({"0", "0.0", "zero"})
 
 #: ``kbright=7 s^-1`` inside the level-3 ``note``, keyed on the name.
 _BLINKING_RE = r"\b{name}\s*=\s*([0-9.]+)"
@@ -740,7 +774,7 @@ def _registry() -> list[Pin]:
                 at(KINSOFT, f"$.levels.{level}.n_traces"),
             )
         )
-    rates3 = "$.levels.level3.ground_truth.rates_s_inv"
+    rates3 = _LEVEL3_RATES_POINTER
     pins += [
         Prose(_KINSOFT_SECTION, rates3, rate, f"{rates3}.{rate}", at(KINSOFT, f"{rates3}.{rate}"))
         for rate in _LEVEL3_RATES
@@ -918,6 +952,32 @@ def test_the_page_quotes_the_artifact_verbatim(
     )
 
 
+def test_the_deferred_matrix_still_says_every_unlisted_rate_is_zero() -> None:
+    """The clause that makes six numbers a 4x4 matrix, on both sides.
+
+    ``rates_s_inv`` lists only the six non-zero transitions; *"all other off-diagonal
+    rates zero"* is what completes the accepted ground truth. Pinning the six and not the
+    clause would let the page say the unlisted transitions are 0.01 with every other
+    guard green — and the deferred level-3 matrix is exactly what a future dwell-CDF
+    oracle would be built against.
+    """
+    page = _flat(paragraph(PAGE_TEXT, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER))
+    note = str(at(KINSOFT, _LEVEL3_NOTE_POINTER))
+    for label, text in (("the artifact note", note), ("docs/validation.md", page)):
+        match = _ALL_OTHER_RE.search(text)
+        assert match, f"{label} no longer states what the unlisted off-diagonal rates are"
+        stated = match.group(1).rstrip(".,;)")
+        assert stated in _ZERO_WORDS, (
+            f"{label} says the unlisted off-diagonal rates are {stated!r}, not zero"
+        )
+    listed = at(KINSOFT, _LEVEL3_RATES_POINTER)
+    assert isinstance(listed, dict)
+    assert set(listed) == set(_LEVEL3_RATES), (
+        "the page enumerates a different rate set than the artifact records, so its "
+        '"all other" clause no longer covers what it claims to'
+    )
+
+
 def test_only_one_method_was_measured_as_the_page_says() -> None:
     """The page says `$.coverage.measured_methods` records *only* that one method.
 
@@ -1017,6 +1077,14 @@ def _mutate(section: str, old: str, new: str) -> str:
             "`kbright` 8 s⁻¹",
             "$.levels.level3.ground_truth.note kbright",
         ),
+        # The SECOND of two statements of one constant in a single paragraph. The first
+        # stays correct, so this fails only because every occurrence has to agree.
+        (
+            "(d) Ranker held-out cross-validation",
+            "`DEFAULT_SHIP_BAR_PTS == 10.0`",
+            "`DEFAULT_SHIP_BAR_PTS == 11.0`",
+            "ml.prequential.DEFAULT_SHIP_BAR_PTS",
+        ),
     ],
 )
 def test_a_deliberate_one_value_mismatch_fails(
@@ -1074,6 +1142,16 @@ def test_swapping_the_two_dois_fails() -> None:
     for pin in (p for p in REGISTRY if p.source in ("$.source.doi", "$.source.data_doi")):
         assert satisfied(PAGE_TEXT, pin)
         assert not satisfied(swapped, pin), f"{pin.source} was accepted under the wrong label"
+
+
+def test_a_nonzero_all_other_clause_fails() -> None:
+    """The zero clause is a claim, so changing it has to break something."""
+    nonzero = PAGE_TEXT.replace(
+        "all other off-diagonal rates zero", "all other off-diagonal rates 0.01"
+    )
+    match = _ALL_OTHER_RE.search(_flat(paragraph(nonzero, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER)))
+    assert match is not None
+    assert match.group(1).rstrip(".,;)") not in _ZERO_WORDS
 
 
 def test_a_stale_duplicate_section_fails_rather_than_being_shadowed() -> None:
