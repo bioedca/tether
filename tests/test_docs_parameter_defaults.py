@@ -435,6 +435,13 @@ def _registry() -> list[_Entry]:
             function_default("tether.analysis.kinetics", "pooled_exit_rates", "include_first"),
         ),
         (
+            # The extraction core the other two delegate to. The row names it, and it is
+            # public (``tether.analysis.state_dwells``), so a reader can call it directly
+            # and its default is as documented as theirs.
+            ("include_first",),
+            function_default("tether.analysis.dwell", "state_dwells", "include_first"),
+        ),
+        (
             # Disambiguated on its module: ``state`` is a short, reusable word and a bare
             # entry would bind any future row that happens to backtick it.
             ("state", "tether.analysis.dwell"),
@@ -581,8 +588,11 @@ def _registry() -> list[_Entry]:
         ),
         (
             # The transition-probability KDE switch, bound on BOTH signatures. Two
-            # entries that merge while the pair agrees, exactly as ``min_separation``
-            # does -- the single/population defaults drifting apart is precisely what
+            # entries that merge while the pair agrees, by the same value-keyed merge
+            # ``min_separation`` gets in ``_claims`` -- but only the merge is shared, and
+            # the difference is the point: ``min_separation``'s bare tokens are safe
+            # because they resolve to exactly one row, which is what a bare ``kde`` would
+            # not do. The single/population defaults drifting apart is precisely what
             # this is here to catch. Disambiguated on its module because the raw-FRET
             # cloud has a ``kde`` of its own further down the same table, and token
             # matching is a SUBSET test applied to every match: a bare ``("kde",)`` entry
