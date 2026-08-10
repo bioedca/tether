@@ -91,7 +91,7 @@ cannot read makes the total **unknown** rather than silently small.
 The review lane this configuration serves is specified in [`AGENTS.md`](../AGENTS.md) §Review and
 decided in [ADR-0064](../docs/adr/0064-the-agent-layer-coordinates-writers-not-reviews.md). In
 short: Greptile is optional and metered — asked on a draft that is already green, and skipped
-without ceremony when the seat has no budget. **One credit in practice**: the two-asks-per-provider
+without ceremony when the seat has no budget. **One *review* in practice**, and a review is not always one credit — a standard review costs one, a TREX review three (see above), so a second ask is a real spend rather than a free retry. The two-asks-per-metered-provider
 ceiling in `AGENTS.md` §Review applies here as everywhere, but it is a ceiling rather than a second
 credit to plan on, so ask again only if the first found something blocking and the seat still has
 budget. A request that produced no review — a throttle, a quota refusal, a failed run — is not an

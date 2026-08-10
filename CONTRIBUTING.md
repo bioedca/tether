@@ -404,8 +404,8 @@ is uncapped** — it is unmetered, which is the whole reason it goes first. Othe
 a failed run) is not one of the two — counting those would make the gate unsatisfiable
 exactly when the provider is rate-limiting. It does **not** license a third review, and it
 does not license hammering: honour the retry interval the refusal names, and never
-re-request while the status check reads `pending`. **Greptile is one
-credit in practice**: two is the shared ceiling, not a second credit to plan on, so ask
+re-request while the status check reads `pending`. **Greptile is one *review* in practice**, and a review is not always one
+credit — a standard review costs one, a TREX review three. Two is the shared ceiling, not a second review to plan on, so ask
 again only if the first found something blocking and the seat still has budget. If a third
 pass would be needed, hand the pull
 request to the maintainer with a comment saying why. Nothing counts this for you; the

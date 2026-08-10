@@ -138,7 +138,9 @@ validity turns on it being the right test — must satisfy both.
   satisfies this, and a green status check with no review body is not a review. Quote the provider
   and name the 40-hex head it read in the PR body.
 - **Open as a draft and get it green there.** Every required check runs on a draft, so the diff
-  reaches fully green before anyone is asked to read it.
+  reaches fully green before anyone is asked to read it. Opening ready is **not forbidden** but is
+  never free: it spends a metered provider on a diff no unmetered one has read, so record the
+  reason in the PR.
 - **Review evidence survives a non-material push, so answering findings does not restart the
   gate.** Merging `main` in cleanly, formatting, comment and docstring edits and ADR renumbering
   are non-material. Executable code, scientific claims, data, schema, locks, CI and release
@@ -186,7 +188,8 @@ validity turns on it being the right test — must satisfy both.
   refusal names**, and never re-request while the status check reads `pending`, which aborts the
   run in flight. If a third pass would be needed, hand the PR to the maintainer with a comment
   saying why. Nothing counts this for you; the merged history is auditable.
-- **Greptile is one credit in practice**: two is the ceiling every
+- **Greptile is one *review* in practice, and a review is not always one credit** — a standard
+  review costs one, a TREX review three, so a second ask is a real spend. Two is the ceiling every
   provider shares, not a second credit to plan on, so ask again only if the first found something
   blocking and the seat still has budget.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.

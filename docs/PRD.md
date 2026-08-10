@@ -1055,7 +1055,7 @@ as a **draft PR** and cannot merge. The PR title is a Conventional-Commits strin
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
 `AGENTS.md` §Review, recorded in ADR-0064: every PR requires substantive independent review, and the providers are
-spent **cheapest first** rather than routed by risk. **Open as a draft** — every required check runs on a draft, so the
+spent **cheapest first** rather than routed by risk. **Open as a draft** — opening ready is permitted but must record its reason, since it spends a metered provider on a diff no unmetered one has read — every required check runs on a draft, so the
 diff reaches green before anything metered is asked. Then **Codex on that green draft, uncapped**, until it surfaces
 nothing blocking — it is the free provider, and throttling it bought nothing but slower convergence. Then **optionally
 one Greptile credit**, if the seat has budget; then ready-for-review; then **CodeRabbit with no actionable comments,
@@ -1066,7 +1066,7 @@ uncapped**, being unmetered. The cap bounds how many times a provider whose read
 diff**, so a request that produced
 nothing — a throttle, a quota refusal, a failed run — is not one of the two; counting those would make the gate
 unsatisfiable exactly when the provider is rate-limiting. It licenses neither a third review nor hammering: the retry
-interval a refusal names **shall** be honoured. Greptile is **one credit in practice** — two is the shared ceiling, not a second credit
+interval a refusal names **shall** be honoured. Greptile is **one *review* in practice**, and a review is not always one credit — a standard review costs one and a TREX review three. Two is the shared ceiling, not a second review
 to plan on. Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
 no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
 **Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
