@@ -353,19 +353,34 @@ def _table(text: str, pin: Cell) -> Table:
     return candidates[0]
 
 
+def _row_matches(cell: str, label: str) -> bool:
+    """Is ``cell`` the row labelled ``label``?
+
+    A backticked token has to match exactly. A bare label may be a prefix — the deferred
+    levels are written ``level2 (Fig. 3)`` — but only up to a boundary, so ``level2`` no
+    longer answers for a row renamed or mistyped as ``level20``, which would quietly
+    validate that row's numbers under the wrong label instead of failing selection.
+    """
+    if label in _BACKTICKED_RE.findall(cell):
+        return True
+    if not cell.startswith(label):
+        return False
+    rest = cell[len(label) :]
+    return not rest or not (rest[0].isalnum() or rest[0] == "_")
+
+
 def cell_text(text: str, pin: Cell) -> str:
     """The single cell a :class:`Cell` pin addresses."""
     table = _table(text, pin)
-    assert pin.column in table.header, (
-        f"the {pin.table!r} table in '{pin.section}' has no {pin.column!r} column; "
-        f"its header is {list(table.header)}"
+    # Exactly one column, not merely at least one: a stale duplicate `$.tolerance` column
+    # would bind every pin to the first and leave the contradicting one published.
+    found = table.header.count(pin.column)
+    assert found == 1, (
+        f"the {pin.table!r} table in '{pin.section}' must have exactly one {pin.column!r} "
+        f"column; found {found}. Its header is {list(table.header)}"
     )
     column = table.header.index(pin.column)
-    matches = [
-        row
-        for row in table.rows
-        if pin.row in _BACKTICKED_RE.findall(row[0]) or row[0].startswith(pin.row)
-    ]
+    matches = [row for row in table.rows if _row_matches(row[0], pin.row)]
     assert len(matches) == 1, (
         f"the {pin.table!r} table in '{pin.section}' must hold exactly one row for "
         f"{pin.row!r}; found {len(matches)}"
@@ -481,6 +496,8 @@ _LEVEL3_NOTE_POINTER = "$.levels.level3.ground_truth.note"
 #: The clause that turns six numbers into a 4x4 matrix, on either side. The artifact
 #: writes "are 0" and the page writes "zero", so it is matched by shape and the captured
 #: word is then required to *mean* zero — which "0.01" does not.
+#: A transition the page enumerates: ``k12``, never ``kbright``.
+_TRANSITION_RE = re.compile(r"^k\d+$")
 _ALL_OTHER_RE = re.compile(r"all other off-diagonal rates (?:are )?([A-Za-z0-9.]+)")
 _ZERO_WORDS = frozenset({"0", "0.0", "zero"})
 
@@ -1055,8 +1072,23 @@ def test_the_deferred_matrix_still_says_every_unlisted_rate_is_zero() -> None:
     listed = at(KINSOFT, _LEVEL3_RATES_POINTER)
     assert isinstance(listed, dict)
     assert set(listed) == set(_LEVEL3_RATES), (
-        "the page enumerates a different rate set than the artifact records, so its "
-        '"all other" clause no longer covers what it claims to'
+        "the artifact records a different rate set than this module enumerates; re-read "
+        "the level-3 ground truth before pinning it"
+    )
+    # And the same set has to be what the PAGE prints. Reading only the artifact here
+    # would let the page add `k13 0.01` beside the six correct rates while still saying
+    # every other transition is zero -- a contradiction with itself, not with the JSON.
+    displayed = {
+        name
+        for name, values in _owned_literals(
+            paragraph(PAGE_TEXT, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER)
+        ).items()
+        if _TRANSITION_RE.match(name) and values
+    }
+    assert displayed == set(listed), (
+        f"docs/validation.md enumerates transitions {sorted(displayed)} but the artifact "
+        f'records {sorted(listed)}, so its "all other ... zero" clause no longer covers '
+        "what it claims to"
     )
 
 
@@ -1289,6 +1321,52 @@ def test_a_bad_zero_clause_fails(label: str, replacement: str, expected_nonzero:
     assert zero_clauses(page)[1] == expected_nonzero, label
     # And the unmutated page is clean by the same function.
     assert not zero_clauses(_flat(paragraph(PAGE_TEXT, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER)))[1]
+
+
+def test_a_duplicate_column_fails_rather_than_binding_to_the_first() -> None:
+    """A stale second column must not hide behind the canonical one.
+
+    ``header.index()`` always returns the first, so without a count the pins would keep
+    reading the good column while the contradicting one stayed published.
+    """
+    pin = next(p for p in REGISTRY if isinstance(p, Cell) and p.column == "`$.tolerance` (default)")
+    duplicated = PAGE_TEXT.replace(
+        "| Bound | Direction | `$.tolerance` (default) | `$.tolerance_by_method.ebhmm` |",
+        "| Bound | Direction | `$.tolerance` (default) | `$.tolerance` (default) |"
+        " `$.tolerance_by_method.ebhmm` |",
+    )
+    with pytest.raises(AssertionError, match="exactly one"):
+        cell_text(duplicated, pin)
+
+
+def test_a_row_label_only_matches_at_a_boundary() -> None:
+    """`level2` must not answer for a row renamed `level20`.
+
+    The uniqueness assertion cannot catch this on its own — only one row would still
+    start with `level2` — so the pin would validate that row's numbers under a label the
+    page no longer uses.
+    """
+    assert _row_matches("level2 (Fig. 3)", "level2")
+    assert _row_matches("level2", "level2")
+    assert not _row_matches("level20 (Fig. 3)", "level2")
+    assert not _row_matches("level2_old", "level2")
+    # A backticked label still has to match the whole token.
+    assert _row_matches("`k12_low_high`", "k12_low_high")
+    assert not _row_matches("`k12_low_high_stale`", "k12_low_high")
+
+
+def test_an_extra_transition_on_the_page_fails() -> None:
+    """A seventh rate printed beside the six contradicts the "all other zero" clause."""
+    extra = PAGE_TEXT.replace("k32 0.680", "k13 0.010, k32 0.680")
+    displayed = {
+        name
+        for name, values in _owned_literals(
+            paragraph(extra, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER)
+        ).items()
+        if _TRANSITION_RE.match(name) and values
+    }
+    assert "k13" in displayed
+    assert displayed != set(at(KINSOFT, _LEVEL3_RATES_POINTER))
 
 
 def test_a_stale_duplicate_section_fails_rather_than_being_shadowed() -> None:
