@@ -81,10 +81,11 @@ jobs:
           # nothing and would make the push depend on the server accepting a shallow update.
           git clone "https://github.com/$REPOSITORY.wiki.git" "$checkout"
 
-          # Refuse to publish nothing. An empty source is a mistake far more often than an
-          # intended deletion of every page, and failing loudly beats emptying the live wiki.
-          if [ -z "$(find wiki -maxdepth 1 -name '*.md' -print -quit)" ]; then
-            echo "::error::wiki/ holds no page at its root; refusing to publish an empty wiki"
+          # A GitHub wiki with no root `Home` page has no landing page at all, and losing it is a
+          # mistake far more often than an intention. Gate on that one file rather than on "any
+          # Markdown anywhere", so the check, the message and this comment all say the same thing.
+          if [ ! -f wiki/Home.md ]; then
+            echo "::error::wiki/Home.md is missing; refusing to publish a wiki with no landing page"
             exit 1
           fi
 

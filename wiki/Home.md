@@ -1,4 +1,10 @@
 <!--
+SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This page is published to a separate repository (`.wiki.git`) that this repository's REUSE
+configuration does not reach, so it carries its own header rather than relying on the blanket.
+
 Source of truth: `wiki/Home.md` in https://github.com/bioedca/tether. The `wiki` workflow mirrors
 that file here on every push to `main`, so an edit made in the GitHub wiki editor is discarded the
 next time anything lands — change this page by opening a pull request against the repository.
