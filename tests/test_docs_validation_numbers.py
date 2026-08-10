@@ -125,6 +125,8 @@ _NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
 #: sit next to a number without being one; the page only ever writes real code in code
 #: spans.
 _CONSTANT_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+#: The identifier a code span opens with, however it continues (`X = 1`, `X=1`, `X`).
+_LEADING_IDENT_RE = re.compile(r"^[A-Za-z_]\w*")
 
 #: Name / string / number, tried in that order so ``smd_281mol`` and ``k12`` stay whole
 #: names rather than decomposing into a name and a stray number. Slashes and hyphens are
@@ -247,9 +249,14 @@ def _states(cell: str, value: object) -> bool:
     required to match, so ``0`` never satisfies ``0.0``.
     """
     if isinstance(value, str):
-        candidates = {cell.strip(), cell.strip().strip("`").strip('"')}
-        candidates |= set(_BACKTICKED_RE.findall(cell)) | set(_QUOTED_RE.findall(cell))
-        return value in candidates
+        # Explicit transcriptions first -- code spans and quoted strings -- and the bare
+        # cell only when it carries neither, because the page writes `2026-06-26` bare in
+        # a table and ``"2026-06-26"`` in prose. The cell must state exactly ONE of them:
+        # keeping the right date and adding a stale one beside it is a contradiction, the
+        # same way it is for a number. A cell that legitimately needs a second code span
+        # fails here loudly rather than quietly widening what counts.
+        tokens = set(_BACKTICKED_RE.findall(cell)) | set(_QUOTED_RE.findall(cell))
+        return (tokens or {cell.strip()}) == {value}
     numbers: list[object] = []
     for text in _NUMBER_RE.findall(cell):
         with contextlib.suppress(SyntaxError, ValueError):
@@ -477,8 +484,36 @@ _LEVEL3_NOTE_POINTER = "$.levels.level3.ground_truth.note"
 _ALL_OTHER_RE = re.compile(r"all other off-diagonal rates (?:are )?([A-Za-z0-9.]+)")
 _ZERO_WORDS = frozenset({"0", "0.0", "zero"})
 
-#: ``kbright=7 s^-1`` inside the level-3 ``note``, keyed on the name.
-_BLINKING_RE = r"\b{name}\s*=\s*([0-9.]+)"
+
+def zero_clauses(text: str) -> tuple[list[str], list[str]]:
+    """Every ``all other off-diagonal rates X`` clause in ``text``, split by whether X is zero.
+
+    The guard *and* the tests that prove the guard bites both call this, so a regression
+    here fails both. Written as a helper for exactly that reason: a mutation test that
+    re-implements the check it is meant to protect keeps passing after the real check
+    regresses, which is a test that tests itself.
+    """
+    stated = [m.group(1).rstrip(".,;)") for m in _ALL_OTHER_RE.finditer(text)]
+    return [c for c in stated if c in _ZERO_WORDS], [c for c in stated if c not in _ZERO_WORDS]
+
+
+def quotation_sides(fragment: str, artifact: dict, pointer: str, region: str) -> tuple[bool, bool]:
+    """Is ``fragment`` still in the artifact, and still in the page region that quotes it?
+
+    Shared by the live check and by the test that proves a dropped quotation fails, so
+    neither can drift away from the other. Returned as two flags so the caller can say
+    *which* side went stale.
+    """
+    held = at(artifact, pointer)
+    source = held if isinstance(held, str) else "\n".join(str(item) for item in held)  # type: ignore[union-attr]
+    return fragment in source, fragment in _flat(region)
+
+
+#: ``kbright=7 s^-1`` inside the level-3 ``note``, keyed on the name. The literal is
+#: matched whole — sign, decimals and exponent — with a trailing boundary, because
+#: ``[0-9.]+`` would read ``kbright=7e-1`` as ``7`` and let the page keep saying 7 while
+#: the artifact had come to mean 0.7.
+_BLINKING_RE = r"\b{name}\s*=\s*([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)(?![\w.])"
 
 
 def _blinking_rate(name: str) -> object:
@@ -491,9 +526,13 @@ def _blinking_rate(name: str) -> object:
     nothing is prose.
     """
     note = str(at(KINSOFT, "$.levels.level3.ground_truth.note"))
-    match = re.search(_BLINKING_RE.format(name=name), note)
-    assert match, f"the level-3 note no longer records `{name}=`; re-read it before pinning"
-    return ast.literal_eval(match.group(1))
+    stated = {m.group(1) for m in re.finditer(_BLINKING_RE.format(name=name), note)}
+    assert stated, f"the level-3 note no longer records `{name}=`; re-read it before pinning"
+    assert len(stated) == 1, (
+        f"the level-3 note states {name} as {sorted(stated)} — the artifact contradicts "
+        "itself, so there is no single value to pin the page to"
+    )
+    return ast.literal_eval(stated.pop())
 
 
 def _registry() -> list[Pin]:
@@ -934,8 +973,14 @@ def test_every_constant_the_page_states_a_value_for_is_pinned() -> None:
     """
     pinned = {p.key for p in REGISTRY if isinstance(p, Prose)}
     pinned |= {p.row for p in REGISTRY if isinstance(p, Cell)}
-    # The leading token of each code span, so `DEFAULT_SHIP_BAR_PTS = 10.0` counts.
-    code_spans = {span.split()[0] for span in _BACKTICKED_RE.findall(PAGE_TEXT) if span.split()}
+    # The leading *identifier* of each code span, so `DEFAULT_SHIP_BAR_PTS = 10.0` counts
+    # and so does `NEW_LIMIT=5`, which splitting on whitespace would have left as the
+    # unmatchable token "NEW_LIMIT=5" while `_owned_literals` called it "NEW_LIMIT".
+    code_spans = {
+        match.group()
+        for span in _BACKTICKED_RE.findall(PAGE_TEXT)
+        if (match := _LEADING_IDENT_RE.match(span.strip()))
+    }
     regions: list[str] = []
     for body in _sections(PAGE_TEXT).values():
         regions += _prose_paragraphs(body)
@@ -979,13 +1024,14 @@ def test_the_page_quotes_the_artifact_verbatim(
     fragment: str, artifact: dict, pointer: str, section: str, anchor: str
 ) -> None:
     """A quotation has two sides, and the page owns one of them."""
-    held = at(artifact, pointer)
-    source = held if isinstance(held, str) else "\n".join(str(item) for item in held)  # type: ignore[union-attr]
-    assert fragment in source, (
+    in_artifact, on_page = quotation_sides(
+        fragment, artifact, pointer, paragraph(PAGE_TEXT, section, anchor)
+    )
+    assert in_artifact, (
         f"docs/validation.md presents {fragment!r} as a verbatim quote of {pointer}, "
         "but the artifact no longer says it"
     )
-    assert fragment in _flat(paragraph(PAGE_TEXT, section, anchor)), (
+    assert on_page, (
         f"{pointer} still says {fragment!r} but docs/validation.md no longer quotes it "
         "where it claims to"
     )
@@ -1003,12 +1049,9 @@ def test_the_deferred_matrix_still_says_every_unlisted_rate_is_zero() -> None:
     page = _flat(paragraph(PAGE_TEXT, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER))
     note = str(at(KINSOFT, _LEVEL3_NOTE_POINTER))
     for label, text in (("the artifact note", note), ("docs/validation.md", page)):
-        # Every occurrence, not the first: a second, contradictory clause added after a
-        # correct one would otherwise never be looked at.
-        clauses = [m.group(1).rstrip(".,;)") for m in _ALL_OTHER_RE.finditer(text)]
-        assert clauses, f"{label} no longer states what the unlisted off-diagonal rates are"
-        wrong = [c for c in clauses if c not in _ZERO_WORDS]
-        assert not wrong, f"{label} says the unlisted off-diagonal rates are {wrong}, not zero"
+        zero, nonzero = zero_clauses(text)
+        assert zero or nonzero, f"{label} no longer states what the unlisted off-diagonal rates are"
+        assert not nonzero, f"{label} says the unlisted off-diagonal rates are {nonzero}, not zero"
     listed = at(KINSOFT, _LEVEL3_RATES_POINTER)
     assert isinstance(listed, dict)
     assert set(listed) == set(_LEVEL3_RATES), (
@@ -1221,26 +1264,31 @@ def test_a_contradiction_beside_a_correct_value_fails(
         )
 
 
-def test_a_second_contradictory_zero_clause_fails() -> None:
-    """The zero clause is checked everywhere it appears, not just the first time."""
-    doubled = PAGE_TEXT.replace(
-        "all other off-diagonal rates zero",
-        "all other off-diagonal rates zero, and all other off-diagonal rates 0.01",
-    )
-    text = _flat(paragraph(doubled, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER))
-    clauses = [m.group(1).rstrip(".,;)") for m in _ALL_OTHER_RE.finditer(text)]
-    assert len(clauses) == 2, clauses
-    assert [c for c in clauses if c not in _ZERO_WORDS] == ["0.01"]
+@pytest.mark.parametrize(
+    ("label", "replacement", "expected_nonzero"),
+    [
+        # The clause changed outright.
+        ("changed", "all other off-diagonal rates 0.01", ["0.01"]),
+        # A correct clause kept, a contradicting one added after it. Reading only the
+        # first occurrence would call this page clean.
+        (
+            "contradicted",
+            "all other off-diagonal rates zero, and all other off-diagonal rates 0.01",
+            ["0.01"],
+        ),
+    ],
+)
+def test_a_bad_zero_clause_fails(label: str, replacement: str, expected_nonzero: list[str]) -> None:
+    """Both failures go through :func:`zero_clauses`, the function the guard itself calls.
 
-
-def test_a_nonzero_all_other_clause_fails() -> None:
-    """The zero clause is a claim, so changing it has to break something."""
-    nonzero = PAGE_TEXT.replace(
-        "all other off-diagonal rates zero", "all other off-diagonal rates 0.01"
-    )
-    match = _ALL_OTHER_RE.search(_flat(paragraph(nonzero, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER)))
-    assert match is not None
-    assert match.group(1).rstrip(".,;)") not in _ZERO_WORDS
+    Re-implementing the scan here would make this test pass even after the guard regressed
+    to reading one occurrence — a mutation test that only proves the mutation happened.
+    """
+    mutated = PAGE_TEXT.replace("all other off-diagonal rates zero", replacement)
+    page = _flat(paragraph(mutated, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER))
+    assert zero_clauses(page)[1] == expected_nonzero, label
+    # And the unmutated page is clean by the same function.
+    assert not zero_clauses(_flat(paragraph(PAGE_TEXT, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER)))[1]
 
 
 def test_a_stale_duplicate_section_fails_rather_than_being_shadowed() -> None:
@@ -1260,11 +1308,18 @@ def test_a_stale_duplicate_section_fails_rather_than_being_shadowed() -> None:
 
 
 def test_a_dropped_quotation_fails_even_though_the_artifact_still_says_it() -> None:
-    """The page owns one side of every quotation it presents as verbatim."""
+    """The page owns one side of every quotation it presents as verbatim.
+
+    Goes through :func:`quotation_sides`, the same function the live check calls, so a
+    regression that stopped consulting the page would fail here too.
+    """
     fragment, artifact, pointer, section, anchor = _VERBATIM_QUOTES[0]
-    assert fragment in str(at(artifact, pointer))  # the artifact side is untouched
     reworded = PAGE_TEXT.replace(f'it "{fragment}"', "it says otherwise")
-    assert fragment not in _flat(paragraph(reworded, section, anchor))
+    before = quotation_sides(fragment, artifact, pointer, paragraph(PAGE_TEXT, section, anchor))
+    after = quotation_sides(fragment, artifact, pointer, paragraph(reworded, section, anchor))
+    assert before == (True, True)
+    # The artifact side is untouched; only the page stopped quoting it.
+    assert after == (True, False)
 
 
 def test_an_ambiguous_anchor_fails_loudly_rather_than_picking_one() -> None:
