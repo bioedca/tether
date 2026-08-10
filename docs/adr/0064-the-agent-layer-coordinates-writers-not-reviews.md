@@ -65,8 +65,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > # d3fd78c  -> scripts=5469 tests=10407 flows=502 prose=1395
 > #             layer=17773 contract=991 product=42796 adrs=1071
 > #             test_triage=3932 | 2186 src/tether/gui/shell.py
-> # 099b26c  -> scripts=1972 tests=4289 flows=84 prose=564
-> #             layer=6909 contract=444 product=42796 adrs=1078
+> # c53c690  -> scripts=2223 tests=4796 flows=84 prose=612
+> #             layer=7715 contract=489 product=42796 adrs=1078
 > #             test_triage=0 (deleted) | 2186 src/tether/gui/shell.py
 > ```
 >
@@ -74,7 +74,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > `removed` names the seven paths the cut deletes — three of the ten test modules and four of the
 > nine contract files — and the loop above aborts on any *other* missing path in those lists, so
 > `keep` can only ever drop something already declared. That is why one pair of lists gives 991 and
-> 10,407 before and 444 and 4,289 after.
+> 10,407 before and 489 and 4,796 after.
 >
 > **The directory-derived sets are not covered by it, deliberately.** `scripts`, `flows`, `adrs`,
 > `product` and the `.agents/tasks`/`docs/agents` half of `prose` come from `git ls-tree`, which
@@ -89,10 +89,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > revision exits 1, an unexpected missing path exits 1 naming the file, and the two good revisions
 > print the values in the comment.
 >
-> `099b26c` is the head of the branch implementing the cut — a branch under review, not an
-> immutable record, so **if it changes again before merge, re-run the script against its merge
-> commit.** That whole column is a weaker claim than the `d3fd78c` one for exactly this reason, and
-> §Consequences records what has happened to it so far in one place rather than two. One figure is
+> `c53c690` is the **merge commit** of the branch implementing the cut ([#431](https://github.com/bioedca/tether/pull/431),
+> squashed onto `main` 2026-08-10), so unlike the four branch heads that preceded it the after-column
+> is now pinned to something immutable and this note no longer carries a warning that it may move.
+> §Consequences records what it did while it could, in one place rather than two. One figure is
 > not from this script at all and says so where it is made: the ADR-0052 comparison, at `6d53c98`.
 >
 > **Three kinds of evidence, and only the first is reproducible from a SHA.** The line counts
@@ -398,29 +398,33 @@ failing, so nothing in the audit trail would show it.
 
 ## Consequences
 
-**Good.** The layer falls from 17,773 lines to **6,909 (−61%)**, and the mandatory-read contract from
-991 lines across nine files to **444 across five (−55%)**. Three workflows become one, seven labels
+**Good.** The layer falls from 17,773 lines to **7,715 (−57%)**, and the mandatory-read contract from
+991 lines across nine files to **489 across five (−51%)**. Three workflows become one, seven labels
 become two, two ref namespaces retire. The required `test` job stops carrying most of 10,407 lines
 of agent tests on every product pull request, three times over.
 
-> These two are the only figures here that describe a future state, so they are measured rather than
-> estimated: re-running the script above at **`099b26c`**, the head of the branch implementing the
-> cut, yields `1972 4289 84 564`, a 6,909 total and a 444 contract. An earlier draft projected
+> These two described a future state until the cut merged, so they are measured rather than
+> estimated: re-running the script above at **`c53c690`**, the merge commit, yields
+> `2223 4796 84 612`, a 7,715 total and a 489 contract. An earlier draft projected
 > ~4,800 and −73% before the work existed, and the implementation did not reach it — the launcher's
 > removal returned less than guessed and `claim.py` grew to absorb the autonomy gate and `doctor`.
 > The measured numbers are used in preference to the projection and the shortfall is left visible
-> rather than restated as a target that was met. **That branch is still in review, so unlike the
-> `d3fd78c` figures these are pinned to something that can still move: re-run the script against
-> the merge commit if it does.** It has moved four times as that branch took review rounds:
-> `89f15f29` gave `6448`/`429`, `1d6318c` `6895`/`434`, `71ef502` `6905`/`440`, and `099b26c`
-> `6909`/`444`. That is why this paragraph names a SHA rather than a branch.
+> rather than restated as a target that was met. Until that merge these were pinned to a moving
+> branch head, and they moved four times as it took review rounds: `89f15f29` gave `6448`/`429`,
+> `1d6318c` `6895`/`434`, `71ef502` `6905`/`440`, and `099b26c` `6909`/`444`. The merge commit ends
+> that, which is why this paragraph now names one rather than a branch.
 >
-> **The direction of the drift is itself the finding.** The layer figure has held at −61% through
-> all four; the contract figure has walked −57% → −56% → −55%, because every review round on the
-> cut adds a clarification to the contract pages the cut is shrinking. So the record understates
-> the contract reduction slightly with each round, never overstates it, and the two numbers are not
-> equally stable — which is worth knowing before quoting either. A reader finding the last digits
-> stale should re-run the script rather than conclude the magnitude is wrong.
+> **The direction of the drift is itself the finding, and it did not go the way the branch heads
+> suggested.** Across those four the layer figure sat at −64%, then −61% three times, and the
+> contract figure walked −57% → −56% → −56% → −55%: both shrinking in effect, because every review
+> round adds a clarification to the very contract pages the cut is shrinking. The merge commit then
+> moved both further in that same direction, to −57% and −51%, because it carries work those branch
+> heads did not — `claim.py`'s `doctor` and its tests landed on `main` in
+> [#432](https://github.com/bioedca/tether/pull/432) between the last reading and the merge. So the
+> honest summary is that **the reduction is real and consistently smaller than any single earlier
+> reading claimed**, never larger; a reader finding a stale digit should re-run the script rather
+> than conclude the magnitude is wrong. A figure taken from a branch under review is worth exactly
+> what a branch under review is worth, which is the whole reason the script takes a revision.
 
 **Bad, and named rather than minimised.** The two-round cap becomes a convention with no counter
 behind it, which deliberately re-exposes the failure mode of #276 — nine rounds against a limit of
