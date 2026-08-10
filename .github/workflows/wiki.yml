@@ -82,6 +82,9 @@ jobs:
           git clone "https://github.com/$REPOSITORY.wiki.git" "$checkout"
 
           rm -f "$checkout"/*.md
+          # If `wiki/` ever holds no pages the glob does not expand and `cp` fails the job under
+          # `set -e`. That is the wanted behaviour, not an oversight: an empty source almost
+          # certainly means a mistake, and failing loudly beats deleting every live wiki page.
           cp wiki/*.md "$checkout/"
 
           cd "$checkout"

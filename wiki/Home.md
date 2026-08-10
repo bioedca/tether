@@ -48,4 +48,5 @@ documentation to the Tether release you have installed.
 - [Stability policy](https://bioedca.github.io/tether/latest/stability/)
 - [Privacy policy](https://bioedca.github.io/tether/latest/privacy/)
 
-These are the site's top-level sections; its own navigation is the complete list.
+This is a shortcut list, not the full map. The site's own navigation is complete, and also covers
+the import, idealization, analysis and machine-learning guides.
