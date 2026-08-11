@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0064 — The agent layer coordinates writers, not reviews
 
-- **Status:** accepted; supersedes [ADR-0062](0062-draft-first-review-lane-with-metered-providers.md) and [ADR-0063](0063-review-evidence-is-read-not-inferred.md), and the review gate, round cap, launcher and advisory scope guard of [ADR-0057](0057-github-native-swarm-coordination.md)
+- **Status:** accepted; supersedes [ADR-0062](0062-draft-first-review-lane-with-metered-providers.md) and [ADR-0063](0063-review-evidence-is-read-not-inferred.md), and the review gate, round cap, launcher and advisory scope guard of [ADR-0057](0057-github-native-swarm-coordination.md); its review-gate terminus is in turn superseded by [ADR-0065](0065-a-spent-metered-cap-closes-on-the-unmetered-provider.md), the rest governing unchanged
 - **Date:** 2026-08-07
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)

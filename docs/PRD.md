@@ -1062,7 +1062,9 @@ has not — until it surfaces
 nothing blocking; it is the free provider, and throttling it bought nothing but slower convergence. Then **optionally
 one Greptile review**, if the seat has budget — a *review*, not a credit, since a standard one costs one credit and a
 TREX one three; then ready-for-review if it is not already; then **CodeRabbit with no actionable comments,
-which is the last gate before merge**. The round
+which is the last metered gate before merge — and when that two-review cap is spent with every finding
+disposed of and every thread resolved, a fresh Codex read of the final head closes the gate in its place,
+so a reviewed PR finishes on an unmetered read rather than on a maintainer (ADR-0065)**. The round
 ledger that used to count this is gone — ADR-0064 retired it along with the launcher that consumed it, leaving **at most
 two completed reviews per metered provider** as a convention a worker keeps rather than a counter that publishes
 labels — **Codex is
@@ -1120,7 +1122,8 @@ exist. When a **selected** provider reports that a change has nothing to review 
 including Codex's 👍 reaction, its documented form of "no suggestions" — that statement satisfies its leg, quoted and
 never substituted by the author or any other commenter. **Exhaustion is not incapacity**: a provider with no budget
 left has not reviewed. Greptile out of credits is skippable and never blocks; **CodeRabbit unavailable freezes the
-PR**, because it is the last gate and nothing merges past it. **Throttled is not unavailable**: CodeRabbit's fair-use
+PR**, because it is the last metered gate and an unavailable provider is not a spent cap — it reviewed
+nothing, so nothing opens the unmetered close. **Throttled is not unavailable**: CodeRabbit's fair-use
 limit is adaptive, and a refusal that names when the next included review is due is a wait — wait it and ask again,
 which costs no round and no request, and never accept the usage-based-billing offer that accompanies it, since that is
 the maintainer's spending decision. The elapsed interval is necessary but **not sufficient**: the `CodeRabbit` commit

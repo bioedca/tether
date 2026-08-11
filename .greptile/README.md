@@ -98,4 +98,6 @@ reads the diff before any metered provider does. **One *review* in practice**, a
 reviews per metered provider** in `AGENTS.md` §Review applies here as everywhere, but it is a
 ceiling rather than a second credit to plan on, so ask again only if the first found something blocking and the seat still has
 budget. A request that produced no review — a throttle, a quota refusal, a failed run — is not an
-ask and spends nothing. CodeRabbit, not Greptile, is the gate.
+ask and spends nothing. CodeRabbit, not Greptile, is the metered gate — and when CodeRabbit's own
+cap is spent with every finding disposed of, an unmetered Codex read closes it. Greptile is never
+the closer either way.

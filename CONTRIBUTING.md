@@ -12,7 +12,9 @@ review lane as merge gates**: branch protection on `main` requires
 green required CI plus a self-review checklist on every PR, while `AGENTS.md`
 requires a substantive final-head review on one fixed lane, cheapest provider first:
 **Codex on the green diff until nothing blocking remains, then optionally one metered
-Greptile review, then CodeRabbit with no actionable comments before merge.**
+Greptile review, then CodeRabbit with no actionable comments before merge — or, when
+CodeRabbit's two-review cap is spent and every finding is disposed of, a fresh Codex
+read of the final head closing the gate in its place.**
 Copilot is advisory only and never satisfies a leg. The ruleset still requires zero GitHub approval
 reviews; load-bearing changes additionally need any qualified human/domain judgment
 specified in `AGENTS.md`. This scales to required human reviews + `CODEOWNERS` if
@@ -259,7 +261,9 @@ Before requesting review / merging, confirm:
       routes nothing; the round; and a
       result from every provider the lane reached — **either** a substantive review **or** that
       provider's own quoted "nothing to review" for the head it read, a Codex 👍 included.
-      **CodeRabbit with no actionable comments is required**, and that is a verdict a completed
+      **CodeRabbit with no actionable comments is required — or, if its two-review cap is spent
+      and every finding is disposed of, the Codex read of the final head that closed the gate in
+      its place** — and that is a verdict a completed
       review reached rather than an absence of one: record the review itself — permalink, the
       `commit_id` it read, **which must be the final head**, `submitted_at` with a state of
       **`COMMENTED` or `APPROVED`** (a `PENDING` review has no `submitted_at` and is not a submitted
@@ -285,7 +289,7 @@ Automated agents are peers, not a hierarchy: each claims one issue, opens one **
 PR, gets it reviewed, and **hands off or merges** rather than sitting and polling. There is no coordinator. Auto-merge is armed at the **end** of the lane, and
 completing the lane is **not by itself authority to arm it** — `AGENTS.md` requires
 explicit per-PR merge authority, which is a separate grant that no amount of green
-checks confers. Arming it on a draft would merge the PR past the mandatory CodeRabbit
+checks confers. Arming it on a draft would merge the PR past the mandatory review
 gate, since that gate is not a required check. The merge is bound to the head the review evidence covers with
 `gh pr merge N --auto --squash --match-head-commit <SHA>` — that guard is what stands in
 for the merge queue, which needs an organization-owned repository and so is unavailable
@@ -313,7 +317,9 @@ checks are green and the diff is declared final. **Every PR walks the same lane,
 cheapest provider first: Codex on the green diff, uncapped — the draft by default, or the
 ready PR whose reason is recorded; then optionally one metered Greptile **review** if the
 seat has budget, a review being one credit as a standard and three as a TREX; then
-CodeRabbit with no actionable comments, which is the last gate before merge.** **Open as a draft and get it green there** — every
+CodeRabbit with no actionable comments, which is the last metered gate before merge — and
+when that cap is spent with every finding disposed of, a fresh Codex read of the final head
+closes the gate in its place rather than a maintainer doing it.** **Open as a draft and get it green there** — every
 required check runs on a draft, so the diff reaches fully green before anyone is asked to
 read it, and that is what makes the sequence affordable rather than a policy nobody keeps.
 Opening ready is not forbidden, but it spends a metered provider on a diff no cheap one has
@@ -403,7 +409,8 @@ head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is i
 any other commenter, never does. **Exhaustion is not incapacity**: a provider with nothing
 to say has reviewed, a provider with no budget left has not. Greptile out of credits is
 skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because it is the
-gate. Record which and why — and a quota refusal means the provider **did not review**, and never counts as a pass.
+metered gate and an unavailable provider is not a spent cap — nothing reviewed, so nothing
+opens the Codex close. Record which and why — and a quota refusal means the provider **did not review**, and never counts as a pass.
 
 **Two completed reviews per metered provider, then stop.** The cap bounds how many times a
 provider whose reads cost money or quota is made to *read the diff*, so **Codex
@@ -413,9 +420,10 @@ exactly when the provider is rate-limiting. It does **not** license a third revi
 does not license hammering: honour the retry interval the refusal names, and never
 re-request while the status check reads `pending`. **Greptile is one *review* in practice**, and a review is not always one
 credit — a standard review costs one, a TREX review three. Two is the shared ceiling, not a second review to plan on, so ask
-again only if the first found something blocking and the seat still has budget. If a third
-pass would be needed, hand the pull
-request to the maintainer with a comment saying why. Nothing counts this for you; the
+again only if the first found something blocking and the seat still has budget. **A spent cap
+is not a stuck PR**: when every finding those two reviews raised is disposed of and every
+thread resolved, a fresh Codex read of the final head closes the gate in their place, so the
+PR finishes on an unmetered read rather than on a maintainer. Nothing counts this for you; the
 merged history is auditable and you are trusted with it. On agent-layer paths
 (`.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules) a
 finding below the severity floor is **dropped rather than tracked**, because there the

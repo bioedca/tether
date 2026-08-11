@@ -155,8 +155,11 @@ validity turns on it being the right test — must satisfy both.
 
 - **You are never the only reviewer of your own diff.** Before merge at least one external provider
   must have reviewed the final head and reported what it found. Author-side or local output never
-  satisfies this, and a green status check with no review body is not a review. Quote the provider
-  and name the 40-hex head it read in the PR body.
+  satisfies this, and a green status check with no review body is not a review. *Author-side* names
+  whose judgement it is and not which machine ran it: a provider's own review posted on the pull
+  request is external however its CLI resolves locally (§This machine), while your transcript of a
+  local run is not, because nothing but you attests it. Quote the provider and name the 40-hex head
+  it read in the PR body.
 - **Open as a draft and get it green there.** Every required check runs on a draft, so the diff
   reaches fully green before anyone is asked to read it. Opening ready is **not forbidden** but is
   never free: it spends a metered provider on a diff no unmetered one has read, so record the
@@ -165,9 +168,11 @@ validity turns on it being the right test — must satisfy both.
   draft by default, or the ready PR whose reason is recorded — **Codex** first, unmetered and so
   uncapped, until it surfaces nothing blocking. Then **optionally one Greptile review**, if the
   seat has budget: a *review*, since a standard one costs a credit and a TREX one three. Then
-  ready-for-review if it is not already, and **CodeRabbit last**. Codex is not optional: it is what
-  makes the metered providers affordable, and skipping it is the same spend as opening ready.
-  Record each leg in the PR.
+  ready-for-review if it is not already, and **CodeRabbit last** — last of the *metered* providers,
+  which is the spend the order buys. The unmetered one is not confined to the front and may read
+  again behind it. Codex is not optional: it is what makes the metered providers affordable, and
+  skipping it is the same spend as opening ready. Record each leg in the PR, including the closing
+  read.
 - **Review evidence survives a non-material push, so answering findings does not restart the
   gate.** **The non-material list is a set of exceptions and it wins**, so a change touching a
   material path is still non-material when the change itself is one of them: merging `main` in
@@ -185,12 +190,35 @@ validity turns on it being the right test — must satisfy both.
   `<py> .agents/bin/greptile_usage.py` before spending one, and if the seat is empty record
   *"Greptile: no credits this month"* and move on; exhaustion never blocks. **A quota refusal from
   any provider means the provider did not review, and never counts as a pass.** Copilot is advisory and satisfies nothing.
-- **CodeRabbit is the last gate**: at least one review with no actionable comments, asked with the
-  **full-review** command (the bare incremental one applies only where automatic reviews are
-  *paused*; they are *disabled* here, so it reviews nothing and says so in words that read like a
-  clean pass). Read its commit status before every ask — `pending` means one is running and a second
-  request destroys it. A fair-use refusal naming a retry time is a **wait**, not unavailability;
-  **never** accept its usage-based-billing offer, which is the maintainer's spending decision.
+- **CodeRabbit is the last metered gate**: at least one review with no actionable comments, asked
+  with the **full-review** command (the bare incremental one applies only where automatic reviews
+  are *paused*; they are *disabled* here, so it reviews nothing and says so in words that read like
+  a clean pass). Read its commit status before every ask — `pending` means one is running and a
+  second request destroys it. A fair-use refusal naming a retry time is a **wait**, not
+  unavailability; **never** accept its usage-based-billing offer, which is the maintainer's spending
+  decision.
+- **A spent cap closes on Codex rather than on a maintainer.** When two *completed* CodeRabbit
+  reviews stand on this PR — each one it submitted with a body, since a throttle, a quota refusal or
+  a failed run reviewed nothing — and every finding they raised is **fixed, deferred-and-tracked, or
+  dropped sub-floor** with the thread resolved, then a **fresh Codex read of the final head** closes
+  the gate in their place: a full read posted by the provider on the pull request, never an earlier
+  Codex pass re-quoted, since the head that pass read is not the head being merged. Anything that
+  read surfaces is disposed of by those same three dispositions before it closes — the close is a
+  *substitute for the clean pass*, not a lower bar than it. That review is then *the clean review*
+  the merge binding below names.
+- **Three things shut that close, and each is readable off the pull request rather than out of your
+  own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
+  it is a wait, and waiting is still what you do. If either completed review came back clean and its
+  evidence still stands under the non-material rule above, **that** review is the gate, it has
+  already closed, and none of this applies. And the two completed reviews must sit at **different
+  `commit_id`s**, with the commits between them answering the first review's findings — two reads of
+  one unchanged diff are one review asked twice, which buys the close nothing. Motive is not a test
+  and never becomes one; these three are, and they are also why spending an ask to reach the close
+  would buy nothing if it worked, since the close costs the disposal of every finding and a further
+  review on top — more work than the clean pass it replaces.
+- **Clearing the gate is not authority to merge.** They are different things and the second is still
+  per-PR, explicit, and never inferred. Escalate to the maintainer only when the closing read
+  surfaces something blocking that you may not resolve inside this item's scope.
 - **Never write a provider's handle in a comment you do not intend as a request.** A mention fires
   the bot even inside backticks — a code span is not an escape. Describe the command in prose
   instead.
@@ -218,12 +246,13 @@ validity turns on it being the right test — must satisfy both.
   provider is rate-limiting: both asks spent on refusals and no review obtainable. It does **not**
   license a third review, and it does not license hammering — **honour the retry interval the
   refusal names**, and never re-request while the status check reads `pending`, which aborts the
-  run in flight. If a third pass would be needed, hand the PR to the maintainer with a comment
-  saying why. Nothing counts this for you; the merged history is auditable.
+  run in flight. **A spent cap is not a stuck PR**: it opens the Codex close above, so a PR whose
+  findings are all disposed of and whose threads are all resolved finishes on an unmetered read
+  rather than on a maintainer. Nothing counts this for you; the merged history is auditable.
 - **Greptile is one *review* in practice, and a review is not always one credit** — a standard
   review costs one, a TREX review three, so a second ask is a real spend. Two is the ceiling every
-  provider shares, not a second credit to plan on, so ask again only if the first found something
-  blocking and the seat still has budget.
+  *metered* provider shares, not a second credit to plan on, so ask again only if the first found
+  something blocking and the seat still has budget.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green and threads resolved. Then arm and exit —
   never wait, never poll:
