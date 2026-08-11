@@ -206,6 +206,13 @@ validity turns on it being the right test — must satisfy both.
   read surfaces is disposed of by those same three dispositions before it closes — the close is a
   *substitute for the clean pass*, not a lower bar than it. That review is then *the clean review*
   the merge binding below names.
+- **The closing read must stamp the head itself, or it does not close.** The SHA that reaches
+  `--match-head-commit` has to come from something the *provider* wrote — a posted review, or a run
+  artifact that records the commit it read. A bare 👍 with no commit on it is a fine lane result and
+  is **not** a close, because the head would then be yours to assert rather than the provider's to
+  attest: a push landing while the read is in flight would let a PR name a head the provider never
+  saw, and the whole point of binding the merge is that nobody can do that. Where the only Codex
+  output is an unstamped reaction, the gate stays shut until a stamped one exists.
 - **Four things shut that close, and each is readable off the pull request rather than out of your
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
   it is a wait, and waiting is still what you do. If either completed review came back clean and its
@@ -216,11 +223,14 @@ validity turns on it being the right test — must satisfy both.
   Asking twice at one head with nothing answered in between is one review asked twice and buys the
   close nothing. **The test is the disposal, not a new commit**: a review answered wholly on the
   record moves no head, so demanding one would re-create the deadlock this rule exists to remove.
-  And **nothing but disposal may land after the cap is spent**: every commit after the one the
-  second completed review actually *read* — its `commit_id`, never its `submitted_at` — must answer
-  a finding those reviews recorded, or be one of the non-material exceptions above. Anchor it at the
-  commit and not the clock, because a material push landing while that review is still running is a
-  push it never saw, and a time-anchored window would wave it through. New scope pushed after the cap has spent it is scope **no
+  And **nothing but disposal may land after the cap is spent**: everything added after the commit
+  the second completed review actually *read* — its `commit_id`, never its `submitted_at` — must
+  answer a finding those reviews recorded, or be one of the non-material exceptions above. Anchor it
+  at the commit and not the clock, because a material push landing while that review is still
+  running is a push it never saw, and a time-anchored window would wave it through. **The unit is
+  the change, not the commit**: a commit that fixes a recorded finding *and* carries an unrelated
+  hunk passes any per-commit test while smuggling exactly the scope this shuts out, so every hunk
+  has to trace to a disposition or an exception. New scope pushed after the cap has spent it is scope **no
   metered provider will ever read**, and the close is a third opinion on a twice-read diff, never a
   first opinion on an unread one — so the close is shut and the PR waits for a gate it can actually
   satisfy. Motive is not a test

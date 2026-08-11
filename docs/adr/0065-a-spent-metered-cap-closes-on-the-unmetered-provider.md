@@ -153,6 +153,28 @@ an agent's account of its own reasoning:
    last. A safety property that holds only when the author does not think to break it is not a
    safety property.
 
+   The same condition also has to be read **per change, not per commit**. A commit that answers a
+   recorded finding and carries an unrelated hunk alongside it satisfies any per-commit phrasing
+   while smuggling in exactly the scope the condition excludes.
+
+### The closing read must stamp its own head
+
+The SHA that reaches `--match-head-commit` must come from something the **provider** wrote. This is
+a fifth condition in substance, and it was the last one found.
+
+Codex's clean result is often a bare 👍 carrying no commit. Two review rounds pulled in opposite
+directions here, and the resolution is the interesting part. One round found that demanding
+`commit_id` / `submitted_at` / `COMMENTED` from the closer made the path **unsatisfiable in the
+ordinary clean case**, since a reaction has none of those. The next round found that accepting the
+reaction made the head **author-asserted rather than provider-attested** — and a push landing while
+the read is in flight would then let a pull request name a head the provider never saw, which is
+precisely what binding the merge exists to prevent.
+
+Both are right, and the resolution is not a compromise between them: a reaction is a perfectly good
+*lane result* and simply is not a *close*. What closes is any artifact the provider itself stamps
+with the commit it read. Where the only output is an unstamped reaction the gate stays shut until a
+stamped one exists, which costs an unmetered re-run and nothing else.
+
 **Motive is deliberately not a test.** An earlier draft closed the gaming path with *"an ask made to
 spend the cap is not one of the two."* That was rejected on review for two reasons: a motive is not
 checkable by anyone, including the agent itself; and read strictly it **restores the deadlock in a
