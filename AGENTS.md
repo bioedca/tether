@@ -210,9 +210,13 @@ validity turns on it being the right test — must satisfy both.
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
   it is a wait, and waiting is still what you do. If either completed review came back clean and its
   evidence still stands under the non-material rule above, **that** review is the gate, it has
-  already closed, and none of this applies. And the two completed reviews must sit at **different
-  `commit_id`s**, with the commits between them answering the first review's findings — two reads of
-  one unchanged diff are one review asked twice, which buys the close nothing. Motive is not a test
+  already closed, and none of this applies. And the second completed review must have been asked
+  **after the first one's findings were disposed of** — by commits that answer them, or, where the
+  disposition is a deferral or a sub-floor drop, by the replies and resolutions that record it.
+  Asking twice at one head with nothing answered in between is one review asked twice and buys the
+  close nothing. **The test is the disposal, not a new commit**: a review answered wholly on the
+  record moves no head, so demanding one would re-create the deadlock this rule exists to remove.
+  Motive is not a test
   and never becomes one; these three are, and they are also why spending an ask to reach the close
   would buy nothing if it worked, since the close costs the disposal of every finding and a further
   review on top — more work than the clean pass it replaces.

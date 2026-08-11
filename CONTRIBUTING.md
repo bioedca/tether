@@ -265,12 +265,17 @@ Before requesting review / merging, confirm:
       and every finding is disposed of, the Codex read of the final head that closed the gate in
       its place** — and that is a verdict a completed
       review reached rather than an absence of one: record the review itself — permalink, the
-      `commit_id` it read, **which must be the final head**, `submitted_at` with a state of
+      `commit_id` it read, **which must be the final head for whichever review closes the gate**
+      — on the cap-spent path CodeRabbit's two sit at earlier heads by construction, since
+      answering them is what moved the head, and it is the Codex closing read that names the
+      final one — `submitted_at` with a state of
       **`COMMENTED` or `APPROVED`** (a `PENDING` review has no `submitted_at` and is not a submitted
       one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing), and the
-      opening of its body. **A review of any earlier head does not qualify, however clean it was** —
-      answering a finding moves the head, so that review is evidence about a diff this one is no
-      longer. The clean verdict is written by the `Actionable comments posted:` line being
+      opening of its body. **A review of any earlier head does not close the gate, however clean it
+      was** — where answering a finding moved the head, that review is evidence about a diff this
+      one is no longer. It still stands as one of the two completed reviews, which is exactly what
+      the cap-spent path relies on: each recorded at the head it read, with the Codex closing read
+      covering the final one. The clean verdict is written by the `Actionable comments posted:` line being
       **absent** rather than reading `0`. Neither silence
       nor a green `CodeRabbit` status check is the gate; both are also what a request that reviewed
       **nothing** leaves behind (see the full-review command below). Greptile is optional, and its absence

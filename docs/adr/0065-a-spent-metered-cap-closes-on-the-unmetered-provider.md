@@ -125,9 +125,19 @@ an agent's account of its own reasoning:
    still freezes the pull request — nothing reviewed, so nothing opens the close.
 2. **A clean review is the gate, and it has already closed.** If either completed review came back
    clean and its evidence still stands under the non-material rule, the branch never opens.
-3. **The two completed reviews must sit at different `commit_id`s**, with the commits between them
-   answering the first review's findings. Two reads of one unchanged diff are one review asked
-   twice.
+3. **The second review must have been asked after the first one's findings were disposed of** — by
+   commits that answer them, or, where the disposition is a deferral or a sub-floor drop, by the
+   replies and resolutions that record it. Asking twice at one head with nothing answered in
+   between is one review asked twice.
+
+   **The test is the disposal, not a new commit**, and an earlier draft got this wrong in a way
+   worth recording. It required the two reviews to sit at *different `commit_id`s*. Codex's review
+   of this record's own pull request found the hole: when a review's findings are all non-serious,
+   the prescribed disposition is deferral or a sub-floor drop, which moves **no head**. A second
+   review at that same head would then have been locked out of the close while the cap forbade a
+   third — **the deadlock re-created by the rule written to remove it**. A rule that fixes a
+   deadlock must be checked against its own failure mode, and this one was not until a provider
+   checked it.
 
 **Motive is deliberately not a test.** An earlier draft closed the gaming path with *"an ask made to
 spend the cap is not one of the two."* That was rejected on review for two reasons: a motive is not
