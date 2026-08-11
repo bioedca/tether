@@ -188,8 +188,15 @@ and its referent was always provider-neutral in words. Only context had pointed 
 ## Consequences
 
 **Good.** A pull request that has been reviewed, has had its findings fixed and its threads resolved
-can finish without a human. The escalation is deleted from both files that carried it — `AGENTS.md`
-and `CONTRIBUTING.md` — and deleting it **repairs** `AGENTS.md:227`, *"Human sign-off: releases,
+can finish without a human. The escalation is deleted from all **three** files that carried it —
+`AGENTS.md`, `CONTRIBUTING.md` and
+[`docs/PRD.md`](https://github.com/bioedca/tether/blob/main/docs/PRD.md) §12.4. An earlier draft of
+this record said *two*, and the third was found by review rather than by the sweep that looked for
+it: the PRD phrases it as *"the lane stops for the maintainer"* rather than *"hand the PR to the
+maintainer"*, so a
+phrase-matched search missed it. **A rule stated in five files is found by reading all five, not by
+grepping the wording you happen to remember** — and this record is the third place in this pull
+request where a fix landed in one file and not its mirrors. Deleting it **repairs** `AGENTS.md:227`, *"Human sign-off: releases,
 tags, signing, any new scientific claim or citation. Nothing else waits,"* which was false while a
 capped review gate waited on a human. That sentence becoming true again is affirmative evidence the
 escalation was the anomaly rather than the design.

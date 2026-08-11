@@ -216,9 +216,11 @@ validity turns on it being the right test — must satisfy both.
   Asking twice at one head with nothing answered in between is one review asked twice and buys the
   close nothing. **The test is the disposal, not a new commit**: a review answered wholly on the
   record moves no head, so demanding one would re-create the deadlock this rule exists to remove.
-  And **nothing but disposal may land after the cap is spent**: every commit between the second
-  completed review and the closing read must answer a finding those reviews recorded, or be one of
-  the non-material exceptions above. New scope pushed after the cap has spent it is scope **no
+  And **nothing but disposal may land after the cap is spent**: every commit after the one the
+  second completed review actually *read* — its `commit_id`, never its `submitted_at` — must answer
+  a finding those reviews recorded, or be one of the non-material exceptions above. Anchor it at the
+  commit and not the clock, because a material push landing while that review is still running is a
+  push it never saw, and a time-anchored window would wave it through. New scope pushed after the cap has spent it is scope **no
   metered provider will ever read**, and the close is a third opinion on a twice-read diff, never a
   first opinion on an unread one — so the close is shut and the PR waits for a gate it can actually
   satisfy. Motive is not a test
