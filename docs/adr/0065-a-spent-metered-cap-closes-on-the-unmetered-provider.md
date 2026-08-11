@@ -125,6 +125,16 @@ an agent's account of its own reasoning:
    still freezes the pull request — nothing reviewed, so nothing opens the close.
 2. **A clean review is the gate, and it has already closed.** If either completed review came back
    clean and its evidence still stands under the non-material rule, the branch never opens.
+
+   With one carve-out that review found, and it exposes a tension older than this record.
+   *Closing the gate* and *supplying a head the merge can bind* are two different jobs. A clean
+   review at commit A closes the gate; a permitted non-material push to B leaves that closure intact
+   — `AGENTS.md` says review evidence survives such a push — while `--match-head-commit` still
+   demands A, which is no longer the head. With the cap spent there is no third metered read to
+   rebind it, so a clean review followed by a formatting commit **stranded the pull request
+   outright**. A stamped Codex read of B supplies the binding without re-opening a gate that was
+   never in question. The rule that must not bend is the other one: the close may never stand in
+   for a metered read that never happened.
 3. **The second review must have been asked after the first one's findings were disposed of** — by
    commits that answer them, or, where the disposition is a deferral or a sub-floor drop, by the
    replies and resolutions that record it. Asking twice at one head with nothing answered in

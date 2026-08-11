@@ -217,8 +217,15 @@ validity turns on it being the right test — must satisfy both.
 - **Four things shut that close, and each is readable off the pull request rather than out of your
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
   it is a wait, and waiting is still what you do. If either completed review came back clean and its
-  evidence still stands under the non-material rule above, **that** review is the gate, it has
-  already closed, and none of this applies. The second completed review must have been asked
+  evidence still stands under the non-material rule above, **that** review is the gate and it has
+  already closed — but *closing the gate* and *supplying a head the merge can bind* are two
+  different jobs, and only the first is finished. Where a permitted non-material push has since
+  moved the head, a stamped Codex read of the current head supplies the SHA the merge binding
+  needs, and does not re-open a gate that was never in question. Without that, a clean review plus
+  a formatting commit would strand a PR outright: the evidence survives by one rule while
+  `--match-head-commit` demands a head that is no longer current, and the cap forbids asking the
+  metered provider again. What the close may never do is stand in for a metered read that never
+  happened. The second completed review must have been asked
   **after the first one's findings were disposed of** — by commits that answer them, or, where the
   disposition is a deferral or a sub-floor drop, by the replies and resolutions that record it.
   Asking twice at one head with nothing answered in between is one review asked twice and buys the
