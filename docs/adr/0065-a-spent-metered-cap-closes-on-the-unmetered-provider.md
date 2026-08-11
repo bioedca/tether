@@ -139,6 +139,20 @@ an agent's account of its own reasoning:
    deadlock must be checked against its own failure mode, and this one was not until a provider
    checked it.
 
+4. **Nothing but disposal may land after the cap is spent.** Every commit between the second
+   completed review and the closing read must answer a finding those reviews recorded, or be one of
+   the existing non-material exceptions.
+
+   This is the condition that makes the *"third opinion on a twice-read diff"* claim below true
+   rather than merely asserted, and it was missing from the first two drafts. A second Codex review
+   of this record's own pull request found it: a material push **after** the cap is spent leaves the
+   cap spent, so the close still applied — and the new code would then be read by the closing
+   provider and by nobody else. Material pushes re-arm review but do **not** raise the two-review
+   ceiling, so there was no path by which a metered provider could ever see that scope. It also made
+   the branch reachable by choice, which conditions 1–3 were written to prevent: push the risky part
+   last. A safety property that holds only when the author does not think to break it is not a
+   safety property.
+
 **Motive is deliberately not a test.** An earlier draft closed the gaming path with *"an ask made to
 spend the cap is not one of the two."* That was rejected on review for two reasons: a motive is not
 checkable by anyone, including the agent itself; and read strictly it **restores the deadlock in a
@@ -184,8 +198,9 @@ escalation was the anomaly rather than the design.
 provider the repository does **not** pay for, and Codex's reliability is therefore load-bearing in a
 way it was not before. Two things bound that. It is a fresh read of the exact head being merged, not
 a re-quoted earlier pass. And it is reached only after two completed metered reviews have already
-read the diff — so the close is a third opinion on a twice-reviewed diff, never a first opinion on an
-unreviewed one. **If Codex's review quality degrades, this paragraph is the part of the record that
+read the diff, and condition 4 above is what keeps that true by refusing the close to any scope that
+landed after the cap was spent — so it is a third opinion on a twice-read diff, never a first opinion
+on an unread one. **If Codex's review quality degrades, this paragraph is the part of the record that
 stops holding**, and nothing in this repository would detect that.
 
 A second cost: §Review grows by roughly twenty lines in a file ADR-0064 deliberately shrank, and

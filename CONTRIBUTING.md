@@ -266,9 +266,8 @@ Before requesting review / merging, confirm:
       its place** — and that is a verdict a completed
       review reached rather than an absence of one: record the review itself — permalink, the
       `commit_id` it read, **which must be the final head for whichever review closes the gate**
-      — on the cap-spent path CodeRabbit's two sit at earlier heads by construction, since
-      answering them is what moved the head, and it is the Codex closing read that names the
-      final one — `submitted_at` with a state of
+      — on the cap-spent path CodeRabbit's two are recorded at whatever heads they read, and it is
+      the Codex closing read that names the final one — `submitted_at` with a state of
       **`COMMENTED` or `APPROVED`** (a `PENDING` review has no `submitted_at` and is not a submitted
       one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing), and the
       opening of its body. **A review of any earlier head does not close the gate, however clean it

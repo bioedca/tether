@@ -206,18 +206,23 @@ validity turns on it being the right test — must satisfy both.
   read surfaces is disposed of by those same three dispositions before it closes — the close is a
   *substitute for the clean pass*, not a lower bar than it. That review is then *the clean review*
   the merge binding below names.
-- **Three things shut that close, and each is readable off the pull request rather than out of your
+- **Four things shut that close, and each is readable off the pull request rather than out of your
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
   it is a wait, and waiting is still what you do. If either completed review came back clean and its
   evidence still stands under the non-material rule above, **that** review is the gate, it has
-  already closed, and none of this applies. And the second completed review must have been asked
+  already closed, and none of this applies. The second completed review must have been asked
   **after the first one's findings were disposed of** — by commits that answer them, or, where the
   disposition is a deferral or a sub-floor drop, by the replies and resolutions that record it.
   Asking twice at one head with nothing answered in between is one review asked twice and buys the
   close nothing. **The test is the disposal, not a new commit**: a review answered wholly on the
   record moves no head, so demanding one would re-create the deadlock this rule exists to remove.
-  Motive is not a test
-  and never becomes one; these three are, and they are also why spending an ask to reach the close
+  And **nothing but disposal may land after the cap is spent**: every commit between the second
+  completed review and the closing read must answer a finding those reviews recorded, or be one of
+  the non-material exceptions above. New scope pushed after the cap has spent it is scope **no
+  metered provider will ever read**, and the close is a third opinion on a twice-read diff, never a
+  first opinion on an unread one — so the close is shut and the PR waits for a gate it can actually
+  satisfy. Motive is not a test
+  and never becomes one; these four are, and they are also why spending an ask to reach the close
   would buy nothing if it worked, since the close costs the disposal of every finding and a further
   review on top — more work than the clean pass it replaces.
 - **Clearing the gate is not authority to merge.** They are different things and the second is still
