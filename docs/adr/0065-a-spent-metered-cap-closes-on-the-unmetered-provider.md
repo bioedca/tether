@@ -117,7 +117,7 @@ deleted rather than supplemented.**
 
 ### What makes it narrow
 
-Three conditions shut the branch, and each is **readable off the pull request** rather than out of
+Four conditions shut the branch, and each is **readable off the pull request** rather than out of
 an agent's account of its own reasoning:
 
 1. **A refusal is not a spent cap.** A throttle, a quota refusal or a failed run reviewed nothing,
@@ -234,7 +234,8 @@ stops holding**, and nothing in this repository would detect that.
 
 A second cost: §Review grows by roughly twenty lines in a file ADR-0064 deliberately shrank, and
 whose resident-context driver — *"`AGENTS.md` is read on every model call by every agent"* — argues
-against every addition. The three shutting conditions are what that length buys, and they are the
+against every addition. The four shutting conditions and the stamped-head rule are what that length
+buys, and they are the
 part that cannot be compressed without making the branch a judgment call.
 
 **Reversible.** Prose only. No script, no workflow, no label, no ref namespace, no test fixture. A

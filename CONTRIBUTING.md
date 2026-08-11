@@ -267,9 +267,12 @@ Before requesting review / merging, confirm:
       review reached rather than an absence of one: record the review itself — permalink, the
       `commit_id` it read, **which must be the final head for whichever review closes the gate**
       — on the cap-spent path CodeRabbit's two are recorded at whatever heads they read, and it is
-      the Codex closing read that names the final one — `submitted_at` with a state of
+      the Codex closing read that names the final one. **The review-object fields are CodeRabbit's**
+      — `submitted_at` with a state of
       **`COMMENTED` or `APPROVED`** (a `PENDING` review has no `submitted_at` and is not a submitted
-      one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing), and the
+      one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing) — and a Codex close that is
+      a stamped run artifact rather than a posted review has none of them: record what it does emit,
+      including the commit **it** names, and do not demand fields that only exist on a review. Then the
       opening of its body. **A review of any earlier head does not close the gate, however clean it
       was** — where answering a finding moved the head, that review is evidence about a diff this
       one is no longer. It still stands as one of the two completed reviews, which is exactly what

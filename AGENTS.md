@@ -201,8 +201,9 @@ validity turns on it being the right test — must satisfy both.
   reviews stand on this PR — each one it submitted with a body, since a throttle, a quota refusal or
   a failed run reviewed nothing — and every finding they raised is **fixed, deferred-and-tracked, or
   dropped sub-floor** with the thread resolved, then a **fresh Codex read of the final head** closes
-  the gate in their place: a full read posted by the provider on the pull request, never an earlier
-  Codex pass re-quoted, since the head that pass read is not the head being merged. Anything that
+  the gate in their place: a full read recorded on the pull request — a review the provider posted,
+  or a verifiable run artifact of its own that names the commit it read — never an earlier Codex
+  pass re-quoted, since the head that pass read is not the head being merged. Anything that
   read surfaces is disposed of by those same three dispositions before it closes — the close is a
   *substitute for the clean pass*, not a lower bar than it. That review is then *the clean review*
   the merge binding below names.
