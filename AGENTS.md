@@ -224,7 +224,12 @@ validity turns on it being the right test — must satisfy both.
   needs, and does not re-open a gate that was never in question. Without that, a clean review plus
   a formatting commit would strand a PR outright: the evidence survives by one rule while
   `--match-head-commit` demands a head that is no longer current, and the cap forbids asking the
-  metered provider again. What the close may never do is stand in for a metered read that never
+  metered provider again. **A rebinding read that surfaces something serious stops being one.**
+  Fixing it is a material push, the clean review's evidence falls with it, and the PR is on the
+  cap-spent path — so the next stamped read of the resulting head is a *closing* read, judged by
+  everything below. Saying so is what keeps the allowed set below from needing a third category and
+  from shutting on a rebinding read that did its job, which is this rule's own failure mode reached
+  one door further along. What the close may never do is stand in for a metered read that never
   happened. The second completed review must have been asked
   **after the first one's findings were disposed of** — by commits that answer them, or, where the
   disposition is a deferral or a sub-floor drop, by the replies and resolutions that record it.

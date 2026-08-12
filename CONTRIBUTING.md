@@ -345,8 +345,11 @@ required check runs on a draft, so the diff reaches fully green before anyone is
 read it, and that is what makes the sequence affordable rather than a policy nobody keeps.
 Opening ready is not forbidden, but it spends a metered provider on a diff no cheap one has
 seen; the old rationale for allowing it turned on the round counter ADR-0064 retires, so
-what remains is simply that it costs more for nothing. Record the reason in the PR. Author-side or local review, and status-only
-output, do not satisfy it. **Exhaustion is not incapacity** — a provider with no budget
+what remains is simply that it costs more for nothing. Record the reason in the PR. Author-side
+review and status-only output do not satisfy it — and *author-side* is about whose judgement it
+is, not which machine ran it: a provider's own review posted on the pull request is external
+however its CLI resolved locally, while your transcript of a local run is not, because nothing
+but you attests it. **Exhaustion is not incapacity** — a provider with no budget
 left has not reviewed: Greptile out of credits is skippable and never blocks, while
 CodeRabbit unavailable freezes the PR.
 
