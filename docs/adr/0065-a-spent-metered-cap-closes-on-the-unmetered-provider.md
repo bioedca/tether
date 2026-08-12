@@ -263,7 +263,7 @@ and the cost of finding out is one comment.
 ### A CLI read must not run under the rules the branch is proposing
 
 **The close itself is a posted review, so it is not the case this guards.** What it guards is the
-ordinary lane read: the CLI discovers `AGENTS.md`, `AGENTS.override.md` and `CLAUDE.md` from the
+ordinary lane read: the CLI discovers `AGENTS.md`, `AGENTS.override.md` anywhere and `CLAUDE.md` from the
 checkout it runs in and injects repository skills, so a pull request editing any of them supplies
 the instructions to a provider reading it — the branch graded by its own unmerged contract, which
 *"only agent instructions on the default branch govern; unmerged edits are inert"* refuses in the

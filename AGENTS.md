@@ -215,7 +215,7 @@ validity turns on it being the right test — must satisfy both.
   (first bullet), so a CLI run finds your own defects before a provider is asked — the same category
   as running the tests. Run it freely, it is unmetered; just never record it as the Codex leg.
   **On a diff that edits agent instructions, do not run it under them.** The CLI takes them from
-  the checkout by two routes: it discovers `AGENTS.md`, `AGENTS.override.md` (which takes
+  the checkout by two routes: it discovers `AGENTS.md`, `AGENTS.override.md` anywhere (which takes
   precedence) and `CLAUDE.md`, **and** it injects repository skills from `.agents/skills/**`. A diff
   touching either route shapes its own reader, so the trigger is both — a skill-only change edits
   none of the three files and still qualifies. Run
@@ -273,8 +273,8 @@ validity turns on it being the right test — must satisfy both.
   `Deferred: … Tracked in #N` and resolve the thread. Fixing a non-serious finding in the PR is
   scope breach, not diligence.
 - **On agent-layer paths, a sub-floor finding is dropped rather than tracked.** Those paths are
-  `.agents/`, `docs/agents/`, `AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md` and the agent test
-  modules. Reply
+  `.agents/`, `docs/agents/`, `AGENTS.md`, `AGENTS.override.md` anywhere, `CLAUDE.md` and the agent
+  test modules. Reply
   `Noted; below the floor on an agent-layer path and not tracked (ADR-0064)` and resolve the thread.
   This inverts the rule above deliberately and only here, because only here does the output feed back
   into the input — sixteen agent-layer issues came from that loop in ten days.
