@@ -1085,9 +1085,9 @@ leg, and a quota refusal from it means the provider **did not review**, never a 
 credits is skippable, CodeRabbit unavailable **freezes the PR** — though a fair-use refusal that names a retry time
 is a **wait**, not unavailability, and a request that produced no review is not one of the two completed reviews.
 Author-side review and a green or status-only
-result do not satisfy the gate; *author-side* names whose judgement it is rather than which machine ran it,
-so a provider's own review posted on the pull request counts however its CLI resolved locally, while an
-author's transcript of a local run does not. **No provider auto-reviews this repository** — CodeRabbit reports auto reviews
+result do not satisfy the gate; *author-side* names whose judgement it is rather than which machine ran it, and what
+the gate protects is that **every substantive change reaching the merge was externally reviewed** — `AGENTS.md`
+§Review is the operative statement of that and of what makes it hold when the reviewed commit is not the merged one. **No provider auto-reviews this repository** — CodeRabbit reports auto reviews
 disabled, Greptile is held by `.greptile/config.json`'s `skipReview: "AUTOMATIC"`, and Codex fires only on
 open-for-review, draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined. The
 one exception is a branch cut **before** that config landed: it is read from the PR's source branch, so such a branch

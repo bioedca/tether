@@ -347,9 +347,12 @@ Opening ready is not forbidden, but it spends a metered provider on a diff no ch
 seen; the old rationale for allowing it turned on the round counter ADR-0064 retires, so
 what remains is simply that it costs more for nothing. Record the reason in the PR. Author-side
 review and status-only output do not satisfy it — and *author-side* is about whose judgement it
-is, not which machine ran it: a provider's own review posted on the pull request is external
-however its CLI resolved locally, while your transcript of a local run is not, because nothing
-but you attests it. **Exhaustion is not incapacity** — a provider with no budget
+is, not which machine ran it. The verdict has to be the provider's, quoted as it wrote it; a
+review it posted on the pull request is the strongest form, because GitHub attests that it said
+so, and a CLI run quoted verbatim is the weaker one the Codex lane actually runs. What has to
+hold either way is that **every substantive change reaching the merge was externally reviewed**,
+which `AGENTS.md` §Review states operatively and which its fourth condition is what enforces on
+the cap-spent path. **Exhaustion is not incapacity** — a provider with no budget
 left has not reviewed: Greptile out of credits is skippable and never blocks, while
 CodeRabbit unavailable freezes the PR.
 

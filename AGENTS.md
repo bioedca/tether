@@ -154,12 +154,19 @@ validity turns on it being the right test — must satisfy both.
 ## Review
 
 - **You are never the only reviewer of your own diff.** Before merge at least one external provider
-  must have reviewed the final head and reported what it found. Author-side or local output never
-  satisfies this, and a green status check with no review body is not a review. *Author-side* names
-  whose judgement it is and not which machine ran it: a provider's own review posted on the pull
-  request is external however its CLI resolves locally (§This machine), while your transcript of a
-  local run is not, because nothing but you attests it. Quote the provider and name the 40-hex head
-  it read in the PR body.
+  must have reviewed **every substantive change reaching the merge**, and reported what it found.
+  Author-side output never satisfies this, and a green status check with no review body is not a
+  review. *Author-side* names whose judgement it is and not which machine ran it: the verdict must
+  be the provider's, quoted as it wrote it, and a provider's own review posted on the pull request
+  carries the strongest form of that because GitHub attests it (§This machine).
+  **Normally the head it read *is* the head you merge, and then this bullet is satisfied by
+  inspection.** Where it is not — the cap-spent close below is the case that reaches it — what makes
+  the difference safe is that the final head may differ from the externally reviewed one only by
+  changes that answer recorded findings, by the non-material exceptions, or by a required `main`
+  conflict resolution. §Review's fourth condition is what enforces that, and the closing read is
+  what confirms nothing else crept in. So no unreviewed substance merges, which is the property this
+  bullet is protecting; the reviewed *commit* being the merged commit was only ever the ordinary way
+  of getting it. Quote the provider and name the 40-hex head it read in the PR body.
 - **Open as a draft and get it green there.** Every required check runs on a draft, so the diff
   reaches fully green before anyone is asked to read it. Opening ready is **not forbidden** but is
   never free: it spends a metered provider on a diff no unmetered one has read, so record the
