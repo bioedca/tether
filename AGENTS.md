@@ -233,7 +233,17 @@ validity turns on it being the right test — must satisfy both.
   record moves no head, so demanding one would re-create the deadlock this rule exists to remove.
   And **nothing but disposal may land after the cap is spent**: everything added after the commit
   the second completed review actually *read* — its `commit_id`, never its `submitted_at` — must
-  answer a finding those reviews recorded, or be one of the non-material exceptions above. Anchor it
+  answer a finding already on this pull request's record — one of those two reviews', **or one a
+  closing read has itself raised** — or be one of the non-material exceptions above. A closing
+  read's own findings have to count, and this is not a courtesy to it: the bullet above requires
+  everything that read surfaces to be disposed of before it closes, and that disposal is a material
+  push answering no CodeRabbit finding at all. An allowed set holding only *their* findings would
+  therefore disqualify every closing read that found anything, while the cap forbade asking the
+  metered provider again — this rule's own failure mode, re-created one level down and reachable
+  only by the closing reads that did their job. What follows such a fix is another stamped read of
+  the head it produced, never a narrower allowed set: each round is still read by the provider that
+  closes it, which is the property this condition exists to protect, and unread scope stays shut out
+  because a closing read cannot raise a finding about a hunk it never saw. Anchor it
   at the commit and not the clock, because a material push landing while that review is still
   running is a push it never saw, and a time-anchored window would wave it through. **The unit is
   the change, not the commit**: a commit that fixes a recorded finding *and* carries an unrelated

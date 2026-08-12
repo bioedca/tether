@@ -1,4 +1,4 @@
 interface:
   display_name: "Tether Worker"
   short_description: "Claim one accepted issue and open its draft PR onto the review lane"
-  default_prompt: "Use $tether-worker to claim issue #N with .agents/bin/claim.py, implement it in an isolated worktree, open a DRAFT PR, request the first Codex review, write the lane state into the PR body, and exit. Do not arm auto-merge: that happens at the end of the review lane, once the gate is closed — by a clean CodeRabbit review, or by a Codex read of the final head when CodeRabbit's two-review cap is spent and every finding is disposed of."
+  default_prompt: "Use $tether-worker to claim issue #N with .agents/bin/claim.py, implement it in an isolated worktree, open a DRAFT PR, request the first Codex review, write the lane state into the PR body, and exit. Do not arm auto-merge: that happens at the end of the review lane, once the gate is closed — by a clean CodeRabbit review, or by a Codex read of the final head when CodeRabbit's two-review cap is spent. AGENTS.md §Review carries the conditions on that second path and this prompt states none of them, so read them there rather than inferring them from this line."

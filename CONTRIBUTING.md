@@ -442,8 +442,13 @@ but asking twice at one head with nothing answered in between is one review aske
 it buys the close nothing. **And nothing but disposal may land after the cap is spent**:
 every hunk added after the commit the second completed review actually read — its
 `commit_id`, never its `submitted_at`, since a material push landing while that review is
-still running is a push it never saw — must trace to a recorded disposition or to one of the
-non-material exceptions above. New scope pushed past that point is scope no metered provider
+still running is a push it never saw — must answer a finding already on the pull request's
+record, **including one the closing read itself raised**, or be one of the non-material
+exceptions above. That inclusion is load-bearing rather than generous: the closing read has
+to dispose of whatever it surfaces before it closes, and that fix answers no CodeRabbit
+finding, so a set holding only theirs would disqualify every closing read that found
+something — the same deadlock, one level down. What follows such a fix is another stamped
+read of the head it produced. New scope pushed past that point is scope no metered provider
 will ever read, and the close is a third opinion on a twice-read diff, never a first opinion
 on an unread one. Nothing counts this for you; the
 merged history is auditable and you are trusted with it. On agent-layer paths

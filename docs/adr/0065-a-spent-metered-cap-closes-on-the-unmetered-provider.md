@@ -150,7 +150,8 @@ an agent's account of its own reasoning:
    checked it.
 
 4. **Nothing but disposal may land after the cap is spent.** Every commit between the second
-   completed review and the closing read must answer a finding those reviews recorded, or be one of
+   completed review and the closing read must answer a finding already on the pull request's
+   record — one of those two reviews', or one a closing read has itself raised — or be one of
    the existing non-material exceptions.
 
    This is the condition that makes the *"third opinion on a twice-read diff"* claim below true
@@ -166,6 +167,17 @@ an agent's account of its own reasoning:
    The same condition also has to be read **per change, not per commit**. A commit that answers a
    recorded finding and carries an unrelated hunk alongside it satisfies any per-commit phrasing
    while smuggling in exactly the scope the condition excludes.
+
+   And the allowed set has to include **the closing read's own findings**, which the first three
+   drafts of this condition did not. A sixth Codex review of this record's pull request found it,
+   and it is the third time a draft here re-created the deadlock it removes: the bullet above
+   requires the closing read to dispose of whatever it surfaces *before* it closes, and that fix is
+   a material push answering no CodeRabbit finding — so a set holding only *their* findings shut the
+   close against every closing read that found anything, while the cap forbade asking the metered
+   provider again. The branch was reachable only by the closing reads doing their job, which is the
+   worst possible selection. The remedy is not a narrower set but another stamped read of the head
+   the fix produced: each round is still read by the provider that closes it, and unread scope stays
+   excluded, because a closing read cannot raise a finding about a hunk it never saw.
 
 ### The closing read must stamp its own head
 
