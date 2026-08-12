@@ -83,8 +83,9 @@ gap — that is what invalidated reviews across three PRs at once under the old 
 **Open the PR as a draft** and get the checks green there. Then follow `AGENTS.md` §Review: an
 external provider reads the final head, you fix what is serious and defer or drop the rest, and
 CodeRabbit with no actionable comments is the last metered gate before merge. If its two-review cap
-is spent and every finding is disposed of, a fresh Codex read of the final head closes the gate in
-its place — §Review carries the conditions, and no maintainer is waited on for it.
+is spent and no finding is left outstanding, a fresh **posted** Codex review of the final head
+closes the gate in its place — §Review carries the conditions, and no maintainer is waited on for
+it. Posted, because the closer has to carry a `commit_id`; a local CLI run satisfies no leg.
 
 You do not have to sit and watch it. A review takes as long as it takes, and a short-lived worker
 that polls is spending tokens to wait — so **write the state into the PR body before you go**:
