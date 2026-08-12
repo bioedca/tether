@@ -282,8 +282,9 @@ Before requesting review / merging, confirm:
       **The body convention is CodeRabbit's too** — the opening of its body, where the clean verdict
       is written by the `Actionable comments posted:` line being **absent** rather than reading `0`.
       A Codex artifact has no such line and never will; what stands in its place is the verdict the
-      run actually emitted, quoted, against the commit it names. Asking a Codex close for
-      CodeRabbit's marker would leave that path with no recordable evidence at all.
+      run actually emitted, quoted, against the commit **the procedural pin identifies** — not one
+      the run names, since it names none. Asking a Codex close for CodeRabbit's marker, or for a
+      commit its artifact does not carry, would leave that path with no recordable evidence at all.
       **A review of an earlier head does not close the gate**, whether a material push moved the
       head or a non-material one did. It still stands as one of the two completed reviews, which is
       exactly what the cap-spent path relies on: each recorded at the head it read, with the Codex
@@ -483,7 +484,10 @@ you are obliged to fix it, so any list of *whose* findings count shuts the close
 fix it just required — and every list drafted here has omitted somebody, first the closing
 read and then Greptile. What follows such a fix is another stamped read of the head it
 produced. New scope pushed past that point is scope no metered provider will ever read, and
-the close is a third opinion on a twice-read diff, never a first opinion on an unread one. Nothing counts this for you; the
+the close is a further opinion on a diff every substantive part of which a metered provider has
+already read — never a first opinion on an unread one, and not *twice*-read, which overclaims:
+where review 1 was clean and an in-scope material push drew review 2, the added part carries one
+metered read. Nothing counts this for you; the
 merged history is auditable and you are trusted with it. On agent-layer paths
 (`.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules) a
 finding below the severity floor is **dropped rather than tracked**, because there the

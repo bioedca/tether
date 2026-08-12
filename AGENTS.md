@@ -277,8 +277,13 @@ validity turns on it being the right test — must satisfy both.
   the change, not the commit**: a commit that fixes a recorded finding *and* carries an unrelated
   hunk passes any per-commit test while smuggling exactly the scope this shuts out, so every hunk
   has to trace to one of the three. New scope pushed after the cap has spent it is scope **no
-  metered provider will ever read**, and the close is a third opinion on a twice-read diff, never a
-  first opinion on an unread one — so the close is shut and the PR waits for a gate it can actually
+  metered provider will ever read**, and what the close is entitled to be is a further opinion on a
+  diff **every substantive part of which a metered provider has already read** — never a first
+  opinion on an unread one. Not *twice*-read, which an earlier draft claimed and which is false: if
+  review 1 came back clean and an in-scope material push then drew review 2, the added part carries
+  one metered read, not two. One is the guarantee; two is a frequent accident of the lane, and
+  stating the stronger version would have this bullet overclaim exactly where it is doing its work.
+  So new scope shuts the close and the PR waits for a gate it can actually
   satisfy. Motive is not a test
   and never becomes one; these four are, and they are also why spending an ask to reach the close
   would buy nothing if it worked, since the close costs the disposal of every finding and a further

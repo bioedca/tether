@@ -167,8 +167,8 @@ an agent's account of its own reasoning:
    Anchored at the reviewed commit and applied per change, both for the reasons below, and stated as
    a test on the change rather than on its source for the reason after those.
 
-   This is the condition that makes the *"third opinion on a twice-read diff"* claim below true
-   rather than merely asserted, and it was missing from the first two drafts. A second Codex review
+   This is the condition that makes the coverage claim below true rather than merely asserted, and
+   it was missing from the first two drafts. A second Codex review
    of this record's own pull request found it: a material push **after** the cap is spent leaves the
    cap spent, so the close still applied — and the new code would then be read by the closing
    provider and by nobody else. Material pushes re-arm review but do **not** raise the two-review
@@ -310,10 +310,17 @@ escalation was the anomaly rather than the design.
 **Bad, and named rather than minimised.** The terminal verdict on a capped PR now comes from the
 provider the repository does **not** pay for, and Codex's reliability is therefore load-bearing in a
 way it was not before. Two things bound that. It is a fresh read of the exact head being merged, not
-a re-quoted earlier pass. And it is reached only after two completed metered reviews have already
-read the diff, and condition 4 above is what keeps that true by refusing the close to any scope that
-landed after the cap was spent — so it is a third opinion on a twice-read diff, never a first opinion
-on an unread one. **If Codex's review quality degrades, this paragraph is the part of the record that
+a re-quoted earlier pass. And it is reached only after two completed metered reviews, with condition
+4 above refusing the close to any scope that landed after the cap was spent — so **every substantive
+part of the merging diff has had at least one metered read**, and the close is a further opinion on
+it rather than a first opinion on an unread one.
+
+An earlier draft of this paragraph put that as *"a third opinion on a twice-read diff"*, and a review
+of this record's own pull request showed it false: if review 1 comes back clean and an in-scope
+material push then draws review 2, the added part carries **one** metered read, not two. One is the
+guarantee the conditions actually buy. The overclaim mattered because this paragraph is the argument
+that the close is safe, and an argument that overstates its own premise is worth less than the
+weaker true one. **If Codex's review quality degrades, this paragraph is the part of the record that
 stops holding**, and nothing in this repository would detect that.
 
 A second cost, and it is the larger of the two: **§Review grows from 80 lines to 152** — it nearly
