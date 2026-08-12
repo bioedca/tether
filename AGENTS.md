@@ -166,7 +166,10 @@ validity turns on it being the right test — must satisfy both.
   reason in the PR.
 - **The lane is cheapest provider first, and the order is the point.** On the green diff — the
   draft by default, or the ready PR whose reason is recorded — **Codex** first, unmetered and so
-  uncapped, until it surfaces nothing blocking. Then **optionally one Greptile review**, if the
+  uncapped, until it surfaces nothing blocking. *Unmetered* is a fact about the **CLI**, which is
+  what this lane runs: the GitHub Codex bot's code reviews are metered on this account and its meter
+  is spent — both of its appearances in this repository are the same usage-limit refusal — so asking
+  it is asking a provider that will decline, and a decline is not a review. Then **optionally one Greptile review**, if the
   seat has budget: a *review*, since a standard one costs a credit and a TREX one three. Then
   ready-for-review if it is not already, and **CodeRabbit last** — last of the *metered* providers,
   which is the spend the order buys. The unmetered one is not confined to the front and may read
@@ -207,13 +210,23 @@ validity turns on it being the right test — must satisfy both.
   read surfaces is disposed of by those same three dispositions before it closes — the close is a
   *substitute for the clean pass*, not a lower bar than it. That review is then *the clean review*
   the merge binding below names.
-- **The closing read must stamp the head itself, or it does not close.** The SHA that reaches
-  `--match-head-commit` has to come from something the *provider* wrote — a posted review, or a run
-  artifact that records the commit it read. A bare 👍 with no commit on it is a fine lane result and
-  is **not** a close, because the head would then be yours to assert rather than the provider's to
-  attest: a push landing while the read is in flight would let a PR name a head the provider never
-  saw, and the whole point of binding the merge is that nobody can do that. Where the only Codex
-  output is an unstamped reaction, the gate stays shut until a stamped one exists.
+- **The closing read must be pinned to the head it closes, and the pin must be checkable by someone
+  who was not there.** What that rules out is a head *asserted* after the fact: a push landing while
+  the read is in flight would otherwise let a PR name a commit the provider never saw, and binding
+  the merge exists so nobody can do that. Where the provider stamps the commit itself — a posted
+  review carries a `commit_id` — quote it and you are done. **Where it does not, the pin is
+  procedural and must be recorded as such**: run the read against the exact head being merged, and
+  record `git rev-parse HEAD` in that worktree **immediately before and immediately after** the run
+  together with the PR's head at arming time, all three equal. A read whose head moved under it is
+  not a close, and the equality is what says it did not. Say which of the two you did.
+  **Codex's local CLI emits no head-stamped artifact today** — its run record carries the working
+  directory, version and session id, not the commit — so the procedural pin is the live path here,
+  and calling it "provider-attested" would be false. What it buys is weaker and worth naming: it
+  proves the head did not move across the read, not that the provider read that head, and it rests
+  on the worker reporting the three values honestly. That is the same trust the rest of this section
+  already places in a worker who quotes a review. Requiring an attestation the tooling cannot produce
+  would not buy the stronger property — it would shut the close permanently, which is the deadlock
+  this whole branch exists to remove.
 - **Four things shut that close, and each is readable off the pull request rather than out of your
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
   it is a wait, and waiting is still what you do. If either completed review came back clean, its

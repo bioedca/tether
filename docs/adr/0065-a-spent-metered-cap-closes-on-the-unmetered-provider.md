@@ -216,23 +216,37 @@ an agent's account of its own reasoning:
    the fix produced: each round is still read by the provider that closes it, and unread scope stays
    excluded, because a closing read cannot raise a finding about a hunk it never saw.
 
-### The closing read must stamp its own head
+### The closing read must be pinned to the head it closes
 
-The SHA that reaches `--match-head-commit` must come from something the **provider** wrote. This is
-a fifth condition in substance, and it was the last one found.
+The SHA that reaches `--match-head-commit` must not be one the author asserted after the fact. This
+is a fifth condition in substance, and it took three review rounds pulling in different directions
+to land, which is the part worth recording.
 
-Codex's clean result is often a bare 👍 carrying no commit. Two review rounds pulled in opposite
-directions here, and the resolution is the interesting part. One round found that demanding
-`commit_id` / `submitted_at` / `COMMENTED` from the closer made the path **unsatisfiable in the
-ordinary clean case**, since a reaction has none of those. The next round found that accepting the
-reaction made the head **author-asserted rather than provider-attested** — and a push landing while
-the read is in flight would then let a pull request name a head the provider never saw, which is
-precisely what binding the merge exists to prevent.
+Round one found that demanding `commit_id` / `submitted_at` / `COMMENTED` from the closer made the
+path **unsatisfiable in the ordinary clean case**: Codex's clean result is often a bare 👍 carrying
+no commit, and a reaction has none of those fields. Round two found that accepting the reaction made
+the head **author-asserted** — a push landing while the read is in flight would let a pull request
+name a head the provider never saw, which is precisely what binding the merge exists to prevent. The
+draft that came out of those two required an artifact *the provider itself stamps with the commit*,
+and said the gate stays shut until one exists.
 
-Both are right, and the resolution is not a compromise between them: a reaction is a perfectly good
-*lane result* and simply is not a *close*. What closes is any artifact the provider itself stamps
-with the commit it read. Where the only output is an unstamped reaction the gate stays shut until a
-stamped one exists, which costs an unmetered re-run and nothing else.
+Round three established, by looking, that **no such artifact exists on this repository today**, so
+that draft shut the gate permanently:
+
+- The GitHub Codex bot has **never posted a review here.** Both of its appearances in the repository's
+  history — on #427 and #428, 2026-08-07 — are the same usage-limit refusal. Its code reviews are
+  metered on this account and the meter is spent, which also qualifies this record's *"unmetered and
+  so uncapped"* framing: that is true of the **CLI**, which is what the lane actually runs.
+- The CLI leaves a rollout record carrying `cwd`, `cli_version` and a session id — **not the commit
+  it read.**
+
+So the requirement was written for evidence the tooling does not produce, and would have replaced a
+deadlock with a deadlock. What survives is the *property* rather than the mechanism: the head is
+**pinned** rather than attested. Where a provider stamps the commit, quote it. Where none does,
+record `git rev-parse HEAD` immediately before and immediately after the run alongside the PR head
+at arming time, all three equal — which proves the head did not move under the read, and does not
+pretend to prove the provider read it. That is weaker, it is stated as weaker, and it rests on the
+same worker honesty the rest of the section already assumes of anyone quoting a review.
 
 **Motive is deliberately not a test.** An earlier draft closed the gaming path with *"an ask made to
 spend the cap is not one of the two."* That was rejected on review for two reasons: a motive is not

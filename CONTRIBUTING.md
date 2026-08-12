@@ -270,9 +270,13 @@ Before requesting review / merging, confirm:
       the Codex closing read that closes and names the final one. **The review-object fields are CodeRabbit's**
       — `submitted_at` with a state of
       **`COMMENTED` or `APPROVED`** (a `PENDING` review has no `submitted_at` and is not a submitted
-      one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing) — and a Codex close that is
-      a stamped run artifact rather than a posted review has none of them: record what it does emit,
-      including the commit **it** names, and do not demand fields that only exist on a review.
+      one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing) — and a Codex close run
+      from the CLI rather than posted as a review has none of them: record what it does emit, and do
+      not demand fields that only exist on a review. It does not emit the commit either — its run
+      record carries the working directory, version and session id — so the head comes from the
+      **procedural pin** §Review sets out: `git rev-parse HEAD` immediately before and after the run
+      and the PR head at arming time, all three equal, recorded as a pin rather than described as an
+      attestation.
       **The body convention is CodeRabbit's too** — the opening of its body, where the clean verdict
       is written by the `Actionable comments posted:` line being **absent** rather than reading `0`.
       A Codex artifact has no such line and never will; what stands in its place is the verdict the
