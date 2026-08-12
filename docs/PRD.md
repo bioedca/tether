@@ -1063,8 +1063,12 @@ nothing blocking; it is the free provider, and throttling it bought nothing but 
 one Greptile review**, if the seat has budget — a *review*, not a credit, since a standard one costs one credit and a
 TREX one three; then ready-for-review if it is not already; then **CodeRabbit with no actionable comments,
 which is the last metered gate before merge — and when that two-review cap is spent with every finding
-disposed of and every thread resolved, a fresh Codex read of the final head closes the gate in its place,
-so a reviewed PR finishes on an unmetered read rather than on a maintainer (ADR-0065)**. The round
+disposed of and every thread resolved, the second review having been asked only after the first one's
+findings were disposed of and nothing but disposal having landed since the commit that second review read,
+a fresh Codex read of the final head closes the gate in its place,
+so a reviewed PR finishes on an unmetered read rather than on a maintainer (ADR-0065)**. `AGENTS.md`
+§Review is the operative statement of those preconditions; a summary that drops them would open the close
+in cases the contract shuts. The round
 ledger that used to count this is gone — ADR-0064 retired it along with the launcher that consumed it, leaving **at most
 two completed reviews per metered provider** as a convention a worker keeps rather than a counter that publishes
 labels — **Codex is
@@ -1096,8 +1100,9 @@ governance text itself (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, this docume
 `.greptile/**`) are material — the list is *every file that states a rule*, because a push that
 changes what the gate requires must not keep evidence gathered under the old requirement. A material push re-arms the review, and a PR gets **at most two completed reviews per metered provider**, Codex being unmetered and uncapped —
 needing a third usually means the issue was scoped too large. The lane does **not** stop for the maintainer: when the cap is
-spent with every finding disposed of and no new scope landed since the commit the second review read, a fresh Codex read of
-the final head closes the gate instead (ADR-0065).
+spent on two reads of two *different* states of the diff — the second asked only after the first one's findings were
+disposed of — with every finding disposed of and no new scope landed since the commit the second review read, a fresh
+Codex read of the final head closes the gate instead (ADR-0065).
 
 That bound is a **convention a worker keeps, not a counter that publishes labels.** ADR-0064 retired the round ledger,
 the `agent:round-*` / `agent:review-capped` / `agent:gate-blocked` labels and the launcher that consumed them, after

@@ -430,7 +430,22 @@ credit — a standard review costs one, a TREX review three. Two is the shared c
 again only if the first found something blocking and the seat still has budget. **A spent cap
 is not a stuck PR**: when every finding those two reviews raised is disposed of and every
 thread resolved, a fresh Codex read of the final head closes the gate in their place, so the
-PR finishes on an unmetered read rather than on a maintainer. Nothing counts this for you; the
+PR finishes on an unmetered read rather than on a maintainer. Two preconditions come with
+that, and `AGENTS.md` §Review states them in full — a summary here that drops them would
+authorise the close in cases the contract shuts, and a contributor reading the two together
+would have to stop. **The cap has to have been spent on two reads of two different states of
+the diff**: the second review must have been asked only *after* the first one's findings were
+disposed of, by commits that answer them or by the replies and resolutions recording a
+deferral or a drop. The test is the disposal and not a new commit — a review answered wholly
+on the record moves no head, and demanding one would re-create the deadlock this removes —
+but asking twice at one head with nothing answered in between is one review asked twice, and
+it buys the close nothing. **And nothing but disposal may land after the cap is spent**:
+every hunk added after the commit the second completed review actually read — its
+`commit_id`, never its `submitted_at`, since a material push landing while that review is
+still running is a push it never saw — must trace to a recorded disposition or to one of the
+non-material exceptions above. New scope pushed past that point is scope no metered provider
+will ever read, and the close is a third opinion on a twice-read diff, never a first opinion
+on an unread one. Nothing counts this for you; the
 merged history is auditable and you are trusted with it. On agent-layer paths
 (`.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules) a
 finding below the severity floor is **dropped rather than tracked**, because there the
