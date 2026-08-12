@@ -214,10 +214,11 @@ validity turns on it being the right test — must satisfy both.
 - **The Codex CLI satisfies no leg; it is an author-side tool.** Local output satisfies nothing
   (first bullet), so a CLI run finds your own defects before a provider is asked — the same category
   as running the tests. Run it freely, it is unmetered; just never record it as the Codex leg.
-  **On a diff that edits agent instructions, do not run it under them:** the CLI
-  discovers `AGENTS.md`, `AGENTS.override.md` (which takes precedence) and `CLAUDE.md` from the
-  checkout, and injects repository skills, so a branch editing any of those would otherwise shape
-  its own reader. Run
+  **On a diff that edits agent instructions, do not run it under them.** The CLI takes them from
+  the checkout by two routes: it discovers `AGENTS.md`, `AGENTS.override.md` (which takes
+  precedence) and `CLAUDE.md`, **and** it injects repository skills from `.agents/skills/**`. A diff
+  touching either route shapes its own reader, so the trigger is both — a skill-only change edits
+  none of the three files and still qualifies. Run
   `codex review --strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false --base origin/main`
   — two switches because the skills one is separate and defaults to on, and `--strict-config` so a
   mistyped key fails loudly rather than leaving a read that reports as isolated and is not. This does
