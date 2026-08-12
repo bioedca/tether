@@ -166,7 +166,9 @@ validity turns on it being the right test — must satisfy both.
   conflict resolution. §Review's fourth condition is what enforces that, and the closing read is
   what confirms nothing else crept in. So no unreviewed substance merges, which is the property this
   bullet is protecting; the reviewed *commit* being the merged commit was only ever the ordinary way
-  of getting it. Quote the provider and name the 40-hex head it read in the PR body.
+  of getting it. Quote the provider and name the 40-hex head its read covered in the PR body — from
+  the provider's own artifact where it carries one, and from the procedural pin below where it does
+  not.
 - **Open as a draft and get it green there.** Every required check runs on a draft, so the diff
   reaches fully green before anyone is asked to read it. Opening ready is **not forbidden** but is
   never free: it spends a metered provider on a diff no unmetered one has read, so record the
@@ -209,13 +211,17 @@ validity turns on it being the right test — must satisfy both.
   decision.
 - **A spent cap closes on Codex rather than on a maintainer.** When two *completed* CodeRabbit
   reviews stand on this PR — each one it submitted with a body, since a throttle, a quota refusal or
-  a failed run reviewed nothing — and every finding they raised is **fixed, deferred-and-tracked, or
-  dropped sub-floor** with the thread resolved, then a **fresh Codex read of the final head** closes
+  a failed run reviewed nothing — and **no finding they raised is left outstanding**, with the thread
+  resolved on each, then a **fresh Codex read of the final head** closes
   the gate in their place: a full read recorded on the pull request — a review the provider posted,
   or its own run verdict quoted and pinned to the head by the rule below — never an earlier Codex
-  pass re-quoted, since the head that pass read is not the head being merged. Anything that
-  read surfaces is disposed of by those same three dispositions before it closes — the close is a
-  *substitute for the clean pass*, not a lower bar than it. That review is then *the clean review*
+  pass re-quoted, since the head that pass read is not the head being merged. *Outstanding* is the
+  test and the ways of clearing one are **fixed, deferred-and-tracked, dropped sub-floor, or
+  withdrawn by the provider that raised it** — that last is not hypothetical, a provider retracting
+  a false positive is how #434's own record reads, and an earlier draft naming only the first three
+  shut the close on it. Any list of dispositions can miss one the way any list of sources did; what
+  cannot is *nothing left open*. Anything that read surfaces is cleared the same way before it
+  closes — the close is a *substitute for the clean pass*, not a lower bar than it. That review is then *the clean review*
   the merge binding below names.
 - **The closing read must be pinned to the head it closes, and the pin must be checkable by someone
   who was not there.** What that rules out is a head *asserted* after the fact: a push landing while
@@ -278,11 +284,16 @@ validity turns on it being the right test — must satisfy both.
   hunk passes any per-commit test while smuggling exactly the scope this shuts out, so every hunk
   has to trace to one of the three. New scope pushed after the cap has spent it is scope **no
   metered provider will ever read**, and what the close is entitled to be is a further opinion on a
-  diff **every substantive part of which a metered provider has already read** — never a first
-  opinion on an unread one. Not *twice*-read, which an earlier draft claimed and which is false: if
-  review 1 came back clean and an in-scope material push then drew review 2, the added part carries
-  one metered read, not two. One is the guarantee; two is a frequent accident of the lane, and
-  stating the stronger version would have this bullet overclaim exactly where it is doing its work.
+  diff **every substantive part of which some external provider has already read** — never a first
+  opinion on an unread one. Two earlier drafts of that sentence overclaimed and both are worth
+  keeping visible, because the claim is the whole argument for the close being safe. It is not a
+  *twice*-read diff: where review 1 was clean and an in-scope material push drew review 2, the added
+  part carries one metered read. And the coverage is not all *metered* either: a fix answering
+  review 2 lands after that review's `commit_id` by design, as do a permitted conflict resolution
+  and anything the closing read itself raises, and the only provider that reads those is the closing
+  read. So the guarantee is **external** coverage of every substantive part, metered up to the
+  second review's commit and the closing read after it — which is exactly what §Review's first
+  bullet requires, and no more than that.
   So new scope shuts the close and the PR waits for a gate it can actually
   satisfy. Motive is not a test
   and never becomes one; these four are, and they are also why spending an ask to reach the close

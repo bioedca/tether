@@ -484,10 +484,13 @@ you are obliged to fix it, so any list of *whose* findings count shuts the close
 fix it just required — and every list drafted here has omitted somebody, first the closing
 read and then Greptile. What follows such a fix is another stamped read of the head it
 produced. New scope pushed past that point is scope no metered provider will ever read, and
-the close is a further opinion on a diff every substantive part of which a metered provider has
-already read — never a first opinion on an unread one, and not *twice*-read, which overclaims:
-where review 1 was clean and an in-scope material push drew review 2, the added part carries one
-metered read. Nothing counts this for you; the
+the close is a further opinion on a diff every substantive part of which **some external provider**
+has already read — never a first opinion on an unread one. Not *twice*-read, and not all of it
+*metered*: a fix answering review 2 lands after that review's `commit_id` by design, as do a
+permitted conflict resolution and anything the closing read raises, and the closing read is the
+only provider that reads those. Metered up to the second review's commit, the closing read after
+it, external throughout — which is what `AGENTS.md` §Review's first bullet asks for and no more.
+Nothing counts this for you; the
 merged history is auditable and you are trusted with it. On agent-layer paths
 (`.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules) a
 finding below the severity floor is **dropped rather than tracked**, because there the

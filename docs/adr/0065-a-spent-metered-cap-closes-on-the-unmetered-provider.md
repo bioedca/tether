@@ -253,10 +253,11 @@ that draft shut the gate permanently:
 
 So the requirement was written for evidence the tooling does not produce, and would have replaced a
 deadlock with a deadlock. What survives is the *property* rather than the mechanism: the head is
-**pinned** rather than attested. Where a provider stamps the commit, quote it. Where none does,
-record `git rev-parse HEAD` immediately before and immediately after the run alongside the PR head
-at arming time, all three equal — which proves the head did not move under the read, and does not
-pretend to prove the provider read it. That is weaker, it is stated as weaker, and it rests on the
+**pinned** rather than attested. Where a provider stamps the commit, quote it. Where none does, the
+**procedural pin** — the term `AGENTS.md` §Review, `CONTRIBUTING.md` and the pull-request template
+all use for it — is `git rev-parse HEAD` immediately before and immediately after the run alongside
+the PR head at arming time, all three equal, which proves the head did not move under the read and
+does not pretend to prove the provider read it. That is weaker, it is stated as weaker, and it rests on the
 same worker honesty the rest of the section already assumes of anyone quoting a review.
 
 **Motive is deliberately not a test.** An earlier draft closed the gaming path with *"an ask made to
@@ -272,8 +273,13 @@ review on top. It is strictly more work than the clean pass it replaces.
 
 ### The close is a substitute, not a discount
 
-Anything the closing read surfaces is disposed of by the same three dispositions — fixed,
-deferred-and-tracked, or dropped sub-floor — before it closes. An earlier draft held the closing read
+Anything the closing read surfaces is cleared the same way — **left not outstanding**, by being
+fixed, deferred-and-tracked, dropped sub-floor, or withdrawn by the provider that raised it — before
+it closes. That last one was missing from three drafts, and it is not hypothetical: a provider
+retracting a false positive is how #434's own record reads, so the close was shut on its own
+motivating example unless a worker mislabelled the disposition. The test is *nothing left open*;
+the four are the known ways of getting there, the same way condition 4 tests the change rather than
+naming who may raise a finding. An earlier draft held the closing read
 to *"nothing blocking"*, which would have silently dropped two severity bands relative to the
 zero-actionable-comments bar it replaces, and on agent-layer paths those findings are not tracked at
 all. The bar does not move; only who holds it does.
@@ -312,15 +318,23 @@ provider the repository does **not** pay for, and Codex's reliability is therefo
 way it was not before. Two things bound that. It is a fresh read of the exact head being merged, not
 a re-quoted earlier pass. And it is reached only after two completed metered reviews, with condition
 4 above refusing the close to any scope that landed after the cap was spent — so **every substantive
-part of the merging diff has had at least one metered read**, and the close is a further opinion on
-it rather than a first opinion on an unread one.
+part of the merging diff has had at least one external read**, metered up to the commit the second
+review read and the closing read after it, and the close is a further opinion on it rather than a
+first opinion on an unread one.
 
-An earlier draft of this paragraph put that as *"a third opinion on a twice-read diff"*, and a review
-of this record's own pull request showed it false: if review 1 comes back clean and an in-scope
-material push then draws review 2, the added part carries **one** metered read, not two. One is the
-guarantee the conditions actually buy. The overclaim mattered because this paragraph is the argument
-that the close is safe, and an argument that overstates its own premise is worth less than the
-weaker true one. **If Codex's review quality degrades, this paragraph is the part of the record that
+This paragraph has now been wrong twice in the same direction, which is worth keeping visible because
+it *is* the argument that the close is safe. It first said *"a third opinion on a twice-read diff"*,
+and a review of this record's own pull request showed it false: if review 1 comes back clean and an
+in-scope
+material push then draws review 2, the added part carries **one** metered read, not two. The
+correction then claimed one *metered* read of every substantive part, and the next round showed that
+false too: a fix answering review 2 lands after that review's `commit_id` by design, as do a
+permitted conflict resolution and anything the closing read raises, and no metered provider ever sees
+them. What the conditions actually buy is **external** coverage throughout — which is what §Review's
+first bullet asks for, and it is worth noticing that the honest version of this claim turned out to
+be exactly the property that bullet already states, rather than something stronger the close was
+smuggling in. An argument that overstates its own premise is worth less than the weaker true one,
+and this one took two rounds of being caught to stop doing it. **If Codex's review quality degrades, this paragraph is the part of the record that
 stops holding**, and nothing in this repository would detect that.
 
 A second cost, and it is the larger of the two: **§Review grows from 80 lines to 152** — it nearly
