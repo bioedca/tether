@@ -1100,9 +1100,10 @@ governance text itself (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, this docume
 `.greptile/**`) are material — the list is *every file that states a rule*, because a push that
 changes what the gate requires must not keep evidence gathered under the old requirement. A material push re-arms the review, and a PR gets **at most two completed reviews per metered provider**, Codex being unmetered and uncapped —
 needing a third usually means the issue was scoped too large. The lane does **not** stop for the maintainer: when the cap is
-spent on two reads of two *different* states of the diff — the second asked only after the first one's findings were
-disposed of — with every finding disposed of and no new scope landed since the commit the second review read, a fresh
-Codex read of the final head closes the gate instead (ADR-0065).
+spent — the second review asked only after the first one's findings were **disposed of**, which is a test on the
+disposition and not on the diff, since a finding answered wholly on the record moves no head and a second review at that
+same commit is therefore in order — with every finding disposed of and no new scope landed since the commit the second
+review read, a fresh Codex read of the final head closes the gate instead (ADR-0065).
 
 That bound is a **convention a worker keeps, not a counter that publishes labels.** ADR-0064 retired the round ledger,
 the `agent:round-*` / `agent:review-capped` / `agent:gate-blocked` labels and the launcher that consumed them, after

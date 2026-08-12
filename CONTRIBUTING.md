@@ -272,13 +272,22 @@ Before requesting review / merging, confirm:
       **`COMMENTED` or `APPROVED`** (a `PENDING` review has no `submitted_at` and is not a submitted
       one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing) — and a Codex close that is
       a stamped run artifact rather than a posted review has none of them: record what it does emit,
-      including the commit **it** names, and do not demand fields that only exist on a review. Then the
-      opening of its body. **A review of any earlier head does not close the gate, however clean it
-      was** — where answering a finding moved the head, that review is evidence about a diff this
-      one is no longer. It still stands as one of the two completed reviews, which is exactly what
-      the cap-spent path relies on: each recorded at the head it read, with the Codex closing read
-      covering the final one. The clean verdict is written by the `Actionable comments posted:` line being
-      **absent** rather than reading `0`. Neither silence
+      including the commit **it** names, and do not demand fields that only exist on a review.
+      **The body convention is CodeRabbit's too** — the opening of its body, where the clean verdict
+      is written by the `Actionable comments posted:` line being **absent** rather than reading `0`.
+      A Codex artifact has no such line and never will; what stands in its place is the verdict the
+      run actually emitted, quoted, against the commit it names. Asking a Codex close for
+      CodeRabbit's marker would leave that path with no recordable evidence at all.
+      **A review of an earlier head does not close the gate where a material push has moved the head
+      since** — answering a finding is the ordinary such push, and that review is then evidence about
+      a diff this one is no longer. It still stands as one of the two completed reviews, which is
+      exactly what the cap-spent path relies on: each recorded at the head it read, with the Codex
+      closing read covering the final one. Where **every** push since is one of the non-material
+      exceptions the opposite holds and the gate never re-opened: that review's evidence survives by
+      the rule above, and a stamped Codex read of the current head supplies the SHA
+      `--match-head-commit` needs without standing in for a gate that was never in question. Read
+      absolutely, this sentence would strand a clean review followed by a formatting commit, which is
+      the case `AGENTS.md` §Review names and refuses to strand. Neither silence
       nor a green `CodeRabbit` status check is the gate; both are also what a request that reviewed
       **nothing** leaves behind (see the full-review command below). Greptile is optional, and its absence
       for want of credits is recorded rather than excused as a review. Blocking
@@ -433,13 +442,14 @@ thread resolved, a fresh Codex read of the final head closes the gate in their p
 PR finishes on an unmetered read rather than on a maintainer. Two preconditions come with
 that, and `AGENTS.md` §Review states them in full — a summary here that drops them would
 authorise the close in cases the contract shuts, and a contributor reading the two together
-would have to stop. **The cap has to have been spent on two reads of two different states of
-the diff**: the second review must have been asked only *after* the first one's findings were
+would have to stop. **The cap has to have been spent on two reads with a disposition between
+them**: the second review must have been asked only *after* the first one's findings were
 disposed of, by commits that answer them or by the replies and resolutions recording a
-deferral or a drop. The test is the disposal and not a new commit — a review answered wholly
-on the record moves no head, and demanding one would re-create the deadlock this removes —
-but asking twice at one head with nothing answered in between is one review asked twice, and
-it buys the close nothing. **And nothing but disposal may land after the cap is spent**:
+deferral or a drop. The test is the disposal and **not** a differing diff — a review answered
+wholly on the record moves no head, so a second review at that same commit is in order, and
+demanding a changed one would re-create the deadlock this removes for every PR whose findings
+were all deferred or dropped. What buys the close nothing is asking twice at one head with
+nothing answered in between: that is one review asked twice. **And nothing but disposal may land after the cap is spent**:
 every hunk added after the commit the second completed review actually read — its
 `commit_id`, never its `submitted_at`, since a material push landing while that review is
 still running is a push it never saw — must answer a finding already on the pull request's
