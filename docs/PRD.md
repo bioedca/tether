@@ -1064,8 +1064,10 @@ one Greptile review**, if the seat has budget — a *review*, not a credit, sinc
 TREX one three; then ready-for-review if it is not already; then **CodeRabbit with no actionable comments,
 which is the last metered gate before merge — and when that two-review cap is spent, a fresh Codex read
 of the final head closes the gate in its place, so a reviewed PR finishes on an unmetered read rather
-than on a maintainer (ADR-0065)**. **`AGENTS.md` §Review sets the conditions that close is subject to
-and is the only statement of them; this document deliberately restates none.** Four drafts of this
+than on a maintainer (ADR-0065)**. **`AGENTS.md` §Review is the operative statement of the conditions
+that close is subject to, and this document deliberately restates none of them** — `CONTRIBUTING.md`
+and the pull-request template do carry working copies, as detail and as evidence fields, and both
+defer to §Review where they differ. Four drafts of this
 paragraph tried to summarise them and each admitted or refused a case the contract does not — a
 restatement that is wrong in either direction is worse than a pointer, because `AGENTS.md` tells a
 worker to stop when these two files disagree, so the summary strands the pull request either way. The round

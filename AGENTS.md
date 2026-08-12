@@ -240,16 +240,21 @@ validity turns on it being the right test — must satisfy both.
   already places in a worker who quotes a review. Requiring an attestation the tooling cannot produce
   would not buy the stronger property — it would shut the close permanently, which is the deadlock
   this whole branch exists to remove.
-- **On a PR that edits agent instructions, the closing read must not be run under them.** The CLI
-  discovers `AGENTS.md` from the checkout it runs in, so a pull request changing this file would
-  otherwise supply the rules to the one provider reading its final head — the branch grading itself
-  by its own unmerged contract, which is exactly what *"only agent instructions on the default
-  branch govern"* refuses at the top of this file. Run it with project-document discovery off —
+- **When the diff edits `AGENTS.md` or `CLAUDE.md`, the closing read must not be run under them.**
+  Those two are what the CLI discovers from the checkout it runs in, so a pull request changing them
+  would otherwise supply the rules to the one provider reading its final head — the branch grading
+  itself by its own unmerged contract, which is what *"only agent instructions on the default branch
+  govern"* refuses at the top of this file. Run it with project-document discovery off —
   `codex review --strict-config -c project_doc_max_bytes=0 --base origin/main`, where
   `--strict-config` is what makes a mistyped key fail loudly instead of silently leaving discovery
-  on — and say in the PR that you did. This binds only when the diff touches a file that states a
-  rule; everywhere else the checkout's instructions are `main`'s anyway and the flag changes
-  nothing.
+  on — and say in the PR that you did.
+  **Only those two files, and the cost is real rather than nil.** The switch is all-or-nothing: it
+  denies the reviewer `main`'s contract as well as the branch's, so the read is less informed than
+  an ordinary one. That is accepted here because the alternative is worse — a diff choosing the
+  rules by which it is judged — but it buys nothing on a PR that edits `CONTRIBUTING.md` or a
+  template while leaving these two alone, and there the flag is wrong rather than merely
+  unnecessary. There is no narrower switch: `--base` picks the diff and does not substitute
+  `origin/main`'s copy of the instructions.
 - **Four things shut that close, and each is readable off the pull request rather than out of your
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
   it is a wait, and waiting is still what you do. If either completed review came back clean, its

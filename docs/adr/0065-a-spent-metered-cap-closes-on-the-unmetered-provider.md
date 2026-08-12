@@ -269,13 +269,23 @@ its final head. The branch would be graded by its own unmerged contract — prec
 first paragraph of that file. Nothing about the close created this; the close is what makes it
 reachable, by putting a rule-editing PR's fate in the hands of a CLI read.
 
-So on a diff touching any file that states a rule, the closing read runs
+So on a diff touching **`AGENTS.md` or `CLAUDE.md`** — the two files the CLI actually discovers —
+the closing read runs
 `codex review --strict-config -c project_doc_max_bytes=0 --base origin/main`. The two flags do
 different jobs and both are load-bearing: the second turns project-document discovery off, and
 `--strict-config` makes a mistyped key **fail** rather than be ignored, which matters because the
 failure mode of a silently-dropped override is a read that looks isolated and is not. Both were
 verified against the installed CLI (0.147.0) rather than assumed — a deliberately bogus key is
 rejected under `--strict-config`, and `project_doc_max_bytes` is accepted.
+
+**The switch is blunt and the first draft of this rule fired it too widely.** It is all-or-nothing:
+turning discovery off denies the reviewer `main`'s contract as well as the branch's, so the read is
+less informed than an ordinary one. That trade is worth making when the diff edits the instructions
+themselves, and it is simply a loss on a pull request that edits `CONTRIBUTING.md` or a template
+while leaving those two alone — which the first draft, scoped to *any* rule-stating file, would have
+done. There is no narrower switch available: `--base` selects the diff and does not substitute
+`origin/main`'s copy of the instructions, so "review under the default-branch contract" is not
+something the CLI can be asked for.
 
 This is worth stating plainly: **every review round on this record's own pull request ran without
 that isolation**, in a worktree carrying the modified `AGENTS.md`. Those rounds were adversarial
