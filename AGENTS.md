@@ -255,14 +255,18 @@ validity turns on it being the right test — must satisfy both.
   record moves no head, so demanding one would re-create the deadlock this rule exists to remove.
   And **nothing but disposal may land after the cap is spent**: everything added after the commit
   the second completed review actually *read* — its `commit_id`, never its `submitted_at` — must do
-  one of three things. It must **answer a finding already recorded on this pull request, whichever
-  provider raised it** — either metered review, Greptile, or a closing read's own — or be one of the
+  one of three things. It must **answer something already recorded on this pull request that you were
+  required to address** — a review finding from any provider, a CodeQL or `secret-scan` alert, a
+  condition a human sign-off attached, a closing read's own finding — or be one of the
   non-material exceptions above, or be **the resolution of a conflict in the `main` merge this
-  contract requires**. The allowed set is stated as a principle and not a list of providers because
-  every list of it so far has omitted one, and each omission was the same deadlock: the omitted
-  provider's finding still had to be fixed, the fix answered nobody on the list, and the cap forbade
-  asking the metered provider again — so the close shut against exactly the pull requests whose
-  reviews did their job. The conflict resolution is on that footing too and is not optional:
+  contract requires**. **The first is a test on the change, not on its source**, and the examples are
+  illustrations rather than the rule: four drafts of it enumerated *who* may raise a finding, each
+  omitted somebody — first the closing read, then Greptile, then CI alerts and human sign-off — and
+  every omission was the identical deadlock, because the omitted party's finding still had to be
+  fixed, the fix answered nobody on the list, and the cap forbade asking the metered provider again.
+  Any list of sources will keep omitting one; *compelled by something already on the record* cannot,
+  and it draws the line exactly where it belongs, since what the condition excludes is scope you
+  chose to add rather than work you were obliged to do. The conflict resolution is on that footing too and is not optional:
   §Concurrent GitHub Flow orders you to merge a freshly fetched `origin/main` and resolve it here,
   while the non-material list covers that merge only when it is *clean*. Both admissions turn on the
   same fact — the change answers something already read, or reconciles two things already read — so

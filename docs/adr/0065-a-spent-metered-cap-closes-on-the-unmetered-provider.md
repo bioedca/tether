@@ -160,11 +160,12 @@ an agent's account of its own reasoning:
 
 4. **Nothing but disposal may land after the cap is spent.** Every change added after **the commit
    the second completed review actually read** — its `commit_id`, never its `submitted_at` — must
-   answer a finding already recorded on the pull request, **whichever provider raised it** — either
-   metered review, Greptile, or a closing read's own — or be one of the existing non-material
+   answer something already recorded on the pull request **that the worker was required to address**
+   — a review finding from any provider, a CodeQL or `secret-scan` alert, a condition a human
+   sign-off attached, a closing read's own finding — or be one of the existing non-material
    exceptions, or be the resolution of a conflict in the `main` merge this contract requires.
    Anchored at the reviewed commit and applied per change, both for the reasons below, and stated as
-   a principle rather than a list of providers for the reason after those.
+   a test on the change rather than on its source for the reason after those.
 
    This is the condition that makes the *"third opinion on a twice-read diff"* claim below true
    rather than merely asserted, and it was missing from the first two drafts. A second Codex review
@@ -187,14 +188,24 @@ an agent's account of its own reasoning:
    provider demonstrably never saw. This record is a rule-stating file and was accepted carrying the
    weaker wording, which is its own small lesson — an ADR can drift from the contract it records.
 
-   And the set is stated as a **principle rather than a list of providers**, because every list of
-   it drifted. The first admitted only the two CodeRabbit reviews' findings, which shut the close
-   against any closing read that found something; adding the closing read's own findings then still
-   omitted **Greptile**, whose findings a worker is equally obliged to fix. Each omission produced
-   the identical deadlock — the fix was compulsory, it answered nobody on the list, and the cap
-   forbade another metered read — and each was found only by the next review round. A list of who
-   may raise a finding will keep omitting somebody; *any provider already recorded on the pull
-   request* cannot.
+   And the set is stated as a **test on the change rather than on its source**, because every
+   version that named sources omitted one. Four drafts, four omissions, one failure mode:
+
+   1. only the two CodeRabbit reviews' findings — which shut the close against any closing read that
+      found something;
+   2. plus the closing read's own — which still omitted **Greptile**, whose findings a worker is
+      equally obliged to fix;
+   3. plus *any provider* — which still omitted **CodeQL and `secret-scan` alerts, and conditions a
+      human sign-off attaches**, none of which come from a review provider and all of which are
+      mandatory;
+   4. and finally the test that has no source dimension at all.
+
+   Each omission produced the identical deadlock — the fix was compulsory, it answered nobody on the
+   list, the cap forbade another metered read — and each was found only by the next review round,
+   never by the drafting. That is the general lesson and it is worth more than the rule: **an
+   enumeration inside a safety condition is a latent deadlock**, because the condition fails closed
+   and the enumeration is always incomplete. The line the condition is actually drawing is between
+   work you were *obliged* to do and scope you *chose* to add, and that is what it should say.
 
    And the set has to admit **the resolution of a conflict in the required `main` merge**. This
    contract obliges a worker to merge a freshly fetched `origin/main` before merging; the

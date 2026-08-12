@@ -470,8 +470,10 @@ nothing answered in between: that is one review asked twice. **And nothing but d
 every hunk added after the commit the second completed review actually read — its
 `commit_id`, never its `submitted_at`, since a material push landing while that review is
 still running is a push it never saw — must answer a finding **already recorded on the pull
-request, whichever provider raised it** (either metered review, Greptile, or the closing
-read's own), or be one of the non-material exceptions above, **or be the resolution of a
+request that you were required to address** (a review finding from any provider, a CodeQL or
+`secret-scan` alert, a condition a human sign-off attached, the closing read's own finding —
+illustrations, not the rule, which is a test on the change and not on its source), or be one
+of the non-material exceptions above, **or be the resolution of a
 conflict in the `main` merge the contract requires** — that merge is non-material only when
 it is *clean*, so a conflicted one is a material push you were ordered to make, and shutting
 the close on it would strand any PR that `main` happened to touch. Only the reconciliation is
