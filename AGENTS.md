@@ -156,7 +156,12 @@ validity turns on it being the right test — must satisfy both.
 - **You are never the only reviewer of your own diff.** Before merge at least one external provider
   must have reviewed **every substantive change reaching the merge**, and reported what it found.
   Author-side or local output never satisfies this, and a green status check with no review body is
-  not a review. Quote the provider and name the 40-hex `commit_id` of the review in the PR body.
+  not a review. **Quote the provider and name the 40-hex head its artifact records.** Providers say
+  it in two shapes and both count: a review object carries `commit_id`, while Codex's *clean* result
+  is a posted comment carrying `Reviewed commit: <short-sha>` — expand that with `git rev-parse` and
+  record both, the expansion being mechanical and redoable rather than an assertion of yours. This
+  applies to **every** leg, the ordinary one included; requiring a `commit_id` field would accept
+  only the runs that found something.
   Normally the head it read *is* the head you merge. Where the cap-spent close below applies, the
   final head may differ only by changes the fourth condition there admits, and the closing review is
   what confirms nothing else crept in.
@@ -167,7 +172,8 @@ validity turns on it being the right test — must satisfy both.
 - **The lane is cheapest provider first, and the order is the point.** On the green diff — the
   draft by default, or the ready PR whose reason is recorded — **Codex** first, unmetered and so
   uncapped, until it surfaces nothing blocking. Ask the GitHub bot with an `@codex review` comment;
-  it posts a review carrying a `commit_id`, which is what the gate wants. It has refused for quota
+  it posts an artifact naming the head it read, in either shape the first bullet describes. It has
+  refused for quota
   before and may again — that is a wait like any other refusal, and **availability is determined by
   asking, never inferred from an earlier refusal**. Then **optionally one Greptile review**, if the
   seat has budget: a *review*, since a standard one costs a credit and a TREX one three. Then
@@ -183,7 +189,7 @@ validity turns on it being the right test — must satisfy both.
   is why `docs/agents/adr.md` can say a renumber needs no fresh review even though `docs/adr/**`
   is a material path. A renumber that also edits a word of the decision is not renumber-only.
   Otherwise: Executable code, scientific claims, data, schema, locks, CI and release
-  configuration, and **every file that states a rule** — `AGENTS.md`, `CLAUDE.md`,
+  configuration, and **every file that states a rule** — `AGENTS.md` **anywhere**, `CLAUDE.md`,
   `CONTRIBUTING.md`, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`, `.claude/**`,
   `.github/pull_request_template.md`, `.greptile/**`, and `AGENTS.override.md` anywhere — are material, and a material push re-arms
   the review. The rule-stating files are on that list for a specific reason: a push that changes
@@ -204,13 +210,9 @@ validity turns on it being the right test — must satisfy both.
   reviews stand on this PR — each one it submitted with a body, since a throttle, a quota refusal or
   a failed run reviewed nothing — and **no finding they raised is left outstanding**, with the thread
   resolved on each, then a **fresh Codex review of the final head** closes the gate in their place.
-  It must be **posted by the provider and name the commit it read**; a re-quoted earlier pass is not
-  one. **Codex says it two ways and both count**: a run with findings posts a *review* whose
-  `commit_id` is the full 40-hex, and a **clean** run posts a *comment* carrying
-  `Reviewed commit: <short-sha>`. Expand the short one with `git rev-parse` and record both — the
-  expansion is mechanical and redoable, so the head stays the provider's. Requiring a `commit_id`
-  *field* would accept only the finding case and strand the clean one, which is the case the close
-  exists for (ADR-0065). *Nothing
+  It must be **posted by the provider and name the commit it read**, in either shape the first
+  bullet describes; a re-quoted earlier pass is not one, since the head that pass read is not the
+  head being merged. *Nothing
   left outstanding* is the test — fixed, deferred-and-tracked, dropped sub-floor and withdrawn by the
   provider are the ways of clearing a finding, not the test itself. Anything the closing review
   surfaces is cleared the same way before it closes: this is a *substitute for the clean pass*, not a
@@ -278,8 +280,8 @@ validity turns on it being the right test — must satisfy both.
   `Deferred: … Tracked in #N` and resolve the thread. Fixing a non-serious finding in the PR is
   scope breach, not diligence.
 - **On agent-layer paths, a sub-floor finding is dropped rather than tracked.** Those paths are
-  `.agents/`, `docs/agents/`, `AGENTS.md`, `AGENTS.override.md` anywhere, `CLAUDE.md` and the agent
-  test modules. Reply
+  `.agents/`, `docs/agents/`, `AGENTS.md` and `AGENTS.override.md` anywhere, `CLAUDE.md` and the
+  agent test modules. Reply
   `Noted; below the floor on an agent-layer path and not tracked (ADR-0064)` and resolve the thread.
   This inverts the rule above deliberately and only here, because only here does the output feed back
   into the input — sixteen agent-layer issues came from that loop in ten days.

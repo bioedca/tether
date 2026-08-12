@@ -407,7 +407,7 @@ Review evidence **survives a non-material push**, so addressing findings does no
 restart the gate — merging `main` in cleanly, formatting, comment and docstring edits, and ADR
 renumbering (renumber-only — touching a word of the decision is not) are all non-material, and
 that exception list WINS over the material paths below, while executable code, scientific claims, data,
-schema, locks, CI/release config and the governance text itself (`AGENTS.md`,
+schema, locks, CI/release config and the governance text itself (`AGENTS.md` anywhere,
 `CLAUDE.md`, this file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`,
 `.claude/**`, `.github/pull_request_template.md`, `.greptile/**`, and `AGENTS.override.md`
 anywhere) are material — the
@@ -502,7 +502,7 @@ only provider that reads those. Metered up to the second review's commit, the cl
 it, external throughout — which is what `AGENTS.md` §Review's first bullet asks for and no more.
 Nothing counts this for you; the
 merged history is auditable and you are trusted with it. On agent-layer paths
-(`.agents/`, `docs/agents/`, `AGENTS.md`, `AGENTS.override.md` anywhere, `CLAUDE.md` and the agent test modules) a
+(`.agents/`, `docs/agents/`, `AGENTS.md` and `AGENTS.override.md` anywhere, `CLAUDE.md` and the agent test modules) a
 finding below the severity floor is **dropped rather than tracked**, because there the
 follow-up issue becomes another agent-layer pull request and the loop feeds itself
 (ADR-0064). Dropped is not silent: reply on the thread in the wording `AGENTS.md`
