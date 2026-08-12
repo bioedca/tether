@@ -264,10 +264,12 @@ Before requesting review / merging, confirm:
       **CodeRabbit with no actionable comments is required — or, if its two-review cap is spent
       and every finding is disposed of, the Codex read of the final head that closed the gate in
       its place** — and that is a verdict a completed
-      review reached rather than an absence of one: record the review itself — permalink, the
-      `commit_id` it read, **which must be the final head for whichever review closes the gate** —
-      on the cap-spent path CodeRabbit's two are recorded at whatever heads they read, and it is
-      the Codex closing read that closes and names the final one. **The review-object fields are CodeRabbit's**
+      review reached rather than an absence of one: record the review itself — permalink, and the
+      commit it read, **which must be the final head for whichever review closes the gate**. That
+      commit is the review's own `commit_id` where the provider posts one, and the **procedural
+      pin** where it does not, which is the live case for Codex's CLI. On the cap-spent path
+      CodeRabbit's two are recorded at whatever heads they read, and it is the Codex closing read
+      that closes and names the final one. **The review-object fields are CodeRabbit's**
       — `submitted_at` with a state of
       **`COMMENTED` or `APPROVED`** (a `PENDING` review has no `submitted_at` and is not a submitted
       one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing) — and a Codex close run
