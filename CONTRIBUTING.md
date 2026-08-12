@@ -265,9 +265,13 @@ Before requesting review / merging, confirm:
       and every finding is disposed of, the Codex read of the final head that closed the gate in
       its place** — and that is a verdict a completed
       review reached rather than an absence of one: record the review itself — permalink, the
-      `commit_id` it read, **which must be the final head for whichever review closes the gate**
-      — on the cap-spent path CodeRabbit's two are recorded at whatever heads they read, and it is
-      the Codex closing read that names the final one. **The review-object fields are CodeRabbit's**
+      `commit_id` it read, **which must be the final head for whichever read the merge binds to** —
+      closing the gate and naming the head the merge binds are **one act on every path but the
+      rebinding one**. On the cap-spent path the Codex closing read does both at once, while
+      CodeRabbit's two completed reviews are recorded at whatever heads they read. Only on the
+      rebinding path do the two come apart: a clean CodeRabbit review closed the gate at an earlier
+      head, every push since was non-material, and a stamped Codex read names the final one without
+      closing anything. **The review-object fields are CodeRabbit's**
       — `submitted_at` with a state of
       **`COMMENTED` or `APPROVED`** (a `PENDING` review has no `submitted_at` and is not a submitted
       one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing) — and a Codex close that is
@@ -335,7 +339,8 @@ ready PR whose reason is recorded; then optionally one metered Greptile **review
 seat has budget, a review being one credit as a standard and three as a TREX; then
 CodeRabbit with no actionable comments, which is the last metered gate before merge — and
 when that cap is spent with every finding disposed of, a fresh Codex read of the final head
-closes the gate in its place rather than a maintainer doing it.** **Open as a draft and get it green there** — every
+closes the gate in its place rather than a maintainer doing it — under conditions `AGENTS.md`
+§Review sets and this summary does not restate.** **Open as a draft and get it green there** — every
 required check runs on a draft, so the diff reaches fully green before anyone is asked to
 read it, and that is what makes the sequence affordable rather than a policy nobody keeps.
 Opening ready is not forbidden, but it spends a metered provider on a diff no cheap one has
@@ -439,10 +444,13 @@ credit — a standard review costs one, a TREX review three. Two is the shared c
 again only if the first found something blocking and the seat still has budget. **A spent cap
 is not a stuck PR**: when every finding those two reviews raised is disposed of and every
 thread resolved, a fresh Codex read of the final head closes the gate in their place, so the
-PR finishes on an unmetered read rather than on a maintainer. Two preconditions come with
-that, and `AGENTS.md` §Review states them in full — a summary here that drops them would
-authorise the close in cases the contract shuts, and a contributor reading the two together
-would have to stop. **The cap has to have been spent on two reads with a disposition between
+PR finishes on an unmetered read rather than on a maintainer. **`AGENTS.md` §Review sets four
+conditions on that and is the operative statement of all of them**; the other two are above —
+a provider that refused reviewed nothing, so a spent cap is not what an unavailable CodeRabbit
+leaves behind, and a review that came back clean with its evidence still standing is already
+the gate. The two restated here are the two a summary most easily drops, and dropping either
+would authorise the close in a case the contract shuts, which a contributor reading the two
+documents together would have to stop over. **The cap has to have been spent on two reads with a disposition between
 them**: the second review must have been asked only *after* the first one's findings were
 disposed of, by commits that answer them or by the replies and resolutions recording a
 deferral or a drop. The test is the disposal and **not** a differing diff — a review answered
