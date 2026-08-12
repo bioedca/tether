@@ -388,7 +388,7 @@ quoting a trigger while describing it spends a real review. Break the handle, or
 "the full-review command" instead.
 
 Review evidence **survives a non-material push**, so addressing findings does not
-restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
+restart the gate — merging `main` in cleanly, formatting, comment and docstring edits, and ADR
 renumbering (renumber-only — touching a word of the decision is not) are all non-material, and
 that exception list WINS over the material paths below, while executable code, scientific claims, data,
 schema, locks, CI/release config and the governance text itself (`AGENTS.md`,
@@ -460,19 +460,19 @@ were all deferred or dropped. What buys the close nothing is asking twice at one
 nothing answered in between: that is one review asked twice. **And nothing but disposal may land after the cap is spent**:
 every hunk added after the commit the second completed review actually read — its
 `commit_id`, never its `submitted_at`, since a material push landing while that review is
-still running is a push it never saw — must answer a finding already on the pull request's
-record, **including one the closing read itself raised**, or be one of the non-material
-exceptions above, **or be the resolution of a conflict in the `main` merge the contract
-requires** — that merge is non-material only when it is *clean*, so a conflicted one is a
-material push you were ordered to make, and shutting the close on it would strand any PR
-that `main` happened to touch. Only the reconciliation is admitted; a resolution carrying
-new logic of its own is new scope like any other. That inclusion is load-bearing rather than generous: the closing read has
-to dispose of whatever it surfaces before it closes, and that fix answers no CodeRabbit
-finding, so a set holding only theirs would disqualify every closing read that found
-something — the same deadlock, one level down. What follows such a fix is another stamped
-read of the head it produced. New scope pushed past that point is scope no metered provider
-will ever read, and the close is a third opinion on a twice-read diff, never a first opinion
-on an unread one. Nothing counts this for you; the
+still running is a push it never saw — must answer a finding **already recorded on the pull
+request, whichever provider raised it** (either metered review, Greptile, or the closing
+read's own), or be one of the non-material exceptions above, **or be the resolution of a
+conflict in the `main` merge the contract requires** — that merge is non-material only when
+it is *clean*, so a conflicted one is a material push you were ordered to make, and shutting
+the close on it would strand any PR that `main` happened to touch. Only the reconciliation is
+admitted; a resolution carrying new logic of its own is new scope like any other. The
+provider-neutral wording is load-bearing rather than loose: whoever raised a serious finding,
+you are obliged to fix it, so any list of *whose* findings count shuts the close against the
+fix it just required — and every list drafted here has omitted somebody, first the closing
+read and then Greptile. What follows such a fix is another stamped read of the head it
+produced. New scope pushed past that point is scope no metered provider will ever read, and
+the close is a third opinion on a twice-read diff, never a first opinion on an unread one. Nothing counts this for you; the
 merged history is auditable and you are trusted with it. On agent-layer paths
 (`.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules) a
 finding below the severity floor is **dropped rather than tracked**, because there the
