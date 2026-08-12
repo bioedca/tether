@@ -367,11 +367,12 @@ on opening a PR for review, marking a draft ready, or an `@codex review` comment
 code reviews are metered on this account and the meter is spent, so every one of its
 appearances in this repository is the same usage-limit refusal, and a refusal is not a
 review. Run `codex review --base origin/main` in the PR's worktree instead, and add
-`--strict-config -c project_doc_max_bytes=0` when the diff touches **`AGENTS.md` or
-`CLAUDE.md`** — the two the CLI discovers — so the branch does not supply the instructions
-its own reviewer follows. Only those two: the switch also denies the reviewer `main`'s
-contract, which is a price worth paying when the diff edits the instructions and a pure
-loss when it does not (`AGENTS.md` §Review).
+`--strict-config -c project_doc_max_bytes=0` when the diff adds or edits **anything the CLI
+loads as project instructions** — `AGENTS.md`, `AGENTS.override.md` (higher precedence) and
+`CLAUDE.md` in the installed 0.147.0 — so the branch does not supply the instructions its own
+reviewer follows. Only those: the switch also denies the reviewer `main`'s contract, which is
+a price worth paying when the diff edits the instructions and a pure loss when it does not
+(`AGENTS.md` §Review, which states the test as the property rather than the three names).
 
 One exception, and it has already cost money: `.greptile/config.json` is read from
 the pull request's **source branch**, so a branch cut before that file landed still

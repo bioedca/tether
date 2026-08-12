@@ -269,7 +269,9 @@ its final head. The branch would be graded by its own unmerged contract — prec
 first paragraph of that file. Nothing about the close created this; the close is what makes it
 reachable, by putting a rule-editing PR's fate in the hands of a CLI read.
 
-So on a diff touching **`AGENTS.md` or `CLAUDE.md`** — the two files the CLI actually discovers —
+So on a diff adding or editing **anything the CLI loads as project instructions** — `AGENTS.md`,
+`AGENTS.override.md` and `CLAUDE.md` in the installed 0.147.0, read out of the binary rather than
+assumed, with the override taking precedence over `AGENTS.md` —
 the closing read runs
 `codex review --strict-config -c project_doc_max_bytes=0 --base origin/main`. The two flags do
 different jobs and both are load-bearing: the second turns project-document discovery off, and
@@ -278,7 +280,19 @@ failure mode of a silently-dropped override is a read that looks isolated and is
 verified against the installed CLI (0.147.0) rather than assumed — a deliberately bogus key is
 rejected under `--strict-config`, and `project_doc_max_bytes` is accepted.
 
-**The switch is blunt and the first draft of this rule fired it too widely.** It is all-or-nothing:
+**This rule was mis-scoped twice, once in each direction, and the pair is the lesson.** The first
+draft fired on *any* rule-stating file, which is too wide — a `CONTRIBUTING.md`-only diff was never
+at risk and the flag costs the reviewer `main`'s contract for nothing. Narrowing it to `AGENTS.md`
+and `CLAUDE.md` was then too narrow: the CLI also discovers **`AGENTS.override.md`**, and gives it
+*precedence*, so a pull request adding one kept the exact hole the rule exists to close while
+appearing to satisfy it. Naming files was the error both times. The condition is now the property —
+*anything the CLI loads as project instructions* — with the three current names given as the
+verified set rather than as the test, so a version that adds a fourth does not silently re-open it.
+That is the same correction condition 4 needed when it enumerated sources, and the disposition list
+needed when it enumerated dispositions: **inside a safety condition, a list is a hole or a deadlock
+waiting for the next case.**
+
+**The switch is blunt.** It is all-or-nothing:
 turning discovery off denies the reviewer `main`'s contract as well as the branch's, so the read is
 less informed than an ordinary one. That trade is worth making when the diff edits the instructions
 themselves, and it is simply a loss on a pull request that edits `CONTRIBUTING.md` or a template
