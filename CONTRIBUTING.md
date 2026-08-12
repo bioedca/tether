@@ -444,8 +444,11 @@ thread resolved, a fresh Codex read of the final head closes the gate in their p
 PR finishes on an unmetered read rather than on a maintainer. **`AGENTS.md` §Review sets four
 conditions on that and is the operative statement of all of them**; the other two are above —
 a provider that refused reviewed nothing, so a spent cap is not what an unavailable CodeRabbit
-leaves behind, and a review that came back clean with its evidence still standing is already
-the gate. The two restated here are the two a summary most easily drops, and dropping either
+leaves behind, and a review that came back clean with its evidence still standing **and that
+read the head being merged** is already the gate. That last qualifier is not decoration: where
+a permitted non-material push has since moved the head, no metered provider has named the
+commit `--match-head-commit` binds, so the case takes the ordinary Codex close rather than
+resting on the earlier review. The two restated here are the two a summary most easily drops, and dropping either
 would authorise the close in a case the contract shuts, which a contributor reading the two
 documents together would have to stop over. **The cap has to have been spent on two reads with a disposition between
 them**: the second review must have been asked only *after* the first one's findings were
