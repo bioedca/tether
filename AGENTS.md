@@ -234,33 +234,25 @@ validity turns on it being the right test — must satisfy both.
   close nothing. **The test is the disposal, not a new commit**: a review answered wholly on the
   record moves no head, so demanding one would re-create the deadlock this rule exists to remove.
   And **nothing but disposal may land after the cap is spent**: everything added after the commit
-  the second completed review actually *read* — its `commit_id`, never its `submitted_at` — must
-  answer a finding already on this pull request's record — one of those two reviews', **or one a
-  closing read has itself raised** — or be one of the non-material exceptions above, **or be the
-  resolution of a conflict in the `main` merge this contract requires**. That last one is not a
-  loophole and it is not optional: §Concurrent GitHub Flow obliges you to merge a freshly fetched
-  `origin/main` and resolve it here before merging, the non-material list covers that merge only when
-  it is *clean*, and a conflicted one is therefore a material push you were ordered to make. Shutting
-  the close on it would strand any PR that `main` happened to touch — a deadlock triggered by other
-  people's merges rather than by anything on this branch. What is admitted is the **reconciliation
-  and nothing else**: both sides were already read, yours by the metered reviews and `main`'s on its
-  own pull request, so a resolution that only reconciles them introduces no scope, and the closing
-  read reads the result. A resolution carrying new logic of its own is new scope like any other, the
-  close is shut, and the PR goes to the maintainer. A closing
-  read's own findings have to count, and this is not a courtesy to it: the bullet above requires
-  everything that read surfaces to be disposed of before it closes, and that disposal is a material
-  push answering no CodeRabbit finding at all. An allowed set holding only *their* findings would
-  therefore disqualify every closing read that found anything, while the cap forbade asking the
-  metered provider again — this rule's own failure mode, re-created one level down and reachable
-  only by the closing reads that did their job. What follows such a fix is another stamped read of
-  the head it produced, never a narrower allowed set: each round is still read by the provider that
-  closes it, which is the property this condition exists to protect, and unread scope stays shut out
-  because a closing read cannot raise a finding about a hunk it never saw. Anchor it
+  the second completed review actually *read* — its `commit_id`, never its `submitted_at` — must do
+  one of three things. It must **answer a finding already recorded on this pull request, whichever
+  provider raised it** — either metered review, Greptile, or a closing read's own — or be one of the
+  non-material exceptions above, or be **the resolution of a conflict in the `main` merge this
+  contract requires**. The allowed set is stated as a principle and not a list of providers because
+  every list of it so far has omitted one, and each omission was the same deadlock: the omitted
+  provider's finding still had to be fixed, the fix answered nobody on the list, and the cap forbade
+  asking the metered provider again — so the close shut against exactly the pull requests whose
+  reviews did their job. The conflict resolution is on that footing too and is not optional:
+  §Concurrent GitHub Flow orders you to merge a freshly fetched `origin/main` and resolve it here,
+  while the non-material list covers that merge only when it is *clean*. Both admissions turn on the
+  same fact — the change answers something already read, or reconciles two things already read — so
+  neither lets unread scope through, and a resolution carrying new logic of its own is new scope like
+  any other. Anchor it
   at the commit and not the clock, because a material push landing while that review is still
   running is a push it never saw, and a time-anchored window would wave it through. **The unit is
   the change, not the commit**: a commit that fixes a recorded finding *and* carries an unrelated
   hunk passes any per-commit test while smuggling exactly the scope this shuts out, so every hunk
-  has to trace to a disposition or an exception. New scope pushed after the cap has spent it is scope **no
+  has to trace to one of the three. New scope pushed after the cap has spent it is scope **no
   metered provider will ever read**, and the close is a third opinion on a twice-read diff, never a
   first opinion on an unread one — so the close is shut and the PR waits for a gate it can actually
   satisfy. Motive is not a test

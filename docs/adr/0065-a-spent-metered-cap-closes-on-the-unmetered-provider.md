@@ -281,11 +281,22 @@ landed after the cap was spent — so it is a third opinion on a twice-read diff
 on an unread one. **If Codex's review quality degrades, this paragraph is the part of the record that
 stops holding**, and nothing in this repository would detect that.
 
-A second cost: §Review grows by roughly twenty lines in a file ADR-0064 deliberately shrank, and
-whose resident-context driver — *"`AGENTS.md` is read on every model call by every agent"* — argues
-against every addition. The four shutting conditions and the stamped-head rule are what that length
-buys, and they are the
-part that cannot be compressed without making the branch a judgment call.
+A second cost, and it is the larger of the two: **§Review grows from 80 lines to 152** — it nearly
+doubles — in a file ADR-0064 deliberately shrank, and whose resident-context driver, *"`AGENTS.md` is
+read on every model call by every agent"*, argues against every addition. An earlier draft of this
+paragraph said *"roughly twenty lines"*; a review measured it and the real figure is around four
+times that. The
+understatement is recorded rather than quietly corrected, because a decision record that
+under-reports its own cost is how a cost stops being weighed.
+
+What the length buys is the four shutting conditions and the stamped-head rule, which cannot be
+compressed without turning the branch into a judgment call. What it also carries is the *reasoning*
+behind each condition — most of it added one review round at a time, as each draft was shown to
+re-create the deadlock it removed. That reasoning belongs here, in a file nobody loads on every call,
+and a later pass moving it out of §Review would be a straightforward win. It is not attempted in this
+pull request: the same review rounds that produced the prose also showed that large edits to this
+text reliably introduce new defects, and a compression pass is exactly such an edit. It is named as
+follow-up work rather than left for someone to notice.
 
 **Reversible.** Prose only. No script, no workflow, no label, no ref namespace, no test fixture. A
 `git revert` restores the escalation exactly.
