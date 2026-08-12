@@ -1092,7 +1092,7 @@ the gate protects is that **every substantive change reaching the merge was exte
 §Review is the operative statement of that and of what makes it hold when the reviewed commit is not the merged one. **No provider auto-reviews this repository** — CodeRabbit reports auto reviews
 disabled, Greptile is held by `.greptile/config.json`'s `skipReview: "AUTOMATIC"`, and the GitHub Codex bot fires only on
 open-for-review, draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined. That
-bot posts a review carrying a `commit_id`, which every leg requires; the CLI runs locally, posts nothing and therefore
+bot posts an artifact naming the head it read, which every leg requires — §Review gives the two shapes; the CLI runs locally, posts nothing and therefore
 satisfies no leg — it is an author-side tool, useful before a provider is asked and recorded as none. The
 one exception is a branch cut **before** that config landed: it is read from the PR's source branch, so such a branch
 still auto-fires Greptile on open. The credit is spent regardless, so the review is answered and the optional Greptile

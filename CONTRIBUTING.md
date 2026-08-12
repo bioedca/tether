@@ -268,7 +268,8 @@ Before requesting review / merging, confirm:
       commit it read, **which must be the final head for whichever review closes the gate**. On the
       cap-spent path CodeRabbit's two are recorded at whatever heads they read, and it is the posted
       Codex review that closes and names the final one — asked with an `@codex review` comment, since
-      the closer has to carry a `commit_id` and a local CLI run does not. A `PENDING` review has no
+      the closer has to be posted and name the head it read — in either shape `AGENTS.md` §Review
+      describes — and a local CLI run posts nothing. A `PENDING` review has no
       `submitted_at` and is not a submitted one; a `DISMISSED` one is a verdict *withdrawn* and
       proves nothing. **The `Actionable comments posted:` convention is CodeRabbit's** — its clean
       verdict is written by that line being **absent** rather than reading `0`, and a Codex review
@@ -338,7 +339,7 @@ seen; the old rationale for allowing it turned on the round counter ADR-0064 ret
 what remains is simply that it costs more for nothing. Record the reason in the PR. Author-side
 review and status-only output do not satisfy it — and *author-side* is about whose judgement it
 is, not which machine ran it. The verdict has to be the provider's and **posted on the pull
-request**, so GitHub attests that it said so and the review carries the `commit_id` the merge
+request**, so GitHub attests that it said so and the artifact names the head the merge
 binds; a local run quoted by its author is not that, however faithfully it is quoted. What has to
 hold is that **every substantive change reaching the merge was externally reviewed**,
 which `AGENTS.md` §Review states operatively and which its fourth condition is what enforces on
@@ -352,11 +353,11 @@ that was never asked has not declined — so if you are waiting on a review, che
 request was actually posted.
 
 **Codex has two delivery paths and they are not interchangeable.** The GitHub bot triggers
-on opening a PR for review, marking a draft ready, or an `@codex review` comment, and posts a
-review carrying a `commit_id`. The CLI runs locally and posts nothing. The bot has refused for
+on opening a PR for review, marking a draft ready, or an `@codex review` comment, and posts an
+artifact naming the head it read — a review object, or a comment when the run is clean (§Review). The CLI runs locally and posts nothing. The bot has refused for
 quota before — #427 and #428, 2026-08-07 — and a refusal is not a
 review. **The Codex leg is the posted review**, asked with an `@codex review` comment, because
-`AGENTS.md` §Review requires a `commit_id` no local run can produce and says in the same breath
+`AGENTS.md` §Review requires a posted artifact naming the head, which no local run produces and says in the same breath
 that local output satisfies nothing.
 
 The CLI is still worth running and satisfies **no leg**: it is an author-side tool for finding
