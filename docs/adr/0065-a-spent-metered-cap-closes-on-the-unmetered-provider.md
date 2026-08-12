@@ -158,10 +158,12 @@ an agent's account of its own reasoning:
    deadlock must be checked against its own failure mode, and this one was not until a provider
    checked it.
 
-4. **Nothing but disposal may land after the cap is spent.** Every commit between the second
-   completed review and the closing read must answer a finding already on the pull request's
-   record — one of those two reviews', or one a closing read has itself raised — or be one of
-   the existing non-material exceptions.
+4. **Nothing but disposal may land after the cap is spent.** Every change added after **the commit
+   the second completed review actually read** — its `commit_id`, never its `submitted_at` — must
+   answer a finding already on the pull request's record — one of those two reviews', or one a
+   closing read has itself raised — or be one of the existing non-material exceptions, or be the
+   resolution of a conflict in the `main` merge this contract requires. Anchored at the reviewed
+   commit and applied per change, both for the reasons below.
 
    This is the condition that makes the *"third opinion on a twice-read diff"* claim below true
    rather than merely asserted, and it was missing from the first two drafts. A second Codex review
@@ -176,6 +178,22 @@ an agent's account of its own reasoning:
    The same condition also has to be read **per change, not per commit**. A commit that answers a
    recorded finding and carries an unrelated hunk alongside it satisfies any per-commit phrasing
    while smuggling in exactly the scope the condition excludes.
+
+   It also has to be anchored at the commit the second review **read**, not at the clock. An earlier
+   phrasing here said *"between the second completed review and the closing read"*, which sounds
+   equivalent and is not: a material push landing while that review is still running is after its
+   `commit_id` but before it completed, so a clock-anchored window waves through the one change the
+   provider demonstrably never saw. This record is a rule-stating file and was accepted carrying the
+   weaker wording, which is its own small lesson — an ADR can drift from the contract it records.
+
+   And the set has to admit **the resolution of a conflict in the required `main` merge**. This
+   contract obliges a worker to merge a freshly fetched `origin/main` before merging; the
+   non-material list covers that merge only when it is *clean*; so a conflicted one is a material
+   push the contract itself ordered. Excluding it strands any pull request that `main` happened to
+   touch after the cap was spent — a deadlock triggered entirely by other people's merges. The
+   reconciliation is admitted because both sides were already read, yours by the metered reviews and
+   `main`'s on its own pull request; a resolution carrying new logic of its own is new scope like any
+   other and shuts the close.
 
    And the allowed set has to include **the closing read's own findings**, which the first three
    drafts of this condition did not. A sixth Codex review of this record's pull request found it,

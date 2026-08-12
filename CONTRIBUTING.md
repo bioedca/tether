@@ -459,7 +459,11 @@ every hunk added after the commit the second completed review actually read — 
 `commit_id`, never its `submitted_at`, since a material push landing while that review is
 still running is a push it never saw — must answer a finding already on the pull request's
 record, **including one the closing read itself raised**, or be one of the non-material
-exceptions above. That inclusion is load-bearing rather than generous: the closing read has
+exceptions above, **or be the resolution of a conflict in the `main` merge the contract
+requires** — that merge is non-material only when it is *clean*, so a conflicted one is a
+material push you were ordered to make, and shutting the close on it would strand any PR
+that `main` happened to touch. Only the reconciliation is admitted; a resolution carrying
+new logic of its own is new scope like any other. That inclusion is load-bearing rather than generous: the closing read has
 to dispose of whatever it surfaces before it closes, and that fix answers no CodeRabbit
 finding, so a set holding only theirs would disqualify every closing read that found
 something — the same deadlock, one level down. What follows such a fix is another stamped

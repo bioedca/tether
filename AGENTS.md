@@ -236,7 +236,17 @@ validity turns on it being the right test — must satisfy both.
   And **nothing but disposal may land after the cap is spent**: everything added after the commit
   the second completed review actually *read* — its `commit_id`, never its `submitted_at` — must
   answer a finding already on this pull request's record — one of those two reviews', **or one a
-  closing read has itself raised** — or be one of the non-material exceptions above. A closing
+  closing read has itself raised** — or be one of the non-material exceptions above, **or be the
+  resolution of a conflict in the `main` merge this contract requires**. That last one is not a
+  loophole and it is not optional: §Concurrent GitHub Flow obliges you to merge a freshly fetched
+  `origin/main` and resolve it here before merging, the non-material list covers that merge only when
+  it is *clean*, and a conflicted one is therefore a material push you were ordered to make. Shutting
+  the close on it would strand any PR that `main` happened to touch — a deadlock triggered by other
+  people's merges rather than by anything on this branch. What is admitted is the **reconciliation
+  and nothing else**: both sides were already read, yours by the metered reviews and `main`'s on its
+  own pull request, so a resolution that only reconciles them introduces no scope, and the closing
+  read reads the result. A resolution carrying new logic of its own is new scope like any other, the
+  close is shut, and the PR goes to the maintainer. A closing
   read's own findings have to count, and this is not a courtesy to it: the bullet above requires
   everything that read surfaces to be disposed of before it closes, and that disposal is a material
   push answering no CodeRabbit finding at all. An allowed set holding only *their* findings would
