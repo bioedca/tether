@@ -439,7 +439,10 @@ feature-complete** (ADR-0064) — they take bug and safety fixes only, so a capa
 change needs a maintainer-opened issue and may never originate in a review finding.
 Dropping the sub-floor finding without that second rule would still leave a reviewer able
 to commission new agent machinery through the deferral above. If a **selected** provider reports nothing to review at the
-head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is its documented
+head it read — a deletion, a pure rename, or Codex's clean result, which its own documentation
+calls a 👍 reaction and which on this repository is a posted **comment** reading
+`Codex Review: Didn't find any major issues.` with `Reviewed commit: <short-sha>` on its own line
+(measured, 2026-08-12). Either way it is its documented
 "no suggestions" — that satisfies its leg; quote it. A statement from the author, or from
 any other commenter, never does. **Exhaustion is not incapacity**: a provider with nothing
 to say has reviewed, a provider with no budget left has not. Greptile out of credits is

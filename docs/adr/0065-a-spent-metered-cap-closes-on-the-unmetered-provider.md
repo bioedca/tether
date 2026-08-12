@@ -247,7 +247,21 @@ that the CLI's rollout record carries `cwd`, `cli_version` and a session id but 
 read**. From that it built a *procedural pin*: `git rev-parse HEAD` before and after the run, equal
 to the PR head at arming time, standing in for an attestation nothing could give.
 
-**That was wrong, and the way it was wrong is the more useful record.** The refusals were five days
+**Round seven then measured what the clean result actually is**, and it is neither of the things
+five rounds had argued about. Every Codex run *with findings* on this pull request posted a **review
+object** carrying a full 40-hex `commit_id`. The clean run at `ef797b2` posted **no review object at
+all** — an issue comment, reading `Codex Review: Didn't find any major issues.` with
+`Reviewed commit: ef797b2336` on its own line. So the closer's evidence is provider-written and does
+name the commit, but a rule demanding a `commit_id` *field* accepts only the finding case and
+strands the clean one, which is the case the close exists for. The rule now asks for **a posted
+artifact that names the commit it read**, which both shapes satisfy, with the short SHA expanded by
+`git rev-parse` — mechanical, redoable by anyone, and therefore still not an author's assertion.
+
+The *"bare 👍 carrying no commit"* that rounds one and two argued over is Codex's own documented
+description of its no-suggestions result. It is not what this repository observes, and five rounds
+of rule-writing rested on it without anyone looking.
+
+**The earlier detour was wrong too, and the way it was wrong is the more useful record.** The refusals were five days
 stale, and no one had asked the bot on this pull request. When it finally was asked, it **posted a
 review in nine minutes**, carrying `commit_id c26a683b843bf12361d6dbcabe4dbdadfe103bc3` — the
 provider-attested head the whole detour existed to substitute for. The pin is deleted, and the

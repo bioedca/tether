@@ -204,8 +204,13 @@ validity turns on it being the right test — must satisfy both.
   reviews stand on this PR — each one it submitted with a body, since a throttle, a quota refusal or
   a failed run reviewed nothing — and **no finding they raised is left outstanding**, with the thread
   resolved on each, then a **fresh Codex review of the final head** closes the gate in their place.
-  It must be a **posted** review, so it carries the `commit_id` the merge binds; an earlier Codex
-  pass re-quoted is not one, since the head that pass read is not the head being merged. *Nothing
+  It must be **posted by the provider and name the commit it read**; a re-quoted earlier pass is not
+  one. **Codex says it two ways and both count**: a run with findings posts a *review* whose
+  `commit_id` is the full 40-hex, and a **clean** run posts a *comment* carrying
+  `Reviewed commit: <short-sha>`. Expand the short one with `git rev-parse` and record both — the
+  expansion is mechanical and redoable, so the head stays the provider's. Requiring a `commit_id`
+  *field* would accept only the finding case and strand the clean one, which is the case the close
+  exists for (ADR-0065). *Nothing
   left outstanding* is the test — fixed, deferred-and-tracked, dropped sub-floor and withdrawn by the
   provider are the ways of clearing a finding, not the test itself. Anything the closing review
   surfaces is cleared the same way before it closes: this is a *substitute for the clean pass*, not a
