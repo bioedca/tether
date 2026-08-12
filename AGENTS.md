@@ -240,26 +240,29 @@ validity turns on it being the right test — must satisfy both.
   already places in a worker who quotes a review. Requiring an attestation the tooling cannot produce
   would not buy the stronger property — it would shut the close permanently, which is the deadlock
   this whole branch exists to remove.
-- **When the diff adds or edits anything the CLI loads as project instructions, the closing read
-  must not be run under it.** That is the test; in the installed 0.147.0 the set is `AGENTS.md`,
-  **`AGENTS.override.md`** — which takes precedence over it — and `CLAUDE.md`, at the root or in a
-  changed subtree, read out of the binary rather than assumed. Name the property and not the three,
-  because a version that adds a fourth would silently re-open this: a pull request adding an
-  override the reviewer then obeys is the same self-grading whatever the file is called. A PR
-  changing any of them would otherwise supply the rules to the one provider reading its final
-  head — the branch grading itself by its own unmerged contract, which is what *"only agent
-  instructions on the default branch govern"* refuses at the top of this file. Run it with
-  project-document discovery off —
+- **When the diff touches an agent-layer path, the closing read runs isolated.** Those paths are the
+  ones §Review already names — `.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` — and the
+  command is
   `codex review --strict-config -c project_doc_max_bytes=0 --base origin/main`, where
   `--strict-config` is what makes a mistyped key fail loudly instead of silently leaving discovery
-  on — and say in the PR that you did.
-  **Only those files, and the cost is real rather than nil.** The switch is all-or-nothing: it
-  denies the reviewer `main`'s contract as well as the branch's, so the read is less informed than
-  an ordinary one. That is accepted here because the alternative is worse — a diff choosing the
-  rules by which it is judged — but it buys nothing on a PR that edits `CONTRIBUTING.md` or a
-  template while leaving the instruction files alone, and there the flag is wrong rather than merely
-  unnecessary. There is no narrower switch: `--base` picks the diff and does not substitute
-  `origin/main`'s copy of the instructions.
+  on. Say in the PR that you did it. Otherwise the CLI reads instructions out of the checkout it
+  runs in, and a pull request editing them supplies the rules to the one provider reading its final
+  head — the branch grading itself by its own unmerged contract, which is what *"only agent
+  instructions on the default branch govern"* refuses at the top of this file.
+  **This trigger deliberately over-approximates, because the exact set is not something this
+  contract can state truthfully.** Four attempts to name it were wrong in both directions: *any
+  rule-stating file* fired on diffs that were never at risk; `AGENTS.md`+`CLAUDE.md` missed
+  `AGENTS.override.md`, which the CLI also loads and gives precedence; adding that still missed
+  branch-local skills under `.agents/skills/**`, whose metadata the CLI injects; and `CLAUDE.md`
+  itself may not be loaded at all when a root `AGENTS.md` is present. Establishing the real
+  discovery order needs knowledge of the tool's internals that reading its binary does not give,
+  and it changes between versions. So this trigger is a **policy choice and not a claim about
+  Codex**: over-fire, and take the cost. That cost is real — the switch is all-or-nothing, so it
+  denies the reviewer `main`'s contract as well as the branch's, and the read is less informed than
+  an ordinary one. It is the right way round, because over-firing costs review *quality* on a
+  narrow class of PRs while under-firing leaves a *self-grading* path open, and there is no narrower
+  switch: `--base` picks the diff and cannot substitute `origin/main`'s copy of the instructions.
+  **#451 tracks pinning the real set down**; until it does, the over-approximation stands.
 - **Four things shut that close, and each is readable off the pull request rather than out of your
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
   it is a wait, and waiting is still what you do. If either completed review came back clean, its

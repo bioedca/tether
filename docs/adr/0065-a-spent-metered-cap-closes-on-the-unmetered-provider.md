@@ -269,35 +269,48 @@ its final head. The branch would be graded by its own unmerged contract — prec
 first paragraph of that file. Nothing about the close created this; the close is what makes it
 reachable, by putting a rule-editing PR's fate in the hands of a CLI read.
 
-So on a diff adding or editing **anything the CLI loads as project instructions** — `AGENTS.md`,
-`AGENTS.override.md` and `CLAUDE.md` in the installed 0.147.0, read out of the binary rather than
-assumed, with the override taking precedence over `AGENTS.md` —
-the closing read runs
+So on a diff touching an **agent-layer path** — `.agents/`, `docs/agents/`, `AGENTS.md`,
+`CLAUDE.md`, the set §Review already names for other purposes — the closing read runs
 `codex review --strict-config -c project_doc_max_bytes=0 --base origin/main`. The two flags do
 different jobs and both are load-bearing: the second turns project-document discovery off, and
 `--strict-config` makes a mistyped key **fail** rather than be ignored, which matters because the
 failure mode of a silently-dropped override is a read that looks isolated and is not. Both were
-verified against the installed CLI (0.147.0) rather than assumed — a deliberately bogus key is
-rejected under `--strict-config`, and `project_doc_max_bytes` is accepted.
+verified against the installed CLI (0.147.0) — a deliberately bogus key is rejected under
+`--strict-config`, and `project_doc_max_bytes` is accepted.
 
-**This rule was mis-scoped twice, once in each direction, and the pair is the lesson.** The first
-draft fired on *any* rule-stating file, which is too wide — a `CONTRIBUTING.md`-only diff was never
-at risk and the flag costs the reviewer `main`'s contract for nothing. Narrowing it to `AGENTS.md`
-and `CLAUDE.md` was then too narrow: the CLI also discovers **`AGENTS.override.md`**, and gives it
-*precedence*, so a pull request adding one kept the exact hole the rule exists to close while
-appearing to satisfy it. Naming files was the error both times. The condition is now the property —
-*anything the CLI loads as project instructions* — with the three current names given as the
-verified set rather than as the test, so a version that adds a fourth does not silently re-open it.
-That is the same correction condition 4 needed when it enumerated sources, and the disposition list
-needed when it enumerated dispositions: **inside a safety condition, a list is a hole or a deadlock
-waiting for the next case.**
+**That trigger over-approximates on purpose, and the four attempts it took to get there are the
+reason.** Each named a set; each was wrong, in both directions; each was caught only by the next
+review round:
+
+1. *any rule-stating file* — too wide: a `CONTRIBUTING.md`- or template-only diff was never at risk,
+   and the flag costs the reviewer `main`'s contract for nothing;
+2. *`AGENTS.md` or `CLAUDE.md`* — too narrow by one name: the CLI also discovers
+   **`AGENTS.override.md`** and gives it *precedence*, so a pull request adding one kept the exact
+   hole the rule closes while appearing to satisfy it;
+3. *those three* — still too narrow: the CLI injects repository **skill** metadata from
+   `.agents/skills/**`, so a changed skill description can pull an unmerged `SKILL.md` into the
+   review without touching any of the three;
+4. *and `CLAUDE.md` may not belong at all*, since Codex reportedly does not load it as a project
+   document when a root `AGENTS.md` is present.
+
+What every attempt had in common is that **the contract was asserting how Codex resolves
+instructions**, and reading filename literals out of a binary does not establish that — precedence,
+fallback and skill injection are behaviour, not strings, and they move between versions. So the
+trigger stopped being a claim about Codex and became a **policy choice**: fire on the agent-layer
+paths, accept the over-approximation, and record why. **#451** is where the real set gets
+established, by observing what a review actually receives rather than by inference.
+
+This is the same correction condition 4 needed when it enumerated sources, and the disposition list
+needed when it enumerated dispositions — **inside a safety condition, a list is a hole or a deadlock
+waiting for the next case** — with one addition this instance makes plain: when the true list is a
+fact about someone else's tool, do not encode a guess at it. Over-approximate and say so.
 
 **The switch is blunt.** It is all-or-nothing:
 turning discovery off denies the reviewer `main`'s contract as well as the branch's, so the read is
-less informed than an ordinary one. That trade is worth making when the diff edits the instructions
-themselves, and it is simply a loss on a pull request that edits `CONTRIBUTING.md` or a template
-while leaving those two alone — which the first draft, scoped to *any* rule-stating file, would have
-done. There is no narrower switch available: `--base` selects the diff and does not substitute
+less informed than an ordinary one. Over-firing therefore costs review *quality* on a narrow class
+of pull requests, while under-firing leaves a *self-grading* path open — which is why the
+over-approximation is the right way round rather than merely the safe-sounding one. There is no
+narrower switch available: `--base` selects the diff and does not substitute
 `origin/main`'s copy of the instructions, so "review under the default-branch contract" is not
 something the CLI can be asked for.
 
