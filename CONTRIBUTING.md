@@ -407,7 +407,8 @@ renumbering (renumber-only — touching a word of the decision is not) are all n
 that exception list WINS over the material paths below, while executable code, scientific claims, data,
 schema, locks, CI/release config and the governance text itself (`AGENTS.md`,
 `CLAUDE.md`, this file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`,
-`.claude/**`, `.github/pull_request_template.md`, `.greptile/**`) are material — the
+`.claude/**`, `.github/pull_request_template.md`, `.greptile/**`, and `AGENTS.override.md`
+anywhere) are material — the
 list is *every file that states a rule*, because a push changing what the gate requires
 must not keep evidence gathered under the old requirement. A material push
 re-arms the review but raises no ceiling: there are **at most two completed reviews per
@@ -496,7 +497,7 @@ only provider that reads those. Metered up to the second review's commit, the cl
 it, external throughout — which is what `AGENTS.md` §Review's first bullet asks for and no more.
 Nothing counts this for you; the
 merged history is auditable and you are trusted with it. On agent-layer paths
-(`.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules) a
+(`.agents/`, `docs/agents/`, `AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md` and the agent test modules) a
 finding below the severity floor is **dropped rather than tracked**, because there the
 follow-up issue becomes another agent-layer pull request and the loop feeds itself
 (ADR-0064). Dropped is not silent: reply on the thread in the wording `AGENTS.md`

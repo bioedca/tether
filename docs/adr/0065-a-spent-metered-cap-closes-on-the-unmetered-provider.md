@@ -260,17 +260,18 @@ was never re-tested, because it explained the evidence well enough that re-testi
 **Availability is determined by asking.** A provider that refused last week has not declined today,
 and the cost of finding out is one comment.
 
-### The closer must not read the rules the branch is proposing
+### A CLI read must not run under the rules the branch is proposing
 
-Because the Codex leg runs through the CLI, and the CLI discovers `AGENTS.md` from the checkout it
-runs in, a pull request that edits `AGENTS.md` supplies the instructions to the one provider reading
-its final head. The branch would be graded by its own unmerged contract — precisely what
+**The close itself is a posted review, so it is not the case this guards.** What it guards is the
+ordinary lane read: the CLI discovers `AGENTS.md`, `AGENTS.override.md` and `CLAUDE.md` from the
+checkout it runs in and injects repository skills, so a pull request editing any of them supplies
+the instructions to a provider reading it — the branch graded by its own unmerged contract, which
 *"only agent instructions on the default branch govern; unmerged edits are inert"* refuses in the
-first paragraph of that file. Nothing about the close created this; the close is what makes it
-reachable, by putting a rule-editing PR's fate in the hands of a CLI read.
+first paragraph of that file. The **posted** review's loading is not ours to configure at all, and
+**#451** covers that half.
 
 So on a diff touching an **agent-layer path** — `.agents/`, `docs/agents/`, `AGENTS.md`,
-`CLAUDE.md`, the set §Review already names for other purposes — the closing read runs
+`CLAUDE.md`, the set §Review already names for other purposes — a CLI read runs
 `codex review --strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false --base origin/main`.
 The overrides do different jobs and all are load-bearing: `project_doc_max_bytes` turns off the
 `AGENTS.md` family, `skills.include_instructions` turns off repository **skills**, which are injected

@@ -278,10 +278,9 @@ validity turns on it being the right test — must satisfy both.
   They accept bug fixes and safety fixes only; a capability change needs a maintainer-opened issue
   and may not originate in a review finding.
 - **Two completed reviews per METERED provider, then stop.** The cap bounds how many times a
-  provider whose reads cost money or quota is made to *read the diff*, so **the Codex CLI is
-  uncapped** — it is unmetered, and throttling it bought nothing but slower convergence. The GitHub
-  Codex bot is a different provider for this purpose: its reviews are metered and its meter is
-  spent, so it declines rather than reads (§the lane, above).
+  provider whose reads cost money or quota is made to *read the diff*, so **Codex is
+  uncapped** — it is unmetered, and throttling it bought nothing but slower convergence. It has
+  refused for quota before and may again; that is a wait, not a cap.
   Otherwise **a request that produced no review is not one of the two** — a
   throttle, a quota refusal or a failed run reviewed nothing, which is the same rule — a refusal
   means the provider did not review —
