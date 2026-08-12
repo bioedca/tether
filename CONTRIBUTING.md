@@ -265,13 +265,9 @@ Before requesting review / merging, confirm:
       and every finding is disposed of, the Codex read of the final head that closed the gate in
       its place** — and that is a verdict a completed
       review reached rather than an absence of one: record the review itself — permalink, the
-      `commit_id` it read, **which must be the final head for whichever read the merge binds to** —
-      closing the gate and naming the head the merge binds are **one act on every path but the
-      rebinding one**. On the cap-spent path the Codex closing read does both at once, while
-      CodeRabbit's two completed reviews are recorded at whatever heads they read. Only on the
-      rebinding path do the two come apart: a clean CodeRabbit review closed the gate at an earlier
-      head, every push since was non-material, and a stamped Codex read names the final one without
-      closing anything. **The review-object fields are CodeRabbit's**
+      `commit_id` it read, **which must be the final head for whichever review closes the gate** —
+      on the cap-spent path CodeRabbit's two are recorded at whatever heads they read, and it is
+      the Codex closing read that closes and names the final one. **The review-object fields are CodeRabbit's**
       — `submitted_at` with a state of
       **`COMMENTED` or `APPROVED`** (a `PENDING` review has no `submitted_at` and is not a submitted
       one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing) — and a Codex close that is
@@ -282,16 +278,14 @@ Before requesting review / merging, confirm:
       A Codex artifact has no such line and never will; what stands in its place is the verdict the
       run actually emitted, quoted, against the commit it names. Asking a Codex close for
       CodeRabbit's marker would leave that path with no recordable evidence at all.
-      **A review of an earlier head does not close the gate where a material push has moved the head
-      since** — answering a finding is the ordinary such push, and that review is then evidence about
-      a diff this one is no longer. It still stands as one of the two completed reviews, which is
+      **A review of an earlier head does not close the gate**, whether a material push moved the
+      head or a non-material one did. It still stands as one of the two completed reviews, which is
       exactly what the cap-spent path relies on: each recorded at the head it read, with the Codex
-      closing read covering the final one. Where **every** push since is one of the non-material
-      exceptions the opposite holds and the gate never re-opened: that review's evidence survives by
-      the rule above, and a stamped Codex read of the current head supplies the SHA
-      `--match-head-commit` needs without standing in for a gate that was never in question. Read
-      absolutely, this sentence would strand a clean review followed by a formatting commit, which is
-      the case `AGENTS.md` §Review names and refuses to strand. Neither silence
+      closing read covering the final one. The non-material case is worth naming because it looks
+      like an exception and is not one — a clean review followed by a formatting commit keeps its
+      evidence, so the cap is spent with nothing outstanding, and the Codex close is what names the
+      commit `--match-head-commit` binds. That is the ordinary close doing ordinary work, not a
+      special path, and it is strictly more work than the clean review it follows. Neither silence
       nor a green `CodeRabbit` status check is the gate; both are also what a request that reviewed
       **nothing** leaves behind (see the full-review command below). Greptile is optional, and its absence
       for want of credits is recorded rather than excused as a review. Blocking

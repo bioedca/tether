@@ -123,18 +123,27 @@ an agent's account of its own reasoning:
 1. **A refusal is not a spent cap.** A throttle, a quota refusal or a failed run reviewed nothing,
    so it is a wait, and waiting is still what you do. This also means an *unavailable* CodeRabbit
    still freezes the pull request — nothing reviewed, so nothing opens the close.
-2. **A clean review is the gate, and it has already closed.** If either completed review came back
-   clean and its evidence still stands under the non-material rule, the branch never opens.
+2. **A clean review is the gate, and it has already closed** — when it read the head being merged.
+   If either completed review came back clean, its evidence still stands under the non-material
+   rule, **and** it named the merging commit, the branch never opens.
 
-   With one carve-out that review found, and it exposes a tension older than this record.
-   *Closing the gate* and *supplying a head the merge can bind* are two different jobs. A clean
-   review at commit A closes the gate; a permitted non-material push to B leaves that closure intact
-   — `AGENTS.md` says review evidence survives such a push — while `--match-head-commit` still
-   demands A, which is no longer the head. With the cap spent there is no third metered read to
-   rebind it, so a clean review followed by a formatting commit **stranded the pull request
-   outright**. A stamped Codex read of B supplies the binding without re-opening a gate that was
-   never in question. The rule that must not bend is the other one: the close may never stand in
-   for a metered read that never happened.
+   All three conditions, and the third exposes a tension older than this record. A clean review at
+   commit A closes the gate; a permitted non-material push to B leaves that closure intact —
+   `AGENTS.md` says review evidence survives such a push — while `--match-head-commit` still demands
+   a head no metered provider has named, and the cap forbids asking for a third to name it. Stated
+   without the third condition, this branch shut there, and a clean review followed by a formatting
+   commit **stranded the pull request outright**.
+
+   Four review rounds were spent trying to fix that with a second mechanism — a *rebinding* read
+   that supplied a head without closing anything — and each round found a new defect in it: the
+   pull-request template had no state for it, `CONTRIBUTING.md` contradicted it, a rebinding read
+   that found something serious deadlocked, and the arming rule still sourced the SHA from "the
+   clean review". The mechanism was the problem. Narrowing this condition instead deletes it: the
+   case simply takes the **ordinary close**, since the cap is genuinely spent and a fresh Codex read
+   of the final head closes and names it under every condition here. That is strictly *more* work
+   than the clean review it follows, never less, so widening the branch this way opens nothing —
+   and the rule that must not bend is untouched: the close may never stand in for a metered read
+   that never happened.
 3. **The second review must have been asked after the first one's findings were disposed of** — by
    commits that answer them, or, where the disposition is a deferral or a sub-floor drop, by the
    replies and resolutions that record it. Asking twice at one head with nothing answered in

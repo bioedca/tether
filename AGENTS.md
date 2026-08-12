@@ -216,20 +216,17 @@ validity turns on it being the right test — must satisfy both.
   output is an unstamped reaction, the gate stays shut until a stamped one exists.
 - **Four things shut that close, and each is readable off the pull request rather than out of your
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
-  it is a wait, and waiting is still what you do. If either completed review came back clean and its
-  evidence still stands under the non-material rule above, **that** review is the gate and it has
-  already closed — but *closing the gate* and *supplying a head the merge can bind* are two
-  different jobs, and only the first is finished. Where a permitted non-material push has since
-  moved the head, a stamped Codex read of the current head supplies the SHA the merge binding
-  needs, and does not re-open a gate that was never in question. Without that, a clean review plus
-  a formatting commit would strand a PR outright: the evidence survives by one rule while
-  `--match-head-commit` demands a head that is no longer current, and the cap forbids asking the
-  metered provider again. **A rebinding read that surfaces something serious stops being one.**
-  Fixing it is a material push, the clean review's evidence falls with it, and the PR is on the
-  cap-spent path — so the next stamped read of the resulting head is a *closing* read, judged by
-  everything below. Saying so is what keeps the allowed set below from needing a third category and
-  from shutting on a rebinding read that did its job, which is this rule's own failure mode reached
-  one door further along. What the close may never do is stand in for a metered read that never
+  it is a wait, and waiting is still what you do. If either completed review came back clean, its
+  evidence still stands under the non-material rule above, **and it read the head you are merging**,
+  **that** review is the gate, it has already closed, and none of this applies. All three, because a
+  clean review whose head a permitted non-material push has since moved does **not** shut this
+  branch: its evidence survives, but `--match-head-commit` binds a commit no metered provider has
+  named, and the cap forbids asking for a third to name it. Shutting the branch there would strand a
+  clean review followed by a formatting commit — the one PR in the queue with nothing whatever wrong
+  with it. So that case takes the ordinary close: the cap is genuinely spent, and a fresh Codex read
+  of the final head closes and names it under every condition here. That is **more** work than the
+  clean review it follows, never less, which is why widening the branch this way opens nothing. What
+  the close may never do is stand in for a metered read that never
   happened. The second completed review must have been asked
   **after the first one's findings were disposed of** — by commits that answer them, or, where the
   disposition is a deferral or a sub-floor drop, by the replies and resolutions that record it.
