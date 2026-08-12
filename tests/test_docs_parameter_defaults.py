@@ -120,6 +120,43 @@ def function_default(dotted: str, func: str, param: str) -> object:
     raise AssertionError(f"{dotted} has no module-level function {func!r}")
 
 
+def function_default_name(dotted: str, func: str, param: str) -> str:
+    """The **name** ``param``'s default is spelled with on ``func`` in module ``dotted``.
+
+    The mirror image of :func:`function_default`, which rejects a name default and sends
+    you to :func:`module_constant` instead. That refusal is right -- the printed value
+    belongs to the constant's own entry, and pinning a name as if it were a value would be
+    a lie -- but it leaves one link unguarded: the constant can sit still while the
+    *signature* drifts off it. Nothing else in this module reads a signature whose default
+    is a name, so nothing else would notice.
+    """
+    for stmt in _module_source(dotted).body:
+        if not (isinstance(stmt, ast.FunctionDef) and stmt.name == func):
+            continue
+        args = stmt.args
+        positional = args.posonlyargs + args.args
+        defaulted = positional[len(positional) - len(args.defaults) :]
+        pairs: list[tuple[str, ast.expr | None]] = [
+            (arg.arg, default) for arg, default in zip(defaulted, args.defaults, strict=True)
+        ]
+        pairs += [
+            (arg.arg, default)
+            for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=True)
+        ]
+        for name, node in pairs:
+            if name != param:
+                continue
+            if not isinstance(node, ast.Name):
+                raise AssertionError(
+                    f"{dotted}.{func} no longer defaults {param!r} to a named constant "
+                    f"(it is {ast.unparse(node) if node is not None else 'absent'}) — the page "
+                    f"prints the constant's value for this surface, so the two have parted"
+                )
+            return node.id
+        raise AssertionError(f"{dotted}.{func} has no defaulted parameter {param!r}")
+    raise AssertionError(f"{dotted} has no module-level function {func!r}")
+
+
 def dataclass_field(dotted: str, class_name: str, field: str) -> object:
     """The default of ``field`` on the dataclass ``class_name`` in module ``dotted``."""
     for stmt in _module_source(dotted).body:
@@ -385,8 +422,30 @@ def _registry() -> list[_Entry]:
             ),
         ),
         (
+            # ``include_first`` is one printed default governing two surfaces: the dwell
+            # survival fit and the kinetics rate estimator. Same tokens and same live
+            # value, so ``_claims`` merges them into the single ``False`` the page prints
+            # -- and the merge is by value, so the day one of them changes they split
+            # again and the row is asked for a literal it does not carry.
             ("include_first",),
             function_default("tether.analysis.dwell", "population_dwell_times", "include_first"),
+        ),
+        (
+            ("include_first",),
+            function_default("tether.analysis.kinetics", "pooled_exit_rates", "include_first"),
+        ),
+        (
+            # The extraction core the other two delegate to. The row names it, and it is
+            # public (``tether.analysis.state_dwells``), so a reader can call it directly
+            # and its default is as documented as theirs.
+            ("include_first",),
+            function_default("tether.analysis.dwell", "state_dwells", "include_first"),
+        ),
+        (
+            # Disambiguated on its module: ``state`` is a short, reusable word and a bare
+            # entry would bind any future row that happens to backtick it.
+            ("state", "tether.analysis.dwell"),
+            function_default("tether.analysis.dwell", "population_dwell_times", "state"),
         ),
         (
             ("per_molecule_equal_weight",),
@@ -460,6 +519,16 @@ def _registry() -> list[_Entry]:
         # Analysis — rendering defaults.
         (("DEFAULT_NBINS",), module_constant("tether.analysis.histogram", "DEFAULT_NBINS")),
         (("DEFAULT_RANGE",), module_constant("tether.analysis.histogram", "DEFAULT_RANGE")),
+        (
+            # The A1 overlay grid. Both entry points default it to the constant itself,
+            # which ``function_default`` refuses on purpose, so the constant is the only
+            # honest way to pin the printed value here. Note what that does NOT cover: it
+            # pins the CONSTANT, not the two signatures, so on its own it would let
+            # ``model_gaussian_overlay(n_points=501)`` drift off a still-1001 constant with
+            # the page none the wiser. ``_CONSTANT_BACKED_SURFACES`` below closes that.
+            ("DEFAULT_OVERLAY_POINTS",),
+            module_constant("tether.analysis.histogram", "DEFAULT_OVERLAY_POINTS"),
+        ),
         (("DEFAULT_TIME_BINS",), module_constant("tether.analysis.histogram", "DEFAULT_TIME_BINS")),
         (
             ("DEFAULT_SIGNAL_BINS",),
@@ -518,6 +587,31 @@ def _registry() -> list[_Entry]:
             module_constant("tether.analysis.transition_prob", "DEFAULT_TPROB_KDE_POINTS"),
         ),
         (
+            # The transition-probability KDE switch, bound on BOTH signatures. Two
+            # entries that merge while the pair agrees, by the same value-keyed merge
+            # ``min_separation`` gets in ``_claims`` -- but only the merge is shared, and
+            # the difference is the point: ``min_separation``'s bare tokens are safe
+            # because they resolve to exactly one row, which is what a bare ``kde`` would
+            # not do. The single/population defaults drifting apart is precisely what
+            # this is here to catch. Disambiguated on its module because the raw-FRET
+            # cloud has a ``kde`` of its own further down the same table, and token
+            # matching is a SUBSET test applied to every match: a bare ``("kde",)`` entry
+            # binds *both* rows and requires each to print its value. While the two agree
+            # on ``True`` that is invisible. The moment they legitimately diverge it is
+            # worse than invisible -- the two claims no longer merge, and each then demands
+            # satisfaction on both rows, so a page that correctly prints ``True`` on one
+            # and ``False`` on the other FAILS. The divergence becomes unrepresentable,
+            # which is a guard telling you to write something untrue.
+            ("kde", "tether.analysis.transition_prob"),
+            function_default("tether.analysis.transition_prob", "transition_prob_histogram", "kde"),
+        ),
+        (
+            ("kde", "tether.analysis.transition_prob"),
+            function_default(
+                "tether.analysis.transition_prob", "population_transition_prob_histogram", "kde"
+            ),
+        ),
+        (
             ("DEFAULT_STATE_NUMBER_LOW",),
             module_constant("tether.analysis.state_number", "DEFAULT_STATE_NUMBER_LOW"),
         ),
@@ -559,7 +653,12 @@ def _registry() -> list[_Entry]:
             ("time_range",),
             function_default("tether.analysis.cloud", "raw_fret_cloud", "time_range"),
         ),
-        (("kde",), function_default("tether.analysis.cloud", "raw_fret_cloud", "kde")),
+        (
+            # Disambiguated for the same reason as the transition-probability pair above:
+            # each ``kde`` must bind its own row and only its own.
+            ("kde", "tether.analysis.cloud"),
+            function_default("tether.analysis.cloud", "raw_fret_cloud", "kde"),
+        ),
         (("DEFAULT_ELBOW_K_MAX",), module_constant("tether.analysis.cloud", "DEFAULT_ELBOW_K_MAX")),
         (
             ("DEFAULT_ELBOW_RESTARTS",),
@@ -868,6 +967,86 @@ def test_every_constant_the_page_prints_a_value_for_is_registered() -> None:
     assert not missing, (
         "docs/reference/parameters.md prints a default for these constants but "
         f"_registry() does not pin them to the code: {missing}"
+    )
+
+
+#: The surfaces this page newly names whose default is a *constant*, not a literal:
+#: ``(module, function, parameter, the constant it must still be spelled with)``.
+#:
+#: Every other newly named surface is bound by a ``function_default`` registry entry, which
+#: reads the literal out of the signature. These three cannot be: their defaults are names,
+#: and ``function_default`` refuses a name on purpose. The registry therefore pins their
+#: printed value to the *constant* and the signature to nothing, so
+#: ``model_gaussian_overlay(n_points=500)`` with ``DEFAULT_OVERLAY_POINTS`` left at ``1001``
+#: passes every check above while the page tells the reader ``1001``.
+#:
+#: Deliberately only the surfaces this PR claims. The same hole exists for every
+#: constant-backed default the page has ever documented; closing it everywhere is a
+#: registry-wide change and is tracked separately.
+_CONSTANT_BACKED_SURFACES = [
+    ("tether.analysis.histogram", "model_gaussian_overlay", "n_points", "DEFAULT_OVERLAY_POINTS"),
+    (
+        "tether.analysis.histogram",
+        "population_model_gaussian_overlay",
+        "n_points",
+        "DEFAULT_OVERLAY_POINTS",
+    ),
+    # EVERY public ``w0`` surface, not merely the three the row names as entry points.
+    # The row's claim is that the same keyword carries the same default across the whole
+    # weighting/ranking seam, which is a claim about all of them; and the printed ``0.3``
+    # comes from the constant, so any one signature could drift off it while the page
+    # stayed green. Enumerated rather than sampled on purpose -- three successive review
+    # passes each found one more surface the previous list had missed.
+    ("tether.project.gbranking", "train_ranker", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.weighting", "recompute_label_weights", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.deep_dataset", "build_deep_dataset", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.gbranking", "weighted_training_set", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.gbranking", "score_molecules", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.gbranking", "ranker_ranking", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.gbranking", "ranker_precision_at_k", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.active", "next_recommendation", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.ml.weighting", "seed_weight", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.ml.weighting", "effective_weights", "w0", "DEFAULT_SEED_WEIGHT"),
+]
+
+
+def test_the_w0_surface_list_is_exhaustive() -> None:
+    """No public ``w0`` keyword may exist outside :data:`_CONSTANT_BACKED_SURFACES`.
+
+    The list above is enumerated, and an enumeration rots: three review passes each found
+    a surface the previous list had missed, and the page now claims the default holds
+    across the *whole* seam. So the enumeration is checked rather than trusted -- add a
+    ``w0=`` keyword anywhere under ``src/`` and this fails until the table admits it.
+    """
+    covered = {(mod, func) for mod, func, param, _ in _CONSTANT_BACKED_SURFACES if param == "w0"}
+    found: set[tuple[str, str]] = set()
+    for path in sorted(SRC.rglob("*.py")):
+        dotted = ".".join(path.relative_to(SRC).with_suffix("").parts)
+        for stmt in ast.parse(path.read_text(encoding="utf-8"), filename=str(path)).body:
+            if not isinstance(stmt, ast.FunctionDef) or stmt.name.startswith("_"):
+                continue
+            args = stmt.args
+            named = args.posonlyargs + args.args + args.kwonlyargs
+            if any(a.arg == "w0" for a in named):
+                found.add((dotted, stmt.name))
+    assert found == covered, (
+        "the public w0 surfaces and _CONSTANT_BACKED_SURFACES have diverged — "
+        f"unbound: {sorted(found - covered)}; stale entries: {sorted(covered - found)}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("dotted", "func", "param", "constant"),
+    _CONSTANT_BACKED_SURFACES,
+    ids=[f"{f}.{p}" for _, f, p, _ in _CONSTANT_BACKED_SURFACES],
+)
+def test_a_documented_constant_backed_default_still_names_its_constant(
+    dotted: str, func: str, param: str, constant: str
+) -> None:
+    """A signature the page documents may not drift off the constant it prints."""
+    assert function_default_name(dotted, func, param) == constant, (
+        f"{dotted}.{func} defaults {param!r} to something other than {constant} — "
+        f"docs/reference/parameters.md prints {constant}'s value for this surface"
     )
 
 
