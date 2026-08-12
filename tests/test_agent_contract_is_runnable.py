@@ -878,7 +878,8 @@ def test_the_contract_fits_inside_the_project_document_cap() -> None:
         f"({_PROJECT_DOC_CAP_BYTES:,}-byte loader cap minus {_HEADROOM_BYTES:,} of headroom). "
         "This is the working budget, not the cap itself -- the file may still be under the "
         f"{_PROJECT_DOC_CAP_BYTES:,}-byte loader limit and this still fails, deliberately, so the "
-        "headroom is not spent. Past the CAP the tail is dropped silently and workers lose whatever "
-        "sections sit at the end -- Handoff and This machine, including the TLS workaround. Move "
+        "headroom is not spent. Past the CAP the tail is dropped silently and workers lose "
+        "whatever sections sit at the end -- Handoff and This machine, including the TLS "
+        "workaround. Move "
         "rationale into the ADR that records the decision and leave the operative rule here."
     )
