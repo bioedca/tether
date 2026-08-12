@@ -265,26 +265,15 @@ Before requesting review / merging, confirm:
       and every finding is disposed of, the Codex read of the final head that closed the gate in
       its place** — and that is a verdict a completed
       review reached rather than an absence of one: record the review itself — permalink, and the
-      commit it read, **which must be the final head for whichever review closes the gate**. That
-      commit is the review's own `commit_id` where the provider posts one, and the **procedural
-      pin** where it does not, which is the live case for Codex's CLI. On the cap-spent path
-      CodeRabbit's two are recorded at whatever heads they read, and it is the Codex closing read
-      that closes and names the final one. **The review-object fields are CodeRabbit's**
-      — `submitted_at` with a state of
-      **`COMMENTED` or `APPROVED`** (a `PENDING` review has no `submitted_at` and is not a submitted
-      one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing) — and a Codex close run
-      from the CLI rather than posted as a review has none of them: record what it does emit, and do
-      not demand fields that only exist on a review. It does not emit the commit either — its run
-      record carries the working directory, version and session id — so the head comes from the
-      **procedural pin** §Review sets out: `git rev-parse HEAD` immediately before and after the run
-      and the PR head at arming time, all three equal, recorded as a pin rather than described as an
-      attestation.
-      **The body convention is CodeRabbit's too** — the opening of its body, where the clean verdict
-      is written by the `Actionable comments posted:` line being **absent** rather than reading `0`.
-      A Codex artifact has no such line and never will; what stands in its place is the verdict the
-      run actually emitted, quoted, against the commit **the procedural pin identifies** — not one
-      the run names, since it names none. Asking a Codex close for CodeRabbit's marker, or for a
-      commit its artifact does not carry, would leave that path with no recordable evidence at all.
+      commit it read, **which must be the final head for whichever review closes the gate**. On the
+      cap-spent path CodeRabbit's two are recorded at whatever heads they read, and it is the posted
+      Codex review that closes and names the final one — asked with an `@codex review` comment, since
+      the closer has to carry a `commit_id` and a local CLI run does not. A `PENDING` review has no
+      `submitted_at` and is not a submitted one; a `DISMISSED` one is a verdict *withdrawn* and
+      proves nothing. **The `Actionable comments posted:` convention is CodeRabbit's** — its clean
+      verdict is written by that line being **absent** rather than reading `0`, and a Codex review
+      has no such line: what stands in its place is the verdict it posted, quoted, against the commit
+      it names.
       **A review of an earlier head does not close the gate**, whether a material push moved the
       head or a non-material one did. It still stands as one of the two completed reviews, which is
       exactly what the cap-spent path relies on: each recorded at the head it read, with the Codex
@@ -362,11 +351,13 @@ to an unrequested PR with *"Auto reviews are disabled on this repository"*. A pr
 that was never asked has not declined — so if you are waiting on a review, check that a
 request was actually posted.
 
-**Codex is asked through its CLI here, not through the GitHub bot.** The bot does trigger
-on opening a PR for review, marking a draft ready, or an `@codex review` comment — but its
-code reviews are metered on this account and the meter is spent, so every one of its
-appearances in this repository is the same usage-limit refusal, and a refusal is not a
-review. Run `codex review --base origin/main` in the PR's worktree instead, and add
+**Codex has two delivery paths and they are not interchangeable.** The GitHub bot triggers
+on opening a PR for review, marking a draft ready, or an `@codex review` comment, and posts a
+review carrying a `commit_id`. The CLI runs locally and posts nothing. The bot has refused for
+quota before — #427 and #428, 2026-08-07 — and a refusal is not a
+review. Ask it with an `@codex review` comment when the leg has to carry a `commit_id` — the
+close does. For ordinary lane reads a local `codex review --base origin/main` in the PR's
+worktree is fine and costs nothing; add
 `--strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false` whenever the
 diff touches an **agent-layer path** — `.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` —
 or an `AGENTS.override.md` anywhere, so the branch does not supply

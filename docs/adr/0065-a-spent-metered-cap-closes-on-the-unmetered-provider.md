@@ -227,7 +227,7 @@ an agent's account of its own reasoning:
    the fix produced: each round is still read by the provider that closes it, and unread scope stays
    excluded, because a closing read cannot raise a finding about a hunk it never saw.
 
-### The closing read must be pinned to the head it closes
+### The closing review must carry the head it closes
 
 The SHA that reaches `--match-head-commit` must not be one the author asserted after the fact. This
 is a fifth condition in substance, and it took three review rounds pulling in different directions
@@ -241,24 +241,24 @@ name a head the provider never saw, which is precisely what binding the merge ex
 draft that came out of those two required an artifact *the provider itself stamps with the commit*,
 and said the gate stays shut until one exists.
 
-Round three established, by looking, that **no such artifact exists on this repository today**, so
-that draft shut the gate permanently:
+Round three concluded that no such artifact existed, on the evidence that the GitHub Codex bot's only
+two appearances in this repository — #427 and #428, both 2026-08-07 — were usage-limit refusals, and
+that the CLI's rollout record carries `cwd`, `cli_version` and a session id but **not the commit it
+read**. From that it built a *procedural pin*: `git rev-parse HEAD` before and after the run, equal
+to the PR head at arming time, standing in for an attestation nothing could give.
 
-- The GitHub Codex bot has **never posted a review here.** Both of its appearances in the repository's
-  history — on #427 and #428, 2026-08-07 — are the same usage-limit refusal. Its code reviews are
-  metered on this account and the meter is spent, which also qualifies this record's *"unmetered and
-  so uncapped"* framing: that is true of the **CLI**, which is what the lane actually runs.
-- The CLI leaves a rollout record carrying `cwd`, `cli_version` and a session id — **not the commit
-  it read.**
+**That was wrong, and the way it was wrong is the more useful record.** The refusals were five days
+stale, and no one had asked the bot on this pull request. When it finally was asked, it **posted a
+review in nine minutes**, carrying `commit_id c26a683b843bf12361d6dbcabe4dbdadfe103bc3` — the
+provider-attested head the whole detour existed to substitute for. The pin is deleted, and the
+closing review is a **posted** one.
 
-So the requirement was written for evidence the tooling does not produce, and would have replaced a
-deadlock with a deadlock. What survives is the *property* rather than the mechanism: the head is
-**pinned** rather than attested. Where a provider stamps the commit, quote it. Where none does, the
-**procedural pin** — the term `AGENTS.md` §Review, `CONTRIBUTING.md` and the pull-request template
-all use for it — is `git rev-parse HEAD` immediately before and immediately after the run alongside
-the PR head at arming time, all three equal, which proves the head did not move under the read and
-does not pretend to prove the provider read it. That is weaker, it is stated as weaker, and it rests on the
-same worker honesty the rest of the section already assumes of anyone quoting a review.
+Three things had to be true at once for that error to survive as long as it did: an observation was
+turned into a rule (*the bot declines*), the rule was **load-bearing** (it forced the close onto the
+weaker path and pushed a rewrite of `AGENTS.md:156`, which #439 explicitly put out of scope), and it
+was never re-tested, because it explained the evidence well enough that re-testing felt unnecessary.
+**Availability is determined by asking.** A provider that refused last week has not declined today,
+and the cost of finding out is one comment.
 
 ### The closer must not read the rules the branch is proposing
 

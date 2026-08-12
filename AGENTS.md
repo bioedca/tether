@@ -155,30 +155,21 @@ validity turns on it being the right test — must satisfy both.
 
 - **You are never the only reviewer of your own diff.** Before merge at least one external provider
   must have reviewed **every substantive change reaching the merge**, and reported what it found.
-  Author-side output never satisfies this, and a green status check with no review body is not a
-  review. *Author-side* names whose judgement it is and not which machine ran it: the verdict must
-  be the provider's, quoted as it wrote it, and a provider's own review posted on the pull request
-  carries the strongest form of that because GitHub attests it (§This machine).
-  **Normally the head it read *is* the head you merge, and then this bullet is satisfied by
-  inspection.** Where it is not — the cap-spent close below is the case that reaches it — what makes
-  the difference safe is that the final head may differ from the externally reviewed one only by
-  changes that answer recorded findings, by the non-material exceptions, or by a required `main`
-  conflict resolution. §Review's fourth condition is what enforces that, and the closing read is
-  what confirms nothing else crept in. So no unreviewed substance merges, which is the property this
-  bullet is protecting; the reviewed *commit* being the merged commit was only ever the ordinary way
-  of getting it. Quote the provider and name the 40-hex head its read covered in the PR body — from
-  the provider's own artifact where it carries one, and from the procedural pin below where it does
-  not.
+  Author-side or local output never satisfies this, and a green status check with no review body is
+  not a review. Quote the provider and name the 40-hex `commit_id` of the review in the PR body.
+  Normally the head it read *is* the head you merge. Where the cap-spent close below applies, the
+  final head may differ only by changes the fourth condition there admits, and the closing read is
+  what confirms nothing else crept in.
 - **Open as a draft and get it green there.** Every required check runs on a draft, so the diff
   reaches fully green before anyone is asked to read it. Opening ready is **not forbidden** but is
   never free: it spends a metered provider on a diff no unmetered one has read, so record the
   reason in the PR.
 - **The lane is cheapest provider first, and the order is the point.** On the green diff — the
   draft by default, or the ready PR whose reason is recorded — **Codex** first, unmetered and so
-  uncapped, until it surfaces nothing blocking. *Unmetered* is a fact about the **CLI**, which is
-  what this lane runs: the GitHub Codex bot's code reviews are metered on this account and its meter
-  is spent — both of its appearances in this repository are the same usage-limit refusal — so asking
-  it is asking a provider that will decline, and a decline is not a review. Then **optionally one Greptile review**, if the
+  uncapped, until it surfaces nothing blocking. Ask the GitHub bot with an `@codex review` comment;
+  it posts a review carrying a `commit_id`, which is what the gate wants. It has refused for quota
+  before and may again — that is a wait like any other refusal, and **availability is determined by
+  asking, never inferred from an earlier refusal**. Then **optionally one Greptile review**, if the
   seat has budget: a *review*, since a standard one costs a credit and a TREX one three. Then
   ready-for-review if it is not already, and **CodeRabbit last** — last of the *metered* providers,
   which is the spend the order buys. The unmetered one is not confined to the front and may read
@@ -194,7 +185,7 @@ validity turns on it being the right test — must satisfy both.
   Otherwise: Executable code, scientific claims, data, schema, locks, CI and release
   configuration, and **every file that states a rule** — `AGENTS.md`, `CLAUDE.md`,
   `CONTRIBUTING.md`, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`, `.claude/**`,
-  `.github/pull_request_template.md`, `.greptile/**` — are material, and a material push re-arms
+  `.github/pull_request_template.md`, `.greptile/**`, and `AGENTS.override.md` anywhere — are material, and a material push re-arms
   the review. The rule-stating files are on that list for a specific reason: a push that changes
   what the gate requires must not keep evidence gathered under the old requirement.
 - **Metered credits are the maintainer's money.** Greptile is 50 credits per seat per month shared
@@ -212,95 +203,41 @@ validity turns on it being the right test — must satisfy both.
 - **A spent cap closes on Codex rather than on a maintainer.** When two *completed* CodeRabbit
   reviews stand on this PR — each one it submitted with a body, since a throttle, a quota refusal or
   a failed run reviewed nothing — and **no finding they raised is left outstanding**, with the thread
-  resolved on each, then a **fresh Codex read of the final head** closes
-  the gate in their place: a full read recorded on the pull request — a review the provider posted,
-  or its own run verdict quoted and pinned to the head by the rule below — never an earlier Codex
-  pass re-quoted, since the head that pass read is not the head being merged. *Outstanding* is the
-  test and the ways of clearing one are **fixed, deferred-and-tracked, dropped sub-floor, or
-  withdrawn by the provider that raised it** — that last is not hypothetical, a provider retracting
-  a false positive is how #434's own record reads, and an earlier draft naming only the first three
-  shut the close on it. Any list of dispositions can miss one the way any list of sources did; what
-  cannot is *nothing left open*. Anything that read surfaces is cleared the same way before it
-  closes — the close is a *substitute for the clean pass*, not a lower bar than it. That review is then *the clean review*
-  the merge binding below names.
-- **The closing read must be pinned to the head it closes, and the pin must be checkable by someone
-  who was not there.** What that rules out is a head *asserted* after the fact: a push landing while
-  the read is in flight would otherwise let a PR name a commit the provider never saw, and binding
-  the merge exists so nobody can do that. Where the provider stamps the commit itself — a posted
-  review carries a `commit_id` — quote it and you are done. **Where it does not, the pin is
-  procedural and must be recorded as such**: run the read against the exact head being merged, and
-  record `git rev-parse HEAD` in that worktree **immediately before and immediately after** the run
-  together with the PR's head at arming time, all three equal. A read whose head moved under it is
-  not a close, and the equality is what says it did not. Say which of the two you did.
-  **Codex's local CLI emits no head-stamped artifact today** — its run record carries the working
-  directory, version and session id, not the commit — so the procedural pin is the live path here,
-  and calling it "provider-attested" would be false. What it buys is weaker and worth naming: it
-  proves the head did not move across the read, not that the provider read that head, and it rests
-  on the worker reporting the three values honestly. That is the same trust the rest of this section
-  already places in a worker who quotes a review. Requiring an attestation the tooling cannot produce
-  would not buy the stronger property — it would shut the close permanently, which is the deadlock
-  this whole branch exists to remove.
-- **When the diff touches an agent-layer path, the closing read runs isolated.** Those paths are the
-  ones §Review already names — `.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` — plus
-  **`AGENTS.override.md`** anywhere, which the CLI loads *with precedence* and which no other rule
-  here mentions. The command is
-  `codex review --strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false --base origin/main`.
-  Both overrides are needed and they close different doors: `project_doc_max_bytes` governs the
-  `AGENTS.md` family, while repository **skills** are injected through a separate switch that
-  defaults to on, so a branch-modified `SKILL.md` stayed model-visible through a read that looked
-  isolated. `--strict-config` is what makes a mistyped key fail loudly rather than silently leave
-  either door open — the failure mode being a read that reports as isolated and is not. All three
-  keys were checked against the installed 0.147.0 rather than assumed. Say in the PR that you did it. Otherwise the CLI reads instructions out of the checkout it
-  runs in, and a pull request editing them supplies the rules to the one provider reading its final
-  head — the branch grading itself by its own unmerged contract, which is what *"only agent
-  instructions on the default branch govern"* refuses at the top of this file.
-  **This trigger deliberately over-approximates, because the exact set is not something this
-  contract can state truthfully.** Four attempts to name it were wrong in both directions: *any
-  rule-stating file* fired on diffs that were never at risk; `AGENTS.md`+`CLAUDE.md` missed
-  `AGENTS.override.md`, which the CLI also loads and gives precedence; adding that still missed
-  branch-local skills under `.agents/skills/**`, whose metadata the CLI injects; and `CLAUDE.md`
-  itself may not be loaded at all when a root `AGENTS.md` is present. Establishing the real
-  discovery order needs knowledge of the tool's internals that reading its binary does not give,
-  and it changes between versions. So this trigger is a **policy choice and not a claim about
-  Codex**: over-fire, and take the cost. That cost is real — the switch is all-or-nothing, so it
-  denies the reviewer `main`'s contract as well as the branch's, and the read is less informed than
-  an ordinary one. It is the right way round, because over-firing costs review *quality* on a
-  narrow class of PRs while under-firing leaves a *self-grading* path open, and there is no narrower
-  switch: `--base` picks the diff and cannot substitute `origin/main`'s copy of the instructions.
-  **#451 tracks pinning the real set down**; until it does, the over-approximation stands.
+  resolved on each, then a **fresh Codex review of the final head** closes the gate in their place.
+  It must be a **posted** review, so it carries the `commit_id` the merge binds; an earlier Codex
+  pass re-quoted is not one, since the head that pass read is not the head being merged. *Nothing
+  left outstanding* is the test — fixed, deferred-and-tracked, dropped sub-floor and withdrawn by the
+  provider are the ways of clearing a finding, not the test itself. Anything the closing review
+  surfaces is cleared the same way before it closes: this is a *substitute for the clean pass*, not a
+  lower bar. That review is then *the clean review* the merge binding below names. ADR-0065 carries
+  the reasoning and the drafts that were wrong.
+- **A CLI read of a diff that edits agent instructions must not be run under them.** The CLI
+  discovers `AGENTS.md`, `AGENTS.override.md` (which takes precedence) and `CLAUDE.md` from the
+  checkout, and injects repository skills, so a branch editing any of those would otherwise grade
+  itself. Run
+  `codex review --strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false --base origin/main`
+  — two switches because the skills one is separate and defaults to on, and `--strict-config` so a
+  mistyped key fails loudly rather than leaving a read that reports as isolated and is not. This does
+  not reach the **posted** bot review, whose loading is not ours to configure; **#451** covers that.
 - **Four things shut that close, and each is readable off the pull request rather than out of your
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
-  it is a wait, and waiting is still what you do. If either completed review came back clean, its
-  evidence still stands under the non-material rule above, **and it read the head you are merging**,
-  **that** review is the gate, it has already closed, and none of this applies. All three, because a
-  clean review whose head a permitted non-material push has since moved does **not** shut this
-  branch: its evidence survives, but `--match-head-commit` binds a commit no metered provider has
-  named, and the cap forbids asking for a third to name it. Shutting the branch there would strand a
-  clean review followed by a formatting commit — the one PR in the queue with nothing whatever wrong
-  with it. So that case takes the ordinary close: the cap is genuinely spent, and a fresh Codex read
-  of the final head closes and names it under every condition here. That is **more** work than the
-  clean review it follows, never less, which is why widening the branch this way opens nothing. What
-  the close may never do is stand in for a metered read that never
-  happened. The second completed review must have been asked
-  **after the first one's findings were disposed of** — by commits that answer them, or, where the
-  disposition is a deferral or a sub-floor drop, by the replies and resolutions that record it.
-  Asking twice at one head with nothing answered in between is one review asked twice and buys the
-  close nothing. **The test is the disposal, not a new commit**: a review answered wholly on the
-  record moves no head, so demanding one would re-create the deadlock this rule exists to remove.
+  it is a wait. If either completed review came back clean, its evidence still stands under the
+  non-material rule above, **and it read the head you are merging**, **that** review is the gate and
+  none of this applies — all three, since a clean review whose head a non-material push has moved
+  leaves `--match-head-commit` binding a commit no metered provider named, and that case takes the
+  ordinary close instead of stranding. The second completed review must have been asked **after the
+  first one's findings were disposed of** — by commits that answer them, or by the replies and
+  resolutions recording a deferral or drop. **The test is the disposal, not a new commit**: a review
+  answered wholly on the record moves no head. Asking twice at one head with nothing answered in
+  between is one review asked twice and buys the close nothing.
   And **nothing but disposal may land after the cap is spent**: everything added after the commit
-  the second completed review actually *read* — its `commit_id`, never its `submitted_at` — must do
-  one of three things. It must **answer something already recorded on this pull request that you were
-  required to address** — a review finding from any provider, a CodeQL or `secret-scan` alert, a
-  condition a human sign-off attached, a closing read's own finding — or be one of the
-  non-material exceptions above, or be **the resolution of a conflict in the `main` merge this
-  contract requires**. **The first is a test on the change, not on its source**, and the examples are
-  illustrations rather than the rule: four drafts of it enumerated *who* may raise a finding, each
-  omitted somebody — first the closing read, then Greptile, then CI alerts and human sign-off — and
-  every omission was the identical deadlock, because the omitted party's finding still had to be
-  fixed, the fix answered nobody on the list, and the cap forbade asking the metered provider again.
-  Any list of sources will keep omitting one; *compelled by something already on the record* cannot,
-  and it draws the line exactly where it belongs, since what the condition excludes is scope you
-  chose to add rather than work you were obliged to do. The conflict resolution is on that footing too and is not optional:
+  the second completed review actually *read* — its `commit_id`, never its `submitted_at` — must
+  **answer something already recorded on this pull request that you were required to address** (a
+  finding from any provider, a CodeQL or `secret-scan` alert, a condition a human sign-off attached,
+  the closing review's own), or be one of the non-material exceptions above, or be **the resolution
+  of a conflict in the `main` merge this contract requires**. The first is a test on the change and
+  **not on its source** — the examples illustrate it rather than bound it, and ADR-0065 records why
+  every attempt to bound it by source deadlocked. The conflict resolution is not optional:
   §Concurrent GitHub Flow orders you to merge a freshly fetched `origin/main` and resolve it here,
   while the non-material list covers that merge only when it is *clean*. Both admissions turn on the
   same fact — the change answers something already read, or reconciles two things already read — so
@@ -312,18 +249,10 @@ validity turns on it being the right test — must satisfy both.
   hunk passes any per-commit test while smuggling exactly the scope this shuts out, so every hunk
   has to trace to one of the three. New scope pushed after the cap has spent it is scope **no
   metered provider will ever read**, and what the close is entitled to be is a further opinion on a
-  diff **every substantive part of which some external provider has already read** — never a first
-  opinion on an unread one. Two earlier drafts of that sentence overclaimed and both are worth
-  keeping visible, because the claim is the whole argument for the close being safe. It is not a
-  *twice*-read diff: where review 1 was clean and an in-scope material push drew review 2, the added
-  part carries one metered read. And the coverage is not all *metered* either: a fix answering
-  review 2 lands after that review's `commit_id` by design, as do a permitted conflict resolution
-  and anything the closing read itself raises, and the only provider that reads those is the closing
-  read. So the guarantee is **external** coverage of every substantive part, metered up to the
-  second review's commit and the closing read after it — which is exactly what §Review's first
-  bullet requires, and no more than that.
-  So new scope shuts the close and the PR waits for a gate it can actually
-  satisfy. Motive is not a test
+  diff **every substantive part of which some external provider has already read** — metered up to
+  the commit the second review read, the closing review after it. Not *twice*-read and not all of it
+  metered: two earlier drafts claimed both and ADR-0065 records why each was false. New scope
+  therefore shuts the close and the PR waits for a gate it can actually satisfy. Motive is not a test
   and never becomes one; these four are, and they are also why spending an ask to reach the close
   would buy nothing if it worked, since the close costs the disposal of every finding and a further
   review on top — more work than the clean pass it replaces.
@@ -340,7 +269,8 @@ validity turns on it being the right test — must satisfy both.
   `Deferred: … Tracked in #N` and resolve the thread. Fixing a non-serious finding in the PR is
   scope breach, not diligence.
 - **On agent-layer paths, a sub-floor finding is dropped rather than tracked.** Those paths are
-  `.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules. Reply
+  `.agents/`, `docs/agents/`, `AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md` and the agent test
+  modules. Reply
   `Noted; below the floor on an agent-layer path and not tracked (ADR-0064)` and resolve the thread.
   This inverts the rule above deliberately and only here, because only here does the output feed back
   into the input — sixteen agent-layer issues came from that loop in ten days.

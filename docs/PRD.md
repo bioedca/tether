@@ -1092,8 +1092,8 @@ the gate protects is that **every substantive change reaching the merge was exte
 §Review is the operative statement of that and of what makes it hold when the reviewed commit is not the merged one. **No provider auto-reviews this repository** — CodeRabbit reports auto reviews
 disabled, Greptile is held by `.greptile/config.json`'s `skipReview: "AUTOMATIC"`, and the GitHub Codex bot fires only on
 open-for-review, draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined. That
-bot's reviews are metered on this account and its meter is spent, so the Codex leg is run through the **CLI**; `AGENTS.md`
-§Review states how, including the isolation flag a rule-editing PR needs. The
+bot posts a review carrying a `commit_id`, which is what the cap-spent close requires; the CLI runs locally and posts
+nothing, so it serves ordinary lane reads. `AGENTS.md` §Review states which is needed where. The
 one exception is a branch cut **before** that config landed: it is read from the PR's source branch, so such a branch
 still auto-fires Greptile on open. The credit is spent regardless, so the review is answered and the optional Greptile
 step recorded as spent, never discarded as unsolicited.
