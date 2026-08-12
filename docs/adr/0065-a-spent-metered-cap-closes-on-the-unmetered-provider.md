@@ -139,7 +139,7 @@ an agent's account of its own reasoning:
    pull-request template had no state for it, `CONTRIBUTING.md` contradicted it, a rebinding read
    that found something serious deadlocked, and the arming rule still sourced the SHA from "the
    clean review". The mechanism was the problem. Narrowing this condition instead deletes it: the
-   case simply takes the **ordinary close**, since the cap is genuinely spent and a fresh Codex read
+   case simply takes the **ordinary close**, since the cap is genuinely spent and a fresh posted Codex review
    of the final head closes and names it under every condition here. That is strictly *more* work
    than the clean review it follows, never less, so widening the branch this way opens nothing —
    and the rule that must not bend is untouched: the close may never stand in for a metered read
@@ -162,7 +162,7 @@ an agent's account of its own reasoning:
    the second completed review actually read** — its `commit_id`, never its `submitted_at` — must
    answer something already recorded on the pull request **that the worker was required to address**
    — a review finding from any provider, a CodeQL or `secret-scan` alert, a condition a human
-   sign-off attached, a closing read's own finding — or be one of the existing non-material
+   sign-off attached, a closing review's own finding — or be one of the existing non-material
    exceptions, or be the resolution of a conflict in the `main` merge this contract requires.
    Anchored at the reviewed commit and applied per change, both for the reasons below, and stated as
    a test on the change rather than on its source for the reason after those.
@@ -182,7 +182,7 @@ an agent's account of its own reasoning:
    while smuggling in exactly the scope the condition excludes.
 
    It also has to be anchored at the commit the second review **read**, not at the clock. An earlier
-   phrasing here said *"between the second completed review and the closing read"*, which sounds
+   phrasing here said *"between the second completed review and the closing review"*, which sounds
    equivalent and is not: a material push landing while that review is still running is after its
    `commit_id` but before it completed, so a clock-anchored window waves through the one change the
    provider demonstrably never saw. This record is a rule-stating file and was accepted carrying the
@@ -191,9 +191,9 @@ an agent's account of its own reasoning:
    And the set is stated as a **test on the change rather than on its source**, because every
    version that named sources omitted one. Four drafts, four omissions, one failure mode:
 
-   1. only the two CodeRabbit reviews' findings — which shut the close against any closing read that
+   1. only the two CodeRabbit reviews' findings — which shut the close against any closing review that
       found something;
-   2. plus the closing read's own — which still omitted **Greptile**, whose findings a worker is
+   2. plus the closing review's own — which still omitted **Greptile**, whose findings a worker is
       equally obliged to fix;
    3. plus *any provider* — which still omitted **CodeQL and `secret-scan` alerts, and conditions a
       human sign-off attaches**, none of which come from a review provider and all of which are
@@ -216,16 +216,16 @@ an agent's account of its own reasoning:
    `main`'s on its own pull request; a resolution carrying new logic of its own is new scope like any
    other and shuts the close.
 
-   And the allowed set has to include **the closing read's own findings**, which the first three
+   And the allowed set has to include **the closing review's own findings**, which the first three
    drafts of this condition did not. A sixth Codex review of this record's pull request found it,
    and it is the third time a draft here re-created the deadlock it removes: the bullet above
-   requires the closing read to dispose of whatever it surfaces *before* it closes, and that fix is
+   requires the closing review to dispose of whatever it surfaces *before* it closes, and that fix is
    a material push answering no CodeRabbit finding — so a set holding only *their* findings shut the
-   close against every closing read that found anything, while the cap forbade asking the metered
-   provider again. The branch was reachable only by the closing reads doing their job, which is the
+   close against every closing review that found anything, while the cap forbade asking the metered
+   provider again. The branch was reachable only by the closing reviews doing their job, which is the
    worst possible selection. The remedy is not a narrower set but another stamped read of the head
    the fix produced: each round is still read by the provider that closes it, and unread scope stays
-   excluded, because a closing read cannot raise a finding about a hunk it never saw.
+   excluded, because a closing review cannot raise a finding about a hunk it never saw.
 
 ### The closing review must carry the head it closes
 
@@ -339,13 +339,13 @@ review on top. It is strictly more work than the clean pass it replaces.
 
 ### The close is a substitute, not a discount
 
-Anything the closing read surfaces is cleared the same way — **left not outstanding**, by being
+Anything the closing review surfaces is cleared the same way — **left not outstanding**, by being
 fixed, deferred-and-tracked, dropped sub-floor, or withdrawn by the provider that raised it — before
 it closes. That last one was missing from three drafts, and it is not hypothetical: a provider
 retracting a false positive is how #434's own record reads, so the close was shut on its own
 motivating example unless a worker mislabelled the disposition. The test is *nothing left open*;
 the four are the known ways of getting there, the same way condition 4 tests the change rather than
-naming who may raise a finding. An earlier draft held the closing read
+naming who may raise a finding. An earlier draft held the closing review
 to *"nothing blocking"*, which would have silently dropped two severity bands relative to the
 zero-actionable-comments bar it replaces, and on agent-layer paths those findings are not tracked at
 all. The bar does not move; only who holds it does.
@@ -358,7 +358,7 @@ misreading. `AGENTS.md:32–33` — *"Do not infer merge authority"* — is unto
 ### What the merge binds to
 
 `--match-head-commit` still names *"the 40-hex head the clean review read."* When the close applies,
-the Codex closing read **is** that clean review. The merge bullet is left byte-identical: it is the
+the Codex closing review **is** that clean review. The merge bullet is left byte-identical: it is the
 only place in `AGENTS.md` satisfying both mechanical guards in
 `tests/test_agent_contract_is_runnable.py` — the `_SHA_DEFINED` window and the arming-page floor —
 and its referent was always provider-neutral in words. Only context had pointed it at CodeRabbit.
@@ -385,7 +385,7 @@ way it was not before. Two things bound that. It is a fresh read of the exact he
 a re-quoted earlier pass. And it is reached only after two completed metered reviews, with condition
 4 above refusing the close to any scope that landed after the cap was spent — so **every substantive
 part of the merging diff has had at least one external read**, metered up to the commit the second
-review read and the closing read after it, and the close is a further opinion on it rather than a
+review read and the closing review after it, and the close is a further opinion on it rather than a
 first opinion on an unread one.
 
 This paragraph has now been wrong twice in the same direction, which is worth keeping visible because
@@ -395,7 +395,7 @@ in-scope
 material push then draws review 2, the added part carries **one** metered read, not two. The
 correction then claimed one *metered* read of every substantive part, and the next round showed that
 false too: a fix answering review 2 lands after that review's `commit_id` by design, as do a
-permitted conflict resolution and anything the closing read raises, and no metered provider ever sees
+permitted conflict resolution and anything the closing review raises, and no metered provider ever sees
 them. What the conditions actually buy is **external** coverage throughout — which is what §Review's
 first bullet asks for, and it is worth noticing that the honest version of this claim turned out to
 be exactly the property that bullet already states, rather than something stronger the close was

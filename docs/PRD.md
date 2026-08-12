@@ -1062,7 +1062,7 @@ has not — until it surfaces
 nothing blocking; it is the free provider, and throttling it bought nothing but slower convergence. Then **optionally
 one Greptile review**, if the seat has budget — a *review*, not a credit, since a standard one costs one credit and a
 TREX one three; then ready-for-review if it is not already; then **CodeRabbit with no actionable comments,
-which is the last metered gate before merge — and when that two-review cap is spent, a fresh Codex read
+which is the last metered gate before merge — and when that two-review cap is spent, a fresh posted Codex review
 of the final head closes the gate in its place, so a reviewed PR finishes on an unmetered read rather
 than on a maintainer (ADR-0065)**. **`AGENTS.md` §Review is the operative statement of the conditions
 that close is subject to, and this document deliberately restates none of them** — `CONTRIBUTING.md`
@@ -1106,7 +1106,7 @@ governance text itself (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, this docume
 `.greptile/**`, and `AGENTS.override.md` anywhere) are material — the list is *every file that states a rule*, because a push that
 changes what the gate requires must not keep evidence gathered under the old requirement. A material push re-arms the review, and a PR gets **at most two completed reviews per metered provider**, Codex being unmetered and uncapped —
 needing a third usually means the issue was scoped too large. The lane does **not** stop for the maintainer: when the cap is
-spent, a fresh Codex read of the final head closes the gate instead (ADR-0065), subject to conditions
+spent, a fresh posted Codex review of the final head closes the gate instead (ADR-0065), subject to conditions
 `AGENTS.md` §Review states and this document, again deliberately, does not.
 
 That bound is a **convention a worker keeps, not a counter that publishes labels.** ADR-0064 retired the round ledger,

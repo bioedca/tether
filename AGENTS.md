@@ -158,7 +158,7 @@ validity turns on it being the right test — must satisfy both.
   Author-side or local output never satisfies this, and a green status check with no review body is
   not a review. Quote the provider and name the 40-hex `commit_id` of the review in the PR body.
   Normally the head it read *is* the head you merge. Where the cap-spent close below applies, the
-  final head may differ only by changes the fourth condition there admits, and the closing read is
+  final head may differ only by changes the fourth condition there admits, and the closing review is
   what confirms nothing else crept in.
 - **Open as a draft and get it green there.** Every required check runs on a draft, so the diff
   reaches fully green before anyone is asked to read it. Opening ready is **not forbidden** but is
@@ -261,7 +261,7 @@ validity turns on it being the right test — must satisfy both.
   would buy nothing if it worked, since the close costs the disposal of every finding and a further
   review on top — more work than the clean pass it replaces.
 - **Clearing the gate is not authority to merge.** They are different things and the second is still
-  per-PR, explicit, and never inferred. Escalate to the maintainer only when the closing read
+  per-PR, explicit, and never inferred. Escalate to the maintainer only when the closing review
   surfaces something blocking that you may not resolve inside this item's scope.
 - **Never write a provider's handle in a comment you do not intend as a request.** A mention fires
   the bot even inside backticks — a code span is not an escape. Describe the command in prose

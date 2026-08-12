@@ -277,7 +277,7 @@ Before requesting review / merging, confirm:
       **A review of an earlier head does not close the gate**, whether a material push moved the
       head or a non-material one did. It still stands as one of the two completed reviews, which is
       exactly what the cap-spent path relies on: each recorded at the head it read, with the Codex
-      closing read covering the final one. The non-material case is worth naming because it looks
+      closing review covering the final one. The non-material case is worth naming because it looks
       like an exception and is not one — a clean review followed by a formatting commit keeps its
       evidence, so the cap is spent with nothing outstanding, and the Codex close is what names the
       commit `--match-head-commit` binds. That is the ordinary close doing ordinary work, not a
@@ -328,7 +328,7 @@ cheapest provider first: Codex on the green diff, uncapped — the draft by defa
 ready PR whose reason is recorded; then optionally one metered Greptile **review** if the
 seat has budget, a review being one credit as a standard and three as a TREX; then
 CodeRabbit with no actionable comments, which is the last metered gate before merge — and
-when that cap is spent with every finding disposed of, a fresh Codex read of the final head
+when that cap is spent with every finding disposed of, a fresh posted Codex review of the final head
 closes the gate in its place rather than a maintainer doing it — under conditions `AGENTS.md`
 §Review sets and this summary does not restate.** **Open as a draft and get it green there** — every
 required check runs on a draft, so the diff reaches fully green before anyone is asked to
@@ -457,7 +457,7 @@ re-request while the status check reads `pending`. **Greptile is one *review* in
 credit — a standard review costs one, a TREX review three. Two is the shared ceiling, not a second review to plan on, so ask
 again only if the first found something blocking and the seat still has budget. **A spent cap
 is not a stuck PR**: when every finding those two reviews raised is disposed of and every
-thread resolved, a fresh Codex read of the final head closes the gate in their place, so the
+thread resolved, a fresh posted Codex review of the final head closes the gate in their place, so the
 PR finishes on an unmetered read rather than on a maintainer. **`AGENTS.md` §Review sets four
 conditions on that and is the operative statement of all of them**; the other two are above —
 a provider that refused reviewed nothing, so a spent cap is not what an unavailable CodeRabbit
@@ -479,7 +479,7 @@ every hunk added after the commit the second completed review actually read — 
 `commit_id`, never its `submitted_at`, since a material push landing while that review is
 still running is a push it never saw — must answer a finding **already recorded on the pull
 request that you were required to address** (a review finding from any provider, a CodeQL or
-`secret-scan` alert, a condition a human sign-off attached, the closing read's own finding —
+`secret-scan` alert, a condition a human sign-off attached, the closing review's own finding —
 illustrations, not the rule, which is a test on the change and not on its source), or be one
 of the non-material exceptions above, **or be the resolution of a
 conflict in the `main` merge the contract requires** — that merge is non-material only when
@@ -494,8 +494,8 @@ produced. New scope pushed past that point is scope no metered provider will eve
 the close is a further opinion on a diff every substantive part of which **some external provider**
 has already read — never a first opinion on an unread one. Not *twice*-read, and not all of it
 *metered*: a fix answering review 2 lands after that review's `commit_id` by design, as do a
-permitted conflict resolution and anything the closing read raises, and the closing read is the
-only provider that reads those. Metered up to the second review's commit, the closing read after
+permitted conflict resolution and anything the closing review raises, and the closing review is the
+only provider that reads those. Metered up to the second review's commit, the closing review after
 it, external throughout — which is what `AGENTS.md` §Review's first bullet asks for and no more.
 Nothing counts this for you; the
 merged history is auditable and you are trusted with it. On agent-layer paths
