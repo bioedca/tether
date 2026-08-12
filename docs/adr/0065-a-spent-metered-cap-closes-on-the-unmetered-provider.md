@@ -271,8 +271,11 @@ reachable, by putting a rule-editing PR's fate in the hands of a CLI read.
 
 So on a diff touching an **agent-layer path** — `.agents/`, `docs/agents/`, `AGENTS.md`,
 `CLAUDE.md`, the set §Review already names for other purposes — the closing read runs
-`codex review --strict-config -c project_doc_max_bytes=0 --base origin/main`. The two flags do
-different jobs and both are load-bearing: the second turns project-document discovery off, and
+`codex review --strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false --base origin/main`.
+The overrides do different jobs and all are load-bearing: `project_doc_max_bytes` turns off the
+`AGENTS.md` family, `skills.include_instructions` turns off repository **skills**, which are injected
+through a switch of their own that defaults to on — so the first draft of this command left a
+branch-modified `SKILL.md` model-visible through a read that reported as isolated — and
 `--strict-config` makes a mistyped key **fail** rather than be ignored, which matters because the
 failure mode of a silently-dropped override is a read that looks isolated and is not. Both were
 verified against the installed CLI (0.147.0) — a deliberately bogus key is rejected under

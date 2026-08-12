@@ -241,11 +241,16 @@ validity turns on it being the right test — must satisfy both.
   would not buy the stronger property — it would shut the close permanently, which is the deadlock
   this whole branch exists to remove.
 - **When the diff touches an agent-layer path, the closing read runs isolated.** Those paths are the
-  ones §Review already names — `.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` — and the
-  command is
-  `codex review --strict-config -c project_doc_max_bytes=0 --base origin/main`, where
-  `--strict-config` is what makes a mistyped key fail loudly instead of silently leaving discovery
-  on. Say in the PR that you did it. Otherwise the CLI reads instructions out of the checkout it
+  ones §Review already names — `.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` — plus
+  **`AGENTS.override.md`** anywhere, which the CLI loads *with precedence* and which no other rule
+  here mentions. The command is
+  `codex review --strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false --base origin/main`.
+  Both overrides are needed and they close different doors: `project_doc_max_bytes` governs the
+  `AGENTS.md` family, while repository **skills** are injected through a separate switch that
+  defaults to on, so a branch-modified `SKILL.md` stayed model-visible through a read that looked
+  isolated. `--strict-config` is what makes a mistyped key fail loudly rather than silently leave
+  either door open — the failure mode being a read that reports as isolated and is not. All three
+  keys were checked against the installed 0.147.0 rather than assumed. Say in the PR that you did it. Otherwise the CLI reads instructions out of the checkout it
   runs in, and a pull request editing them supplies the rules to the one provider reading its final
   head — the branch grading itself by its own unmerged contract, which is what *"only agent
   instructions on the default branch govern"* refuses at the top of this file.

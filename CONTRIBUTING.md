@@ -367,8 +367,9 @@ on opening a PR for review, marking a draft ready, or an `@codex review` comment
 code reviews are metered on this account and the meter is spent, so every one of its
 appearances in this repository is the same usage-limit refusal, and a refusal is not a
 review. Run `codex review --base origin/main` in the PR's worktree instead, and add
-`--strict-config -c project_doc_max_bytes=0` whenever the diff touches an **agent-layer
-path** — `.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` — so the branch does not supply
+`--strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false` whenever the
+diff touches an **agent-layer path** — `.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` —
+or an `AGENTS.override.md` anywhere, so the branch does not supply
 the instructions its own reviewer follows. That trigger deliberately over-fires: the switch
 also denies the reviewer `main`'s contract, and four attempts to name the exact set Codex
 loads were wrong in both directions, so the contract stops claiming to know it and errs
