@@ -211,10 +211,13 @@ validity turns on it being the right test — must satisfy both.
   surfaces is cleared the same way before it closes: this is a *substitute for the clean pass*, not a
   lower bar. That review is then *the clean review* the merge binding below names. ADR-0065 carries
   the reasoning and the drafts that were wrong.
-- **A CLI read of a diff that edits agent instructions must not be run under them.** The CLI
+- **The Codex CLI satisfies no leg; it is an author-side tool.** Local output satisfies nothing
+  (first bullet), so a CLI run finds your own defects before a provider is asked — the same category
+  as running the tests. Run it freely, it is unmetered; just never record it as the Codex leg.
+  **On a diff that edits agent instructions, do not run it under them:** the CLI
   discovers `AGENTS.md`, `AGENTS.override.md` (which takes precedence) and `CLAUDE.md` from the
-  checkout, and injects repository skills, so a branch editing any of those would otherwise grade
-  itself. Run
+  checkout, and injects repository skills, so a branch editing any of those would otherwise shape
+  its own reader. Run
   `codex review --strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false --base origin/main`
   — two switches because the skills one is separate and defaults to on, and `--strict-config` so a
   mistyped key fails loudly rather than leaving a read that reports as isolated and is not. This does

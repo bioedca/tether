@@ -355,17 +355,18 @@ request was actually posted.
 on opening a PR for review, marking a draft ready, or an `@codex review` comment, and posts a
 review carrying a `commit_id`. The CLI runs locally and posts nothing. The bot has refused for
 quota before — #427 and #428, 2026-08-07 — and a refusal is not a
-review. Ask it with an `@codex review` comment when the leg has to carry a `commit_id` — the
-close does. For ordinary lane reads a local `codex review --base origin/main` in the PR's
-worktree is fine and costs nothing; add
-`--strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false` whenever the
-diff touches an **agent-layer path** — `.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` —
-or an `AGENTS.override.md` anywhere, so the branch does not supply
-the instructions its own reviewer follows. That trigger deliberately over-fires: the switch
-also denies the reviewer `main`'s contract, and four attempts to name the exact set Codex
-loads were wrong in both directions, so the contract stops claiming to know it and errs
-toward isolation instead. `AGENTS.md` §Review carries the reasoning; **#451** is where the
-real set gets established.
+review. **The Codex leg is the posted review**, asked with an `@codex review` comment, because
+`AGENTS.md` §Review requires a `commit_id` no local run can produce and says in the same breath
+that local output satisfies nothing.
+
+The CLI is still worth running and satisfies **no leg**: it is an author-side tool for finding
+your own defects before a provider is asked, in the same category as running the tests. Use it
+freely — it costs nothing and it is uncapped — and do not record it as the Codex leg. When you
+run it on a diff that touches `AGENTS.md`, `AGENTS.override.md` (anywhere) or `CLAUDE.md`, add
+`--strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false`, so the branch
+does not supply the instructions its own reader follows. **#451** is where the exact set the CLI
+loads gets established; until then that trigger over-fires deliberately, which costs the reader
+`main`'s contract and is the cheaper mistake.
 
 One exception, and it has already cost money: `.greptile/config.json` is read from
 the pull request's **source branch**, so a branch cut before that file landed still

@@ -270,8 +270,8 @@ the instructions to a provider reading it — the branch graded by its own unmer
 first paragraph of that file. The **posted** review's loading is not ours to configure at all, and
 **#451** covers that half.
 
-So on a diff touching an **agent-layer path** — `.agents/`, `docs/agents/`, `AGENTS.md`,
-`CLAUDE.md`, the set §Review already names for other purposes — a CLI read runs
+So on a diff touching `AGENTS.md`, **`AGENTS.override.md` anywhere**, or `CLAUDE.md` — the files
+the CLI discovers, the override included precisely because it takes precedence — a CLI read runs
 `codex review --strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false --base origin/main`.
 The overrides do different jobs and all are load-bearing: `project_doc_max_bytes` turns off the
 `AGENTS.md` family, `skills.include_instructions` turns off repository **skills**, which are injected
