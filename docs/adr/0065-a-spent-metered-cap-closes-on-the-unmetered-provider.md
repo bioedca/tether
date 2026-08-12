@@ -112,7 +112,7 @@ Greptile rather than inventing a principle for it.
 ## Decision outcome
 
 **When the metered cap is genuinely spent and every finding is genuinely disposed of, a fresh Codex
-read of the final head closes the gate in the metered provider's place. The maintainer escalation is
+review of the final head closes the gate in the metered provider's place. The maintainer escalation is
 deleted rather than supplemented.**
 
 ### What makes it narrow

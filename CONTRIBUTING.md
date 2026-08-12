@@ -14,7 +14,7 @@ requires a substantive final-head review on one fixed lane, cheapest provider fi
 **Codex on the green diff until nothing blocking remains, then optionally one metered
 Greptile review, then CodeRabbit with no actionable comments before merge — or, when
 CodeRabbit's two-review cap is spent and every finding is disposed of, a fresh Codex
-read of the final head closing the gate in its place.**
+review of the final head closing the gate in its place.**
 Copilot is advisory only and never satisfies a leg. The ruleset still requires zero GitHub approval
 reviews; load-bearing changes additionally need any qualified human/domain judgment
 specified in `AGENTS.md`. This scales to required human reviews + `CODEOWNERS` if
@@ -262,7 +262,7 @@ Before requesting review / merging, confirm:
       result from every provider the lane reached — **either** a substantive review **or** that
       provider's own quoted "nothing to review" for the head it read, a Codex 👍 included.
       **CodeRabbit with no actionable comments is required — or, if its two-review cap is spent
-      and every finding is disposed of, the Codex read of the final head that closed the gate in
+      and every finding is disposed of, the Codex review of the final head that closed the gate in
       its place** — and that is a verdict a completed
       review reached rather than an absence of one: record the review itself — permalink, and the
       commit it read, **which must be the final head for whichever review closes the gate**. On the
