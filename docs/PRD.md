@@ -1105,9 +1105,10 @@ governance text itself (`AGENTS.md` anywhere, `CLAUDE.md`, `CONTRIBUTING.md`, th
 `.agents/**`, `docs/agents/**`, `.claude/**`, `.github/pull_request_template.md` and
 `.greptile/**`, and `AGENTS.override.md` anywhere) are material — the list is *every file that states a rule*, because a push that
 changes what the gate requires must not keep evidence gathered under the old requirement. A material push re-arms the review, and a PR gets **at most two completed reviews per metered provider**, Codex being unmetered and uncapped —
-needing a third usually means the issue was scoped too large. The lane does **not** stop for the maintainer: when the cap is
-spent, a fresh posted Codex review of the final head closes the gate instead (ADR-0065), subject to conditions
-`AGENTS.md` §Review states and this document, again deliberately, does not.
+needing a third usually means the issue was scoped too large. The lane does **not** stop for the maintainer: when
+**CodeRabbit's** two-review cap specifically is spent — not any other provider's, since Greptile is optional and its
+exhaustion never blocks — a fresh posted Codex review of the final head closes the gate instead (ADR-0065), subject to
+conditions `AGENTS.md` §Review states and this document, again deliberately, does not.
 
 That bound is a **convention a worker keeps, not a counter that publishes labels.** ADR-0064 retired the round ledger,
 the `agent:round-*` / `agent:review-capped` / `agent:gate-blocked` labels and the launcher that consumed them, after
@@ -1183,8 +1184,11 @@ the ADR-0052 run was a lease that only a sleeping human could renew.
 
 Every agent is a peer: it claims one issue, works one isolated worktree/branch/PR, opens the review lane on a draft,
 and hands off. Auto-merge — bound to the reviewed head with `--match-head-commit` — is armed at the **end** of that
-lane by whoever completes it, never on the draft, since the mandatory review gate — CodeRabbit, or the Codex close
-when its cap is spent (ADR-0065) — is not a required check and nothing else would hold the merge. No agent waits on another, and no agent merges on another's
+lane, never on the draft, since the mandatory review gate — CodeRabbit, or the Codex close
+when its cap is spent (ADR-0065) — is not a required check and nothing else would hold the merge. Completing the lane
+is **not** what authorises the arming: clearing the gate and having authority to merge are separate, the second is
+per-PR and explicit and is never inferred from the first, and a worker who finishes the lane without it records that
+the gate is satisfied and hands off. No agent waits on another, and no agent merges on another's
 behalf. ADR-0052's coordinator, leases, run records and guarded-merge monopoly are retired, not merely superseded.
 
 **Label taxonomy** (prefixed namespaces, so labels group and filter cleanly):

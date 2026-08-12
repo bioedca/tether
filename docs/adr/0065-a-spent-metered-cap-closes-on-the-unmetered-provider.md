@@ -340,6 +340,27 @@ throughout and found twenty-odd defects in the text feeding them, so there is no
 here — but "no sign it mattered" is not the property the trust boundary asks for, and the last round
 of this pull request was re-run with the flag.
 
+### What condition 4 does not buy
+
+It is applied by the worker, and **nothing checks it mechanically.** Every hunk after the cap has to
+trace to a recorded finding, a non-material exception, or the required `main` merge's conflict
+resolution — and whether a given hunk really does is a judgement, made by the same worker the
+condition constrains. A determined author can present unrelated logic as finding disposal and the
+closing review would be the first and only read of it.
+
+That is stated rather than closed, for two reasons. A machine check is **out of scope by
+construction**: #439 rules out restoring the machinery ADR-0064 removed, and ADR-0064's own finding
+was that review state has no concurrency content and needs no ledger. And the alternative on offer
+is not a stronger check but a *different* unchecked rule, since any mapping from hunk to finding is
+prose either way.
+
+What the condition does buy is narrower and real: it is **per hunk rather than per commit**, so
+bundling an unrelated change into a fix commit does not launder it; it is anchored at a commit rather
+than a clock, so a push mid-review cannot slip through; and it puts the claim on the record, where
+the merged history is auditable. Against a careless worker it works. Against a deliberate one it is a
+statement of intent, and this record does not pretend otherwise — the same honesty the procedural-pin
+section above required before that mechanism was deleted.
+
 **Motive is deliberately not a test.** An earlier draft closed the gaming path with *"an ask made to
 spend the cap is not one of the two."* That was rejected on review for two reasons: a motive is not
 checkable by anyone, including the agent itself; and read strictly it **restores the deadlock in a

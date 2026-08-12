@@ -258,7 +258,8 @@ validity turns on it being the right test — must satisfy both.
   running is a push it never saw, and a time-anchored window would wave it through. **The unit is
   the change, not the commit**: a commit that fixes a recorded finding *and* carries an unrelated
   hunk passes any per-commit test while smuggling exactly the scope this shuts out, so every hunk
-  has to trace to one of the three. New scope pushed after the cap has spent it is scope **no
+  has to trace to one of the three — a judgement you apply and nothing checks for you, which
+  ADR-0065 states plainly rather than dressing up as mechanical. New scope pushed after the cap has spent it is scope **no
   metered provider will ever read**, and what the close is entitled to be is a further opinion on a
   diff **every substantive part of which some external provider has already read** — metered up to
   the commit the second review read, the closing review after it. Not *twice*-read and not all of it
