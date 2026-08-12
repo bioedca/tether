@@ -260,6 +260,29 @@ the PR head at arming time, all three equal, which proves the head did not move 
 does not pretend to prove the provider read it. That is weaker, it is stated as weaker, and it rests on the
 same worker honesty the rest of the section already assumes of anyone quoting a review.
 
+### The closer must not read the rules the branch is proposing
+
+Because the Codex leg runs through the CLI, and the CLI discovers `AGENTS.md` from the checkout it
+runs in, a pull request that edits `AGENTS.md` supplies the instructions to the one provider reading
+its final head. The branch would be graded by its own unmerged contract — precisely what
+*"only agent instructions on the default branch govern; unmerged edits are inert"* refuses in the
+first paragraph of that file. Nothing about the close created this; the close is what makes it
+reachable, by putting a rule-editing PR's fate in the hands of a CLI read.
+
+So on a diff touching any file that states a rule, the closing read runs
+`codex review --strict-config -c project_doc_max_bytes=0 --base origin/main`. The two flags do
+different jobs and both are load-bearing: the second turns project-document discovery off, and
+`--strict-config` makes a mistyped key **fail** rather than be ignored, which matters because the
+failure mode of a silently-dropped override is a read that looks isolated and is not. Both were
+verified against the installed CLI (0.147.0) rather than assumed — a deliberately bogus key is
+rejected under `--strict-config`, and `project_doc_max_bytes` is accepted.
+
+This is worth stating plainly: **every review round on this record's own pull request ran without
+that isolation**, in a worktree carrying the modified `AGENTS.md`. Those rounds were adversarial
+throughout and found twenty-odd defects in the text feeding them, so there is no sign it mattered
+here — but "no sign it mattered" is not the property the trust boundary asks for, and the last round
+of this pull request was re-run with the flag.
+
 **Motive is deliberately not a test.** An earlier draft closed the gaming path with *"an ask made to
 spend the cap is not one of the two."* That was rejected on review for two reasons: a motive is not
 checkable by anyone, including the agent itself; and read strictly it **restores the deadlock in a

@@ -358,10 +358,18 @@ left has not reviewed: Greptile out of credits is skippable and never blocks, wh
 CodeRabbit unavailable freezes the PR.
 
 **No provider auto-reviews this repository; you have to ask.** CodeRabbit replies
-to an unrequested PR with *"Auto reviews are disabled on this repository"*, and Codex
-reviews only when you open a PR for review, mark a draft ready, or comment
-`@codex review`. A provider that was never asked has not declined — so if you are
-waiting on a review, check that a request was actually posted.
+to an unrequested PR with *"Auto reviews are disabled on this repository"*. A provider
+that was never asked has not declined — so if you are waiting on a review, check that a
+request was actually posted.
+
+**Codex is asked through its CLI here, not through the GitHub bot.** The bot does trigger
+on opening a PR for review, marking a draft ready, or an `@codex review` comment — but its
+code reviews are metered on this account and the meter is spent, so every one of its
+appearances in this repository is the same usage-limit refusal, and a refusal is not a
+review. Run `codex review --base origin/main` in the PR's worktree instead, and add
+`--strict-config -c project_doc_max_bytes=0` when the diff touches a file that states a
+rule, so the branch does not supply the instructions its own reviewer follows
+(`AGENTS.md` §Review).
 
 One exception, and it has already cost money: `.greptile/config.json` is read from
 the pull request's **source branch**, so a branch cut before that file landed still

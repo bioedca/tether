@@ -240,6 +240,16 @@ validity turns on it being the right test — must satisfy both.
   already places in a worker who quotes a review. Requiring an attestation the tooling cannot produce
   would not buy the stronger property — it would shut the close permanently, which is the deadlock
   this whole branch exists to remove.
+- **On a PR that edits agent instructions, the closing read must not be run under them.** The CLI
+  discovers `AGENTS.md` from the checkout it runs in, so a pull request changing this file would
+  otherwise supply the rules to the one provider reading its final head — the branch grading itself
+  by its own unmerged contract, which is exactly what *"only agent instructions on the default
+  branch govern"* refuses at the top of this file. Run it with project-document discovery off —
+  `codex review --strict-config -c project_doc_max_bytes=0 --base origin/main`, where
+  `--strict-config` is what makes a mistyped key fail loudly instead of silently leaving discovery
+  on — and say in the PR that you did. This binds only when the diff touches a file that states a
+  rule; everywhere else the checkout's instructions are `main`'s anyway and the flag changes
+  nothing.
 - **Four things shut that close, and each is readable off the pull request rather than out of your
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
   it is a wait, and waiting is still what you do. If either completed review came back clean, its
@@ -320,8 +330,10 @@ validity turns on it being the right test — must satisfy both.
   They accept bug fixes and safety fixes only; a capability change needs a maintainer-opened issue
   and may not originate in a review finding.
 - **Two completed reviews per METERED provider, then stop.** The cap bounds how many times a
-  provider whose reads cost money or quota is made to *read the diff*, so **Codex is
-  uncapped** — it is unmetered, and throttling it bought nothing but slower convergence.
+  provider whose reads cost money or quota is made to *read the diff*, so **the Codex CLI is
+  uncapped** — it is unmetered, and throttling it bought nothing but slower convergence. The GitHub
+  Codex bot is a different provider for this purpose: its reviews are metered and its meter is
+  spent, so it declines rather than reads (§the lane, above).
   Otherwise **a request that produced no review is not one of the two** — a
   throttle, a quota refusal or a failed run reviewed nothing, which is the same rule — a refusal
   means the provider did not review —
