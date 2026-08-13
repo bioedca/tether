@@ -460,8 +460,9 @@ does not license hammering: honour the retry interval the refusal names, and nev
 re-request while the status check reads `pending`. **Greptile is one *review* in practice**, and a review is not always one
 credit — a standard review costs one, a TREX review three. Two is the shared ceiling, not a second review to plan on, so ask
 again only if the first found something blocking and the seat still has budget. **A spent cap
-is not a stuck PR**: when every finding those two reviews raised is disposed of and every
-thread resolved, a fresh posted Codex review of the final head closes the gate in their place, so the
+is not a stuck PR**: when **no finding those two reviews raised is left outstanding** — cleared by
+being fixed, deferred-and-tracked, dropped sub-floor, or **withdrawn by the provider that raised
+it**, that last quoted on the thread like any other disposition — and every thread resolved, a fresh posted Codex review of the final head closes the gate in their place, so the
 PR finishes on an unmetered read rather than on a maintainer. **`AGENTS.md` §Review sets four
 conditions on that and is the operative statement of all of them**; the other two are above —
 a provider that refused reviewed nothing, so a spent cap is not what an unavailable CodeRabbit

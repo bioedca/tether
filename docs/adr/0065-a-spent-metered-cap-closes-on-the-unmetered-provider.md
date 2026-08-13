@@ -438,11 +438,9 @@ smuggling in. An argument that overstates its own premise is worth less than the
 and this one took two rounds of being caught to stop doing it. **If Codex's review quality degrades, this paragraph is the part of the record that
 stops holding**, and nothing in this repository would detect that.
 
-A second cost, and it is the larger of the two: **§Review grows from 80 lines to 152** — it nearly
-doubles — in a file ADR-0064 deliberately shrank, and whose resident-context driver, *"`AGENTS.md` is
+A second cost, and it is the larger of the two: **§Review grows from 80 lines to 163** — it doubles — in a file ADR-0064 deliberately shrank, and whose resident-context driver, *"`AGENTS.md` is
 read on every model call by every agent"*, argues against every addition. An earlier draft of this
-paragraph said *"roughly twenty lines"*; a review measured it and the real figure is around four
-times that. The
+paragraph said *"roughly twenty lines"*, and a later one said 152; both were measured once and then left to rot as the section kept changing. The figures above are for the merge base and for the revision this record ships with — a count stated without the revision it was taken at is the same defect as an ADR citing a line number. The
 understatement is recorded rather than quietly corrected, because a decision record that
 under-reports its own cost is how a cost stops being weighed.
 

@@ -1089,7 +1089,7 @@ is a **wait**, not unavailability, and a request that produced no review is not 
 Author-side review and a green or status-only
 result do not satisfy the gate; *author-side* names whose judgement it is rather than which machine ran it, and what
 the gate protects is that **every substantive change reaching the merge was externally reviewed** — `AGENTS.md`
-§Review is the operative statement of that and of what makes it hold when the reviewed commit is not the merged one. **No provider auto-reviews this repository** — CodeRabbit reports auto reviews
+§Review is the operative statement of that and of what makes it hold when the reviewed commit is not the merged one. **No provider auto-reviews a pull request opened under the current configuration** — CodeRabbit reports auto reviews
 disabled, Greptile is held by `.greptile/config.json`'s `skipReview: "AUTOMATIC"`, and the GitHub Codex bot fires only on
 open-for-review, draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined. That
 bot posts an artifact naming the head it read, which every leg requires — §Review gives the two shapes; the CLI runs locally, posts nothing and therefore
