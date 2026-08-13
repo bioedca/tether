@@ -12,7 +12,9 @@ review lane as merge gates**: branch protection on `main` requires
 green required CI plus a self-review checklist on every PR, while `AGENTS.md`
 requires a substantive final-head review on one fixed lane, cheapest provider first:
 **Codex on the green diff until nothing blocking remains, then optionally one metered
-Greptile review, then CodeRabbit with no actionable comments before merge.**
+Greptile review, then CodeRabbit with no actionable comments before merge — or, when
+CodeRabbit's two-review cap is spent and every finding is disposed of, a fresh Codex
+review of the final head closing the gate in its place.**
 Copilot is advisory only and never satisfies a leg. The ruleset still requires zero GitHub approval
 reviews; load-bearing changes additionally need any qualified human/domain judgment
 specified in `AGENTS.md`. This scales to required human reviews + `CODEOWNERS` if
@@ -259,15 +261,28 @@ Before requesting review / merging, confirm:
       routes nothing; the round; and a
       result from every provider the lane reached — **either** a substantive review **or** that
       provider's own quoted "nothing to review" for the head it read, a Codex 👍 included.
-      **CodeRabbit with no actionable comments is required**, and that is a verdict a completed
-      review reached rather than an absence of one: record the review itself — permalink, the
-      `commit_id` it read, **which must be the final head**, `submitted_at` with a state of
-      **`COMMENTED` or `APPROVED`** (a `PENDING` review has no `submitted_at` and is not a submitted
-      one; a `DISMISSED` one is a verdict *withdrawn* and proves nothing), and the
-      opening of its body. **A review of any earlier head does not qualify, however clean it was** —
-      answering a finding moves the head, so that review is evidence about a diff this one is no
-      longer. The clean verdict is written by the `Actionable comments posted:` line being
-      **absent** rather than reading `0`. Neither silence
+      **CodeRabbit with no actionable comments is required — or, if its two-review cap is spent
+      and every finding is disposed of, the Codex review of the final head that closed the gate in
+      its place** — and that is a verdict a completed
+      review reached rather than an absence of one: record the review itself — permalink, and the
+      commit it read, **which must be the final head for whichever review closes the gate**. On the
+      cap-spent path CodeRabbit's two are recorded at whatever heads they read, and it is the posted
+      Codex review that closes and names the final one — asked with an `@codex review` comment, since
+      the closer has to be posted and name the head it read — in either shape `AGENTS.md` §Review
+      describes — and a local CLI run posts nothing. A `PENDING` review has no
+      `submitted_at` and is not a submitted one; a `DISMISSED` one is a verdict *withdrawn* and
+      proves nothing. **The `Actionable comments posted:` convention is CodeRabbit's** — its clean
+      verdict is written by that line being **absent** rather than reading `0`, and a Codex review
+      has no such line: what stands in its place is the verdict it posted, quoted, against the commit
+      it names.
+      **A review of an earlier head does not close the gate**, whether a material push moved the
+      head or a non-material one did. It still stands as one of the two completed reviews, which is
+      exactly what the cap-spent path relies on: each recorded at the head it read, with the Codex
+      closing review covering the final one. The non-material case is worth naming because it looks
+      like an exception and is not one — a clean review followed by a formatting commit keeps its
+      evidence, so the cap is spent with nothing outstanding, and the Codex close is what names the
+      commit `--match-head-commit` binds. That is the ordinary close doing ordinary work, not a
+      special path, and it is strictly more work than the clean review it follows. Neither silence
       nor a green `CodeRabbit` status check is the gate; both are also what a request that reviewed
       **nothing** leaves behind (see the full-review command below). Greptile is optional, and its absence
       for want of credits is recorded rather than excused as a review. Blocking
@@ -285,7 +300,7 @@ Automated agents are peers, not a hierarchy: each claims one issue, opens one **
 PR, gets it reviewed, and **hands off or merges** rather than sitting and polling. There is no coordinator. Auto-merge is armed at the **end** of the lane, and
 completing the lane is **not by itself authority to arm it** — `AGENTS.md` requires
 explicit per-PR merge authority, which is a separate grant that no amount of green
-checks confers. Arming it on a draft would merge the PR past the mandatory CodeRabbit
+checks confers. Arming it on a draft would merge the PR past the mandatory review
 gate, since that gate is not a required check. The merge is bound to the head the review evidence covers with
 `gh pr merge N --auto --squash --match-head-commit <SHA>` — that guard is what stands in
 for the merge queue, which needs an organization-owned repository and so is unavailable
@@ -313,21 +328,47 @@ checks are green and the diff is declared final. **Every PR walks the same lane,
 cheapest provider first: Codex on the green diff, uncapped — the draft by default, or the
 ready PR whose reason is recorded; then optionally one metered Greptile **review** if the
 seat has budget, a review being one credit as a standard and three as a TREX; then
-CodeRabbit with no actionable comments, which is the last gate before merge.** **Open as a draft and get it green there** — every
+CodeRabbit with no actionable comments, which is the last metered gate before merge — and
+when that cap is spent with every finding disposed of, a fresh posted Codex review of the final head
+closes the gate in its place rather than a maintainer doing it — under conditions `AGENTS.md`
+§Review sets and this summary does not restate.** **Open as a draft and get it green there** — every
 required check runs on a draft, so the diff reaches fully green before anyone is asked to
 read it, and that is what makes the sequence affordable rather than a policy nobody keeps.
 Opening ready is not forbidden, but it spends a metered provider on a diff no cheap one has
 seen; the old rationale for allowing it turned on the round counter ADR-0064 retires, so
-what remains is simply that it costs more for nothing. Record the reason in the PR. Author-side or local review, and status-only
-output, do not satisfy it. **Exhaustion is not incapacity** — a provider with no budget
+what remains is simply that it costs more for nothing. Record the reason in the PR. Author-side
+review and status-only output do not satisfy it — and *author-side* is about whose judgement it
+is, not which machine ran it. The verdict has to be the provider's and **posted on the pull
+request**, so GitHub attests that it said so and the artifact names the head the merge
+binds; a local run quoted by its author is not that, however faithfully it is quoted. What has to
+hold is that **every substantive change reaching the merge was externally reviewed**,
+which `AGENTS.md` §Review states operatively and which its fourth condition is what enforces on
+the cap-spent path. **Exhaustion is not incapacity** — a provider with no budget
 left has not reviewed: Greptile out of credits is skippable and never blocks, while
 CodeRabbit unavailable freezes the PR.
 
 **No provider auto-reviews this repository; you have to ask.** CodeRabbit replies
-to an unrequested PR with *"Auto reviews are disabled on this repository"*, and Codex
-reviews only when you open a PR for review, mark a draft ready, or comment
-`@codex review`. A provider that was never asked has not declined — so if you are
-waiting on a review, check that a request was actually posted.
+to an unrequested PR with *"Auto reviews are disabled on this repository"*. A provider
+that was never asked has not declined — so if you are waiting on a review, check that a
+request was actually posted.
+
+**Codex has two delivery paths and they are not interchangeable.** The GitHub bot triggers
+on opening a PR for review, marking a draft ready, or an `@codex review` comment, and posts an
+artifact naming the head it read — a review object, or a comment when the run is clean (§Review). The CLI runs locally and posts nothing. The bot has refused for
+quota before — #427 and #428, 2026-08-07 — and a refusal is not a
+review. **The Codex leg is the posted review**, asked with an `@codex review` comment, because
+`AGENTS.md` §Review requires a posted artifact naming the head, which no local run produces and says in the same breath
+that local output satisfies nothing.
+
+The CLI is still worth running and satisfies **no leg**: it is an author-side tool for finding
+your own defects before a provider is asked, in the same category as running the tests. Use it
+freely — it costs nothing and it is uncapped — and do not record it as the Codex leg. When you
+run it on a diff that touches `AGENTS.md`, `AGENTS.override.md` (anywhere), `CLAUDE.md` **or
+`.agents/skills/**`** — two routes, discovered files and injected skills — add
+`--strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false`, so the branch
+does not supply the instructions its own reader follows. **#451** is where the exact set the CLI
+loads gets established; until then that trigger over-fires deliberately, which costs the reader
+`main`'s contract and is the cheaper mistake.
 
 One exception, and it has already cost money: `.greptile/config.json` is read from
 the pull request's **source branch**, so a branch cut before that file landed still
@@ -364,12 +405,13 @@ quoting a trigger while describing it spends a real review. Break the handle, or
 "the full-review command" instead.
 
 Review evidence **survives a non-material push**, so addressing findings does not
-restart the gate — merging `main` in cleanly, formatting, comment edits and ADR
+restart the gate — merging `main` in cleanly, formatting, comment and docstring edits, and ADR
 renumbering (renumber-only — touching a word of the decision is not) are all non-material, and
 that exception list WINS over the material paths below, while executable code, scientific claims, data,
-schema, locks, CI/release config and the governance text itself (`AGENTS.md`,
+schema, locks, CI/release config and the governance text itself (`AGENTS.md` anywhere,
 `CLAUDE.md`, this file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`,
-`.claude/**`, `.github/pull_request_template.md`, `.greptile/**`) are material — the
+`.claude/**`, `.github/pull_request_template.md`, `.greptile/**`, and `AGENTS.override.md`
+anywhere) are material — the
 list is *every file that states a rule*, because a push changing what the gate requires
 must not keep evidence gathered under the old requirement. A material push
 re-arms the review but raises no ceiling: there are **at most two completed reviews per
@@ -398,12 +440,16 @@ feature-complete** (ADR-0064) — they take bug and safety fixes only, so a capa
 change needs a maintainer-opened issue and may never originate in a review finding.
 Dropping the sub-floor finding without that second rule would still leave a reviewer able
 to commission new agent machinery through the deferral above. If a **selected** provider reports nothing to review at the
-head it read — a deletion, a pure rename, or Codex's 👍 reaction, which is its documented
+head it read — a deletion, a pure rename, or Codex's clean result, which its own documentation
+calls a 👍 reaction and which on this repository is a posted **comment** reading
+`Codex Review: Didn't find any major issues.` with `Reviewed commit: <short-sha>` on its own line
+(measured, 2026-08-12). Either way it is its documented
 "no suggestions" — that satisfies its leg; quote it. A statement from the author, or from
 any other commenter, never does. **Exhaustion is not incapacity**: a provider with nothing
 to say has reviewed, a provider with no budget left has not. Greptile out of credits is
 skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because it is the
-gate. Record which and why — and a quota refusal means the provider **did not review**, and never counts as a pass.
+metered gate and an unavailable provider is not a spent cap — nothing reviewed, so nothing
+opens the Codex close. Record which and why — and a quota refusal means the provider **did not review**, and never counts as a pass.
 
 **Two completed reviews per metered provider, then stop.** The cap bounds how many times a
 provider whose reads cost money or quota is made to *read the diff*, so **Codex
@@ -413,11 +459,52 @@ exactly when the provider is rate-limiting. It does **not** license a third revi
 does not license hammering: honour the retry interval the refusal names, and never
 re-request while the status check reads `pending`. **Greptile is one *review* in practice**, and a review is not always one
 credit — a standard review costs one, a TREX review three. Two is the shared ceiling, not a second review to plan on, so ask
-again only if the first found something blocking and the seat still has budget. If a third
-pass would be needed, hand the pull
-request to the maintainer with a comment saying why. Nothing counts this for you; the
+again only if the first found something blocking and the seat still has budget. **A spent cap
+is not a stuck PR**: when **no finding those two reviews raised is left outstanding** — cleared by
+being fixed, deferred-and-tracked, dropped sub-floor, or **withdrawn by the provider that raised
+it**, that last quoted on the thread like any other disposition — and every thread resolved, a fresh posted Codex review of the final head closes the gate in their place, so the
+PR finishes on an unmetered read rather than on a maintainer. **`AGENTS.md` §Review sets four
+conditions on that and is the operative statement of all of them**; the other two are above —
+a provider that refused reviewed nothing, so a spent cap is not what an unavailable CodeRabbit
+leaves behind, and a review that came back clean with its evidence still standing **and that
+read the head being merged** is already the gate. That last qualifier is not decoration: where
+a permitted non-material push has since moved the head, no metered provider has named the
+commit `--match-head-commit` binds, so the case takes the ordinary Codex close rather than
+resting on the earlier review. The two restated here are the two a summary most easily drops, and dropping either
+would authorise the close in a case the contract shuts, which a contributor reading the two
+documents together would have to stop over. **The cap has to have been spent on two reads with a disposition between
+them**: the second review must have been asked only *after* the first one's findings were
+disposed of, by commits that answer them or by the replies and resolutions recording a
+deferral or a drop. The test is the disposal and **not** a differing diff — a review answered
+wholly on the record moves no head, so a second review at that same commit is in order, and
+demanding a changed one would re-create the deadlock this removes for every PR whose findings
+were all deferred or dropped. What buys the close nothing is asking twice at one head with
+nothing answered in between: that is one review asked twice. **And nothing but disposal may land after the cap is spent**:
+every hunk added after the commit the second completed review actually read — its
+`commit_id`, never its `submitted_at`, since a material push landing while that review is
+still running is a push it never saw — must answer a finding **already recorded on the pull
+request that you were required to address** (a review finding from any provider, a CodeQL or
+`secret-scan` alert, a condition a human sign-off attached, the closing review's own finding —
+illustrations, not the rule, which is a test on the change and not on its source), or be one
+of the non-material exceptions above, **or be the resolution of a
+conflict in the `main` merge the contract requires** — that merge is non-material only when
+it is *clean*, so a conflicted one is a material push you were ordered to make, and shutting
+the close on it would strand any PR that `main` happened to touch. Only the reconciliation is
+admitted; a resolution carrying new logic of its own is new scope like any other. The
+provider-neutral wording is load-bearing rather than loose: whoever raised a serious finding,
+you are obliged to fix it, so any list of *whose* findings count shuts the close against the
+fix it just required — and every list drafted here has omitted somebody, first the closing
+read and then Greptile. What follows such a fix is another stamped read of the head it
+produced. New scope pushed past that point is scope no metered provider will ever read, and
+the close is a further opinion on a diff every substantive part of which **some external provider**
+has already read — never a first opinion on an unread one. Not *twice*-read, and not all of it
+*metered*: a fix answering review 2 lands after that review's `commit_id` by design, as do a
+permitted conflict resolution and anything the closing review raises, and the closing review is the
+only provider that reads those. Metered up to the second review's commit, the closing review after
+it, external throughout — which is what `AGENTS.md` §Review's first bullet asks for and no more.
+Nothing counts this for you; the
 merged history is auditable and you are trusted with it. On agent-layer paths
-(`.agents/`, `docs/agents/`, `AGENTS.md`, `CLAUDE.md` and the agent test modules) a
+(`.agents/`, `docs/agents/`, `AGENTS.md` and `AGENTS.override.md` anywhere, `CLAUDE.md` and the agent test modules) a
 finding below the severity floor is **dropped rather than tracked**, because there the
 follow-up issue becomes another agent-layer pull request and the loop feeds itself
 (ADR-0064). Dropped is not silent: reply on the thread in the wording `AGENTS.md`

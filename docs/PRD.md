@@ -1062,7 +1062,15 @@ has not — until it surfaces
 nothing blocking; it is the free provider, and throttling it bought nothing but slower convergence. Then **optionally
 one Greptile review**, if the seat has budget — a *review*, not a credit, since a standard one costs one credit and a
 TREX one three; then ready-for-review if it is not already; then **CodeRabbit with no actionable comments,
-which is the last gate before merge**. The round
+which is the last metered gate before merge — and when that two-review cap is spent, a fresh posted Codex review
+of the final head closes the gate in its place, so a reviewed PR finishes on an unmetered read rather
+than on a maintainer (ADR-0065)**. **`AGENTS.md` §Review is the operative statement of the conditions
+that close is subject to, and this document deliberately restates none of them** — `CONTRIBUTING.md`
+and the pull-request template do carry working copies, as detail and as evidence fields, and both
+defer to §Review where they differ. Four drafts of this
+paragraph tried to summarise them and each admitted or refused a case the contract does not — a
+restatement that is wrong in either direction is worse than a pointer, because `AGENTS.md` tells a
+worker to stop when these two files disagree, so the summary strands the pull request either way. The round
 ledger that used to count this is gone — ADR-0064 retired it along with the launcher that consumed it, leaving **at most
 two completed reviews per metered provider** as a convention a worker keeps rather than a counter that publishes
 labels — **Codex is
@@ -1077,11 +1085,15 @@ no single one was sufficient — the lane keeps that property while spending the
 works in, billed per **completed review** — one credit for a standard review, **three for a TREX** one; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
 leg, and a quota refusal from it means the provider **did not review**, never a pass. Exhaustion and incapacity differ: Greptile out of
 credits is skippable, CodeRabbit unavailable **freezes the PR** — though a fair-use refusal that names a retry time
-is a **wait**, not unavailability, and a request that produced no review is not one of the two completed reviews.
-Author-side/local review and a green or status-only
-result do not satisfy the gate. **No provider auto-reviews this repository** — CodeRabbit reports auto reviews
-disabled, Greptile is held by `.greptile/config.json`'s `skipReview: "AUTOMATIC"`, and Codex fires only on
-open-for-review, draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined. The
+is a **wait**, not unavailability — the interval it names being a floor rather than a guarantee — and the retry is a fresh provider request that consumes no completed-review slot, since a request that produced no review is not one of the two.
+Author-side review and a green or status-only
+result do not satisfy the gate; *author-side* names whose judgement it is rather than which machine ran it, and what
+the gate protects is that **every substantive change reaching the merge was externally reviewed** — `AGENTS.md`
+§Review is the operative statement of that and of what makes it hold when the reviewed commit is not the merged one. **No provider auto-reviews a pull request opened under the current configuration** — CodeRabbit reports auto reviews
+disabled, Greptile is held by `.greptile/config.json`'s `skipReview: "AUTOMATIC"`, and the GitHub Codex bot fires only on
+open-for-review, draft-ready, or an `@codex review` comment — so a provider that was not asked has not declined. That
+bot posts an artifact naming the head it read, which every leg requires — §Review gives the two shapes; the CLI runs locally, posts nothing and therefore
+satisfies no leg — it is an author-side tool, useful before a provider is asked and recorded as none. The
 one exception is a branch cut **before** that config landed: it is read from the PR's source branch, so such a branch
 still auto-fires Greptile on open. The credit is spent regardless, so the review is answered and the optional Greptile
 step recorded as spent, never discarded as unsolicited.
@@ -1089,11 +1101,14 @@ step recorded as spent, never discarded as unsolicited.
 Review evidence **survives a non-material push**, so responding to findings does not restart the gate: merging or
 rebasing `main` in without conflict resolution, formatting, comment/docstring edits and ADR renumbering are
 non-material — and those exceptions WIN over the material paths, which is what lets an ADR renumber-only change keep its review evidence — while executable code, scientific claims, data, schema, locks, CI/release configuration and the
-governance text itself (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`,
+governance text itself (`AGENTS.md` anywhere, `CLAUDE.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`,
 `.agents/**`, `docs/agents/**`, `.claude/**`, `.github/pull_request_template.md` and
-`.greptile/**`) are material — the list is *every file that states a rule*, because a push that
+`.greptile/**`, and `AGENTS.override.md` anywhere) are material — the list is *every file that states a rule*, because a push that
 changes what the gate requires must not keep evidence gathered under the old requirement. A material push re-arms the review, and a PR gets **at most two completed reviews per metered provider**, Codex being unmetered and uncapped —
-needing a third means the issue was scoped too large, and the lane stops for the maintainer rather than continuing.
+needing a third usually means the issue was scoped too large. The lane does **not** stop for the maintainer: when
+**CodeRabbit's** two-review cap specifically is spent — not any other provider's, since Greptile is optional and its
+exhaustion never blocks — a fresh posted Codex review of the final head closes the gate instead (ADR-0065), subject to
+conditions `AGENTS.md` §Review states and this document, again deliberately, does not.
 
 That bound is a **convention a worker keeps, not a counter that publishes labels.** ADR-0064 retired the round ledger,
 the `agent:round-*` / `agent:review-capped` / `agent:gate-blocked` labels and the launcher that consumed them, after
@@ -1120,7 +1135,8 @@ exist. When a **selected** provider reports that a change has nothing to review 
 including Codex's 👍 reaction, its documented form of "no suggestions" — that statement satisfies its leg, quoted and
 never substituted by the author or any other commenter. **Exhaustion is not incapacity**: a provider with no budget
 left has not reviewed. Greptile out of credits is skippable and never blocks; **CodeRabbit unavailable freezes the
-PR**, because it is the last gate and nothing merges past it. **Throttled is not unavailable**: CodeRabbit's fair-use
+PR**, because it is the last metered gate and an unavailable provider is not a spent cap — it reviewed
+nothing, so nothing opens the unmetered close. **Throttled is not unavailable**: CodeRabbit's fair-use
 limit is adaptive, and a refusal that names when the next included review is due is a wait — wait it and ask again,
 which costs no round and no request, and never accept the usage-based-billing offer that accompanies it, since that is
 the maintainer's spending decision. The elapsed interval is necessary but **not sufficient**: the `CodeRabbit` commit
@@ -1168,8 +1184,11 @@ the ADR-0052 run was a lease that only a sleeping human could renew.
 
 Every agent is a peer: it claims one issue, works one isolated worktree/branch/PR, opens the review lane on a draft,
 and hands off. Auto-merge — bound to the reviewed head with `--match-head-commit` — is armed at the **end** of that
-lane by whoever completes it, never on the draft, since the mandatory CodeRabbit gate is not a required check and
-nothing else would hold the merge. No agent waits on another, and no agent merges on another's
+lane, never on the draft, since the mandatory review gate — CodeRabbit, or the Codex close
+when its cap is spent (ADR-0065) — is not a required check and nothing else would hold the merge. Completing the lane
+is **not** what authorises the arming: clearing the gate and having authority to merge are separate, the second is
+per-PR and explicit and is never inferred from the first, and a worker who finishes the lane without it records that
+the gate is satisfied and hands off. No agent waits on another, and no agent merges on another's
 behalf. ADR-0052's coordinator, leases, run records and guarded-merge monopoly are retired, not merely superseded.
 
 **Label taxonomy** (prefixed namespaces, so labels group and filter cleanly):

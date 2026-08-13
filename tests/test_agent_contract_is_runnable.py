@@ -847,3 +847,39 @@ def test_a_page_that_arms_the_merge_says_what_sha_to_supply() -> None:
         "reaches the merge command as a literal and the binding guard is a guess: "
         f"{undefined}. State that it is the 40-hex head the clean review read."
     )
+
+
+# --- AGENTS.md has to fit in the window the tools that read it actually load ---
+# A contract nobody finishes reading is worse than a shorter one, and the failure is SILENT: the
+# reader gets a prefix and no error. Codex's CLI loads project documents up to a default cap of
+# 32,768 bytes and simply stops there, mid-word. PR #441 grew this file from 21,361 to 35,178 bytes
+# and cut the load off inside the cluster bullet, so every Codex worker lost the rest of §WSL
+# clusters and Slurm, the whole of §Handoff and cleanup, and the whole of §This machine -- including
+# `TETHER_ALLOW_NONSTRICT_X509`, without which `claim.py` cannot reach the GitHub API on the
+# maintainer's machine at all. Nothing in the repository would have reported that.
+#
+# The bound is the tool's, not ours, so this guard keeps real headroom under it rather than sitting
+# on the line: a later version could lower the cap, and a file at 32,700 bytes would start
+# truncating on an unrelated commit.
+_PROJECT_DOC_CAP_BYTES = 32_768
+_HEADROOM_BYTES = 3_072
+
+
+def test_the_contract_fits_inside_the_project_document_cap() -> None:
+    """`AGENTS.md` stays far enough under the loader's cap that its tail is never dropped.
+
+    Asserted on **bytes**, matching how the cap is applied -- a character count would pass while a
+    file full of the em dashes and typographic quotes this contract uses truncated anyway.
+    """
+    size = len((_REPO / "AGENTS.md").read_bytes())
+    budget = _PROJECT_DOC_CAP_BYTES - _HEADROOM_BYTES
+    assert size <= budget, (
+        f"AGENTS.md is {size:,} bytes and the working budget is {budget:,} "
+        f"({_PROJECT_DOC_CAP_BYTES:,}-byte loader cap minus {_HEADROOM_BYTES:,} of headroom). "
+        "This is the working budget, not the cap itself -- the file may still be under the "
+        f"{_PROJECT_DOC_CAP_BYTES:,}-byte loader limit and this still fails, deliberately, so the "
+        "headroom is not spent. Past the CAP the tail is dropped silently and workers lose "
+        "whatever sections sit at the end -- Handoff and This machine, including the TLS "
+        "workaround. Move "
+        "rationale into the ADR that records the decision and leave the operative rule here."
+    )
