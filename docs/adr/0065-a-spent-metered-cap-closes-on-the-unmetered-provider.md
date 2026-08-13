@@ -444,6 +444,14 @@ paragraph said *"roughly twenty lines"*, and a later one said 152; both were mea
 understatement is recorded rather than quietly corrected, because a decision record that
 under-reports its own cost is how a cost stops being weighed.
 
+**§Review is now at its practical ceiling, and that is a finding rather than a footnote.** Answering
+CodeRabbit's third review pushed `AGENTS.md` to 30,120 bytes — over the guard — and the fix was not
+to raise the budget but to cut ~430 bytes of rationale out of §Review and into this record. It now
+sits within a handful of bytes of the limit. The next rule added to that section has to displace
+something, and the honest reading is that **§Review has no room left for prose that is not
+operative**. That is the byte guard doing exactly what it was added for, one commit after it was
+added, on the author who added it.
+
 What the length buys is the four shutting conditions and the stamped-head rule, which cannot be
 compressed without turning the branch into a judgment call. What it also carries is the *reasoning*
 behind each condition — most of it added one review round at a time, as each draft was shown to

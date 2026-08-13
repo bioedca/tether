@@ -1085,7 +1085,7 @@ no single one was sufficient — the lane keeps that property while spending the
 works in, billed per **completed review** — one credit for a standard review, **three for a TREX** one; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
 leg, and a quota refusal from it means the provider **did not review**, never a pass. Exhaustion and incapacity differ: Greptile out of
 credits is skippable, CodeRabbit unavailable **freezes the PR** — though a fair-use refusal that names a retry time
-is a **wait**, not unavailability, and a request that produced no review is not one of the two completed reviews.
+is a **wait**, not unavailability — the interval it names being a floor rather than a guarantee — and the retry is a fresh provider request that consumes no completed-review slot, since a request that produced no review is not one of the two.
 Author-side review and a green or status-only
 result do not satisfy the gate; *author-side* names whose judgement it is rather than which machine ran it, and what
 the gate protects is that **every substantive change reaching the merge was externally reviewed** — `AGENTS.md`

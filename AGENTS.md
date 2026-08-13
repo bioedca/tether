@@ -204,15 +204,20 @@ validity turns on it being the right test — must satisfy both.
   are *paused*; they are *disabled* here, so it reviews nothing and says so in words that read like
   a clean pass). Read its commit status before every ask — `pending` means one is running and a
   second request destroys it. A fair-use refusal naming a retry time is a **wait**, not
-  unavailability; **never** accept its usage-based-billing offer, which is the maintainer's spending
-  decision.
+  unavailability, and the time it names is a floor rather than a guarantee; **never** accept its
+  usage-based-billing offer, which is the maintainer's spending decision.
 - **A spent cap closes on Codex rather than on a maintainer.** When two *completed* CodeRabbit
-  reviews stand on this PR — each one it submitted with a body, since a throttle, a quota refusal or
-  a failed run reviewed nothing — and **no finding they raised is left outstanding**, with the thread
-  resolved on each, then a **fresh Codex review of the final head** closes the gate in their place.
+  reviews stand on this PR — **submitted**, in state `COMMENTED` or `APPROVED`, carrying a body or
+  inline findings of its own; a throttle, quota refusal, failed run, `PENDING` or `DISMISSED`
+  review, bare status check, or a reply on someone else's thread is none of them — and **no finding
+  they raised is left outstanding**, with the thread resolved on each, then a **fresh Codex review of the final head** closes the gate in their place.
+  **It must report nothing actionable, which is not the same as nothing *major*.** Codex's clean
+  result reads *"Didn't find any major issues"* — a run that found something minor says otherwise
+  while still sounding benign, so read what it reported. A closing review carrying findings of any
+  severity is disposed of first and re-read. The close substitutes for a *clean* pass; accepting
+  "no majors" would make it the discount ADR-0065 forbids.
   It must be **posted by the provider and name the commit it read**, in either shape the first
-  bullet describes; a re-quoted earlier pass is not one, since the head that pass read is not the
-  head being merged. *Nothing
+  bullet describes; a re-quoted earlier pass is not one, its head not being the one merged. *Nothing
   left outstanding* is the test — fixed, deferred-and-tracked, dropped sub-floor and withdrawn by the
   provider are the ways of clearing a finding, not the test itself. Anything the closing review
   surfaces is cleared the same way before it closes: this is a *substitute for the clean pass*, not a
@@ -255,22 +260,19 @@ validity turns on it being the right test — must satisfy both.
   neither lets unread scope through, and a resolution carrying new logic of its own is new scope like
   any other. Anchor it
   at the commit and not the clock, because a material push landing while that review is still
-  running is a push it never saw, and a time-anchored window would wave it through. **The unit is
-  the change, not the commit**: a commit that fixes a recorded finding *and* carries an unrelated
-  hunk passes any per-commit test while smuggling exactly the scope this shuts out, so every hunk
-  has to trace to one of the three — a judgement you apply and nothing checks for you, which
-  ADR-0065 states plainly rather than dressing up as mechanical. New scope pushed after the cap has spent it is scope **no
-  metered provider will ever read**, and what the close is entitled to be is a further opinion on a
-  diff **every substantive part of which some external provider has already read** — metered up to
-  the commit the second review read, the closing review after it. Not *twice*-read and not all of it
-  metered: two earlier drafts claimed both and ADR-0065 records why each was false. New scope
-  therefore shuts the close and the PR waits for a gate it can actually satisfy. Motive is not a test
-  and never becomes one; these four are, and they are also why spending an ask to reach the close
-  would buy nothing if it worked, since the close costs the disposal of every finding and a further
-  review on top — more work than the clean pass it replaces.
-- **Clearing the gate is not authority to merge.** They are different things and the second is still
-  per-PR, explicit, and never inferred. Escalate to the maintainer only when the closing review
-  surfaces something blocking that you may not resolve inside this item's scope.
+  running is a push it never saw. **The unit is the change, not the commit**: a commit that fixes a
+  recorded finding *and* carries an unrelated hunk would otherwise smuggle exactly the scope this
+  shuts out, so every hunk traces to one of the three — a judgement you apply and nothing checks for
+  you, which ADR-0065 states plainly rather than dressing up as mechanical. New scope pushed after the cap has spent it is scope **no
+  metered provider will ever read**, so the close is entitled to be a further opinion on a diff
+  **every substantive part of which some external provider has already read** — metered up to the
+  commit the second review read, the closing review after it, and no stronger than that (ADR-0065).
+  New scope therefore shuts the close. Motive is not a test and never becomes one; these four are,
+  and they are also why spending an ask to reach the close buys nothing — it costs the disposal of
+  every finding and a further review on top.
+- **Clearing the gate is not authority to merge.** Different things; the second is per-PR, explicit
+  and never inferred. Escalate only when the closing review surfaces something blocking that you may
+  not resolve inside this item's scope.
 - **Never write a provider's handle in a comment you do not intend as a request.** A mention fires
   the bot even inside backticks — a code span is not an escape. Describe the command in prose
   instead.
