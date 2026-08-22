@@ -22,15 +22,21 @@ updates:
     groups:
       pip:
         patterns: ["*"]
-    # setuptools is pinned INSIDE `<81` on purpose: packaging/setuptools-compatibility.txt
-    # keeps pkg_resources importable for tMAVEN's undeclared import (#212; removed upstream
-    # in setuptools 82.0.0), and scripts/setup_sidecar.py's parser makes an out-of-bound
-    # bump unmergeable by design (PR #455 was one). In-bound updates (80.9.x) still flow.
-    # Delete this entry together with the compatibility file the moment tMAVEN stops
-    # importing pkg_resources — the same removal trigger that file records.
+    # setuptools updates are deliberately never proposed. The sidecar ships a
+    # compatibility pin whose single source of truth is
+    # packaging/setuptools-compatibility.txt (tMAVEN's undeclared pkg_resources
+    # import, #212), and scripts/setup_sidecar.py's parser makes an out-of-bound
+    # bump unmergeable by design — #455 was one, refused on all three OS test legs.
+    # No version range is stated here: a range would be a second copy of the bound
+    # that file forbids restating anywhere else, and tests/test_setup_sidecar.py
+    # sweeps this file to keep it that way. Ignoring all versions forfeits nothing —
+    # upstream is far past the bound, so there are no in-bound releases left to
+    # propose. This also suppresses Dependabot's security-update PRs for
+    # setuptools: intended, since an out-of-bound bump cannot merge anyway; a real
+    # advisory is acted on at that file, per its TO UPDATE recipe. Delete this
+    # entry together with that file the moment tMAVEN stops importing pkg_resources.
     ignore:
       - dependency-name: "setuptools"
-        versions: [">=81"]
     commit-message:
       prefix: build
       include: scope
