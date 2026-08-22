@@ -154,6 +154,13 @@ def test_no_consumer_restates_the_version_or_the_bound() -> None:
         "packaging.yml": _REPO_ROOT / ".github" / "workflows" / "packaging.yml",
         "release.yml": _REPO_ROOT / ".github" / "workflows" / "release.yml",
         "packaging/README.md": _REPO_ROOT / "packaging" / "README.md",
+        # Not a consumer — the Dependabot config EXCLUDES setuptools from update
+        # PRs — but an ignore range (`versions: [">=…"]`) would be a second copy
+        # of the bound, split across two lines where the regex below cannot see
+        # it. Swept anyway so prose or a one-line restatement still trips here;
+        # the range-less shape itself is pinned by
+        # test_dependabot_setuptools_ignore_stays_rangeless.
+        ".github/dependabot.yml": _REPO_ROOT / ".github" / "dependabot.yml",
     }
     # A LITERAL requirement: `setuptools`, a comparator, then a digit. Narrowed twice while
     # writing it, and both narrowings are the point rather than concessions.
@@ -177,6 +184,36 @@ def test_no_consumer_restates_the_version_or_the_bound() -> None:
         ]
         assert not offending, f"{name} restates the pin instead of reading the file: {offending}"
         assert digest not in text, f"{name} restates the digest"
+
+
+def test_dependabot_setuptools_ignore_stays_rangeless() -> None:
+    """The Dependabot ignore for setuptools must not state a version range.
+
+    A range (``versions: [">=…"]``) restates the bound in a two-line YAML shape the
+    consumer sweep's regex cannot see — the dependency name and the range sit on
+    different lines. Range-less means ignore-all, which drifts nowhere when the pin
+    moves and forfeits nothing: upstream is far past the bound, so there are no
+    in-bound releases left for Dependabot to propose (review finding on #457).
+    """
+    import yaml  # provided by the base conda-lock (a mkdocs dependency)
+
+    config = yaml.safe_load((_REPO_ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+    pip_entries = [e for e in config["updates"] if e.get("package-ecosystem") == "pip"]
+    assert pip_entries, "dependabot.yml lost its pip update entry"
+    rules = [
+        rule
+        for entry in pip_entries
+        for rule in entry.get("ignore", [])
+        if rule.get("dependency-name") == "setuptools"
+    ]
+    assert rules, (
+        "the pip entry must ignore setuptools entirely; the why lives in "
+        "packaging/setuptools-compatibility.txt"
+    )
+    for rule in rules:
+        assert set(rule) == {"dependency-name"}, (
+            f"the setuptools ignore must stay range-less (ignore-all); got keys {sorted(rule)}"
+        )
 
 
 def test_both_workflows_download_with_hash_enforcement() -> None:

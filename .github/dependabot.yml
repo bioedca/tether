@@ -22,6 +22,21 @@ updates:
     groups:
       pip:
         patterns: ["*"]
+    # setuptools updates are deliberately never proposed. The sidecar ships a
+    # compatibility pin whose single source of truth is
+    # packaging/setuptools-compatibility.txt (tMAVEN's undeclared pkg_resources
+    # import, #212), and scripts/setup_sidecar.py's parser makes an out-of-bound
+    # bump unmergeable by design — #455 was one, refused on all three OS test legs.
+    # No version range is stated here: a range would be a second copy of the bound
+    # that file forbids restating anywhere else, and tests/test_setup_sidecar.py
+    # sweeps this file to keep it that way. Ignoring all versions forfeits nothing —
+    # upstream is far past the bound, so there are no in-bound releases left to
+    # propose. This also suppresses Dependabot's security-update PRs for
+    # setuptools: intended, since an out-of-bound bump cannot merge anyway; a real
+    # advisory is acted on at that file, per its TO UPDATE recipe. Delete this
+    # entry together with that file the moment tMAVEN stops importing pkg_resources.
+    ignore:
+      - dependency-name: "setuptools"
     commit-message:
       prefix: build
       include: scope
