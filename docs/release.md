@@ -43,8 +43,14 @@ release**, not the binaries, and it is unaffected by any of the above.
     signing key registered as a *Signing Key* on the account), and its commit must be on
     `main` — `release.yml`'s `verify` job enforces all three.
 3. To rehearse without publishing, run the **`release`** workflow via *Actions → release
-   → Run workflow* with `ref: v1.0.0-rc1` and `dry_run: true` — it builds, install-smokes,
-   checksums and SBOMs, but publishes no Release.
+   → Run workflow* with `dry_run: true` and, as `ref`, a fresh `v*` rc tag cut from the
+   `main` you are about to release — it builds, install-smokes, checksums and SBOMs, but
+   publishes no Release. Rehearse a **current** tag only: the dispatch runs `main`'s
+   workflow definition against the `ref` tag's tree, so a historical tag — one predating
+   the pipeline's checked-in inputs, `packaging/setuptools-compatibility.txt` and
+   `packaging/scripts/install_smoke.sh` — fails early on the first absent file. To re-run
+   such a tag self-consistently, set **Use workflow from** to the tag itself, the same
+   rule the docs dispatch below already states.
 
 ### What a published Release contains: verified `v1.0.0-rc1`
 
