@@ -117,6 +117,30 @@ def test_never_reported_is_a_violation_naming_context_and_commit() -> None:
     assert "no check run" in violations[0]
 
 
+def test_never_reported_on_an_overwindowed_ref_explains_the_suite_window() -> None:
+    """Beyond 1000 suites the endpoint windows its answer; the verdict must say so.
+
+    The check-runs endpoint returns runs from only the 1000 most recent check suites
+    on the ref — a property of the endpoint, not of ``filter`` — and the scheduled
+    reaper/triage workflows put ~50-100 suites a day on whatever commit is the `main`
+    tip, so a commit idle for a few weeks can age its original CI suites out of the
+    window. The verdict stays a violation (fail-closed), but a bare "never reported"
+    on such a ref would send the operator hunting for a check that DID run; the
+    message must name the window and the recovery instead.
+    """
+    runs = [r for r in _all_green() if r["name"] != "sidecar / parity"]
+    over = guard.evaluate(runs, CONTEXTS, RC1_COMMIT, suite_count=1200)
+    assert len(over) == 1
+    assert "1200 check suites" in over[0] and "1000 most recent" in over[0]
+
+    under = guard.evaluate(runs, CONTEXTS, RC1_COMMIT, suite_count=18)
+    assert len(under) == 1
+    assert "check suites" not in under[0], (
+        "a ref inside the window must report a plain never-reported violation — the "
+        "window explanation there would excuse a context that genuinely never ran"
+    )
+
+
 def test_v070_shape_reports_the_published_violation() -> None:
     """All eleven present, `sidecar / parity` concluded failure — v0.7.0's real shape."""
     violations = guard.evaluate(_v070_shape(), CONTEXTS, V070_COMMIT)

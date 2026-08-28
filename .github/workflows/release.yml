@@ -150,9 +150,23 @@ jobs:
           schema-guard
           sidecar / parity
           "
-          # Dereference the tag server-side: the annotated tag object resolves to the
-          # commit it tags, with no dependence on local tag fetching.
-          commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${TAG}" -q .sha)"
+          # Dereference the tag server-side and TAG-QUALIFIED (refs/tags/), never as a
+          # bare name: the commits endpoint accepts a SHA, branch or tag, so a branch
+          # sharing the tag's name could otherwise resolve instead — and green checks
+          # on that branch would bless a red tagged commit. On a publish the signature
+          # step above has just proven refs/tags/$TAG exists, so the qualified lookup
+          # always succeeds there; the bare-name fallback can only ever run on a dry
+          # run of a non-tag ref, where the verdict is advisory by design.
+          commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/refs/tags/${TAG}" -q .sha 2>/dev/null \
+            || gh api "repos/${GITHUB_REPOSITORY}/commits/${TAG}" -q .sha)"
+          # The check-runs endpoint windows its answer to the 1000 most recent check
+          # suites on the ref (docs.github.com/en/rest/checks/runs — the note is on
+          # the endpoint itself, so filter=all does not widen it), and the scheduled
+          # reaper/triage runs pile suites onto whatever commit is the main tip. The
+          # suite count is therefore fetched and piped too, so the script can explain
+          # a never-reported verdict on an over-windowed ref instead of reporting a
+          # bare false "never reported".
+          suites="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${commit}/check-suites?per_page=1" -q .total_count)"
           # The Checks API, never the combined-status endpoint: every gate on main is a
           # check run, and the status endpoint reports an empty "pending" for a fully
           # green commit. Keep the endpoint's default filter (NOT filter=all): a re-run
@@ -164,7 +178,8 @@ jobs:
             | python3 scripts/verify_postmerge_checks.py \
                 --commit "$commit" \
                 --required-contexts "$REQUIRED_CONTEXTS" \
-                --publish-mode "$PUBLISH"
+                --publish-mode "$PUBLISH" \
+                --suite-count "$suites"
 
   # ---------------------------------------------------------------------------
   # 2) Build the 3-OS installers (the PR-1 constructor recipe).

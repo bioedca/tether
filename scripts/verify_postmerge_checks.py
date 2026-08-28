@@ -49,6 +49,15 @@ _SKIPPED_OK = frozenset({"commitlint"})
 
 _ACCEPTED = frozenset({"success"})
 
+#: The check-runs endpoint considers only the 1000 most recent check suites on a ref
+#: (docs.github.com/en/rest/checks/runs — a property of the endpoint, not of its
+#: ``filter`` parameter), and the scheduled reaper/triage workflows pile suites onto
+#: whatever commit is the `main` tip. Beyond the window, a required context's original
+#: suite can age out and read as never-reported. That stays a violation — fail-closed —
+#: but the message must say WHY, or the operator faces a false "never reported" with no
+#: visible cause.
+_SUITE_WINDOW = 1000
+
 
 def parse_contexts(raw: str) -> list[str]:
     """The required-context list: one name per line, blanks and ``#`` comments dropped."""
@@ -110,7 +119,7 @@ def _recency_key(run: dict) -> tuple[int, str, str]:
     )
 
 
-def evaluate(runs: list[dict], contexts: list[str], commit: str) -> list[str]:
+def evaluate(runs: list[dict], contexts: list[str], commit: str, suite_count: int = 0) -> list[str]:
     """One verdict per required context; the returned list holds the violations."""
     by_context: dict[str, list[dict]] = {}
     for run in runs:
@@ -125,7 +134,15 @@ def evaluate(runs: list[dict], contexts: list[str], commit: str) -> list[str]:
             # Never-reported IS a violation: v1.0.0-rc1 predates sidecar.yml's push
             # trigger, so `sidecar / parity` simply has no run at its commit — a guard
             # that read absence as anything but red would have passed it.
-            violations.append(f"required context '{context}' has no check run at {commit}")
+            message = f"required context '{context}' has no check run at {commit}"
+            if suite_count > _SUITE_WINDOW:
+                message += (
+                    f" (the ref carries {suite_count} check suites and the endpoint "
+                    f"returns only the {_SUITE_WINDOW} most recent, so this context's "
+                    "suite may have aged out of the window — re-run it, or release "
+                    "from a commit whose checks are current)"
+                )
+            violations.append(message)
             continue
         latest = max(candidates, key=_recency_key)
         status = latest.get("status")
@@ -166,6 +183,13 @@ def main(argv: list[str] | None = None) -> int:
         help="steps.resolve.outputs.publish, passed through VERBATIM by the caller",
     )
     parser.add_argument(
+        "--suite-count",
+        type=int,
+        default=0,
+        help="total check suites on the ref (0 = unknown); beyond the endpoint's "
+        "1000-suite window a never-reported context is explained, not just reported",
+    )
+    parser.add_argument(
         "records",
         nargs="?",
         help="check-run JSON stream (a file path; stdin when omitted)",
@@ -200,8 +224,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::error::no check-run records for {args.commit}; refusing to conclude anything")
         return 1
 
-    print(f"Evaluated {len(runs)} check-run records at {args.commit}.")
-    violations = evaluate(runs, contexts, args.commit)
+    suites = f" (ref carries {args.suite_count} check suites)" if args.suite_count else ""
+    print(f"Evaluated {len(runs)} check-run records at {args.commit}{suites}.")
+    violations = evaluate(runs, contexts, args.commit, args.suite_count)
 
     if not violations:
         print(f"All {len(contexts)} required contexts are green at {args.commit}.")
