@@ -48,6 +48,12 @@ jobs:
   verify:
     name: verify tag
     runs-on: ubuntu-latest
+    # A job-level permissions block replaces the workflow-level `contents: read`
+    # WHOLESALE, so checkout's read must be restated here beside the checks read
+    # the post-merge guard needs.
+    permissions:
+      contents: read
+      checks: read
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
@@ -107,6 +113,58 @@ jobs:
           git merge-base --is-ancestor "$commit" refs/remotes/origin/main \
             || { echo "::error::tag commit $commit is not on origin/main"; false; }
           echo "Verified annotated + signed tag $TAG on main."
+
+      - name: Require green post-merge checks on the tagged commit
+        # The post-merge `ci`, `schema-guard` and `sidecar / parity` runs on `main` are
+        # the compensating control for dropping the strict up-to-date rule (ADR-0057);
+        # this step is the release half of that control (issue #266): a tag on a commit
+        # whose post-merge checks are red, cancelled, missing or still running must not
+        # publish. Deliberately NO `if:` — the guard evaluates on every run, a dry run
+        # included, and the committed script (not this step) owns both the verdict and
+        # the disposition: publish mode `true` refuses, `false` is advisory, and any
+        # other value fails loudly. This step only fetches and pipes — it performs no
+        # comparison itself — so the decision logic stays unit-testable offline
+        # (release.yml cannot run in the local gate matrix).
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+          PUBLISH: ${{ steps.resolve.outputs.publish }}
+        run: |
+          set -euo pipefail
+          # The frozen in-repo copy of the `main-baseline` ruleset's required contexts,
+          # one per line. The ruleset is maintainer-owned out-of-band state and is
+          # deliberately NOT read live: a workflow that followed it would silently obey
+          # a ruleset edit nobody reviewed, so a ruleset change must instead arrive as
+          # a reviewed diff editing this list and the contract test pinning it
+          # (tests/test_marker_contract.py).
+          REQUIRED_CONTEXTS="
+          lint
+          test (ubuntu-latest)
+          test (macos-latest)
+          test (windows-latest)
+          pre-commit
+          commitlint
+          secret-scan
+          conda-lock-verify
+          docs-build
+          schema-guard
+          sidecar / parity
+          "
+          # Dereference the tag server-side: the annotated tag object resolves to the
+          # commit it tags, with no dependence on local tag fetching.
+          commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${TAG}" -q .sha)"
+          # The Checks API, never the combined-status endpoint: every gate on main is a
+          # check run, and the status endpoint reports an empty "pending" for a fully
+          # green commit. Keep the endpoint's default filter (NOT filter=all): a re-run
+          # inside one suite legitimately supersedes its failure (proven at 6d53c980),
+          # while cross-suite recency is the script's job. --paginate because a busy
+          # main commit carries 100+ runs and ten of the eleven required contexts are
+          # absent from the first page.
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${commit}/check-runs?per_page=100" --paginate \
+            | python3 scripts/verify_postmerge_checks.py \
+                --commit "$commit" \
+                --required-contexts "$REQUIRED_CONTEXTS" \
+                --publish-mode "$PUBLISH"
 
   # ---------------------------------------------------------------------------
   # 2) Build the 3-OS installers (the PR-1 constructor recipe).

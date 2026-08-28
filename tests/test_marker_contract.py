@@ -854,6 +854,10 @@ def test_install_smoke_owns_the_offline_env_and_no_caller_restates_it() -> None:
 # invisible to it. The staging step therefore carries an unconditional completeness gate; these
 # gate honest, non-vacuous, and in lockstep with the matrix and the constructor recipe.
 STAGING_STEP_NAME = "Stage the release assets"
+#: The `verify`-job step that gates a publish on the tagged commit's post-merge checks
+#: (issue #266). Its guards live in the post-merge-gate section further down; the constant
+#: sits here beside its staging sibling so the two pinned step names stay in one place.
+POSTMERGE_STEP_NAME = "Require green post-merge checks"
 CONSTRUCT_RECIPE = Path(__file__).resolve().parents[1] / "packaging" / "construct.yaml"
 INSTALLER_EXTS = frozenset({"exe", "pkg", "sh"})
 
@@ -1113,6 +1117,220 @@ def test_release_staging_gate_counts_every_installer_kind_and_fails_falsy() -> N
     assert re.search(r"^\s*false\s*$", block, re.M), (
         "the gate must fail via a bare falsy command, never `exit` (which reports exit 1 under "
         "the `bash -el {0}` login shell used elsewhere in this workflow)"
+    )
+
+
+# --- The post-merge check gate (release.yml `verify`, issue #266 / ADR-0057) ---
+# Dropping the strict up-to-date rule (2026-07-28) accepted that a semantic conflict between
+# two independently-green PRs can land green; the post-merge runs on `main` are the
+# compensating detection (ADR-0057), and this gate turns that detection into a release
+# control: `verify` fetches the tagged commit's check runs and a committed stdlib-only
+# script — scripts/verify_postmerge_checks.py, unit-tested offline in
+# tests/test_verify_postmerge_checks.py — owns the verdict AND the disposition. The guards
+# here pin the workflow half only: the frozen context list, its binding to jobs that really
+# report on `main`, the paginated fetch, the job's permissions, and the fetch-and-pipe split
+# that keeps every comparison out of the step.
+
+#: The `main-baseline` ruleset's eleven required contexts, frozen here AND in release.yml's
+#: REQUIRED_CONTEXTS. The failure asymmetry is why both copies are pinned: a wrong or stale
+#: name does not fail at review time — it blocks every future release with a false "never
+#: reported", which only the binding test below can catch early.
+REQUIRED_MAIN_CONTEXTS = frozenset(
+    {
+        "lint",
+        "test (ubuntu-latest)",
+        "test (macos-latest)",
+        "test (windows-latest)",
+        "pre-commit",
+        "commitlint",
+        "secret-scan",
+        "conda-lock-verify",
+        "docs-build",
+        "schema-guard",
+        "sidecar / parity",
+    }
+)
+
+
+def _postmerge_step_block() -> str:
+    block = _workflow_step_block(RELEASE_WORKFLOW.read_text(encoding="utf-8"), POSTMERGE_STEP_NAME)
+    assert block, f"release.yml must keep a '{POSTMERGE_STEP_NAME}...' step in the `verify` job"
+    return block
+
+
+def _postmerge_declared_contexts() -> set[str]:
+    """``REQUIRED_CONTEXTS`` from the gate step, parsed as the set of context names.
+
+    Anchored to a NON-comment assignment line (``^[ \\t]*REQUIRED_CONTEXTS=``) and stripped
+    of blank and ``#``-prefixed lines inside the quoted block, so a rationale comment that
+    names a context cannot fake membership — the same anti-vacuity anchoring
+    ``test_release_staging_gate_counts_every_installer_kind_and_fails_falsy`` documents.
+    """
+    declared = re.search(r'^[ \t]*REQUIRED_CONTEXTS="([^"]*)"', _postmerge_step_block(), re.M)
+    assert declared, (
+        'the gate step must declare REQUIRED_CONTEXTS="<one context per line>" — the frozen '
+        "in-repo copy of the main-baseline ruleset's required contexts"
+    )
+    lines = [line.strip() for line in declared.group(1).splitlines()]
+    return {line for line in lines if line and not line.startswith("#")}
+
+
+def test_release_postmerge_gate_pins_the_exact_ruleset_contexts() -> None:
+    """The committed context list is exactly the `main-baseline` ruleset's eleven.
+
+    The ruleset is the AUTHORITY and it is out-of-band, maintainer-owned state: it lives on
+    the repository, not in the tree, so this list is a frozen copy — deliberately not read
+    live, or a ruleset edit nobody reviewed would silently steer the release gate. The cost
+    of freezing is a sync obligation, stated in ADR-0057: a ruleset change edits BOTH the
+    ruleset and release.yml's REQUIRED_CONTEXTS (plus this pin). One context per line in the
+    step because a space-separated value cannot represent `sidecar / parity`.
+    """
+    assert _postmerge_declared_contexts() == REQUIRED_MAIN_CONTEXTS, (
+        "release.yml's REQUIRED_CONTEXTS must equal the main-baseline ruleset's required "
+        "contexts exactly — a missing name silently un-gates that check, an extra or "
+        "misspelled one blocks every release with a false 'never reported'. If the ruleset "
+        "legitimately changed, update the step and this pin in the same PR."
+    )
+
+
+def test_postmerge_contexts_bind_to_jobs_that_report_on_main_pushes() -> None:
+    """Every required context resolves to a job that actually produces it on a `main` push.
+
+    The runtime symptom of a stale or unreachable name is a permanently blocked release,
+    not a red test — the guard would wait forever for a context nothing produces. So each
+    entry must match a job `name:` in some workflow whose `push` trigger covers `main`
+    (`ci.yml`'s `test` job expands over its `matrix.os` into `test (<os>)`). PyYAML parses
+    an unquoted ``on:`` key as the boolean ``True`` — the block is read from the parsed
+    mapping under that key, which is also why ``_on_block_child_keys`` (an indent scan)
+    is not used here: it returns only the immediate child keys, never ``push.branches``.
+    """
+    produced: dict[str, str] = {}
+    for path in sorted((GITHUB_DIR / "workflows").glob("*.y*ml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(workflow, dict):
+            continue
+        on_block = workflow.get(True)
+        push = on_block.get("push") if isinstance(on_block, dict) else None
+        branches = push.get("branches") if isinstance(push, dict) else None
+        if not isinstance(branches, list) or "main" not in branches:
+            continue
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            if not isinstance(job, dict):
+                continue
+            name = str(job.get("name", job_id))
+            os_values = ((job.get("strategy") or {}).get("matrix") or {}).get("os")
+            if isinstance(os_values, list):
+                for os_value in os_values:
+                    produced[f"{name} ({os_value})"] = path.name
+            else:
+                produced[name] = path.name
+
+    unbound = sorted(_postmerge_declared_contexts() - set(produced))
+    assert not unbound, (
+        "every REQUIRED_CONTEXTS entry must be produced by a job in a workflow that "
+        f"pushes to main; nothing produces {unbound} — a release would block forever on a "
+        "false 'never reported'. Fix the job name, the push trigger, or the list."
+    )
+
+
+def test_postmerge_fetch_paginates_on_a_live_line() -> None:
+    """The check-run fetch carries ``--paginate``, on a line that actually executes.
+
+    A busy `main` commit carries 100+ check runs (the scheduled `triage`/`reap` runs pile
+    onto whatever commit is the tip), and even at ``per_page=100`` ten of the eleven
+    required contexts are absent from the first page — so an unpaginated fetch refuses
+    every release cut from a busy commit with a false "never reported". Anchored to a
+    non-comment line because the step's own rationale comment names ``--paginate``: a bare
+    substring check would stay green with the flag deleted.
+    """
+    assert re.search(r"^[ \t]*gh api[^#\n]*--paginate", _postmerge_step_block(), re.M), (
+        "the gate step must fetch check runs with `gh api ... --paginate` on a live "
+        "(non-comment) line; without it ten of the eleven required contexts are missing "
+        "from a busy commit's first page and the guard reports a false 'never reported'"
+    )
+
+
+def test_release_verify_declares_both_permissions_and_the_step_token() -> None:
+    """`verify` grants itself exactly the reads the gate needs, and the step its token.
+
+    A job-level ``permissions:`` block replaces the workflow-level ``contents: read``
+    WHOLESALE, so the job must restate it beside the new ``checks: read`` or
+    ``actions/checkout`` breaks in that job. ``GH_TOKEN`` is declared per-step in `verify`
+    (the signature step set the precedent), and ``gh api`` without it dies asking for one.
+    """
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    permissions = (yaml.safe_load(text)["jobs"]["verify"] or {}).get("permissions") or {}
+    assert permissions.get("contents") == "read", (
+        "jobs.verify.permissions must restate `contents: read` — a job-level permissions "
+        "block replaces the workflow default wholesale, and checkout needs the read"
+    )
+    assert permissions.get("checks") == "read", (
+        "jobs.verify.permissions must grant `checks: read` — the post-merge gate reads the "
+        "tagged commit's check runs"
+    )
+    steps = [
+        step
+        for step in _job_steps(text, "verify")
+        if str(step.get("name", "")).startswith(POSTMERGE_STEP_NAME)
+    ]
+    assert len(steps) == 1, (
+        f"release.yml's `verify` job must carry exactly one '{POSTMERGE_STEP_NAME}...' "
+        f"step; found {len(steps)}"
+    )
+    assert (steps[0].get("env") or {}).get("GH_TOKEN") == "${{ github.token }}", (
+        "the gate step must declare `env: GH_TOKEN: ${{ github.token }}` — GH_TOKEN is "
+        "set per-step in `verify`, never job-wide, and `gh api` requires it"
+    )
+
+
+def test_postmerge_step_is_fetch_and_pipe_passing_publish_verbatim() -> None:
+    """The step evaluates on every run and holds no second copy of the disposition rule.
+
+    Three properties, each with a distinct failure mode: no ``if:`` at all, so a dry run
+    still evaluates and reports (the M9 milestone needs the rehearsal sighted); the raw
+    ``steps.resolve.outputs.publish`` expression handed through an env var to
+    ``--publish-mode`` VERBATIM, so the committed script — not a workflow expression — is
+    the single place that interprets it (a ``== 'true'`` comparison here would silently
+    turn a typo'd value into advisory, the fail-open the script exists to close); and no
+    shell conditional over that variable inside the step, so the disposition cannot grow
+    an untested duplicate at the call site.
+    """
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    step = next(
+        step
+        for step in _job_steps(text, "verify")
+        if str(step.get("name", "")).startswith(POSTMERGE_STEP_NAME)
+    )
+    assert "if" not in step, (
+        "the gate step must declare no `if:` — it evaluates on every run, dry runs "
+        f"included, and the script owns the disposition; got {step.get('if')!r}"
+    )
+    publish_vars = [
+        key
+        for key, value in (step.get("env") or {}).items()
+        if str(value).strip() == "${{ steps.resolve.outputs.publish }}"
+    ]
+    assert publish_vars, (
+        "the gate step's env must map a variable to the exact expression "
+        "`${{ steps.resolve.outputs.publish }}` — comparing or rewriting it in the "
+        "workflow would put a second, untested copy of the disposition at the call site"
+    )
+    run = step.get("run")
+    assert isinstance(run, str), "the gate step must carry a `run:` script"
+    variable = publish_vars[0]
+    assert re.search(r'--publish-mode\s+"\$' + re.escape(variable) + '"', run), (
+        f"the gate step must pass ${variable} to --publish-mode verbatim; the script — "
+        "not the step — decides what the value means"
+    )
+    conditional = re.compile(r"^\s*(?:(?:el)?if\b|\[\[?|test\b|case\b)")
+    offenders = [
+        line
+        for line in run.splitlines()
+        if not line.lstrip().startswith("#") and f"${variable}" in line and conditional.search(line)
+    ]
+    assert not offenders, (
+        f"no line of the gate step may both name ${variable} and be a shell conditional — "
+        f"that is a second, untested disposition rule at the call site: {offenders}"
     )
 
 
