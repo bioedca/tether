@@ -16,17 +16,17 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > **What of ADR-0064 survives.** Everything except one clause. Its four coordination controls, its
 > drop rule, its feature-complete boundary and its removals **govern unchanged**; this record
 > supersedes only the fourth of the four review rules it kept — *"one CodeRabbit review with no
-> actionable comments is the last gate before merge"* (ADR-0064:311–312). That distinction is stated
+> actionable comments is the last gate before merge"* (ADR-0064 §"What is removed", the fourth kept
+> review rule). That distinction is stated
 > here rather than compressed into the `Status` bullet because `scripts/gen_adr_index.py` extracts
 > that field with a single-line pattern and copies it verbatim into the index.
 
 Three rules in `AGENTS.md` §Review were individually sound and jointly unsatisfiable:
 
-| line | rule |
-|---|---|
-| `:188` | CodeRabbit is the last gate — **at least one review with no actionable comments** |
-| `:211` | **Two completed reviews per METERED provider**, then stop |
-| `:221` | If a third pass would be needed, **hand the PR to the maintainer** |
+- The former CodeRabbit-is-the-last-gate rule required **at least one review with no actionable
+  comments**; its successor is §Review's *"CodeRabbit is the last metered gate"* rule.
+- §Review's *"Two completed reviews per METERED provider, then stop"* cap survives this record.
+- The retired third-pass escalation required the worker to **hand the PR to the maintainer**.
 
 If both permitted metered reviews found anything at all, the zero-finding review the gate demanded
 required a third read, which the cap forbade. The PR was then stuck behind a human indefinitely,
@@ -77,16 +77,18 @@ showed it had never once occurred. That evidence was true when written. It is no
 
 ### The section already handled the same situation correctly one provider over
 
-`AGENTS.md:183–187` disposes of an exhausted **metered** provider in words: *"if the seat is empty
+§Review's *"Metered credits are the maintainer's money"* rule disposes of an exhausted **metered**
+provider in words: *"if the seat is empty
 record 'Greptile: no credits this month' and move on; **exhaustion never blocks**."* A spent
 CodeRabbit cap is the same situation and blocked. This record makes CodeRabbit consistent with
 Greptile rather than inventing a principle for it.
 
 ## Decision drivers
 
-- **The unmetered provider is already trusted and already uncapped.** `AGENTS.md:165` calls Codex
-  *"unmetered and so uncapped"* and `:168` calls it *"not optional: it is what makes the metered
-  providers affordable."* Nothing new is being extended to it; it is being allowed to finish.
+- **The unmetered provider is already trusted and already uncapped.** §Review's *"The lane is cheapest
+  provider first"* rule calls Codex *"unmetered and so uncapped"* and says *"Codex is not optional:
+  it is what makes the metered providers affordable."* Nothing new is being extended to it; it is
+  being allowed to finish.
 - **The safety property must not move.** *"You are never the only reviewer of your own diff"* must
   hold identically after the change.
 - **No new machinery.** ADR-0064 established that review state has no concurrency content and needs
@@ -269,8 +271,9 @@ closing review is a **posted** one.
 
 Three things had to be true at once for that error to survive as long as it did: an observation was
 turned into a rule (*the bot declines*), the rule was **load-bearing** (it forced the close onto the
-weaker path and pushed a rewrite of `AGENTS.md:156`, which #439 explicitly put out of scope), and it
-was never re-tested, because it explained the evidence well enough that re-testing felt unnecessary.
+weaker path and pushed a rewrite of §Review's first bullet, *"You are never the only reviewer of your
+own diff"*, which #439 explicitly put out of scope), and it was never re-tested, because it explained
+the evidence well enough that re-testing felt unnecessary.
 **Availability is determined by asking.** A provider that refused last week has not declined today,
 and the cost of finding out is one comment.
 
@@ -388,7 +391,7 @@ all. The bar does not move; only who holds it does.
 ### Clearing the gate is still not authority to merge
 
 Stated as its own rule rather than as a tail clause, because it is the most damaging available
-misreading. `AGENTS.md:32–33` — *"Do not infer merge authority"* — is untouched.
+misreading. §Outcome and authority's *"Do not infer merge authority"* rule is untouched.
 
 ### What the merge binds to
 
@@ -409,10 +412,10 @@ it: the PRD phrases it as *"the lane stops for the maintainer"* rather than *"ha
 maintainer"*, so a
 phrase-matched search missed it. **A rule stated in five files is found by reading all five, not by
 grepping the wording you happen to remember** — and this record is the third place in this pull
-request where a fix landed in one file and not its mirrors. Deleting it **repairs** `AGENTS.md:227`, *"Human sign-off: releases,
-tags, signing, any new scientific claim or citation. Nothing else waits,"* which was false while a
-capped review gate waited on a human. That sentence becoming true again is affirmative evidence the
-escalation was the anomaly rather than the design.
+request where a fix landed in one file and not its mirrors. Deleting it **repairs** §Review's *"Human
+sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits"* rule,
+which was false while a capped review gate waited on a human. That sentence becoming true again is
+affirmative evidence the escalation was the anomaly rather than the design.
 
 **Bad, and named rather than minimised.** The terminal verdict on a capped PR now comes from the
 provider the repository does **not** pay for, and Codex's reliability is therefore load-bearing in a
@@ -444,6 +447,11 @@ paragraph said *"roughly twenty lines"*, and a later one said 152; both were mea
 understatement is recorded rather than quietly corrected, because a decision record that
 under-reports its own cost is how a cost stops being weighed.
 
+Line anchors into a file this repository actively edits are therefore dropped from this record:
+rule and section names survive ordinary prose movement. This is not a general ban on line anchors;
+older records cite the frozen Deep-LASI reference tree, where a stable line number remains
+load-bearing evidence.
+
 **§Review is now at its practical ceiling, and that is a finding rather than a footnote.** Answering
 CodeRabbit's third review pushed `AGENTS.md` to 30,120 bytes — over the guard — and the fix was not
 to raise the budget but to cut ~430 bytes of rationale out of §Review and into this record. It now
@@ -467,8 +475,9 @@ follow-up work rather than left for someone to notice.
 ## Adoption status
 
 Landed with this record. The six surfaces that restated the retired rule move in the same pull
-request, because `AGENTS.md:177–182` puts every rule-stating file on the material list precisely so
-that a push changing what the gate requires cannot leave a stale copy behind:
+request, because §Review's *"Review evidence survives a non-material push"* rule puts every
+rule-stating file on the material list precisely so that a push changing what the gate requires
+cannot leave a stale copy behind:
 `.agents/skills/tether-worker/SKILL.md`, `.agents/skills/tether-worker/agents/openai.yaml`,
 `CONTRIBUTING.md`, `.github/pull_request_template.md`,
 [`docs/PRD.md`](https://github.com/bioedca/tether/blob/main/docs/PRD.md) §12 and
@@ -478,7 +487,7 @@ that a push changing what the gate requires cannot leave a stale copy behind:
 four lines, read by no test, and injected as the Codex lane's **default prompt**, so a stale copy
 there briefs every future Codex-lane worker under a contract that no longer exists.
 
-**This pull request cannot use the branch it introduces.** `AGENTS.md:6` says only instructions on
-the default branch govern and unmerged edits are inert, and every file it touches is material, so it
-re-arms its own review and is judged under the old gate. That is the correct order and not an
-oversight: the rule earns its way in under the regime it replaces.
+**This pull request cannot use the branch it introduces.** The opening paragraph of `AGENTS.md` says
+only instructions on the default branch govern and unmerged edits are inert, and every file it
+touches is material, so it re-arms its own review and is judged under the old gate. That is the
+correct order and not an oversight: the rule earns its way in under the regime it replaces.
