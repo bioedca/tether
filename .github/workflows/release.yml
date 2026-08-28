@@ -249,6 +249,17 @@ jobs:
       - name: Build the installer
         run: constructor --output-dir packaging/dist packaging/
 
+      - name: Install-smoke — offline install into a clean prefix
+        # Runs on the exact bytes the upload step below stages: a release-built
+        # installer that cannot install or launch fails THIS job, so no bundle ever
+        # reaches the `release` job (issue #217). The whole per-platform probe
+        # sequence lives in ONE checked-in script shared with the advisory
+        # packaging.yml, so the two smokes cannot drift apart. Deliberately
+        # unconditional — the platform branch lives inside the script, so the step
+        # carries no `if:` and runs on all four matrix legs; a contract test asserts
+        # the position, the ordering and the absence of any soft-fail key.
+        run: bash packaging/scripts/install_smoke.sh
+
       # --- Checksums + per-platform artifact bundle ---------------------------
       # The installers are NOT OS-code-signed (ADR-0059). The SHA-256 manifests
       # below and the build-provenance attestation in `release` are the integrity

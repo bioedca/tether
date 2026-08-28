@@ -2,6 +2,12 @@
 # (PRD §12.1). Text files are normalized to LF in the repo; checkout is native.
 * text=auto
 
+# Shell scripts materialize with LF on every platform: packaging/scripts/install_smoke.sh
+# is executed by git-bash on the Windows packaging/release runners, whose images set
+# core.autocrlf=true — a native (CRLF) checkout there makes bash reject the script
+# ($'\r': command not found) before the first probe runs (issue #217).
+*.sh text eol=lf
+
 # --- Binary file types: never line-ending-normalized (avoids corrupting data) ---
 *.tif   binary
 *.tiff  binary
