@@ -351,19 +351,37 @@ def test_packaging_workflow_uses_no_explicit_exit() -> None:
 
 
 def test_packaging_install_smoke_asserts_version_and_offline_sidecar() -> None:
-    """The advisory leg's install-smoke asserts the headless entry point AND the offline sidecar.
+    """The install-smoke asserts the launch surface AND the offline sidecar (ADR-0049/0051).
 
     ADR-0049's PR-1 acceptance: after an offline install, ``tether --version`` runs and the bundled
-    sidecar interpreter imports tMAVEN/PyQt5. Bind the workflow to that contract so the smoke cannot
-    be silently gutted to a no-op (e.g. a build-only leg that never proves the installer runs).
+    sidecar interpreter imports tMAVEN/PyQt5. The probe sequence now lives in
+    ``packaging/scripts/install_smoke.sh`` — the single source BOTH packaging.yml and release.yml
+    invoke (issue #217; ``test_install_smoke_script_is_invoked_by_both_workflows`` is what binds
+    the two workflows to it) — so this guard binds the SCRIPT to the contract, widened to the
+    launch surface the smoke really executes and that nothing else guards: the three per-platform
+    offline install modes, the PATH-shim launches, the console-less Windows GUI launcher, the
+    Linux desktop entry, the ``numpy<2`` assertion and the bounded NSIS wait. Matched on
+    NON-COMMENT lines only: ``_RUNNER`` and friends already live in explanatory comments, so a
+    comment moved across with the code it documents would keep a whole-text check green after the
+    command itself was deleted.
     """
-    workflow = PACKAGING_WORKFLOW.read_text(encoding="utf-8")
-    assert "tether --version" in workflow, (
-        "packaging.yml install-smoke must launch `tether --version` from the installed prefix"
-    )
-    assert "import tmaven" in workflow, (
-        "packaging.yml install-smoke must import tMAVEN in the bundled sidecar interpreter"
-    )
+    code = _install_smoke_code_lines()
+    for needle in (
+        "tether --version",
+        "tether-gui --version",
+        "import tmaven",
+        "numpy.__version__",
+        "-b -p",
+        "-target CurrentUserHomeDirectory",
+        "/S /D=",
+        "seq 1 40",
+        "Scripts/tether-gui.exe",
+        "tether.desktop",
+    ):
+        assert needle in code, (
+            f"packaging/scripts/install_smoke.sh must keep `{needle}` on a non-comment line — "
+            "part of the probe set both workflows' install-smokes rely on (issue #217)"
+        )
 
 
 def test_packaging_install_smoke_exercises_the_pkg_resources_path() -> None:
@@ -379,15 +397,19 @@ def test_packaging_install_smoke_exercises_the_pkg_resources_path() -> None:
       ``driver._RUNNER`` so a wheel that stopped shipping the runner also fails; and
     * an explicit ``import pkg_resources`` + ``setuptools.__version__`` bound, which names the cause
       instead of leaving an opaque probe failure.
+
+    Asserted against ``packaging/scripts/install_smoke.sh`` — the single source both workflows
+    invoke (issue #217) — on non-comment lines, since ``_RUNNER`` also lives in an explanatory
+    comment the extraction carried across.
     """
-    workflow = PACKAGING_WORKFLOW.read_text(encoding="utf-8")
-    assert "--probe" in workflow and "_RUNNER" in workflow, (
-        "packaging.yml install-smoke must drive `_sidecar_runner.py --probe`, resolved from the "
+    code = _install_smoke_code_lines()
+    assert "--probe" in code and "_RUNNER" in code, (
+        "install_smoke.sh must drive `_sidecar_runner.py --probe`, resolved from the "
         "installed app env via `tether.idealize.driver._RUNNER` — importing tMAVEN is not enough "
         "(issue #212)"
     )
-    assert "import setuptools, pkg_resources" in workflow, (
-        "packaging.yml install-smoke must assert the bundled `setuptools<81` pin was applied to "
+    assert "import setuptools, pkg_resources" in code, (
+        "install_smoke.sh must assert the bundled `setuptools<81` pin was applied to "
         "the sidecar env, so a regression names its cause (issue #212)"
     )
 
@@ -504,7 +526,7 @@ def _job_steps(text: str, job_id: str) -> list[dict]:
     """
     workflow = yaml.safe_load(text)
     job = (workflow.get("jobs") or {}).get(job_id)
-    assert job is not None, f"release.yml must keep a `{job_id}` job"
+    assert job is not None, f"the workflow must keep a `{job_id}` job"
     return [step for step in (job.get("steps") or []) if isinstance(step, dict)]
 
 
@@ -654,6 +676,171 @@ def test_the_anchor_guard_rejects_an_attestation_that_cannot_run() -> None:
     gate = "        if: needs.verify.outputs.publish == 'true'\n"
     live = f"jobs:\n  release:\n    steps:\n{attest}{gate}"
     assert _is_live(_job_steps(live, PUBLISH_JOB)[0])
+
+
+# --- The shared install-smoke script (packaging.yml + release.yml, issue #217) ---
+# The per-platform offline install-smoke lives in ONE checked-in script,
+# packaging/scripts/install_smoke.sh, invoked by both the advisory packaging.yml
+# (`installer` job) and the release pipeline's `build` job — extracting it is what stops
+# the two smokes drifting apart (the drift class #213 closed for the wheel-staging steps
+# and #218 closed again for the setuptools bound). These guards keep the extraction
+# honest: both callers really invoke the script, the release invocation gates the exact
+# bytes that job uploads, the script fails its caller when any probe fails, the offline
+# property is asserted positively, and the probe set cannot be silently gutted (the two
+# re-pointed guards above).
+INSTALL_SMOKE_SCRIPT = (
+    Path(__file__).resolve().parents[1] / "packaging" / "scripts" / "install_smoke.sh"
+)
+INSTALL_SMOKE_PATH = "packaging/scripts/install_smoke.sh"
+
+#: (workflow file, the job whose steps must invoke the smoke script).
+SMOKE_CALLERS = ((PACKAGING_WORKFLOW, "installer"), (RELEASE_WORKFLOW, "build"))
+
+
+def _install_smoke_code_lines() -> str:
+    """The smoke script's NON-COMMENT lines, joined.
+
+    The string guards match against these only, for a measured reason: ``_RUNNER`` (and
+    friends) already lived in an explanatory comment in packaging.yml's smoke, and the
+    extraction carried those comments across with the code they document — so a whole-text
+    check would stay green after the command itself was deleted.
+    """
+    return "\n".join(
+        ln
+        for ln in INSTALL_SMOKE_SCRIPT.read_text(encoding="utf-8").splitlines()
+        if not ln.lstrip().startswith("#")
+    )
+
+
+def _smoke_invocations(text: str, job_id: str) -> list[dict]:
+    """The live steps of *job_id* whose ``run:`` script invokes the smoke script."""
+    return [
+        step
+        for step in _job_steps(text, job_id)
+        if _is_live(step) and isinstance(step.get("run"), str) and INSTALL_SMOKE_PATH in step["run"]
+    ]
+
+
+def test_install_smoke_script_is_invoked_by_both_workflows() -> None:
+    """One script, two callers (issue #217) — the invocation, from the PARSED workflow.
+
+    A raw-text search is forbidden here for a measured reason: the ``_steps`` docstring
+    records this module's own false-green (v1 searched the whole file for a bare action
+    name that the workflow's header comment contained), and packaging.yml's header already
+    narrates the smoke — so an implementer who deleted the invoking step while updating a
+    comment to name the script would satisfy a text search with no invocation at all.
+    Job-scoped and live-only: a step in an unrelated job, or one switched off by a
+    constant ``if:``, smokes nothing this guard cares about.
+    """
+    for path, job_id in SMOKE_CALLERS:
+        assert _smoke_invocations(path.read_text(encoding="utf-8"), job_id), (
+            f"{path.name}'s `{job_id}` job must invoke {INSTALL_SMOKE_PATH} from a live "
+            "step's `run:` script — the one checked-in probe sequence both workflows "
+            "share (issue #217)"
+        )
+
+
+def test_install_smoke_script_arms_set_euo_pipefail_first() -> None:
+    """``set -euo pipefail`` is the FIRST executable line — position, not mere presence.
+
+    Once the probe sequence lives in a script, the calling step's ``-e`` only ever sees
+    the script's FINAL exit status — and both platform branches deliberately END in
+    non-fatal commands (the Windows Start Menu check returns 0 by design; the Unix branch
+    ends in an ``if`` block that is simply false on macOS) — so a script without
+    ``set -e`` exits 0 on Windows and macOS no matter which probe above failed: a
+    green-forever release gate, and one the string guards cannot see, because every
+    guarded string is still there. Presence anywhere is not enough either: armed below
+    the installer run, ``-e`` covers nothing that matters. This is the criterion that
+    keeps the extraction from quietly converting the gate into a no-op (issue #217).
+    """
+    lines = INSTALL_SMOKE_SCRIPT.read_text(encoding="utf-8").splitlines()
+    executable = [ln.strip() for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
+    assert executable and executable[0] == "set -euo pipefail", (
+        "the first line of packaging/scripts/install_smoke.sh that is neither the "
+        "shebang, nor blank, nor a comment must be exactly `set -euo pipefail`; found: "
+        f"{executable[:1]}"
+    )
+
+
+def test_release_install_smoke_gates_the_bytes_the_build_job_uploads() -> None:
+    """The release smoke sits between the build and the upload, unconditional (issue #217).
+
+    Position IS the guarantee: immediately after ``Build the installer`` so it smokes the
+    artifact that job just produced, and before the checksum + upload steps so a failing
+    smoke means no bundle ever reaches the ``release`` job. No ``if:`` (the platform
+    branch lives inside the script, so all four matrix legs must run it) and no soft-fail
+    key — the latter is also asserted file-wide by
+    ``test_release_staging_gate_is_never_conditional_or_advisory``, but asserting it here
+    keeps the reason with the step. Job-scoped, ordered and parsed (``_job_steps``), which
+    ``_workflow_step_block`` cannot give: it returns one step's raw text, scans the whole
+    file, and would match a same-named step in any job.
+    """
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    steps = _job_steps(text, "build")
+    names = [str(step.get("name", "")) for step in steps]
+
+    smoke_indices = [
+        i
+        for i, step in enumerate(steps)
+        if isinstance(step.get("run"), str) and INSTALL_SMOKE_PATH in step["run"]
+    ]
+    assert len(smoke_indices) == 1, (
+        f"release.yml's `build` job must invoke {INSTALL_SMOKE_PATH} in exactly one step; "
+        f"found {len(smoke_indices)}"
+    )
+    smoke_i = smoke_indices[0]
+
+    build_i = names.index("Build the installer")
+    checksum_i = next(i for i, n in enumerate(names) if n.startswith("SHA-256 checksums"))
+    upload_i = next(
+        i for i, n in enumerate(names) if n.startswith("Upload the platform release bundle")
+    )
+    assert build_i < smoke_i == build_i + 1 < checksum_i < upload_i == len(steps) - 1, (
+        "the release install-smoke must run immediately after `Build the installer` and "
+        "before the checksum step, with the upload step last, so a failing smoke stops "
+        f"the bytes from ever being uploaded; got build={build_i} smoke={smoke_i} "
+        f"checksums={checksum_i} upload={upload_i} of {len(steps)} steps"
+    )
+
+    smoke = steps[smoke_i]
+    assert "if" not in smoke, (
+        "the release install-smoke step must declare no `if:` — the platform branch lives "
+        f"inside the script, and all four matrix legs must smoke; got {smoke.get('if')!r}"
+    )
+    assert "continue-on-error" not in smoke, (
+        "the release install-smoke step must not soft-fail: its whole purpose is that a "
+        "failing probe fails the `build` job before the artifact is uploaded"
+    )
+
+
+def test_install_smoke_owns_the_offline_env_and_no_caller_restates_it() -> None:
+    """The offline property is asserted POSITIVELY, in the one place it lives (issue #217).
+
+    Both halves: (a) the script itself exports ``PIP_NO_INDEX=1`` and ``CONDA_OFFLINE=1``
+    on non-comment lines — the same anchoring the string guards use, and for the same
+    reason: an implementer who explains the two exports in a comment above them would
+    otherwise keep a substring check green after deleting one; and (b) neither caller
+    restates them as step-level ``env:``, where the two copies could drift — read from the
+    parsed step's keys, never the file text, because a whole-file check would fire on an
+    explanatory comment at the invocation site. Nothing asserted either variable before
+    this, in either direction, so dropping the exports was invisible.
+    ``MSYS2_ARG_CONV_EXCL`` is exempt by name: it may live at either side if the runners
+    turn out to require a caller-side copy (issue #217 records the fallback).
+    """
+    code = _install_smoke_code_lines()
+    for var in ("PIP_NO_INDEX", "CONDA_OFFLINE"):
+        assert re.search(rf"^\s*export {var}=1\s*$", code, re.M), (
+            f"packaging/scripts/install_smoke.sh must `export {var}=1` on a non-comment "
+            "line — the offline property lives in the script, not in the callers"
+        )
+    for path, job_id in SMOKE_CALLERS:
+        for step in _smoke_invocations(path.read_text(encoding="utf-8"), job_id):
+            declared = set(step.get("env") or {}) & {"PIP_NO_INDEX", "CONDA_OFFLINE"}
+            assert not declared, (
+                f"{path.name}'s install-smoke step must not restate {sorted(declared)} as "
+                "step-level `env:` — the script exports the offline pair itself, and a "
+                "second copy at the call site is exactly the drift issue #217 removes"
+            )
 
 
 # --- The release-staging completeness gate (release.yml, M9 / ADR-0059) ---
@@ -819,8 +1006,9 @@ def test_both_build_drivers_export_every_extra_files_env_var() -> None:
     ``staging/<name>.whl`` that nothing ever creates, and constructor's
     ``preconda.copy_extra_files`` raises ``FileNotFoundError`` on it. packaging.yml (advisory) and
     release.yml (the leg that ships installers to users) duplicate the same build recipe, so a wheel
-    added to the recipe and staged in only one of them breaks the other -- and release.yml has no
-    install-smoke to catch it, so the only thing that fails is the ``constructor`` build itself. A
+    added to the recipe and staged in only one of them breaks the other -- and constructor aborts
+    before the shared install-smoke (issue #217) could run, so the ``constructor`` build itself is
+    the thing that fails. A
     ``workflow_dispatch`` dry run does exercise that build (``dry_run`` defaults true; only the
     signed-tag check and the publish steps are gated on ``publish == 'true'``), so a maintainer who
     dry-runs first would see it -- but nothing on the tag path catches it earlier, and there the

@@ -4,7 +4,11 @@ Tether ships **self-contained installers** for Windows, macOS and Linux,
 built and published by [`.github/workflows/release.yml`](https://github.com/bioedca/tether/blob/main/.github/workflows/release.yml)
 (see [ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). The pipeline
 runs on a signed `v*` tag: it **verifies** the tag, **builds** the installers (the
-[constructor recipe](packaging.md)), and **publishes** a GitHub
+[constructor recipe](packaging.md)), **install-smokes** each one on its build runner —
+the same offline `packaging/scripts/install_smoke.sh` probe sequence the advisory
+[packaging workflow](packaging.md#building-from-source) runs, executed on the exact
+bytes about to be uploaded, so a broken installer fails the build instead of shipping —
+and **publishes** a GitHub
 Release with checksums, a CycloneDX SBOM, the frozen Tether GUI/runtime (`conda-lock.yml`), sidecar
 (`sidecar-conda-lock.yml`), and deep (`deep-conda-lock.yml`) source-lock assets, a
 Conventional-Commits changelog, and a build-provenance attestation. Constructor consumes the first
@@ -39,8 +43,8 @@ release**, not the binaries, and it is unaffected by any of the above.
     signing key registered as a *Signing Key* on the account), and its commit must be on
     `main` — `release.yml`'s `verify` job enforces all three.
 3. To rehearse without publishing, run the **`release`** workflow via *Actions → release
-   → Run workflow* with `ref: v1.0.0-rc1` and `dry_run: true` — it builds, checksums and
-   SBOMs, but publishes no Release.
+   → Run workflow* with `ref: v1.0.0-rc1` and `dry_run: true` — it builds, install-smokes,
+   checksums and SBOMs, but publishes no Release.
 
 ### What a published Release contains: verified `v1.0.0-rc1`
 
