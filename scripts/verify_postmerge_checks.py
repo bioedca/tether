@@ -100,22 +100,24 @@ def parse_records(stream: str) -> list[dict]:
     return runs
 
 
-def _recency_key(run: dict) -> tuple[int, str, str]:
+def _recency_key(run: dict) -> tuple[str, str]:
     """Sort key under which the LAST element of a sorted run list is the deciding run.
 
     The Checks API's default ``filter=latest`` dedupes only *within* a check suite — a
     re-run legitimately supersedes its failure there — but one context can still carry runs
     in several suites (the nightly ``schedule`` and the ``push``, proven at ``e70a12c4``),
-    so cross-suite recency is applied here: the latest completed run wins, ordered by
-    ``completed_at``. An unfinished run (no ``completed_at`` yet) outranks every finished
-    one: its verdict is still pending, and a pending verdict must block — fail-closed —
-    rather than be outvoted by an older pass.
+    so cross-suite recency is applied here: the most recently STARTED attempt is the
+    deciding run, ``completed_at`` as tiebreak. Ordering by completion instead would let an
+    older attempt that merely finished later outvote a newer, quicker failure — and ranking
+    every unfinished run above every finished one would let a single stale straggler block
+    forever, however many newer attempts completed after it. Whether the deciding run has
+    finished is ``evaluate``'s question, not this key's: an unfinished NEWEST attempt still
+    blocks, fail-closed. GitHub stamps ``started_at`` when it creates a check run, so the
+    field is present in practice; a run without one sorts oldest rather than crashing.
     """
-    completed = run.get("status") == "completed"
     return (
-        0 if completed else 1,
-        str(run.get("completed_at") or ""),
         str(run.get("started_at") or ""),
+        str(run.get("completed_at") or ""),
     )
 
 

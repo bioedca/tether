@@ -172,12 +172,12 @@ def test_latest_run_not_completed_is_a_violation() -> None:
         assert f"'{status}'" in violations[0]
 
 
-def test_latest_completed_run_wins_across_suites() -> None:
+def test_latest_started_attempt_wins_across_suites() -> None:
     """Cross-suite recency, both directions (the e70a12c4 two-suite shape).
 
     The fetch keeps the endpoint's default filter — a re-run inside ONE suite legitimately
     supersedes its failure (proven at 6d53c980) — so the only recency the script must add
-    is across suites, by ``completed_at``: the newest completed verdict is the verdict.
+    is across suites: the most recently STARTED attempt is the verdict.
     """
     base = [r for r in _all_green() if r["name"] != "sidecar / parity"]
     older_pass = _run(
@@ -198,6 +198,57 @@ def test_latest_completed_run_wins_across_suites() -> None:
     older_fail = dict(older_pass, conclusion="failure")
     newer_pass = dict(newer_fail, conclusion="success")
     assert guard.evaluate(base + [older_fail, newer_pass], CONTEXTS, V070_COMMIT) == []
+
+
+def test_a_newer_quick_failure_is_not_outvoted_by_an_older_slower_success() -> None:
+    """Attempt order is start order, never completion order.
+
+    The crossing shape: the nightly parity run starts at 06:37 and grinds through its
+    JIT-dominated fits, while a newer attempt starts at 07:00 and fails fast at 07:05 —
+    the OLDER attempt then completes LAST (07:30). A completion-ordered key would let that
+    older success outvote the newer failure and publish over it; start order keeps the
+    newest attempt's failure as the verdict.
+    """
+    base = [r for r in _all_green() if r["name"] != "sidecar / parity"]
+    old_slow_pass = _run(
+        "sidecar / parity",
+        "success",
+        started="2026-08-29T06:37:00Z",
+        completed="2026-08-29T07:30:00Z",
+    )
+    new_quick_fail = _run(
+        "sidecar / parity",
+        "failure",
+        started="2026-08-29T07:00:00Z",
+        completed="2026-08-29T07:05:00Z",
+    )
+    violations = guard.evaluate(base + [old_slow_pass, new_quick_fail], CONTEXTS, V070_COMMIT)
+    assert len(violations) == 1 and "'failure'" in violations[0]
+
+
+def test_a_stale_straggler_is_superseded_by_a_newer_completed_attempt() -> None:
+    """An unfinished run blocks only while it is the NEWEST attempt.
+
+    A run whose runner died can linger ``in_progress`` indefinitely; ranking every
+    unfinished run above every finished one would let that one straggler wedge releases
+    forever. A newer attempt that started after it and completed supersedes it — while an
+    in-flight run that IS the newest attempt still blocks, the fail-closed direction
+    ``test_latest_run_not_completed_is_a_violation`` pins.
+    """
+    base = [r for r in _all_green() if r["name"] != "sidecar / parity"]
+    stale_straggler = _run(
+        "sidecar / parity",
+        None,
+        status="in_progress",
+        started="2026-08-29T06:37:00Z",
+    )
+    newer_pass = _run(
+        "sidecar / parity",
+        "success",
+        started="2026-08-29T07:00:00Z",
+        completed="2026-08-29T07:12:00Z",
+    )
+    assert guard.evaluate(base + [stale_straggler, newer_pass], CONTEXTS, V070_COMMIT) == []
 
 
 def test_skipped_is_accepted_for_commitlint_and_nothing_else() -> None:

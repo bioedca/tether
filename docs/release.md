@@ -55,7 +55,11 @@ release**, not the binaries, and it is unaffected by any of the above.
     signing key registered as a *Signing Key* on the account), and its commit must be on
     `main`. `release.yml`'s `verify` job checks that trio only on a real publish — the
     signature step sits behind the publish gate — while the post-merge check-state guard
-    from step 1 evaluates on **every** run, dry runs included.
+    from step 1 evaluates on **every** run, dry runs included. Tag only commits that
+    already contain the post-merge gate: the pipeline that runs is the `release.yml` **in
+    the tagged tree**, so a tag on an older commit executes that tree's gate-less
+    definition ([#464](https://github.com/bioedca/tether/issues/464) tracks the
+    repository-level control).
 3. To rehearse without publishing, run the **`release`** workflow via *Actions → release
    → Run workflow* with `dry_run: true` and, as `ref`, a fresh `v*` rc tag cut from the
    `main` you are about to release — it builds, install-smokes, checksums and SBOMs, but
