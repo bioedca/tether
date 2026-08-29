@@ -150,15 +150,21 @@ jobs:
           schema-guard
           sidecar / parity
           "
-          # Dereference the tag server-side and TAG-QUALIFIED (refs/tags/), never as a
-          # bare name: the commits endpoint accepts a SHA, branch or tag, so a branch
-          # sharing the tag's name could otherwise resolve instead — and green checks
-          # on that branch would bless a red tagged commit. On a publish the signature
-          # step above has just proven refs/tags/$TAG exists, so the qualified lookup
-          # always succeeds there; the bare-name fallback can only ever run on a dry
-          # run of a non-tag ref, where the verdict is advisory by design.
-          commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/refs/tags/${TAG}" -q .sha 2>/dev/null \
-            || gh api "repos/${GITHUB_REPOSITORY}/commits/${TAG}" -q .sha)"
+          # Resolve the tagged commit from the LOCAL checkout first (fetch-depth: 0
+          # above brings every tag ref): the commits API endpoint accepts a SHA, branch
+          # or tag, so a bare-name lookup could bind a branch sharing the tag's name —
+          # and green checks on that branch would bless a red tagged commit. On a
+          # publish the signature step above has just proven refs/tags/$TAG exists in
+          # this same checkout, so local resolution cannot fail there and no API
+          # failure can degrade it into the bare-name lookup. The API fallback is
+          # reachable only on a dry run of a non-tag ref, where the verdict is advisory
+          # by design — and it carries no stderr suppression, so a transient API error
+          # fails this step loudly instead of silently consulting the wrong ref.
+          if git rev-parse -q --verify "refs/tags/${TAG}^{commit}" >/dev/null; then
+            commit="$(git rev-list -n1 "refs/tags/${TAG}")"
+          else
+            commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${TAG}" -q .sha)"
+          fi
           # The check-runs endpoint windows its answer to the 1000 most recent check
           # suites on the ref (docs.github.com/en/rest/checks/runs — the note is on
           # the endpoint itself, so filter=all does not widen it), and the scheduled
