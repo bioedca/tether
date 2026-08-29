@@ -34,11 +34,15 @@ release**, not the binaries, and it is unaffected by any of the above.
 1. Ensure `main` is green and releasable. This is enforced, not merely good practice:
    `release.yml` refuses to publish unless every required context has **completed** on the
    tagged commit with a conclusion the guard accepts (`success`, or `skipped` for
-   `commitlint`, whose job only runs on pull requests). Two operational consequences
-   follow. A tag cut seconds after a merge is refused until the post-merge run finishes
-   on that commit. And because the producing workflows cancel an in-flight run when the
-   next merge lands (`cancel-in-progress` keyed on the ref), a commit whose checks were
-   cancelled by a following merge can never be released — release from a later commit
+   `commitlint`, whose job only runs on pull requests). The decision is made twice — in
+   `verify` before the build matrix, and again immediately before the Release is created —
+   because check state is not frozen while the ~30–60 minute build runs: the nightly
+   sidecar cron can land a fresh `sidecar / parity` run on the very commit being released,
+   and a verdict fetched an hour earlier would not see it turn red. Two operational
+   consequences follow. A tag cut seconds after a merge is refused until the post-merge run
+   finishes on that commit. And because the producing workflows cancel an in-flight run
+   when the next merge lands (`cancel-in-progress` keyed on the ref), a commit whose checks
+   were cancelled by a following merge can never be released — release from a later commit
    whose checks ran to completion instead.
 2. Create a **signed, annotated** tag on the release commit and push it:
 

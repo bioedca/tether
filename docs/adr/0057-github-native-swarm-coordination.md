@@ -98,9 +98,12 @@ issue, does the work, opens a PR, arms auto-merge, and exits.
 - Losing a claim costs one wasted API call rather than an election.
 - Dropping the strict up-to-date rule means a semantic conflict can land green; post-merge `ci`,
   `schema-guard` and `sidecar / parity` runs on `main` are the compensating detection, which is why
-  `sidecar.yml` gained a `push` trigger — and `release.yml`'s `verify` job is the matching release
-  gate (#266): publishing refuses while any required context is red, cancelled, missing or still
-  running on the tagged commit, so detection alone can no longer be outrun by a tag. The gate's
+  `sidecar.yml` gained a `push` trigger — and `release.yml` is the matching release gate (#266):
+  publishing refuses while any required context is red, cancelled, missing or still running on the
+  tagged commit, so detection alone can no longer be outrun by a tag. The decision runs in `verify`
+  and repeats immediately before the Release is created, because the compensating detection itself
+  keeps firing — the nightly sidecar cron can land a fresh `sidecar / parity` run on the tagged
+  commit while the build matrix is still going. The gate's
   context list is a frozen in-repo copy of the `main-baseline` ruleset — read live it would
   silently follow an unreviewed ruleset edit — so adding a required context to the ruleset also
   edits `release.yml`'s `REQUIRED_CONTEXTS` (and the contract test pinning both copies).
