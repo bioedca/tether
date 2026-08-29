@@ -574,18 +574,35 @@ jobs:
           path: .postmerge-guard
           persist-credentials: false
 
+      - name: Attest build provenance for the release assets
+        # Deliberately BEFORE the publish-time recheck below: an attestation for
+        # artifacts that are then never released distributes nothing (the installers
+        # stay unpublished, and a later successful run of the same tag re-attests the
+        # same digests), so running it first leaves the recheck flush against the
+        # Release-create — the residual window between the check-state decision and
+        # the publish is then the recheck's own runtime, the platform minimum.
+        if: needs.verify.outputs.publish == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            out/*.exe
+            out/*.pkg
+            out/*.sh
+
       - name: Require green post-merge checks at publish time
         # The verify-job gate runs before the build matrix, and the required contexts
         # are not frozen while those ~30-60 minutes elapse: the nightly sidecar cron
         # (37 6 * * *) lands new `sidecar / parity` suites on whatever commit is the
         # main tip — typically the very commit being released — so a run starting or
         # completing red inside that window would leave the verify-time verdict stale.
-        # The same fetch-and-pipe decision therefore repeats here, at the last moment
-        # before the first outward-facing publish action (a contract test pins this
-        # step, the attestation and the Release-create as consecutive). Same committed
-        # script, same workflow-level $REQUIRED_CONTEXTS, same verbatim publish
-        # pass-through; deliberately NO `if:`, so a dry run rehearses the recheck and
-        # reports its advisory verdict too. The main checkout is AT the tag
+        # The same fetch-and-pipe decision therefore repeats here, flush against the
+        # Release-create (a contract test pins the order): nothing sits between this
+        # verdict and the publish, so the unavoidable residual window — no GitHub
+        # primitive binds Release creation to unchanged check state atomically — is
+        # this step's own few seconds of runtime. Same committed script, same
+        # workflow-level $REQUIRED_CONTEXTS, same verbatim publish pass-through;
+        # deliberately NO `if:`, so a dry run rehearses the recheck and reports its
+        # advisory verdict too. The main checkout is AT the tag
         # (ref: needs.verify.outputs.tag, fetch-depth: 0), so on every publishable
         # path the tag ref is present locally and no API failure can degrade the
         # binding; the unsuppressed bare-name fallback mirrors the verify step for a
@@ -608,15 +625,6 @@ jobs:
                 --required-contexts "$REQUIRED_CONTEXTS" \
                 --publish-mode "$PUBLISH" \
                 --suite-count "$suites"
-
-      - name: Attest build provenance for the release assets
-        if: needs.verify.outputs.publish == 'true'
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: |
-            out/*.exe
-            out/*.pkg
-            out/*.sh
 
       - name: Create the GitHub Release
         if: needs.verify.outputs.publish == 'true'

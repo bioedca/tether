@@ -1360,18 +1360,21 @@ def test_postmerge_step_is_fetch_and_pipe_passing_publish_verbatim() -> None:
 
 
 def test_publish_time_recheck_sits_flush_against_the_publish_steps() -> None:
-    """`release` runs guard-checkout → recheck → attest → Release-create consecutively.
+    """`release` runs guard-checkout → attest → recheck → Release-create consecutively.
 
     The recheck exists to close the TOCTOU window between the verify-time gate and the
     publish (the nightly sidecar cron lands new `sidecar / parity` suites on the main tip
-    while the ~30-60 minute build matrix runs), so nothing outward-facing may execute
-    between it and `gh release create` — a step inserted there would reopen exactly the
-    window the recheck closes. The scoped guard-script checkout must also sit flush against
-    the recheck and AFTER the SBOM step: it materializes a second tree at the workflow's
-    own commit (a pre-gate tag's tree has no script, so resolving it from the main checkout
-    would fail every dry-run rehearsal on a missing file), and sbom-action scans
-    ``path: .``, so hoisting the checkout above the SBOM would leak that mixed-version
-    tree into the published bill of materials.
+    while the ~30-60 minute build matrix runs), and NOTHING may execute between it and
+    `gh release create` — the residual window must stay the recheck's own runtime, since
+    no GitHub primitive binds Release creation to unchanged check state atomically. The
+    attestation therefore comes BEFORE the recheck, not after: attesting artifacts that
+    are then never released distributes nothing, while running it between the verdict and
+    the publish would widen the window by its runtime. The scoped guard-script checkout
+    must also sit flush against the group and AFTER the SBOM step: it materializes a
+    second tree at the workflow's own commit (a pre-gate tag's tree has no script, so
+    resolving it from the main checkout would fail every dry-run rehearsal on a missing
+    file), and sbom-action scans ``path: .``, so hoisting the checkout above the SBOM
+    would leak that mixed-version tree into the published bill of materials.
     """
     text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
     names = [str(step.get("name", "")) for step in _job_steps(text, "release")]
@@ -1388,11 +1391,11 @@ def test_publish_time_recheck_sits_flush_against_the_publish_steps() -> None:
     recheck = index_of(POSTMERGE_STEP_NAME)
     attest = index_of("Attest build provenance")
     create = index_of("Create the GitHub Release")
-    assert [recheck, attest, create] == [checkout + 1, checkout + 2, checkout + 3], (
-        "the guard-script checkout, the publish-time recheck, the attestation and the "
-        "Release-create must be consecutive `release` steps — anything between the recheck "
-        "and the publish reopens the TOCTOU window it exists to close; got indices "
-        f"{checkout}, {recheck}, {attest}, {create}"
+    assert [attest, recheck, create] == [checkout + 1, checkout + 2, checkout + 3], (
+        "the `release` steps must run guard-checkout → attest → recheck → Release-create, "
+        "consecutively — anything between the recheck and the publish (the attestation "
+        "included) widens the TOCTOU window the recheck exists to close; got indices "
+        f"checkout={checkout}, attest={attest}, recheck={recheck}, create={create}"
     )
     assert index_of("Generate a CycloneDX SBOM") < checkout, (
         "the guard-script checkout must come after the SBOM step — sbom-action scans "
