@@ -184,6 +184,31 @@ def test_claim_ignores_an_approval_from_a_non_maintainer(
             "## Execution autonomy\n\nagent-can-do-alone, needs_human_action for the upload\n",
             "human action",
         ),
+        (
+            "## Execution autonomy\n\n`agent-can-do-alone`, unless the sizing note above says "
+            "grooming must decide first.\n",
+            "is not a registered autonomy value",
+        ),
+        (
+            "## Execution autonomy\n\n`agent-can-do-alone` for the drafting; the validation-suite "
+            "membership needs maintainer confirmation.\n",
+            "is not a registered autonomy value",
+        ),
+        (
+            "## Execution autonomy\n\n`agent-can-do-alone`, unless the sizing note says "
+            "otherwise.\n",
+            "is not a registered autonomy value",
+        ),
+        (
+            "<!-- tether-grooming-v1 -->\n\n- **Autonomy after unblock:** agent-can-do-alone\n",
+            "after unblock",
+        ),
+        (
+            "<!-- tether-grooming-v1 -->\n\n"
+            "- **Status:** unblocked\n"
+            "- **Autonomy after unblock:** agent-can-do-alone\n",
+            "after unblock",
+        ),
     ],
     ids=[
         "external-human",
@@ -193,6 +218,11 @@ def test_claim_ignores_an_approval_from_a_non_maintainer(
         "split-declaration",
         "hyphenated-restriction",
         "underscored-restriction",
+        "conditional-corpus-339",
+        "conditional-corpus-379",
+        "qualified",
+        "after-unblock",
+        "after-unblock-status-unblocked",
     ],
 )
 def test_an_issue_whose_body_says_no_agent_can_do_it_is_not_claimable(
@@ -227,8 +257,6 @@ def test_an_issue_whose_body_says_no_agent_can_do_it_is_not_claimable(
         "## Autonomy\n\nagent-can-do-alone\n",
         "- **Autonomy:** agent-can-do-alone\n",
         "- **Autonomy:** agent can complete alone\n",
-        "## Execution autonomy\n\n`agent-can-do-alone`, unless the sizing note says otherwise.\n",
-        "<!-- tether-grooming-v1 -->\n\n- **Autonomy after unblock:** agent-can-do-alone\n",
     ],
     ids=[
         "heading",
@@ -236,27 +264,20 @@ def test_an_issue_whose_body_says_no_agent_can_do_it_is_not_claimable(
         "short-heading",
         "bullet",
         "legacy-prose",
-        "qualified",
-        "after-unblock",
     ],
 )
 def test_every_spelling_of_agent_can_do_alone_in_the_live_corpus_admits(
     monkeypatch: pytest.MonkeyPatch, body: str
 ) -> None:
-    """The spellings the live corpus uses, plus the qualified and after-unblock forms.
-
-    `after-unblock` admits deliberately: it answers *what kind of work is this*, and whether the
-    issue is still blocked is the `status:` label's question. #214's grooming block reads
-    `**Status:** unblocked` two lines above `**Autonomy after unblock:**`, so refusing on the
-    qualifier would bar work that is ready.
-    """
+    """The five registered spellings in the live corpus still admit."""
     routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
     fake = _install(monkeypatch, Fake(routes))
     claim._cmd_claim(_args(issue=7))
     assert [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
 
 
-def test_no_refusal_token_depends_on_the_separator_it_is_written_with() -> None:
+@pytest.mark.parametrize("token", claim.AUTONOMY_REFUSES)
+def test_no_refusal_token_depends_on_the_separator_it_is_written_with(token: str) -> None:
     """Re-spelling an `AUTONOMY_REFUSES` entry must not change any verdict.
 
     The flattener's whole job is that a separator never decides a safety verdict, and the
@@ -266,30 +287,67 @@ def test_no_refusal_token_depends_on_the_separator_it_is_written_with() -> None:
     was there to refuse, re-opening the exact fail-open Greptile found on #428 - silently, in a
     table edit that reads as a formatting change.
 
-    So this asserts the property over **every** entry rather than the one that broke. Each is
-    re-spelled with each separator and must still refuse a body that opens with an admitting
-    prefix, which is the case a literal-token match gets wrong.
+    So this asserts the property over **every** entry rather than the one that broke. The parameter
+    set is frozen at collection time so a mutation that empties the module attribute still runs
+    these assertions. Each restriction sits in a scan-only table row above a bare admitting
+    heading, so token matching is its only possible reason to refuse under the exact-value rule.
     """
     separators = (" ", "-", "_", "/")
-    for token in claim.AUTONOMY_REFUSES:
-        canonical = claim._flatten_autonomy(token)
-        body = f"## Execution autonomy\n\nagent-can-do-alone; {token} applies here\n"
-        for separator in separators:
-            respelled = canonical.replace(" ", separator)
-            assert claim._flatten_autonomy(respelled) == canonical, (
-                f"{token!r} re-spelled as {respelled!r} flattens differently"
+    canonical = claim._flatten_autonomy(token)
+    body = (
+        f"| **autonomy** | {token} applies here |\n\n## Execution autonomy\n\nagent-can-do-alone\n"
+    )
+    for separator in separators:
+        respelled = canonical.replace(" ", separator)
+        assert claim._flatten_autonomy(respelled) == canonical, (
+            f"{token!r} re-spelled as {respelled!r} flattens differently"
+        )
+        patched = tuple(respelled if entry == token else entry for entry in claim.AUTONOMY_REFUSES)
+        original = claim.AUTONOMY_REFUSES
+        try:
+            claim.AUTONOMY_REFUSES = patched
+            assert claim._autonomy_refusal(body) is not None, (
+                f"{token!r} written as {respelled!r} stopped refusing - fail-open"
             )
-            patched = tuple(
-                respelled if entry == token else entry for entry in claim.AUTONOMY_REFUSES
-            )
-            original = claim.AUTONOMY_REFUSES
-            try:
-                claim.AUTONOMY_REFUSES = patched
-                assert claim._autonomy_refusal(body) is not None, (
-                    f"{token!r} written as {respelled!r} stopped refusing - fail-open"
-                )
-            finally:
-                claim.AUTONOMY_REFUSES = original
+        finally:
+            claim.AUTONOMY_REFUSES = original
+
+
+def test_an_autonomy_table_row_can_refuse_but_not_admit(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A sizing-table restriction governs beside a bare, registered heading value."""
+    table_only = claim._autonomy_refusal("| **autonomy** | agent-can-do-alone |\n")
+    assert table_only is not None and "declares no Execution autonomy" in table_only
+
+    body = (
+        "| **autonomy** | maintainer decision required |\n\n"
+        "## Execution autonomy\n\nagent-can-do-alone\n"
+    )
+    routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+    fake = _install(monkeypatch, Fake(routes))
+    with pytest.raises(SystemExit) as exit_info:
+        claim._cmd_claim(_args(issue=7))
+    assert exit_info.value.code == claim.EXIT_INELIGIBLE
+    assert "maintainer decision" in capsys.readouterr().err
+    assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
+
+
+def test_autonomy_refusals_distinguish_absent_restricted_and_unregistered_values() -> None:
+    """Each repairable failure says which of the three issue-body edits is needed."""
+    absent = claim._autonomy_refusal("Acceptance criteria\n")
+    restricted = claim._autonomy_refusal(
+        "## Execution autonomy\n\nagent-can-do-alone; maintainer-decision required\n"
+    )
+    unregistered = claim._autonomy_refusal(
+        "## Execution autonomy\n\nagent-can-do-alone for the documentation change\n"
+    )
+
+    assert absent is not None and "declares no Execution autonomy" in absent
+    assert restricted is not None and "maintainer decision" in restricted
+    assert unregistered is not None and "is not a registered autonomy value" in unregistered
+    assert "is not a registered autonomy value" not in absent
+    assert "is not a registered autonomy value" not in restricted
 
 
 def test_a_restrictive_declaration_governs_wherever_it_sits_in_the_source(
@@ -405,10 +463,10 @@ def test_ordinary_prose_under_the_declaration_does_not_refuse_a_ready_issue(
     refused because the sentence does not *admit*, and that is a false negative on exactly the
     well-groomed issues this gate is meant to let through.
 
-    So the section is read as **one** value, and judged by the rule already written for a value
-    that names two things: it must open with an admitting token and must not contain a refusing
-    one. Prose that does neither changes nothing. This asserts the permissive half, because a
-    fail-closed fix that quietly stopped admitting anything would pass every other test here.
+    So the first line is exact-matched as the declaration and the remaining prose is scan-only.
+    A refusal token there still governs; prose that names none changes nothing. This asserts the
+    permissive half, because a fail-closed fix that quietly stopped admitting anything would pass
+    every other test here.
     """
     body = (
         "## Execution autonomy\n\nagent-can-do-alone\n\n"

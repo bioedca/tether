@@ -42,7 +42,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, NamedTuple
 
 REPO = os.environ.get("TETHER_REPO", "bioedca/tether")
 API = "https://api.github.com"
@@ -441,10 +441,9 @@ def _scope_hash(title: str, body: str) -> str:
 #: prose spelling that predates the dropdown and is still on live issues.
 AUTONOMY_ADMITS = ("agent-can-do-alone", "agent can complete alone")
 
-#: Any of these anywhere in the declared value refuses it, even when it *opens* with an admitting
-#: token. A value like "agent-can-do-alone for the drafting; the membership question is a
-#: maintainer decision" declares two things, and the safe reading of a split declaration is the
-#: restrictive one.
+#: Any of these anywhere in a declared value or scan-only restriction refuses it. A value like
+#: "agent-can-do-alone for the drafting; the membership question is a maintainer decision"
+#: declares two things, and the safe reading of a split declaration is the restrictive one.
 AUTONOMY_REFUSES = (
     "maintainer decision",
     "maintainer input",
@@ -468,6 +467,14 @@ _AUTONOMY_BULLET = re.compile(
     r"[: \t]*(?P<value>.+)$",
     re.M | re.I,
 )
+#: A table row can carry a restriction, as #346 does, but it can never admit. Only a bullet or
+#: heading is a registered declaration shape; accepting a table cell would add an unintended path
+#: through the mutex gate. The remainder of a matching row is therefore token-scanned only.
+_AUTONOMY_TABLE_ROW = re.compile(
+    r"^[ \t]*\|[ \t]*\*{0,2}[ \t]*(?:execution[ \t]+)?autonomy[ \t]*\*{0,2}[ \t]*\|"
+    r"(?P<value>[^\n]*)$",
+    re.M | re.I,
+)
 #: A grooming block runs to the **next grooming marker** or the end of the body - not to the next
 #: HTML comment of any kind. Terminating on any `<!--` meant one nested comment truncated the
 #: authoritative source, so a declaration written above it governed and a restriction written below
@@ -484,6 +491,15 @@ _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 #: stale body the block was written to supersede. An empty groom is still a groom.
 _GROOMING_MARKER = re.compile(r"<!--[ \t]*tether-grooming-v1[ \t]*-->")
 _MARKUP = re.compile(r"[`*_]+")
+
+
+class _AutonomyValue(NamedTuple):
+    """One value to exact-check, or prose to scan for an explicit refusal token."""
+
+    raw: str
+    where: str
+    scan_only: bool = False
+    qualifier: str = ""
 
 
 def _normalize_autonomy(value: str) -> str:
@@ -511,10 +527,10 @@ def _flatten_autonomy(value: str) -> str:
     the fail-open this function exists to close, for a body that opens with an admitting prefix.
 
     **It closes the separator class and nothing wider.** A restriction phrased outside
-    `AUTONOMY_REFUSES` altogether - "needs maintainer sign-off", "human review required" - is still
-    admitted, because this compares against a list rather than reading English. The list is the
-    guarantee; the flattener only stops punctuation defeating it. Every phrasing the corpus actually
-    uses is on the list, which is why the list is not speculatively widened.
+    `AUTONOMY_REFUSES` altogether - "needs maintainer sign-off", "human review required" - makes a
+    declaration fail the separate exact-value check; this function does not infer its meaning.
+    The list stays load-bearing for scan-only heading prose and table rows, where exact matching is
+    deliberately not applied. The flattener only stops punctuation defeating those explicit tokens.
 
     **Separators are widened before the markup strip, not after.** `_MARKUP` removes `_` because it
     is Markdown emphasis, so running it first turns `needs_human_action` into `needshumanaction` -
@@ -524,8 +540,8 @@ def _flatten_autonomy(value: str) -> str:
     return re.sub(r"\s+", " ", _normalize_autonomy(widened)).strip()
 
 
-def _declared_autonomy(body: str) -> list[tuple[str, str]]:
-    """Every Execution-autonomy declaration in the authoritative source, as ``(raw value, where)``.
+def _declared_autonomy(body: str) -> list[_AutonomyValue]:
+    """Every autonomy value or scan-only restriction in the authoritative source.
 
     The value is returned **unnormalized**. `_normalize_autonomy` strips `_` as Markdown
     emphasis, so normalizing here would glue `needs_human_action` into one word before
@@ -552,14 +568,18 @@ def _declared_autonomy(body: str) -> list[tuple[str, str]]:
     is not clearly groomed, which is the case this gate exists to refuse. It is the same rule
     `_autonomy_refusal` already applies to a single value that names both.
 
-    **`Autonomy after unblock` declares autonomy like any other spelling.** It is tempting to read
-    it as conditional and refuse, but that conflates two questions. *What kind of work is this* is
-    what this function answers; *is it still blocked* is what the `status:` label answers, and #336
-    scopes dependency parsing out of this check deliberately. Refusing on the qualifier produced a
-    measured false negative: #214's own grooming block reads `**Status:** unblocked` two lines above
-    `**Autonomy after unblock:** agent-can-do-alone`, so the condition it names is already met and
-    refusing it would bar work that is genuinely ready. The qualifier is kept in the returned label
-    so a refusal message can still quote where the value came from.
+    **A qualified bullet key refuses.** `Autonomy after unblock` is not the bare field the issue
+    forms collect, and accepting it leaves a condition-shaped path around exact value matching.
+    The one measured false negative that justified the old behavior, #214, closed on 2026-08-12.
+    Reading a neighbouring `Status:` bullet to decide whether the qualifier is satisfied is not a
+    substitute: that would teach this mutex gate to adjudicate blockedness from prose, which #326
+    and #336 deliberately exclude. The qualifier travels separately so the refusal names the line
+    a groomer must rewrite.
+
+    A heading's first non-blank line is the declared value. Remaining lines are scan-only: an
+    explicit `AUTONOMY_REFUSES` token still governs, but ordinary explanatory prose cannot become
+    an unregistered second declaration. A table row whose first cell is `autonomy` is scan-only for
+    the same reason; it can expose a restriction but never create a new admitting shape.
     """
     # A grooming block is authoritative **when its marker is present**, including when it declares
     # no autonomy and including when it captures nothing at all. Falling through to the body let
@@ -572,26 +592,25 @@ def _declared_autonomy(body: str) -> list[tuple[str, str]]:
         source, where = _grooming_section(body), "grooming block"
     else:
         source, where = body, "body"
-    found: list[tuple[str, str]] = []
+    found: list[_AutonomyValue] = []
     for match in _AUTONOMY_BULLET.finditer(source):
         qualifier = _normalize_autonomy(match.group("qualifier"))
-        label = f"{where} bullet" + (f" ({qualifier})" if qualifier else "")
-        found.append((match.group("value"), label))
+        found.append(_AutonomyValue(match.group("value"), f"{where} bullet", qualifier=qualifier))
     # `finditer`, not `search`: a source can carry the heading twice, and taking only the first
     # hid a second one that restricted the issue behind an admitting first one - the same
     # first-match-wins defect this function was just fixed for, one level down.
     for heading in _AUTONOMY_HEADING.finditer(source):
         lines = [ln.strip() for ln in heading.group(1).split("\n") if ln.strip()]
         if lines:
-            # The **whole section**, not `lines[0]`. A restriction is often written as the
-            # sentence under the declaration - "agent-can-do-alone" then "the upload step is a
-            # maintainer decision" - and reading one line dropped it. Joined into a single value
-            # rather than one declaration per line, because per-line would refuse any issue that
-            # explains itself: a prose sentence does not *admit*, so it would fail the admits
-            # check and turn every well-groomed issue into a refusal. As one value it meets the
-            # rule already written for a value naming two things - open with an admitting token,
-            # contain no refusing one - under which explanatory prose changes nothing.
-            found.append((" ".join(lines), f"{where} heading"))
+            found.append(_AutonomyValue(lines[0], f"{where} heading"))
+            if len(lines) > 1:
+                found.append(
+                    _AutonomyValue(
+                        " ".join(lines[1:]), f"{where} heading remainder", scan_only=True
+                    )
+                )
+    for row in _AUTONOMY_TABLE_ROW.finditer(source):
+        found.append(_AutonomyValue(row.group("value"), f"{where} table row", scan_only=True))
     return found
 
 
@@ -617,7 +636,23 @@ def _autonomy_refusal(body: str) -> str | None:
     it back. So an absent declaration refuses too: an issue that never declared autonomy was never
     groomed, and silence is not consent.
     """
-    declarations = _declared_autonomy(body)
+    values = _declared_autonomy(body)
+
+    # Refusing tokens are evaluated across every value **before** exact-match or qualifier
+    # failures. Otherwise a raw conditional value can return first and hide the canonical token a
+    # groomer needs to locate, which broke the hyphenated and underscored regressions from #428.
+    for value in values:
+        raw = value.raw.strip()
+        flat = _flatten_autonomy(value.raw)
+        refused = [token for token in AUTONOMY_REFUSES if _flatten_autonomy(token) in flat]
+        if refused:
+            return (
+                f"declares autonomy {raw!r} ({value.where}). It names {refused[0]!r}, so the "
+                f"restrictive statement governs; only {AUTONOMY_ADMITS[0]!r} may be claimed by "
+                "an agent"
+            )
+
+    declarations = [value for value in values if not value.scan_only]
     if not declarations:
         # Same rule as the source choice above: the marker decides, not what it captured. An empty
         # block reported "its body" and sent the reader to fix the wrong half of the issue.
@@ -629,22 +664,21 @@ def _autonomy_refusal(body: str) -> str | None:
     # Every declaration in the authoritative source must admit. One restrictive line is enough to
     # refuse however many admitting ones sit beside it - the same asymmetry as a single value that
     # names both, applied across the source rather than within one string.
-    for raw, where in declarations:
+    admits = {_flatten_autonomy(token) for token in AUTONOMY_ADMITS}
+    for declaration in declarations:
         # Quote the issue verbatim; decide on the flattened form. Showing the normalized value
         # would print `needshumanaction` for a body that says `needs_human_action`.
-        value = raw.strip()
-        flat = _flatten_autonomy(raw)
-        refused = [token for token in AUTONOMY_REFUSES if _flatten_autonomy(token) in flat]
-        admits = any(flat.startswith(_flatten_autonomy(token)) for token in AUTONOMY_ADMITS)
-        if refused and admits:
+        value = declaration.raw.strip()
+        if declaration.qualifier:
             return (
-                f"declares autonomy {value!r} ({where}). That is a split declaration - it also "
-                f"names {refused[0]!r} - and the restrictive half governs, so it needs a maintainer"
+                f"declares autonomy {value!r} with qualifier {declaration.qualifier!r} "
+                f"({declaration.where}); that qualified key is not a registered autonomy value. "
+                f"Use the bare field with {AUTONOMY_ADMITS[0]!r} before an agent claims it"
             )
-        if refused or not admits:
+        if _flatten_autonomy(declaration.raw) not in admits:
             return (
-                f"declares autonomy {value!r} ({where}); only {AUTONOMY_ADMITS[0]!r} may be "
-                "claimed by an agent"
+                f"declares autonomy {value!r} ({declaration.where}), which is not a registered "
+                f"autonomy value; only {AUTONOMY_ADMITS[0]!r} may be claimed by an agent"
             )
     return None
 
