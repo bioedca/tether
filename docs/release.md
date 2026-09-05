@@ -31,7 +31,19 @@ release**, not the binaries, and it is unaffected by any of the above.
 
 ## Cutting a release
 
-1. Ensure `main` is green and releasable.
+1. Ensure `main` is green and releasable. This is enforced, not merely good practice:
+   `release.yml` refuses to publish unless every required context has **completed** on the
+   tagged commit with a conclusion the guard accepts (`success`, or `skipped` for
+   `commitlint`, whose job only runs on pull requests). The decision is made twice — in
+   `verify` before the build matrix, and again immediately before the Release is created —
+   because check state is not frozen while the ~30–60 minute build runs: the nightly
+   sidecar cron can land a fresh `sidecar / parity` run on the very commit being released,
+   and a verdict fetched an hour earlier would not see it turn red. Two operational
+   consequences follow. A tag cut seconds after a merge is refused until the post-merge run
+   finishes on that commit. And because the producing workflows cancel an in-flight run
+   when the next merge lands (`cancel-in-progress` keyed on the ref), a commit whose checks
+   were cancelled by a following merge can never be released — release from a later commit
+   whose checks ran to completion instead.
 2. Create a **signed, annotated** tag on the release commit and push it:
 
     ```bash
@@ -41,11 +53,18 @@ release**, not the binaries, and it is unaffected by any of the above.
 
     The tag must be **annotated** and its signature **verified by GitHub** (your SSH
     signing key registered as a *Signing Key* on the account), and its commit must be on
-    `main` — `release.yml`'s `verify` job enforces all three.
+    `main`. `release.yml`'s `verify` job checks that trio only on a real publish — the
+    signature step sits behind the publish gate — while the post-merge check-state guard
+    from step 1 evaluates on **every** run, dry runs included. Tag only commits that
+    already contain the post-merge gate: the pipeline that runs is the `release.yml` **in
+    the tagged tree**, so a tag on an older commit executes that tree's gate-less
+    definition ([#464](https://github.com/bioedca/tether/issues/464) tracks the
+    repository-level control).
 3. To rehearse without publishing, run the **`release`** workflow via *Actions → release
    → Run workflow* with `dry_run: true` and, as `ref`, a fresh `v*` rc tag cut from the
    `main` you are about to release — it builds, install-smokes, checksums and SBOMs, but
-   publishes no Release. Rehearse a **current** tag only: the dispatch runs `main`'s
+   publishes no Release. The dry run also evaluates the post-merge check guard and
+   reports its verdict without blocking. Rehearse a **current** tag only: the dispatch runs `main`'s
    workflow definition against the `ref` tag's tree, so a historical tag — one predating
    the pipeline's checked-in inputs, `packaging/setuptools-compatibility.txt` and
    `packaging/scripts/install_smoke.sh` — fails early on the first absent file. To re-run

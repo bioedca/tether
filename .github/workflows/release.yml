@@ -41,6 +41,27 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# The frozen in-repo copy of the `main-baseline` ruleset's required contexts, one per
+# line (`sidecar / parity` cannot survive word-splitting). The ruleset is
+# maintainer-owned out-of-band state and is deliberately NOT read live: a workflow
+# that followed it would silently obey a ruleset edit nobody reviewed, so a ruleset
+# change must instead arrive as a reviewed diff editing this list and the contract
+# test pinning it (tests/test_marker_contract.py). Workflow-level so the verify-time
+# gate and the publish-time recheck consume ONE copy and cannot drift apart.
+env:
+  REQUIRED_CONTEXTS: |
+    lint
+    test (ubuntu-latest)
+    test (macos-latest)
+    test (windows-latest)
+    pre-commit
+    commitlint
+    secret-scan
+    conda-lock-verify
+    docs-build
+    schema-guard
+    sidecar / parity
+
 jobs:
   # ---------------------------------------------------------------------------
   # 1) Verify the release tag: annotated + GitHub-verified signature + on main.
@@ -48,6 +69,12 @@ jobs:
   verify:
     name: verify tag
     runs-on: ubuntu-latest
+    # A job-level permissions block replaces the workflow-level `contents: read`
+    # WHOLESALE, so checkout's read must be restated here beside the checks read
+    # the post-merge guard needs.
+    permissions:
+      contents: read
+      checks: read
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
@@ -107,6 +134,63 @@ jobs:
           git merge-base --is-ancestor "$commit" refs/remotes/origin/main \
             || { echo "::error::tag commit $commit is not on origin/main"; false; }
           echo "Verified annotated + signed tag $TAG on main."
+
+      - name: Require green post-merge checks on the tagged commit
+        # The post-merge `ci`, `schema-guard` and `sidecar / parity` runs on `main` are
+        # the compensating control for dropping the strict up-to-date rule (ADR-0057);
+        # this step is the release half of that control (issue #266): a tag on a commit
+        # whose post-merge checks are red, cancelled, missing or still running must not
+        # publish. Deliberately NO `if:` — the guard evaluates on every run, a dry run
+        # included, and the committed script (not this step) owns both the verdict and
+        # the disposition: publish mode `true` refuses, `false` is advisory, and any
+        # other value fails loudly. This step only fetches and pipes — it performs no
+        # comparison itself — so the decision logic stays unit-testable offline
+        # (release.yml cannot run in the local gate matrix).
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+          PUBLISH: ${{ steps.resolve.outputs.publish }}
+        run: |
+          set -euo pipefail
+          # $REQUIRED_CONTEXTS is the workflow-level frozen copy of the ruleset's
+          # required contexts (see the top of this file) — one definition shared with
+          # the publish-time recheck in the release job below.
+          # Resolve the tagged commit from the LOCAL checkout first (fetch-depth: 0
+          # above brings every tag ref): the commits API endpoint accepts a SHA, branch
+          # or tag, so a bare-name lookup could bind a branch sharing the tag's name —
+          # and green checks on that branch would bless a red tagged commit. On a
+          # publish the signature step above has just proven refs/tags/$TAG exists in
+          # this same checkout, so local resolution cannot fail there and no API
+          # failure can degrade it into the bare-name lookup. The API fallback is
+          # reachable only on a dry run of a non-tag ref, where the verdict is advisory
+          # by design — and it carries no stderr suppression, so a transient API error
+          # fails this step loudly instead of silently consulting the wrong ref.
+          if git rev-parse -q --verify "refs/tags/${TAG}^{commit}" >/dev/null; then
+            commit="$(git rev-list -n1 "refs/tags/${TAG}")"
+          else
+            commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${TAG}" -q .sha)"
+          fi
+          # The check-runs endpoint windows its answer to the 1000 most recent check
+          # suites on the ref (docs.github.com/en/rest/checks/runs — the note is on
+          # the endpoint itself, so filter=all does not widen it), and the scheduled
+          # reaper/triage runs pile suites onto whatever commit is the main tip. The
+          # suite count is therefore fetched and piped too, so the script can explain
+          # a never-reported verdict on an over-windowed ref instead of reporting a
+          # bare false "never reported".
+          suites="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${commit}/check-suites?per_page=1" -q .total_count)"
+          # The Checks API, never the combined-status endpoint: every gate on main is a
+          # check run, and the status endpoint reports an empty "pending" for a fully
+          # green commit. Keep the endpoint's default filter (NOT filter=all): a re-run
+          # inside one suite legitimately supersedes its failure (proven at 6d53c980),
+          # while cross-suite recency is the script's job. --paginate because a busy
+          # main commit carries 100+ runs and ten of the eleven required contexts are
+          # absent from the first page.
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${commit}/check-runs?per_page=100" --paginate \
+            | python3 scripts/verify_postmerge_checks.py \
+                --commit "$commit" \
+                --required-contexts "$REQUIRED_CONTEXTS" \
+                --publish-mode "$PUBLISH" \
+                --suite-count "$suites"
 
   # ---------------------------------------------------------------------------
   # 2) Build the 3-OS installers (the PR-1 constructor recipe).
@@ -303,6 +387,7 @@ jobs:
       id-token: write # build-provenance attestation
       attestations: write # build-provenance attestation
       actions: write # dispatch docs.yml (see "Publish the documentation site")
+      checks: read # the publish-time recheck reads the tagged commit's check runs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -471,7 +556,31 @@ jobs:
         # redirect creates SHA256SUMS.txt, so it never lists itself).
         run: cd out && sha256sum -- * > SHA256SUMS.txt
 
+      - name: Check out the guard script at the workflow's own commit
+        # The main checkout above is AT THE TAG, and a tag cut before the post-merge
+        # gate landed carries no scripts/verify_postmerge_checks.py — a dry-run
+        # rehearsal against such a tag would then fail on a missing file rather than
+        # reporting its advisory verdict, which is the unrehearsable-release trap the
+        # guard's disposition design exists to avoid. github.sha always carries the
+        # script on the paths that matter: the dispatching branch's head on a dry
+        # run, and the tagged commit itself on a tag-push publish (any tag that can
+        # pass the gate postdates it). Scoped to a subdirectory so the release
+        # assets keep coming from the tag's own tree, and placed AFTER the SBOM and
+        # asset staging above so this second tree never leaks into the published
+        # bill of materials (sbom-action scans `path: .`) — the contract test pins
+        # this step and the three after it as consecutive.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: .postmerge-guard
+          persist-credentials: false
+
       - name: Attest build provenance for the release assets
+        # Deliberately BEFORE the publish-time recheck below: an attestation for
+        # artifacts that are then never released distributes nothing (the installers
+        # stay unpublished, and a later successful run of the same tag re-attests the
+        # same digests), so running it first leaves the recheck flush against the
+        # Release-create — the residual window between the check-state decision and
+        # the publish is then the recheck's own runtime, the platform minimum.
         if: needs.verify.outputs.publish == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -479,6 +588,43 @@ jobs:
             out/*.exe
             out/*.pkg
             out/*.sh
+
+      - name: Require green post-merge checks at publish time
+        # The verify-job gate runs before the build matrix, and the required contexts
+        # are not frozen while those ~30-60 minutes elapse: the nightly sidecar cron
+        # (37 6 * * *) lands new `sidecar / parity` suites on whatever commit is the
+        # main tip — typically the very commit being released — so a run starting or
+        # completing red inside that window would leave the verify-time verdict stale.
+        # The same fetch-and-pipe decision therefore repeats here, flush against the
+        # Release-create (a contract test pins the order): nothing sits between this
+        # verdict and the publish, so the unavoidable residual window — no GitHub
+        # primitive binds Release creation to unchanged check state atomically — is
+        # this step's own few seconds of runtime. Same committed script, same
+        # workflow-level $REQUIRED_CONTEXTS, same verbatim publish pass-through;
+        # deliberately NO `if:`, so a dry run rehearses the recheck and reports its
+        # advisory verdict too. The main checkout is AT the tag
+        # (ref: needs.verify.outputs.tag, fetch-depth: 0), so on every publishable
+        # path the tag ref is present locally and no API failure can degrade the
+        # binding; the unsuppressed bare-name fallback mirrors the verify step for a
+        # dry run of a non-tag ref.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.tag }}
+          PUBLISH: ${{ needs.verify.outputs.publish }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/${TAG}^{commit}" >/dev/null; then
+            commit="$(git rev-list -n1 "refs/tags/${TAG}")"
+          else
+            commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${TAG}" -q .sha)"
+          fi
+          suites="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${commit}/check-suites?per_page=1" -q .total_count)"
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${commit}/check-runs?per_page=100" --paginate \
+            | python3 .postmerge-guard/scripts/verify_postmerge_checks.py \
+                --commit "$commit" \
+                --required-contexts "$REQUIRED_CONTEXTS" \
+                --publish-mode "$PUBLISH" \
+                --suite-count "$suites"
 
       - name: Create the GitHub Release
         if: needs.verify.outputs.publish == 'true'
