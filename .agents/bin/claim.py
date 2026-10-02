@@ -483,8 +483,9 @@ _AUTONOMY_TABLE_ROW = re.compile(
 #: A line shaped like the opening of a new Markdown block: a non-empty list item, bulleted or
 #: ordered **from 1**, or an ATX heading. GitHub Markdown lets a list interrupt a paragraph only
 #: when its first item is non-empty and, if ordered, numbered `1`; `2. unless ...` under a value is
-#: continuation text and is rendered inside it. The captured indent is checked by `_continuation`.
-_BLOCK_START = re.compile(r"([ \t]*)(?:(?:[-*+]|1[.)])[ \t]+\S|\#{1,6}(?:[ \t]|$))")
+#: continuation text and is rendered inside it. A marker may carry up to nine digits, so `01.` is
+#: a start at 1 as well. The captured indent is checked by `_continuation`.
+_BLOCK_START = re.compile(r"([ \t]*)(?:(?:[-*+]|0{0,8}1[.)])[ \t]+\S|\#{1,6}(?:[ \t]|$))")
 #: A grooming block runs to the **next grooming marker** or the end of the body - not to the next
 #: HTML comment of any kind. Terminating on any `<!--` meant one nested comment truncated the
 #: authoritative source, so a declaration written above it governed and a restriction written below

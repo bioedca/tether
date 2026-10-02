@@ -639,6 +639,13 @@ def test_text_outside_the_declaration_paragraph_does_not_join_it() -> None:
         "ordered list straight after a heading value": (
             "## Execution autonomy\n\nagent-can-do-alone\n1. Reproduce the issue\n"
         ),
+        # Codex on #462: Markdown reads `01.` as a list starting at 1, so it interrupts too.
+        "zero-padded ordered list straight after the bullet": (
+            "- **Autonomy:** agent-can-do-alone\n01. Reproduce the issue\n"
+        ),
+        "zero-padded ordered list straight after a heading value": (
+            "## Execution autonomy\n\nagent-can-do-alone\n000000001) Reproduce the issue\n"
+        ),
     }
     for where, body in bodies.items():
         assert claim._autonomy_refusal(body) is None, f"{where}: read as part of the declaration"
