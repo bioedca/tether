@@ -44,9 +44,11 @@ launcher (`[project.gui-scripts]` → `tether.gui.app:main`).
 `--max-restarts` and `--no-defer` — describe the [sidecar interface](#not-covered), which is
 explicitly *not* covered. Their **names** are covered like any other flag; their semantics
 and their defaults follow the sidecar and may change. Concretely, `--max-restarts` and
-`--sidecar-timeout` are both `default=None` in `tether.cli`; the values `3` and `1800`
-printed in `--help` come from `DEFAULT_MAX_RESTARTS` and `DEFAULT_SIDECAR_TIMEOUT` in
-`tether.idealize.supervisor`, an uncovered module. Do not treat those two numbers as frozen.
+`--sidecar-timeout` are both `default=None` in `tether.cli`; the effective defaults are
+`DEFAULT_MAX_RESTARTS` and `DEFAULT_SIDECAR_TIMEOUT`, reachable at
+`tether.idealize.supervisor`, an uncovered module. The `3` and `1800` printed in `--help`
+are literals in the help strings, held equal to those constants by a committed test. Do
+not treat those two numbers as frozen.
 
 Not covered on this surface: the wording and layout of anything printed to stdout or
 stderr, the field set of the `batch` JSONL structured log, and the *specific* non-zero exit
