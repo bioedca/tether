@@ -601,11 +601,66 @@ def test_a_line_that_cannot_interrupt_a_paragraph_stays_in_the_declaration() -> 
             f"- **Autonomy:** agent-can-do-alone\n      - {condition}\n"
         ),
         "heading, empty marker": f"## Execution autonomy\n\nagent-can-do-alone\n+\n{condition}\n",
+        # Codex on #462: a marker followed by five or more spaces opens indented code, not a list
+        # item, and indented code cannot interrupt a paragraph either.
+        "heading, marker padded five spaces": (
+            f"## Execution autonomy\n\nagent-can-do-alone\n-     {condition}\n"
+        ),
+        "bullet, marker padded five spaces": (
+            f"- **Autonomy:** agent-can-do-alone\n1.     {condition}\n"
+        ),
     }
     for where, body in bodies.items():
         refusal = claim._autonomy_refusal(body)
         assert refusal is not None, f"{where}: a condition Markdown keeps in the value was admitted"
         assert "is not a registered autonomy value" in refusal, f"{where}: {refusal}"
+
+
+def test_a_restrictive_bullet_governs_under_any_marker_markdown_accepts(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`+` and an indent of up to three spaces make a bullet too, so they can carry a restriction.
+
+    Codex on #462: `+ Autonomy: maintainer decision required` or `  - Autonomy: ...` beside a
+    column-zero admitting bullet was never read, so the admitting one governed alone. Those
+    shapes are now read the way R4 reads a table row: **scan-only**. They can refuse and can
+    never admit, so the one registered declaration shape - a column-zero `-` or `*` bullet with a
+    bare enum value - stays the only way through, and this widens what the gate can see without
+    widening what it will accept.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    restrictive = {
+        "plus marker": "+ Autonomy: maintainer decision required\n",
+        "indented two": "  - Autonomy: maintainer decision required\n",
+        "indented three, star": "   * **Autonomy:** maintainer decision required\n",
+        "plus marker, wrapped": (
+            "+ **Autonomy:** agent-can-do-alone\n  pending a maintainer decision\n"
+        ),
+    }
+    for where, line in restrictive.items():
+        for body in (line + admitting, admitting + line):
+            refusal = claim._autonomy_refusal(body)
+            assert refusal is not None, f"{where}: a restrictive bullet was ignored - fail-open"
+            assert "maintainer decision" in refusal, f"{where}: {refusal}"
+
+    # The scan-only half: none of these shapes may become a way to admit.
+    for where, body in {
+        "plus marker alone": "+ **Autonomy:** agent-can-do-alone\n",
+        "indented alone": "  - **Autonomy:** agent-can-do-alone\n",
+    }.items():
+        refusal = claim._autonomy_refusal(body)
+        assert refusal is not None and "declares no Execution autonomy" in refusal, (
+            f"{where}: a non-registered bullet shape admitted - fail-open"
+        )
+
+    body = "+ Autonomy: maintainer decision required\n" + admitting
+    routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
+    fake = _install(monkeypatch, Fake(routes))
+    with pytest.raises(SystemExit) as exit_info:
+        claim._cmd_claim(_args(issue=7))
+    assert exit_info.value.code == claim.EXIT_INELIGIBLE
+    assert "maintainer decision" in capsys.readouterr().err
+    assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
 
 
 def test_text_outside_the_declaration_paragraph_does_not_join_it() -> None:

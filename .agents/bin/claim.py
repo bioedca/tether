@@ -462,9 +462,14 @@ _AUTONOMY_HEADING = re.compile(
 #: was invisible to this gate, so a restriction written without emphasis was skipped and an
 #: emphasized declaration below it governed. Markdown does not require the emphasis, issue authors
 #: do not reliably use it, and a safety verdict must not turn on typography.
+#: **Only a column-zero `-` or `*` bullet declares.** GitHub Markdown also accepts `+` and up to
+#: three spaces of indent, and a restriction written that way must still be read (Codex on #462),
+#: so those shapes match too - and are marked scan-only in `_declared_autonomy`, the way a table
+#: row is: they can refuse and never admit. That widens what the gate sees without widening what
+#: it accepts, which is the only direction a mutex gate may grow in.
 _AUTONOMY_BULLET = re.compile(
-    r"^[-*](?P<padding>[ \t]*)\*{0,2}[ \t]*(?:execution[ \t]+)?autonomy"
-    r"(?P<qualifier>[^:*\n]*)[:*]*\*{0,2}[: \t]*(?P<value>.+)$",
+    r"^(?P<indent>[ \t]{0,3})(?P<marker>[-*+])(?P<padding>[ \t]*)\*{0,2}[ \t]*"
+    r"(?:execution[ \t]+)?autonomy(?P<qualifier>[^:*\n]*)[:*]*\*{0,2}[: \t]*(?P<value>.+)$",
     re.M | re.I,
 )
 #: A table row can carry a restriction, as #346 does, but it can never admit. Only a bullet or
@@ -484,8 +489,10 @@ _AUTONOMY_TABLE_ROW = re.compile(
 #: ordered **from 1**, or an ATX heading. GitHub Markdown lets a list interrupt a paragraph only
 #: when its first item is non-empty and, if ordered, numbered `1`; `2. unless ...` under a value is
 #: continuation text and is rendered inside it. A marker may carry up to nine digits, so `01.` is
-#: a start at 1 as well. The captured indent is checked by `_continuation`.
-_BLOCK_START = re.compile(r"([ \t]*)(?:(?:[-*+]|0{0,8}1[.)])[ \t]+\S|\#{1,6}(?:[ \t]|$))")
+#: a start at 1 as well. One to four spaces may follow the marker; five or more open indented
+#: code, which cannot interrupt a paragraph either. The captured indent is checked by
+#: `_continuation`.
+_BLOCK_START = re.compile(r"([ \t]*)(?:(?:[-*+]|0{0,8}1[.)])[ \t]{1,4}\S|\#{1,6}(?:[ \t]|$))")
 #: A grooming block runs to the **next grooming marker** or the end of the body - not to the next
 #: HTML comment of any kind. Terminating on any `<!--` meant one nested comment truncated the
 #: authoritative source, so a declaration written above it governed and a restriction written below
@@ -645,9 +652,14 @@ def _declared_autonomy(body: str) -> list[_AutonomyValue]:
         after = source[match.end() :].split("\n")[1:]
         # Column where this bullet's content starts: the marker plus its one to four spaces.
         padding = len(match.group("padding").expandtabs(4))
-        offset = 1 + (padding if 1 <= padding <= 4 else 1)
+        indent = len(match.group("indent").expandtabs(4))
+        offset = indent + 1 + (padding if 1 <= padding <= 4 else 1)
         value = " ".join([match.group("value").strip(), *_continuation(after, offset)])
-        found.append(_AutonomyValue(value, f"{where} bullet", qualifier=qualifier))
+        # Scan-only unless this is the one registered shape: column zero, `-` or `*`.
+        scan_only = bool(match.group("indent")) or match.group("marker") == "+"
+        found.append(
+            _AutonomyValue(value, f"{where} bullet", scan_only=scan_only, qualifier=qualifier)
+        )
     # `finditer`, not `search`: a source can carry the heading twice, and taking only the first
     # hid a second one that restricted the issue behind an admitting first one - the same
     # first-match-wins defect this function was just fixed for, one level down.
