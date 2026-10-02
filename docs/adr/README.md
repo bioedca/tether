@@ -105,6 +105,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0063](0063-review-evidence-is-read-not-inferred.md) | Review evidence is read from the payload, not inferred from its shape | superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md); its measurements stand as evidence | §12 |
 | [0064](0064-the-agent-layer-coordinates-writers-not-reviews.md) | The agent layer coordinates writers, not reviews | accepted; supersedes [ADR-0062](0062-draft-first-review-lane-with-metered-providers.md) and [ADR-0063](0063-review-evidence-is-read-not-inferred.md), and the review gate, round cap, slot launcher and advisory scope guard of [ADR-0057](0057-github-native-swarm-coordination.md); its review-gate terminus is in turn superseded by [ADR-0065](0065-a-spent-metered-cap-closes-on-the-unmetered-provider.md), the rest governing unchanged | §12 (development & version-control protocol) |
 | [0065](0065-a-spent-metered-cap-closes-on-the-unmetered-provider.md) | A spent metered cap closes on the unmetered provider, not on a maintainer | accepted; supersedes the review-gate terminus of [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md), whose other decisions govern unchanged | §12 (development & version-control protocol) |
+| [0066](0066-read-issue-markdown-with-a-real-parser.md) | Read issue Markdown with a real parser, as a dev-only dependency | accepted | §4.1 (pin-and-hold), §12.5–§12.6 |
 
 <!-- gen:adr-index end -->
 
