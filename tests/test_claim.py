@@ -764,6 +764,63 @@ def test_a_heading_markdown_still_renders_is_read_wherever_it_is_indented() -> N
     alone = claim._autonomy_refusal(" ## Execution autonomy\n\nagent-can-do-alone\n")
     assert alone is not None and "declares no Execution autonomy" in alone
 
+    # Codex on #462: closing hashes need a space before them; `autonomy##` is the heading's text.
+    glued = claim._autonomy_refusal("## Execution autonomy##\n\nagent-can-do-alone\n")
+    assert glued is not None and "declares no Execution autonomy" in glued
+
+
+def test_markdown_measures_marker_padding_and_child_indent_in_columns() -> None:
+    """Tab stops and the containing item's column decide block structure, not character counts.
+
+    Codex on #462, twice. `-` followed by two tabs puts the content seven columns past the
+    marker, which opens indented code rather than a list item, so that line cannot interrupt the
+    paragraph and must stay in the value. And a child list under an autonomy bullet is nested
+    relative to *that bullet's* content column, so two child items are two blocks and a token
+    must not be assembled across them.
+    """
+    condition = "unless the sizing note says otherwise"
+    two_tabs = f"## Execution autonomy\n\nagent-can-do-alone\n-\t\t{condition}\n"
+    joined = claim._autonomy_refusal(two_tabs)
+    assert joined is not None and "is not a registered autonomy value" in joined
+
+    children = (
+        "- **Autonomy:** agent-can-do-alone\n"
+        "    - The reviewer is a human\n"
+        "    - Action items are listed below\n"
+    )
+    assert claim._autonomy_refusal(children) is None, "a token was assembled across child items"
+
+
+def test_fenced_code_is_literal_and_declares_nothing() -> None:
+    """A fenced example can neither restrict nor admit, and cannot stand in for a grooming block.
+
+    Codex on #462: a fenced snippet containing `Autonomy | maintainer decision required` was
+    scanned as a real table row and refused an admitting issue. Fences are removed before any
+    pattern runs - before the grooming marker is looked for too, since an example block quoting
+    the marker must not become the authoritative source.
+    """
+    admitting = "## Execution autonomy\n\nagent-can-do-alone\n\n"
+    assert (
+        claim._autonomy_refusal(admitting + "```\nAutonomy | maintainer decision required\n```\n")
+        is None
+    ), "a fenced table row was read as a restriction"
+    tilde_fence = admitting + "~~~markdown\n- **Autonomy:** maintainer decision\n~~~\n"
+    assert claim._autonomy_refusal(tilde_fence) is None, "a fenced bullet was read as a restriction"
+
+    fenced_only = claim._autonomy_refusal("```\n- **Autonomy:** agent-can-do-alone\n```\n")
+    assert fenced_only is not None and "declares no Execution autonomy" in fenced_only
+
+    quoted_marker = (
+        "```markdown\n<!-- tether-grooming-v1 -->\n- **Autonomy:** agent-can-do-alone\n```\n\n"
+        "- **Autonomy:** maintainer decision required\n"
+    )
+    refusal = claim._autonomy_refusal(quoted_marker)
+    assert refusal is not None and "maintainer decision" in refusal
+
+    # An unclosed fence runs to the end of the body, as Markdown renders it.
+    unclosed = claim._autonomy_refusal(admitting + "```\n| autonomy | maintainer decision |\n")
+    assert unclosed is None
+
 
 def test_text_outside_the_declaration_paragraph_does_not_join_it() -> None:
     """The permissive half of the test above: only the declaration's own paragraph is its value.

@@ -458,9 +458,16 @@ AUTONOMY_REFUSES = (
 #: same ATX heading to GitHub Markdown. A heading that is indented is read for restrictions and
 #: cannot admit, like a `+` bullet: the registered shapes stay at column zero.
 _AUTONOMY_HEADING = re.compile(
-    r"^(?P<indent>[ \t]{0,3})\#{1,6}[ \t]*(?:execution[ \t]+)?autonomy[ \t]*#*[ \t]*$\n"
+    r"^(?P<indent>[ \t]{0,3})\#{1,6}[ \t]*(?:execution[ \t]+)?autonomy(?:[ \t]+#+)?[ \t]*$\n"
     r"(?P<section>.*?)(?=^[ \t]{0,3}\#{1,6}[ \t]|\Z)",
     re.M | re.S | re.I,
+)
+#: A fenced code block, closed by a fence at least as long as the opener or running to the end
+#: of the body, as Markdown reads it. Fenced text is literal: a quoted table row or bullet in an
+#: example neither restricts nor admits, and a quoted grooming marker is not a grooming block.
+_FENCE = re.compile(
+    r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]{0,3}(?P=fence)[`~]*[ \t]*$|\Z)",
+    re.M | re.S,
 )
 #: The `**` emphasis is **optional**. Requiring it meant a plainly written `- Autonomy: ...` bullet
 #: was invisible to this gate, so a restriction written without emphasis was skipped and an
@@ -494,10 +501,13 @@ _AUTONOMY_TABLE_ROW = re.compile(
 #: ordered **from 1**, or an ATX heading. GitHub Markdown lets a list interrupt a paragraph only
 #: when its first item is non-empty and, if ordered, numbered `1`; `2. unless ...` under a value is
 #: continuation text and is rendered inside it. A marker may carry up to nine digits, so `01.` is
-#: a start at 1 as well. One to four spaces may follow the marker; five or more open indented
-#: code, which cannot interrupt a paragraph either. The captured indent is checked by
-#: `_continuation`.
-_BLOCK_START = re.compile(r"([ \t]*)(?:(?:[-*+]|0{0,8}1[.)])[ \t]{1,4}\S|\#{1,6}(?:[ \t]|$))")
+#: a start at 1 as well. One to four *columns* of padding may follow the marker; five or more
+#: open indented code, which cannot interrupt a paragraph either. Indent and padding are captured
+#: raw and measured in columns by `_opens_block`, because a tab stops at the next multiple of four
+#: from the start of the line rather than counting as one character.
+_BLOCK_START = re.compile(
+    r"(?P<indent>[ \t]*)(?:(?P<marker>[-*+]|0{0,8}1[.)])(?P<padding>[ \t]+)\S|\#{1,6}(?:[ \t]|$))"
+)
 #: A grooming block runs to the **next grooming marker** or the end of the body - not to the next
 #: HTML comment of any kind. Terminating on any `<!--` meant one nested comment truncated the
 #: authoritative source, so a declaration written above it governed and a restriction written below
@@ -595,22 +605,36 @@ def _continuation(lines: list[str], offset: int = 0) -> list[str]:
 
 
 def _opens_block(line: str, offset: int = 0) -> bool:
-    """Whether ``line`` interrupts the paragraph above it, under a container at ``offset``."""
+    """Whether ``line`` interrupts the paragraph above it, under a container at ``offset``.
+
+    Everything is measured in columns from the start of the line, with tab stops every four: a
+    marker may sit up to three columns past the container's content column, and its padding must
+    span one to four columns. `-` followed by two tabs pads seven columns and opens indented code.
+    """
     opener = _BLOCK_START.match(line)
-    return bool(opener) and len(opener.group(1).expandtabs(4)) <= offset + 3
+    if opener is None or len(opener.group("indent").expandtabs(4)) > offset + 3:
+        return False
+    if opener.group("marker") is None:
+        return True
+    lead = opener.group("indent") + opener.group("marker")
+    marker_end = len(lead.expandtabs(4))
+    padding = len((lead + opener.group("padding")).expandtabs(4)) - marker_end
+    return 1 <= padding <= 4
 
 
-def _blocks(lines: list[str]) -> list[str]:
+def _blocks(lines: list[str], offset: int = 0) -> list[str]:
     """``lines`` as the blocks Markdown would render, each joined with spaces and stripped.
 
-    A blank line ends a block, and so does a line that opens one. Scan-only prose is scanned one
-    block at a time so that a refusal token has to be written in one place to count.
+    A blank line ends a block, and so does a line that opens one under a container at ``offset``
+    - a child list under a bullet is nested relative to that bullet's content column, so two child
+    items are two blocks there. Scan-only prose is scanned one block at a time so that a refusal
+    token has to be written in one place to count.
     """
     blocks: list[str] = []
     current: list[str] = []
     for line in lines:
         text = line.strip()
-        if (not text or _opens_block(line)) and current:
+        if (not text or _opens_block(line, offset)) and current:
             blocks.append(" ".join(current))
             current = []
         if text:
@@ -676,6 +700,7 @@ def _declared_autonomy(body: str) -> list[_AutonomyValue]:
     # marker left the same hole open for a block that yields `""` - a marker ending the body with
     # no trailing newline, or one holding only a nested comment. Silence in the latest pass is
     # silence, and silence already refuses.
+    body = _FENCE.sub("", body)
     if _GROOMING_MARKER.search(body):
         source, where = _grooming_section(body), "grooming block"
     else:
@@ -715,7 +740,7 @@ def _declared_autonomy(body: str) -> list[_AutonomyValue]:
             ),
             len(item),
         )
-        for block in _blocks(item[:end]):
+        for block in _blocks(item[:end], offset):
             found.append(_AutonomyValue(block, f"{where} bullet remainder", scan_only=True))
     # `finditer`, not `search`: a source can carry the heading twice, and taking only the first
     # hid a second one that restricted the issue behind an admitting first one - the same
@@ -762,6 +787,7 @@ def _autonomy_refusal(body: str) -> str | None:
     it back. So an absent declaration refuses too: an issue that never declared autonomy was never
     groomed, and silence is not consent.
     """
+    body = _FENCE.sub("", body)
     values = _declared_autonomy(body)
 
     # Refusing tokens are evaluated across every value **before** exact-match or qualifier
