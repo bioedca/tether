@@ -475,10 +475,11 @@ _AUTONOMY_TABLE_ROW = re.compile(
     r"(?P<value>[^\n]*)$",
     re.M | re.I,
 )
-#: A line that opens a new Markdown block, and so ends the paragraph above it: a list item or an
-#: ATX heading. The marker must be followed by whitespace, so `*emphasis*` opening a wrapped line
-#: is read as the continuation it is.
-_BLOCK_START = re.compile(r"[ \t]*(?:[-*+][ \t]|\#{1,6}(?:[ \t]|$))")
+#: A line that opens a new Markdown block, and so ends the paragraph above it: a list item,
+#: bulleted or ordered (`1.` or `1)`), or an ATX heading. The marker must be followed by
+#: whitespace, so `*emphasis*` or `3.5 hours` opening a wrapped line is read as the continuation
+#: it is.
+_BLOCK_START = re.compile(r"[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]|\#{1,6}(?:[ \t]|$))")
 #: A grooming block runs to the **next grooming marker** or the end of the body - not to the next
 #: HTML comment of any kind. Terminating on any `<!--` meant one nested comment truncated the
 #: authoritative source, so a declaration written above it governed and a restriction written below
@@ -548,10 +549,10 @@ def _continuation(lines: list[str]) -> list[str]:
     """The leading ``lines`` Markdown renders as part of the paragraph they follow, stripped.
 
     A paragraph runs until a blank line or a line that opens a new block. Only two block openers
-    are recognised - a list item and an ATX heading - because those are what follow a declaration
-    in a well-formed body. Anything else that is not blank is joined, including shapes Markdown
-    would end the paragraph on (a table row, a fence): joining makes the value fail the exact
-    match, and failing closed on an odd shape costs one re-groom.
+    are recognised - a list item, bulleted or ordered, and an ATX heading - because those are what
+    follow a declaration in a well-formed body. Anything else that is not blank is joined,
+    including shapes Markdown would end the paragraph on (a table row, a fence): joining makes the
+    value fail the exact match, and failing closed on an odd shape costs one re-groom.
     """
     kept: list[str] = []
     for line in lines:

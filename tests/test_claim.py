@@ -564,6 +564,17 @@ def test_text_outside_the_declaration_paragraph_does_not_join_it() -> None:
         "heading straight after the bullet": (
             "- **Autonomy:** agent-can-do-alone\n## Related work\n\nNothing overlaps.\n"
         ),
+        # Codex on #462: an ordered list is a list too. Joining `1. Reproduce the issue` into the
+        # value refused a registered declaration for being followed by ordinary Markdown.
+        "ordered list straight after the bullet": (
+            "- **Autonomy:** agent-can-do-alone\n1. Reproduce the issue\n2. Fix it\n"
+        ),
+        "ordered list with a parenthesis straight after the bullet": (
+            "- **Autonomy:** agent-can-do-alone\n1) Reproduce the issue\n"
+        ),
+        "ordered list straight after a heading value": (
+            "## Execution autonomy\n\nagent-can-do-alone\n1. Reproduce the issue\n"
+        ),
     }
     for where, body in bodies.items():
         assert claim._autonomy_refusal(body) is None, f"{where}: read as part of the declaration"
