@@ -209,6 +209,19 @@ def test_claim_ignores_an_approval_from_a_non_maintainer(
             "- **Autonomy after unblock:** agent-can-do-alone\n",
             "after unblock",
         ),
+        # Codex on #462: the same condition, soft-wrapped onto the next line, was admitted.
+        (
+            "## Execution autonomy\n\nagent-can-do-alone\nunless the sizing note says otherwise\n",
+            "is not a registered autonomy value",
+        ),
+        (
+            "<!-- tether-grooming-v1 -->\n\n"
+            "- **Status:** unblocked.\n"
+            "- **Autonomy:** agent-can-do-alone\n"
+            "  once the sizing note is settled.\n"
+            "- **Open dependencies:** none.\n",
+            "is not a registered autonomy value",
+        ),
     ],
     ids=[
         "external-human",
@@ -223,6 +236,8 @@ def test_claim_ignores_an_approval_from_a_non_maintainer(
         "qualified",
         "after-unblock",
         "after-unblock-status-unblocked",
+        "wrapped-heading-condition",
+        "wrapped-grooming-bullet-condition",
     ],
 )
 def test_an_issue_whose_body_says_no_agent_can_do_it_is_not_claimable(
@@ -463,7 +478,7 @@ def test_ordinary_prose_under_the_declaration_does_not_refuse_a_ready_issue(
     refused because the sentence does not *admit*, and that is a false negative on exactly the
     well-groomed issues this gate is meant to let through.
 
-    So the first line is exact-matched as the declaration and the remaining prose is scan-only.
+    So the first paragraph is exact-matched as the declaration and the remaining prose is scan-only.
     A refusal token there still governs; prose that names none changes nothing. This asserts the
     permissive half, because a fail-closed fix that quietly stopped admitting anything would pass
     every other test here.
@@ -479,6 +494,79 @@ def test_ordinary_prose_under_the_declaration_does_not_refuse_a_ready_issue(
     assert [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]], (
         "a ready issue was refused because it explained itself"
     )
+
+
+@pytest.mark.parametrize(
+    ("first", "rest", "expected"),
+    [
+        (
+            "## Execution autonomy\n\nagent-can-do-alone",
+            "unless the sizing note says otherwise",
+            "is not a registered autonomy value",
+        ),
+        (
+            "- **Autonomy:** agent-can-do-alone",
+            "unless the sizing note says otherwise",
+            "is not a registered autonomy value",
+        ),
+        (
+            "## Execution autonomy\n\nagent-can-do-alone",
+            "after a maintainer decision on the dataset",
+            "maintainer decision",
+        ),
+        (
+            "- **Autonomy:** agent-can-do-alone",
+            "after a maintainer decision on the dataset",
+            "maintainer decision",
+        ),
+    ],
+    ids=["heading-condition", "bullet-condition", "heading-token", "bullet-token"],
+)
+def test_a_line_break_inside_a_declaration_never_decides_the_verdict(
+    first: str, rest: str, expected: str
+) -> None:
+    """A soft-wrapped declaration is one declaration, however it is wrapped.
+
+    Codex on #462: `agent-can-do-alone` with `unless the sizing note says otherwise` on the *next*
+    line was admitted, while the same words on one line were refused as unregistered. Markdown
+    renders both as one paragraph, so a line break was deciding a safety verdict - the separator
+    defect `_flatten_autonomy` closes, one level up. The bullet path had the same hole and it was
+    the worse one: `_AUTONOMY_BULLET` captures a single physical line, so a wrapped continuation
+    was never read at all, not even for a refusal token, in the source a grooming block makes
+    authoritative.
+
+    Asserted as an invariance rather than as one body per shape, because the defect *is* the
+    variance: every way of wrapping the same words must reach the verdict the unwrapped line does.
+    """
+    for joiner in (" ", "\n", "\n  ", "\n\t"):
+        refusal = claim._autonomy_refusal(f"{first}{joiner}{rest}\n")
+        assert refusal is not None, f"joined by {joiner!r}: a wrapped condition was admitted"
+        assert expected in refusal, f"joined by {joiner!r}: {refusal}"
+
+
+def test_text_outside_the_declaration_paragraph_does_not_join_it() -> None:
+    """The permissive half of the test above: only the declaration's own paragraph is its value.
+
+    Joining too much is the over-refusal `test_ordinary_prose_under_the_declaration...` exists to
+    prevent, moved to the bullet path. Every well-groomed block follows its `Autonomy:` bullet with
+    another bullet, and that bullet's own wrapped lines belong to it and not to the declaration.
+    """
+    bodies = {
+        "next bullet, and that bullet's own continuation": (
+            "- **Autonomy:** agent-can-do-alone.\n"
+            "- **Why it is agent-doable:** two files, no schema.\n"
+            "  The whole diff is a parser and its tests.\n"
+        ),
+        "nested bullet": "- **Autonomy:** agent-can-do-alone\n  - the tests are already written\n",
+        "blank line, then prose": (
+            "- **Autonomy:** agent-can-do-alone\n\nThe tests are already written.\n"
+        ),
+        "heading straight after the bullet": (
+            "- **Autonomy:** agent-can-do-alone\n## Related work\n\nNothing overlaps.\n"
+        ),
+    }
+    for where, body in bodies.items():
+        assert claim._autonomy_refusal(body) is None, f"{where}: read as part of the declaration"
 
 
 def test_a_grooming_block_that_declares_no_autonomy_does_not_fall_back_to_the_body(

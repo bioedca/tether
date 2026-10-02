@@ -475,6 +475,10 @@ _AUTONOMY_TABLE_ROW = re.compile(
     r"(?P<value>[^\n]*)$",
     re.M | re.I,
 )
+#: A line that opens a new Markdown block, and so ends the paragraph above it: a list item or an
+#: ATX heading. The marker must be followed by whitespace, so `*emphasis*` opening a wrapped line
+#: is read as the continuation it is.
+_BLOCK_START = re.compile(r"[ \t]*(?:[-*+][ \t]|\#{1,6}(?:[ \t]|$))")
 #: A grooming block runs to the **next grooming marker** or the end of the body - not to the next
 #: HTML comment of any kind. Terminating on any `<!--` meant one nested comment truncated the
 #: authoritative source, so a declaration written above it governed and a restriction written below
@@ -540,6 +544,23 @@ def _flatten_autonomy(value: str) -> str:
     return re.sub(r"\s+", " ", _normalize_autonomy(widened)).strip()
 
 
+def _continuation(lines: list[str]) -> list[str]:
+    """The leading ``lines`` Markdown renders as part of the paragraph they follow, stripped.
+
+    A paragraph runs until a blank line or a line that opens a new block. Only two block openers
+    are recognised - a list item and an ATX heading - because those are what follow a declaration
+    in a well-formed body. Anything else that is not blank is joined, including shapes Markdown
+    would end the paragraph on (a table row, a fence): joining makes the value fail the exact
+    match, and failing closed on an odd shape costs one re-groom.
+    """
+    kept: list[str] = []
+    for line in lines:
+        if not line.strip() or _BLOCK_START.match(line):
+            break
+        kept.append(line.strip())
+    return kept
+
+
 def _declared_autonomy(body: str) -> list[_AutonomyValue]:
     """Every autonomy value or scan-only restriction in the authoritative source.
 
@@ -576,10 +597,18 @@ def _declared_autonomy(body: str) -> list[_AutonomyValue]:
     and #336 deliberately exclude. The qualifier travels separately so the refusal names the line
     a groomer must rewrite.
 
-    A heading's first non-blank line is the declared value. Remaining lines are scan-only: an
+    A heading's first paragraph is the declared value. Remaining lines are scan-only: an
     explicit `AUTONOMY_REFUSES` token still governs, but ordinary explanatory prose cannot become
     an unregistered second declaration. A table row whose first cell is `autonomy` is scan-only for
     the same reason; it can expose a restriction but never create a new admitting shape.
+
+    **The value is the whole paragraph, not its first physical line**, on both paths. Markdown
+    renders `agent-can-do-alone` followed by `unless the sizing note says otherwise` on the next
+    line as one sentence, and reading only the first line admitted it while the same words on one
+    line refused: a line break deciding a safety verdict (Codex on #462). The bullet pattern
+    captures one line, so there a wrapped continuation was not read at all, even for a refusal
+    token. `_continuation` joins the lines Markdown would; a blank line or a new block ends the
+    value, so the prose under a heading and the next bullet in a list stay outside it.
     """
     # A grooming block is authoritative **when its marker is present**, including when it declares
     # no autonomy and including when it captures nothing at all. Falling through to the body let
@@ -595,19 +624,23 @@ def _declared_autonomy(body: str) -> list[_AutonomyValue]:
     found: list[_AutonomyValue] = []
     for match in _AUTONOMY_BULLET.finditer(source):
         qualifier = _normalize_autonomy(match.group("qualifier"))
-        found.append(_AutonomyValue(match.group("value"), f"{where} bullet", qualifier=qualifier))
+        # The pattern stops at the end of the line; the lines after it may still be this bullet.
+        after = source[match.end() :].split("\n")[1:]
+        value = " ".join([match.group("value").strip(), *_continuation(after)])
+        found.append(_AutonomyValue(value, f"{where} bullet", qualifier=qualifier))
     # `finditer`, not `search`: a source can carry the heading twice, and taking only the first
     # hid a second one that restricted the issue behind an admitting first one - the same
     # first-match-wins defect this function was just fixed for, one level down.
     for heading in _AUTONOMY_HEADING.finditer(source):
-        lines = [ln.strip() for ln in heading.group(1).split("\n") if ln.strip()]
-        if lines:
-            found.append(_AutonomyValue(lines[0], f"{where} heading"))
-            if len(lines) > 1:
+        lines = heading.group(1).split("\n")
+        first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
+        if first is not None:
+            paragraph = [lines[first].strip(), *_continuation(lines[first + 1 :])]
+            found.append(_AutonomyValue(" ".join(paragraph), f"{where} heading"))
+            rest = [ln.strip() for ln in lines[first + len(paragraph) :] if ln.strip()]
+            if rest:
                 found.append(
-                    _AutonomyValue(
-                        " ".join(lines[1:]), f"{where} heading remainder", scan_only=True
-                    )
+                    _AutonomyValue(" ".join(rest), f"{where} heading remainder", scan_only=True)
                 )
     for row in _AUTONOMY_TABLE_ROW.finditer(source):
         found.append(_AutonomyValue(row.group("value"), f"{where} table row", scan_only=True))
