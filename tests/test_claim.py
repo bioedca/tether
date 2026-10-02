@@ -609,6 +609,11 @@ def test_a_line_that_cannot_interrupt_a_paragraph_stays_in_the_declaration() -> 
         "bullet, marker padded five spaces": (
             f"- **Autonomy:** agent-can-do-alone\n1.     {condition}\n"
         ),
+        # Codex on #462: a tab after the marker reaches column 4, not column 5, so a marker
+        # indented eight columns is four past the content edge and cannot interrupt.
+        "bullet, tab padding then an eight-column marker": (
+            f"-\t**Autonomy:** agent-can-do-alone\n        - {condition}\n"
+        ),
     }
     for where, body in bodies.items():
         refusal = claim._autonomy_refusal(body)
@@ -630,18 +635,32 @@ def test_a_restrictive_bullet_governs_under_any_marker_markdown_accepts(
     """
     admitting = "- **Autonomy:** agent-can-do-alone\n"
     restrictive = {
-        "plus marker": "+ Autonomy: maintainer decision required\n",
-        "indented two": "  - Autonomy: maintainer decision required\n",
-        "indented three, star": "   * **Autonomy:** maintainer decision required\n",
+        "plus marker": ("+ Autonomy: maintainer decision required\n", "maintainer decision"),
+        "indented two": ("  - Autonomy: maintainer decision required\n", "maintainer decision"),
+        "indented three, star": (
+            "   * **Autonomy:** maintainer decision required\n",
+            "maintainer decision",
+        ),
         "plus marker, wrapped": (
-            "+ **Autonomy:** agent-can-do-alone\n  pending a maintainer decision\n"
+            "+ **Autonomy:** agent-can-do-alone\n  pending a maintainer decision\n",
+            "maintainer decision",
+        ),
+        # Codex on #462, second pass: a value naming no token still is not a registered value, and
+        # a scan would have let it through. Every bullet is exact-checked; only one shape admits.
+        "plus marker, unregistered": (
+            "+ Autonomy: human review required\n",
+            "is not a registered autonomy value",
+        ),
+        "indented, unregistered": (
+            "  - **Autonomy:** agent-can-do-alone for the docs\n",
+            "is not a registered autonomy value",
         ),
     }
-    for where, line in restrictive.items():
+    for where, (line, expected) in restrictive.items():
         for body in (line + admitting, admitting + line):
             refusal = claim._autonomy_refusal(body)
             assert refusal is not None, f"{where}: a restrictive bullet was ignored - fail-open"
-            assert "maintainer decision" in refusal, f"{where}: {refusal}"
+            assert expected in refusal, f"{where}: {refusal}"
 
     # The scan-only half: none of these shapes may become a way to admit.
     for where, body in {
@@ -661,6 +680,89 @@ def test_a_restrictive_bullet_governs_under_any_marker_markdown_accepts(
     assert exit_info.value.code == claim.EXIT_INELIGIBLE
     assert "maintainer decision" in capsys.readouterr().err
     assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
+
+
+def test_scan_only_prose_is_scanned_one_block_at_a_time() -> None:
+    """A refusal token must be stated, not assembled from the ends of two blocks.
+
+    Codex on #462: the heading remainder was joined into one string with its blank lines dropped,
+    so `The reviewer is a human` followed by a blank line and `Action items are listed below`
+    read as `human action` and refused a registered declaration. Each paragraph, and each list
+    item, is now scanned on its own; a token still governs wherever it is actually written.
+    """
+    bodies = {
+        "token halves across paragraphs": (
+            "## Execution autonomy\n\nagent-can-do-alone\n\n"
+            "The reviewer is a human\n\nAction items are listed below.\n"
+        ),
+        "token halves across list items": (
+            "## Execution autonomy\n\nagent-can-do-alone\n\n- needs a human\n- action pending\n"
+        ),
+    }
+    for where, body in bodies.items():
+        assert claim._autonomy_refusal(body) is None, f"{where}: a token was fabricated"
+
+    # Written in one paragraph, the same words are a statement and still govern.
+    stated = "## Execution autonomy\n\nagent-can-do-alone\n\nThe upload needs a human\naction.\n"
+    refusal = claim._autonomy_refusal(stated)
+    assert refusal is not None and "human action" in refusal
+
+
+def test_the_rest_of_an_autonomy_bullets_list_item_is_scanned_like_heading_prose() -> None:
+    """What a bullet says about itself below its first paragraph is read for refusal tokens.
+
+    The heading path scans the prose under its declaration; the bullet path read nothing past
+    the declaration paragraph, so `- **Autonomy:** agent-can-do-alone` followed by an indented
+    paragraph or nested bullet saying the upload is a maintainer decision was admitted. Same
+    rule on both paths now: the item's remaining blocks are scan-only, a token governs, prose
+    that names none changes nothing, and the next sibling bullet is outside the item.
+    """
+    refusing = {
+        "indented paragraph after a blank line": (
+            "- **Autonomy:** agent-can-do-alone\n\n  The upload is a maintainer decision.\n"
+        ),
+        "nested bullet": (
+            "- **Autonomy:** agent-can-do-alone\n  - except the upload: maintainer decision\n"
+        ),
+    }
+    for where, body in refusing.items():
+        refusal = claim._autonomy_refusal(body)
+        assert refusal is not None, f"{where}: a restriction inside the item was not read"
+        assert "maintainer decision" in refusal, f"{where}: {refusal}"
+
+    admitting = {
+        "nested bullet naming no token": (
+            "- **Autonomy:** agent-can-do-alone\n  - the tests are already written\n"
+        ),
+        "sibling bullet is outside the item": (
+            "- **Autonomy:** agent-can-do-alone\n- **Blocker:** a maintainer decision on #1\n"
+        ),
+    }
+    for where, body in admitting.items():
+        assert claim._autonomy_refusal(body) is None, f"{where}: read as a restriction"
+
+
+def test_a_heading_markdown_still_renders_is_read_wherever_it_is_indented() -> None:
+    """Up to three spaces before `#` and closing hashes are still an ATX heading.
+
+    A restrictive `## Execution autonomy` section indented one space was invisible to the heading
+    pattern, so an admitting bullet beside it governed alone. Read now, and like a `+` bullet it
+    cannot admit on its own: the registered shapes stay column-zero.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    for where, section in {
+        "indented one": " ## Execution autonomy\n\nmaintainer decision required\n",
+        "indented three, closing hashes": (
+            "   ## Execution autonomy ##\n\nmaintainer decision required\n"
+        ),
+    }.items():
+        for body in (section + "\n" + admitting, admitting + "\n" + section):
+            refusal = claim._autonomy_refusal(body)
+            assert refusal is not None, f"{where}: a restrictive heading was ignored - fail-open"
+            assert "maintainer decision" in refusal, f"{where}: {refusal}"
+
+    alone = claim._autonomy_refusal(" ## Execution autonomy\n\nagent-can-do-alone\n")
+    assert alone is not None and "declares no Execution autonomy" in alone
 
 
 def test_text_outside_the_declaration_paragraph_does_not_join_it() -> None:

@@ -454,8 +454,12 @@ AUTONOMY_REFUSES = (
     "external/human",
 )
 
+#: Up to three spaces may precede the `#`, and closing hashes may follow the text - both are the
+#: same ATX heading to GitHub Markdown. A heading that is indented is read for restrictions and
+#: cannot admit, like a `+` bullet: the registered shapes stay at column zero.
 _AUTONOMY_HEADING = re.compile(
-    r"^\#{1,6}[ \t]*(?:execution[ \t]+)?autonomy[ \t]*$\n(.*?)(?=^\#{1,6}[ \t]|\Z)",
+    r"^(?P<indent>[ \t]{0,3})\#{1,6}[ \t]*(?:execution[ \t]+)?autonomy[ \t]*#*[ \t]*$\n"
+    r"(?P<section>.*?)(?=^[ \t]{0,3}\#{1,6}[ \t]|\Z)",
     re.M | re.S | re.I,
 )
 #: The `**` emphasis is **optional**. Requiring it meant a plainly written `- Autonomy: ...` bullet
@@ -464,8 +468,9 @@ _AUTONOMY_HEADING = re.compile(
 #: do not reliably use it, and a safety verdict must not turn on typography.
 #: **Only a column-zero `-` or `*` bullet declares.** GitHub Markdown also accepts `+` and up to
 #: three spaces of indent, and a restriction written that way must still be read (Codex on #462),
-#: so those shapes match too - and are marked scan-only in `_declared_autonomy`, the way a table
-#: row is: they can refuse and never admit. That widens what the gate sees without widening what
+#: so those shapes match too - and `_declared_autonomy` marks them unable to admit. They are
+#: exact-checked like any declaration, so an unregistered value in one refuses, and they never
+#: count as the declaration an issue needs. That widens what the gate sees without widening what
 #: it accepts, which is the only direction a mutex gate may grow in.
 _AUTONOMY_BULLET = re.compile(
     r"^(?P<indent>[ \t]{0,3})(?P<marker>[-*+])(?P<padding>[ \t]*)\*{0,2}[ \t]*"
@@ -512,12 +517,19 @@ _MARKUP = re.compile(r"[`*_]+")
 
 
 class _AutonomyValue(NamedTuple):
-    """One value to exact-check, or prose to scan for an explicit refusal token."""
+    """One value to exact-check, or prose to scan for an explicit refusal token.
+
+    ``admits`` is whether this shape may be the reason an issue is claimed. A value that is
+    exact-checked but cannot admit - a `+` or indented bullet - refuses when it is not a registered
+    value and otherwise counts for nothing, so reading it widens what the gate sees and not what
+    it accepts.
+    """
 
     raw: str
     where: str
     scan_only: bool = False
     qualifier: str = ""
+    admits: bool = True
 
 
 def _normalize_autonomy(value: str) -> str:
@@ -576,13 +588,36 @@ def _continuation(lines: list[str], offset: int = 0) -> list[str]:
     """
     kept: list[str] = []
     for line in lines:
-        if not line.strip():
-            break
-        opener = _BLOCK_START.match(line)
-        if opener and len(opener.group(1).expandtabs(4)) <= offset + 3:
+        if not line.strip() or _opens_block(line, offset):
             break
         kept.append(line.strip())
     return kept
+
+
+def _opens_block(line: str, offset: int = 0) -> bool:
+    """Whether ``line`` interrupts the paragraph above it, under a container at ``offset``."""
+    opener = _BLOCK_START.match(line)
+    return bool(opener) and len(opener.group(1).expandtabs(4)) <= offset + 3
+
+
+def _blocks(lines: list[str]) -> list[str]:
+    """``lines`` as the blocks Markdown would render, each joined with spaces and stripped.
+
+    A blank line ends a block, and so does a line that opens one. Scan-only prose is scanned one
+    block at a time so that a refusal token has to be written in one place to count.
+    """
+    blocks: list[str] = []
+    current: list[str] = []
+    for line in lines:
+        text = line.strip()
+        if (not text or _opens_block(line)) and current:
+            blocks.append(" ".join(current))
+            current = []
+        if text:
+            current.append(text)
+    if current:
+        blocks.append(" ".join(current))
+    return blocks
 
 
 def _declared_autonomy(body: str) -> list[_AutonomyValue]:
@@ -650,30 +685,56 @@ def _declared_autonomy(body: str) -> list[_AutonomyValue]:
         qualifier = _normalize_autonomy(match.group("qualifier"))
         # The pattern stops at the end of the line; the lines after it may still be this bullet.
         after = source[match.end() :].split("\n")[1:]
-        # Column where this bullet's content starts: the marker plus its one to four spaces.
-        padding = len(match.group("padding").expandtabs(4))
-        indent = len(match.group("indent").expandtabs(4))
-        offset = indent + 1 + (padding if 1 <= padding <= 4 else 1)
-        value = " ".join([match.group("value").strip(), *_continuation(after, offset)])
-        # Scan-only unless this is the one registered shape: column zero, `-` or `*`.
-        scan_only = bool(match.group("indent")) or match.group("marker") == "+"
+        # Column where this bullet's content starts: the marker plus its one to four spaces of
+        # padding. Columns are measured from the start of the line, since a tab stops at the next
+        # multiple of four from *there* - a tab right after a column-zero marker reaches column 4,
+        # not column 5 (Codex on #462). Five or more spaces of padding put the content one column
+        # after the marker and open indented code, which is Markdown's rule rather than this one.
+        lead = match.group("indent") + match.group("marker")
+        marker_end = len(lead.expandtabs(4))
+        padding = len((lead + match.group("padding")).expandtabs(4)) - marker_end
+        offset = marker_end + (padding if 1 <= padding <= 4 else 1)
+        continuation = _continuation(after, offset)
+        value = " ".join([match.group("value").strip(), *continuation])
+        # Exact-checked like any declaration, but only the registered shape - column zero, `-`
+        # or `*` - may admit. A `+` or indented bullet can refuse and can never be the reason an
+        # issue is claimed.
+        registered = not match.group("indent") and match.group("marker") != "+"
         found.append(
-            _AutonomyValue(value, f"{where} bullet", scan_only=scan_only, qualifier=qualifier)
+            _AutonomyValue(value, f"{where} bullet", qualifier=qualifier, admits=registered)
         )
+        # The rest of the list item - every following line that is blank or indented to the
+        # content column - is scan-only, as the prose under a heading is. The item ends at the
+        # first line indented less than that, which is the next sibling bullet or the next block.
+        item = after[len(continuation) :]
+        end = next(
+            (
+                i
+                for i, ln in enumerate(item)
+                if ln.strip() and len(ln[: len(ln) - len(ln.lstrip())].expandtabs(4)) < offset
+            ),
+            len(item),
+        )
+        for block in _blocks(item[:end]):
+            found.append(_AutonomyValue(block, f"{where} bullet remainder", scan_only=True))
     # `finditer`, not `search`: a source can carry the heading twice, and taking only the first
     # hid a second one that restricted the issue behind an admitting first one - the same
     # first-match-wins defect this function was just fixed for, one level down.
     for heading in _AUTONOMY_HEADING.finditer(source):
-        lines = heading.group(1).split("\n")
+        lines = heading.group("section").split("\n")
         first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
         if first is not None:
             paragraph = [lines[first].strip(), *_continuation(lines[first + 1 :])]
-            found.append(_AutonomyValue(" ".join(paragraph), f"{where} heading"))
-            rest = [ln.strip() for ln in lines[first + len(paragraph) :] if ln.strip()]
-            if rest:
-                found.append(
-                    _AutonomyValue(" ".join(rest), f"{where} heading remainder", scan_only=True)
+            found.append(
+                _AutonomyValue(
+                    " ".join(paragraph), f"{where} heading", admits=not heading.group("indent")
                 )
+            )
+            # One scan-only value per block, never one string for the lot: joined across a blank
+            # line, `... is a human` and `Action items ...` read as `human action` and refused a
+            # registered declaration (Codex on #462). A token governs where it is written.
+            for block in _blocks(lines[first + len(paragraph) :]):
+                found.append(_AutonomyValue(block, f"{where} heading remainder", scan_only=True))
     for row in _AUTONOMY_TABLE_ROW.finditer(source):
         found.append(_AutonomyValue(row.group("value"), f"{where} table row", scan_only=True))
     return found
@@ -718,17 +779,10 @@ def _autonomy_refusal(body: str) -> str | None:
             )
 
     declarations = [value for value in values if not value.scan_only]
-    if not declarations:
-        # Same rule as the source choice above: the marker decides, not what it captured. An empty
-        # block reported "its body" and sent the reader to fix the wrong half of the issue.
-        where = "its grooming block" if _GROOMING_MARKER.search(body) else "its body"
-        return (
-            f"declares no Execution autonomy in {where}, so it has not been groomed for agent "
-            "work. An absent declaration is refused rather than assumed - add one to the issue"
-        )
     # Every declaration in the authoritative source must admit. One restrictive line is enough to
     # refuse however many admitting ones sit beside it - the same asymmetry as a single value that
-    # names both, applied across the source rather than within one string.
+    # names both, applied across the source rather than within one string. This runs before the
+    # absence check so that a bullet which cannot admit still names its unregistered value.
     admits = {_flatten_autonomy(token) for token in AUTONOMY_ADMITS}
     for declaration in declarations:
         # Quote the issue verbatim; decide on the flattened form. Showing the normalized value
@@ -745,6 +799,15 @@ def _autonomy_refusal(body: str) -> str | None:
                 f"declares autonomy {value!r} ({declaration.where}), which is not a registered "
                 f"autonomy value; only {AUTONOMY_ADMITS[0]!r} may be claimed by an agent"
             )
+    if not any(declaration.admits for declaration in declarations):
+        # Same rule as the source choice above: the marker decides, not what it captured. An empty
+        # block reported "its body" and sent the reader to fix the wrong half of the issue. A
+        # bullet that cannot admit is absence here too: read for restrictions, not a declaration.
+        where = "its grooming block" if _GROOMING_MARKER.search(body) else "its body"
+        return (
+            f"declares no Execution autonomy in {where}, so it has not been groomed for agent "
+            "work. An absent declaration is refused rather than assumed - add one to the issue"
+        )
     return None
 
 
