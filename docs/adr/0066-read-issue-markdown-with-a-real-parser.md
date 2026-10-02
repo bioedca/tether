@@ -73,8 +73,11 @@ added to the locked environments.
   tooling line, pinned to the locked `4.2.0`, where it is a no-op today and survives a future
   re-lock that drops the transitive path; and on `agent-reaper.yml`, whose bare `setup-python`
   runner restores no lock and runs `reaper.py`, which loads `claim.py`. `CONTRIBUTING.md` names it
-  on the same line as `pytest`. A worker whose interpreter lacks it gets an import error that
-  names the install line.
+  on the same line as `pytest`. **A worker's `<py>` is its lane's own interpreter, not the restored
+  project environment**, so none of those provisions it there: the `tether-worker` skill's Shell
+  section carries the one-time install line, `<py> -m pip install "markdown-it-py==4.2.0"`, and an
+  interpreter that lacks the package is told exactly that at import, naming itself, rather than
+  shown a traceback.
 - **The consumer lands separately.** This record and its pull request land the dependency, the
   module and its tests. #454's pull request is reworked on top of them to replace its structure
   expressions with calls into the module, so that the dependency decision and the gate's semantics

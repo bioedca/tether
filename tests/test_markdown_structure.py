@@ -260,3 +260,73 @@ def test_a_block_the_module_does_not_model_raises_rather_than_vanishing(monkeypa
     monkeypatch.setattr(md._PARSER, "parse", renamed)
     with pytest.raises(md.MarkdownStructureError, match="footnote_block_open"):
         md.parse("para\n")
+
+
+def test_a_block_opening_on_its_parent_items_line_has_its_own_column():
+    # Codex on #470: `- # Notes` reported the heading at column 0, and `- - value` both items at
+    # column 0, because the prefix scan stopped at the parent's marker. A same-line child is
+    # scanned from the parent's content column, so compact nesting is distinguishable from the
+    # top level - the distinction the gate's column-zero rule turns on.
+    (lst,) = md.parse("- # Notes\n")
+    assert lst.items[0].blocks[0] == md.Heading(level=1, text="Notes", line=0, column=2, markup="#")
+
+    def inner(src: str) -> md.ListItem:
+        (outer,) = md.parse(src)
+        (item,) = outer.items
+        (child,) = [b for b in item.blocks if isinstance(b, md.ListBlock)]
+        return child.items[0]
+
+    assert inner("- - value\n").column == 2
+    assert inner("1. - x\n").column == 3
+    assert inner("10)   - x\n").column == 6
+    # A tab after the marker stops at column 4, so the child marker sits there.
+    assert inner("-\t- x\n").column == 4
+    # Inside a quote the `>` counts too, on the same line and on later ones alike.
+    (quote,) = md.parse("> - # h\n")
+    assert quote.blocks[0].items[0].column == 2
+    assert quote.blocks[0].items[0].blocks[0].column == 4
+    (lst,) = md.parse("- > # h\n")
+    assert lst.items[0].blocks[0].blocks[0].column == 4
+    # Five or more columns of padding open indented code, so there is no same-line child at all.
+    (lst,) = md.parse("-     - x\n")
+    assert lst.items[0].blocks == (md.Code(text="- x\n", line=0, fenced=False, info=""),)
+
+
+def test_a_table_token_the_module_does_not_model_raises_rather_than_vanishing(monkeypatch):
+    # Codex on #470: the row reader stepped over anything it did not expect. The table
+    # scaffolding is named in full, so an extension's extra token stops the read like an
+    # unmodelled block does.
+    real = md._PARSER.parse
+
+    def renamed(text: str, *args, **kwargs):
+        tokens = real(text, *args, **kwargs)
+        tokens[[t.type for t in tokens].index("thead_open")].type = "tfoot_open"
+        return tokens
+
+    monkeypatch.setattr(md._PARSER, "parse", renamed)
+    with pytest.raises(md.MarkdownStructureError, match="tfoot_open"):
+        md.parse("| a |\n|---|\n")
+
+
+def test_a_quoted_table_ending_in_a_bare_quote_marker_is_read_rather_than_crashed():
+    # markdown-it-py 4.2.0, the pinned version, indexes past the end of this exact body
+    # (upstream #415) when it lacks a final newline. The missing newline is supplied before
+    # parsing, which changes no block, and the body reads as GitHub renders it.
+    doc = md.parse("> | a | b |\n> |---|---|\n>")
+    assert doc == (
+        md.BlockQuote(
+            line=0,
+            blocks=(md.Table(line=0, rows=(md.TableRow(cells=("a", "b"), line=0, header=True),)),),
+        ),
+    )
+
+
+def test_a_failure_inside_the_parser_is_reported_as_unreadable(monkeypatch):
+    # Whatever the parser raises, the caller sees one error type and never a traceback from
+    # inside a third-party rule: an unreadable body is a result the gate can report.
+    def broken(text: str, *args, **kwargs):
+        raise IndexError("string index out of range")
+
+    monkeypatch.setattr(md._PARSER, "parse", broken)
+    with pytest.raises(md.MarkdownStructureError, match="could not read"):
+        md.parse("anything\n")
