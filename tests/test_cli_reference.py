@@ -328,6 +328,54 @@ def test_batch_overwrite_help_describes_policy_fail_checkpoint() -> None:
     assert "accepted completed checkpoints still skip" in help_text
 
 
+def test_batch_help_defaults_state_the_live_supervision_constants() -> None:
+    """The `default 3` / `(default 1800)` printed by `tether batch --help` are literals.
+
+    Both flags are ``default=None`` in ``tether.cli``; the effective defaults live in
+    ``tether.idealize.supervisor``, and nothing interpolates them into the help strings —
+    deliberately, because ``build_parser()`` runs on the ``tether --version`` path and
+    importing either constant there would put NumPy on it. This guard is what makes that
+    arrangement safe, and it is the test ``docs/stability.md``'s sidecar carve-out leans
+    on: retune a constant (or edit a help string) without the other side and this names
+    the stale flag. The default is attributed per option through the parser's own actions
+    — never a whole-text scan, where ``--log``'s ``(default: <out-dir>/batch-log.jsonl)``
+    sits immediately above ``--max-restarts`` and a stray match could bind the wrong
+    option — and the comparison is numeric, so the help may keep printing ``1800`` for
+    the float ``1800.0``.
+    """
+    from tether.idealize.supervisor import (  # noqa: PLC0415 - the path docs/stability.md names
+        DEFAULT_MAX_RESTARTS,
+        DEFAULT_SIDECAR_TIMEOUT,
+    )
+
+    batch = _subparsers(build_parser())["batch"]
+    rendered = " ".join(batch.format_help().split())
+    by_flag = {
+        opt: action
+        for action in batch._actions  # noqa: SLF001 - mirrors _subparsers above
+        for opt in action.option_strings
+    }
+    expected = {
+        "--max-restarts": DEFAULT_MAX_RESTARTS,
+        "--sidecar-timeout": DEFAULT_SIDECAR_TIMEOUT,
+    }
+    for flag, constant in sorted(expected.items()):
+        own_help = " ".join((by_flag[flag].help or "").split())
+        assert own_help and own_help in rendered, (
+            f"{flag}'s help text is absent from the rendered `tether batch --help`"
+        )
+        stated = re.search(r"default:? (\d+(?:\.\d+)?)", own_help)
+        assert stated, (
+            f"{flag}'s --help states no numeric default (its help reads: {own_help!r}); "
+            "the printed default is this guard's whole subject and may not silently vanish"
+        )
+        assert float(stated.group(1)) == constant, (
+            f"{flag}'s --help states 'default {stated.group(1)}' but the live constant "
+            f"is {constant!r} — the help string is a literal, so whichever side changed, "
+            "change the other in the same commit"
+        )
+
+
 def test_policy_fail_rejection_survives_cli_resume(tmp_path, monkeypatch, capsys) -> None:
     """The real CLI + checkpoint path keeps an over-gate movie failed on every run."""
     import json  # noqa: PLC0415 - test-local base dependency
