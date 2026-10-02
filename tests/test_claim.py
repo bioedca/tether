@@ -348,6 +348,35 @@ def test_an_autonomy_table_row_can_refuse_but_not_admit(
     assert not [c for c in fake.calls if c[0] == "POST" and "git/refs" in c[1]]
 
 
+def test_an_autonomy_table_row_is_read_with_or_without_its_outer_pipes() -> None:
+    """GitHub Markdown makes a row's leading and trailing pipes optional, so the scan must too.
+
+    Codex on #462: `Autonomy | maintainer decision required` above a bare admitting heading was
+    admitted, because the row pattern demanded a leading `|`. That is table typography deciding a
+    safety verdict - the same class as the separator defect, in the one shape R4 added.
+    """
+    heading = "\n\n## Execution autonomy\n\nagent-can-do-alone\n"
+    rows = {
+        "no outer pipes": "Autonomy | maintainer decision required\n--- | ---",
+        "trailing pipe only": "**Autonomy** | maintainer decision required |\n--- | --- |",
+        "leading pipe only": "| autonomy | maintainer decision required\n| --- | ---",
+        "indented, no outer pipes": "  Execution autonomy | maintainer decision required",
+        # The first cell's emphasis is typography as well, and so is a trailing colon.
+        "code-formatted key": "| `autonomy` | maintainer decision required |",
+        "underscore emphasis": "| __Autonomy__ | maintainer decision required |",
+        "colon inside the emphasis": "| **Autonomy:** | maintainer decision required |",
+        "colon outside the emphasis": "_Autonomy_: | maintainer decision required",
+    }
+    for where, row in rows.items():
+        refusal = claim._autonomy_refusal(row + heading)
+        assert refusal is not None, f"{where}: a restrictive table row was not read - fail-open"
+        assert "maintainer decision" in refusal, f"{where}: {refusal}"
+
+    # Still scan-only: dropping the pipe must not turn a row into a way to admit.
+    bare = claim._autonomy_refusal("autonomy | agent-can-do-alone\n--- | ---\n")
+    assert bare is not None and "declares no Execution autonomy" in bare
+
+
 def test_autonomy_refusals_distinguish_absent_restricted_and_unregistered_values() -> None:
     """Each repairable failure says which of the three issue-body edits is needed."""
     absent = claim._autonomy_refusal("Acceptance criteria\n")
@@ -542,6 +571,41 @@ def test_a_line_break_inside_a_declaration_never_decides_the_verdict(
         refusal = claim._autonomy_refusal(f"{first}{joiner}{rest}\n")
         assert refusal is not None, f"joined by {joiner!r}: a wrapped condition was admitted"
         assert expected in refusal, f"joined by {joiner!r}: {refusal}"
+
+
+def test_a_line_that_cannot_interrupt_a_paragraph_stays_in_the_declaration() -> None:
+    """Looking like a list item is not enough to end the value; Markdown must end it there too.
+
+    Codex on #462, after ordered lists were first recognised: every `N.` marker ended the value,
+    but GitHub Markdown lets an ordered list interrupt a paragraph only when it starts at `1`. So
+    `agent-can-do-alone` followed by `2. unless the sizing note says otherwise` renders as one
+    conditional paragraph, and treating the second line as a new block moved the condition out of
+    the exact match and admitted it. The same holds for an empty marker and for a line indented
+    four or more columns past its container: each renders as continuation text.
+    """
+    condition = "unless the sizing note says otherwise"
+    bodies = {
+        "heading, ordered marker not starting at 1": (
+            f"## Execution autonomy\n\nagent-can-do-alone\n2. {condition}\n"
+        ),
+        "bullet, ordered marker not starting at 1": (
+            f"- **Autonomy:** agent-can-do-alone\n2. {condition}\n"
+        ),
+        "heading, ten is not one": (
+            f"## Execution autonomy\n\nagent-can-do-alone\n10. {condition}\n"
+        ),
+        "heading, marker indented four columns": (
+            f"## Execution autonomy\n\nagent-can-do-alone\n    - {condition}\n"
+        ),
+        "bullet, marker indented four columns past its content": (
+            f"- **Autonomy:** agent-can-do-alone\n      - {condition}\n"
+        ),
+        "heading, empty marker": f"## Execution autonomy\n\nagent-can-do-alone\n+\n{condition}\n",
+    }
+    for where, body in bodies.items():
+        refusal = claim._autonomy_refusal(body)
+        assert refusal is not None, f"{where}: a condition Markdown keeps in the value was admitted"
+        assert "is not a registered autonomy value" in refusal, f"{where}: {refusal}"
 
 
 def test_text_outside_the_declaration_paragraph_does_not_join_it() -> None:

@@ -463,23 +463,28 @@ _AUTONOMY_HEADING = re.compile(
 #: emphasized declaration below it governed. Markdown does not require the emphasis, issue authors
 #: do not reliably use it, and a safety verdict must not turn on typography.
 _AUTONOMY_BULLET = re.compile(
-    r"^[-*][ \t]*\*{0,2}[ \t]*(?:execution[ \t]+)?autonomy(?P<qualifier>[^:*\n]*)[:*]*\*{0,2}"
-    r"[: \t]*(?P<value>.+)$",
+    r"^[-*](?P<padding>[ \t]*)\*{0,2}[ \t]*(?:execution[ \t]+)?autonomy"
+    r"(?P<qualifier>[^:*\n]*)[:*]*\*{0,2}[: \t]*(?P<value>.+)$",
     re.M | re.I,
 )
 #: A table row can carry a restriction, as #346 does, but it can never admit. Only a bullet or
 #: heading is a registered declaration shape; accepting a table cell would add an unintended path
 #: through the mutex gate. The remainder of a matching row is therefore token-scanned only.
+#: **The leading pipe is optional**, because GitHub Markdown makes it so: demanding it let
+#: `Autonomy | maintainer decision required` go unread (Codex on #462). The pipe *after* the first
+#: cell is what makes the line a row, and it stays required. The cell's own dress - any of the
+#: emphasis characters `_MARKUP` strips, a trailing colon - is ignored for the same reason, and
+#: safely: this pattern can only ever add a restriction, so reading more rows cannot admit more.
 _AUTONOMY_TABLE_ROW = re.compile(
-    r"^[ \t]*\|[ \t]*\*{0,2}[ \t]*(?:execution[ \t]+)?autonomy[ \t]*\*{0,2}[ \t]*\|"
+    r"^[ \t]*\|?[ \t]*[`*_]*[ \t]*(?:execution[ \t]+)?autonomy[ \t]*:?[ \t]*[`*_]*[ \t]*:?[ \t]*\|"
     r"(?P<value>[^\n]*)$",
     re.M | re.I,
 )
-#: A line that opens a new Markdown block, and so ends the paragraph above it: a list item,
-#: bulleted or ordered (`1.` or `1)`), or an ATX heading. The marker must be followed by
-#: whitespace, so `*emphasis*` or `3.5 hours` opening a wrapped line is read as the continuation
-#: it is.
-_BLOCK_START = re.compile(r"[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]|\#{1,6}(?:[ \t]|$))")
+#: A line shaped like the opening of a new Markdown block: a non-empty list item, bulleted or
+#: ordered **from 1**, or an ATX heading. GitHub Markdown lets a list interrupt a paragraph only
+#: when its first item is non-empty and, if ordered, numbered `1`; `2. unless ...` under a value is
+#: continuation text and is rendered inside it. The captured indent is checked by `_continuation`.
+_BLOCK_START = re.compile(r"([ \t]*)(?:(?:[-*+]|1[.)])[ \t]+\S|\#{1,6}(?:[ \t]|$))")
 #: A grooming block runs to the **next grooming marker** or the end of the body - not to the next
 #: HTML comment of any kind. Terminating on any `<!--` meant one nested comment truncated the
 #: authoritative source, so a declaration written above it governed and a restriction written below
@@ -545,18 +550,28 @@ def _flatten_autonomy(value: str) -> str:
     return re.sub(r"\s+", " ", _normalize_autonomy(widened)).strip()
 
 
-def _continuation(lines: list[str]) -> list[str]:
+def _continuation(lines: list[str], offset: int = 0) -> list[str]:
     """The leading ``lines`` Markdown renders as part of the paragraph they follow, stripped.
 
     A paragraph runs until a blank line or a line that opens a new block. Only two block openers
-    are recognised - a list item, bulleted or ordered, and an ATX heading - because those are what
-    follow a declaration in a well-formed body. Anything else that is not blank is joined,
-    including shapes Markdown would end the paragraph on (a table row, a fence): joining makes the
-    value fail the exact match, and failing closed on an odd shape costs one re-groom.
+    are recognised - a list item and an ATX heading - because those are what follow a declaration
+    in a well-formed body. Anything else that is not blank is joined, including shapes Markdown
+    would end the paragraph on (a table row, a fence): joining makes the value fail the exact
+    match, and failing closed on an odd shape costs one re-groom.
+
+    **Every error here must fall on the joining side**, since a line left out of the value is a
+    line the exact match never sees. So an opener counts only where Markdown lets it interrupt a
+    paragraph: `_BLOCK_START` carries the rules about the marker, and ``offset`` the one about
+    position. A line indented four or more columns past its container is continuation text
+    whatever it starts with; ``offset`` is that container's content column - 0 under a heading,
+    the width of the marker and its padding inside a bullet.
     """
     kept: list[str] = []
     for line in lines:
-        if not line.strip() or _BLOCK_START.match(line):
+        if not line.strip():
+            break
+        opener = _BLOCK_START.match(line)
+        if opener and len(opener.group(1).expandtabs(4)) <= offset + 3:
             break
         kept.append(line.strip())
     return kept
@@ -627,7 +642,10 @@ def _declared_autonomy(body: str) -> list[_AutonomyValue]:
         qualifier = _normalize_autonomy(match.group("qualifier"))
         # The pattern stops at the end of the line; the lines after it may still be this bullet.
         after = source[match.end() :].split("\n")[1:]
-        value = " ".join([match.group("value").strip(), *_continuation(after)])
+        # Column where this bullet's content starts: the marker plus its one to four spaces.
+        padding = len(match.group("padding").expandtabs(4))
+        offset = 1 + (padding if 1 <= padding <= 4 else 1)
+        value = " ".join([match.group("value").strip(), *_continuation(after, offset)])
         found.append(_AutonomyValue(value, f"{where} bullet", qualifier=qualifier))
     # `finditer`, not `search`: a source can carry the heading twice, and taking only the first
     # hid a second one that restricted the issue behind an admitting first one - the same
