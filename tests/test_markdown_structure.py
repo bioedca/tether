@@ -643,36 +643,62 @@ def test_a_stripped_elements_text_stays_and_an_empty_strike_draws_nothing():
     assert list(md.tags("<svg/><details>")) == [("svg", False), ("details", False)]
 
 
-def test_a_footnote_continuation_is_more_footnote_paragraphs():
+def _laid(blocks):
+    """``(kind, plain, line, note)`` per leaf of ``blocks``, containers opened up: what a reader
+    of the foot sees, with the note each block carries."""
+    for block in blocks:
+        if isinstance(block, md.ListBlock):
+            for item in block.items:
+                yield ("item", "", item.line, item.note)
+                yield from _laid(item.blocks)
+        elif isinstance(block, md.BlockQuote):
+            yield ("quote", "", block.line, block.note)
+            yield from _laid(block.blocks)
+        elif isinstance(block, md.Table):
+            for row in block.rows:
+                yield ("row", " ".join(cell for cell in row.plain if cell), row.line, row.note)
+        else:
+            kind = type(block).__name__.lower()
+            yield (kind, getattr(block, "plain", ""), block.line, block.note)
+
+
+def test_a_footnote_continuation_is_the_blocks_it_holds():
     """Codex on #462 (read of `e259a99`): cmark-gfm reads the lines indented four spaces after
     a footnote definition as the rest of it and draws them inside the footnote, while
     CommonMark reads them as an indented code block, so `[^1]: first line` over `    Autonomy:
     maintainer decision required` was a footnote and a `Code` nobody read. GitHub's markdown
-    endpoint (2026-10-03) draws the continuation's paragraphs, lists and headings inside the
-    footnote, and nothing indented two spaces. The continuation comes back as footnote
-    paragraphs, one per block the foot draws text for, at their source lines."""
+    endpoint (2026-10-03) draws the continuation's paragraphs, lists, headings, tables and raw
+    HTML inside the footnote, and nothing indented two spaces. Codex on #462 (read of
+    `6c060e7`), twice: the continuation used to come back flattened into footnote paragraphs,
+    and a heading's qualifier, a raw heading, a table's cells, an item's boundary and a
+    marker in a raw block were each lost in the flattening. It comes back as the blocks the
+    parser read, every block carrying the definition's note, at their source lines."""
     doc = md.parse(
         "See[^1].\n\n[^1]: first line\n    lazy\n\n    - **Autonomy:** maintainer decision "
         "required\n\n    ## Heading inside\n\n    more\n\nnot inside\n"
     )
-    assert [(block.plain, block.line, block.footnote) for block in doc] == [
-        ("See[^1].", 0, False),
-        ("first line lazy", 2, True),
-        ("Autonomy: maintainer decision required", 5, True),
-        ("Heading inside", 7, True),
-        ("more", 9, True),
-        ("not inside", 11, False),
+    assert list(_laid(doc)) == [
+        ("paragraph", "See[^1].", 0, None),
+        ("paragraph", "first line lazy", 2, 2),
+        ("item", "", 5, 2),
+        ("paragraph", "Autonomy: maintainer decision required", 5, 2),
+        ("heading", "Heading inside", 7, 2),
+        ("paragraph", "more", 9, 2),
+        ("paragraph", "not inside", 11, None),
     ]
+    assert isinstance(doc[2], md.ListBlock) and doc[2].note == 2 and md.at_foot(doc[2])
+    assert isinstance(doc[3], md.Heading) and doc[3].level == 2 and doc[3].note == 2
+    assert not md.at_foot(doc[0]) and md.at_foot(doc[1])
     # After the swallowed one-word form, and after a label with nothing behind it.
     doc = md.parse("See[^1].\n\n[^1]: /url\n\n    Autonomy: maintainer decision required\n")
-    assert [(block.plain, block.footnote) for block in doc[1:]] == [
-        ("/url", True),
-        ("Autonomy: maintainer decision required", True),
+    assert [(block.plain, block.note) for block in doc[1:]] == [
+        ("/url", 2),
+        ("Autonomy: maintainer decision required", 2),
     ]
     doc = md.parse("[^1]:\n\n    Autonomy: maintainer decision required\n")
-    assert [(block.plain, block.footnote) for block in doc] == [
-        ("", True),
-        ("Autonomy: maintainer decision required", True),
+    assert [(block.plain, block.note) for block in doc] == [
+        ("", 0),
+        ("Autonomy: maintainer decision required", 0),
     ]
     # Two spaces continue nothing: that line is a paragraph of the body, as on the page.
     doc = md.parse("[^1]: first line\n\n  Autonomy: maintainer decision required\n")
@@ -681,55 +707,86 @@ def test_a_footnote_continuation_is_more_footnote_paragraphs():
         ("Autonomy: maintainer decision required", False),
     ]
     # An indented block after anything but a footnote is the code block it always was, and a
-    # fence inside a continuation is literal.
+    # fence inside a continuation is literal - a `Code` at the foot.
     (para, code) = md.parse("text\n\n    Autonomy: maintainer decision required\n")
-    assert isinstance(code, md.Code) and not code.fenced
+    assert isinstance(code, md.Code) and not code.fenced and code.note is None
     doc = md.parse("[^1]: note\n\n    ```\n    Autonomy: human action\n    ```\n\n    after\n")
-    assert [block.plain for block in doc] == ["note", "", "after"]
-    # A table in a continuation is a footnote paragraph per row; a nested definition is one too.
-    doc = md.parse("[^1]: note\n\n    | Autonomy | human action |\n    | --- | --- |\n")
-    assert [(block.plain, block.footnote) for block in doc] == [
-        ("note", True),
-        ("Autonomy human action", True),
+    assert list(_laid(doc)) == [
+        ("paragraph", "note", 0, 0),
+        ("code", "", 2, 0),
+        ("paragraph", "after", 6, 0),
     ]
-    # Codex on #462 (read of `f488e46`): raw HTML in a continuation is a paragraph per block
-    # the page draws of it, not one joined; and every paragraph of one definition carries the
-    # line it opens on as `note`, a nested definition its own, the next definition another.
+    assert doc[1].fenced and doc[1].text == "Autonomy: human action\n"
+    # A table in a continuation is a table at the foot, row by row; a nested definition is a
+    # footnote of its own.
+    doc = md.parse("[^1]: note\n\n    | Autonomy | human action |\n    | --- | --- |\n")
+    assert list(_laid(doc)) == [("paragraph", "note", 0, 0), ("row", "Autonomy human action", 2, 0)]
+    assert isinstance(doc[1], md.Table) and doc[1].rows[0].cells == ("Autonomy", "human action")
+    # Codex on #462 (read of `f488e46`): raw HTML in a continuation is the raw block it is, read
+    # a piece at a time by the reader as in the body; and every block of one definition carries
+    # the line it opens on as `note`, a nested definition its own, the next definition another.
     doc = md.parse(
         "[^1]: note\n\n    <div><p>Notes</p><p>Autonomy: human review required</p></div>\n\n"
         "    [^2]: nested\n\n[^3]: next\n"
     )
-    # The `<div>` opens a block of its own that shows no text, a piece as it is in the body.
-    assert [(block.plain, block.note) for block in doc] == [
-        ("note", 0),
-        ("", 0),
-        ("Notes", 0),
-        ("Autonomy: human review required", 0),
-        ("nested", 4),
-        ("next", 6),
+    assert list(_laid(doc)) == [
+        ("paragraph", "note", 0, 0),
+        ("html", "Notes Autonomy: human review required", 2, 0),
+        ("paragraph", "nested", 4, 4),
+        ("paragraph", "next", 6, 6),
+    ]
+    assert [(piece.text, piece.tag) for piece in doc[1].shown] == [
+        ("", "div"),
+        ("Notes", "p"),
+        ("Autonomy: human review required", "p"),
     ]
     # Codex on #462 (read of `22b148b`): a block the foot draws with no text - a rule, a code
-    # block, a raw piece showing nothing - keeps its place as an empty footnote paragraph, so
-    # a bare key above it heads the rule and not the value below, as it would in the body.
-    for empty in ("<hr>", "---", "    code", "<div></div>", "-", "> <!-- c -->", "- <!-- c -->"):
+    # block, a raw piece showing nothing, an empty bullet or bar - keeps its place, so a bare
+    # key above it heads the rule and not the value below, as it would in the body. It keeps
+    # it as the block it is.
+    for empty, kind in (
+        ("<hr>", "html"),
+        ("---", "rule"),
+        ("    code", "code"),
+        ("<div></div>", "html"),
+        ("-", "item"),
+    ):
         doc = md.parse(f"[^1]: Autonomy\n\n    {empty}\n\n    agent-can-do-alone\n")
-        assert [(block.plain, block.note) for block in doc] == [
-            ("Autonomy", 0),
-            ("", 0),
-            ("agent-can-do-alone", 0),
+        assert list(_laid(doc)) == [
+            ("paragraph", "Autonomy", 0, 0),
+            (kind, "", 2, 0),
+            ("paragraph", "agent-can-do-alone", 4, 0),
         ], empty
-    # An item or a quote that draws nothing stands in for itself, as it does in the body; one
-    # that draws does not, and a list draws a bullet per item.
+    for empty, kind in (("> <!-- c -->", "quote"), ("- <!-- c -->", "item")):
+        doc = md.parse(f"[^1]: Autonomy\n\n    {empty}\n\n    agent-can-do-alone\n")
+        assert list(_laid(doc)) == [
+            ("paragraph", "Autonomy", 0, 0),
+            (kind, "", 2, 0),
+            ("html", "", 2, 0),
+            ("paragraph", "agent-can-do-alone", 4, 0),
+        ], empty
+    # A list keeps its items, each at its line; a quote keeps what it holds.
     doc = md.parse("[^1]: Autonomy\n\n    - <!-- c -->\n    - agent-can-do-alone\n")
-    assert [(block.plain, block.line) for block in doc] == [
-        ("Autonomy", 0),
-        ("", 2),
-        ("agent-can-do-alone", 3),
+    assert list(_laid(doc)) == [
+        ("paragraph", "Autonomy", 0, 0),
+        ("item", "", 2, 0),
+        ("html", "", 2, 0),
+        ("item", "", 3, 0),
+        ("paragraph", "agent-can-do-alone", 3, 0),
     ]
     doc = md.parse("[^1]: Autonomy\n\n    > agent-can-do-alone\n")
-    assert [block.plain for block in doc] == ["Autonomy", "agent-can-do-alone"]
-    assert md.draws(md.Paragraph("<!-- c -->", "", 0)) is False
+    assert list(_laid(doc)) == [
+        ("paragraph", "Autonomy", 0, 0),
+        ("quote", "", 2, 0),
+        ("paragraph", "agent-can-do-alone", 2, 0),
+    ]
+    # A paragraph is drawn whatever it holds - the page lays out a `<p>` for it - and a raw
+    # block is drawn when it shows text or carries a tag; a comment alone is nothing.
+    assert md.draws(md.parse("&nbsp;\n")[0]) is True
+    assert md.draws(md.parse("[](x)\n")[0]) is True
     assert md.draws(md.Paragraph("![](x)", "", 0, pictured=True)) is True
+    assert md.draws(md.parse("<!-- c -->\n")[0]) is False
+    assert md.draws(md.parse("<div></div>\n")[0]) is True
     assert md.draws(md.Rule(0)) is True
 
 

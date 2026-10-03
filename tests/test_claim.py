@@ -1474,11 +1474,63 @@ def test_a_struck_out_key_is_read_and_never_admits() -> None:
     # And the admitting bullet beside a retracted admission still admits: a retraction only
     # withdraws what it strikes.
     assert claim._autonomy_refusal(admitting + "- ~~**Autonomy:** agent-can-do-alone~~\n") is None
-    assert claim._key_text("~~Autonomy:~~ ~~x~~") == "Autonomy: ~~x~~"
-    assert claim._key_text("~~Autonomy: x~~") == "Autonomy: x"
-    assert claim._key_text("Autonomy: ~~x~~") == "Autonomy: ~~x~~"
-    assert claim._key_text("~~Autonomy: a~~ ~~b~~") == "Autonomy: a ~~b~~"
-    assert claim._key_text("~~") == "~~" and claim._key_text("~~Autonomy: x") == "~~Autonomy: x"
+    texts = claim._key_texts
+    assert list(texts("~~Autonomy:~~ ~~x~~")) == [
+        "~~Autonomy:~~ ~~x~~",
+        "Autonomy: ~~x~~",
+        "Autonomy: x",
+    ]
+    assert list(texts("~~Autonomy: x~~")) == ["~~Autonomy: x~~", "Autonomy: x"]
+    assert list(texts("~~Autonomy: a~~ ~~b~~")) == [
+        "~~Autonomy: a~~ ~~b~~",
+        "Autonomy: a ~~b~~",
+        "Autonomy: a b",
+    ]
+    assert list(texts("~~")) == ["~~"] and list(texts("~~Autonomy: x")) == ["~~Autonomy: x"]
+    # The first reading the key matches is the one taken, so marks inside the value stay.
+    assert claim._keyed("~~Autonomy:~~ ~~x~~") == ("", "~~x~~", False, True)
+
+
+def test_a_key_struck_in_part_is_read_through_every_pair() -> None:
+    """Codex on #462 (read of `6c060e7`): `- Auto<del>nomy</del>: maintainer decision required`
+    renders `Auto~~nomy~~: ...`, and reading only a text that *opens* with a mark through it
+    left the key unmatched, so the item was not read and an admitting bullet beside it
+    carried the issue. Every balanced pair is read through, from the left, until the key
+    matches; and GitHub strikes between one tilde as between two (its markdown endpoint,
+    2026-10-03), while `~~x~` and `~~ x ~~` are literal and `~~~` opens a fence.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for struck in (
+        "- Auto<del>nomy</del>: maintainer decision required\n",
+        "- Auto~~nomy~~: maintainer decision required\n",
+        "- **Auto~~nomy~~:** maintainer decision required\n",
+        "- ~~Auto~~no~~my~~: maintainer decision required\n",
+        "- ~Autonomy~: maintainer decision required\n",
+        "- ~Autonomy: maintainer decision required~\n",
+        "- <s>Auto</s>nomy: maintainer decision required\n",
+        "## Auto~~nomy~~\n\nmaintainer decision required\n",
+        "Auto~nomy~\n\nmaintainer decision required\n",
+        "| Auto~~nomy~~ | maintainer decision required |\n|---|---|\n",
+        "<p>Auto<del>nomy</del>: maintainer decision required</p>\n",
+    ):
+        read = claim._autonomy_refusal(admitting + struck)
+        assert read is not None and "maintainer decision" in read, (struck, read)
+    # Read, and never admitting, in every shape that could have admitted.
+    for retracted in (
+        "- Auto~~nomy~~: agent-can-do-alone\n",
+        "- ~Autonomy:~ agent-can-do-alone\n",
+        "## ~Execution autonomy~\n\nagent-can-do-alone\n",
+    ):
+        read = claim._autonomy_refusal(retracted)
+        assert read is not None and "cannot admit" in read, (retracted, read)
+    # A value between one tilde is shown struck, and is not the registered value.
+    struck_value = claim._autonomy_refusal("- Autonomy: ~agent-can-do-alone~\n")
+    assert struck_value is not None and "not a registered" in struck_value, struck_value
+    # Literal on the page, and so no key: an admitting bullet beside one still admits.
+    for literal in ("- ~~Autonomy~: agent-can-do-alone\n", "- ~~ Autonomy ~~: x\n"):
+        assert claim._autonomy_refusal(admitting + literal) is None, literal
+    assert list(claim._key_texts("~~x~")) == ["~~x~"]
+    assert list(claim._key_texts("~a~ ~~b~~")) == ["~a~ ~~b~~", "a ~~b~~", "a b"]
 
 
 def test_an_empty_heading_is_drawn() -> None:
@@ -1511,6 +1563,163 @@ def test_an_empty_heading_is_drawn() -> None:
     )
     assert empty is not None and "declares autonomy ''" in empty, empty
     assert claim._markdown.draws(claim._markdown.Heading(2, "## <!-- note -->", "", 0, 0, "##"))
+
+
+def test_a_paragraph_is_drawn_whatever_it_holds() -> None:
+    """Found beside Codex's read-36 findings on #462 by probing the empty heading's neighbours:
+    `- &nbsp;` over `Autonomy: agent-can-do-alone` in the same item is `<p>&nbsp;</p>` over
+    the paragraph on the page (GitHub's markdown endpoint, 2026-10-03), a line of its own
+    height, and `- [](x)` or `- &#32;` a `<p>` with its margin; each read as undrawn - its text
+    rendering to nothing, no picture, no tag - and the paragraph admitted as the item's lead.
+    The page lays out a paragraph for a paragraph however little it shows; a comment alone on
+    its lines is the one block it does not.
+    """
+    for item in (
+        "- &nbsp;\n\n  Autonomy: agent-can-do-alone\n",
+        "- &#32;\n\n  Autonomy: agent-can-do-alone\n",
+        "- &ensp;\n\n  Autonomy: agent-can-do-alone\n",
+        "- [](x)\n\n  Autonomy: agent-can-do-alone\n",
+        "- &nbsp;<!-- c -->\n\n  Autonomy: agent-can-do-alone\n",
+    ):
+        read = claim._autonomy_refusal(item)
+        assert read is not None and "cannot admit" in read, (item, read)
+    restricted = claim._autonomy_refusal(
+        "- **Autonomy:** agent-can-do-alone\n\n"
+        "- &nbsp;\n\n  Autonomy: maintainer decision required\n"
+    )
+    assert restricted is not None and "maintainer decision" in restricted, restricted
+    # A heading's value is its own next paragraph, and an empty one is an empty value.
+    empty = claim._autonomy_refusal("## Execution autonomy\n\n&nbsp;\n\nagent-can-do-alone\n")
+    assert empty is not None and "declares autonomy ''" in empty, empty
+    # Controls. A comment alone above the key is still read past; a non-breaking space before
+    # the key, or a hard break inside the key's own paragraph, is that paragraph and not a
+    # block before it - the page shows the key indented by a space, or on the paragraph's
+    # second line; and an empty bullet under the heading is still its empty value.
+    assert claim._autonomy_refusal("- <!-- c -->\n\n  **Autonomy:** agent-can-do-alone\n") is None
+    assert claim._autonomy_refusal("- &nbsp;**Autonomy:** agent-can-do-alone\n") is None
+    assert claim._autonomy_refusal("- \\\n  **Autonomy:** agent-can-do-alone\n") is None
+    bullet = claim._autonomy_refusal("## Execution autonomy\n\n- &nbsp;\n- agent-can-do-alone\n")
+    assert bullet is not None and "declares autonomy ''" in bullet, bullet
+
+
+def test_a_bare_key_in_an_item_heads_that_item_alone() -> None:
+    """Codex on #462 (read of `6c060e7`): `- **Autonomy**` over `- agent-can-do-alone` is an
+    item holding the key alone and a sibling holding a value, and the key's section ran into
+    the sibling, so the empty declaration the page shows in the first item never failed the
+    exact check and an admitting bullet beside them carried the issue. A bare key heads what
+    follows it in its own container.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for split in (
+        "- **Autonomy**\n- agent-can-do-alone\n",
+        "- **Autonomy**\n\n- agent-can-do-alone\n",
+        "- **Autonomy**\n\nagent-can-do-alone\n",
+        "> **Autonomy**\n\nagent-can-do-alone\n",
+        "- - **Autonomy**\n  - agent-can-do-alone\n",
+    ):
+        read = claim._autonomy_refusal(split + admitting)
+        assert read is not None and "declares autonomy ''" in read, (split, read)
+    # The key's own paragraph, or a list nested in its item, is what it heads - read, and
+    # unable to admit, as a bare key always is.
+    for own in (
+        "- **Autonomy**\n\n  human review required\n",
+        "- **Autonomy**\n  - human review required\n",
+        "> **Autonomy**\n>\n> human review required\n",
+    ):
+        read = claim._autonomy_refusal(admitting + own)
+        assert read is not None and "human review required" in read, (own, read)
+    assert claim._autonomy_refusal(admitting + "- **Autonomy**\n\n  agent-can-do-alone\n") is None
+    # A heading's section is not confined: the page draws it the same wherever it is nested.
+    nested = claim._autonomy_refusal(
+        "- x\n  ## Execution autonomy\n\nmaintainer decision required\n"
+    )
+    assert nested is not None and "maintainer decision" in nested, nested
+
+
+def test_a_footnote_continuation_is_read_by_the_bodys_rules() -> None:
+    """Codex on #462 (read of `6c060e7`), twice, and the mirrors found beside them: the foot
+    came back flattened into footnote paragraphs, so a `## Execution autonomy after unblock`
+    in a continuation was a paragraph the heading pass never saw, and `<!-- tether-grooming-v1
+    -->` there was dropped with the raw block's text, while a raw `<h2>`, a table's cells and
+    an item's boundary were lost the same way - each a reading the body has and the foot had
+    not. GitHub draws a continuation's headings, lists, tables and raw HTML inside the footnote
+    (its markdown endpoint, 2026-10-03). The parser hands the continuation over as the blocks
+    it holds, each carrying the note, and every reader reads them by the body's rule.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\nSee[^1].\n\n"
+    for continued, expect in (
+        (
+            "[^1]: a\n\n    ## Execution autonomy after unblock\n\n    human review required\n",
+            "after unblock",
+        ),
+        (
+            "[^1]: a\n\n    ## Execution autonomy\n\n    maintainer decision required\n",
+            "footnote heading",
+        ),
+        (
+            "[^1]: a\n\n    <h2>Execution autonomy after unblock</h2>\n\n"
+            "    human review required\n",
+            "after unblock",
+        ),
+        (
+            "[^1]: a\n\n    | Autonomy | human review required |\n    |---|---|\n",
+            "footnote table row",
+        ),
+        ("[^1]: a\n\n    - **Autonomy**\n    - agent-can-do-alone\n", "declares autonomy ''"),
+        ("[^1]: a\n\n    - **Autonomy:** maintainer decision required\n", "footnote bullet"),
+        ("[^1]: a\n\n    <!-- tether-grooming-v1 -->\n", "marker inside"),
+        ("[^1]: a\n\n    <div>\n    <!-- tether-grooming-v1 -->\n    </div>\n", "marker inside"),
+    ):
+        read = claim._autonomy_refusal(admitting + continued)
+        assert read is not None and expect in read, (continued, read)
+    # Nothing at the foot admits: not a column-zero bullet, not a heading over its paragraph.
+    for foot in (
+        "[^1]: a\n\n    - **Autonomy:** agent-can-do-alone\n",
+        "[^1]: a\n\n    ## Execution autonomy\n\n    agent-can-do-alone\n",
+    ):
+        read = claim._autonomy_refusal("See[^1].\n\n" + foot)
+        assert read is not None and "cannot admit" in read, (foot, read)
+    # A heading at the foot ends no body section, and a body heading's section skips the foot.
+    assert (
+        claim._autonomy_refusal(
+            "## Execution autonomy\n\n[^1]: a\n\n    ## Notes\n\n    human review required\n\n"
+            "agent-can-do-alone\n"
+        )
+        is None
+    )
+    # A marker at the foot starts no grooming block: the body is refused for the misplaced
+    # marker, never re-groomed by it.
+    stale = claim._autonomy_refusal(
+        "- **Autonomy:** maintainer decision required\n\nSee[^1].\n\n"
+        "[^1]: a\n\n    <!-- tether-grooming-v1 -->\n\n    - **Autonomy:** agent-can-do-alone\n"
+    )
+    assert stale is not None and "marker inside" in stale, stale
+    md = claim._markdown
+    doc = md.parse("[^1]: a\n\n    ## H\n\n    - x\n\n    | c |\n    |---|\n    <hr>\n")
+    assert all(md.at_foot(block) for block in doc)
+    assert all(md.at_foot(item) for item in doc[2].items)
+    assert md.at_foot(doc[3].rows[0]) and not md.at_foot(md.parse("x\n")[0])
+
+
+def test_a_void_raw_block_is_a_piece_before_the_text_after_it() -> None:
+    """Codex on #462 (read of `6c060e7`): in `<h2>Execution autonomy</h2><hr>agent-can-do-alone`
+    the text after the `<hr>` was the piece the rule opened, so the raw heading's first drawn
+    block was the text and an admitting bullet beside it carried the issue, where the page
+    draws the rule between them. A void block is a piece of its own at once, and what follows
+    it is text no tag opened.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for raw in (
+        "<h2>Execution autonomy</h2><hr>agent-can-do-alone\n",
+        "<h2>Execution autonomy</h2><hr/>agent-can-do-alone\n",
+        "<h2>Execution autonomy</h2>\n<hr>\nagent-can-do-alone\n",
+        "<p>Autonomy</p><hr>agent-can-do-alone\n",
+    ):
+        read = claim._autonomy_refusal(admitting + raw)
+        assert read is not None and "declares autonomy ''" in read, (raw, read)
+    md = claim._markdown
+    assert [p.tag for p in md.parse("<h2>x</h2><hr>y\n")[0].shown] == ["h2", "hr", ""]
+    assert [p.tag for p in md.parse("<div><hr>y</div>\n")[0].shown] == ["div", "hr", ""]
 
 
 def test_a_period_in_the_qualifier_is_a_qualifier() -> None:

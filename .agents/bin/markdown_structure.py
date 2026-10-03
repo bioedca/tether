@@ -206,6 +206,9 @@ BLOCK_TAGS = frozenset(
     | {"h2", "h3", "h4", "h5", "h6", "hr", "li", "ol", "p", "pre", "summary", "table", "tbody"}
     | {"td", "tfoot", "th", "thead", "tr", "ul"}
 )
+#: The block tags that hold nothing: the page draws the element and whatever follows it is
+#: outside it.
+_VOID_BLOCK_TAGS = frozenset({"hr"})
 #: Every element GitHub keeps: the html-pipeline allowlist, partitioned above by what it draws.
 KEPT_TAGS = _PHRASING_TAGS | frozenset(_DRAWN_TAGS) | _INSIDE_TAGS | BLOCK_TAGS
 #: The stripped tags whose text the sanitizer wraps in spaces - Selma's ``whitespace_elements``
@@ -260,15 +263,15 @@ class Paragraph(NamedTuple):
     reading what sits under a heading, or what an item leads with, skips it (Codex on #462,
     twice; see :func:`_paragraphs`). A definition's *continuation* - the lines indented four
     spaces after it, which cmark-gfm reads as more of the footnote and CommonMark as an
-    indented code block - is footnote paragraphs too, one for every block the foot draws text
-    for, a heading or a list item's paragraph included (:func:`_continuation`; Codex on #462).
+    indented code block - is the blocks it holds, as the parser read them, each carrying the
+    note (:func:`_continuation`; Codex on #462).
 
-    ``note`` is the definition the paragraph belongs to - the source line it opens on, which
-    no two definitions share - or ``None`` for a paragraph of the body. Every paragraph of
-    one footnote carries the same ``note``, so a caller reading what a bare key in a footnote
-    heads can stop at the next definition: `[^1]: **Autonomy**` over `[^2]:
-    agent-can-do-alone` is an empty declaration and a value, not the one over the other
-    (Codex on #462). ``footnote`` is whether ``note`` is set.
+    ``note`` is the definition the block belongs to - the source line it opens on, which no
+    two definitions share - or ``None`` for a block of the body; every block type carries
+    one, and :func:`at_foot` reads it. Every block of one footnote carries the same ``note``,
+    so a caller reading what a bare key in a footnote heads can stop at the next definition:
+    `[^1]: **Autonomy**` over `[^2]: agent-can-do-alone` is an empty declaration and a value,
+    not the one over the other (Codex on #462). ``footnote`` is whether ``note`` is set.
     """
 
     text: str
@@ -290,8 +293,8 @@ class Heading(NamedTuple):
     when the heading opens on the same line as the item's marker, so only a top-level, unquoted,
     unindented heading has column zero. ``markup`` is the ``#`` run or the ``=``/``-`` underline,
     so the two forms are distinguishable too. ``text`` is the heading content with any closing
-    ``#`` sequence already removed, and ``plain`` is that content rendered. ``pictured`` is as
-    on :class:`Paragraph`.
+    ``#`` sequence already removed, and ``plain`` is that content rendered. ``pictured`` and
+    ``note`` are as on :class:`Paragraph`.
     """
 
     level: int
@@ -301,6 +304,7 @@ class Heading(NamedTuple):
     column: int
     markup: str
     pictured: bool = False
+    note: int | None = None
 
 
 class ListItem(NamedTuple):
@@ -311,7 +315,9 @@ class ListItem(NamedTuple):
     the marker - for an ordered item, its first digit - sits on its source line, measured from the
     start of the line even inside a block quote and even for an item that opens on the same line
     as its parent's marker, so only a top-level, unquoted, unindented item has column zero. A
-    tight item's single paragraph is a :class:`Paragraph` like any other.
+    tight item's single paragraph is a :class:`Paragraph` like any other. ``note`` is as on
+    :class:`Paragraph`, on every block type: a container of a footnote's continuation carries
+    the note its blocks do.
     """
 
     marker: str
@@ -319,6 +325,7 @@ class ListItem(NamedTuple):
     line: int
     column: int
     blocks: tuple[Block, ...]
+    note: int | None = None
 
 
 class ListBlock(NamedTuple):
@@ -327,6 +334,7 @@ class ListBlock(NamedTuple):
     ordered: bool
     line: int
     items: tuple[ListItem, ...]
+    note: int | None = None
 
 
 class BlockQuote(NamedTuple):
@@ -334,6 +342,7 @@ class BlockQuote(NamedTuple):
 
     line: int
     blocks: tuple[Block, ...]
+    note: int | None = None
 
 
 class Code(NamedTuple):
@@ -343,6 +352,7 @@ class Code(NamedTuple):
     line: int
     fenced: bool
     info: str
+    note: int | None = None
 
 
 class Shown(NamedTuple):
@@ -374,12 +384,14 @@ class Html(NamedTuple):
     plain: str
     line: int
     shown: tuple[Shown, ...]
+    note: int | None = None
 
 
 class Rule(NamedTuple):
     """A thematic break."""
 
     line: int
+    note: int | None = None
 
 
 class TableRow(NamedTuple):
@@ -392,6 +404,7 @@ class TableRow(NamedTuple):
     plain: tuple[str, ...]
     line: int
     header: bool
+    note: int | None = None
 
 
 class Table(NamedTuple):
@@ -399,9 +412,21 @@ class Table(NamedTuple):
 
     line: int
     rows: tuple[TableRow, ...]
+    note: int | None = None
 
 
 Block = Paragraph | Heading | ListBlock | BlockQuote | Code | Html | Rule | Table
+
+
+def at_foot(block: Block | ListItem | TableRow) -> bool:
+    """Whether the page draws ``block`` at its foot - a footnote definition, or a block of one's
+    continuation, which carries the definition's ``note`` - and not where it sits in the
+    source. A caller reading the body skips it, and a caller reading a footnote reads the
+    blocks that carry its note by the rules it reads the body by: the foot used to come back
+    flattened into footnote paragraphs, and every reading the body had was then missing at
+    the foot one shape at a time (Codex on #462, three reads; :func:`_continuation`).
+    """
+    return block.note is not None
 
 
 def parse(text: str) -> tuple[Block, ...]:
@@ -476,69 +501,51 @@ def _continued_note(
     return None
 
 
-def _continuation(content: str, line: int, note: int) -> list[Paragraph]:
-    """The footnote paragraphs a definition's continuation draws, read from ``content``, the
-    indented code block CommonMark made of its lines, with the indent gone.
+def _continuation(content: str, line: int, note: int) -> list[Block]:
+    """The blocks a definition's continuation draws, read from ``content``, the indented code
+    block CommonMark made of its lines, with the indent gone - each carrying ``note``, at its
+    source line.
 
     cmark-gfm reads the lines indented four spaces after a footnote definition as the rest of
     the definition, blank lines between included, and draws them inside the footnote at the
     page's foot: `[^1]: first line` over a blank line over `    Autonomy: maintainer decision
     required` is a footnote of two paragraphs, the second the restriction, while CommonMark
     reads the indented line as a code block and a caller reading only the first paragraph
-    never saw it (Codex on #462). The lines are read again as the Markdown they are, and
-    every block the foot draws text for comes back as a footnote paragraph of definition
-    ``note`` at its source line - a paragraph as itself, a heading as its text, a list item's
-    paragraph as itself, a table as a paragraph per row, and a raw HTML block as a paragraph
-    *per block the page draws of it*, since `<div><p>Notes</p><p>Autonomy: human review
-    required</p></div>` is two paragraphs at the foot and joined into one the key was not at
-    its start (Codex on #462). A block the foot draws with no text - a rule, a code block,
-    which is literal, a raw block's piece that shows nothing - comes back as an empty footnote
-    paragraph, so that it keeps its place: `[^1]: Autonomy` over an indented `<hr>` over
-    `agent-can-do-alone` is a bare key heading a rule on the page, as it is in the body, and
-    with the rule dropped the key headed the value (Codex on #462). So does a list item or a
-    block quote none of whose blocks :func:`draws`: the page draws the bullet and the bar
-    whatever they hold, and `- <!-- c -->` under the key is an empty bullet over the value, as
-    it is in the body. The foot never admits, so nothing is lost in the flattening that a
-    caller could have admitted on. A raw piece comes back as its rendered text, tags gone, and
-    a paragraph with its source: a caller counting disclosures reads neither, since a tag in a
-    footnote is drawn at the foot and opens or closes nothing of the body. A definition nested
-    in the continuation keeps a note of its own.
+    never saw it (Codex on #462). The lines are read again as the Markdown they are, and the
+    blocks come back as the parser read them - a heading as a heading, a list as a list of its
+    items, a table as a table, raw HTML as the raw block it is - with ``note`` set on every
+    block, containers included, and ``line`` moved to the source. The foot used to come back
+    flattened, as one footnote paragraph per block the foot draws text for, and every reading
+    the body has was then missing at the foot one shape at a time: a raw block read a piece
+    at a time, a block drawn with no text keeping its place, an item drawing nothing standing
+    in for itself, then a heading's qualifier, a raw heading, a table's cells and an item's
+    boundary (Codex on #462, three reads). GitHub draws the continuation's headings, lists,
+    tables and raw HTML inside the footnote (its markdown endpoint, 2026-10-03), and a caller
+    reads them by the body's rules over the blocks that carry the note (:func:`at_foot`),
+    nothing of which admits. A definition nested in the continuation keeps a note of its own,
+    moved to the source as well.
     """
     text = content if content.endswith("\n") else content + "\n"
     lines = text.split("\n")
     env: dict[str, Any] = {}
     tokens = _PARSER.parse(text, env)
+    return [_placed(block, line, note) for block in _document(tokens, lines, env)]
 
-    def empty(at: int) -> Paragraph:
-        return Paragraph("", "", line + at, False, note)
 
-    def pieces(blocks: tuple[Block, ...]) -> Iterator[Paragraph]:
-        for block in blocks:
-            if isinstance(block, Paragraph):
-                own = note if block.note is None else line + block.note
-                yield block._replace(line=line + block.line, note=own)
-            elif isinstance(block, Heading):
-                yield Paragraph(block.text, block.plain, line + block.line, block.pictured, note)
-            elif isinstance(block, Html):
-                for piece in block.shown:
-                    yield Paragraph(piece.text, piece.text, line + block.line, False, note)
-            elif isinstance(block, Table):
-                for row in block.rows:
-                    drawn = " ".join(cell for cell in row.plain if cell)
-                    yield Paragraph(" ".join(row.cells), drawn, line + row.line, False, note)
-            elif isinstance(block, (Rule, Code)):
-                yield empty(block.line)
-            elif isinstance(block, ListBlock):
-                for item in block.items:
-                    if not any(draws(inner) for inner in item.blocks):
-                        yield empty(item.line)
-                    yield from pieces(item.blocks)
-            elif isinstance(block, BlockQuote):
-                if not any(draws(inner) for inner in block.blocks):
-                    yield empty(block.line)
-                yield from pieces(block.blocks)
-
-    return list(pieces(_document(tokens, lines, env)))
+def _placed(block: Any, line: int, note: int) -> Any:
+    """``block`` and everything in it moved ``line`` lines down and marked as footnote
+    ``note`` - or, for a block carrying a note already, a definition nested in the
+    continuation or a block of that definition's own continuation, its own note moved down
+    the same."""
+    own = note if block.note is None else line + block.note
+    moved = block._replace(line=line + block.line, note=own)
+    if isinstance(block, ListBlock):
+        return moved._replace(items=tuple(_placed(item, line, note) for item in block.items))
+    if isinstance(block, (ListItem, BlockQuote)):
+        return moved._replace(blocks=tuple(_placed(inner, line, note) for inner in block.blocks))
+    if isinstance(block, Table):
+        return moved._replace(rows=tuple(_placed(row, line, note) for row in block.rows))
+    return moved
 
 
 #: A GitHub footnote definition's label at the start of a source line: cmark-gfm's grammar,
@@ -792,15 +799,19 @@ def draws(block: Block) -> bool:
     on the page, a block with its own height - and, at the first two levels, its own rule
     beneath - so an item that opens with one does not open with the paragraph after it, which
     read as the item's lead let `- ## <!-- note -->` over `Autonomy: agent-can-do-alone` admit
-    as the registered bullet (Codex on #462). Only a block the page shows nothing for - a
-    comment on its own lines, a paragraph that renders to nothing and carries neither a
-    picture nor a tag - is not. A tag counts as drawn whatever the rendering made of it, for
-    the reason :func:`has_tag` gives: the approximation may not err in the admitting
-    direction. claim.py's ``_drawn`` is this at the leaf level, where a table row and a list's
-    item are leaves too.
+    as the registered bullet (Codex on #462). And so is a paragraph, whatever it holds: the
+    page lays out a `<p>` for one however little it shows - `&nbsp;` is a line of its own
+    height, `[](x)` or `&#32;` a block with its margin (GitHub's markdown endpoint) - and a
+    paragraph was drawn only when its text, a picture or a tag was, so `- &nbsp;` over
+    `Autonomy: agent-can-do-alone` opened with the paragraph after it, which admitted as the
+    registered bullet (found beside Codex's read of `35710e3` on #462). Only a raw HTML block
+    the page shows nothing for - a comment on its own lines - is not. A tag counts as drawn
+    whatever the rendering made of it, for the reason :func:`has_tag` gives: the
+    approximation may not err in the admitting direction. claim.py's ``_drawn`` is this at
+    the leaf level, where a table row and a list's item are leaves too. *Where* the page
+    draws the block - in the body, or at its foot - is :func:`at_foot`'s to say; this is
+    whether it draws it at all.
     """
-    if isinstance(block, Paragraph):
-        return bool(block.plain) or block.pictured or has_tag(block.text)
     if isinstance(block, Html):
         return bool(block.plain) or has_tag(block.text)
     return True
@@ -851,7 +862,11 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
     opening of a block - a rule for ``<hr>``, a widget for ``<details>``, a box - and a caller
     reading the first thing drawn after a key must see it, where dropping it let the paragraph
     past an ``<hr>`` stand as a raw heading's own value (Codex on #462). Text that no tag
-    opened and that renders to nothing is nothing.
+    opened and that renders to nothing is nothing. A void block - ``<hr>`` - holds nothing,
+    so it is a piece of its own at once and what follows it is text no tag opened:
+    ``<hr>agent-can-do-alone`` is the rule and then the text, where naming the text's piece
+    ``hr`` let a caller take the text as the first block drawn after a raw heading, with the
+    rule the page draws between them gone (Codex on #462).
     """
     stripped = _sanitized(text)
     pieces: list[tuple[str, str]] = []
@@ -863,6 +878,9 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
         pieces.append((stripped[at : tag.start()], opener))
         at = tag.end()
         opener = "" if tag.group("close") is not None else name
+        if opener in _VOID_BLOCK_TAGS:
+            pieces.append(("", opener))
+            opener = ""
     pieces.append((stripped[at:], opener))
     shown = ((" ".join(_visible_html(piece).split()), opener) for piece, opener in pieces)
     return tuple(Shown(piece, opener) for piece, opener in shown if piece or opener)

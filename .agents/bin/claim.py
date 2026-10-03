@@ -552,11 +552,14 @@ _TASK_MARKER = re.compile(r"\[(?: |x|X)\](?: |$)")
 #: twice: the restriction unread behind the label, then the footnote read as the value of the
 #: heading it sat under on the page's foot). And the foot is read whole: a footnote that is not
 #: keyed is scan-only, as an item's remainder is, since a note at the foot sits under no key
-#: of the body's; and a bare key in one heads the footnote paragraphs drawn after it (`_foot`)
+#: of the body's; and a bare key in one heads what is drawn after it at that foot (`_section`)
 #: and nothing of the body. The parser hands a definition's continuation - its lines indented
-#: four spaces, which the page draws inside the footnote - over as more footnote paragraphs,
-#: and reading only the first left `Autonomy: maintainer decision required` in the second
-#: unread (Codex on #462).
+#: four spaces, which the page draws inside the footnote - over as the blocks it holds, each
+#: carrying the definition's note (`_markdown.at_foot`), and every reader here reads them by
+#: the rule it reads the body by, over the blocks drawn where it is reading: reading only the
+#: first left `Autonomy: maintainer decision required` in the second unread, and a foot
+#: flattened into paragraphs lost a heading's qualifier, a raw heading, a table's cells and an
+#: item's boundary, one read at a time (Codex on #462).
 
 
 class _AutonomyValue(NamedTuple):
@@ -601,33 +604,47 @@ def _normalize_qualifier(qualifier: str) -> str:
 
 
 #: The marks the parser renders a strike-through between - `~~x~~` and `<del>x</del>` alike.
-_STRIKE = "~~"
+#: A balanced pair of strike marks: a run of one or two tildes and the same run closing it,
+#: with no tilde beside either run, since GitHub strikes between one tilde as between two and
+#: `~~x~` is literal (its markdown endpoint, 2026-10-03).
+_STRIKE_PAIR = re.compile(r"(?<!~)(~~?)(?!~)(.+?)(?<!~)\1(?!~)")
 
 
-def _key_text(text: str) -> str:
-    """``text`` - a block's rendered text - with the strike marks about its key gone.
+def _key_texts(text: str) -> Iterator[str]:
+    """``text`` - a block's rendered text - then ``text`` with its first balanced pair of strike
+    marks gone, then the next, until none is left: the readings of its key through the marks.
 
     The parser renders struck text between `~~` marks, so the page's crossed-out words stay
     visible to the exact check and `~~maintainer decision required~~` as a value refuses. The
     *key* has to be read through them: struck out whole, `- ~~Autonomy: maintainer decision
     required~~` matched no key and was not read at all, while an admitting bullet beside it
-    carried the issue (Codex on #462). The marks cut one way - a struck key is read, and a
-    shape carrying any strike never admits (:func:`_struck`). A text that opens with a mark
-    loses that mark and the one closing it, wherever that falls - after the key, after the
-    colon, after the value - and nothing else, so a strike that stays inside the value is
-    quoted as the page shows it. A mark with no close is literal and stays.
+    carried the issue; and struck in part, `- Auto<del>nomy</del>: maintainer decision
+    required` - `Auto~~nomy~~:` rendered - matched none either while only a text *opening*
+    with a mark was read through (Codex on #462, twice). A caller matches its key against
+    each reading in turn (:func:`_match_key`) and takes the first that matches, so the pairs
+    before and inside the key are gone and the pairs after it - inside the value - are quoted
+    as the page shows them. The marks cut one way - a struck key is read, and a shape
+    carrying any tilde never admits (:func:`_struck`). A mark with no close is literal and
+    stays.
     """
-    if not text.startswith(_STRIKE):
-        return text
-    close = text.find(_STRIKE, len(_STRIKE))
-    if close < 0:
-        return text
-    return text[len(_STRIKE) : close] + text[close + len(_STRIKE) :]
+    yield text
+    while (pair := _STRIKE_PAIR.search(text)) is not None:
+        text = text[: pair.start()] + pair.group(2) + text[pair.end() :]
+        yield text
+
+
+def _match_key(pattern: re.Pattern[str], text: str) -> re.Match[str] | None:
+    """``pattern`` matched whole against the first reading of ``text`` through its strike marks
+    that it matches (:func:`_key_texts`), or ``None``."""
+    return next((m for t in _key_texts(text) if (m := pattern.fullmatch(t)) is not None), None)
 
 
 def _struck(text: str) -> bool:
-    """Whether ``text`` carries a strike-through anywhere: a retraction, which never admits."""
-    return _STRIKE in text
+    """Whether ``text`` carries a tilde: a strike-through, which is a retraction, or a stray
+    mark the page shows, which is not the registered shape either - GitHub decides which by
+    rules this module does not reproduce in full, so either is read as the retraction it may
+    be, and never admits."""
+    return "~" in text
 
 
 def _flatten_autonomy(value: str) -> str:
@@ -692,7 +709,9 @@ def _flat(blocks: tuple[_markdown.Block, ...]) -> list[_Leaf]:
     paragraph admitted as the heading's own next paragraph (Codex on #462). A list draws a bullet
     *per item*, so the stand-in is the item: `- <!-- c -->` over `- agent-can-do-alone` under
     the heading is an empty bullet over a value, and one stand-in for the whole list, given
-    only when no item draws, let the value be the heading's own (Codex on #462).
+    only when no item draws, let the value be the heading's own (Codex on #462). Drawn
+    *where the container is* (`_drawn_with`): `- [^1]: note` holds a definition the page
+    draws at its foot and is an empty bullet in the body.
     """
     leaves: list[_Leaf] = []
     for block in blocks:
@@ -700,7 +719,7 @@ def _flat(blocks: tuple[_markdown.Block, ...]) -> list[_Leaf]:
             inner = []
             for item in block.items:
                 own = _flat(item.blocks)
-                if not any(_drawn(leaf.block) for leaf in own):
+                if not any(_drawn_with(leaf.block, item) for leaf in own):
                     inner.append(_Leaf(item, blocks))
                 inner.extend(own)
         elif isinstance(block, _markdown.BlockQuote):
@@ -710,7 +729,7 @@ def _flat(blocks: tuple[_markdown.Block, ...]) -> list[_Leaf]:
         else:
             leaves.append(_Leaf(block, blocks))
             continue
-        if not any(_drawn(leaf.block) for leaf in inner):
+        if not any(_drawn_with(leaf.block, block) for leaf in inner):
             leaves.append(_Leaf(block, blocks))
         leaves.extend(inner)
     return leaves
@@ -798,9 +817,11 @@ def _is_grooming_marker(block: Any) -> bool:
     it (Codex on #462). A block that shows text is not a marker on its own line, and the misplaced
     rule refuses it. Nor is one that draws something without text - `<img>` beside the marker,
     an empty `<details>` - which `plain` is empty for and `_drawn` is not (Codex on #462). A
-    marker followed only by other comments draws nothing and is still a marker.
+    marker followed only by other comments draws nothing and is still a marker. One in a
+    footnote's continuation is drawn at the foot and starts nothing, so the misplaced rule
+    refuses it rather than a stale declaration above governing (Codex on #462).
     """
-    if not isinstance(block, _markdown.Html) or _drawn(block):
+    if not isinstance(block, _markdown.Html) or _markdown.at_foot(block) or _drawn(block):
         return False
     return _GROOMING_MARKER.match(block.text.lstrip()) is not None
 
@@ -1040,12 +1061,12 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
 
     def run(blocks: tuple[_markdown.Block, ...], level: int) -> None:
         for block in blocks:
+            if _markdown.at_foot(block):
+                continue  # drawn at the foot: opens and closes nothing of the body
             if isinstance(block, _markdown.Html):
                 for name, closing in _markdown.tags(block.text):
                     tag(name, closing, level, block.line)
             elif isinstance(block, _markdown.Paragraph):
-                if block.footnote:
-                    continue  # drawn at the foot: opens and closes nothing of the body
                 for name, closing in _markdown.inline_tags(block.text):
                     tag(name, closing, level, block.line)
             elif isinstance(block, _markdown.Heading):
@@ -1087,13 +1108,9 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
         # refuses (`_section`, `_lead`), so one the block never references costs a refusal on a
         # body the groomer re-grooms and never a claim, and it needs no reader of references
         # on the source, which the page draws in a form the parser does not.
-        inside = {id(leaf.block) for leaf in _flat(groomed)}
+        inside = {id(block) for block in _markdown.walk(groomed)}
         source = groomed + tuple(
-            leaf.block
-            for leaf in _flat(document)
-            if isinstance(leaf.block, _markdown.Paragraph)
-            and leaf.block.footnote
-            and id(leaf.block) not in inside
+            block for block in _foot_blocks(document) if id(block) not in inside
         )
         where = "grooming block"
     found: list[_AutonomyValue] = []
@@ -1104,8 +1121,11 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
     leaves = _flat(source)
     for index, leaf in enumerate(leaves):
         block = leaf.block
+        # The foot is read by the body's rules and named for what it is, since nothing there
+        # admits (Codex on #462).
+        here = f"{where} footnote" if _markdown.at_foot(block) else where
         key = (
-            _AUTONOMY_KEY.fullmatch(_key_text(_prose(block)))
+            _match_key(_AUTONOMY_KEY, _prose(block))
             if isinstance(block, _markdown.Heading)
             else None
         )
@@ -1114,7 +1134,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
             # the field's value, so nothing here can admit and nothing is exact-checked. The
             # qualifier is read the same way, since `## Execution autonomy - maintainer decision
             # required` carries the restriction in the heading itself (Codex on #462).
-            about = f"{where} heading about the field"
+            about = f"{here} heading about the field"
             found.append(_AutonomyValue(key.group("qualifier").strip(), about, scan_only=True))
             found.extend(_scan_only(_section(leaves, index), about))
         elif key is not None:
@@ -1134,6 +1154,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 admits = (
                     not qualifier
                     and not _struck(_prose(block))
+                    and not _markdown.at_foot(block)
                     and block.column == 0
                     and block.markup.startswith("#")
                     and isinstance(value.block, _markdown.Paragraph)
@@ -1144,10 +1165,10 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 )
                 found.append(
                     _AutonomyValue(
-                        _prose(value.block), f"{where} heading", qualifier=qualifier, admits=admits
+                        _prose(value.block), f"{here} heading", qualifier=qualifier, admits=admits
                     )
                 )
-                found.extend(_scan_only(section[1:], f"{where} heading remainder"))
+                found.extend(_scan_only(section[1:], f"{here} heading remainder"))
             else:
                 # A recognised heading with no prose below it - the last line of the body, or
                 # a heading straight under it - has declared an empty value, and recording
@@ -1155,10 +1176,10 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 # names no registered value (Codex on #462). The empty value fails the exact
                 # check, as the one-column table's does.
                 found.append(
-                    _AutonomyValue("", f"{where} heading", qualifier=qualifier, admits=False)
+                    _AutonomyValue("", f"{here} heading", qualifier=qualifier, admits=False)
                 )
         elif isinstance(block, _markdown.TableRow):
-            found.extend(_row(block, where))
+            found.extend(_row(block, here))
     # The leads `_bullet` read, so the pass below does not read them twice. Only a paragraph
     # lead keyed like a bullet is one: a lead that is raw HTML, or a bare key over the item's
     # next paragraph, is not the bullet's declaration and was skipped here unread, so it is read
@@ -1194,9 +1215,14 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
         if any(block is lead for lead in leads):
             continue
         if isinstance(block, _markdown.Heading):
-            if _AUTONOMY_KEY.fullmatch(_key_text(_prose(block))):
+            if _match_key(_AUTONOMY_KEY, _prose(block)) is not None:
                 continue
-            texts = [(_prose(block), "heading line")]
+            texts = [
+                (
+                    _prose(block),
+                    "footnote heading line" if _markdown.at_foot(block) else "heading line",
+                )
+            ]
         elif isinstance(block, _markdown.Html):
             found.extend(_raw_html(block, where, leaves, index))
             continue
@@ -1204,8 +1230,8 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
             text = _prose(block)
             task = _TASK_MARKER.match(text)
             shape = "footnote" if block.footnote else "paragraph"
-            if _BARE_KEY.fullmatch(_key_text(text[task.end() :] if task else text)):
-                section = _foot(leaves, index) if block.footnote else _section(leaves, index)
+            if _match_key(_BARE_KEY, text[task.end() :] if task else text) is not None:
+                section = _section(leaves, index, leaf.siblings)
                 value = _prose(section[0].block) if section else ""
                 found.append(_AutonomyValue(value, f"{where} {shape} bare key", admits=False))
                 found.extend(_scan_only(section[1:], f"{where} {shape} bare key remainder"))
@@ -1257,7 +1283,7 @@ def _row(block: _markdown.TableRow, where: str) -> list[_AutonomyValue]:
             owed = None
 
     for cell in block.plain:
-        key = _AUTONOMY_KEY.fullmatch(_key_text(cell))
+        key = _match_key(_AUTONOMY_KEY, cell)
         if key is not None:
             settle("")
             keyed_yet = True
@@ -1316,7 +1342,7 @@ def _raw_html(
     """
     found: list[_AutonomyValue] = []
     pieces = block.shown
-    shape = f"{where} raw HTML"
+    shape = f"{where} footnote raw HTML" if _markdown.at_foot(block) else f"{where} raw HTML"
     # The open section's scan-only label once a key has been read; the key whose value is
     # still owed - its label and qualifier - when the key was the last thing drawn so far; and
     # whether the open section is a cell's, which the block ends.
@@ -1337,7 +1363,7 @@ def _raw_html(
             continue
         heading = piece.tag in _HTML_HEADINGS
         cell = piece.tag in _HTML_CELLS
-        key = (_AUTONOMY_KEY if heading or cell else _BARE_KEY).fullmatch(_key_text(piece.text))
+        key = _match_key(_AUTONOMY_KEY if heading or cell else _BARE_KEY, piece.text)
         if heading and key is None:
             settle("")
             keyed_yet = False
@@ -1425,10 +1451,10 @@ def _drawn(block: Any) -> bool:
     """Whether the page draws anything for ``block`` - the test for a leaf a reader sees.
 
     Prose is drawn, and so is what shows no prose: a picture with no alternative text, a raw
-    HTML block whose tags draw a widget or a picture, a code block, a rule, a table row, and a
-    container - a list, an item of one, a block quote, a table - whatever it holds. Only a
-    block the page shows nothing for - a comment on its own lines, a paragraph that renders to
-    nothing and carries neither a picture nor a tag - is not. A tag counts as drawn whatever
+    HTML block whose tags draw a widget or a picture, a code block, a rule, a table row, a
+    heading or a paragraph however little it holds, and a container - a list, an item of one,
+    a block quote, a table - whatever it holds. Only a raw HTML block the page shows nothing
+    for - a comment on its own lines - is not. A tag counts as drawn whatever
     the rendering made of it, for the reason `_plain_markdown` gives: the approximation may
     not err in the admitting direction. The rule is the parser's ``draws``, one definition for
     the body and for a footnote's continuation, which stands an undrawn item or quote in for
@@ -1444,24 +1470,68 @@ def _drawn(block: Any) -> bool:
     return _markdown.draws(block)
 
 
-def _section(leaves: list[_Leaf], index: int) -> list[_Leaf]:
-    """The drawn leaves below the heading at ``index``, up to the next heading of any level.
+def _drawn_with(block: Any, container: Any) -> bool:
+    """Whether ``block`` is drawn where ``container`` is - in the body, or at the foot of the
+    footnote the container is part of (`_markdown.at_foot`).
+
+    A definition inside a body item is drawn at the foot, so `- [^1]: note` is an empty
+    bullet on the page and the item stands in for itself under a heading; a definition
+    nested inside a footnote's own item is a footnote of its own, drawn under its own number,
+    and that item is empty at the foot the same way.
+    """
+    return block.note == container.note and _drawn(block)
+
+
+def _foot_blocks(blocks: tuple[_markdown.Block, ...]) -> Iterator[_markdown.Block]:
+    """Every block of ``blocks`` the page draws at its foot, outermost first: a definition or a
+    block of its continuation, at the top level or inside a body container."""
+    for block in blocks:
+        if _markdown.at_foot(block):
+            yield block
+        elif isinstance(block, _markdown.ListBlock):
+            for item in block.items:
+                yield from _foot_blocks(item.blocks)
+        elif isinstance(block, _markdown.BlockQuote):
+            yield from _foot_blocks(block.blocks)
+
+
+def _section(leaves: list[_Leaf], index: int, within: tuple[Any, ...] | None = None) -> list[_Leaf]:
+    """The drawn leaves below the heading or bare key at ``index``, up to the next heading of
+    any level, among the leaves drawn where it is drawn - in the body, or at the foot of its
+    footnote.
 
     A heading raw HTML lays out ends the section as a Markdown one does, since the page draws
     the two alike: a raw block carrying one is cut to the pieces before it - a copy of the
     block, so a reader of the section sees nothing past the heading - and the section stops
-    there (Codex on #462). A footnote definition is not in any section: the page draws it at
-    its foot, and `## Execution autonomy` over `[^1]: note` over `agent-can-do-alone` shows the
-    registered value first, where taking the definition as the value refused the issue (Codex
-    on #462). The keyed pass reads it where it is.
+    there (Codex on #462). A footnote definition is not in any body section: the page draws
+    it at its foot, and `## Execution autonomy` over `[^1]: note` over `agent-can-do-alone`
+    shows the registered value first, where taking the definition as the value refused the
+    issue (Codex on #462). The keyed pass reads it where it is. Nor is any block of its
+    continuation, and a heading there ends no body section; a key at the foot heads the
+    leaves carrying its note by the same rule, so a bare key in one footnote stops at the
+    next definition - `[^1]: **Autonomy**` over `[^2]: agent-can-do-alone` is an empty
+    declaration and a value (Codex on #462) - and a heading in a continuation heads what
+    follows it there.
+
+    ``within`` confines the section to one container's blocks - the tuple a leaf names as its
+    siblings - which is a bare key's: `- **Autonomy**` over `- agent-can-do-alone` is an item
+    holding the key alone and a sibling holding a value, and the key's section ran into the
+    sibling, so the empty declaration the page shows in the first item never failed the exact
+    check and an admitting bullet beside them carried the issue (Codex on #462). A heading's
+    section is not confined, since the page draws a heading the same wherever Markdown nests
+    it (`_flat`).
     """
+    place = leaves[index].block.note
+    inside = None if within is None else {id(leaf.block) for leaf in _flat(within)}
     section: list[_Leaf] = []
     for leaf in leaves[index + 1 :]:
         block = leaf.block
+        if inside is not None and id(block) not in inside:
+            break
+        if block.note != place:
+            continue
         if isinstance(block, _markdown.Heading):
             break
-        if isinstance(block, _markdown.Paragraph) and block.footnote:
-            continue
         if isinstance(block, _markdown.Html):
             before = block.shown
             for at, piece in enumerate(block.shown):
@@ -1502,51 +1572,38 @@ def _bullet(
         return []
     qualifier, value, task, struck = keyed
     # Exact-checked like any declaration, but only the registered shape - column zero, `-` or
-    # `*`, no checkbox, no strike, plain Markdown, on the page - may admit. A `+`, indented,
-    # nested, quoted or task-list bullet, one carrying a tag or an image, one struck out, or one
-    # inside a `<details>` block can refuse and can never be the reason an issue is claimed. A
-    # footnote definition never gets here: it is not the item's lead (`_lead`), the page drawing
-    # it elsewhere.
+    # `*`, no checkbox, no strike, plain Markdown, in the body, on the page - may admit. A `+`,
+    # indented, nested, quoted or task-list bullet, one carrying a tag or an image, one struck
+    # out, one inside a `<details>` block, or one in a footnote's continuation can refuse and
+    # can never be the reason an issue is claimed. A footnote definition never gets here: it
+    # is not the item's lead (`_lead`), the page drawing it elsewhere.
     registered = (
         item.column == 0
         and item.marker in "-*"
         and not task
         and not struck
+        and not _markdown.at_foot(item)
         and _plain_markdown(first)
         and _on_the_page(collapsed, item.line)
     )
-    found = [_AutonomyValue(value, f"{where} bullet", qualifier=qualifier, admits=registered)]
+    shape = f"{where} footnote bullet" if _markdown.at_foot(item) else f"{where} bullet"
+    found = [_AutonomyValue(value, shape, qualifier=qualifier, admits=registered)]
     rest = list(item.blocks)
     while rest and rest[0] is not first:
         rest.pop(0)
-    found.extend(_scan_only(_flat(tuple(rest[1:])), f"{where} bullet remainder"))
+    found.extend(_scan_only(_flat(tuple(rest[1:])), f"{shape} remainder"))
     return found
 
 
-def _foot(leaves: list[_Leaf], index: int) -> list[_Leaf]:
-    """The rest of the footnote ``leaves[index]`` belongs to - the paragraphs after it carrying
-    the same ``note`` - which is what a bare key in a footnote heads. It stops at the next
-    definition: `[^1]: **Autonomy**` over `[^2]: agent-can-do-alone` is an empty declaration
-    that fails the exact check and a value, and reading the second as the first's value let an
-    admitting bullet beside them carry the issue (Codex on #462)."""
-    note = leaves[index].block.note
-    section: list[_Leaf] = []
-    for leaf in leaves[index + 1 :]:
-        if not (isinstance(leaf.block, _markdown.Paragraph) and leaf.block.note == note):
-            break
-        section.append(leaf)
-    return section
-
-
 def _lead(item: _markdown.ListItem) -> Any | None:
-    """The item's first block the page draws anything for, or ``None`` for an item that draws
-    nothing - the block a reader takes for the item's own text. A footnote definition is drawn
-    at the page's foot, not in the item, so `- [^1]: Autonomy: agent-can-do-alone` leads with
-    nothing and the definition is read as the keyed paragraph it is, unable to admit."""
+    """The item's first block the page draws anything for where the item is, or ``None`` for
+    an item that draws nothing there - the block a reader takes for the item's own text. A
+    footnote definition is drawn at the page's foot, not in the item, so `- [^1]: Autonomy:
+    agent-can-do-alone` leads with nothing and the definition is read as the keyed paragraph
+    it is, unable to admit; an item of a footnote's own list leads with its first block drawn
+    at that foot (`_drawn_with`)."""
     for block in item.blocks:
-        if isinstance(block, _markdown.Paragraph) and block.footnote:
-            continue
-        if _drawn(block):
+        if _drawn_with(block, item):
             return block
     return None
 
@@ -1559,12 +1616,12 @@ def _keyed(text: str) -> tuple[str, str, bool, bool] | None:
     task-list item draws a checkbox before its text, and the key is the text: `- [ ] **Autonomy:**
     maintainer decision required` is a restriction the page shows, and matching the checkbox as
     part of the key dropped it (Codex on #462). The key is read through strike marks
-    (:func:`_key_text`); a struck declaration is read and never admits.
+    (:func:`_key_texts`); a struck declaration is read and never admits.
     """
     task = _TASK_MARKER.match(text)
     if task is not None:
         text = text[task.end() :]
-    match = _AUTONOMY_BULLET.fullmatch(_key_text(text))
+    match = _match_key(_AUTONOMY_BULLET, text)
     if match is None:
         return None
     qualifier = _normalize_qualifier(match.group("qualifier"))
