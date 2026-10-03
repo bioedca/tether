@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import random
 import re
 import sys
 import time
@@ -1410,6 +1411,33 @@ def test_a_footnote_above_the_marker_is_read_with_the_grooming_block() -> None:
     assert claim._autonomy_refusal(marker + plain) is None
 
 
+def test_a_foot_marker_above_the_block_is_misplaced() -> None:
+    """Codex on #462 (read of `f53c44a`): `[^1]: <!-- tether-grooming-v1 -->` above the latest
+    top-level marker is a marker drawn at the foot, where a grooming block cannot start, and
+    the declarations read the body's footnotes with the block while the misplaced-marker
+    check read the block alone - so the foot marker was never seen and an admitting bullet
+    in the block carried the issue. One source feeds both readers (`_source`).
+    """
+    marker = "<!-- tether-grooming-v1 -->\n\n"
+    plain = "- **Autonomy:** agent-can-do-alone\n"
+    for above in (
+        "[^1]: <!-- tether-grooming-v1 -->\n\n",
+        "[^1]: note <!-- tether-grooming-v1 --> here\n\n",
+        "[^1]: <div><!-- tether-grooming-v1 --></div>\n\n",
+        "[^1]: a\n\n    <!-- tether-grooming-v1 -->\n\n",
+        "- note\n\n  [^1]: <!-- tether-grooming-v1 -->\n\n",
+        "> [^1]: <!-- tether-grooming-v1 -->\n\n",
+    ):
+        for groomed in (plain, plain + "\nSee[^1].\n"):
+            read = claim._autonomy_refusal(above + marker + groomed)
+            assert read is not None and "marker inside" in read, (above, groomed, read)
+    # Controls: a footnote above the block with no marker in it is read for what it says, and
+    # the body alone with a foot marker is refused as before.
+    assert claim._autonomy_refusal("[^1]: see also\n\n" + marker + plain) is None
+    body = claim._autonomy_refusal(plain + "\n[^1]: <!-- tether-grooming-v1 -->\n")
+    assert body is not None and "marker inside" in body, body
+
+
 def test_a_struck_out_restriction_still_refuses_and_a_struck_out_admission_never_admits() -> None:
     """Codex on #462 (read of `c02ab15`) read `_plain`'s note - a struck-out value fails a
     token match - as a rule for both directions and asked that the refusal scan skip struck
@@ -1531,6 +1559,147 @@ def test_a_key_struck_in_part_is_read_through_every_pair() -> None:
         assert claim._autonomy_refusal(admitting + literal) is None, literal
     assert list(claim._key_texts("~~x~")) == ["~~x~"]
     assert list(claim._key_texts("~a~ ~~b~~")) == ["~a~ ~~b~~", "a ~~b~~", "a b"]
+
+
+def test_abutting_struck_spans_are_one_struck_key() -> None:
+    """Found beside Codex's read of `6c060e7` on #462: the page draws two struck spans that
+    abut, nest or overlap as one struck run, so `<del>Auto</del><del>nomy</del>`,
+    `<del>Auto</del>~~nomy~~`, `<del><del>Autonomy</del></del>` and `~~<del>Auto</del>nomy~~`
+    each show the struck key (GitHub's markdown endpoint, 2026-10-03) - while drawing each
+    tag's own marks rendered `~~Auto~~~~nomy~~`, a four-tilde run no reader of pairs can
+    read, and the restriction beside it went unread beside an admitting bullet. The marks are
+    laid out for the struck runs. The *literal* `~~Auto~~~~nomy~~` is one pair holding a
+    literal `~~~~` on the page, and a raw block's tildes are literal, so those stay as they
+    are and are not the key.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    restriction = ": maintainer decision required\n"
+    for joined in (
+        "- <del>Auto</del><del>nomy</del>" + restriction,
+        "- <del>Auto</del><s>nomy</s>" + restriction,
+        "- <del>Au</del><del>to</del><strike>nomy</strike>" + restriction,
+        "- <del>Auto</del>~~nomy~~" + restriction,
+        "- ~~Auto~~<del>nomy</del>" + restriction,
+        "- <del>Auto</del>~nomy~" + restriction,
+        "- <del><del>Autonomy</del></del>" + restriction,
+        "- <del>~~Autonomy~~</del>" + restriction,
+        "- ~~<del>Autonomy</del>~~" + restriction,
+        "- <del>~~Auto</del>nomy~~" + restriction,
+        "- <del>Auto<s>nomy</s></del>" + restriction,
+        "- </del><del>Autonomy</del>" + restriction,
+        "## <del>Auto</del><del>nomy</del>\n\nmaintainer decision required\n",
+        "| <del>Auto</del><del>nomy</del> | maintainer decision required |\n|---|---|\n",
+        "<p><del>Auto</del><del>nomy</del>: maintainer decision required</p>\n",
+        "<h2><del>Auto</del><del>nomy</del></h2><p>maintainer decision required</p>\n",
+    ):
+        read = claim._autonomy_refusal(admitting + joined)
+        assert read is not None and "maintainer decision" in read, (joined, read)
+    retracted = claim._autonomy_refusal("- <del>Auto</del><del>nomy</del>: agent-can-do-alone\n")
+    assert retracted is not None and "cannot admit" in retracted, retracted
+    # Literal on the page, and so no key: an admitting bullet beside one still admits.
+    for literal in (
+        "- ~~Auto~~~~nomy~~" + restriction,
+        "- ~~Auto~~~nomy~" + restriction,
+        "- <del>Auto</del>~~nomy" + restriction,
+        "<p><del>Auto</del>~~nomy~~: maintainer decision required</p>\n",
+    ):
+        assert claim._autonomy_refusal(admitting + literal) is None, literal
+    assert claim._keyed("~~Autonomy~~: ~~x~~") == ("", "~~x~~", False, True)
+
+
+def test_a_key_in_other_than_the_registered_spelling_is_read_and_never_admits() -> None:
+    """Codex on #462 (read of `f53c44a`): under Unicode case folding `- **Executıon
+    autonomy:** agent-can-do-alone` - a dotless i - matched the key and admitted, while the
+    page shows a field of another name. The folding is kept, since `Executıon autonomy:
+    maintainer decision required` is the restriction a reader of the page sees and an ASCII
+    fold would leave it unread beside an admitting bullet; what it shows is read, and a key
+    in other than the registered spelling never admits (`_defaced`). The same for a format
+    character the page keeps and draws nothing for - a zero-width space, a joiner, a soft
+    hyphen (GitHub's markdown endpoint, 2026-10-03): read through, never admitting. U+E000
+    the page drops outright, so it is dropped and the key is the key.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for spelled in (
+        "- **Executıon autonomy:** maintainer decision required\n",
+        "- **Executİon autonomy:** maintainer decision required\n",
+        "- Auto\u200bnomy: maintainer decision required\n",
+        "- Auto\u200dnomy: maintainer decision required\n",
+        "- Auto\u00adnomy: maintainer decision required\n",
+        "- \ufeffAutonomy: maintainer decision required\n",
+        "- Auto\ue000nomy: maintainer decision required\n",
+        "## Executıon autonomy\n\nmaintainer decision required\n",
+        "Auto\u200bnomy\n\nmaintainer decision required\n",
+        "| Auto\u200bnomy | maintainer decision required |\n|---|---|\n",
+        "<p>Auto\u200bnomy: maintainer decision required</p>\n",
+    ):
+        read = claim._autonomy_refusal(admitting + spelled)
+        assert read is not None and "maintainer decision" in read, (spelled, read)
+    for unregistered in (
+        "- **Executıon autonomy:** agent-can-do-alone\n",
+        "- **Executİon autonomy:** agent-can-do-alone\n",
+        "- Auto\u200bnomy: agent-can-do-alone\n",
+        "- Autonomy:\u200b agent-can-do-alone\n",
+        "## Executıon autonomy\n\nagent-can-do-alone\n",
+        "## Auto\u200bnomy\n\nagent-can-do-alone\n",
+    ):
+        read = claim._autonomy_refusal(unregistered)
+        assert read is not None and "cannot admit" in read, (unregistered, read)
+    # Capitalization of the registered spelling is the registered spelling.
+    for registered in (
+        "- **EXECUTION AUTONOMY:** agent-can-do-alone\n",
+        "- **execution autonomy:** AGENT-CAN-DO-ALONE\n",
+        "- Auto\ue000nomy: agent-can-do-alone\n",
+        "## AUTONOMY\n\nagent-can-do-alone\n",
+    ):
+        assert claim._autonomy_refusal(registered) is None, registered
+    assert claim._shown("Auto\u200bnomy\u00ad: x") == "Autonomy: x"
+    assert claim._defaced("Executıon autonomy: x") and claim._defaced("Auto\u200bnomy")
+    assert claim._defaced("~~Autonomy~~") and not claim._defaced("Execution autonomy: x")
+
+
+def test_a_strike_heavy_paragraph_is_matched_once() -> None:
+    """Codex on #462 (read of `f53c44a`): reading a key through its strike marks rescanned
+    and copied the whole text once per pair, so a paragraph of thousands of struck spans
+    that was no key was matched once per span against a fresh copy - quadratic, and a claim
+    or a doctor report stalled on it. The pairs are found in one pass, the reading with every
+    mark gone is tried first as the test of whether any can match, and the readings are built
+    only up to the first that matches. The readings themselves are unchanged: the leftmost-
+    first pairing, checked here against the reading that gave it.
+    """
+
+    class Counting:
+        def __init__(self, pattern: re.Pattern[str]) -> None:
+            self.pattern, self.calls = pattern, 0
+
+        def fullmatch(self, text: str) -> re.Match[str] | None:
+            self.calls += 1
+            return self.pattern.fullmatch(text)
+
+    spans = " ".join(f"~~w{n}~~" for n in range(3000))
+    counting = Counting(claim._AUTONOMY_BULLET)
+    assert claim._match_key(counting, spans + ": v") is None and counting.calls == 1
+    counting = Counting(claim._AUTONOMY_BULLET)
+    keyed = claim._match_key(counting, "~~Autonomy~~: " + spans)
+    assert keyed is not None and keyed.group("value") == spans and counting.calls == 3
+    counting = Counting(claim._BARE_KEY)
+    assert claim._match_key(counting, "~~Auto~~~nomy~~ " + spans) is None and counting.calls == 1
+    # The readings are those the leftmost-first pairing gives: the first mark with a partner,
+    # paired with the nearest, repeated.
+    leftmost = re.compile(r"(?<!~)(~~?)(?!~)(.+?)(?<!~)\1(?!~)")
+
+    def rescanned(text: str) -> list[str]:
+        readings = [text]
+        while (pair := leftmost.search(text)) is not None:
+            text = text[: pair.start()] + pair.group(2) + text[pair.end() :]
+            readings.append(text)
+        return readings
+
+    draw = random.Random(462)
+    for _ in range(3000):
+        text = "".join(draw.choice("~~~ab ") for _ in range(draw.randint(1, 12)))
+        assert list(claim._key_texts(text)) == rescanned(text), text
+    for text in ("~a ~~b~~ c~", "~~a~~~~b~~", "~~a ~b~ c~~", "~ ~~x~~ ~", "~~a~~~b~"):
+        assert list(claim._key_texts(text)) == rescanned(text), text
 
 
 def test_an_empty_heading_is_drawn() -> None:

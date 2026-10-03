@@ -41,6 +41,7 @@ import ssl
 import subprocess
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -484,7 +485,12 @@ AUTONOMY_REFUSES = (
 #: **Autonomy:**` with nothing after it is a field the page shows, and a pattern that required a
 #: character there made it vanish beside an admitting bullet (Codex on #462); as an empty value
 #: it fails the exact check instead. Whether the item may *admit* is decided from its marker,
-#: column and source in `_bullet`, not here.
+#: column and source in `_bullet`, not here. The case folding is Unicode's, on purpose, and it
+#: cuts one way: `Executıon autonomy: maintainer decision required` - a dotless i - is the
+#: restriction a reader of the page sees and is read as one, while `Executıon autonomy:
+#: agent-can-do-alone` admitted as the registered key, which the page does not show it to be
+#: (Codex on #462); what keeps it from admitting is `_defaced`, not an ASCII fold that would
+#: leave the restriction unread beside an admitting bullet. The same for the two patterns below.
 _AUTONOMY_BULLET = re.compile(
     r"(?:execution[ \t]+)?autonomy(?P<qualifier>[^:\n]*):[ \t]*(?P<value>.*)",
     re.I | re.S,
@@ -603,11 +609,17 @@ def _normalize_qualifier(qualifier: str) -> str:
     return " ".join(qualifier.split()).lower()
 
 
-#: The marks the parser renders a strike-through between - `~~x~~` and `<del>x</del>` alike.
-#: A balanced pair of strike marks: a run of one or two tildes and the same run closing it,
-#: with no tilde beside either run, since GitHub strikes between one tilde as between two and
-#: `~~x~` is literal (its markdown endpoint, 2026-10-03).
-_STRIKE_PAIR = re.compile(r"(?<!~)(~~?)(?!~)(.+?)(?<!~)\1(?!~)")
+def _unmarked(text: str, pairs: tuple[tuple[int, int, int], ...]) -> str:
+    """``text`` with the marks of ``pairs`` - balanced strike pairs, as
+    :func:`markdown_structure.strike_pairs` finds them - gone and their text left."""
+    cuts = sorted((at, length) for opener, closer, length in pairs for at in (opener, closer))
+    pieces: list[str] = []
+    last = 0
+    for at, length in cuts:
+        pieces.append(text[last:at])
+        last = at + length
+    pieces.append(text[last:])
+    return "".join(pieces)
 
 
 def _key_texts(text: str) -> Iterator[str]:
@@ -624,27 +636,61 @@ def _key_texts(text: str) -> Iterator[str]:
     each reading in turn (:func:`_match_key`) and takes the first that matches, so the pairs
     before and inside the key are gone and the pairs after it - inside the value - are quoted
     as the page shows them. The marks cut one way - a struck key is read, and a shape
-    carrying any tilde never admits (:func:`_struck`). A mark with no close is literal and
-    stays.
+    carrying any tilde never admits (:func:`_defaced`). A mark with no close is literal and
+    stays. The pairs are the parser module's (:func:`markdown_structure.strike_pairs`), found
+    in one pass; a reading that searched the text afresh for each pair was quadratic in the
+    pairs, and a paragraph of thousands of struck spans stalled the claim (Codex on #462).
     """
-    yield text
-    while (pair := _STRIKE_PAIR.search(text)) is not None:
-        text = text[: pair.start()] + pair.group(2) + text[pair.end() :]
-        yield text
+    pairs = _markdown.strike_pairs(text)
+    for count in range(len(pairs) + 1):
+        yield _unmarked(text, pairs[:count])
+
+
+def _shown(text: str) -> str:
+    """``text`` with its format characters gone: a zero-width space or joiner, a soft hyphen,
+    a byte-order mark, a direction override - Unicode's ``Cf``, which the page keeps and draws
+    nothing for (GitHub's markdown endpoint, 2026-10-03), so `Auto\u200bnomy: maintainer
+    decision required` shows the key over the restriction and is read as that; the character
+    is still in the text a caller tests for the registered spelling (:func:`_defaced`)."""
+    return "".join(char for char in text if unicodedata.category(char) != "Cf")
 
 
 def _match_key(pattern: re.Pattern[str], text: str) -> re.Match[str] | None:
     """``pattern`` matched whole against the first reading of ``text`` through its strike marks
-    that it matches (:func:`_key_texts`), or ``None``."""
-    return next((m for t in _key_texts(text) if (m := pattern.fullmatch(t)) is not None), None)
+    that it matches (:func:`_key_texts`), the format characters gone first (:func:`_shown`),
+    or ``None``.
+
+    The reading with every mark gone is tried first, as the test of whether any reading can
+    match: every pattern given here accepts a tilde wherever it accepts text past the key, so
+    a reading that matches goes on matching as more marks go, and one that fails with every
+    mark gone fails with any of them. Without that test a paragraph of thousands of struck
+    spans that was no key was matched once per span, each time against a fresh copy of the
+    text, and the readings are built one at a time only up to the first that matches, which
+    for a key is the one that uncovers it (Codex on #462).
+    """
+    shown = _shown(text)
+    pairs = _markdown.strike_pairs(shown)
+    if pattern.fullmatch(_unmarked(shown, pairs)) is None:
+        return None
+    readings = (_unmarked(shown, pairs[:count]) for count in range(len(pairs) + 1))
+    return next(m for reading in readings if (m := pattern.fullmatch(reading)) is not None)
 
 
-def _struck(text: str) -> bool:
-    """Whether ``text`` carries a tilde: a strike-through, which is a retraction, or a stray
-    mark the page shows, which is not the registered shape either - GitHub decides which by
-    rules this module does not reproduce in full, so either is read as the retraction it may
-    be, and never admits."""
-    return "~" in text
+def _defaced(text: str) -> bool:
+    """Whether ``text`` - a declaration's rendered text - carries a tilde or a character
+    outside ASCII, either of which is read and never admits.
+
+    A tilde is a strike-through, which is a retraction, or a stray mark the page shows, which
+    is not the registered shape either - GitHub decides which by rules this module does not
+    reproduce in full, so either is read as the retraction it may be. A character outside
+    ASCII in a declaration that could otherwise admit is in its key - the registered values
+    are ASCII and fail the exact check with one, and whitespace the page shows as a space is a
+    space already (`_plain`) - and a key in other than the registered spelling is read for
+    what it may restrict and admits nothing: a letter that only folds to the key's under
+    Unicode case rules, `Executıon` with a dotless i, or a format character the page draws
+    nothing for (Codex on #462, twice).
+    """
+    return "~" in text or not text.isascii()
 
 
 def _flatten_autonomy(value: str) -> str:
@@ -857,6 +903,32 @@ def _grooming_block(document: tuple[_markdown.Block, ...]) -> tuple[_markdown.Bl
     return None if current is None else tuple(current)
 
 
+def _source(document: tuple[_markdown.Block, ...]) -> tuple[tuple[_markdown.Block, ...], str]:
+    """The authoritative source and its name: the body, or the latest grooming block with the
+    body's footnotes.
+
+    The page draws every footnote at its foot, wherever the definition sits, so one above the
+    marker is drawn for the block as for anything: `[^1]: Autonomy: maintainer decision
+    required` above it and `agent-can-do-alone[^1]` inside it shows the restriction, while the
+    block alone - the blocks after the marker - left the definition with the superseded text
+    and the issue admitted (Codex on #462). The body's footnotes are read with the block,
+    referenced from it or not: a footnote only refuses (`_section`, `_lead`), so one the block
+    never references costs a refusal on a body the groomer re-grooms and never a claim, and it
+    needs no reader of references on the source, which the page draws in a form the parser
+    does not. One source for every reader of it: the declarations read the footnotes with the
+    block while the misplaced-marker check read the block alone, so `[^1]: <!--
+    tether-grooming-v1 -->` above the marker - a marker drawn at the foot, where a block
+    cannot start - was never seen and an admitting bullet in the block carried the issue
+    (Codex on #462).
+    """
+    groomed = _grooming_block(document)
+    if groomed is None:
+        return document, "body"
+    inside = {id(block) for block in _markdown.walk(groomed)}
+    foot = tuple(block for block in _foot_blocks(document) if id(block) not in inside)
+    return groomed + foot, "grooming block"
+
+
 def _misplaced_marker(source: tuple[_markdown.Block, ...]) -> bool:
     """Whether a grooming marker sits anywhere in ``source`` that a grooming block cannot start.
 
@@ -867,11 +939,13 @@ def _misplaced_marker(source: tuple[_markdown.Block, ...]) -> bool:
     a code span quoting the marker is text (Codex on #462). A marker in a fence is literal, and
     a fence is never searched.
 
-    ``source`` is the authoritative one - the latest grooming block when there is one, else the
-    body - and not the whole document: a stale paragraph that *quotes* the marker, above a later
-    marker on its own line, is superseded like everything else above that line, and refusing the
-    body for it refused a correctly re-groomed issue (Codex on #462). Inside the latest block a
-    misplaced marker still refuses, since it is there that what it supersedes cannot be read.
+    ``source`` is the authoritative one (`_source`) - the latest grooming block with the body's
+    footnotes when there is one, else the body - and not the whole document: a stale paragraph
+    that *quotes* the marker, above a later marker on its own line, is superseded like
+    everything else above that line, and refusing the body for it refused a correctly
+    re-groomed issue (Codex on #462). Inside the latest block a misplaced marker still refuses,
+    since it is there that what it supersedes cannot be read; and so does one in a footnote,
+    which the page draws at its foot for the block as for the body.
     """
     for leaf in _flat(source):
         if _is_grooming_marker(leaf.block):
@@ -1093,26 +1167,9 @@ def _on_the_page(spans: list[tuple[int, float]], line: int) -> bool:
 
 
 def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]:
-    """`_declared_autonomy` for an already-parsed body."""
-    groomed = _grooming_block(document)
-    if groomed is None:
-        source: tuple[_markdown.Block, ...] = document
-        where = "body"
-    else:
-        # The page draws every footnote at its foot, wherever the definition sits, so one above
-        # the marker is drawn for the block as for anything: `[^1]: Autonomy: maintainer
-        # decision required` above it and `agent-can-do-alone[^1]` inside it shows the
-        # restriction, while the block alone - the blocks after the marker - left the
-        # definition with the superseded text and the issue admitted (Codex on #462). The
-        # body's footnotes are read with the block, referenced from it or not: a footnote only
-        # refuses (`_section`, `_lead`), so one the block never references costs a refusal on a
-        # body the groomer re-grooms and never a claim, and it needs no reader of references
-        # on the source, which the page draws in a form the parser does not.
-        inside = {id(block) for block in _markdown.walk(groomed)}
-        source = groomed + tuple(
-            block for block in _foot_blocks(document) if id(block) not in inside
-        )
-        where = "grooming block"
+    """`_declared_autonomy` for an already-parsed body, read from the authoritative source
+    (`_source`)."""
+    source, where = _source(document)
     found: list[_AutonomyValue] = []
     # The collapsed spans are the whole document's, not the source's: a `<details>` opened above
     # the marker is still open below it, so the grooming block's lines inside it are as hidden
@@ -1153,7 +1210,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 value = section[0]
                 admits = (
                     not qualifier
-                    and not _struck(_prose(block))
+                    and not _defaced(_prose(block))
                     and not _markdown.at_foot(block)
                     and block.column == 0
                     and block.markup.startswith("#")
@@ -1572,18 +1629,19 @@ def _bullet(
     keyed = _keyed(_prose(first))
     if keyed is None:
         return []
-    qualifier, value, task, struck = keyed
+    qualifier, value, task, defaced = keyed
     # Exact-checked like any declaration, but only the registered shape - column zero, `-` or
-    # `*`, no checkbox, no strike, plain Markdown, in the body, on the page - may admit. A `+`,
-    # indented, nested, quoted or task-list bullet, one carrying a tag or an image, one struck
-    # out, one inside a `<details>` block, or one in a footnote's continuation can refuse and
-    # can never be the reason an issue is claimed. A footnote definition never gets here: it
-    # is not the item's lead (`_lead`), the page drawing it elsewhere.
+    # `*`, no checkbox, no strike, the registered spelling, plain Markdown, in the body, on the
+    # page - may admit. A `+`, indented, nested, quoted or task-list bullet, one carrying a tag
+    # or an image, one struck out or spelled with a character outside ASCII, one inside a
+    # `<details>` block, or one in a footnote's continuation can refuse and can never be the
+    # reason an issue is claimed. A footnote definition never gets here: it is not the item's
+    # lead (`_lead`), the page drawing it elsewhere.
     registered = (
         item.column == 0
         and item.marker in "-*"
         and not task
-        and not struck
+        and not defaced
         and not _markdown.at_foot(item)
         and _plain_markdown(first)
         and _on_the_page(collapsed, item.line)
@@ -1614,11 +1672,12 @@ def _keyed(text: str) -> tuple[str, str, bool, bool] | None:
     """``text`` - a paragraph's rendered text - read as a bullet-shaped declaration, or ``None``.
 
     Returns the normalized qualifier, the value with its whitespace collapsed, whether a
-    task-list checkbox was read past first, and whether the text carries a strike-through. A
-    task-list item draws a checkbox before its text, and the key is the text: `- [ ] **Autonomy:**
-    maintainer decision required` is a restriction the page shows, and matching the checkbox as
-    part of the key dropped it (Codex on #462). The key is read through strike marks
-    (:func:`_key_texts`); a struck declaration is read and never admits.
+    task-list checkbox was read past first, and whether the text is defaced - struck through,
+    or in other than the registered spelling (:func:`_defaced`). A task-list item draws a
+    checkbox before its text, and the key is the text: `- [ ] **Autonomy:** maintainer
+    decision required` is a restriction the page shows, and matching the checkbox as part of
+    the key dropped it (Codex on #462). The key is read through strike marks and format
+    characters (:func:`_match_key`); a defaced declaration is read and never admits.
     """
     task = _TASK_MARKER.match(text)
     if task is not None:
@@ -1628,7 +1687,7 @@ def _keyed(text: str) -> tuple[str, str, bool, bool] | None:
         return None
     qualifier = _normalize_qualifier(match.group("qualifier"))
     value = " ".join(match.group("value").split())
-    return qualifier, value, task is not None, _struck(text)
+    return qualifier, value, task is not None, _defaced(text)
 
 
 def _autonomy_refusal(body: str) -> str | None:
@@ -1654,11 +1713,12 @@ def _autonomy_refusal(body: str) -> str | None:
     # The latest grooming block is the source even when it is empty: an empty tuple is a block
     # that says nothing, and falling back to the body for it re-read a stale marker the block
     # supersedes (Codex on #462). Silence then refuses for what it is, below.
-    groomed = _grooming_block(document)
-    if _misplaced_marker(document if groomed is None else groomed):
+    source, _ = _source(document)
+    if _misplaced_marker(source):
         return (
-            "carries a tether-grooming-v1 marker inside a paragraph, list item, block quote or "
-            "other raw HTML, or beside anything drawn on its own line, where a grooming block "
+            "carries a tether-grooming-v1 marker inside a paragraph, list item, block quote, "
+            "footnote or other raw HTML, or beside anything drawn on its own line, where a "
+            "grooming block "
             "cannot start, so what it supersedes cannot be read. Put the marker on its own "
             "top-level line, with "
             "nothing else on it, above the groomed text"
@@ -1715,7 +1775,8 @@ def _autonomy_refusal(body: str) -> str | None:
                 "with its value in a paragraph that is not a bullet, in raw HTML, on a heading "
                 "line or in a table cell, a key alone over the block below it, a table "
                 "row, a heading whose value is not its own next paragraph, a key or value "
-                "carrying an HTML tag or an image, or anything inside a `<details>` block). "
+                "carrying an HTML tag or an image, a key struck out or spelled with a "
+                "character outside ASCII, or anything inside a `<details>` block). "
                 "Write it as a column-zero "
                 f"`-` bullet or an `## Execution autonomy` heading over {AUTONOMY_ADMITS[0]!r} "
                 "as a plain paragraph"

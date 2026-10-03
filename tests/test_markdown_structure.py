@@ -643,6 +643,54 @@ def test_a_stripped_elements_text_stays_and_an_empty_strike_draws_nothing():
     assert list(md.tags("<svg/><details>")) == [("svg", False), ("details", False)]
 
 
+def test_struck_spans_are_laid_out_as_the_runs_the_page_draws():
+    """Found beside Codex's read of `6c060e7` on #462: the page draws struck spans that abut,
+    nest or overlap as one struck run, whether a tag or a Markdown pair strikes them, so the
+    marks are laid out for the runs and `<del>Auto</del><del>nomy</del>` is `~~Autonomy~~`
+    rather than the `~~Auto~~~~nomy~~` that each tag's own marks gave - which is what the
+    page shows for the *literal* `~~Auto~~~~nomy~~`, a pair holding a literal `~~~~`
+    (GitHub's markdown endpoint, 2026-10-03). A raw block's tildes are literal there, so only
+    its tags strike. U+E000 the page drops outright; the rest of the private-use area, and
+    every format character, it keeps. A tag name is ASCII, so `<ſ></ſ>` is text, where
+    Unicode case folding read it as an empty `<s>` (Codex on #462)."""
+    for text, plain in (
+        ("<del>Auto</del><del>nomy</del>: x", "~~Autonomy~~: x"),
+        ("<del>Auto</del><s>nomy</s>: x", "~~Autonomy~~: x"),
+        ("<del>Auto</del>~~nomy~~: x", "~~Autonomy~~: x"),
+        ("~~Auto~~<del>nomy</del>: x", "~~Autonomy~~: x"),
+        ("<del>Auto</del>~nomy~: x", "~~Autonomy~~: x"),
+        ("<del><del>Autonomy</del></del>: x", "~~Autonomy~~: x"),
+        ("<del>~~Autonomy~~</del>: x", "~~Autonomy~~: x"),
+        ("~~<del>Autonomy</del>~~: x", "~~Autonomy~~: x"),
+        ("<del>~~Auto</del>nomy~~: x", "~~Autonomy~~: x"),
+        ("<del>Auto<s>nomy</s></del>: x", "~~Autonomy~~: x"),
+        ("</del>x<del>Autonomy</del>: m", "x~~Autonomy~~: m"),
+        ("<del>Auto</del> <del>nomy</del>", "~~Auto~~ ~~nomy~~"),
+        ("~~Auto~~~~nomy~~: x", "~~Auto~~~~nomy~~: x"),
+        ("~~Auto~~~nomy~: x", "~~Auto~~~nomy~: x"),
+        ("<del>Auto</del>~~nomy: x", "~~Auto~~~~nomy: x"),
+        ("<del>Auto~~~nomy</del>", "~~Auto~~~nomy~~"),
+        ("~<del>Autonomy</del>", "~~~Autonomy~~"),
+        ("<del>agent-can-do-alone</del>", "~~agent-can-do-alone~~"),
+        ("Auto\ue000nomy: x", "Autonomy: x"),
+        ("Auto\ue001nomy\u200b: x", "Auto\ue001nomy\u200b: x"),
+        ("Auto<ſ></ſ>nomy: x", "Auto<ſ></ſ>nomy: x"),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert para.plain == plain, (text, para.plain)
+    (raw,) = md.parse("<p><del>Auto</del>~~nomy~~: m</p>\n")
+    assert raw.shown == (md.Shown("~~Auto~~~~nomy~~: m", "p"),)
+    (joined,) = md.parse("<p><del>Auto</del><del>nomy</del>: m</p>\n")
+    assert joined.shown == (md.Shown("~~Autonomy~~: m", "p"),)
+    (dropped,) = md.parse("<p>Auto\ue000nomy: m</p>\n")
+    assert dropped.shown == (md.Shown("Autonomy: m", "p"),)
+    # The pairing: marks of one length pair in turn, whatever sits between.
+    assert md.strike_pairs("~~a~~ ~b~ ~~~ ~c") == ((0, 3, 2), (6, 8, 1))
+    assert md.strike_pairs("~~a~~~~b~~") == ((0, 8, 2),)
+    assert md.strike_pairs("~a ~~b~~ c~") == ((0, 10, 1), (3, 6, 2))
+    assert md.strike_pairs("~~x~") == () and md.strike_pairs("") == ()
+
+
 def _laid(blocks):
     """``(kind, plain, line, note)`` per leaf of ``blocks``, containers opened up: what a reader
     of the foot sees, with the note each block carries."""

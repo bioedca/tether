@@ -140,12 +140,13 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: kinds of kept tag draw something. ``<q>`` renders quotation marks around its content, so it
 #: leaves a ``"`` on each side and ``Auto<q></q>nomy`` is the defaced key the page shows rather
 #: than the key. And ``<del>``, ``<s>`` and ``<strike>`` strike their content out, which is a
-#: retraction, so they leave the ``~~`` their Markdown spelling keeps (see ``_plain``):
-#: ``<del>agent-can-do-alone</del>`` reads as ``~~agent-can-do-alone~~`` and a caller matching
-#: the registered value against it fails to, as it should, while ``<del>maintainer decision
-#: required</del>`` still names its restriction to a caller scanning for one - the marks
-#: retract an admission and never a restriction (all Codex on #462). Either way the text reads as
-#: it renders, so a caller sees neither a word the page joins nor one it splits. A character
+#: retraction, so the text they strike is laid out between the ``~~`` marks its Markdown
+#: spelling keeps (see ``_struck_marks``): ``<del>agent-can-do-alone</del>`` reads as
+#: ``~~agent-can-do-alone~~`` and a caller matching the registered value against it fails to,
+#: as it should, while ``<del>maintainer decision required</del>`` still names its restriction
+#: to a caller scanning for one - the marks retract an admission and never a restriction (all
+#: Codex on #462). Either way the text reads as it renders, so a caller sees neither a word
+#: the page joins nor one it splits. A character
 #: reference in a raw block - ``&#32;``, ``&amp;`` - is decoded after the tags are read, so
 #: ``&lt;b&gt;`` is the literal ``<b>`` the page shows and never a tag (Codex on #462). The tag
 #: pattern is the CommonMark open and close tag grammar - a name, then attributes whose values
@@ -196,8 +197,11 @@ _PHRASING_TAGS = frozenset(
     | {"rp", "rt", "ruby", "samp", "small", "source", "span", "strong", "sub", "sup", "time"}
     | {"tt", "var", "wbr"}
 )
-#: The kept tags that draw a mark around their text.
-_DRAWN_TAGS = {"q": '"', "del": "~~", "s": "~~", "strike": "~~"}
+#: The kept tag that draws a mark around its text: ``<q>`` its quotation marks.
+_DRAWN_TAGS = {"q": '"'}
+#: The kept tags that strike their text out, laid out as the struck runs the page draws
+#: (:func:`_struck_marks`).
+_STRIKE_TAGS = frozenset({"del", "s", "strike"})
 #: The kept tags that draw *inside* a block without wrapping text: a line break and a picture.
 _INSIDE_TAGS = frozenset({"br", "img"})
 #: The kept tags the page lays out as a block of their own - the boundaries a raw run is cut at.
@@ -210,7 +214,7 @@ BLOCK_TAGS = frozenset(
 #: outside it.
 _VOID_BLOCK_TAGS = frozenset({"hr"})
 #: Every element GitHub keeps: the html-pipeline allowlist, partitioned above by what it draws.
-KEPT_TAGS = _PHRASING_TAGS | frozenset(_DRAWN_TAGS) | _INSIDE_TAGS | BLOCK_TAGS
+KEPT_TAGS = _PHRASING_TAGS | frozenset(_DRAWN_TAGS) | _STRIKE_TAGS | _INSIDE_TAGS | BLOCK_TAGS
 #: The stripped tags whose text the sanitizer wraps in spaces - Selma's ``whitespace_elements``
 #: less the ones GitHub keeps.
 _STRIPPED_SPACED_TAGS = frozenset(
@@ -223,10 +227,24 @@ _SPACED_TAGS = BLOCK_TAGS | _INSIDE_TAGS | _STRIPPED_SPACED_TAGS
 #: ``Auto~~~~nomy`` (Codex on #462). Whitespace alone inside is struck whitespace, which the
 #: page shows as the whitespace. An empty ``<q>`` still draws its two quotation marks. The
 #: opening tag is read by the shared attribute grammar, so ``<del title=">"></del>`` is the
-#: empty element the page keeps (Codex on #462).
+#: empty element the page keeps (Codex on #462). A tag name is ASCII, so the case folding is:
+#: under Unicode folding ``<ſ></ſ>`` - a long s - was an empty ``<s>`` and vanished, where the
+#: page shows it as the text it is (Codex on #462, on the key's own patterns).
 _HTML_EMPTY_STRIKE = re.compile(
-    r"<(?P<name>del|s|strike)" + _HTML_ATTRIBUTES + r">(?P<inside>\s*)</(?P=name)\s*>", re.I
+    r"<(?P<name>del|s|strike)" + _HTML_ATTRIBUTES + r">(?P<inside>\s*)</(?P=name)\s*>",
+    re.I | re.A,
 )
+#: The one character GitHub drops from a page outright: a literal U+E000 renders as nothing,
+#: where U+E001 and the rest of the private-use area, every format character and an unassigned
+#: code point are kept (its markdown endpoint, 2026-10-03). So the page shows ``Auto\ue000nomy``
+#: as the key, and so the character is free to stand for a strike tag while raw HTML is laid
+#: out - ``\ue000+`` for the opening tag, ``\ue000-`` for the closing - before
+#: :func:`_struck_marks` lays the spans out as marks.
+_DROPPED = "\ue000"
+_STRUCK_OPEN = _DROPPED + "+"
+_STRUCK_CLOSE = _DROPPED + "-"
+#: A run of tildes, of which one or two with no tilde beside them is a strike mark.
+_TILDE_RUN = re.compile(r"~+")
 
 
 def _sanitized(text: str) -> str:
@@ -691,7 +709,9 @@ def _plain(inline: Token) -> str:
     #462). The escaping is undone with the character references at the end, so ``n < 5`` and
     a code span's ``<b>`` are the text they were. Strike-through is a GFM extension the parser
     does not enable, so ``~~x~~`` keeps its tildes: GitHub shows that text struck out, and the
-    tildes keep the retraction in view. They cut one way. A struck-out value is not the
+    tildes keep the retraction in view - as the marks :func:`_struck_marks` lays out for a
+    strike tag's text do, the tag's span and the Markdown pair joined where the page joins
+    them. They cut one way. A struck-out value is not the
     registered one, so ``~~agent-can-do-alone~~`` never admits; a struck-out restriction still
     names its token to a caller scanning for one, since the words are on the page and the scan
     reads past the mark - a retraction the gate cannot read as one refuses, which is the safe
@@ -712,7 +732,8 @@ def _plain(inline: Token) -> str:
         elif child.type == "html_inline":
             parts.append(child.content)
         # Every other child is the open or close of a span - emphasis, a link - and has no text.
-    return " ".join(_visible_html("".join(parts)).split())
+    marked = _struck_marks(_laid_out("".join(parts)), markdown=True)
+    return " ".join(html.unescape(marked).split())
 
 
 def _alternative(image: Token) -> str:
@@ -830,11 +851,24 @@ def has_tag(text: str) -> bool:
 
 def _visible_html(text: str) -> str:
     """Raw HTML as GitHub shows it: a tag that draws something what it draws, a tag in
-    ``_SPACED_TAGS`` a space, every other tag - hidden, phrasing or stripped - nothing, and
-    character references decoded last."""
+    ``_SPACED_TAGS`` a space, every other tag - hidden, phrasing or stripped - nothing, the
+    text a strike tag holds between ``~~`` marks, and character references decoded last. A
+    tilde in a raw block is literal, the page reading no Markdown there (its markdown
+    endpoint, 2026-10-03), so only the tags strike anything here."""
+    return html.unescape(_struck_marks(_laid_out(text), markdown=False))
+
+
+def _laid_out(text: str) -> str:
+    """Raw HTML as GitHub lays it out, with the strike tags standing as spans: the character
+    the page drops gone, the hidden forms and the empty strike elements gone, a tag that draws
+    something what it draws, a tag in ``_SPACED_TAGS`` a space, a strike tag its sentinel, every
+    other tag - phrasing or stripped - nothing. Character references are still encoded, so a
+    reference to a tilde is not yet a tilde."""
 
     def laid_out(tag: re.Match[str]) -> str:
         name = (tag.group("open") or tag.group("close")).lower()
+        if name in _STRIKE_TAGS:
+            return _STRUCK_CLOSE if tag.group("close") is not None else _STRUCK_OPEN
         if name in _DRAWN_TAGS:
             return _DRAWN_TAGS[name]
         if name == "img" and tag.group("open") is not None:
@@ -842,7 +876,83 @@ def _visible_html(text: str) -> str:
             return f" {shown} " if shown else " "
         return " " if name in _SPACED_TAGS else ""
 
-    return html.unescape(_HTML_TAG.sub(laid_out, _unstruck(_sanitized(text))))
+    return _HTML_TAG.sub(laid_out, _unstruck(_sanitized(text.replace(_DROPPED, ""))))
+
+
+def strike_pairs(text: str) -> tuple[tuple[int, int, int], ...]:
+    """The balanced pairs of strike marks in ``text``, each ``(opener, closer, length)`` - the
+    offsets of its two runs and their length - in opener order.
+
+    A run of one or two tildes with no tilde beside it is a mark, as GitHub reads one: it
+    strikes between one tilde as between two, and ``~~x~`` is literal (its markdown endpoint,
+    2026-10-03). The marks of one length pair in turn, the first with the second, the third
+    with the fourth, whatever sits between them: ``~~a~~~~b~~`` is one pair holding a literal
+    ``~~~~``, as the page strikes it, and ``~~a ~b~ c~~`` is a pair holding a pair. A mark
+    with no partner is literal and stays. This is the pairing a leftmost-first reading gives -
+    take the first mark that has a partner, pair it with the nearest, repeat - checked against
+    that reading on two hundred thousand random strings, and it is one pass where the reading
+    rescanned the text once per pair (Codex on #462).
+    """
+    starts: dict[int, list[int]] = {1: [], 2: []}
+    for run in _TILDE_RUN.finditer(text):
+        length = run.end() - run.start()
+        if length <= 2:
+            starts[length].append(run.start())
+    pairs = [
+        (opens[at], opens[at + 1], length)
+        for length, opens in starts.items()
+        for at in range(0, len(opens) - 1, 2)
+    ]
+    return tuple(sorted(pairs))
+
+
+def _struck_marks(laid: str, markdown: bool) -> str:
+    """``laid`` with its struck text between ``~~`` marks, one pair of marks per struck run.
+
+    The page strikes what a strike tag holds and - in a paragraph, a heading or a cell, where
+    ``markdown`` is read, and not in a raw block, whose tildes are literal - what a Markdown
+    pair holds (:func:`strike_pairs`); and it draws two struck spans that abut, nest or
+    overlap as one struck run, with no break the eye can see. So the marks are laid out for
+    the *runs*: a character is struck while a tag is open over it or a pair holds it, and a
+    mark goes wherever that changes. ``<del>Auto</del><del>nomy</del>``,
+    ``<del>Auto</del>~~nomy~~``, ``<del><del>Autonomy</del></del>`` and
+    ``~~<del>Auto</del>nomy~~`` are each the struck key ``~~Autonomy~~`` the page shows (its
+    markdown endpoint, 2026-10-03), where drawing each tag's own marks laid
+    ``~~Auto~~~~nomy~~`` - a four-tilde run no reader of pairs can read, and what the page
+    shows for the *literal* ``~~Auto~~~~nomy~~``, which is not the key - so a restriction
+    written any of those ways went unread beside an admitting bullet (found beside Codex's
+    read of ``6c060e7`` on #462). A literal tilde stays where it is: a mark with no partner,
+    or a run of three, is text the page shows. A closing tag with no open one is ignored, as
+    a browser ignores it.
+    """
+    pairs = strike_pairs(laid) if markdown else ()
+    marks: set[int] = set()
+    held = [0] * (len(laid) + 1)
+    for opener, closer, length in pairs:
+        marks.update(range(opener, opener + length))
+        marks.update(range(closer, closer + length))
+        held[opener + length] += 1
+        held[closer] -= 1
+    pieces: list[str] = []
+    depth = inside = 0
+    struck = False
+    at = 0
+    while at < len(laid):
+        inside += held[at]
+        if laid.startswith(_DROPPED, at):
+            depth = depth + 1 if laid[at + 1] == "+" else max(depth - 1, 0)
+            at += 2
+            continue
+        if at not in marks:
+            now = depth > 0 or inside > 0
+            if now != struck:
+                pieces.append("~~")
+                struck = now
+            pieces.append(laid[at])
+        at += 1
+    if struck:
+        pieces.append("~~")
+    return "".join(pieces)
 
 
 def _shown_html(text: str) -> tuple[Shown, ...]:
