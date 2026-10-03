@@ -222,13 +222,19 @@ class Code(NamedTuple):
 class Html(NamedTuple):
     """A block-level run of raw HTML, which is how an HTML comment on its own lines arrives.
 
-    ``plain`` is the text GitHub shows inside it - a ``<summary>``'s words, say - with every tag
-    and comment removed by the same rule inline HTML gets, so a comment block is empty.
+    ``shown`` is the text GitHub shows inside it, one string per block the page lays out: a
+    ``<div>`` holding two ``<p>`` is one Markdown block and two rendered paragraphs, and a caller
+    matching a key against the whole run read ``Notes Autonomy: ...`` where the page shows
+    ``Notes`` over ``Autonomy: ...`` (Codex on #462). Every tag that is not phrasing splits, bar
+    the two that draw inside a block - ``<br>`` and ``<img>`` - so a run is never joined across
+    a boundary the page draws, and a comment block shows nothing. ``plain`` is the same text as
+    one string, which is what a caller reading for a token wants.
     """
 
     text: str
     plain: str
     line: int
+    shown: tuple[str, ...]
 
 
 class Rule(NamedTuple):
@@ -417,6 +423,35 @@ def _visible_html(text: str) -> str:
     return html.unescape(_HTML_TAG.sub(laid_out, _HTML_COMMENT.sub("", text)))
 
 
+#: Tags that draw *inside* a block without wrapping text: a line break and a picture. Every
+#: other non-phrasing tag opens or closes a block the page lays out on its own.
+_INSIDE_TAGS = frozenset({"br", "img"})
+
+
+def _shown_html(text: str) -> tuple[str, ...]:
+    """Raw HTML as GitHub lays it out, one string per block it draws, empties dropped.
+
+    The run is cut at every tag that is neither phrasing nor one of ``_INSIDE_TAGS``, each
+    piece then rendered as :func:`_visible_html` renders the whole. Cutting at a tag the page
+    draws inside a block would only split a run the page shows whole - a caller reading a key
+    off a piece then reads an empty value, which fails closed - while *not* cutting at one the
+    page draws as a boundary joins two blocks into text the page never shows, which is the
+    direction that admitted (Codex on #462). So the rule errs toward cutting.
+    """
+    stripped = _HTML_COMMENT.sub("", text)
+    pieces: list[str] = []
+    at = 0
+    for tag in _HTML_TAG.finditer(stripped):
+        name = (tag.group("open") or tag.group("close")).lower()
+        if name in _PHRASING_TAGS or name in _DRAWN_TAGS or name in _INSIDE_TAGS:
+            continue
+        pieces.append(stripped[at : tag.start()])
+        at = tag.end()
+    pieces.append(stripped[at:])
+    shown = (" ".join(_visible_html(piece).split()) for piece in pieces)
+    return tuple(piece for piece in shown if piece)
+
+
 def _line(token: Token) -> int:
     if token.map is None:  # pragma: no cover - every block token the parser opens carries a map
         raise MarkdownStructureError(f"{token.type} token carries no source line")
@@ -474,7 +509,8 @@ def _blocks(
             at += 1
         elif token.type == "html_block":
             text = token.content.rstrip("\n")
-            found.append(Html(text, " ".join(_visible_html(text).split()), _line(token)))
+            shown = _shown_html(text)
+            found.append(Html(text, " ".join(shown), _line(token), shown))
             at += 1
         elif token.type == "hr":
             found.append(Rule(_line(token)))

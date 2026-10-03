@@ -501,15 +501,18 @@ _AUTONOMY_BULLET = re.compile(
 #: is read turns on the qualifier's shape - see `_PROSE_QUALIFIER`.
 _AUTONOMY_KEY = re.compile(r"(?:execution[ \t]+)?autonomy(?P<qualifier>[^:\n]*?)[ \t]*:?", re.I)
 #: A qualifier that makes the heading one *about* the field rather than the field qualified: it
-#: goes on with a dash. `### Execution autonomy — declared in the grooming block` heads a
+#: **opens** with a dash. `### Execution autonomy — declared in the grooming block` heads a
 #: paragraph of prose on #442, a `status:ready` issue, and reading that paragraph as the field's
 #: value refused it. A condition is written without one - `after unblock`, `once #123's merged`,
 #: `(if #220 lands)` - and such a heading is a declaration that refuses on its qualifier. A
 #: dash-led heading's section is read for restrictions, every block scan-only, and declares
 #: nothing; so no heading that names the field goes unread, and the one shape the corpus writes
-#: as prose keeps admitting. The hyphen counts only with whitespace beside it, since a condition
-#: hyphenates its words.
-_PROSE_QUALIFIER = re.compile(r"[\u2014\u2013]|(?<=\s)-|-(?=\s)")
+#: as prose keeps admitting. The dash must be the qualifier's first character after whitespace,
+#: matched with ``match`` and never searched for: a dash *later* in it - `after unblock - notes`
+#: - made a condition into prose about the field, and the condition was never exact-checked
+#: (Codex on #462). A hyphen counts only with whitespace after it, since a condition hyphenates
+#: its words.
+_PROSE_QUALIFIER = re.compile(r"\s*(?:[\u2014\u2013]|-(?=\s))")
 #: The grooming marker. Source selection keys on **this**, never on the text the block yields: a
 #: marker ending the body captures no blocks at all, as does one followed only by a comment, and
 #: treating either as "no grooming block" handed the decision back to the stale body the block
@@ -603,18 +606,27 @@ def _flat(blocks: tuple[_markdown.Block, ...]) -> list[_Leaf]:
     the rendered page, a heading with the paragraph below it, and the regex reader's successor must
     not lose that paragraph to a container boundary the reader cannot see. Each leaf still names
     its container, for the one decision that must see the boundary.
+
+    One exception, in the other direction: a container none of whose leaves is drawn stands in
+    as a leaf itself. The page draws a block quote's bar and a list's bullet whatever they hold,
+    so `> <!-- note -->` under `## Execution autonomy` is something the reader sees between the
+    heading and the paragraph below it; opened up to its one undrawn leaf, it vanished, and that
+    paragraph admitted as the heading's own next paragraph (Codex on #462).
     """
     leaves: list[_Leaf] = []
     for block in blocks:
         if isinstance(block, _markdown.ListBlock):
-            for item in block.items:
-                leaves.extend(_flat(item.blocks))
+            inner = [leaf for item in block.items for leaf in _flat(item.blocks)]
         elif isinstance(block, _markdown.BlockQuote):
-            leaves.extend(_flat(block.blocks))
+            inner = _flat(block.blocks)
         elif isinstance(block, _markdown.Table):
-            leaves.extend(_Leaf(row, blocks) for row in block.rows)
+            inner = [_Leaf(row, blocks) for row in block.rows]
         else:
             leaves.append(_Leaf(block, blocks))
+            continue
+        if not any(_drawn(leaf.block) for leaf in inner):
+            leaves.append(_Leaf(block, blocks))
+        leaves.extend(inner)
     return leaves
 
 
@@ -662,6 +674,10 @@ def _scan_only(leaves: list[_Leaf], where: str) -> list[_AutonomyValue]:
             found.extend(
                 _AutonomyValue(cell, where, scan_only=True) for cell in leaf.block.plain if cell
             )
+            continue
+        if isinstance(leaf.block, _markdown.Html):
+            # And one per block the raw HTML lays out, for the same reason again.
+            found.extend(_AutonomyValue(piece, where, scan_only=True) for piece in leaf.block.shown)
             continue
         text = _prose(leaf.block)
         if text:
@@ -886,7 +902,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
         key = (
             _AUTONOMY_KEY.fullmatch(_prose(block)) if isinstance(block, _markdown.Heading) else None
         )
-        if key is not None and _PROSE_QUALIFIER.search(key.group("qualifier")):
+        if key is not None and _PROSE_QUALIFIER.match(key.group("qualifier")):
             # A heading about the field: what it heads is read for a restriction and is not
             # the field's value, so nothing here can admit and nothing is exact-checked.
             found.extend(_scan_only(_section(leaves, index), f"{where} heading about the field"))
@@ -931,7 +947,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 )
         elif isinstance(block, _markdown.TableRow):
             key = _AUTONOMY_KEY.fullmatch(block.plain[0]) if block.plain else None
-            if key is not None and _PROSE_QUALIFIER.search(key.group("qualifier")):
+            if key is not None and _PROSE_QUALIFIER.match(key.group("qualifier")):
                 found.extend(
                     _AutonomyValue(cell, f"{where} table row about the field", scan_only=True)
                     for cell in block.plain[1:]
@@ -975,7 +991,12 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
     # block showing `Autonomy: maintainer decision required`, a heading carrying its value on
     # its own line, a table cell. Each is a declaration of the `+` bullet's kind: exact-checked,
     # able to refuse, never able to admit. A heading that is a key, and a row whose first cell
-    # is, were read above.
+    # is, were read above. Raw HTML is read one rendered block at a time, as a table is read
+    # one cell at a time: a `<div>` of two `<p>` is one block here and two paragraphs on the
+    # page, and matching the key against the run joined read past the restriction in the
+    # second (Codex on #462). What follows a keyed block in the same run is its remainder,
+    # scan-only, as a row's further cells are - `<td>Autonomy:</td><td>maintainer decision
+    # required</td>` is an empty value and then the restriction, and both are read.
     for leaf in leaves:
         block = leaf.block
         if any(block is lead for lead in leads):
@@ -989,7 +1010,22 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 continue
             texts = [(_prose(block), "heading line")]
         elif isinstance(block, _markdown.Html):
-            texts = [(block.plain, "raw HTML")]
+            keyed_yet = False
+            for piece in block.shown:
+                keyed = _keyed(piece)
+                if keyed is not None:
+                    qualifier, value, _ = keyed
+                    found.append(
+                        _AutonomyValue(
+                            value, f"{where} raw HTML", qualifier=qualifier, admits=False
+                        )
+                    )
+                    keyed_yet = True
+                elif keyed_yet:
+                    found.append(
+                        _AutonomyValue(piece, f"{where} raw HTML remainder", scan_only=True)
+                    )
+            continue
         elif isinstance(block, _markdown.Paragraph):
             texts = [(_prose(block), "paragraph")]
         else:

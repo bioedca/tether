@@ -242,8 +242,8 @@ def test_an_html_comment_on_its_own_line_is_an_html_block():
         "<!-- tether-grooming-v1 -->\n- Autonomy: agent-can-do-alone\n<!-- aside\nspans -->\n"
     )
     assert kinds(doc) == ["Html", "ListBlock", "Html"]
-    assert doc[0] == md.Html(text="<!-- tether-grooming-v1 -->", plain="", line=0)
-    assert doc[2] == md.Html(text="<!-- aside\nspans -->", plain="", line=2)
+    assert doc[0] == md.Html(text="<!-- tether-grooming-v1 -->", plain="", line=0, shown=())
+    assert doc[2] == md.Html(text="<!-- aside\nspans -->", plain="", line=2, shown=())
 
 
 def test_an_html_comment_inside_a_paragraph_stays_in_that_paragraphs_text():
@@ -367,6 +367,33 @@ def test_an_html_blocks_plain_is_its_visible_text_and_a_comment_blocks_is_empty(
     assert html.plain == "maintainer decision required"
     (comment,) = md.parse("<!-- Autonomy: agent-can-do-alone -->\n")
     assert comment.plain == ""
+
+
+def test_an_html_blocks_shown_is_one_string_per_block_the_page_draws():
+    """Codex on #462 (read of `aa47973`): a `<div>` of two `<p>` is one Markdown block and two
+    rendered paragraphs, and a caller matching a key against `plain` read text the page never
+    shows on one line. `shown` cuts at every block-level tag; a phrasing tag, a `<br>` and an
+    `<img>` draw inside a block and do not cut; a comment shows nothing; `plain` is the pieces
+    joined, as before."""
+    (block,) = md.parse(
+        "<div>\n<p>Notes</p>\n<p><strong>Autonomy:</strong> maintainer decision required</p>\n"
+        "</div>\n"
+    )
+    assert block.shown == ("Notes", "Autonomy: maintainer decision required")
+    assert block.plain == "Notes Autonomy: maintainer decision required"
+    (cells,) = md.parse("<table><tr><td>Autonomy:</td><td>agent-can-do-alone</td></tr></table>\n")
+    assert cells.shown == ("Autonomy:", "agent-can-do-alone")
+    (inside,) = md.parse("<p><b>Autonomy:</b><br>maintainer <img src=x.png> decision</p>\n")
+    assert inside.shown == ("Autonomy: maintainer decision",)
+    (details,) = md.parse(
+        "<details>\n<summary>maintainer decision required</summary>\n</details>\n"
+    )
+    assert details.shown == ("maintainer decision required",)
+    (comment,) = md.parse("<!-- Autonomy: agent-can-do-alone -->\n")
+    assert comment.shown == ()
+    # A tag inside a comment is not a boundary, and a drawn phrasing tag draws what it draws.
+    (commented,) = md.parse("<p>Auto<!-- <p> -->nomy: <del>agent-can-do-alone</del></p>\n")
+    assert commented.shown == ("Autonomy: ~~agent-can-do-alone~~",)
 
 
 def test_a_table_rows_plain_cells_are_rendered_in_order():

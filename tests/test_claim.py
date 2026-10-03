@@ -558,14 +558,24 @@ def test_inline_html_is_invisible_to_the_key_as_it_is_on_the_page() -> None:
     assert key_in_tag is not None and "HTML tag" in key_in_tag, key_in_tag
 
     # A comment in the value is hidden on the page and hidden here; a token the page shows across
-    # a tag boundary is still a token; `<` in prose is not a tag.
+    # a phrasing tag, or a `<br>`, is still a token; `<` in prose is not a tag.
     heading = "## Execution autonomy\n\nagent-can-do-alone"
     hidden = claim._autonomy_refusal(heading + " <!-- was: maintainer decision required -->\n")
     assert hidden is None, hidden
-    across = claim._autonomy_refusal(
-        heading + "\n\n<ul><li>needs maintainer</li><li>decision</li></ul>\n"
-    )
-    assert across is not None and "maintainer decision" in across, across
+    for shown_whole in (
+        "<p>needs <b>maintainer</b> <i>decision</i></p>",
+        "<p>needs maintainer<br>decision</p>",
+    ):
+        across = claim._autonomy_refusal(heading + f"\n\n{shown_whole}\n")
+        assert across is not None and "maintainer decision" in across, f"{shown_whole}: {across}"
+    # Codex on #462 (read of `aa47973`): raw HTML is read one rendered block at a time, so two
+    # `<li>` are two items on the page and here, as their Markdown spelling already was - a
+    # token governs where it is written, and nobody wrote this one.
+    for two_blocks in (
+        "<ul><li>needs maintainer</li><li>decision</li></ul>",
+        "- needs maintainer\n- decision",
+    ):
+        assert claim._autonomy_refusal(heading + f"\n\n{two_blocks}\n") is None, two_blocks
     angle = claim._autonomy_refusal(
         heading + "\n\nneeds a maintainer decision if n < 5 and m > 3\n"
     )
@@ -979,6 +989,13 @@ def test_a_headings_value_is_the_first_thing_the_page_draws_below_it() -> None:
         assert "heading" in refusal, f"{between!r}: {refusal}"
     # A comment block draws nothing and is read past, as a form's prompt relies on.
     assert claim._autonomy_refusal(f"{heading}<!-- pick one -->\n\nagent-can-do-alone\n") is None
+    # Codex on #462 (read of `aa47973`): a container holding only such a comment is still
+    # drawn - the quote's bar, the list's bullet - and flattening it to its undrawn leaf let
+    # the paragraph below it admit as the heading's own next paragraph.
+    for container in ("> <!-- note -->", "- <!-- note -->", "> - <!-- note -->", "-"):
+        refusal = claim._autonomy_refusal(f"{heading}{container}\n\nagent-can-do-alone\n")
+        assert refusal is not None, f"{container!r}: the paragraph past it admitted - fail-open"
+        assert "heading" in refusal, f"{container!r}: {refusal}"
     # The value inside a `<details>` the heading sits above is not on the page.
     collapsed = claim._autonomy_refusal(f"{heading}<details>\n\nagent-can-do-alone\n\n</details>\n")
     assert collapsed is not None, "a collapsed heading value admitted - fail-open"
@@ -1071,6 +1088,10 @@ def test_keyed_text_anywhere_on_the_page_is_a_declaration_that_cannot_admit() ->
     on a heading line with its value, or in a table cell. Each is a declaration of the `+`
     bullet's kind - exact-checked, able to refuse, never able to admit. The live corpus has
     three such paragraphs and no such block, heading or cell; each paragraph already refuses.
+    Codex on #462 (read of `aa47973`): a raw HTML block is read one rendered block at a time,
+    because a `<div>` of two `<p>` is one block here and two paragraphs on the page, and the key
+    matched against the run joined read past the restriction in the second; what follows a
+    keyed block in the run is its remainder, scan-only, as a row's further cells are.
     """
     admitting = "- **Autonomy:** agent-can-do-alone\n"
     for shape in (
@@ -1080,6 +1101,12 @@ def test_keyed_text_anywhere_on_the_page_is_a_declaration_that_cannot_admit() ->
         "Execution autonomy: maintainer-decision required\n",
         "<p><strong>Autonomy:</strong> maintainer decision required</p>\n",
         "<details><summary>Autonomy: maintainer decision required</summary></details>\n",
+        "<div>\n<p>Notes</p>\n<p><strong>Autonomy:</strong> maintainer decision required</p>\n"
+        "</div>\n",
+        "<table><tr><td>Autonomy:</td><td>maintainer decision required</td></tr></table>\n",
+        "<p><strong>Autonomy:</strong><br>maintainer decision required</p>\n",
+        "<div><p>Autonomy: agent-can-do-alone</p><p>Autonomy: maintainer decision required</p>"
+        "</div>\n",
         "## Autonomy: maintainer decision required\n",
         "| field | note |\n|---|---|\n| scope | Autonomy: maintainer decision required |\n",
     ):
@@ -1097,6 +1124,13 @@ def test_keyed_text_anywhere_on_the_page_is_a_declaration_that_cannot_admit() ->
         assert "only in a shape that cannot admit" in alone and named in alone, alone
     # A bullet's lead is read once, as the bullet, and text that is not keyed is prose.
     assert claim._autonomy_refusal(admitting + "\nAutonomy is discussed above.\n") is None
+    # A second keyed block in one raw HTML run is a declaration of its own, exact-checked, and
+    # not merely scanned: `human review required` names no token and still refuses.
+    second = claim._autonomy_refusal(
+        admitting + "\n<div><p>Autonomy: agent-can-do-alone</p><p>Autonomy: human review "
+        "required</p></div>\n"
+    )
+    assert second is not None and "not a registered" in second, second
 
 
 def test_a_qualified_heading_or_row_key_is_a_declaration_that_cannot_admit() -> None:
@@ -1110,7 +1144,10 @@ def test_a_qualified_heading_or_row_key_is_a_declaration_that_cannot_admit() -> 
     dash-led one is a heading *about* the field - the live corpus has one, #442's
     `### Execution autonomy — declared in the grooming block` over prose, `status:ready`, which
     reading as the field refused - and its section is scan-only: a restriction there refuses,
-    nothing there admits, nothing is exact-checked.
+    nothing there admits, nothing is exact-checked. Codex on #462 (read of `aa47973`): the dash
+    was searched for rather than matched at the front, so `after unblock - notes` - a condition
+    with a dash later in it - was prose about the field and the condition was never
+    exact-checked. The dash must open the qualifier.
     """
     admitting = "- **Autonomy:** agent-can-do-alone\n\n"
     heading = claim._autonomy_refusal(
@@ -1150,6 +1187,17 @@ def test_a_qualified_heading_or_row_key_is_a_declaration_that_cannot_admit() -> 
     assert through is not None and "maintainer decision" in through, through
     unread = claim._autonomy_refusal("### Execution autonomy — see below\n\nagent-can-do-alone\n")
     assert unread is not None and "declares no Execution autonomy" in unread, unread
+    # A dash later in the qualifier does not make the heading one about the field: the
+    # condition before it is the qualifier, and it refuses on it, row and heading alike.
+    for later in (
+        "## Execution autonomy after unblock - notes\n\nSome prose.\n",
+        "## Execution autonomy after unblock — notes\n\nagent-can-do-alone\n",
+        "## Execution autonomy -notes\n\nagent-can-do-alone\n",
+        "| Execution autonomy after unblock - notes | agent-can-do-alone |\n|---|---|\n",
+    ):
+        qualified = claim._autonomy_refusal(admitting + later)
+        assert qualified is not None, f"{later!r}: a condition with a dash in it admitted"
+        assert "qualifier" in qualified, f"{later!r}: {qualified}"
 
 
 def test_a_declaration_carrying_an_html_tag_can_refuse_and_never_admit() -> None:
