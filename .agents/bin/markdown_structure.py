@@ -110,7 +110,12 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: declaration or a CDATA section, the three other forms the CommonMark inline HTML grammar
 #: admits - the HTML parser reads ``<?note?>`` and ``<![CDATA[x]]>`` as bogus comments and
 #: ignores a declaration in the body - so ``Auto<?note?>nomy`` is that one word too (Codex on
-#: #462). ``_HTML_HIDDEN`` names all four. A tag is read as the page lays it out, and the
+#: #462). ``_HTML_HIDDEN`` names all four, **as the page reads them**: a bogus comment ends at
+#: the first ``>``, wherever cmark's own grammar closed the form, and the rest of the form is
+#: text the page draws - ``<?note <!-- x --> ?>`` draws ``?>`` and ``<![CDATA[<b>y</b>]]>``
+#: draws ``y]]>`` (GitHub's markdown endpoint, 2026-10-03). The instruction and the CDATA
+#: section are forms at all only where cmark's close follows, so each requires it ahead;
+#: without it the ``<`` is the text the page shows. A tag is read as the page lays it out, and the
 #: page lays out only what GitHub keeps: an issue body passes through html-pipeline's
 #: ``SanitizationFilter`` (v3.2.4; its allowlist last changed 2024-02-02), which keeps exactly
 #: the elements in ``KEPT_TAGS`` and strips every other tag while leaving its text in place, so
@@ -155,7 +160,9 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: one fragment, ``_HTML_ATTRIBUTES``, and every pattern that reads a tag shares it: a pattern
 #: with a ``[^>]*`` of its own stopped at ``title=">"`` and read the rest of the key as the
 #: element's inside (Codex on #462).
-_HTML_HIDDEN = re.compile(r"<!--.*?-->|<\?.*?\?>|<!\[CDATA\[.*?\]\]>|<![A-Za-z][^>]*>", re.S)
+_HTML_HIDDEN = re.compile(
+    r"<!--.*?-->|<\?(?=.*?\?>)[^>]*>|<!\[CDATA\[(?=.*?\]\]>)[^>]*>|<![A-Za-z][^>]*>", re.S
+)
 _ATTRIBUTE_NAME = r"[A-Za-z_:][A-Za-z0-9_.:-]*"
 _ATTRIBUTE_VALUE = r"(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\")"
 _HTML_ATTRIBUTES = rf"(?:\s+{_ATTRIBUTE_NAME}(?:\s*=\s*{_ATTRIBUTE_VALUE})?)*\s*"
@@ -243,21 +250,29 @@ def _sanitized(text: str) -> str:
     return _HTML_HIDDEN.sub("", text)
 
 
-#: A hidden form or a tag, whichever opens first: what :func:`without_tags` walks.
-_HIDDEN_OR_TAG = re.compile(rf"(?P<hidden>{_HTML_HIDDEN.pattern})|{_HTML_TAG.pattern}", re.S)
+#: A comment, another hidden form or a tag, whichever opens first: what
+#: :func:`without_tags` walks.
+_HIDDEN_OR_TAG = re.compile(
+    rf"(?P<comment><!--.*?-->)|{_HTML_HIDDEN.pattern}|{_HTML_TAG.pattern}", re.S
+)
 
 
 def without_tags(text: str) -> str:
-    """``text`` with its tags gone, so that what sits inside one is not read as the page's
-    content: ``<img alt="<!-- tether-grooming-v1 -->">`` is a picture whose alternative text
-    quotes the marker, not a comment, and a search of the run for the marker found it there
-    and refused the body for a marker the page does not carry (Codex on #462). The text is
-    walked left to right taking a hidden form or a tag, whichever opens first, as the page
-    reads it: a comment inside a quoted attribute value goes with the tag, and a tag inside a
-    comment is the comment's text - ``<!-- tether-grooming-v1 <b> -->`` is no marker on the
-    page, and dropping the tag out of it made one (found beside Codex on #462). A comment
-    beside a tag stays."""
-    return _HIDDEN_OR_TAG.sub(lambda m: m.group("hidden") or "", text)
+    """``text`` with everything but its comments gone, so that what sits inside a tag or
+    another hidden form is not read as a comment: ``<img alt="<!-- tether-grooming-v1 -->">``
+    is a picture whose alternative text quotes the marker, not a comment, and a search of the
+    run for the marker found it there and refused the body for a marker the page does not
+    carry (Codex on #462); ``<?note <!-- tether-grooming-v1 --> ?>`` is a processing
+    instruction to cmark and a bogus comment to the page, holding the marker's bytes and no
+    comment, and keeping it whole for the search refused the same way (Codex on #462), as
+    would a CDATA section or a declaration holding them. The text is walked left to right
+    taking a comment, another hidden form or a tag, whichever opens first, as the page reads
+    it: a comment inside a quoted attribute value goes with the tag, a tag inside a comment is
+    the comment's text - ``<!-- tether-grooming-v1 <b> -->`` is no marker on the page, and
+    dropping the tag out of it made one (found beside Codex on #462) - and a bogus comment
+    ends at the first ``>``, so what cmark read as the rest of the form is walked as the text
+    the page draws it as. A comment beside any of them stays."""
+    return _HIDDEN_OR_TAG.sub(lambda m: m.group("comment") or "", text)
 
 
 class MarkdownStructureError(ValueError):

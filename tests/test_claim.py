@@ -1471,10 +1471,32 @@ def test_a_marker_inside_a_tag_attribute_is_no_marker() -> None:
         "<!-- tether-<b></b>grooming-v1 -->\n",
     ):
         assert claim._autonomy_refusal(plain + comment) is None, comment
+    # Codex on #462 (read of `eb049c0`): the marker's bytes inside a processing instruction, a
+    # CDATA section or a declaration - a bogus comment to the page, ending at its first `>` -
+    # are no comment and no marker; a comment after that `>` is the comment it is.
+    for hidden in (
+        "<?note <!-- tether-grooming-v1 --> ?>\n",
+        "see <?note <!-- tether-grooming-v1 --> ?> here\n",
+        "<![CDATA[<!-- tether-grooming-v1 -->]]>\n",
+        "see <![CDATA[<!-- tether-grooming-v1 -->]]> here\n",
+        "<!DOCTYPE <!-- tether-grooming-v1 --> >\n",
+        "see <!DOCTYPE <!-- tether-grooming-v1 --> > here\n",
+    ):
+        assert claim._autonomy_refusal(plain + hidden) is None, hidden
+    for marker in (
+        "<?x ?><!-- tether-grooming-v1 -->\n",
+        "<?x > <!-- tether-grooming-v1 --> ?>\n",
+        "<![CDATA[x]]><!-- tether-grooming-v1 -->\n",
+    ):
+        read = claim._autonomy_refusal(plain + marker)
+        assert read is not None and "marker inside" in read, (marker, read)
     without = claim._markdown.without_tags
     assert without('a <img alt="<!-- x -->"> <!-- y --> b') == "a  <!-- y --> b"
     assert without("<!-- a <b> --> <b>c</b>") == "<!-- a <b> --> c"
     assert without('<!-- <img alt=" --> x">') == '<!-- <img alt=" --> x">'
+    assert without("<?a <!-- x --> ?> <!-- y -->") == " ?> <!-- y -->"
+    assert without("<![CDATA[<!-- x -->]]><!DOCTYPE <!-- x --> ><!-- y -->") == "]]> ><!-- y -->"
+    assert without("<?a <!-- x --> y") == "<?a <!-- x --> y"
 
 
 def test_a_code_block_after_a_definition_in_another_container_is_code() -> None:

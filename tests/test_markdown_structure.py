@@ -455,6 +455,22 @@ def test_hidden_inline_html_leaves_nothing_behind_as_a_comment_does():
     for block in ('<?xml version="1"?>\n', "<!DOCTYPE html>\n", "<![CDATA[x]]>\n"):
         (raw,) = md.parse(block)
         assert isinstance(raw, md.Html) and raw.plain == "" and raw.shown == (), block
+    # Codex on #462 (read of `eb049c0`): the page reads an instruction, a CDATA section and a
+    # declaration as bogus comments ending at the first `>`, and draws the rest of what cmark
+    # read as the form (GitHub's markdown endpoint, 2026-10-03). Without cmark's close the
+    # `<` is text.
+    for text, plain in (
+        ("x <?a > y ?> z", "x y ?> z"),
+        ("x <![CDATA[<b>y</b>]]> z", "x y]]> z"),
+        ("x <!DOCTYPE <b>y</b> > z", "x y > z"),
+        ("x <?a > y z", "x <?a > y z"),
+        ("x <![CDATA[y > z", "x <![CDATA[y > z"),
+        ("Auto<?a > ?>nomy: x", "Auto ?>nomy: x"),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert para.plain == plain, (text, para.plain)
+    (raw,) = md.parse("<?x > Autonomy: maintainer decision required ?>\n")
+    assert isinstance(raw, md.Html) and raw.plain == "Autonomy: maintainer decision required ?>"
 
 
 def test_raw_html_is_rendered_as_what_github_keeps_of_it():
