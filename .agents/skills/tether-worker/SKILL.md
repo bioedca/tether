@@ -26,6 +26,18 @@ provides no `python` at all, and on Windows the python.org installer registers `
 read; that single token is the entire difference. If neither name resolves, report it; do not paste
 a path. `gh` needs no such rule.
 
+`claim.py` reads issue bodies with `markdown-it-py` (ADR-0066), the one package `<py>` must
+carry that a bare interpreter does not: `<py>` is the lane's own interpreter, not the restored
+project environment, so neither the base lock nor the `dev` extra puts it there. Install it once,
+at the version the base lock pins, before the first claim:
+
+```sh
+<py> -m pip install "markdown-it-py==4.2.0"
+```
+
+An interpreter that lacks it is told exactly this when `claim.py` starts, naming the interpreter
+that failed; that is a missing prerequisite, never a verdict about the issue.
+
 Where a command takes `--vendor`, pass your own lane.
 
 ## Claim

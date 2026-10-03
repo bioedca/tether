@@ -37,10 +37,14 @@ dynamic = ["version"]
 # environment provides the scientific stack (PRD §4.1), and CI installs the
 # package with `pip install -e . --no-deps`. The extras below are dev-time
 # conveniences only and remain unpinned (the lock is authoritative).
+# `markdown-it-py` is the CommonMark parser behind `.agents/bin/markdown_structure.py`
+# (ADR-0066): dev-only, never imported by `src/tether`, and already pinned in the
+# base lock as a transitive dependency, so it is declared here and in the CI pip
+# lines rather than added to `environment.yml`.
 [project.optional-dependencies]
 test = ["pytest", "pytest-qt", "pytest-cov"]
 docs = ["mkdocs", "mkdocs-material"]
-dev = ["ruff", "pre-commit", "reuse"]
+dev = ["ruff", "pre-commit", "reuse", "markdown-it-py"]
 
 # Console entry point (PRD §7.11 headless core). Stdlib argparse — no runtime
 # dependency, so no conda-lock change (pin-and-hold). Real subcommands land at M1.
