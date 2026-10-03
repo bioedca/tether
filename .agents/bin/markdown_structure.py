@@ -71,6 +71,7 @@ __all__ = [
     "Table",
     "TableRow",
     "has_tag",
+    "inline_html",
     "inline_tags",
     "parse",
     "tags",
@@ -396,6 +397,21 @@ def tags(text: str) -> Iterator[tuple[str, bool]]:
         yield (tag.group("close") or tag.group("open")).lower(), closing
 
 
+def inline_html(text: str) -> Iterator[str]:
+    """Every run of inline HTML in the inline ``text`` of a paragraph, heading or table cell,
+    as the parser found it - a tag, a comment - in order.
+
+    A tag or a comment inside a code span or behind a backslash is text on the page and is not
+    here. A caller looking for a marker the page hides has to look here rather than in the
+    source, where ``Use `<!-- tether-grooming-v1 -->` when re-grooming`` reads as the marker
+    it only quotes (Codex on #462).
+    """
+    for token in _PARSER.parseInline(text, {}):
+        for child in token.children or ():
+            if child.type == "html_inline":
+                yield child.content
+
+
 def inline_tags(text: str) -> Iterator[tuple[str, bool]]:
     """Every HTML tag in the inline ``text`` of a paragraph, heading or table cell, as
     :func:`tags` reads them, taken from the inline HTML the parser found there.
@@ -405,10 +421,8 @@ def inline_tags(text: str) -> Iterator[tuple[str, bool]]:
     opened in running text collapses needs the page's reading, because the HTML parser closes
     the paragraph where that tag opens and the widget takes everything up to its `</details>`.
     """
-    for token in _PARSER.parseInline(text, {}):
-        for child in token.children or ():
-            if child.type == "html_inline":
-                yield from tags(child.content)
+    for chunk in inline_html(text):
+        yield from tags(chunk)
 
 
 def has_tag(text: str) -> bool:

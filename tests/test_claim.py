@@ -581,9 +581,21 @@ def test_inline_html_is_invisible_to_the_key_as_it_is_on_the_page() -> None:
     )
     assert angle is not None and "maintainer decision" in angle, angle
 
-    # The marker is a comment too, and prose hides it - so the misplaced-marker scan reads source.
+    # The marker is a comment too, and prose hides it - so the misplaced-marker scan reads the
+    # HTML the parser found. Codex on #462 (read of `f9fc1f0`): not the source, since a code
+    # span quoting the marker is text on the page and refused a correctly groomed issue.
     inline = claim._autonomy_refusal(f"text {marker} more\n\n" + heading + "\n")
     assert inline is not None and "cannot start" in inline, inline
+    for quoting in (
+        f"Use `{marker}` when re-grooming.\n",
+        f"| step |\n|---|\n| post `{marker}` |\n",
+        f"## Use `{marker}` to re-groom\n",
+        f"\\{marker}\n",
+    ):
+        quoted = claim._autonomy_refusal(heading + "\n\n" + quoting)
+        assert quoted is None, f"{quoting!r}: {quoted}"
+        groomed = claim._autonomy_refusal(f"{marker}\n\n{heading}\n\n{quoting}")
+        assert groomed is None, f"{quoting!r} in the grooming block: {groomed}"
 
 
 def test_keys_and_values_are_matched_on_the_rendered_text_not_the_source() -> None:
@@ -1278,6 +1290,22 @@ def test_a_bare_key_heads_the_block_the_page_draws_next() -> None:
         alone = claim._autonomy_refusal(shape)
         assert alone is not None, f"{shape!r}: a bare key's value admitted"
         assert "only in a shape that cannot admit" in alone and named in alone, alone
+    # Codex on #462 (read of `f9fc1f0`): a heading that is not the key opens a section of its
+    # own, so the field's remainder stops there, as `_section` stops at a Markdown heading.
+    sectioned = claim._autonomy_refusal(
+        admitting + "<div><h2>Execution autonomy — notes</h2><p>Stated above.</p>"
+        "<h2>Human action items</h2><p>none</p></div>\n"
+    )
+    assert sectioned is None, sectioned
+    bounded = claim._autonomy_refusal(
+        admitting + "<h2>Execution autonomy</h2><p>agent-can-do-alone</p>"
+        "<h2>Notes</h2><p>a human action item</p>\n"
+    )
+    assert bounded is None, bounded
+    keyed_heading = claim._autonomy_refusal(
+        admitting + "<h2>Notes</h2><h3>Autonomy: maintainer decision required</h3>\n"
+    )
+    assert keyed_heading is not None and "maintainer decision" in keyed_heading, keyed_heading
     # A raw HTML heading's qualifier refuses as a Markdown heading's does; the value of a
     # heading followed by another heading is empty; a bare key at the end heads nothing.
     qualified = claim._autonomy_refusal(
@@ -1787,6 +1815,20 @@ def test_fenced_code_is_literal_and_declares_nothing() -> None:
     )
     refusal = claim._autonomy_refusal(quoted_marker)
     assert refusal is not None and "maintainer decision" in refusal
+    # Codex on #462 (read of `f9fc1f0`): a `<pre>` is the raw HTML spelling of a fence and is
+    # literal in the same way - as a keyed piece, in a heading's section, as a heading's value.
+    for pre in (
+        "<pre><code>Autonomy: maintainer decision required</code></pre>\n",
+        "<pre>Autonomy: maintainer decision required</pre>\n",
+        "<pre>- **Autonomy:** maintainer decision required</pre>\n",
+        "<div><pre>maintainer decision required</pre></div>\n",
+    ):
+        assert claim._autonomy_refusal(admitting + pre) is None, pre
+    as_value = claim._autonomy_refusal(
+        "<h2>Execution autonomy</h2><pre>agent-can-do-alone</pre>\n\n"
+        "- **Autonomy:** agent-can-do-alone\n"
+    )
+    assert as_value is not None and "not a registered" in as_value, as_value
 
     # An unclosed fence runs to the end of the body, as Markdown renders it.
     unclosed = claim._autonomy_refusal(admitting + "```\n| autonomy | maintainer decision |\n")

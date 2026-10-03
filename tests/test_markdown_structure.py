@@ -330,6 +330,21 @@ def test_a_tag_is_read_as_the_page_lays_it_out():
     assert para.plain == "Autonomy a b"
 
 
+def test_inline_html_is_what_the_parser_found_and_a_code_span_is_text():
+    """Codex on #462 (read of `f9fc1f0`): a code span quoting the grooming marker is text on the
+    page, and searching the source for the marker read it as misplaced. `inline_html` yields
+    the runs the parser found to be HTML - a comment among them - and nothing in a code span or
+    behind a backslash."""
+    assert list(md.inline_html("text <!-- tether-grooming-v1 --> more <b>x</b>")) == [
+        "<!-- tether-grooming-v1 -->",
+        "<b>",
+        "</b>",
+    ]
+    assert list(md.inline_html("Use `<!-- tether-grooming-v1 -->` when re-grooming")) == []
+    assert list(md.inline_html("\\<!-- not a comment -->")) == []
+    assert list(md.inline_html("plain text")) == []
+
+
 def test_inline_tags_are_the_inline_html_the_parser_found_and_not_the_source():
     # A tag in running text is read as `tags` reads it; one in a code span or behind a backslash
     # is text on the page and is not reported, which a search of the source could not tell.

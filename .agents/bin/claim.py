@@ -511,6 +511,9 @@ _AUTONOMY_KEY = re.compile(r"(?:execution[ \t]+)?autonomy(?P<qualifier>[^:\n]*?)
 _BARE_KEY = re.compile(r"(?:execution[ \t]+)?autonomy", re.I)
 #: The blocks raw HTML lays out as headings, read as a Markdown heading is read.
 _HTML_HEADINGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
+#: The block raw HTML lays out as code, literal as a fence is: an example in a `<pre>` neither
+#: declares nor restricts (Codex on #462).
+_HTML_LITERAL = frozenset({"pre"})
 #: A qualifier that makes the heading one *about* the field rather than the field qualified: it
 #: **opens** with a dash. `### Execution autonomy — declared in the grooming block` heads a
 #: paragraph of prose on #442, a `status:ready` issue, and reading that paragraph as the field's
@@ -659,16 +662,22 @@ def _prose(block: Any) -> str:
     return ""
 
 
-def _source(block: Any) -> str:
-    """The raw text of ``block`` - comments included - for finding a marker that prose hides.
+def _html_in(block: Any) -> Iterator[str]:
+    """Every run of HTML in ``block`` as the parser read it - comments included - for finding a
+    marker that prose hides.
 
-    Code is still empty: a marker in a fence is literal.
+    A raw HTML block is HTML throughout. Inline text yields what the parser found to be HTML,
+    and not the source: a code span quoting the marker is text on the page, and searching the
+    source read ``Use `<!-- tether-grooming-v1 -->` when re-grooming`` as a misplaced marker
+    (Codex on #462). Code is nothing: a marker in a fence is literal.
     """
-    if isinstance(block, (_markdown.Paragraph, _markdown.Heading, _markdown.Html)):
-        return block.text
-    if isinstance(block, _markdown.TableRow):
-        return " ".join(block.cells)
-    return ""
+    if isinstance(block, _markdown.Html):
+        yield block.text
+    elif isinstance(block, (_markdown.Paragraph, _markdown.Heading)):
+        yield from _markdown.inline_html(block.text)
+    elif isinstance(block, _markdown.TableRow):
+        for cell in block.cells:
+            yield from _markdown.inline_html(cell)
 
 
 def _scan_only(leaves: list[_Leaf], where: str) -> list[_AutonomyValue]:
@@ -687,9 +696,12 @@ def _scan_only(leaves: list[_Leaf], where: str) -> list[_AutonomyValue]:
             )
             continue
         if isinstance(leaf.block, _markdown.Html):
-            # And one per block the raw HTML lays out, for the same reason again.
+            # And one per block the raw HTML lays out, for the same reason again; a `<pre>` is
+            # literal, as a fence is.
             found.extend(
-                _AutonomyValue(piece.text, where, scan_only=True) for piece in leaf.block.shown
+                _AutonomyValue(piece.text, where, scan_only=True)
+                for piece in leaf.block.shown
+                if piece.tag not in _HTML_LITERAL
             )
             continue
         text = _prose(leaf.block)
@@ -757,8 +769,10 @@ def _misplaced_marker(source: tuple[_markdown.Block, ...]) -> bool:
 
     That is a marker block that is not top-level, or the marker's text anywhere that is not a
     marker block: inline in a paragraph, in a table cell, or inside some other raw HTML. Every
-    leaf is searched as **source** rather than as rendered prose, because the marker is a comment
-    and prose hides comments. A marker in a fence is literal, and a fence is never searched.
+    leaf is searched for the **HTML the parser found in it** rather than its rendered prose,
+    because the marker is a comment and prose hides comments - and not its source either, since
+    a code span quoting the marker is text (Codex on #462). A marker in a fence is literal, and
+    a fence is never searched.
 
     ``source`` is the authoritative one - the latest grooming block when there is one, else the
     body - and not the whole document: a stale paragraph that *quotes* the marker, above a later
@@ -770,7 +784,7 @@ def _misplaced_marker(source: tuple[_markdown.Block, ...]) -> bool:
         if _is_grooming_marker(leaf.block):
             if leaf.siblings is not source:
                 return True
-        elif _GROOMING_MARKER.search(_source(leaf.block)):
+        elif any(_GROOMING_MARKER.search(chunk) for chunk in _html_in(leaf.block)):
             return True
     return False
 
@@ -1116,10 +1130,13 @@ def _raw_html(block: _markdown.Html, where: str) -> list[_AutonomyValue]:
     dash-led qualifier prose about the field, scanned itself. Any other piece keyed like a
     bullet is a declaration, and a bare key - `<p>Autonomy</p>`, `<td>Autonomy</td>` - heads
     the piece after it as a bare paragraph does. Every piece after a key that is not a key is
-    scan-only remainder, as a row's further cells are. `<div><h2>Execution autonomy</h2>
-    <p>maintainer decision required</p></div>` was read with the bullet's grammar only, which
-    needs a colon, so the heading and the restriction under it were both unread (Codex on
-    #462).
+    scan-only remainder, as a row's further cells are, up to the next heading piece: a heading
+    opens a section of its own, as `_section` stops at one, and `<h2>Human action items</h2>`
+    after the field refused a registered bullet when the remainder ran through it (Codex on
+    #462). A `<pre>` piece is literal, as a fence is, wherever it falls. `<div><h2>Execution
+    autonomy</h2><p>maintainer decision required</p></div>` was read with the bullet's grammar
+    only, which needs a colon, so the heading and the restriction under it were both unread
+    (Codex on #462).
     """
     found: list[_AutonomyValue] = []
     pieces = block.shown
@@ -1129,8 +1146,12 @@ def _raw_html(block: _markdown.Html, where: str) -> list[_AutonomyValue]:
     while at < len(pieces):
         piece = pieces[at]
         at += 1
+        if piece.tag in _HTML_LITERAL:
+            continue
         heading = piece.tag in _HTML_HEADINGS
         key = (_AUTONOMY_KEY if heading else _BARE_KEY).fullmatch(piece.text)
+        if heading and key is None:
+            keyed_yet = False
         if key is not None:
             keyed_yet = True
             qualifier = key.group("qualifier") if heading else ""
@@ -1143,7 +1164,7 @@ def _raw_html(block: _markdown.Html, where: str) -> list[_AutonomyValue]:
                 continue
             value = ""
             if at < len(pieces) and pieces[at].tag not in _HTML_HEADINGS:
-                value = pieces[at].text
+                value = "" if pieces[at].tag in _HTML_LITERAL else pieces[at].text
                 at += 1
             found.append(
                 _AutonomyValue(value, shape, qualifier=_normalize_autonomy(qualifier), admits=False)
