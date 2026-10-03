@@ -904,6 +904,14 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
     opens nothing (Codex on #462). A declaration on a line inside a span is not on the page a
     reader sees, so it may refuse and may not admit; `<details open>` is collapsed here too,
     because a disclosure widget is not the registered shape whichever way it starts.
+
+    A tag in a footnote is drawn at the page's foot, after the whole body, wherever the
+    definition sits in the source, so it is not counted at all. A `<details>` there collapses
+    the rest of the foot and nothing of the body, and the foot can only refuse; a `</details>`
+    there closes a disclosure the body left open *after* the body, so what that disclosure
+    hides stays hidden - read in source order, `[^1]: x </details>` closed it above a bullet
+    the page hides (GitHub's markdown endpoint, 2026-10-03; the mirror of Codex's read-34
+    finding on #462, a continuation's raw HTML read as a run).
     """
     spans: list[tuple[int, float]] = []
     # Each open `<details>`: the nesting level it was opened at and its source line, innermost
@@ -947,6 +955,12 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
                 floor = level + 1 + bounded[-1] if bounded else 0
                 if opened and opened[-1][0] >= floor:
                     at, start = opened.pop()
+                    # The end tag pops everything opened inside the disclosure with it, so
+                    # `<details><div>x</details>` leaves no `div` open and the `</div>` after
+                    # a second `<details>` closes nothing - where leaving the `div` on the
+                    # stack let that `</div>` pop the second disclosure and put the bullet it
+                    # hides back on the page (Codex on #462).
+                    del scopes[max(0, at - level) :]
                     if at == 0:
                         spans.append((start, block.line))
             elif name not in _HTML_SCOPES:
@@ -966,6 +980,8 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
             if isinstance(block, _markdown.Html):
                 raw(block, level)
             elif isinstance(block, _markdown.Paragraph):
+                if block.footnote:
+                    continue  # drawn at the foot: opens and closes nothing of the body
                 read(_markdown.inline_tags(block.text), level, block.line)
             elif isinstance(block, _markdown.Heading):
                 read(_markdown.inline_tags(block.text), level + 1, block.line)
@@ -1446,13 +1462,15 @@ def _bullet(
 
 
 def _foot(leaves: list[_Leaf], index: int) -> list[_Leaf]:
-    """The footnote paragraphs drawn after ``leaves[index]`` at the page's foot, up to the first
-    block that is not one: what a bare key in a footnote heads. A footnote's paragraphs sit
-    together, so this is the rest of that footnote - or, where the next definition follows it
-    with nothing between, that one as well, which can only refuse more."""
+    """The rest of the footnote ``leaves[index]`` belongs to - the paragraphs after it carrying
+    the same ``note`` - which is what a bare key in a footnote heads. It stops at the next
+    definition: `[^1]: **Autonomy**` over `[^2]: agent-can-do-alone` is an empty declaration
+    that fails the exact check and a value, and reading the second as the first's value let an
+    admitting bullet beside them carry the issue (Codex on #462)."""
+    note = leaves[index].block.note
     section: list[_Leaf] = []
     for leaf in leaves[index + 1 :]:
-        if not (isinstance(leaf.block, _markdown.Paragraph) and leaf.block.footnote):
+        if not (isinstance(leaf.block, _markdown.Paragraph) and leaf.block.note == note):
             break
         section.append(leaf)
     return section

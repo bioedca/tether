@@ -1110,6 +1110,61 @@ def test_a_details_opened_in_running_text_collapses_what_follows_it() -> None:
     )
 
 
+def test_closing_a_raw_details_pops_the_scopes_opened_inside_it() -> None:
+    """Codex on #462 (read of `f488e46`): `<details><div>x</details><details>y</div>` over a
+    registered bullet - the HTML parser pops the `div` with the first disclosure and ignores
+    the unmatched `</div>`, so the second stays open over the bullet (GitHub's markdown
+    endpoint, 2026-10-03). Here the `div` stayed on the scope stack, the `</div>` popped the
+    second disclosure, and the hidden bullet was on the page. The end tag now pops every
+    scope opened inside the disclosure it closes.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    for hidden in (
+        f"<details><div>x</details><details>y</div>\n\n{admitting}",
+        f"<details><div><span>x</details><details>y</span></div>\n\n{admitting}",
+        f"<details>\n\n<div>x</details><details>y</div>\n\n{admitting}",
+    ):
+        read = claim._autonomy_refusal(hidden)
+        assert read is not None and "only in a shape that cannot admit" in read, (hidden, read)
+    # Controls: a scope opened before the disclosure survives its close, and a disclosure
+    # closed inside an open `div` is closed.
+    assert claim._autonomy_refusal(f"<div><details>x</details>y</div>\n\n{admitting}") is None
+    assert (
+        claim._autonomy_refusal(
+            f"<div><details>x</details></div><details>y</details>\n\n{admitting}"
+        )
+        is None
+    )
+
+
+def test_a_details_tag_in_a_footnote_acts_at_the_foot_and_not_in_the_body() -> None:
+    """The mirror of Codex's read-34 finding on #462 (a continuation's raw HTML), found while
+    fixing it: a footnote is drawn at the page's foot, after the whole body, so a tag in one
+    acts there. `<details>` over `[^1]: x </details>` over a registered bullet hides the bullet
+    on the page - the end tag closes the disclosure below the footnotes section - and the gate,
+    reading the footnote in source order, closed it above the bullet and admitted (GitHub's
+    markdown endpoint, 2026-10-03). A `<details>` opened in a footnote collapses the rest of
+    the foot and nothing of the body. Neither is counted now.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    for hidden in (
+        f"<details>\n\n[^1]: x </details>\n\n{admitting}\nSee[^1].\n",
+        f"<details>\n\n- [^1]: x </details>\n\n{admitting}\nSee[^1].\n",
+        f"<details>\n\n[^1]: x\n\n    </details>\n\n{admitting}\nSee[^1].\n",
+        f"<details>\n\n[^1]: x\n\n    y </details>\n\n{admitting}\nSee[^1].\n",
+    ):
+        read = claim._autonomy_refusal(hidden)
+        assert read is not None and "only in a shape that cannot admit" in read, (hidden, read)
+    for shown in (
+        f"See[^1].\n\n[^1]: note <details>\n\n{admitting}",
+        f"See[^1].\n\n[^1]: note\n\n    <details>\n\n{admitting}",
+        f"See[^1].\n\n[^1]: note\n\n    x <details>\n\n{admitting}",
+    ):
+        assert claim._autonomy_refusal(shown) is None, shown
+    # Control: the same end tag in a body paragraph closes the disclosure where it is.
+    assert claim._autonomy_refusal(f"<details>\n\nx </details>\n\n{admitting}") is None
+
+
 def test_a_tag_github_strips_leaves_the_key_it_was_written_inside_whole() -> None:
     """Codex on #462 (read of `9fc6782`): GitHub sanitizes raw HTML before rendering, and an
     element it does not keep is removed with its text left in place, so `- **Auto<foo></foo>
@@ -1387,6 +1442,33 @@ def test_a_footnote_continuation_is_read_at_the_foot() -> None:
         claim._autonomy_refusal(admitting + "text\n\n    Autonomy: maintainer decision required\n")
         is None
     )
+
+
+def test_a_bare_key_in_a_footnote_heads_that_footnote_alone() -> None:
+    """Codex on #462 (read of `f488e46`): `[^1]: **Autonomy**` over `[^2]: agent-can-do-alone`
+    read the second footnote's paragraph as the first's value - every footnote paragraph
+    looking alike - so the empty declaration the page shows in the first never failed the
+    exact check, and an admitting bullet beside them carried the issue. A footnote paragraph
+    now names the definition it belongs to, and a bare key heads only the rest of its own.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\nSee[^1][^2].\n\n"
+    for split in (
+        "[^1]: **Autonomy**\n\n[^2]: agent-can-do-alone\n",
+        "[^1]: **Autonomy**\n[^2]: agent-can-do-alone\n",
+        "[^1]: note\n\n    **Execution autonomy**\n\n[^2]: agent-can-do-alone\n",
+    ):
+        read = claim._autonomy_refusal(admitting + split)
+        assert read is not None and "declares autonomy ''" in read, (split, read)
+    # Within one footnote the bare key still heads its continuation.
+    own = claim._autonomy_refusal(admitting + "[^1]: **Autonomy**\n\n    human review required\n")
+    assert own is not None and "human review required" in own, own
+    # Codex on #462 (read of `f488e46`), the same read: raw HTML in a continuation is read a
+    # block at a time, so the keyed second `<p>` is the declaration the page shows.
+    raw = claim._autonomy_refusal(
+        admitting
+        + "[^1]: note\n\n    <div><p>Notes</p><p>Autonomy: human review required</p></div>\n"
+    )
+    assert raw is not None and "human review required" in raw, raw
 
 
 def test_an_images_alternative_text_is_read_as_the_page_shows_it() -> None:

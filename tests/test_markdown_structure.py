@@ -521,18 +521,17 @@ def test_a_footnote_definition_is_a_footnote_paragraph_wherever_the_parser_put_i
     after a block that opens on the same line; a reference whose label does not open with `^`
     draws nothing; and a line that opens a definition cuts the paragraph above it, as
     cmark-gfm closes a paragraph for one where CommonMark reads a lazy continuation."""
-    note = md.Paragraph("[^1]: Autonomy:", "Autonomy:", 0, footnote=True)
-    assert md.parse("[^1]: Autonomy:\n") == (note,)
-    assert md.parse("[^1]:Autonomy:\n") == (
-        md.Paragraph("[^1]:Autonomy:", "Autonomy:", 0, footnote=True),
-    )
+    note = md.Paragraph("[^1]: Autonomy:", "Autonomy:", 0, note=0)
+    assert md.parse("[^1]: Autonomy:\n") == (note,) and note.footnote
+    assert md.parse("[^1]:Autonomy:\n") == (md.Paragraph("[^1]:Autonomy:", "Autonomy:", 0, note=0),)
     (para,) = md.parse("[^1]: **Autonomy:** maintainer decision required\n")
     assert para == md.Paragraph(
         "[^1]: **Autonomy:** maintainer decision required",
         "Autonomy: maintainer decision required",
         0,
-        footnote=True,
+        note=0,
     )
+    assert not md.Paragraph("x", "x", 0).footnote
     assert md.parse("[foo]: /url\n") == ()
     assert md.parse('[foo]: /url "Autonomy: x"\n') == ()
     # A quoted title is part of the footnote's text; an escaped label is text, not a footnote.
@@ -692,6 +691,20 @@ def test_a_footnote_continuation_is_more_footnote_paragraphs():
     assert [(block.plain, block.footnote) for block in doc] == [
         ("note", True),
         ("Autonomy human action", True),
+    ]
+    # Codex on #462 (read of `f488e46`): raw HTML in a continuation is a paragraph per block
+    # the page draws of it, not one joined; and every paragraph of one definition carries the
+    # line it opens on as `note`, a nested definition its own, the next definition another.
+    doc = md.parse(
+        "[^1]: note\n\n    <div><p>Notes</p><p>Autonomy: human review required</p></div>\n\n"
+        "    [^2]: nested\n\n[^3]: next\n"
+    )
+    assert [(block.plain, block.note) for block in doc] == [
+        ("note", 0),
+        ("Notes", 0),
+        ("Autonomy: human review required", 0),
+        ("nested", 4),
+        ("next", 6),
     ]
 
 

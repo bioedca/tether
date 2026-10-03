@@ -262,13 +262,24 @@ class Paragraph(NamedTuple):
     spaces after it, which cmark-gfm reads as more of the footnote and CommonMark as an
     indented code block - is footnote paragraphs too, one for every block the foot draws text
     for, a heading or a list item's paragraph included (:func:`_continuation`; Codex on #462).
+
+    ``note`` is the definition the paragraph belongs to - the source line it opens on, which
+    no two definitions share - or ``None`` for a paragraph of the body. Every paragraph of
+    one footnote carries the same ``note``, so a caller reading what a bare key in a footnote
+    heads can stop at the next definition: `[^1]: **Autonomy**` over `[^2]:
+    agent-can-do-alone` is an empty declaration and a value, not the one over the other
+    (Codex on #462). ``footnote`` is whether ``note`` is set.
     """
 
     text: str
     plain: str
     line: int
     pictured: bool = False
-    footnote: bool = False
+    note: int | None = None
+
+    @property
+    def footnote(self) -> bool:
+        return self.note is not None
 
 
 class Heading(NamedTuple):
@@ -445,24 +456,27 @@ def _last_line(paragraph: Paragraph) -> int:
     return paragraph.line + paragraph.text.count("\n")
 
 
-def _continues_footnote(
+def _continued_note(
     found: list[Block], lines: list[str], line: int, env: dict[str, Any]
-) -> bool:
-    """Whether an indented code block opening at ``line`` continues a footnote definition: the
-    nearest line above it that is not blank ends a footnote paragraph - the last block read, or
-    a swallowed definition."""
+) -> int | None:
+    """The definition an indented code block opening at ``line`` continues - its ``note`` - or
+    ``None`` for a code block: the nearest line above it that is not blank ends a footnote
+    paragraph, the last block read or a swallowed definition."""
     above = line - 1
     while above >= 0 and not lines[above].strip():
         above -= 1
     if above < 0:
-        return False
-    if above in env.get(_SWALLOWED, {}):
-        return True
+        return None
+    swallowed = env.get(_SWALLOWED, {}).get(above)
+    if swallowed is not None:
+        return swallowed.note
     last = found[-1] if found else None
-    return isinstance(last, Paragraph) and last.footnote and _last_line(last) == above
+    if isinstance(last, Paragraph) and last.footnote and _last_line(last) == above:
+        return last.note
+    return None
 
 
-def _continuation(content: str, line: int) -> list[Paragraph]:
+def _continuation(content: str, line: int, note: int) -> list[Paragraph]:
     """The footnote paragraphs a definition's continuation draws, read from ``content``, the
     indented code block CommonMark made of its lines, with the indent gone.
 
@@ -472,12 +486,17 @@ def _continuation(content: str, line: int) -> list[Paragraph]:
     required` is a footnote of two paragraphs, the second the restriction, while CommonMark
     reads the indented line as a code block and a caller reading only the first paragraph
     never saw it (Codex on #462). The lines are read again as the Markdown they are, and
-    every block the foot draws text for comes back as a footnote paragraph at its source
-    line - a paragraph as itself, a heading or a raw HTML block as its text, a list item's
-    paragraph as itself, a table as a paragraph per row. The foot never admits, so nothing is
-    lost in the flattening that a caller could have admitted on; code is literal and a rule
-    draws no text, so neither comes back. A tag opened in a continuation is counted where the
-    definition sits, which can only hide more of the body than the page does.
+    every block the foot draws text for comes back as a footnote paragraph of definition
+    ``note`` at its source line - a paragraph as itself, a heading as its text, a list item's
+    paragraph as itself, a table as a paragraph per row, and a raw HTML block as a paragraph
+    *per block the page draws of it*, since `<div><p>Notes</p><p>Autonomy: human review
+    required</p></div>` is two paragraphs at the foot and joined into one the key was not at
+    its start (Codex on #462). The foot never admits, so nothing is lost in the flattening that
+    a caller could have admitted on; code is literal and a rule draws no text, so neither
+    comes back. A raw piece comes back as its rendered text, tags gone, and a paragraph with
+    its source: a caller counting disclosures reads neither, since a tag in a footnote is
+    drawn at the foot and opens or closes nothing of the body. A definition nested in the
+    continuation keeps a note of its own.
     """
     text = content if content.endswith("\n") else content + "\n"
     lines = text.split("\n")
@@ -486,14 +505,20 @@ def _continuation(content: str, line: int) -> list[Paragraph]:
     found: list[Paragraph] = []
     for block in walk(_document(tokens, lines, env)):
         if isinstance(block, Paragraph):
-            found.append(block._replace(line=line + block.line, footnote=True))
-        elif isinstance(block, (Heading, Html)):
-            pictured = block.pictured if isinstance(block, Heading) else False
-            found.append(Paragraph(block.text, block.plain, line + block.line, pictured, True))
+            own = note if block.note is None else line + block.note
+            found.append(block._replace(line=line + block.line, note=own))
+        elif isinstance(block, Heading):
+            found.append(
+                Paragraph(block.text, block.plain, line + block.line, block.pictured, note)
+            )
+        elif isinstance(block, Html):
+            for piece in block.shown:
+                if piece.text:
+                    found.append(Paragraph(piece.text, piece.text, line + block.line, False, note))
         elif isinstance(block, Table):
             for row in block.rows:
                 drawn = " ".join(cell for cell in row.plain if cell)
-                found.append(Paragraph(" ".join(row.cells), drawn, line + row.line, False, True))
+                found.append(Paragraph(" ".join(row.cells), drawn, line + row.line, False, note))
     return found
 
 
@@ -507,9 +532,9 @@ def _footnote(text: str, label: re.Match[str], line: int, env: dict[str, Any]) -
     """The footnote paragraph whose source is ``text``, ``label`` its ``_FOOTNOTE_LABEL`` match."""
     rest = text[label.end() :]
     if not rest.strip():
-        return Paragraph(text, "", line, footnote=True)
+        return Paragraph(text, "", line, note=line)
     inline = _PARSER.parseInline(rest, env)[0]
-    return Paragraph(text, _plain(inline), line, _pictured(inline), footnote=True)
+    return Paragraph(text, _plain(inline), line, _pictured(inline), note=line)
 
 
 def _paragraphs(inline: Token, line: int, env: dict[str, Any]) -> list[Paragraph]:
@@ -857,8 +882,9 @@ def _blocks(
             at += 1
         elif token.type == "code_block":
             line = _line(token)
-            if _continues_footnote(found, lines, line, env):
-                found.extend(_continuation(token.content, line))
+            note = _continued_note(found, lines, line, env)
+            if note is not None:
+                found.extend(_continuation(token.content, line, note))
             else:
                 found.append(Code(token.content, line, False, ""))
             at += 1
