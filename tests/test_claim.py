@@ -755,6 +755,12 @@ def test_raw_html_is_read_as_the_page_draws_it_in_three_more_ways() -> None:
     wbr = claim._autonomy_refusal(admitting + "- **Auto<wbr>nomy:** maintainer decision required\n")
     assert wbr is not None, "a key split by <wbr> was not read - fail-open"
     assert "maintainer decision" in wbr, wbr
+    # Codex on #462 (read of `0be2c31`): an empty `<picture>` draws nothing either.
+    picture = claim._autonomy_refusal(
+        admitting + "- **Auto<picture></picture>nomy:** maintainer decision required\n"
+    )
+    assert picture is not None, "a key split by <picture> was not read - fail-open"
+    assert "maintainer decision" in picture, picture
 
     entity = claim._autonomy_refusal(
         "## Execution autonomy\n\nagent-can-do-alone\n\n"
@@ -868,6 +874,14 @@ def test_nothing_inside_a_details_block_can_admit() -> None:
     assert restrictive is not None and "maintainer decision" in restrictive, restrictive
     after = claim._autonomy_refusal("<details>\n<summary>x</summary>\n</details>\n\n" + admitting)
     assert after is None, after
+    # Codex on #462 (read of `0be2c31`): a `</details>` written inside a comment closes nothing
+    # on the page, and closed the span here because the raw text was scanned. Tags are read with
+    # comments removed first.
+    commented = claim._autonomy_refusal(
+        f"<details>\n<summary>x</summary>\n<!-- </details> -->\n\n{admitting}"
+    )
+    assert commented is not None, "a commented-out </details> ended the span - fail-open"
+    assert "only in a shape that cannot admit" in commented, commented
 
 
 def test_a_declaration_carrying_an_html_tag_can_refuse_and_never_admit() -> None:

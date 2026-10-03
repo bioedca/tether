@@ -71,6 +71,7 @@ __all__ = [
     "TableRow",
     "has_tag",
     "parse",
+    "tags",
     "walk",
 ]
 
@@ -106,7 +107,9 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: one word (Greptile on #462: a space there split a key the page shows whole); any other tag -
 #: ``<li>``, ``<br>``, ``<p>``, ``<td>`` - is laid out as a break, so it leaves a space and
 #: ``maintainer</li><li>decision`` stays the two words the page shows; ``<wbr>`` is a break
-#: *opportunity* that draws nothing, so it is phrasing (Codex on #462). Two kinds of phrasing tag
+#: *opportunity* that draws nothing, and an empty ``<picture>`` or ``<source>`` draws nothing
+#: either, so they are phrasing, while ``<img>`` draws a picture between two words and is a
+#: space (Codex on #462). Two kinds of phrasing tag
 #: draw something. ``<q>`` renders quotation marks around its content, so it leaves a ``"`` on
 #: each side and ``Auto<q></q>nomy`` is the defaced key the page shows rather than the key. And
 #: ``<del>``, ``<s>`` and ``<strike>`` strike their content out, which is a retraction, so they
@@ -128,8 +131,8 @@ _HTML_TAG = re.compile(
 )
 _PHRASING_TAGS = frozenset(
     {"a", "abbr", "b", "bdi", "bdo", "cite", "code", "dfn", "em", "font", "i", "ins", "kbd", "mark"}
-    | {"rp", "rt", "ruby", "samp", "small", "span", "strong", "sub", "sup", "time", "tt", "u"}
-    | {"var", "wbr"}
+    | {"picture", "rp", "rt", "ruby", "samp", "small", "source", "span", "strong", "sub", "sup"}
+    | {"time", "tt", "u", "var", "wbr"}
 )
 _DRAWN_TAGS = {"q": '"', "del": "~~", "s": "~~", "strike": "~~"}
 
@@ -343,6 +346,18 @@ def _plain(inline: Token) -> str:
     return " ".join("".join(parts).split())
 
 
+def tags(text: str) -> Iterator[tuple[str, bool]]:
+    """Every HTML tag in ``text`` - a block's source ``text`` - in order, as ``(name, closing)``.
+
+    Read by the grammar above with comments removed first, so a tag written inside a comment is
+    not a tag: ``<!-- </details> -->`` closes nothing on the page and must close nothing for a
+    caller counting nesting (Codex on #462). Names are lower-cased.
+    """
+    for tag in _HTML_TAG.finditer(_HTML_COMMENT.sub("", text)):
+        closing = tag.group("close") is not None
+        yield (tag.group("close") or tag.group("open")).lower(), closing
+
+
 def has_tag(text: str) -> bool:
     """Whether ``text`` - a block's source ``text`` - carries an HTML tag, by the grammar above.
 
@@ -351,7 +366,7 @@ def has_tag(text: str) -> bool:
     rendering rule above is an approximation of a browser and the one direction that approximation
     must never err in is the admitting one (Codex on #462, repeatedly).
     """
-    return _HTML_TAG.search(_HTML_COMMENT.sub("", text)) is not None
+    return next(tags(text), None) is not None
 
 
 def _visible_html(text: str) -> str:

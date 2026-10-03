@@ -303,6 +303,20 @@ def test_a_tag_is_read_as_the_page_lays_it_out():
     # their Markdown spelling keeps and the two spellings read the same.
     (para,) = md.parse("Auto<wbr>nomy <del>a</del> <s>b</s> <strike>c</strike>\n")
     assert para.plain == "Autonomy ~~a~~ ~~b~~ ~~c~~"
+    # An empty `<picture>` or `<source>` draws nothing; an `<img>` draws a picture between words.
+    (para,) = md.parse("Auto<picture><source></picture>nomy a<img src=x>b\n")
+    assert para.plain == "Autonomy a b"
+
+
+def test_tags_are_read_with_comments_removed_first():
+    # Codex on #462: a `</details>` inside a comment closes nothing on the page, and a caller
+    # counting nesting off the raw text closed the span on it.
+    assert list(md.tags('<details><!-- </details> --><B class="x">b</B>')) == [
+        ("details", False),
+        ("b", False),
+        ("b", True),
+    ]
+    assert md.has_tag("<!-- <b> -->") is False and md.has_tag("a <b>b</b>") is True
     # A bare `<` that is not a tag is prose, as it is on the page.
     (para,) = md.parse("n < 5 and m > 3\n")
     assert para.plain == "n < 5 and m > 3"

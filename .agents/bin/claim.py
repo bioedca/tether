@@ -499,9 +499,6 @@ _GROOMING_MARKER = re.compile(r"<!--[ \t]*tether-grooming-v1[ \t]*-->")
 #: The checkbox GitHub draws at the front of a task-list item, as it reaches the rendered text:
 #: the ``commonmark`` preset has no task-list rule, so ``[ ]`` and ``[x]`` stay literal.
 _TASK_MARKER = re.compile(r"\[(?: |x|X)\](?: |$)")
-#: Where a ``<details>`` block opens and closes, in a raw HTML block's source. GitHub collapses
-#: what is between them, so a declaration there is not on the page a reader sees (Codex on #462).
-_DETAILS = re.compile(r"<(/?)details\b", re.I)
 
 
 class _AutonomyValue(NamedTuple):
@@ -792,15 +789,19 @@ def _collapsed(source: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]:
     Read off the raw HTML blocks in document order, nesting counted, an unclosed block running
     to the end of the body. A declaration on a line inside a span is not on the page a reader
     sees, so it may refuse and may not admit (Codex on #462); `<details open>` is collapsed here
-    too, because a disclosure widget is not the registered shape whichever way it starts.
+    too, because a disclosure widget is not the registered shape whichever way it starts. The
+    tags are the parser's reading of the block, comments removed first, so a `</details>` written
+    inside a comment closes nothing here as it closes nothing on the page (Codex on #462).
     """
     spans: list[tuple[int, float]] = []
     depth, start = 0, 0
     for block in _markdown.walk(source):
         if not isinstance(block, _markdown.Html):
             continue
-        for tag in _DETAILS.finditer(block.text):
-            if tag.group(1):
+        for name, closing in _markdown.tags(block.text):
+            if name != "details":
+                continue
+            if closing:
                 if depth > 0:
                     depth -= 1
                     if depth == 0:
