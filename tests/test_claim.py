@@ -337,7 +337,7 @@ def test_an_autonomy_table_row_can_refuse_but_not_admit(
     table_only = claim._autonomy_refusal(
         "| Field | Value |\n| --- | --- |\n| **autonomy** | agent-can-do-alone |\n"
     )
-    assert table_only is not None and "declares no Execution autonomy" in table_only
+    assert table_only is not None and "only in a shape that cannot admit" in table_only
 
     body = (
         "| Field | Value |\n| --- | --- |\n| **autonomy** | maintainer decision required |\n\n"
@@ -380,7 +380,7 @@ def test_an_autonomy_table_row_is_read_with_or_without_its_outer_pipes() -> None
 
     # Still unable to admit: dropping the pipe must not turn a row into a way to admit.
     bare = claim._autonomy_refusal("autonomy | agent-can-do-alone\n--- | ---\n")
-    assert bare is not None and "declares no Execution autonomy" in bare
+    assert bare is not None and "only in a shape that cannot admit" in bare
 
     # Without the delimiter line there is no table: GitHub renders the pipes as text, and a
     # paragraph is not a declaration shape, so the line is read exactly as it is rendered.
@@ -406,7 +406,7 @@ def test_a_recognised_table_value_is_exact_checked_but_never_admits() -> None:
     # row alone is still absence.
     assert claim._autonomy_refusal(heading + table.format("agent-can-do-alone")) is None
     alone = claim._autonomy_refusal(table.format("agent-can-do-alone"))
-    assert alone is not None and "declares no Execution autonomy" in alone
+    assert alone is not None and "only in a shape that cannot admit" in alone
 
     # Cells past the value are scanned for a token, one cell at a time.
     wide = "| Field | Value | Note |\n| --- | --- | --- |\n| Autonomy | agent-can-do-alone | {} |\n"
@@ -433,7 +433,7 @@ def test_a_styled_autonomy_heading_is_read_like_a_styled_bullet() -> None:
     for styled in ("## **Execution autonomy**", "## _Autonomy_:", "## `Execution autonomy`"):
         assert claim._autonomy_refusal(f"{styled}\n\nagent-can-do-alone\n") is None, styled
         indented = claim._autonomy_refusal(f"   {styled}\n\nagent-can-do-alone\n")
-        assert indented is not None and "declares no Execution autonomy" in indented, styled
+        assert indented is not None and "only in a shape that cannot admit" in indented, styled
 
 
 def test_a_marker_inside_other_raw_html_cannot_start_a_grooming_block() -> None:
@@ -474,12 +474,83 @@ def test_visible_raw_html_is_read_and_comments_are_not() -> None:
     assert hidden is None, hidden
 
     as_value = claim._autonomy_refusal("## Execution autonomy\n\n<p>agent-can-do-alone</p>\n")
-    assert as_value is not None and "declares no Execution autonomy" in as_value, as_value
+    assert as_value is not None and "only in a shape that cannot admit" in as_value, as_value
     unregistered = claim._autonomy_refusal(
         "- **Autonomy:** agent-can-do-alone\n\n## Execution autonomy\n\n"
         "<p>human review required</p>\n"
     )
     assert unregistered is not None and "not a registered" in unregistered, unregistered
+
+
+def test_a_heading_admits_only_on_its_own_next_paragraph() -> None:
+    """Codex on #462 (read of `c4ee870`): `## Execution autonomy` over `> agent-can-do-alone`
+    admitted. The flattener opens block quotes and list items so a heading's section is read in
+    document order, and that erased the one boundary this decision needs: the quoted paragraph
+    became the heading's value and the registered shape it is not. A leaf now names its container,
+    and a heading admits only when its value is a paragraph in the **same** container. The quoted
+    or listed value is still read - exact-checked, able to refuse - and the message names the shape
+    rather than claiming the declaration is absent.
+    """
+    for where, body in {
+        "quoted": "## Execution autonomy\n\n> agent-can-do-alone\n",
+        "listed": "## Execution autonomy\n\n- agent-can-do-alone\n",
+        "quoted after a blank": "## Execution autonomy\n\n\n> agent-can-do-alone\n",
+    }.items():
+        refusal = claim._autonomy_refusal(body)
+        assert refusal is not None, f"{where}: a value inside a container admitted - fail-open"
+        assert "only in a shape that cannot admit" in refusal, f"{where}: {refusal}"
+        assert "agent-can-do-alone" in refusal and "heading" in refusal, f"{where}: {refusal}"
+
+    # Read, not ignored: a quoted restriction under the heading still governs.
+    quoted = claim._autonomy_refusal(
+        "- **Autonomy:** agent-can-do-alone\n\n## Execution autonomy\n\n"
+        "> maintainer decision required\n"
+    )
+    assert quoted is not None and "maintainer decision" in quoted, quoted
+
+    # The registered shape is untouched, blank lines and all.
+    assert claim._autonomy_refusal("## Execution autonomy\n\n\n\nagent-can-do-alone\n") is None
+
+
+def test_inline_html_is_invisible_to_the_key_as_it_is_on_the_page() -> None:
+    """Codex on #462 (read of `c4ee870`): `- **Auto<!-- note -->nomy:** maintainer decision
+    required` in a grooming block renders as a plain restrictive bullet, but the parser keeps the
+    inline comment in the paragraph's text, so the key never matched and the bullet was not read.
+    Keys are now matched on the rendered text: a comment leaves nothing behind, as on the page,
+    and a tag leaves a space - `<b>Autonomy:</b>` is the key, and `maintainer</li><li>decision`
+    is still two words. Prose that merely looks like a tag is prose.
+    """
+    marker = "<!-- tether-grooming-v1 -->"
+    split = f"{marker}\n- **Auto<!-- note -->nomy:** maintainer decision required\n"
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    refusal = claim._autonomy_refusal(split + admitting)
+    assert refusal is not None, "a key split by an inline comment was not read - fail-open"
+    assert "maintainer decision" in refusal and "grooming block bullet" in refusal, refusal
+    assert claim._autonomy_refusal("- **Auto<!-- note -->nomy:** agent-can-do-alone\n") is None
+
+    tagged = claim._autonomy_refusal(
+        "- <b>Autonomy:</b> maintainer decision required\n" + admitting
+    )
+    assert tagged is not None and "maintainer decision" in tagged, tagged
+    assert claim._autonomy_refusal("- **Autonomy:** <b>agent-can-do-alone</b>\n") is None
+
+    # A comment in the value is hidden on the page and hidden here; a token the page shows across
+    # a tag boundary is still a token; `<` in prose is not a tag.
+    heading = "## Execution autonomy\n\nagent-can-do-alone"
+    hidden = claim._autonomy_refusal(heading + " <!-- was: maintainer decision required -->\n")
+    assert hidden is None, hidden
+    across = claim._autonomy_refusal(
+        heading + "\n\n<ul><li>needs maintainer</li><li>decision</li></ul>\n"
+    )
+    assert across is not None and "maintainer decision" in across, across
+    angle = claim._autonomy_refusal(
+        heading + "\n\nneeds a maintainer decision if n < 5 and m > 3\n"
+    )
+    assert angle is not None and "maintainer decision" in angle, angle
+
+    # The marker is a comment too, and prose hides it - so the misplaced-marker scan reads source.
+    inline = claim._autonomy_refusal(f"text {marker} more\n\n" + heading + "\n")
+    assert inline is not None and "cannot start" in inline, inline
 
 
 def test_autonomy_refusals_distinguish_absent_restricted_and_unregistered_values() -> None:
@@ -801,7 +872,7 @@ def test_a_restrictive_bullet_governs_under_any_marker_markdown_accepts(
         "indented alone": "  - **Autonomy:** agent-can-do-alone\n",
     }.items():
         refusal = claim._autonomy_refusal(body)
-        assert refusal is not None and "declares no Execution autonomy" in refusal, (
+        assert refusal is not None and "only in a shape that cannot admit" in refusal, (
             f"{where}: a non-registered bullet shape admitted - fail-open"
         )
 
@@ -895,7 +966,7 @@ def test_a_heading_markdown_still_renders_is_read_wherever_it_is_indented() -> N
             assert "maintainer decision" in refusal, f"{where}: {refusal}"
 
     alone = claim._autonomy_refusal(" ## Execution autonomy\n\nagent-can-do-alone\n")
-    assert alone is not None and "declares no Execution autonomy" in alone
+    assert alone is not None and "only in a shape that cannot admit" in alone
 
     # Codex on #462: closing hashes need a space before them; `autonomy##` is the heading's text.
     glued = claim._autonomy_refusal("## Execution autonomy##\n\nagent-can-do-alone\n")

@@ -499,11 +499,14 @@ _AUTONOMY_KEY = re.compile(
 #: was written to supersede. An empty groom is still a groom.
 _GROOMING_MARKER = re.compile(r"<!--[ \t]*tether-grooming-v1[ \t]*-->")
 _MARKUP = re.compile(r"[`*_]+")
-#: What a raw HTML block hides and what it shows. GitHub renders the text inside a `<details>`
-#: or a `<b>`, so a restriction written there is visible and must be read; a comment is not
-#: rendered, so a token inside one is not a restriction. Tags themselves are neither.
+#: What HTML hides and what it shows, in a raw block and inline alike. GitHub renders the text
+#: inside a `<details>` or a `<b>`, so a restriction written there is visible and must be read; a
+#: comment is not rendered, so a token inside one is not a restriction, and a key split by one -
+#: `**Auto<!-- note -->nomy:**` - is still the key (Codex on #462). Tags themselves are neither.
+#: The tag pattern is a tag as HTML defines one - a name, then attributes - so `n < 5 and m > 3`
+#: stays prose, as it does on the page.
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
-_HTML_TAG = re.compile(r"<[^>]*>")
+_HTML_TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 
 
 class _AutonomyValue(NamedTuple):
@@ -560,7 +563,22 @@ def _flatten_autonomy(value: str) -> str:
     return re.sub(r"\s+", " ", _normalize_autonomy(widened)).strip()
 
 
-def _flat(blocks: tuple[_markdown.Block, ...]) -> list[Any]:
+class _Leaf(NamedTuple):
+    """A leaf block and the container it was parsed in - the tuple of blocks it is one of.
+
+    The container travels with the leaf because flattening erases it, and one decision needs it
+    back: whether a heading's value is the heading's **own** next paragraph or a paragraph inside
+    a block quote or list item below it. `## Execution autonomy` over `> agent-can-do-alone` put a
+    registered value in the quote, and the flattened section could not tell (Codex on #462).
+    Identity, not equality: the tuple is the one the parser built, and two containers never share
+    it.
+    """
+
+    block: Any
+    siblings: tuple[Any, ...]
+
+
+def _flat(blocks: tuple[_markdown.Block, ...]) -> list[_Leaf]:
     """The leaf blocks of ``blocks`` in document order: what a reader of the rendering sees, top
     to bottom, with list items and block quotes opened up and a table given one leaf per row.
 
@@ -568,9 +586,10 @@ def _flat(blocks: tuple[_markdown.Block, ...]) -> list[Any]:
     heading's siblings, because a reader does not see the ``<li>`` a heading happens to sit in: an
     indented `## Execution autonomy` that Markdown nests inside the bullet above it is still, on
     the rendered page, a heading with the paragraph below it, and the regex reader's successor must
-    not lose that paragraph to a container boundary the reader cannot see.
+    not lose that paragraph to a container boundary the reader cannot see. Each leaf still names
+    its container, for the one decision that must see the boundary.
     """
-    leaves: list[Any] = []
+    leaves: list[_Leaf] = []
     for block in blocks:
         if isinstance(block, _markdown.ListBlock):
             for item in block.items:
@@ -578,38 +597,66 @@ def _flat(blocks: tuple[_markdown.Block, ...]) -> list[Any]:
         elif isinstance(block, _markdown.BlockQuote):
             leaves.extend(_flat(block.blocks))
         elif isinstance(block, _markdown.Table):
-            leaves.extend(block.rows)
+            leaves.extend(_Leaf(row, blocks) for row in block.rows)
         else:
-            leaves.append(block)
+            leaves.append(_Leaf(block, blocks))
     return leaves
 
 
-def _prose(leaf: Any) -> str:
-    """The text a reader of the rendered ``leaf`` would see, one string, as flat as the flattener.
+def _visible(text: str) -> str:
+    """``text`` as GitHub shows it: comments and tags removed, whitespace collapsed.
 
-    Code is literal, so it is empty here: a token quoted in an example is not a restriction. A raw
-    HTML block is what GitHub shows of it - the text inside a `<details>` or a `<b>`, with the tags
-    and every comment removed - because `maintainer decision required` inside a `<summary>` is
-    rendered on the page and the regex reader saw it; returning `""` for every HTML block dropped
-    that restriction (Codex on #462). A comment is not rendered, so a token hidden in one is not a
-    restriction. Soft line breaks become spaces, and a table row is its cells in order.
+    A comment leaves nothing behind, as on the page - `Auto<!-- note -->nomy` renders as the one
+    word `Autonomy`, and that word is the key. A tag leaves a space: GitHub lays `<li>` and `<br>`
+    out as breaks, and joining `maintainer</li><li>decision` into one word would hide a token the
+    page shows on two lines. Where the two differ the tag rule errs towards reading a token.
     """
-    if isinstance(leaf, (_markdown.Paragraph, _markdown.Heading)):
-        return " ".join(leaf.text.split())
-    if isinstance(leaf, _markdown.TableRow):
-        return " ".join(" ".join(cell.split()) for cell in leaf.cells)
-    if isinstance(leaf, _markdown.Html):
-        return " ".join(_HTML_TAG.sub(" ", _HTML_COMMENT.sub(" ", leaf.text)).split())
+    return " ".join(_HTML_TAG.sub(" ", _HTML_COMMENT.sub("", text)).split())
+
+
+def _prose(block: Any) -> str:
+    """The text a reader of the rendered ``block`` would see, one string, as flat as the flattener.
+
+    Code is literal, so it is empty here: a token quoted in an example is not a restriction.
+    Everything else is what GitHub shows of it - a paragraph, a heading, a table row and a raw HTML
+    block alike, with every tag and comment removed - because `maintainer decision required` inside
+    a `<summary>` is rendered on the page and the regex reader saw it, while returning `""` for
+    every HTML block dropped that restriction; and because a comment splitting a bullet's key
+    hides the bullet from a match on the source, while the page shows the key whole (both Codex on
+    #462). A comment is not rendered, so a token hidden in one is not a restriction. Soft line
+    breaks become spaces, and a table row is its cells in order.
+    """
+    if isinstance(block, (_markdown.Paragraph, _markdown.Heading, _markdown.Html)):
+        return _visible(block.text)
+    if isinstance(block, _markdown.TableRow):
+        return _visible(" ".join(block.cells))
     return ""
 
 
-def _scan_only(leaves: list[Any], where: str) -> list[_AutonomyValue]:
+def _source(block: Any) -> str:
+    """The raw text of ``block`` - comments included - for finding a marker that prose hides.
+
+    Code is still empty: a marker in a fence is literal.
+    """
+    if isinstance(block, (_markdown.Paragraph, _markdown.Heading, _markdown.Html)):
+        return block.text
+    if isinstance(block, _markdown.TableRow):
+        return " ".join(block.cells)
+    return ""
+
+
+def _scan_only(leaves: list[_Leaf], where: str) -> list[_AutonomyValue]:
     """``leaves`` as scan-only values, **one per rendered block**, never one string for the lot.
 
     Joined across a block boundary, `... is a human` and `Action items ...` read as `human action`
     and refused a registered declaration (Codex on #462). A token governs where it is written.
     """
-    return [_AutonomyValue(text, where, scan_only=True) for text in map(_prose, leaves) if text]
+    found: list[_AutonomyValue] = []
+    for leaf in leaves:
+        text = _prose(leaf.block)
+        if text:
+            found.append(_AutonomyValue(text, where, scan_only=True))
+    return found
 
 
 def _is_grooming_marker(block: Any) -> bool:
@@ -662,19 +709,15 @@ def _misplaced_marker(document: tuple[_markdown.Block, ...]) -> bool:
     """Whether a grooming marker sits anywhere a grooming block cannot start.
 
     That is a marker block that is not top-level, or the marker's text anywhere that is not a
-    marker block: inline in a paragraph, in a table cell, or inside some other raw HTML, which is
-    searched as source rather than as rendered prose because the marker is a comment and prose
-    hides comments. A marker in a fence is literal, and a fence is never searched.
+    marker block: inline in a paragraph, in a table cell, or inside some other raw HTML. Every
+    leaf is searched as **source** rather than as rendered prose, because the marker is a comment
+    and prose hides comments. A marker in a fence is literal, and a fence is never searched.
     """
-    top_level = {id(block) for block in document}
     for leaf in _flat(document):
-        if _is_grooming_marker(leaf):
-            if id(leaf) not in top_level:
+        if _is_grooming_marker(leaf.block):
+            if leaf.siblings is not document:
                 return True
-        elif isinstance(leaf, _markdown.Html):
-            if _GROOMING_MARKER.search(leaf.text):
-                return True
-        elif _GROOMING_MARKER.search(_prose(leaf)):
+        elif _GROOMING_MARKER.search(_source(leaf.block)):
             return True
     return False
 
@@ -745,33 +788,37 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
     for source in sources:
         leaves = _flat(source)
         for index, leaf in enumerate(leaves):
-            if isinstance(leaf, _markdown.Heading) and _AUTONOMY_KEY.fullmatch(leaf.text.strip()):
+            block = leaf.block
+            if isinstance(block, _markdown.Heading) and _AUTONOMY_KEY.fullmatch(_prose(block)):
                 section = _section(leaves, index)
                 if section:
                     # The first rendered block below the heading is the value, whatever it is: a
                     # paragraph is the shape the issue forms write, and anything else fails the
-                    # exact match. Only an ATX heading at column zero may admit, and only on a
-                    # paragraph: a value written in raw HTML is read and exact-checked, but what
-                    # GitHub shows of it is a sanitised rendering this gate does not reproduce,
-                    # so it is one more shape that can refuse and cannot admit.
+                    # exact match. Only an ATX heading at column zero may admit, and only on its
+                    # **own next paragraph** - a sibling in the same container. A value inside a
+                    # block quote or a list item below the heading, or written as raw HTML, is
+                    # read and exact-checked but is one more shape that can refuse and cannot
+                    # admit: the registered shape is the heading with the value as its paragraph.
+                    value = section[0]
                     admits = (
-                        leaf.column == 0
-                        and leaf.markup.startswith("#")
-                        and isinstance(section[0], _markdown.Paragraph)
+                        block.column == 0
+                        and block.markup.startswith("#")
+                        and isinstance(value.block, _markdown.Paragraph)
+                        and value.siblings is leaf.siblings
                     )
                     found.append(
-                        _AutonomyValue(_prose(section[0]), f"{where} heading", admits=admits)
+                        _AutonomyValue(_prose(value.block), f"{where} heading", admits=admits)
                     )
                     found.extend(_scan_only(section[1:], f"{where} heading remainder"))
-            elif isinstance(leaf, _markdown.TableRow):
-                if leaf.cells and _AUTONOMY_KEY.fullmatch(leaf.cells[0].strip()):
+            elif isinstance(block, _markdown.TableRow):
+                if block.cells and _AUTONOMY_KEY.fullmatch(_visible(block.cells[0])):
                     # A row keyed `autonomy` is a declaration that cannot admit: its second cell
                     # is exact-checked like a `+` bullet's value, so `human review required` -
                     # no registered token, not a registered value - refuses rather than slips
                     # past a token scan (Codex on #462). Any further cells are scan-only. A
                     # header row is read the same way; a table whose *column* is autonomy is not
                     # a shape the forms write, and failing closed on it costs one re-groom.
-                    cells = [" ".join(cell.split()) for cell in leaf.cells[1:]]
+                    cells = [_visible(cell) for cell in block.cells[1:]]
                     if cells:
                         found.append(_AutonomyValue(cells[0], f"{where} table row", admits=False))
                     found.extend(
@@ -786,13 +833,13 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
     return found
 
 
-def _section(leaves: list[Any], index: int) -> list[Any]:
+def _section(leaves: list[_Leaf], index: int) -> list[_Leaf]:
     """The prose leaves below the heading at ``index``, up to the next heading of any level."""
-    section: list[Any] = []
+    section: list[_Leaf] = []
     for leaf in leaves[index + 1 :]:
-        if isinstance(leaf, _markdown.Heading):
+        if isinstance(leaf.block, _markdown.Heading):
             break
-        if _prose(leaf):
+        if _prose(leaf.block):
             section.append(leaf)
     return section
 
@@ -806,7 +853,9 @@ def _bullet(item: _markdown.ListItem, where: str) -> list[_AutonomyValue]:
     first = item.blocks[0] if item.blocks else None
     if not isinstance(first, _markdown.Paragraph):
         return []
-    match = _AUTONOMY_BULLET.fullmatch(first.text.strip())
+    # Matched on the rendered text, not the source: an inline comment splitting the key, or a
+    # `<b>` around it, is invisible on the page and must be invisible here (Codex on #462).
+    match = _AUTONOMY_BULLET.fullmatch(_prose(first))
     if match is None:
         return []
     qualifier = _normalize_autonomy(match.group("qualifier"))
@@ -886,8 +935,19 @@ def _autonomy_refusal(body: str) -> str | None:
     if not any(declaration.admits for declaration in declarations):
         # Same rule as the source choice above: the marker decides, not what it captured. An empty
         # block reported "its body" and sent the reader to fix the wrong half of the issue. A
-        # bullet that cannot admit is absence here too: read for restrictions, not a declaration.
+        # bullet that cannot admit is absence here too: read for restrictions, not a declaration -
+        # but a registered value written in such a shape is named, so the groomer rewrites the
+        # shape rather than hunts for a declaration the message says is missing.
         where = "its grooming block" if _grooming_sections(document) is not None else "its body"
+        if declarations:
+            shape = declarations[0]
+            return (
+                f"declares autonomy {shape.raw.strip()!r} only in a shape that cannot admit "
+                f"({shape.where}: a `+`, indented, nested or quoted bullet, a table row, or a "
+                "heading whose value is not its own next paragraph). Write it as a column-zero "
+                f"`-` bullet or an `## Execution autonomy` heading over {AUTONOMY_ADMITS[0]!r} "
+                "as a plain paragraph"
+            )
         return (
             f"declares no Execution autonomy in {where}, so it has not been groomed for agent "
             "work. An absent declaration is refused rather than assumed - add one to the issue"
