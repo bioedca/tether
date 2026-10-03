@@ -701,7 +701,7 @@ def _scan_only(leaves: list[_Leaf], where: str) -> list[_AutonomyValue]:
             found.extend(
                 _AutonomyValue(piece.text, where, scan_only=True)
                 for piece in leaf.block.shown
-                if piece.tag not in _HTML_LITERAL
+                if piece.text and piece.tag not in _HTML_LITERAL
             )
             continue
         text = _prose(leaf.block)
@@ -1175,9 +1175,23 @@ def _raw_html(block: _markdown.Html, where: str) -> list[_AutonomyValue]:
             keyed_yet = True
             qualifier, value, _ = keyed
             found.append(_AutonomyValue(value, shape, qualifier=qualifier, admits=False))
-        elif keyed_yet:
+        elif keyed_yet and piece.text:
             found.append(_AutonomyValue(piece.text, f"{shape} remainder", scan_only=True))
     return found
+
+
+def _names(flat: str, token: str) -> bool:
+    """Whether the flattened ``flat`` names the flattened ``token`` - at a word's start, and
+    running on if it likes.
+
+    No boundary at all read `nonhuman actions` as `human action` and refused a registered
+    declaration whose prose only mentioned the one (Codex on #462). A boundary at both ends
+    would miss the plural - `human actions`, `maintainer decisions` - that the corpus writes
+    and that governs all the same. So the token must begin a word and may end mid-word. A
+    separator before it is a boundary: `non-human action` flattens to `non human action` and
+    names the token, which is the fail-closed reading of a negation the gate does not parse.
+    """
+    return re.search(rf"(?<!\w){re.escape(token)}", flat) is not None
 
 
 def _plain_markdown(*blocks: Any) -> bool:
@@ -1351,7 +1365,7 @@ def _autonomy_refusal(body: str) -> str | None:
     for value in values:
         raw = value.raw.strip()
         flat = _flatten_autonomy(value.raw)
-        refused = [token for token in AUTONOMY_REFUSES if _flatten_autonomy(token) in flat]
+        refused = [token for token in AUTONOMY_REFUSES if _names(flat, _flatten_autonomy(token))]
         if refused:
             return (
                 f"declares autonomy {raw!r} ({value.where}). It names {refused[0]!r}, so the "

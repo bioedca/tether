@@ -538,6 +538,18 @@ def test_inline_html_is_invisible_to_the_key_as_it_is_on_the_page() -> None:
     assert refusal is not None, "a key split by an inline comment was not read - fail-open"
     assert "maintainer decision" in refusal and "grooming block bullet" in refusal, refusal
     assert claim._autonomy_refusal("- **Auto<!-- note -->nomy:** agent-can-do-alone\n") is None
+    # Codex on #462 (read of `5f41bae`): a processing instruction, a declaration and a CDATA
+    # section are hidden as a comment is, so a key split by one is the key the page shows.
+    for hidden in ("<?note?>", "<!DOCTYPE x>", "<![CDATA[y]]>"):
+        split = claim._autonomy_refusal(
+            f"- **Auto{hidden}nomy:** maintainer decision required\n" + admitting
+        )
+        assert split is not None, f"{hidden!r}: a key split by hidden HTML was not read"
+        assert "maintainer decision" in split, f"{hidden!r}: {split}"
+        assert claim._autonomy_refusal(f"- **Auto{hidden}nomy:** agent-can-do-alone\n") is None
+    # On its own line each draws nothing and is read past, as a comment block is.
+    past = claim._autonomy_refusal("## Execution autonomy\n\n<?xml?>\n\nagent-can-do-alone\n")
+    assert past is None, past
 
     tagged = claim._autonomy_refusal(
         "- <b>Autonomy:</b> maintainer decision required\n" + admitting
@@ -1312,8 +1324,13 @@ def test_a_bare_key_heads_the_block_the_page_draws_next() -> None:
         admitting + "<h2>Execution autonomy after unblock</h2><p>agent-can-do-alone</p>\n"
     )
     assert qualified is not None and "qualifier 'after unblock'" in qualified, qualified
+    # Codex on #462 (read of `5f41bae`): a block a tag opens that shows no text - an `<hr>`, a
+    # `<div>` - is what the page draws next, as a rule or a quote is under a Markdown heading.
     for empty in (
         "<h2>Execution autonomy</h2><h3>Next</h3><p>agent-can-do-alone</p>\n",
+        "<h2>Execution autonomy</h2><hr><p>agent-can-do-alone</p>\n",
+        "<h2>Execution autonomy</h2><div><p>agent-can-do-alone</p></div>\n",
+        "<p>Autonomy</p><hr><p>agent-can-do-alone</p>\n",
         "<p>Execution autonomy</p>\n",
         "**Execution autonomy**\n",
     ):
@@ -1787,6 +1804,32 @@ def test_a_child_list_under_a_bullet_is_scanned_one_item_at_a_time() -> None:
         "    - Action items are listed below\n"
     )
     assert claim._autonomy_refusal(children) is None, "a token was assembled across child items"
+
+
+def test_a_refusing_token_begins_a_word_and_may_end_inside_one() -> None:
+    """Codex on #462 (read of `5f41bae`): the token test was a bare substring, so `nonhuman
+    actions` in a bullet's remainder named `human action` and refused a registered
+    declaration. The token must begin a word; it may end mid-word, so the plural the corpus
+    writes still governs, and a separator before it is a boundary, so `non-human action`
+    flattens to one that names the token - the fail-closed reading of a negation.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for prose in (
+        "  Covers nonhuman action classification.\n",
+        "  See the subhuman-action note.\n",
+        "  The chairmaintainer decision is logged.\n",
+    ):
+        inside = claim._autonomy_refusal(admitting + prose)
+        assert inside is None, f"{prose!r}: a token inside a word refused"
+    for prose in (
+        "  Needs human actions first.\n",
+        "  Pending (human action).\n",
+        "  Non-human action only.\n",
+        "  Maintainer decisions are tracked.\n",
+    ):
+        names = claim._autonomy_refusal(admitting + prose)
+        assert names is not None, f"{prose!r}: a token at a word's start was not read"
+        assert "restrictive statement governs" in names, f"{prose!r}: {names}"
 
 
 def test_fenced_code_is_literal_and_declares_nothing() -> None:

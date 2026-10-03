@@ -104,7 +104,11 @@ _CELL_OPEN = frozenset({"th_open", "td_open"})
 _CELL_CLOSE = frozenset({"th_close", "td_close"})
 
 #: Inline HTML, as it reaches ``plain``. A comment is not rendered and leaves nothing behind, so
-#: ``Auto<!-- note -->nomy`` is the one word the page shows. A tag is read as the page lays it
+#: ``Auto<!-- note -->nomy`` is the one word the page shows; nor is a processing instruction, a
+#: declaration or a CDATA section, the three other forms the CommonMark inline HTML grammar
+#: admits - the HTML parser reads ``<?note?>`` and ``<![CDATA[x]]>`` as bogus comments and
+#: ignores a declaration in the body - so ``Auto<?note?>nomy`` is that one word too (Codex on
+#: #462). ``_HTML_HIDDEN`` names all four. A tag is read as the page lays it
 #: out: a *phrasing* tag - ``<b>``, ``<em>``, ``<code>``, ``<a>``, ``<span>`` and the rest of the
 #: set below - wraps text without breaking it, so it leaves nothing and ``Auto<b>nomy</b>`` is
 #: one word (Greptile on #462: a space there split a key the page shows whole); any other tag -
@@ -125,7 +129,7 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: and close tag grammar - a name, then attributes whose values may be quoted - so
 #: ``n < 5 and m > 3`` stays prose, as on the page, and a ``>`` inside a quoted attribute value
 #: does not end the tag early (Codex on #462).
-_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+_HTML_HIDDEN = re.compile(r"<!--.*?-->|<\?.*?\?>|<!\[CDATA\[.*?\]\]>|<![A-Za-z][^>]*>", re.S)
 _HTML_TAG = re.compile(
     r"<(?:/(?P<close>[A-Za-z][A-Za-z0-9-]*)\s*"
     r"|(?P<open>[A-Za-z][A-Za-z0-9-]*)"
@@ -240,8 +244,9 @@ class Html(NamedTuple):
     a caller matching a key against the whole run read ``Notes Autonomy: ...`` where the page
     shows ``Notes`` over ``Autonomy: ...`` (Codex on #462). Every tag that is not phrasing
     splits, bar the two that draw inside a block - ``<br>`` and ``<img>`` - so a run is never
-    joined across a boundary the page draws, and a comment block shows nothing. ``plain`` is
-    the same text as one string, which is what a caller reading for a token wants.
+    joined across a boundary the page draws; a block a tag opens that shows no text is a piece
+    with no text, since the page draws its opening; and a comment block shows nothing.
+    ``plain`` is the same text as one string, which is what a caller reading for a token wants.
     """
 
     text: str
@@ -388,11 +393,11 @@ def _pictured(inline: Token) -> bool:
 def tags(text: str) -> Iterator[tuple[str, bool]]:
     """Every HTML tag in ``text`` - a block's source ``text`` - in order, as ``(name, closing)``.
 
-    Read by the grammar above with comments removed first, so a tag written inside a comment is
-    not a tag: ``<!-- </details> -->`` closes nothing on the page and must close nothing for a
-    caller counting nesting (Codex on #462). Names are lower-cased.
+    Read by the grammar above with the hidden forms removed first, so a tag written inside a
+    comment is not a tag: ``<!-- </details> -->`` closes nothing on the page and must close
+    nothing for a caller counting nesting (Codex on #462). Names are lower-cased.
     """
-    for tag in _HTML_TAG.finditer(_HTML_COMMENT.sub("", text)):
+    for tag in _HTML_TAG.finditer(_HTML_HIDDEN.sub("", text)):
         closing = tag.group("close") is not None
         yield (tag.group("close") or tag.group("open")).lower(), closing
 
@@ -437,8 +442,8 @@ def has_tag(text: str) -> bool:
 
 
 def _visible_html(text: str) -> str:
-    """Raw HTML as GitHub shows it: a comment or phrasing tag leaves nothing, other tags a space,
-    a tag that draws something what it draws, and character references decoded last."""
+    """Raw HTML as GitHub shows it: a hidden form or phrasing tag leaves nothing, other tags a
+    space, a tag that draws something what it draws, and character references decoded last."""
 
     def laid_out(tag: re.Match[str]) -> str:
         name = (tag.group("open") or tag.group("close")).lower()
@@ -446,7 +451,7 @@ def _visible_html(text: str) -> str:
             return _DRAWN_TAGS[name]
         return "" if name in _PHRASING_TAGS else " "
 
-    return html.unescape(_HTML_TAG.sub(laid_out, _HTML_COMMENT.sub("", text)))
+    return html.unescape(_HTML_TAG.sub(laid_out, _HTML_HIDDEN.sub("", text)))
 
 
 #: Tags that draw *inside* a block without wrapping text: a line break and a picture. Every
@@ -455,7 +460,7 @@ _INSIDE_TAGS = frozenset({"br", "img"})
 
 
 def _shown_html(text: str) -> tuple[Shown, ...]:
-    """Raw HTML as GitHub lays it out, one :class:`Shown` per block it draws, empties dropped.
+    """Raw HTML as GitHub lays it out, one :class:`Shown` per block it draws.
 
     The run is cut at every tag that is neither phrasing nor one of ``_INSIDE_TAGS``, each
     piece then rendered as :func:`_visible_html` renders the whole and named for the opening
@@ -464,8 +469,14 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
     fails closed - while *not* cutting at one the page draws as a boundary joins two blocks
     into text the page never shows, which is the direction that admitted (Codex on #462). So
     the rule errs toward cutting.
+
+    A piece with no text is kept when a tag opened it: the page draws something for the
+    opening of a block - a rule for ``<hr>``, a widget for ``<details>``, a box - and a caller
+    reading the first thing drawn after a key must see it, where dropping it let the paragraph
+    past an ``<hr>`` stand as a raw heading's own value (Codex on #462). Text that no tag
+    opened and that renders to nothing is nothing.
     """
-    stripped = _HTML_COMMENT.sub("", text)
+    stripped = _HTML_HIDDEN.sub("", text)
     pieces: list[tuple[str, str]] = []
     at, opener = 0, ""
     for tag in _HTML_TAG.finditer(stripped):
@@ -477,7 +488,7 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
         opener = "" if tag.group("close") is not None else name
     pieces.append((stripped[at:], opener))
     shown = ((" ".join(_visible_html(piece).split()), opener) for piece, opener in pieces)
-    return tuple(Shown(piece, opener) for piece, opener in shown if piece)
+    return tuple(Shown(piece, opener) for piece, opener in shown if piece or opener)
 
 
 def _line(token: Token) -> int:
@@ -538,7 +549,8 @@ def _blocks(
         elif token.type == "html_block":
             text = token.content.rstrip("\n")
             shown = _shown_html(text)
-            found.append(Html(text, " ".join(piece.text for piece in shown), _line(token), shown))
+            plain = " ".join(piece.text for piece in shown if piece.text)
+            found.append(Html(text, plain, _line(token), shown))
             at += 1
         elif token.type == "hr":
             found.append(Rule(_line(token)))

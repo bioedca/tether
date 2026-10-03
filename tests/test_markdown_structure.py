@@ -396,18 +396,27 @@ def test_an_html_blocks_shown_is_one_block_per_block_the_page_draws():
         "</div>\n"
     )
     assert block.shown == (
+        md.Shown("", "div"),
         md.Shown("Notes", "p"),
         md.Shown("Autonomy: maintainer decision required", "p"),
     )
     assert block.plain == "Notes Autonomy: maintainer decision required"
     (cells,) = md.parse("<table><tr><td>Autonomy:</td><td>agent-can-do-alone</td></tr></table>\n")
-    assert cells.shown == (md.Shown("Autonomy:", "td"), md.Shown("agent-can-do-alone", "td"))
+    assert cells.shown == (
+        md.Shown("", "table"),
+        md.Shown("", "tr"),
+        md.Shown("Autonomy:", "td"),
+        md.Shown("agent-can-do-alone", "td"),
+    )
     (inside,) = md.parse("<p><b>Autonomy:</b><br>maintainer <img src=x.png> decision</p>\n")
     assert inside.shown == (md.Shown("Autonomy: maintainer decision", "p"),)
     (details,) = md.parse(
         "<details>\n<summary>maintainer decision required</summary>\n</details>\n"
     )
-    assert details.shown == (md.Shown("maintainer decision required", "summary"),)
+    assert details.shown == (
+        md.Shown("", "details"),
+        md.Shown("maintainer decision required", "summary"),
+    )
     (comment,) = md.parse("<!-- Autonomy: agent-can-do-alone -->\n")
     assert comment.shown == ()
     # A tag inside a comment is not a boundary, and a drawn phrasing tag draws what it draws.
@@ -416,10 +425,35 @@ def test_an_html_blocks_shown_is_one_block_per_block_the_page_draws():
     # A heading is named for its tag; text after a closing tag was opened by nothing.
     (headed,) = md.parse("<div><h2>Execution autonomy</h2><p>maintainer decision</p></div>tail\n")
     assert headed.shown == (
+        md.Shown("", "div"),
         md.Shown("Execution autonomy", "h2"),
         md.Shown("maintainer decision", "p"),
         md.Shown("tail", ""),
     )
+    # Codex on #462 (read of `5f41bae`): a block a tag opens that shows no text is a piece with
+    # no text - the page draws a rule for `<hr>` - so what follows it is not the first thing
+    # drawn after the heading. Text no tag opened that renders to nothing is nothing.
+    (ruled,) = md.parse("<h2>Execution autonomy</h2>\n<hr>\n<p>agent-can-do-alone</p>\n")
+    assert ruled.shown == (
+        md.Shown("Execution autonomy", "h2"),
+        md.Shown("", "hr"),
+        md.Shown("agent-can-do-alone", "p"),
+    )
+    assert ruled.plain == "Execution autonomy agent-can-do-alone"
+
+
+def test_hidden_inline_html_leaves_nothing_behind_as_a_comment_does():
+    """Codex on #462 (read of `5f41bae`): the CommonMark inline HTML grammar admits a processing
+    instruction, a declaration and a CDATA section besides a comment and a tag, and the browser
+    draws nothing for any of them, so `Auto<?note?>nomy:` is the key the page shows. On its own
+    line each is a raw block that shows nothing and carries no tag."""
+    for hidden in ("<?note?>", "<!DOCTYPE x>", "<![CDATA[y]]>", "<!x>", "<!-- c -->"):
+        (para,) = md.parse(f"**Auto{hidden}nomy:** maintainer decision required\n")
+        assert para.plain == "Autonomy: maintainer decision required", (hidden, para.plain)
+        assert not md.has_tag(hidden), hidden
+    for block in ('<?xml version="1"?>\n', "<!DOCTYPE html>\n", "<![CDATA[x]]>\n"):
+        (raw,) = md.parse(block)
+        assert isinstance(raw, md.Html) and raw.plain == "" and raw.shown == (), block
 
 
 def test_a_table_rows_plain_cells_are_rendered_in_order():
