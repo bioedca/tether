@@ -644,6 +644,94 @@ def test_a_stripped_elements_text_stays_and_an_empty_strike_draws_nothing():
     assert list(md.tags("<svg/><details>")) == [("svg", False), ("details", False)]
 
 
+def test_a_footnote_continuation_is_more_footnote_paragraphs():
+    """Codex on #462 (read of `e259a99`): cmark-gfm reads the lines indented four spaces after
+    a footnote definition as the rest of it and draws them inside the footnote, while
+    CommonMark reads them as an indented code block, so `[^1]: first line` over `    Autonomy:
+    maintainer decision required` was a footnote and a `Code` nobody read. GitHub's markdown
+    endpoint (2026-10-03) draws the continuation's paragraphs, lists and headings inside the
+    footnote, and nothing indented two spaces. The continuation comes back as footnote
+    paragraphs, one per block the foot draws text for, at their source lines."""
+    doc = md.parse(
+        "See[^1].\n\n[^1]: first line\n    lazy\n\n    - **Autonomy:** maintainer decision "
+        "required\n\n    ## Heading inside\n\n    more\n\nnot inside\n"
+    )
+    assert [(block.plain, block.line, block.footnote) for block in doc] == [
+        ("See[^1].", 0, False),
+        ("first line lazy", 2, True),
+        ("Autonomy: maintainer decision required", 5, True),
+        ("Heading inside", 7, True),
+        ("more", 9, True),
+        ("not inside", 11, False),
+    ]
+    # After the swallowed one-word form, and after a label with nothing behind it.
+    doc = md.parse("See[^1].\n\n[^1]: /url\n\n    Autonomy: maintainer decision required\n")
+    assert [(block.plain, block.footnote) for block in doc[1:]] == [
+        ("/url", True),
+        ("Autonomy: maintainer decision required", True),
+    ]
+    doc = md.parse("[^1]:\n\n    Autonomy: maintainer decision required\n")
+    assert [(block.plain, block.footnote) for block in doc] == [
+        ("", True),
+        ("Autonomy: maintainer decision required", True),
+    ]
+    # Two spaces continue nothing: that line is a paragraph of the body, as on the page.
+    doc = md.parse("[^1]: first line\n\n  Autonomy: maintainer decision required\n")
+    assert [(block.plain, block.footnote) for block in doc] == [
+        ("first line", True),
+        ("Autonomy: maintainer decision required", False),
+    ]
+    # An indented block after anything but a footnote is the code block it always was, and a
+    # fence inside a continuation is literal.
+    (para, code) = md.parse("text\n\n    Autonomy: maintainer decision required\n")
+    assert isinstance(code, md.Code) and not code.fenced
+    doc = md.parse("[^1]: note\n\n    ```\n    Autonomy: human action\n    ```\n\n    after\n")
+    assert [block.plain for block in doc] == ["note", "after"]
+    # A table in a continuation is a footnote paragraph per row; a nested definition is one too.
+    doc = md.parse("[^1]: note\n\n    | Autonomy | human action |\n    | --- | --- |\n")
+    assert [(block.plain, block.footnote) for block in doc] == [
+        ("note", True),
+        ("Autonomy human action", True),
+    ]
+
+
+def test_an_images_alternative_text_is_its_label_rendered():
+    """Codex on #462 (read of `e259a99`): the parser keeps an image's raw label as the token's
+    content, so `![**Autonomy:** human review required](x)` rendered `**Autonomy:**` and no
+    key matched it, while GitHub's `alt` is the label rendered - `alt="Autonomy: human review
+    required"` from the markdown endpoint (2026-10-03), and `alt="b c d &amp;"` for a label
+    holding code, a nested image and a character reference. The parser's own renderer is not
+    the oracle: it drops those three. And a raw `<img>` keeps its `alt` through the sanitizer,
+    so it leaves that text between its spaces, as a Markdown image's `plain` shows its
+    alternative text (Codex on #462, the same read)."""
+    for text, plain in (
+        ("![**Autonomy:** human review required](x)", "Autonomy: human review required"),
+        ("a ![b `c` ![d](e) &amp; \\* x](f) g", "a b c d & * x g"),
+        ("![a <b>b</b> c](x)", "a b c"),
+        ("![a\nb](x)", "a b"),
+        ("![](x) y", "y"),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert para.plain == plain and para.pictured, (text, para)
+    (item,) = md.parse("- ![**Autonomy:** human review required](x)\n")
+    assert item.items[0].blocks[0].plain == "Autonomy: human review required"
+    for text, plain in (
+        (
+            '<img src="/missing" alt="Autonomy: human review required"> after',
+            "Autonomy: human review required after",
+        ),
+        ("<img alt='x &amp; y'>z", "x & y z"),
+        ("a<img alt=bare>b", "a bare b"),
+        ("a<img src=x>b", "a b"),
+        ('a<img alt="">b', "a b"),
+        ('<img data-alt="no" alt="yes">', "yes"),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert para.plain == plain, (text, para.plain)
+    (raw,) = md.parse('<p><img src="/m" alt="Autonomy: human review required"></p>\n')
+    assert raw.shown == (md.Shown("Autonomy: human review required", "p"),)
+
+
 def test_a_table_rows_plain_cells_are_rendered_in_order():
     (table,) = md.parse("| **Field** | [Value](u) |\n|---|---|\n| `Autonomy` | *x* &amp; y |\n")
     assert [row.plain for row in table.rows] == [("Field", "Value"), ("Autonomy", "x & y")]

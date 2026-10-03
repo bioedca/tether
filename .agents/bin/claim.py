@@ -550,7 +550,13 @@ _TASK_MARKER = re.compile(r"\[(?: |x|X)\](?: |$)")
 #: footnote is never a heading's value, never the block a bare key heads, never an item's lead,
 #: and so never admits; a declaration in one refuses as a keyed paragraph does (Codex on #462,
 #: twice: the restriction unread behind the label, then the footnote read as the value of the
-#: heading it sat under on the page's foot).
+#: heading it sat under on the page's foot). And the foot is read whole: a footnote that is not
+#: keyed is scan-only, as an item's remainder is, since a note at the foot sits under no key
+#: of the body's; and a bare key in one heads the footnote paragraphs drawn after it (`_foot`)
+#: and nothing of the body. The parser hands a definition's continuation - its lines indented
+#: four spaces, which the page draws inside the footnote - over as more footnote paragraphs,
+#: and reading only the first left `Autonomy: maintainer decision required` in the second
+#: unread (Codex on #462).
 
 
 class _AutonomyValue(NamedTuple):
@@ -1112,13 +1118,17 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
         elif isinstance(block, _markdown.Paragraph):
             text = _prose(block)
             task = _TASK_MARKER.match(text)
+            shape = "footnote" if block.footnote else "paragraph"
             if _BARE_KEY.fullmatch(text[task.end() :] if task else text):
-                section = _section(leaves, index)
+                section = _foot(leaves, index) if block.footnote else _section(leaves, index)
                 value = _prose(section[0].block) if section else ""
-                found.append(_AutonomyValue(value, f"{where} bare key", admits=False))
-                found.extend(_scan_only(section[1:], f"{where} bare key remainder"))
+                found.append(_AutonomyValue(value, f"{where} {shape} bare key", admits=False))
+                found.extend(_scan_only(section[1:], f"{where} {shape} bare key remainder"))
                 continue
-            texts = [(_prose(block), "paragraph")]
+            if block.footnote and _keyed(text) is None:
+                found.append(_AutonomyValue(text, f"{where} footnote", scan_only=True))
+                continue
+            texts = [(text, shape)]
         else:
             continue
         for text, shape in texts:
@@ -1433,6 +1443,19 @@ def _bullet(
         rest.pop(0)
     found.extend(_scan_only(_flat(tuple(rest[1:])), f"{where} bullet remainder"))
     return found
+
+
+def _foot(leaves: list[_Leaf], index: int) -> list[_Leaf]:
+    """The footnote paragraphs drawn after ``leaves[index]`` at the page's foot, up to the first
+    block that is not one: what a bare key in a footnote heads. A footnote's paragraphs sit
+    together, so this is the rest of that footnote - or, where the next definition follows it
+    with nothing between, that one as well, which can only refuse more."""
+    section: list[_Leaf] = []
+    for leaf in leaves[index + 1 :]:
+        if not (isinstance(leaf.block, _markdown.Paragraph) and leaf.block.footnote):
+            break
+        section.append(leaf)
+    return section
 
 
 def _lead(item: _markdown.ListItem) -> Any | None:

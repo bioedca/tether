@@ -1200,7 +1200,7 @@ def test_a_footnote_is_read_behind_its_label_and_never_admits() -> None:
         admitting + "prose\n[^1]: Autonomy: human review required\n",
     ):
         read = claim._autonomy_refusal(still)
-        assert read is not None and "paragraph" in read, (still, read)
+        assert read is not None and "footnote" in read, (still, read)
     # Codex on #462 (read of `270e6ae`): a reference whose label opens with `^` but is no
     # footnote label is a link definition, draws nothing, and is not an error.
     for link in ("[^release note]: /url\n", "[^]: /url\n"):
@@ -1348,6 +1348,73 @@ def test_a_struck_out_restriction_still_refuses_and_a_struck_out_admission_never
     ):
         assert claim._autonomy_refusal(retracted) is not None, retracted
     assert claim._autonomy_refusal("- **Autonomy:** agent-can-do-alone\n") is None
+
+
+def test_a_footnote_continuation_is_read_at_the_foot() -> None:
+    """Codex on #462 (read of `e259a99`): a footnote definition's continuation - its lines
+    indented four spaces - is drawn inside the footnote at the page's foot, and the parser
+    handed it over as a code block nobody read, so `[^1]: first line` over `    Autonomy:
+    maintainer decision required` beside an admitting bullet admitted. The parser now hands
+    the continuation over as more footnote paragraphs, and the foot is read whole: a footnote
+    that is not keyed is scan-only, as an item's remainder is, and a bare key in one heads the
+    footnote paragraphs after it and nothing of the body.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\nSee[^1].\n\n"
+    for continued in (
+        "[^1]: first line\n\n    Autonomy: maintainer decision required\n",
+        "[^1]: first line\n\n    - **Autonomy:** maintainer decision required\n",
+        "[^1]: first line\n    lazy\n\n    ## Execution autonomy\n\n    human review required\n",
+        "[^1]: /url\n\n    Autonomy: maintainer decision required\n",
+        "[^1]:\n\n    **Execution autonomy**\n\n    human review required\n",
+        "[^1]: needs maintainer input first\n",
+        "[^1]: first line\n\n    then needs-maintainer-input\n",
+    ):
+        read = claim._autonomy_refusal(admitting + continued)
+        assert read is not None and "footnote" in read, (continued, read)
+        assert "maintainer decision" in read or "human review" in read or "maintainer input" in read
+    # The foot never admits, whatever a bare key there heads.
+    foot = claim._autonomy_refusal(
+        "[^1]: **Execution autonomy**\n\n    agent-can-do-alone\n\nSee[^1].\n"
+    )
+    assert foot is not None and "only in a shape that cannot admit" in foot, foot
+    # Two spaces continue nothing: that line is a keyed paragraph of the body. And an indented
+    # block after anything but a footnote is a code block, literal.
+    body = claim._autonomy_refusal(
+        admitting + "[^1]: first line\n\n  Autonomy: human review required\n"
+    )
+    assert body is not None and "body paragraph" in body, body
+    assert (
+        claim._autonomy_refusal(admitting + "text\n\n    Autonomy: maintainer decision required\n")
+        is None
+    )
+
+
+def test_an_images_alternative_text_is_read_as_the_page_shows_it() -> None:
+    """Codex on #462 (read of `e259a99`), twice: `- ![**Autonomy:** human review required](x)`
+    rendered its label raw, so no key matched and the unregistered declaration the page shows
+    as the image's alternative text sat beside an admitting bullet unread; and a raw `<img
+    alt="Autonomy: human review required">` was a space, its `alt` - which the sanitizer keeps
+    - never read. Both render the alternative text now, and neither shape can admit: the
+    Markdown image is `pictured`, the raw one carries a tag.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for pictured in (
+        "- ![**Autonomy:** human review required](x)\n",
+        "![**Execution autonomy:** human review required](x)\n",
+        "## Execution autonomy\n\n![human review required](x)\n",
+        '<img src="/missing" alt="Autonomy: human review required"> after\n',
+        '<p><img src="/m" alt="Autonomy: human review required"></p>\n',
+        "- <img alt='Autonomy: maintainer decision required'>\n",
+    ):
+        read = claim._autonomy_refusal(admitting + pictured)
+        assert read is not None and ("human review" in read or "maintainer decision" in read)
+    for alone in (
+        "- ![**Autonomy:** agent-can-do-alone](x)\n",
+        '<p><img alt="Autonomy: agent-can-do-alone"></p>\n',
+        "- <img alt='Autonomy: agent-can-do-alone'>\n",
+    ):
+        shape = claim._autonomy_refusal(alone)
+        assert shape is not None and "only in a shape that cannot admit" in shape, (alone, shape)
 
 
 def test_every_cell_of_a_row_is_read_as_a_raw_cell_is() -> None:

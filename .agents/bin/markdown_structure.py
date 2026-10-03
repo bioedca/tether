@@ -133,7 +133,10 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: an empty ``<picture>`` or ``<source>`` draws nothing either. A *block* one - ``<li>``,
 #: ``<p>``, ``<td>``, ``<h2>`` - is laid out as a block of its own, so it leaves a space and
 #: ``maintainer</li><li>decision`` stays the two words the page shows, and ``<br>`` and
-#: ``<img>`` draw a break and a picture *inside* a block, a space each (Codex on #462). Two
+#: ``<img>`` draw a break and a picture *inside* a block, a space each (Codex on #462) - the
+#: picture with its ``alt`` text between the spaces, since the page shows that text where the
+#: picture is not shown, as a Markdown image's ``plain`` shows its alternative text (Codex on
+#: #462; ``_IMG_ALT``). Two
 #: kinds of kept tag draw something. ``<q>`` renders quotation marks around its content, so it
 #: leaves a ``"`` on each side and ``Auto<q></q>nomy`` is the defaced key the page shows rather
 #: than the key. And ``<del>``, ``<s>`` and ``<strike>`` strike their content out, which is a
@@ -158,6 +161,10 @@ _HTML_ATTRIBUTES = (
 _HTML_TAG = re.compile(
     r"<(?:/(?P<close>[A-Za-z][A-Za-z0-9-]*)\s*"
     r"|(?P<open>[A-Za-z][A-Za-z0-9-]*)" + _HTML_ATTRIBUTES + r"/?)>"
+)
+#: An ``<img>`` tag's ``alt`` value, in any of the three attribute-value spellings.
+_IMG_ALT = re.compile(
+    r"""\salt\s*=\s*(?:"(?P<dq>[^"]*)"|'(?P<sq>[^']*)'|(?P<bare>[^\s"'=<>`]+))""", re.I
 )
 #: The kept tags that wrap text and draw nothing.
 _PHRASING_TAGS = frozenset(
@@ -227,7 +234,10 @@ class Paragraph(NamedTuple):
     ``[^label]:`` - which the page draws at its foot, label gone, and not where the definition
     sits: ``plain`` is the text behind the label, ``text`` the whole source, and a caller
     reading what sits under a heading, or what an item leads with, skips it (Codex on #462,
-    twice; see :func:`_paragraphs`).
+    twice; see :func:`_paragraphs`). A definition's *continuation* - the lines indented four
+    spaces after it, which cmark-gfm reads as more of the footnote and CommonMark as an
+    indented code block - is footnote paragraphs too, one for every block the foot draws text
+    for, a heading or a list item's paragraph included (:func:`_continuation`; Codex on #462).
     """
 
     text: str
@@ -380,13 +390,87 @@ def parse(text: str) -> tuple[Block, ...]:
         tokens = _PARSER.parse(text, env)
     except Exception as exc:
         raise MarkdownStructureError(f"the parser could not read this text: {exc!r}") from exc
+    return _document(tokens, lines, env)
+
+
+def _document(tokens: list[Token], lines: list[str], env: dict[str, Any]) -> tuple[Block, ...]:
+    """The blocks of a parsed token stream, the swallowed footnote definitions sorted in.
+
+    The swallowed definitions are found before the blocks are read, and left in ``env`` under
+    ``_SWALLOWED`` by the line each ends on, so that :func:`_blocks` can tell an indented block
+    that continues one from an indented code block.
+    """
+    footnotes = _footnotes(env, lines)
+    env[_SWALLOWED] = {_last_line(footnote): footnote for footnote in footnotes}
     blocks, end = _blocks(tokens, 0, None, lines, None, env)
     if end != len(tokens):  # pragma: no cover - the parser balances its own tokens
         raise MarkdownStructureError(f"unbalanced token stream at {end}")
-    footnotes = _footnotes(env, lines)
     if not footnotes:
         return blocks
     return tuple(sorted(blocks + footnotes, key=lambda block: block.line))
+
+
+#: The ``env`` key under which :func:`_document` leaves the swallowed footnote paragraphs, by
+#: the source line each ends on.
+_SWALLOWED = "tether_swallowed_footnotes"
+
+
+def _last_line(paragraph: Paragraph) -> int:
+    """The source line a footnote paragraph ends on: its ``text`` keeps one line per source
+    line."""
+    return paragraph.line + paragraph.text.count("\n")
+
+
+def _continues_footnote(
+    found: list[Block], lines: list[str], line: int, env: dict[str, Any]
+) -> bool:
+    """Whether an indented code block opening at ``line`` continues a footnote definition: the
+    nearest line above it that is not blank ends a footnote paragraph - the last block read, or
+    a swallowed definition."""
+    above = line - 1
+    while above >= 0 and not lines[above].strip():
+        above -= 1
+    if above < 0:
+        return False
+    if above in env.get(_SWALLOWED, {}):
+        return True
+    last = found[-1] if found else None
+    return isinstance(last, Paragraph) and last.footnote and _last_line(last) == above
+
+
+def _continuation(content: str, line: int) -> list[Paragraph]:
+    """The footnote paragraphs a definition's continuation draws, read from ``content``, the
+    indented code block CommonMark made of its lines, with the indent gone.
+
+    cmark-gfm reads the lines indented four spaces after a footnote definition as the rest of
+    the definition, blank lines between included, and draws them inside the footnote at the
+    page's foot: `[^1]: first line` over a blank line over `    Autonomy: maintainer decision
+    required` is a footnote of two paragraphs, the second the restriction, while CommonMark
+    reads the indented line as a code block and a caller reading only the first paragraph
+    never saw it (Codex on #462). The lines are read again as the Markdown they are, and
+    every block the foot draws text for comes back as a footnote paragraph at its source
+    line - a paragraph as itself, a heading or a raw HTML block as its text, a list item's
+    paragraph as itself, a table as a paragraph per row. The foot never admits, so nothing is
+    lost in the flattening that a caller could have admitted on; code is literal and a rule
+    draws no text, so neither comes back. A tag opened in a continuation is counted where the
+    definition sits, which can only hide more of the body than the page does.
+    """
+    text = content if content.endswith("\n") else content + "\n"
+    lines = text.split("\n")
+    env: dict[str, Any] = {}
+    tokens = _PARSER.parse(text, env)
+    found: list[Paragraph] = []
+    for block in walk(_document(tokens, lines, env)):
+        if isinstance(block, Paragraph):
+            found.append(block._replace(line=line + block.line, footnote=True))
+        elif isinstance(block, (Heading, Html)):
+            pictured = block.pictured if isinstance(block, Heading) else False
+            found.append(Paragraph(block.text, block.plain, line + block.line, pictured, True))
+        elif isinstance(block, Table):
+            for row in block.rows:
+                drawn = " ".join(cell for cell in row.plain if cell)
+                found.append(Paragraph(" ".join(row.cells), drawn, line + row.line, False, True))
+    return found
 
 
 #: A GitHub footnote definition's label at the start of a source line: cmark-gfm's grammar,
@@ -520,8 +604,11 @@ def _plain(inline: Token) -> str:
 
     Rendered from the children the parser produced, not from the source: a link is its text, the
     markup of emphasis and inline code is gone (the code's content stays - it is shown), an image
-    is its alternative text, a soft or hard break is a space, and the parser has already decoded
-    entities and backslash escapes into the ``text`` children. Inline HTML follows the rule the
+    is its alternative text - the label *rendered*, as cmark-gfm renders it, so
+    ``![**Autonomy:** human review required](x)`` shows the key and not ``**Autonomy:**``,
+    which no key matched (Codex on #462; :func:`_alternative`) - a soft or
+    hard break is a space, and the parser has already decoded entities and backslash escapes
+    into the ``text`` children. Inline HTML follows the rule the
     module-level patterns state, and the children are rendered *together* - the text escaped,
     the inline HTML raw, the whole laid out as :func:`_visible_html` lays out a raw run - so a
     tag's effect on what sits between it and its close is read across the children: an empty
@@ -541,14 +628,35 @@ def _plain(inline: Token) -> str:
         return " ".join(inline.content.split())
     parts: list[str] = []
     for child in inline.children:
-        if child.type in ("text", "code_inline", "image"):
+        if child.type in ("text", "code_inline"):
             parts.append(html.escape(child.content, quote=False))
+        elif child.type == "image":
+            parts.append(html.escape(_alternative(child), quote=False))
         elif child.type in ("softbreak", "hardbreak"):
             parts.append(" ")
         elif child.type == "html_inline":
             parts.append(child.content)
         # Every other child is the open or close of a span - emphasis, a link - and has no text.
     return " ".join(_visible_html("".join(parts)).split())
+
+
+def _alternative(image: Token) -> str:
+    """An image token's alternative text: its label rendered as text, as cmark-gfm renders it
+    into the ``alt`` - text and code as their content, an image inside the label as its own
+    alternative text, a break as a space, markup and inline HTML as nothing. A character
+    reference or a backslash escape inside a label is still a ``text_special`` child here, the
+    parser's joining pass not reaching into a label, and is its character; the parser's own
+    renderer drops those, the code and the nested image (``![b &amp; `c`](f)`` renders
+    ``alt="b   "`` in markdown-it-py 4.2.0), so it is not the oracle for this."""
+    parts: list[str] = []
+    for child in image.children or ():
+        if child.type in ("text", "text_special", "code_inline"):
+            parts.append(child.content)
+        elif child.type == "image":
+            parts.append(_alternative(child))
+        elif child.type in ("softbreak", "hardbreak"):
+            parts.append(" ")
+    return "".join(parts)
 
 
 def _pictured(inline: Token) -> bool:
@@ -626,6 +734,10 @@ def _visible_html(text: str) -> str:
         name = (tag.group("open") or tag.group("close")).lower()
         if name in _DRAWN_TAGS:
             return _DRAWN_TAGS[name]
+        if name == "img" and tag.group("open") is not None:
+            alt = _IMG_ALT.search(tag.group(0))
+            shown = alt and (alt.group("dq") or alt.group("sq") or alt.group("bare") or "")
+            return f" {shown} " if shown else " "
         return " " if name in _SPACED_TAGS else ""
 
     return html.unescape(_HTML_TAG.sub(laid_out, _unstruck(_sanitized(text))))
@@ -721,7 +833,11 @@ def _blocks(
             found.append(Code(token.content, _line(token), True, token.info.strip()))
             at += 1
         elif token.type == "code_block":
-            found.append(Code(token.content, _line(token), False, ""))
+            line = _line(token)
+            if _continues_footnote(found, lines, line, env):
+                found.extend(_continuation(token.content, line))
+            else:
+                found.append(Code(token.content, line, False, ""))
             at += 1
         elif token.type == "html_block":
             text = token.content.rstrip("\n")
