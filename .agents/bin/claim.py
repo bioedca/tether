@@ -954,17 +954,38 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 if lead is not None:
                     leads.append(lead)
                 found.extend(_bullet(item, where, collapsed))
-    # A paragraph keyed like a bullet that is not an item's lead - on its own at the top level,
-    # second in an item, inside a block quote - is a field the page shows all the same, and not
-    # reading it let a restriction written that way sit beside an admitting bullet unseen. It is
-    # a declaration of the `+` bullet's kind: exact-checked, able to refuse, never able to admit.
-    for block in _markdown.walk(source):
-        if isinstance(block, _markdown.Paragraph) and not any(block is lead for lead in leads):
-            keyed = _keyed(_prose(block))
+    # Any other text the page shows keyed like a bullet is a field the page shows all the same,
+    # and not reading it let a restriction written that way sit beside an admitting bullet
+    # unseen: a paragraph that is not an item's lead - on its own at the top level, second in an
+    # item, inside a block quote - and, one shape over each time (Codex on #462), a raw HTML
+    # block showing `Autonomy: maintainer decision required`, a heading carrying its value on
+    # its own line, a table cell. Each is a declaration of the `+` bullet's kind: exact-checked,
+    # able to refuse, never able to admit. A heading that is a key, and a row whose first cell
+    # is, were read above.
+    for leaf in leaves:
+        block = leaf.block
+        if any(block is lead for lead in leads):
+            continue
+        if isinstance(block, _markdown.TableRow):
+            if block.plain and _AUTONOMY_KEY.fullmatch(block.plain[0]):
+                continue
+            texts = [(cell, "table cell") for cell in block.plain]
+        elif isinstance(block, _markdown.Heading):
+            if _AUTONOMY_KEY.fullmatch(_prose(block)):
+                continue
+            texts = [(_prose(block), "heading line")]
+        elif isinstance(block, _markdown.Html):
+            texts = [(block.plain, "raw HTML")]
+        elif isinstance(block, _markdown.Paragraph):
+            texts = [(_prose(block), "paragraph")]
+        else:
+            continue
+        for text, shape in texts:
+            keyed = _keyed(text)
             if keyed is not None:
                 qualifier, value, _ = keyed
                 found.append(
-                    _AutonomyValue(value, f"{where} paragraph", qualifier=qualifier, admits=False)
+                    _AutonomyValue(value, f"{where} {shape}", qualifier=qualifier, admits=False)
                 )
     return found
 
@@ -1167,8 +1188,9 @@ def _autonomy_refusal(body: str) -> str | None:
             shape = declarations[0]
             return (
                 f"declares autonomy {shape.raw.strip()!r} only in a shape that cannot admit "
-                f"({shape.where}: a `+`, indented, nested, quoted or task-list bullet, a keyed "
-                "paragraph that is not a bullet, a table "
+                f"({shape.where}: a `+`, indented, nested, quoted or task-list bullet, a key "
+                "with its value in a paragraph that is not a bullet, in raw HTML, on a heading "
+                "line or in a table cell, a table "
                 "row, a heading whose value is not its own next paragraph, a key or value "
                 "carrying an HTML tag or an image, or anything inside a `<details>` block). "
                 "Write it as a column-zero "
