@@ -671,6 +671,9 @@ def test_a_marker_that_shares_its_line_with_visible_text_is_not_on_its_own_line(
     with the marker. Reading it as the marker discarded the restriction the page shows beside it,
     and an admitting bullet below became the only declaration. A marker block must show nothing;
     one that shows text is a marker where a grooming block cannot start, and refuses the body.
+    Codex on #462 (read of `93ed23d`): nor may it *draw* anything - `<img>` beside the marker,
+    or an empty `<details>` - which renders to no text and was taken for the marker, so a
+    restriction above it was discarded for an admitting bullet below.
     """
     admitting = "- **Autonomy:** agent-can-do-alone\n"
     beside = claim._autonomy_refusal(
@@ -683,6 +686,13 @@ def test_a_marker_that_shares_its_line_with_visible_text_is_not_on_its_own_line(
         admitting + "\n<!-- tether-grooming-v1 --><!-- nothing to report -->\n"
     )
     assert nested is not None and "its grooming block" in nested, nested
+    restrictive = "- **Autonomy:** maintainer decision required\n\n"
+    for drawn in ('<img src="x">', "<details></details>", "<br>", "<b></b>"):
+        beside = claim._autonomy_refusal(
+            f"{restrictive}<!-- tether-grooming-v1 -->{drawn}\n\n{admitting}"
+        )
+        assert beside is not None, f"{drawn!r}: a marker beside something drawn was the marker"
+        assert "cannot start" in beside, f"{drawn!r}: {beside}"
 
 
 def test_a_quoted_attribute_value_does_not_end_a_tag_early() -> None:
@@ -1033,6 +1043,28 @@ def test_a_details_opened_in_running_text_collapses_what_follows_it() -> None:
     # A `</details>` written in a table cell cannot close one opened outside the table.
     cell = claim._autonomy_refusal(f"<details>\n\n| a |\n|---|\n| </details> |\n\n{admitting}")
     assert cell is not None and "only in a shape that cannot admit" in cell, cell
+    # Codex on #462 (read of `93ed23d`): raw HTML has scopes of its own. A `<details>` opened
+    # inside a `<td>`, an `<li>` or a `<div>` is popped by that element's end tag, so it takes
+    # nothing past it; one in a cell that never closes runs to the end, as the parser's does.
+    for scoped in (
+        "<table><tr><td><details>note</td></tr></table>",
+        "<ul><li><details>note</li></ul>",
+        "<div><details>note</div>",
+        "<table><tr><td><details><summary>x</summary>note</table>",
+    ):
+        popped = claim._autonomy_refusal(f"{scoped}\n\n{admitting}")
+        assert popped is None, f"{scoped!r}: {popped}"
+    unclosed = claim._autonomy_refusal(f"<table><tr><td><details>note\n\n{admitting}")
+    assert unclosed is not None and "only in a shape that cannot admit" in unclosed, unclosed
+    # And a `</details>` inside a raw cell cannot close one opened outside the table, while
+    # one inside a raw `<li>` can, a list item being no scope boundary.
+    through = claim._autonomy_refusal(
+        f"<details>\n\n<table><tr><td></details></td></tr></table>\n\n{admitting}"
+    )
+    assert through is not None and "only in a shape that cannot admit" in through, through
+    assert (
+        claim._autonomy_refusal(f"<details>\n\n<ul><li></details></li></ul>\n\n{admitting}") is None
+    )
 
 
 def test_an_empty_bullet_value_is_a_declaration_that_fails_the_exact_check() -> None:
@@ -1187,6 +1219,16 @@ def test_a_qualified_heading_or_row_key_is_a_declaration_that_cannot_admit() -> 
     assert through is not None and "maintainer decision" in through, through
     unread = claim._autonomy_refusal("### Execution autonomy — see below\n\nagent-can-do-alone\n")
     assert unread is not None and "declares no Execution autonomy" in unread, unread
+    # Codex on #462 (read of `93ed23d`): the dash-led qualifier is read for a restriction too,
+    # since `## Execution autonomy — maintainer decision required` carries it in the heading.
+    for carrying in (
+        "## Execution autonomy — maintainer decision required\n\nSee above.\n",
+        "| Execution autonomy — maintainer decision required | see above |\n|---|---|\n",
+        "<h2>Execution autonomy — maintainer decision required</h2><p>See above.</p>\n",
+    ):
+        heading_itself = claim._autonomy_refusal(admitting + carrying)
+        assert heading_itself is not None, f"{carrying!r}: the qualifier was not read"
+        assert "maintainer decision" in heading_itself, f"{carrying!r}: {heading_itself}"
     # A dash later in the qualifier does not make the heading one about the field: the
     # condition before it is the qualifier, and it refuses on it, row and heading alike.
     for later in (
@@ -1198,6 +1240,63 @@ def test_a_qualified_heading_or_row_key_is_a_declaration_that_cannot_admit() -> 
         qualified = claim._autonomy_refusal(admitting + later)
         assert qualified is not None, f"{later!r}: a condition with a dash in it admitted"
         assert "qualifier" in qualified, f"{later!r}: {qualified}"
+
+
+def test_a_bare_key_heads_the_block_the_page_draws_next() -> None:
+    """Codex on #462 (read of `93ed23d`): `<div><h2>Execution autonomy</h2><p>maintainer decision
+    required</p></div>` renders a heading over a restriction, and the raw HTML reader applied
+    only the bullet's grammar, which needs a colon in the same block, so both were unread and
+    an admitting bullet beside them carried the issue. A piece raw HTML draws as a heading is
+    read as a Markdown heading is - a key with any qualifier, the next piece its value; any
+    other piece that is the bare key - `<p>Autonomy</p>`, `<td>Autonomy</td>` - heads the piece
+    after it. The Markdown mirror: `**Execution autonomy**` as a paragraph of its own, or as an
+    item's lead over the item's next paragraph, heads what the page draws next. An item whose
+    lead is raw HTML was skipped as a lead and is read like any other block. Nothing in any of
+    these shapes admits, and prose that merely starts with the word stays prose.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for shape in (
+        "<div><h2>Execution autonomy</h2><p>maintainer decision required</p></div>\n",
+        "<h2>Autonomy:</h2><p>maintainer decision required</p>\n",
+        "<p>Autonomy</p><p>maintainer decision required</p>\n",
+        "<table><tr><td>Autonomy</td><td>maintainer decision required</td></tr></table>\n",
+        "<h2>Execution autonomy after unblock</h2><p>maintainer decision required</p>\n",
+        "**Execution autonomy**\n\nmaintainer decision required\n",
+        "Autonomy\n\nmaintainer decision required\n",
+        "- **Execution autonomy**\n\n  maintainer decision required\n",
+        "- <p><strong>Autonomy:</strong> maintainer decision required</p>\n",
+    ):
+        refusal = claim._autonomy_refusal(admitting + shape)
+        assert refusal is not None, f"{shape!r}: a bare key over a restriction was not read"
+        assert "maintainer decision" in refusal, f"{shape!r}: {refusal}"
+    for shape, named in (
+        ("<h2>Execution autonomy</h2><p>agent-can-do-alone</p>\n", "raw HTML"),
+        ("<p>Autonomy</p><p>agent-can-do-alone</p>\n", "raw HTML"),
+        ("**Execution autonomy**\n\nagent-can-do-alone\n", "bare key"),
+        ("- **Execution autonomy**\n\n  agent-can-do-alone\n", "bare key"),
+    ):
+        alone = claim._autonomy_refusal(shape)
+        assert alone is not None, f"{shape!r}: a bare key's value admitted"
+        assert "only in a shape that cannot admit" in alone and named in alone, alone
+    # A raw HTML heading's qualifier refuses as a Markdown heading's does; the value of a
+    # heading followed by another heading is empty; a bare key at the end heads nothing.
+    qualified = claim._autonomy_refusal(
+        admitting + "<h2>Execution autonomy after unblock</h2><p>agent-can-do-alone</p>\n"
+    )
+    assert qualified is not None and "qualifier 'after unblock'" in qualified, qualified
+    for empty in (
+        "<h2>Execution autonomy</h2><h3>Next</h3><p>agent-can-do-alone</p>\n",
+        "<p>Execution autonomy</p>\n",
+        "**Execution autonomy**\n",
+    ):
+        headless = claim._autonomy_refusal(admitting + empty)
+        assert headless is not None and "not a registered" in headless, f"{empty!r}: {headless}"
+    # The bare key is the key alone: no qualifier, no colon. Prose starting with the word is
+    # prose, and `Autonomy:` alone is the bullet's grammar with an empty value.
+    assert claim._autonomy_refusal(admitting + "Autonomy is discussed above.\n") is None
+    assert claim._autonomy_refusal(admitting + "<p>Autonomy is discussed above.</p>\n") is None
+    colon = claim._autonomy_refusal(admitting + "Autonomy:\n\nmaintainer decision required\n")
+    assert colon is not None and "not a registered" in colon and "paragraph" in colon, colon
 
 
 def test_a_declaration_carrying_an_html_tag_can_refuse_and_never_admit() -> None:

@@ -500,6 +500,17 @@ _AUTONOMY_BULLET = re.compile(
 #: class left `once #123's merged` unread the same way (Codex on #462, twice). How the section
 #: is read turns on the qualifier's shape - see `_PROSE_QUALIFIER`.
 _AUTONOMY_KEY = re.compile(r"(?:execution[ \t]+)?autonomy(?P<qualifier>[^:\n]*?)[ \t]*:?", re.I)
+#: The key alone, as a paragraph of its own - `**Execution autonomy**` over the paragraph that
+#: holds its value - or as a block raw HTML lays out that is not a heading. It heads what the
+#: page draws next, as a heading does, and nothing it heads can admit. No qualifier and no
+#: colon: a paragraph is prose, and `Autonomy is discussed above.` must stay prose, while
+#: `Autonomy:` alone is the bullet's grammar with an empty value and is read as that. The
+#: raw HTML shape was found by Codex on #462 (`<div><h2>Execution autonomy</h2><p>maintainer
+#: decision required</p></div>`, read with the bullet's grammar only, which needs a colon);
+#: the paragraph is its Markdown mirror.
+_BARE_KEY = re.compile(r"(?:execution[ \t]+)?autonomy", re.I)
+#: The blocks raw HTML lays out as headings, read as a Markdown heading is read.
+_HTML_HEADINGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
 #: A qualifier that makes the heading one *about* the field rather than the field qualified: it
 #: **opens** with a dash. `### Execution autonomy — declared in the grooming block` heads a
 #: paragraph of prose on #442, a `status:ready` issue, and reading that paragraph as the field's
@@ -677,7 +688,9 @@ def _scan_only(leaves: list[_Leaf], where: str) -> list[_AutonomyValue]:
             continue
         if isinstance(leaf.block, _markdown.Html):
             # And one per block the raw HTML lays out, for the same reason again.
-            found.extend(_AutonomyValue(piece, where, scan_only=True) for piece in leaf.block.shown)
+            found.extend(
+                _AutonomyValue(piece.text, where, scan_only=True) for piece in leaf.block.shown
+            )
             continue
         text = _prose(leaf.block)
         if text:
@@ -699,9 +712,11 @@ def _is_grooming_marker(block: Any) -> bool:
     marker followed on its own line by `maintainer decision required` is one block that begins
     with the marker, and reading it as the marker discarded the restriction the page shows beside
     it (Codex on #462). A block that shows text is not a marker on its own line, and the misplaced
-    rule refuses it. A marker followed only by other comments shows nothing and is still a marker.
+    rule refuses it. Nor is one that draws something without text - `<img>` beside the marker,
+    an empty `<details>` - which `plain` is empty for and `_drawn` is not (Codex on #462). A
+    marker followed only by other comments draws nothing and is still a marker.
     """
-    if not isinstance(block, _markdown.Html) or block.plain:
+    if not isinstance(block, _markdown.Html) or _drawn(block):
         return False
     return _GROOMING_MARKER.match(block.text.lstrip()) is not None
 
@@ -818,6 +833,22 @@ def _declared_autonomy(body: str) -> list[_AutonomyValue]:
     return _declarations(_markdown.parse(body))
 
 
+#: Raw HTML elements whose end tag pops the stack back to them, closing a `<details>` opened
+#: inside (HTML5 "in body": the end tags that generate implied end tags and pop to their
+#: element; "in table", "in row" and "in cell" for the table ones). `<div>` is one of them -
+#: `</div>` is listed by name - as is every list, table and heading element.
+_HTML_SCOPES = frozenset(
+    {"address", "article", "aside", "blockquote", "button", "caption", "center", "colgroup"}
+    | {"dd", "dialog", "dir", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer"}
+    | {"h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "li", "listing", "main", "menu"}
+    | {"nav", "ol", "pre", "search", "section", "summary", "table", "tbody", "td", "tfoot"}
+    | {"th", "thead", "tr", "ul"}
+)
+#: The scope boundaries among them: a `</details>` written inside one cannot close a
+#: `<details>` opened outside it (HTML5 "has an element in scope").
+_HTML_BOUNDARIES = frozenset({"caption", "table", "td", "th"})
+
+
 def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]:
     """The source-line spans GitHub collapses: from a top-level ``<details>`` to its end.
 
@@ -859,10 +890,45 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
         while opened and opened[-1][0] >= level:
             opened.pop()
 
+    def raw(block: _markdown.Html, level: int) -> None:
+        # Raw HTML has scopes of its own. A `<details>` opened inside a `<td>`, an `<li>`, a
+        # `<div>` or any other `_HTML_SCOPES` element is popped by that element's end tag, and
+        # a `</details>` inside a table cell cannot close one opened outside the cell. Left to
+        # the end of the body, `<td><details>note</td>` collapsed a registered bullet below the
+        # table (Codex on #462). The scope stack is this block's own: whatever is still open
+        # when the block ends is read as top-level, since the parser keeps the scope open
+        # across the blocks that follow and the safe reading of an unclosed cell is that it
+        # collapses to the end. A start tag's implicit close of an open sibling - a second
+        # `<li>` or `<td>` - is not modelled, which can only over-collapse.
+        scopes: list[str] = []
+        first = len(opened)
+        for name, closing in _markdown.tags(block.text):
+            if name == "details":
+                if not closing:
+                    opened.append((level + len(scopes), block.line))
+                    continue
+                bounded = [depth for depth, scope in enumerate(scopes) if scope in _HTML_BOUNDARIES]
+                floor = level + 1 + bounded[-1] if bounded else 0
+                if opened and opened[-1][0] >= floor:
+                    at, start = opened.pop()
+                    if at == 0:
+                        spans.append((start, block.line))
+            elif name not in _HTML_SCOPES:
+                continue
+            elif not closing:
+                scopes.append(name)
+            elif name in scopes:
+                while scopes:
+                    popped = scopes.pop()
+                    leave(level + len(scopes) + 1)
+                    if popped == name:
+                        break
+        opened[first:] = [(level, line) for _, line in opened[first:]]
+
     def run(blocks: tuple[_markdown.Block, ...], level: int) -> None:
         for block in blocks:
             if isinstance(block, _markdown.Html):
-                read(_markdown.tags(block.text), level, block.line)
+                raw(block, level)
             elif isinstance(block, _markdown.Paragraph):
                 read(_markdown.inline_tags(block.text), level, block.line)
             elif isinstance(block, _markdown.Heading):
@@ -904,8 +970,12 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
         )
         if key is not None and _PROSE_QUALIFIER.match(key.group("qualifier")):
             # A heading about the field: what it heads is read for a restriction and is not
-            # the field's value, so nothing here can admit and nothing is exact-checked.
-            found.extend(_scan_only(_section(leaves, index), f"{where} heading about the field"))
+            # the field's value, so nothing here can admit and nothing is exact-checked. The
+            # qualifier is read the same way, since `## Execution autonomy - maintainer decision
+            # required` carries the restriction in the heading itself (Codex on #462).
+            about = f"{where} heading about the field"
+            found.append(_AutonomyValue(key.group("qualifier").strip(), about, scan_only=True))
+            found.extend(_scan_only(_section(leaves, index), about))
         elif key is not None:
             qualifier = _normalize_autonomy(key.group("qualifier"))
             section = _section(leaves, index)
@@ -948,10 +1018,10 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
         elif isinstance(block, _markdown.TableRow):
             key = _AUTONOMY_KEY.fullmatch(block.plain[0]) if block.plain else None
             if key is not None and _PROSE_QUALIFIER.match(key.group("qualifier")):
+                about = f"{where} table row about the field"
+                found.append(_AutonomyValue(key.group("qualifier").strip(), about, scan_only=True))
                 found.extend(
-                    _AutonomyValue(cell, f"{where} table row about the field", scan_only=True)
-                    for cell in block.plain[1:]
-                    if cell
+                    _AutonomyValue(cell, about, scan_only=True) for cell in block.plain[1:] if cell
                 )
             elif key is not None:
                 # A row keyed `autonomy` is a declaration that cannot admit: its second cell
@@ -976,12 +1046,16 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                     for cell in cells[1:]
                     if cell
                 )
+    # The leads `_bullet` read, so the pass below does not read them twice. Only a paragraph
+    # lead keyed like a bullet is one: a lead that is raw HTML, or a bare key over the item's
+    # next paragraph, is not the bullet's declaration and was skipped here unread, so it is read
+    # below like any other block the page shows (Codex on #462).
     leads: list[Any] = []
     for block in _markdown.walk(source):
         if isinstance(block, _markdown.ListBlock):
             for item in block.items:
                 lead = _lead(item)
-                if lead is not None:
+                if isinstance(lead, _markdown.Paragraph) and _keyed(_prose(lead)) is not None:
                     leads.append(lead)
                 found.extend(_bullet(item, where, collapsed))
     # Any other text the page shows keyed like a bullet is a field the page shows all the same,
@@ -996,8 +1070,10 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
     # page, and matching the key against the run joined read past the restriction in the
     # second (Codex on #462). What follows a keyed block in the same run is its remainder,
     # scan-only, as a row's further cells are - `<td>Autonomy:</td><td>maintainer decision
-    # required</td>` is an empty value and then the restriction, and both are read.
-    for leaf in leaves:
+    # required</td>` is an empty value and then the restriction, and both are read. And the
+    # key alone - `**Execution autonomy**` as a paragraph, over the paragraph that holds its
+    # value - heads what the page draws next, as a heading does (`_BARE_KEY`).
+    for index, leaf in enumerate(leaves):
         block = leaf.block
         if any(block is lead for lead in leads):
             continue
@@ -1010,23 +1086,15 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 continue
             texts = [(_prose(block), "heading line")]
         elif isinstance(block, _markdown.Html):
-            keyed_yet = False
-            for piece in block.shown:
-                keyed = _keyed(piece)
-                if keyed is not None:
-                    qualifier, value, _ = keyed
-                    found.append(
-                        _AutonomyValue(
-                            value, f"{where} raw HTML", qualifier=qualifier, admits=False
-                        )
-                    )
-                    keyed_yet = True
-                elif keyed_yet:
-                    found.append(
-                        _AutonomyValue(piece, f"{where} raw HTML remainder", scan_only=True)
-                    )
+            found.extend(_raw_html(block, where))
             continue
         elif isinstance(block, _markdown.Paragraph):
+            if _BARE_KEY.fullmatch(_prose(block)):
+                section = _section(leaves, index)
+                value = _prose(section[0].block) if section else ""
+                found.append(_AutonomyValue(value, f"{where} bare key", admits=False))
+                found.extend(_scan_only(section[1:], f"{where} bare key remainder"))
+                continue
             texts = [(_prose(block), "paragraph")]
         else:
             continue
@@ -1037,6 +1105,57 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 found.append(
                     _AutonomyValue(value, f"{where} {shape}", qualifier=qualifier, admits=False)
                 )
+    return found
+
+
+def _raw_html(block: _markdown.Html, where: str) -> list[_AutonomyValue]:
+    """``block`` read one rendered block at a time, as the page lays it out; nothing here admits.
+
+    A piece the page draws as a heading is read as a Markdown heading is: a key with whatever
+    qualifier it carries, the piece after it its value unless that is a heading too, and a
+    dash-led qualifier prose about the field, scanned itself. Any other piece keyed like a
+    bullet is a declaration, and a bare key - `<p>Autonomy</p>`, `<td>Autonomy</td>` - heads
+    the piece after it as a bare paragraph does. Every piece after a key that is not a key is
+    scan-only remainder, as a row's further cells are. `<div><h2>Execution autonomy</h2>
+    <p>maintainer decision required</p></div>` was read with the bullet's grammar only, which
+    needs a colon, so the heading and the restriction under it were both unread (Codex on
+    #462).
+    """
+    found: list[_AutonomyValue] = []
+    pieces = block.shown
+    shape = f"{where} raw HTML"
+    at = 0
+    keyed_yet = False
+    while at < len(pieces):
+        piece = pieces[at]
+        at += 1
+        heading = piece.tag in _HTML_HEADINGS
+        key = (_AUTONOMY_KEY if heading else _BARE_KEY).fullmatch(piece.text)
+        if key is not None:
+            keyed_yet = True
+            qualifier = key.group("qualifier") if heading else ""
+            if _PROSE_QUALIFIER.match(qualifier):
+                found.append(
+                    _AutonomyValue(
+                        qualifier.strip(), f"{shape} heading about the field", scan_only=True
+                    )
+                )
+                continue
+            value = ""
+            if at < len(pieces) and pieces[at].tag not in _HTML_HEADINGS:
+                value = pieces[at].text
+                at += 1
+            found.append(
+                _AutonomyValue(value, shape, qualifier=_normalize_autonomy(qualifier), admits=False)
+            )
+            continue
+        keyed = _keyed(piece.text)
+        if keyed is not None:
+            keyed_yet = True
+            qualifier, value, _ = keyed
+            found.append(_AutonomyValue(value, shape, qualifier=qualifier, admits=False))
+        elif keyed_yet:
+            found.append(_AutonomyValue(piece.text, f"{shape} remainder", scan_only=True))
     return found
 
 
@@ -1198,8 +1317,9 @@ def _autonomy_refusal(body: str) -> str | None:
     if _misplaced_marker(document if groomed is None else groomed):
         return (
             "carries a tether-grooming-v1 marker inside a paragraph, list item, block quote or "
-            "other raw HTML, or beside text on its own line, where a grooming block cannot start, "
-            "so what it supersedes cannot be read. Put the marker on its own top-level line, with "
+            "other raw HTML, or beside anything drawn on its own line, where a grooming block "
+            "cannot start, so what it supersedes cannot be read. Put the marker on its own "
+            "top-level line, with "
             "nothing else on it, above the groomed text"
         )
     values = _declarations(document)
@@ -1252,7 +1372,7 @@ def _autonomy_refusal(body: str) -> str | None:
                 f"declares autonomy {shape.raw.strip()!r} only in a shape that cannot admit "
                 f"({shape.where}: a `+`, indented, nested, quoted or task-list bullet, a key "
                 "with its value in a paragraph that is not a bullet, in raw HTML, on a heading "
-                "line or in a table cell, a table "
+                "line or in a table cell, a key alone over the block below it, a table "
                 "row, a heading whose value is not its own next paragraph, a key or value "
                 "carrying an HTML tag or an image, or anything inside a `<details>` block). "
                 "Write it as a column-zero "

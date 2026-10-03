@@ -67,6 +67,7 @@ __all__ = [
     "MarkdownStructureError",
     "Paragraph",
     "Rule",
+    "Shown",
     "Table",
     "TableRow",
     "has_tag",
@@ -219,22 +220,33 @@ class Code(NamedTuple):
     info: str
 
 
+class Shown(NamedTuple):
+    """One block the page lays out from a raw HTML run: its rendered ``text`` and the lower-cased
+    name of the ``tag`` that opened it - ``h2`` for a heading, ``p``, ``td``, ``li`` - or the
+    empty string for text that no tag opened, such as text after a closing tag. A caller reads
+    a heading as it reads a Markdown heading and anything else as a paragraph (Codex on #462).
+    """
+
+    text: str
+    tag: str
+
+
 class Html(NamedTuple):
     """A block-level run of raw HTML, which is how an HTML comment on its own lines arrives.
 
-    ``shown`` is the text GitHub shows inside it, one string per block the page lays out: a
-    ``<div>`` holding two ``<p>`` is one Markdown block and two rendered paragraphs, and a caller
-    matching a key against the whole run read ``Notes Autonomy: ...`` where the page shows
-    ``Notes`` over ``Autonomy: ...`` (Codex on #462). Every tag that is not phrasing splits, bar
-    the two that draw inside a block - ``<br>`` and ``<img>`` - so a run is never joined across
-    a boundary the page draws, and a comment block shows nothing. ``plain`` is the same text as
-    one string, which is what a caller reading for a token wants.
+    ``shown`` is the text GitHub shows inside it, one :class:`Shown` per block the page lays
+    out: a ``<div>`` holding two ``<p>`` is one Markdown block and two rendered paragraphs, and
+    a caller matching a key against the whole run read ``Notes Autonomy: ...`` where the page
+    shows ``Notes`` over ``Autonomy: ...`` (Codex on #462). Every tag that is not phrasing
+    splits, bar the two that draw inside a block - ``<br>`` and ``<img>`` - so a run is never
+    joined across a boundary the page draws, and a comment block shows nothing. ``plain`` is
+    the same text as one string, which is what a caller reading for a token wants.
     """
 
     text: str
     plain: str
     line: int
-    shown: tuple[str, ...]
+    shown: tuple[Shown, ...]
 
 
 class Rule(NamedTuple):
@@ -428,28 +440,30 @@ def _visible_html(text: str) -> str:
 _INSIDE_TAGS = frozenset({"br", "img"})
 
 
-def _shown_html(text: str) -> tuple[str, ...]:
-    """Raw HTML as GitHub lays it out, one string per block it draws, empties dropped.
+def _shown_html(text: str) -> tuple[Shown, ...]:
+    """Raw HTML as GitHub lays it out, one :class:`Shown` per block it draws, empties dropped.
 
     The run is cut at every tag that is neither phrasing nor one of ``_INSIDE_TAGS``, each
-    piece then rendered as :func:`_visible_html` renders the whole. Cutting at a tag the page
-    draws inside a block would only split a run the page shows whole - a caller reading a key
-    off a piece then reads an empty value, which fails closed - while *not* cutting at one the
-    page draws as a boundary joins two blocks into text the page never shows, which is the
-    direction that admitted (Codex on #462). So the rule errs toward cutting.
+    piece then rendered as :func:`_visible_html` renders the whole and named for the opening
+    tag it follows. Cutting at a tag the page draws inside a block would only split a run the
+    page shows whole - a caller reading a key off a piece then reads an empty value, which
+    fails closed - while *not* cutting at one the page draws as a boundary joins two blocks
+    into text the page never shows, which is the direction that admitted (Codex on #462). So
+    the rule errs toward cutting.
     """
     stripped = _HTML_COMMENT.sub("", text)
-    pieces: list[str] = []
-    at = 0
+    pieces: list[tuple[str, str]] = []
+    at, opener = 0, ""
     for tag in _HTML_TAG.finditer(stripped):
         name = (tag.group("open") or tag.group("close")).lower()
         if name in _PHRASING_TAGS or name in _DRAWN_TAGS or name in _INSIDE_TAGS:
             continue
-        pieces.append(stripped[at : tag.start()])
+        pieces.append((stripped[at : tag.start()], opener))
         at = tag.end()
-    pieces.append(stripped[at:])
-    shown = (" ".join(_visible_html(piece).split()) for piece in pieces)
-    return tuple(piece for piece in shown if piece)
+        opener = "" if tag.group("close") is not None else name
+    pieces.append((stripped[at:], opener))
+    shown = ((" ".join(_visible_html(piece).split()), opener) for piece, opener in pieces)
+    return tuple(Shown(piece, opener) for piece, opener in shown if piece)
 
 
 def _line(token: Token) -> int:
@@ -510,7 +524,7 @@ def _blocks(
         elif token.type == "html_block":
             text = token.content.rstrip("\n")
             shown = _shown_html(text)
-            found.append(Html(text, " ".join(shown), _line(token), shown))
+            found.append(Html(text, " ".join(piece.text for piece in shown), _line(token), shown))
             at += 1
         elif token.type == "hr":
             found.append(Rule(_line(token)))
