@@ -527,7 +527,9 @@ def test_inline_html_is_invisible_to_the_key_as_it_is_on_the_page() -> None:
     inline comment in the paragraph's text, so the key never matched and the bullet was not read.
     Keys are now matched on the rendered text: a comment leaves nothing behind, as on the page,
     and a tag leaves a space - `<b>Autonomy:</b>` is the key, and `maintainer</li><li>decision`
-    is still two words. Prose that merely looks like a tag is prose.
+    is still two words. Prose that merely looks like a tag is prose. A tag is read so that a
+    restriction dressed in one is found; since the read of `434dfff` it is never the reason an
+    issue is claimed, so the admitting shapes below are shapes that cannot admit.
     """
     marker = "<!-- tether-grooming-v1 -->"
     split = f"{marker}\n- **Auto<!-- note -->nomy:** maintainer decision required\n"
@@ -541,7 +543,8 @@ def test_inline_html_is_invisible_to_the_key_as_it_is_on_the_page() -> None:
         "- <b>Autonomy:</b> maintainer decision required\n" + admitting
     )
     assert tagged is not None and "maintainer decision" in tagged, tagged
-    assert claim._autonomy_refusal("- **Autonomy:** <b>agent-can-do-alone</b>\n") is None
+    in_tag = claim._autonomy_refusal("- **Autonomy:** <b>agent-can-do-alone</b>\n")
+    assert in_tag is not None and "only in a shape that cannot admit" in in_tag, in_tag
 
     # Greptile on #462 (read of `4b61fb0`): a phrasing tag *inside* the key was read as a space,
     # so `Auto<b>nomy</b>:` was two words, not the key, and the restriction beside it was dropped.
@@ -551,7 +554,8 @@ def test_inline_html_is_invisible_to_the_key_as_it_is_on_the_page() -> None:
     )
     assert split_by_tag is not None, "a key split by a phrasing tag was not read - fail-open"
     assert "human review required" in split_by_tag and "bullet" in split_by_tag, split_by_tag
-    assert claim._autonomy_refusal("- **Auto<b>nomy</b>:** agent-can-do-alone\n") is None
+    key_in_tag = claim._autonomy_refusal("- **Auto<b>nomy</b>:** agent-can-do-alone\n")
+    assert key_in_tag is not None and "HTML tag" in key_in_tag, key_in_tag
 
     # A comment in the value is hidden on the page and hidden here; a token the page shows across
     # a tag boundary is still a token; `<` in prose is not a tag.
@@ -768,6 +772,129 @@ def test_raw_html_is_read_as_the_page_draws_it_in_three_more_ways() -> None:
             admitting + f"- **Autonomy:** <{tag}>maintainer decision required</{tag}>\n"
         )
         assert restrictive is not None and "maintainer decision" in restrictive, restrictive
+
+
+def test_a_markup_character_the_page_shows_is_part_of_the_value() -> None:
+    """Codex on #462 (read of `434dfff`): `agent\\*-can-do-alone` renders as `agent*-can-do-alone`,
+    a star the page shows, yet the exact check still stripped `*` as emphasis and admitted it.
+    The parser removes the markup that is markup; nothing is stripped after rendering, so a
+    character that survives rendering is compared as the reader sees it.
+    """
+    for value in ("agent\\*-can-do-alone", "`agent-can-do-alone`\\*", "agent-can-do-alone\\`"):
+        refusal = claim._autonomy_refusal(f"- **Autonomy:** {value}\n")
+        assert refusal is not None, f"{value!r}: a shown markup character was stripped - fail-open"
+        assert "not a registered" in refusal, f"{value!r}: {refusal}"
+    # Markup that is markup is still gone: these are the corpus's own spellings. An underscore
+    # is a separator the flattener widens, not markup, so `agent_can_do_alone` admits by design.
+    assert claim._autonomy_refusal("- **Autonomy:** `agent-can-do-alone`.\n") is None
+    assert claim._autonomy_refusal("- **Autonomy:** _agent-can-do-alone_\n") is None
+    assert claim._autonomy_refusal("- **Autonomy:** agent_can_do_alone\n") is None
+
+
+def test_a_key_admits_one_colon_and_never_two() -> None:
+    """Codex on #462 (read of `434dfff`): `## Execution autonomy::` matched a key pattern with two
+    independent optional colons and admitted the heading under it. One colon is tolerated, since
+    `## Autonomy:` is a heading the corpus writes; a second is not the key, so the body is silent.
+    """
+    assert claim._autonomy_refusal("## Autonomy:\n\nagent-can-do-alone\n") is None
+    for body in (
+        "## Execution autonomy::\n\nagent-can-do-alone\n",
+        "## Autonomy: :\n\nagent-can-do-alone\n",
+    ):
+        refusal = claim._autonomy_refusal(body)
+        assert refusal is not None, "a doubled colon was still the key - fail-open"
+        assert "declares no Execution autonomy" in refusal, refusal
+    # A bullet's second colon is the start of its value, which is then not registered.
+    doubled = claim._autonomy_refusal("- **Autonomy::** agent-can-do-alone\n")
+    assert doubled is not None and "not a registered" in doubled, doubled
+
+
+def test_scan_only_table_cells_are_scanned_one_at_a_time() -> None:
+    """Codex on #462 (read of `434dfff`): a row in the remainder of an admitting heading's section
+    had its cells joined before the token scan, so `| human | action items |` read as
+    `human action` where nobody wrote it and refused a registered declaration - the block-boundary
+    defect again, one level down. A cell is scanned on its own; a token inside one still governs.
+    """
+    heading = "## Execution autonomy\n\nagent-can-do-alone\n\n"
+    split = claim._autonomy_refusal(heading + "| a | b |\n|---|---|\n| human | action items |\n")
+    assert split is None, split
+    whole = claim._autonomy_refusal(heading + "| a | b |\n|---|---|\n| x | human action items |\n")
+    assert whole is not None and "human action" in whole, whole
+
+
+def test_a_misplaced_marker_above_the_latest_grooming_block_is_superseded_with_the_rest() -> None:
+    """Codex on #462 (read of `434dfff`): a stale paragraph quoting the marker inline, above a
+    later marker on its own line, refused a correctly re-groomed issue, because the misplaced
+    check ran over the whole document rather than the authoritative source. The latest block
+    supersedes everything above it, that paragraph included; inside the latest block a misplaced
+    marker still refuses.
+    """
+    marker = "<!-- tether-grooming-v1 -->"
+    superseded = claim._autonomy_refusal(
+        f"Example: {marker}\n\n{marker}\n- **Autonomy:** agent-can-do-alone\n"
+    )
+    assert superseded is None, superseded
+    inside = claim._autonomy_refusal(
+        f"{marker}\n- **Autonomy:** agent-can-do-alone\n\n> {marker}\n> - **Status:** ready\n"
+    )
+    assert inside is not None and "grooming block cannot start" in inside, inside
+    # With no grooming block at all the whole body is the source, as before.
+    bare = claim._autonomy_refusal(f"Example: {marker}\n\n- **Autonomy:** agent-can-do-alone\n")
+    assert bare is not None and "grooming block cannot start" in bare, bare
+
+
+def test_nothing_inside_a_details_block_can_admit() -> None:
+    """Codex on #462 (read of `434dfff`): a bullet between `<details>` and `</details>` is a
+    top-level Markdown list on the parse and collapsed on the page, and it admitted. The lines
+    between a `<details>` and its `</details>` are read for restrictions and may not admit;
+    an unclosed `<details>` collapses the rest of the body.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    collapsed = f"<details>\n<summary>more</summary>\n\n{admitting}\n</details>\n"
+    hidden = claim._autonomy_refusal(collapsed)
+    assert hidden is not None, "a declaration inside <details> admitted - fail-open"
+    assert "only in a shape that cannot admit" in hidden and "details" in hidden, hidden
+    unclosed = claim._autonomy_refusal(f"<details>\n\n{admitting}")
+    assert unclosed is not None and "only in a shape that cannot admit" in unclosed, unclosed
+    heading = claim._autonomy_refusal(
+        "<details>\n\n## Execution autonomy\n\nagent-can-do-alone\n\n</details>\n"
+    )
+    assert heading is not None and "only in a shape that cannot admit" in heading, heading
+    # Read, not ignored: a restriction inside still governs, and a declaration after the block
+    # closes is on the page again.
+    restrictive = claim._autonomy_refusal(
+        admitting + "\n<details>\n\n- **Autonomy:** maintainer decision required\n\n</details>\n"
+    )
+    assert restrictive is not None and "maintainer decision" in restrictive, restrictive
+    after = claim._autonomy_refusal("<details>\n<summary>x</summary>\n</details>\n\n" + admitting)
+    assert after is None, after
+
+
+def test_a_declaration_carrying_an_html_tag_can_refuse_and_never_admit() -> None:
+    """Six reads in a row found a tag the rendering drew differently from the page - `<b>` as a
+    space, `<q>` as nothing, `<del>` as nothing, `<wbr>` as a space - and each time the error ran
+    towards admitting a defaced key or a retracted value. The rendering stays, to find a
+    restriction however it is dressed; a key or value whose source carries a tag is no longer a
+    shape that can admit, so the next tag the approximation draws wrongly can only over-refuse.
+    """
+    for shape in (
+        "- **Autonomy:** <b>agent-can-do-alone</b>\n",
+        "- **Auto<wbr>nomy:** agent-can-do-alone\n",
+        "- <span>**Autonomy:**</span> agent-can-do-alone\n",
+        "## Execution <i>autonomy</i>\n\nagent-can-do-alone\n",
+        "## Execution autonomy\n\n<kbd>agent-can-do-alone</kbd>\n",
+    ):
+        refusal = claim._autonomy_refusal(shape)
+        assert refusal is not None, f"{shape!r}: a tagged declaration admitted"
+        assert "HTML tag" in refusal, f"{shape!r}: {refusal}"
+    # A comment is not a tag, and the plain shapes are untouched.
+    assert claim._autonomy_refusal("- **Autonomy:** agent-can-do-alone <!-- ok -->\n") is None
+    assert claim._autonomy_refusal("## Execution autonomy\n\nagent-can-do-alone\n") is None
+    # The restriction is still found through the tag, as every earlier case pins.
+    through = claim._autonomy_refusal(
+        "- **Autonomy:** agent-can-do-alone\n- <b>Autonomy:</b> maintainer decision required\n"
+    )
+    assert through is not None and "maintainer decision" in through, through
 
 
 def test_autonomy_refusals_distinguish_absent_restricted_and_unregistered_values() -> None:

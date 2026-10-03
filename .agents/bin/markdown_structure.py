@@ -69,6 +69,7 @@ __all__ = [
     "Rule",
     "Table",
     "TableRow",
+    "has_tag",
     "parse",
     "walk",
 ]
@@ -340,6 +341,17 @@ def _plain(inline: Token) -> str:
             parts.append(_visible_html(child.content))
         # Every other child is the open or close of a span - emphasis, a link - and has no text.
     return " ".join("".join(parts).split())
+
+
+def has_tag(text: str) -> bool:
+    """Whether ``text`` - a block's source ``text`` - carries an HTML tag, by the grammar above.
+
+    A comment is not a tag: it draws nothing and a caller has its own reasons to look for one. A
+    caller that admits only plain Markdown asks this of a declaration's source, because every
+    rendering rule above is an approximation of a browser and the one direction that approximation
+    must never err in is the admitting one (Codex on #462, repeatedly).
+    """
+    return _HTML_TAG.search(_HTML_COMMENT.sub("", text)) is not None
 
 
 def _visible_html(text: str) -> str:
