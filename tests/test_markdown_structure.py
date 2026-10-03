@@ -711,13 +711,26 @@ def test_a_footnote_continuation_is_more_footnote_paragraphs():
     # Codex on #462 (read of `22b148b`): a block the foot draws with no text - a rule, a code
     # block, a raw piece showing nothing - keeps its place as an empty footnote paragraph, so
     # a bare key above it heads the rule and not the value below, as it would in the body.
-    for empty in ("<hr>", "---", "    code", "<div></div>"):
+    for empty in ("<hr>", "---", "    code", "<div></div>", "-", "> <!-- c -->", "- <!-- c -->"):
         doc = md.parse(f"[^1]: Autonomy\n\n    {empty}\n\n    agent-can-do-alone\n")
         assert [(block.plain, block.note) for block in doc] == [
             ("Autonomy", 0),
             ("", 0),
             ("agent-can-do-alone", 0),
         ], empty
+    # An item or a quote that draws nothing stands in for itself, as it does in the body; one
+    # that draws does not, and a list draws a bullet per item.
+    doc = md.parse("[^1]: Autonomy\n\n    - <!-- c -->\n    - agent-can-do-alone\n")
+    assert [(block.plain, block.line) for block in doc] == [
+        ("Autonomy", 0),
+        ("", 2),
+        ("agent-can-do-alone", 3),
+    ]
+    doc = md.parse("[^1]: Autonomy\n\n    > agent-can-do-alone\n")
+    assert [block.plain for block in doc] == ["Autonomy", "agent-can-do-alone"]
+    assert md.draws(md.Paragraph("<!-- c -->", "", 0)) is False
+    assert md.draws(md.Paragraph("![](x)", "", 0, pictured=True)) is True
+    assert md.draws(md.Rule(0)) is True
 
 
 def test_an_images_alternative_text_is_its_label_rendered():

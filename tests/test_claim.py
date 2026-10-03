@@ -1513,11 +1513,17 @@ def test_a_block_the_foot_draws_with_no_text_keeps_its_place() -> None:
     key headed the registered value and an admitting bullet beside it carried the issue.
     """
     admitting = "- **Autonomy:** agent-can-do-alone\n\nSee[^1].\n\n"
-    for empty in ("<hr>", "---", "    code", "<div></div>"):
+    for empty in ("<hr>", "---", "    code", "<div></div>", "-", "> <!-- c -->", "- <!-- c -->"):
         read = claim._autonomy_refusal(
             f"{admitting}[^1]: Autonomy\n\n    {empty}\n\n    agent-can-do-alone\n"
         )
         assert read is not None and "declares autonomy ''" in read, (empty, read)
+    # The mirror of the list's bullet per item, at the foot (the endpoint draws `<li></li>`
+    # over `<li>agent-can-do-alone</li>` inside the footnote).
+    read = claim._autonomy_refusal(
+        f"{admitting}[^1]: Autonomy\n\n    - <!-- c -->\n    - agent-can-do-alone\n"
+    )
+    assert read is not None and "declares autonomy ''" in read, read
     # Control: with nothing between, the key heads the value, and the foot cannot admit.
     assert claim._autonomy_refusal(f"{admitting}[^1]: Autonomy\n\n    agent-can-do-alone\n") is None
     alone = claim._autonomy_refusal("See[^1].\n\n[^1]: Autonomy\n\n    agent-can-do-alone\n")

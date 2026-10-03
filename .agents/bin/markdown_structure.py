@@ -495,36 +495,50 @@ def _continuation(content: str, line: int, note: int) -> list[Paragraph]:
     which is literal, a raw block's piece that shows nothing - comes back as an empty footnote
     paragraph, so that it keeps its place: `[^1]: Autonomy` over an indented `<hr>` over
     `agent-can-do-alone` is a bare key heading a rule on the page, as it is in the body, and
-    with the rule dropped the key headed the value (Codex on #462). The foot never admits, so
-    nothing is lost in the flattening that a caller could have admitted on. A raw piece comes
-    back as its rendered text, tags gone, and a paragraph with its source: a caller counting
-    disclosures reads neither, since a tag in a footnote is drawn at the foot and opens or
-    closes nothing of the body. A definition nested in the continuation keeps a note of its
-    own.
+    with the rule dropped the key headed the value (Codex on #462). So does a list item or a
+    block quote none of whose blocks :func:`draws`: the page draws the bullet and the bar
+    whatever they hold, and `- <!-- c -->` under the key is an empty bullet over the value, as
+    it is in the body. The foot never admits, so nothing is lost in the flattening that a
+    caller could have admitted on. A raw piece comes back as its rendered text, tags gone, and
+    a paragraph with its source: a caller counting disclosures reads neither, since a tag in a
+    footnote is drawn at the foot and opens or closes nothing of the body. A definition nested
+    in the continuation keeps a note of its own.
     """
     text = content if content.endswith("\n") else content + "\n"
     lines = text.split("\n")
     env: dict[str, Any] = {}
     tokens = _PARSER.parse(text, env)
-    found: list[Paragraph] = []
-    for block in walk(_document(tokens, lines, env)):
-        if isinstance(block, Paragraph):
-            own = note if block.note is None else line + block.note
-            found.append(block._replace(line=line + block.line, note=own))
-        elif isinstance(block, Heading):
-            found.append(
-                Paragraph(block.text, block.plain, line + block.line, block.pictured, note)
-            )
-        elif isinstance(block, Html):
-            for piece in block.shown:
-                found.append(Paragraph(piece.text, piece.text, line + block.line, False, note))
-        elif isinstance(block, Table):
-            for row in block.rows:
-                drawn = " ".join(cell for cell in row.plain if cell)
-                found.append(Paragraph(" ".join(row.cells), drawn, line + row.line, False, note))
-        elif isinstance(block, (Rule, Code)):
-            found.append(Paragraph("", "", line + block.line, False, note))
-    return found
+
+    def empty(at: int) -> Paragraph:
+        return Paragraph("", "", line + at, False, note)
+
+    def pieces(blocks: tuple[Block, ...]) -> Iterator[Paragraph]:
+        for block in blocks:
+            if isinstance(block, Paragraph):
+                own = note if block.note is None else line + block.note
+                yield block._replace(line=line + block.line, note=own)
+            elif isinstance(block, Heading):
+                yield Paragraph(block.text, block.plain, line + block.line, block.pictured, note)
+            elif isinstance(block, Html):
+                for piece in block.shown:
+                    yield Paragraph(piece.text, piece.text, line + block.line, False, note)
+            elif isinstance(block, Table):
+                for row in block.rows:
+                    drawn = " ".join(cell for cell in row.plain if cell)
+                    yield Paragraph(" ".join(row.cells), drawn, line + row.line, False, note)
+            elif isinstance(block, (Rule, Code)):
+                yield empty(block.line)
+            elif isinstance(block, ListBlock):
+                for item in block.items:
+                    if not any(draws(inner) for inner in item.blocks):
+                        yield empty(item.line)
+                    yield from pieces(item.blocks)
+            elif isinstance(block, BlockQuote):
+                if not any(draws(inner) for inner in block.blocks):
+                    yield empty(block.line)
+                yield from pieces(block.blocks)
+
+    return list(pieces(_document(tokens, lines, env)))
 
 
 #: A GitHub footnote definition's label at the start of a source line: cmark-gfm's grammar,
@@ -766,6 +780,25 @@ def inline_tags(text: str) -> Iterator[tuple[str, bool]]:
     The chunks are read as one run, as :func:`_plain` renders them.
     """
     yield from tags("".join(inline_html(text)))
+
+
+def draws(block: Block) -> bool:
+    """Whether the page draws anything for ``block``.
+
+    Prose is drawn, and so is what shows no prose: a picture with no alternative text, a raw
+    HTML block whose tags draw a widget or a picture, a code block, a rule, a table, and a
+    container - a list, a block quote - whatever it holds, since the page draws the bullet and
+    the bar. Only a block the page shows nothing for - a comment on its own lines, a paragraph
+    that renders to nothing and carries neither a picture nor a tag - is not. A tag counts as
+    drawn whatever the rendering made of it, for the reason :func:`has_tag` gives: the
+    approximation may not err in the admitting direction. claim.py's ``_drawn`` is this at the
+    leaf level, where a table row and a list's item are leaves too.
+    """
+    if isinstance(block, (Paragraph, Heading)):
+        return bool(block.plain) or block.pictured or has_tag(block.text)
+    if isinstance(block, Html):
+        return bool(block.plain) or has_tag(block.text)
+    return True
 
 
 def has_tag(text: str) -> bool:

@@ -1385,29 +1385,18 @@ def _drawn(block: Any) -> bool:
     block the page shows nothing for - a comment on its own lines, a paragraph that renders to
     nothing and carries neither a picture nor a tag - is not. A tag counts as drawn whatever
     the rendering made of it, for the reason `_plain_markdown` gives: the approximation may
-    not err in the admitting direction. The distinction matters in two places. A heading's
+    not err in the admitting direction. The rule is the parser's ``draws``, one definition for
+    the body and for a footnote's continuation, which stands an undrawn item or quote in for
+    itself as `_flat` does. The distinction matters in two places. A heading's
     value is the first thing the page draws below it, and selecting the first *prose* leaf
     instead let `![](x.png)` or a `<details>` opening tag sit between the heading and the
     paragraph that then admitted as its own next paragraph; and an item's lead is its first
     drawn block, and a lead that skipped a nested list let the paragraph under that list
     admit as the item's own text (Codex on #462).
     """
-    if isinstance(block, (_markdown.Paragraph, _markdown.Heading)):
-        return bool(block.plain) or block.pictured or _markdown.has_tag(block.text)
-    if isinstance(block, _markdown.Html):
-        return bool(block.plain) or _markdown.has_tag(block.text)
-    return isinstance(
-        block,
-        (
-            _markdown.TableRow,
-            _markdown.Code,
-            _markdown.Rule,
-            _markdown.ListBlock,
-            _markdown.ListItem,
-            _markdown.BlockQuote,
-            _markdown.Table,
-        ),
-    )
+    if isinstance(block, (_markdown.TableRow, _markdown.ListItem)):
+        return True
+    return _markdown.draws(block)
 
 
 def _section(leaves: list[_Leaf], index: int) -> list[_Leaf]:
