@@ -2063,6 +2063,45 @@ def test_a_key_in_other_than_the_registered_spelling_is_read_and_never_admits() 
     assert claim._defaced("~~Autonomy~~") and not claim._defaced("Execution autonomy: x")
 
 
+def test_a_default_ignorable_character_in_a_key_is_read_through_and_never_admits() -> None:
+    """Codex on #462 (read of `fcbd6f6`): `- Auto\u034fnomy: human review required` - a
+    combining grapheme joiner, category ``Mn`` - shows the key over a restriction the page
+    draws nothing of the joiner for, and the filter on ``Cf`` alone kept it, matched no
+    key, and left the restriction unread - `human review required` is no scan-only token -
+    beside an admitting bullet, which carried the issue. The page draws nothing for any
+    default-ignorable code point (Unicode's DerivedCoreProperties), whatever its category:
+    the joiner, the Khmer inherent vowels, the Mongolian and the variation selectors, the
+    Hangul fillers, the tag characters and the points reserved beside them (GitHub's
+    markdown endpoint keeps every one, 2026-10-03), so each is read through as a format
+    character is, and a key carrying one never admits (`_defaced`). A mark the page draws
+    - a combining acute - is in the key the page shows, which is not the key.
+    """
+    admitting = "- Execution autonomy: agent-can-do-alone\n"
+    for char in (
+        "\u034f",
+        "\u17b4",
+        "\u180b",
+        "\u180f",
+        "\u3164",
+        "\uffa0",
+        "\ufe0f",
+        "\U000e0100",
+        "\u2065",
+        "\ufff0",
+        "\U000e0020",
+        "\U000e0fff",
+        "\u00ad",
+    ):
+        spelled = f"- Auto{char}nomy: human review required\n"
+        read = claim._autonomy_refusal(spelled + admitting)
+        assert read is not None and "human review required" in read, (hex(ord(char)), read)
+        read = claim._autonomy_refusal(f"- Execution auto{char}nomy: agent-can-do-alone\n")
+        assert read is not None and "cannot admit" in read, (hex(ord(char)), read)
+        assert claim._shown(f"Auto{char}nomy: x") == "Autonomy: x", hex(ord(char))
+    assert claim._autonomy_refusal("- Auto\u0301nomy: human review required\n" + admitting) is None
+    assert claim._shown("Auto\u0301nomy") == "Autónomy"  # NFKC composes the accent
+
+
 def test_a_strike_heavy_paragraph_is_matched_once() -> None:
     """Codex on #462 (read of `f53c44a`): reading a key through its strike marks rescanned
     and copied the whole text once per pair, so a paragraph of thousands of struck spans

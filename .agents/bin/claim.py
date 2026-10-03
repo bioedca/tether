@@ -646,14 +646,57 @@ def _key_texts(text: str) -> Iterator[str]:
         yield _unmarked(text, pairs[:count])
 
 
+#: Unicode's default-ignorable code points (DerivedCoreProperties.txt,
+#: ``Default_Ignorable_Code_Point``, Unicode 15.0 as :mod:`unicodedata` carries it), as
+#: ranges: the soft hyphen, the combining grapheme joiner, the Arabic letter mark, the Hangul
+#: fillers, the Khmer inherent vowels, the Mongolian and the variation selectors, the
+#: zero-width and the bidirectional controls, the shorthand and the musical format controls,
+#: the tag characters, and the points reserved beside them.
+_DEFAULT_IGNORABLE = (
+    (0x00AD, 0x00AD),
+    (0x034F, 0x034F),
+    (0x061C, 0x061C),
+    (0x115F, 0x1160),
+    (0x17B4, 0x17B5),
+    (0x180B, 0x180F),
+    (0x200B, 0x200F),
+    (0x202A, 0x202E),
+    (0x2060, 0x206F),
+    (0x3164, 0x3164),
+    (0xFE00, 0xFE0F),
+    (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0),
+    (0xFFF0, 0xFFF8),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+)
+
+
+def _undrawn(char: str) -> bool:
+    """Whether the page keeps ``char`` and draws nothing for it: a format character,
+    Unicode's ``Cf``, or a default-ignorable code point (:data:`_DEFAULT_IGNORABLE`)."""
+    if unicodedata.category(char) == "Cf":
+        return True
+    point = ord(char)
+    return any(low <= point <= high for low, high in _DEFAULT_IGNORABLE)
+
+
 def _shown(text: str) -> str:
-    """``text`` as a reader of the page takes it: its format characters gone and its
-    compatibility characters as what they stand for.
+    """``text`` as a reader of the page takes it: the characters it draws nothing for gone
+    and its compatibility characters as what they stand for.
 
     A format character - a zero-width space or joiner, a soft hyphen, a byte-order mark, a
     direction override, Unicode's ``Cf`` - the page keeps and draws nothing for (GitHub's
     markdown endpoint, 2026-10-03), so `Auto\u200bnomy: maintainer decision required` shows
-    the key over the restriction and is read as that. A compatibility character - a
+    the key over the restriction and is read as that. So is a default-ignorable code point
+    of another category, which a renderer draws nothing for by the same rule - the combining
+    grapheme joiner, a variation selector, a Khmer inherent vowel (``Mn``), a Hangul filler
+    (``Lo``), a point reserved beside them (``Cn``) - so `Auto\u034fnomy: human review
+    required` is read as the restriction it shows, where a filter on the category alone
+    kept the joiner, matched no key, and left the restriction unread beside an admitting
+    bullet (Codex on #462); the set is Unicode's (:func:`_undrawn`), a renderer that draws
+    a filler as a gap drawing no letter either. A compatibility character - a
     fullwidth, circled or mathematical letter, a ligature, the Kelvin sign, the long s, the
     fullwidth colon - the page draws as a variant of the letter it stands for, and Unicode's
     NFKC form is that letter; `Ａｕｔｏｎｏｍｙ: maintainer decision required` is read as the
@@ -661,7 +704,7 @@ def _shown(text: str) -> str:
     in the text a caller tests for the registered spelling (:func:`_defaced`). A letter of
     another script that only looks like the key's - a Cyrillic a - is neither, and is not read.
     """
-    shown = "".join(char for char in text if unicodedata.category(char) != "Cf")
+    shown = "".join(char for char in text if not _undrawn(char))
     return unicodedata.normalize("NFKC", shown)
 
 
@@ -697,8 +740,8 @@ def _defaced(text: str) -> bool:
     are ASCII and fail the exact check with one, and whitespace the page shows as a space is a
     space already (`_plain`) - and a key in other than the registered spelling is read for
     what it may restrict and admits nothing: a letter that only folds to the key's under
-    Unicode case rules, `Executıon` with a dotless i, or a format character the page draws
-    nothing for (Codex on #462, twice).
+    Unicode case rules, `Executıon` with a dotless i, or a format or default-ignorable
+    character the page draws nothing for (Codex on #462, three times).
     """
     return "~" in text or not text.isascii()
 
