@@ -174,8 +174,12 @@ jobs:
       # pinned for a reproducible matrix; pytest-qt drives the `@pytest.mark.gui`
       # napari panel tests (M0 S8) against the locked napari/PySide6 stack, run
       # headless via QT_QPA_PLATFORM=offscreen (+ xvfb on Linux, below).
+      # markdown-it-py is the dev-only CommonMark parser behind the agent scripts
+      # (ADR-0066). The lock already carries this exact version transitively, so
+      # the line is a no-op today; it is here so the requirement is stated where
+      # the other tooling is, and survives a re-lock that drops the transitive path.
       - name: Install test tooling
-        run: python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0"
+        run: python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0" "markdown-it-py==4.2.0"
       # The `large` marker needs the Git-LFS gated tier, which the default
       # checkout does not pull (PRD §8 NFR-FIXTURES) — exclude it from the required
       # matrix so a structural HDF5 fixture never gates on an LFS pull. The

@@ -106,10 +106,13 @@ never merge, release, or declare a PR ready while required checks are red or pen
   `QT_QPA_PLATFORM=offscreen`:
 
   `pytest` is **not** in the base lock — CI installs it explicitly, so a freshly
-  restored environment needs the same step before any of this runs:
+  restored environment needs the same step before any of this runs. The same line
+  names `markdown-it-py`, the dev-only CommonMark parser the agent scripts under
+  `.agents/bin/` read issue bodies with (ADR-0066); the lock already carries that
+  exact version, so on a restored environment it is a no-op:
 
   ```bash
-  python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0"
+  python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0" "markdown-it-py==4.2.0"
 
   # exactly what the required `test` matrix runs (see Test tiers below)
   QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep"
