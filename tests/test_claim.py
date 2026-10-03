@@ -986,20 +986,104 @@ def test_a_headings_value_is_the_first_thing_the_page_draws_below_it() -> None:
 def test_a_details_opened_in_running_text_collapses_what_follows_it() -> None:
     """The HTML parser closes a paragraph where an inline `<details>` opens, and the widget takes
     everything up to its `</details>`, so a declaration below such a line is collapsed on the
-    page - while the span scan read only raw HTML blocks. The inline HTML the parser found in a
-    paragraph, heading or table cell counts too; a `<details>` in a code span is text and opens
-    nothing.
+    page - while the span scan read only raw HTML blocks. The inline HTML the parser found
+    counts too; a `<details>` in a code span is text and opens nothing. Codex on #462 (read of
+    `a1408d7`): one opened inside a heading is popped by the heading's own end tag, so it takes
+    nothing past the heading - and the same holds of a list item, a block quote and a table
+    cell, each of whose end tags pops what was opened inside it.
     """
     admitting = "- **Autonomy:** agent-can-do-alone\n"
-    for opener in ("Notes <details>", "## Notes <details>", "| a |\n|---|\n| <details> |"):
-        inline = claim._autonomy_refusal(f"{opener}\n\n{admitting}\n</details>\n")
-        assert inline is not None, f"{opener!r}: a declaration under it admitted - fail-open"
-        assert "only in a shape that cannot admit" in inline, f"{opener!r}: {inline}"
+    inline = claim._autonomy_refusal(f"Notes <details>\n\n{admitting}\n</details>\n")
+    assert inline is not None, "a declaration under an inline <details> admitted - fail-open"
+    assert "only in a shape that cannot admit" in inline, inline
     literal = claim._autonomy_refusal(f"Notes `<details>`\n\n{admitting}")
     assert literal is None, literal
     # Closed in running text as well, the declaration after it is on the page again.
     closed = claim._autonomy_refusal(f"<details>\n\nmore </details>\n\n{admitting}")
     assert closed is None, closed
+    # Opened inside an element with its own end tag, it ends with that element.
+    for opener in (
+        "## Notes <details>",
+        "| a |\n|---|\n| <details> |",
+        "- note <details>",
+        "- <details>\n  <summary>x</summary>",
+        "> <details>",
+    ):
+        bounded = claim._autonomy_refusal(f"{opener}\n\n{admitting}")
+        assert bounded is None, f"{opener!r}: {bounded}"
+    # A `</details>` written in a table cell cannot close one opened outside the table.
+    cell = claim._autonomy_refusal(f"<details>\n\n| a |\n|---|\n| </details> |\n\n{admitting}")
+    assert cell is not None and "only in a shape that cannot admit" in cell, cell
+
+
+def test_an_empty_bullet_value_is_a_declaration_that_fails_the_exact_check() -> None:
+    """Codex on #462 (read of `a1408d7`): `- **Autonomy:**` with nothing after it matched no
+    bullet, because the value group required a character, so the field vanished and an admitting
+    bullet beside it carried the issue. An empty field is a visible declaration with an empty
+    value, and it fails the exact check as the empty heading and the one-column row do.
+    """
+    empty = claim._autonomy_refusal("- **Autonomy:**\n- **Autonomy:** agent-can-do-alone\n")
+    assert empty is not None, "an empty bullet value vanished beside an admitting one - fail-open"
+    assert "not a registered" in empty and "bullet" in empty, empty
+    alone = claim._autonomy_refusal("- **Autonomy:** \n")
+    assert alone is not None and "not a registered" in alone, alone
+
+
+def test_a_list_item_is_read_past_a_leading_block_that_draws_nothing() -> None:
+    """Codex on #462 (read of `a1408d7`): an item whose first block is a comment on its own line
+    - `- <!-- groomed -->` over `**Autonomy:** maintainer decision required` - declared nothing,
+    because the declaration had to be the item's literal first block, and an admitting bullet
+    beside it carried the issue while the page shows the restriction in the list. The item's
+    declaration is its first block the page draws anything for; a leading block that draws
+    something - a picture, a `<details>` - is still the item's first block, and the item
+    declares nothing.
+    """
+    restrictive = "- <!-- groomed -->\n  **Autonomy:** maintainer decision required\n"
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    hidden = claim._autonomy_refusal(admitting + restrictive)
+    assert hidden is not None, "a restriction behind a leading comment was not read - fail-open"
+    assert "maintainer decision" in hidden, hidden
+    # A comment the page does not draw leaves the registered shape as it is.
+    assert (
+        claim._autonomy_refusal("- <!-- groomed -->\n  **Autonomy:** agent-can-do-alone\n") is None
+    )
+    # A drawn first block is the item's first block, as before.
+    pictured = claim._autonomy_refusal("- ![](x.png)\n\n  **Autonomy:** agent-can-do-alone\n")
+    assert pictured is not None and "declares no Execution autonomy" in pictured, pictured
+
+
+def test_a_qualified_heading_or_row_key_is_a_declaration_that_cannot_admit() -> None:
+    """Codex on #462 (read of `a1408d7`): `## Execution autonomy after unblock` over `maintainer
+    decision required` was no heading key at all, so an admitting bullet beside it carried the
+    issue while the page shows the restriction under a heading naming the field. A qualified
+    heading is the qualified bullet's counterpart - a declaration that refuses on its qualifier
+    - and so is a table row keyed the same way. The qualifier is bounded by its shape, since no
+    colon bounds it: words, digits, spaces, hyphens, slashes, parentheses and `#`. A heading
+    that goes on with a dash or other punctuation is prose about the field and not a key, as
+    before - the live corpus has one (#442, `status:ready`) and the unbounded reading refused it.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    heading = claim._autonomy_refusal(
+        admitting + "## Execution autonomy after unblock\n\nmaintainer decision required\n"
+    )
+    assert heading is not None, "a qualified heading declared nothing - fail-open"
+    assert "maintainer decision" in heading, heading
+    qualified = claim._autonomy_refusal("## Autonomy after unblock\n\nagent-can-do-alone\n")
+    assert qualified is not None and "qualifier 'after unblock'" in qualified, qualified
+    row = claim._autonomy_refusal(
+        admitting + "| Autonomy after unblock | agent-can-do-alone |\n|---|---|\n"
+    )
+    assert row is not None and "qualifier 'after unblock'" in row, row
+    parenthesised = claim._autonomy_refusal(
+        "## Execution autonomy (once #220 lands)\n\nagent-can-do-alone\n"
+    )
+    assert parenthesised is not None and "qualifier" in parenthesised, parenthesised
+    for about in (
+        "### Execution autonomy — declared in the grooming block\n\nStated once, above.\n",
+        "## Execution autonomy, in brief\n\nSee the grooming block.\n",
+    ):
+        prose = claim._autonomy_refusal(admitting + about)
+        assert prose is None, f"{about!r}: a heading about the field was read as the field"
 
 
 def test_a_declaration_carrying_an_html_tag_can_refuse_and_never_admit() -> None:

@@ -480,18 +480,32 @@ AUTONOMY_REFUSES = (
 #: (``plain``): `- **Autonomy:**`, `- Autonomy:` and `- <b>Autonomy:</b>` all render as the one
 #: key, so a restriction written any of those ways is read and a safety verdict never turns on
 #: typography. One colon, exactly: `Autonomy::` is not the key the forms write, and a pattern
-#: that tolerated a second colon admitted it (Codex on #462). Whether the item may *admit* is
-#: decided from its marker, column and source in `_bullet`, not here.
+#: that tolerated a second colon admitted it (Codex on #462). The value may be empty: `-
+#: **Autonomy:**` with nothing after it is a field the page shows, and a pattern that required a
+#: character there made it vanish beside an admitting bullet (Codex on #462); as an empty value
+#: it fails the exact check instead. Whether the item may *admit* is decided from its marker,
+#: column and source in `_bullet`, not here.
 _AUTONOMY_BULLET = re.compile(
-    r"(?:execution[ \t]+)?autonomy(?P<qualifier>[^:\n]*):[ \t]*(?P<value>.+)",
+    r"(?:execution[ \t]+)?autonomy(?P<qualifier>[^:\n]*):[ \t]*(?P<value>.*)",
     re.I | re.S,
 )
 #: The key as a heading's text or a table row's first cell, rendered: a heading's closing `#`
 #: run already removed and its indent measured into `Heading.column`, a row's outer pipes already
 #: Markdown's business, and emphasis, code and link markup already gone. A trailing colon is
 #: tolerated once - `## Autonomy:` is a heading the corpus writes - and never twice, for the
-#: reason the bullet gives (Codex on #462).
-_AUTONOMY_KEY = re.compile(r"(?:execution[ \t]+)?autonomy[ \t]*:?", re.I)
+#: reason the bullet gives (Codex on #462). A qualifier is read much as the bullet's is:
+#: `## Execution autonomy after unblock` over a restriction was no key at all, so an admitting
+#: bullet beside it carried the issue while the page shows the field qualified (Codex on #462),
+#: and the qualified key is a declaration that refuses on its qualifier. Unlike the bullet's,
+#: which a colon bounds, a heading's qualifier is bounded by its shape: words, digits, spaces,
+#: hyphens, slashes, parentheses and `#`, as a condition is written - `after unblock`, `(once #220
+#: lands)`. A heading that goes on with a dash, a comma or any other punctuation is a heading
+#: *about* the field, not the field qualified: `### Execution autonomy — declared in the
+#: grooming block` heads a paragraph of prose on #442, a `status:ready` issue the unbounded
+#: reading refused. Such a heading is not a key, as before.
+_AUTONOMY_KEY = re.compile(
+    r"(?:execution[ \t]+)?autonomy(?P<qualifier>(?:[ \t]+[\w()/#-][\w()/# \t-]*)?)[ \t]*:?", re.I
+)
 #: The grooming marker. Source selection keys on **this**, never on the text the block yields: a
 #: marker ending the body captures no blocks at all, as does one followed only by a comment, and
 #: treating either as "no grooming block" handed the decision back to the stale body the block
@@ -784,50 +798,68 @@ def _declared_autonomy(body: str) -> list[_AutonomyValue]:
     return _declarations(_markdown.parse(body))
 
 
-def _collapsed(source: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]:
-    """The source-line spans GitHub collapses: from each ``<details>`` to its ``</details>``.
+def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]:
+    """The source-line spans GitHub collapses: from a top-level ``<details>`` to its end.
 
-    Read off the raw HTML blocks in document order, nesting counted, an unclosed block running
-    to the end of the body. A declaration on a line inside a span is not on the page a reader
-    sees, so it may refuse and may not admit (Codex on #462); `<details open>` is collapsed here
-    too, because a disclosure widget is not the registered shape whichever way it starts. The
-    tags are the parser's reading of the block, comments removed first, so a `</details>` written
-    inside a comment closes nothing here as it closes nothing on the page (Codex on #462). A
-    `<details>` opened in running text - a paragraph, a heading, a table cell - opens on the page
-    as well, since the HTML parser closes the paragraph there and the widget takes what follows,
-    so the inline HTML the parser found counts too; a tag in a code span is text and does not.
+    What a `<details>` takes is the HTML parser's decision, not Markdown's, and these are its
+    rules (HTML5 "in body", the start and end tags of `details`). One opened in a raw block, or in
+    the running text of a top-level paragraph - where it closes the paragraph - stays open across
+    the blocks that follow, to its `</details>` or the end of the body. One opened inside a
+    heading, a list item, a block quote or a table cell is popped by that element's own end tag
+    and takes nothing past it (Codex on #462). A `</details>` closes the innermost open one from
+    wherever it is written - a paragraph, a heading, a list item - a table cell excepted, since a
+    cell is a scope boundary the end tag cannot see through. Only the top-level spans are
+    returned: the registered shapes are both at column zero, so what a `<details>` inside a
+    container collapses is refused already.
+
+    Tags are the parser's reading, comments removed first - a `</details>` in a comment closes
+    nothing - and inline HTML is what the parser found, so a tag in a code span is text and
+    opens nothing (Codex on #462). A declaration on a line inside a span is not on the page a
+    reader sees, so it may refuse and may not admit; `<details open>` is collapsed here too,
+    because a disclosure widget is not the registered shape whichever way it starts.
     """
     spans: list[tuple[int, float]] = []
-    depth, start = 0, 0
-    for block in _markdown.walk(source):
-        for name, closing in _tags(block):
+    # Each open `<details>`: the nesting level it was opened at and its source line, innermost
+    # last. Level zero is the document's own blocks; each heading, list item or block quote is a
+    # level deeper, and its end tag pops whatever was opened inside it.
+    opened: list[tuple[int, int]] = []
+
+    def read(found: Iterator[tuple[str, bool]], level: int, line: int) -> None:
+        for name, closing in found:
             if name != "details":
                 continue
-            if closing:
-                if depth > 0:
-                    depth -= 1
-                    if depth == 0:
-                        spans.append((start, block.line))
-            else:
-                if depth == 0:
-                    start = block.line
-                depth += 1
-    if depth > 0:
-        spans.append((start, float("inf")))
+            if not closing:
+                opened.append((level, line))
+            elif opened:
+                at, start = opened.pop()
+                if at == 0:
+                    spans.append((start, line))
+
+    def leave(level: int) -> None:
+        while opened and opened[-1][0] >= level:
+            opened.pop()
+
+    def run(blocks: tuple[_markdown.Block, ...], level: int) -> None:
+        for block in blocks:
+            if isinstance(block, _markdown.Html):
+                read(_markdown.tags(block.text), level, block.line)
+            elif isinstance(block, _markdown.Paragraph):
+                read(_markdown.inline_tags(block.text), level, block.line)
+            elif isinstance(block, _markdown.Heading):
+                read(_markdown.inline_tags(block.text), level + 1, block.line)
+                leave(level + 1)
+            elif isinstance(block, _markdown.ListBlock):
+                for item in block.items:
+                    run(item.blocks, level + 1)
+                    leave(level + 1)
+            elif isinstance(block, _markdown.BlockQuote):
+                run(block.blocks, level + 1)
+                leave(level + 1)
+            # A table cell is a scope boundary both ways, code is literal, a rule has no tags.
+
+    run(document, 0)
+    spans.extend((start, float("inf")) for at, start in opened if at == 0)
     return spans
-
-
-def _tags(block: Any) -> Iterator[tuple[str, bool]]:
-    """The HTML tags ``block`` puts on the page, in order: a raw block's own, and the inline HTML
-    of a paragraph, heading or table cell. Code is literal and has none."""
-    if isinstance(block, _markdown.Html):
-        yield from _markdown.tags(block.text)
-    elif isinstance(block, (_markdown.Paragraph, _markdown.Heading)):
-        yield from _markdown.inline_tags(block.text)
-    elif isinstance(block, _markdown.Table):
-        for row in block.rows:
-            for cell in row.cells:
-                yield from _markdown.inline_tags(cell)
 
 
 def _on_the_page(spans: list[tuple[int, float]], line: int) -> bool:
@@ -847,7 +879,11 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
     leaves = _flat(source)
     for index, leaf in enumerate(leaves):
         block = leaf.block
-        if isinstance(block, _markdown.Heading) and _AUTONOMY_KEY.fullmatch(_prose(block)):
+        key = (
+            _AUTONOMY_KEY.fullmatch(_prose(block)) if isinstance(block, _markdown.Heading) else None
+        )
+        if key is not None:
+            qualifier = _normalize_autonomy(key.group("qualifier"))
             section = _section(leaves, index)
             if section:
                 # The first block the page draws below the heading is the value, whatever it
@@ -861,7 +897,8 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 # registered shape is the heading with the value as its paragraph.
                 value = section[0]
                 admits = (
-                    block.column == 0
+                    not qualifier
+                    and block.column == 0
                     and block.markup.startswith("#")
                     and isinstance(value.block, _markdown.Paragraph)
                     and value.siblings is leaf.siblings
@@ -869,7 +906,11 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                     and _on_the_page(collapsed, block.line)
                     and _on_the_page(collapsed, value.block.line)
                 )
-                found.append(_AutonomyValue(_prose(value.block), f"{where} heading", admits=admits))
+                found.append(
+                    _AutonomyValue(
+                        _prose(value.block), f"{where} heading", qualifier=qualifier, admits=admits
+                    )
+                )
                 found.extend(_scan_only(section[1:], f"{where} heading remainder"))
             else:
                 # A recognised heading with no prose below it - the last line of the body, or
@@ -877,9 +918,12 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 # nothing let an admitting bullet elsewhere carry the issue past a field that
                 # names no registered value (Codex on #462). The empty value fails the exact
                 # check, as the one-column table's does.
-                found.append(_AutonomyValue("", f"{where} heading", admits=False))
+                found.append(
+                    _AutonomyValue("", f"{where} heading", qualifier=qualifier, admits=False)
+                )
         elif isinstance(block, _markdown.TableRow):
-            if block.plain and _AUTONOMY_KEY.fullmatch(block.plain[0]):
+            key = _AUTONOMY_KEY.fullmatch(block.plain[0]) if block.plain else None
+            if key is not None:
                 # A row keyed `autonomy` is a declaration that cannot admit: its second cell
                 # is exact-checked like a `+` bullet's value, so `human review required` -
                 # no registered token, not a registered value - refuses rather than slips
@@ -889,7 +933,14 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 # one-column table has no value cell, and that is an empty value - still a
                 # declaration, and one that fails the exact check - rather than no row.
                 cells = list(block.plain[1:]) or [""]
-                found.append(_AutonomyValue(cells[0], f"{where} table row", admits=False))
+                found.append(
+                    _AutonomyValue(
+                        cells[0],
+                        f"{where} table row",
+                        qualifier=_normalize_autonomy(key.group("qualifier")),
+                        admits=False,
+                    )
+                )
                 found.extend(
                     _AutonomyValue(cell, f"{where} table row remainder", scan_only=True)
                     for cell in cells[1:]
@@ -954,13 +1005,21 @@ def _section(leaves: list[_Leaf], index: int) -> list[_Leaf]:
 def _bullet(
     item: _markdown.ListItem, where: str, collapsed: list[tuple[int, float]]
 ) -> list[_AutonomyValue]:
-    """A list item's first paragraph as a bullet declaration, and the rest of it scan-only.
+    """A list item's first drawn paragraph as a bullet declaration, and the rest of it scan-only.
 
-    An item whose first paragraph is not an autonomy key declares nothing here; a nested list
-    inside it is visited by the caller's walk like any other. ``collapsed`` is `_collapsed` of
-    the source the item came from.
+    The item's declaration is its first block the page draws anything for: a comment on its own
+    line above the key - `- <!-- groomed -->` over `**Autonomy:** maintainer decision required`
+    - is read past, because reading the item's literal first block instead declared nothing and
+    an admitting bullet beside it carried the issue while the page shows the restriction in the
+    list (Codex on #462). A leading block the page does draw - a picture, a `<details>` - is the
+    item's first block, and an item whose first drawn block is not a paragraph keyed autonomy
+    declares nothing here; a nested list inside it is visited by the caller's walk like any
+    other. ``collapsed`` is `_collapsed` of the document.
     """
-    first = item.blocks[0] if item.blocks else None
+    blocks = item.blocks
+    while blocks and not _drawn(blocks[0]):
+        blocks = blocks[1:]
+    first = blocks[0] if blocks else None
     if not isinstance(first, _markdown.Paragraph):
         return []
     # Matched on the rendered text, not the source: an inline comment splitting the key, or a
@@ -990,7 +1049,7 @@ def _bullet(
         and _on_the_page(collapsed, item.line)
     )
     found = [_AutonomyValue(value, f"{where} bullet", qualifier=qualifier, admits=registered)]
-    found.extend(_scan_only(_flat(item.blocks[1:]), f"{where} bullet remainder"))
+    found.extend(_scan_only(_flat(blocks[1:]), f"{where} bullet remainder"))
     return found
 
 
