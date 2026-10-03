@@ -31,8 +31,19 @@ def kinds(blocks) -> list[str]:
 def test_a_heading_and_its_first_paragraph_are_separate_blocks_with_their_source_lines():
     doc = md.parse("## Execution autonomy ##\n\nagent-can-do-alone\nunless told otherwise\n")
     assert doc == (
-        md.Heading(level=2, text="Execution autonomy", line=0, column=0, markup="##"),
-        md.Paragraph(text="agent-can-do-alone\nunless told otherwise", line=2),
+        md.Heading(
+            level=2,
+            text="Execution autonomy",
+            plain="Execution autonomy",
+            line=0,
+            column=0,
+            markup="##",
+        ),
+        md.Paragraph(
+            text="agent-can-do-alone\nunless told otherwise",
+            plain="agent-can-do-alone unless told otherwise",
+            line=2,
+        ),
     )
 
 
@@ -43,7 +54,9 @@ def test_closing_hashes_are_markup_and_not_heading_text():
 
 def test_a_heading_indented_as_markdown_allows_keeps_its_column():
     (heading,) = md.parse("   ### Autonomy")
-    assert heading == md.Heading(level=3, text="Autonomy", line=0, column=3, markup="###")
+    assert heading == md.Heading(
+        level=3, text="Autonomy", plain="Autonomy", line=0, column=3, markup="###"
+    )
 
 
 def test_four_spaces_before_a_hash_is_code_not_a_heading():
@@ -53,8 +66,10 @@ def test_four_spaces_before_a_hash_is_code_not_a_heading():
 
 def test_a_setext_heading_is_a_heading_with_its_underline_as_markup():
     doc = md.parse("Execution autonomy\n---\n\nagent-can-do-alone\n")
-    assert doc[0] == md.Heading(level=2, text="Execution autonomy", line=0, column=0, markup="-")
-    assert doc[1] == md.Paragraph(text="agent-can-do-alone", line=3)
+    assert doc[0] == md.Heading(
+        level=2, text="Execution autonomy", plain="Execution autonomy", line=0, column=0, markup="-"
+    )
+    assert doc[1] == md.Paragraph(text="agent-can-do-alone", plain="agent-can-do-alone", line=3)
 
 
 def test_a_tab_before_a_hash_inside_a_list_item_is_a_heading_inside_that_item():
@@ -63,7 +78,9 @@ def test_a_tab_before_a_hash_inside_a_list_item_is_a_heading_inside_that_item():
     (lst,) = md.parse("- Autonomy: agent-can-do-alone\n\t## Notes\n")
     (item,) = lst.items
     assert kinds(item.blocks) == ["Paragraph", "Heading"]
-    assert item.blocks[1] == md.Heading(level=2, text="Notes", line=1, column=4, markup="##")
+    assert item.blocks[1] == md.Heading(
+        level=2, text="Notes", plain="Notes", line=1, column=4, markup="##"
+    )
 
 
 def test_a_list_item_carries_its_marker_number_and_column():
@@ -86,10 +103,12 @@ def test_a_wrapped_item_is_one_paragraph_and_the_next_item_is_not_part_of_it():
     first, second = lst.items
     assert first.blocks == (
         md.Paragraph(
-            text="**Autonomy:** agent-can-do-alone\nunless the note says otherwise", line=0
+            text="**Autonomy:** agent-can-do-alone\nunless the note says otherwise",
+            plain="Autonomy: agent-can-do-alone unless the note says otherwise",
+            line=0,
         ),
     )
-    assert second.blocks == (md.Paragraph(text="Next", line=2),)
+    assert second.blocks == (md.Paragraph(text="Next", plain="Next", line=2),)
 
 
 def test_a_lazy_continuation_inside_a_nested_item_stays_in_that_item():
@@ -100,14 +119,24 @@ def test_a_lazy_continuation_inside_a_nested_item_stays_in_that_item():
     (nested_list,) = [b for b in outer.blocks if isinstance(b, md.ListBlock)]
     (nested,) = nested_list.items
     assert nested.column == 2
-    assert nested.blocks == (md.Paragraph(text="nested needs-maintainer-input\nlazy", line=1),)
+    assert nested.blocks == (
+        md.Paragraph(
+            text="nested needs-maintainer-input\nlazy",
+            plain="nested needs-maintainer-input lazy",
+            line=1,
+        ),
+    )
 
 
 def test_only_a_list_starting_at_one_interrupts_a_paragraph():
     # `2.` cannot interrupt a paragraph, so under a heading's value it is continuation text, and
     # `1.` can, so it ends the value. Both are CommonMark's rules, not this module's.
     assert md.parse("agent-can-do-alone\n2. unless the maintainer decides\n") == (
-        md.Paragraph(text="agent-can-do-alone\n2. unless the maintainer decides", line=0),
+        md.Paragraph(
+            text="agent-can-do-alone\n2. unless the maintainer decides",
+            plain="agent-can-do-alone 2. unless the maintainer decides",
+            line=0,
+        ),
     )
     assert kinds(md.parse("agent-can-do-alone\n1. unless the maintainer decides\n")) == [
         "Paragraph",
@@ -120,7 +149,9 @@ def test_a_numbered_line_after_a_bullet_item_starts_a_new_list_rather_than_conti
     # after a list item is outside the item, where any list may begin - and GitHub renders it so.
     doc = md.parse("- agent-can-do-alone\n2. unless the maintainer decides\n")
     assert kinds(doc) == ["ListBlock", "ListBlock"]
-    assert doc[0].items[0].blocks == (md.Paragraph(text="agent-can-do-alone", line=0),)
+    assert doc[0].items[0].blocks == (
+        md.Paragraph(text="agent-can-do-alone", plain="agent-can-do-alone", line=0),
+    )
     assert doc[1].ordered and doc[1].items[0].number == "2"
 
 
@@ -130,9 +161,11 @@ def test_the_rest_of_an_item_is_split_into_the_blocks_markdown_renders():
     )
     (item,) = lst.items
     assert item.blocks == (
-        md.Paragraph(text="Autonomy: agent-can-do-alone", line=0),
-        md.Paragraph(text="Prose about a human.", line=2),
-        md.Paragraph(text="Action items.", line=4),
+        md.Paragraph(
+            text="Autonomy: agent-can-do-alone", plain="Autonomy: agent-can-do-alone", line=0
+        ),
+        md.Paragraph(text="Prose about a human.", plain="Prose about a human.", line=2),
+        md.Paragraph(text="Action items.", plain="Action items.", line=4),
     )
 
 
@@ -182,8 +215,15 @@ def test_a_table_is_read_with_or_without_outer_pipes_and_marks_its_header_row():
             md.Table(
                 line=0,
                 rows=(
-                    md.TableRow(cells=("Field", "Value"), line=0, header=True),
-                    md.TableRow(cells=("Autonomy", "maintainer decision"), line=2, header=False),
+                    md.TableRow(
+                        cells=("Field", "Value"), plain=("Field", "Value"), line=0, header=True
+                    ),
+                    md.TableRow(
+                        cells=("Autonomy", "maintainer decision"),
+                        plain=("Autonomy", "maintainer decision"),
+                        line=2,
+                        header=False,
+                    ),
                 ),
             ),
         )
@@ -192,7 +232,9 @@ def test_a_table_is_read_with_or_without_outer_pipes_and_marks_its_header_row():
 
 def test_a_lone_piped_line_without_a_delimiter_row_is_a_paragraph():
     (para,) = md.parse("Autonomy | maintainer decision\n")
-    assert para == md.Paragraph(text="Autonomy | maintainer decision", line=0)
+    assert para == md.Paragraph(
+        text="Autonomy | maintainer decision", plain="Autonomy | maintainer decision", line=0
+    )
 
 
 def test_an_html_comment_on_its_own_line_is_an_html_block():
@@ -200,13 +242,62 @@ def test_an_html_comment_on_its_own_line_is_an_html_block():
         "<!-- tether-grooming-v1 -->\n- Autonomy: agent-can-do-alone\n<!-- aside\nspans -->\n"
     )
     assert kinds(doc) == ["Html", "ListBlock", "Html"]
-    assert doc[0] == md.Html(text="<!-- tether-grooming-v1 -->", line=0)
-    assert doc[2] == md.Html(text="<!-- aside\nspans -->", line=2)
+    assert doc[0] == md.Html(text="<!-- tether-grooming-v1 -->", plain="", line=0)
+    assert doc[2] == md.Html(text="<!-- aside\nspans -->", plain="", line=2)
 
 
 def test_an_html_comment_inside_a_paragraph_stays_in_that_paragraphs_text():
     (para,) = md.parse("text <!-- tether-grooming-v1 --> more\n")
     assert para.text == "text <!-- tether-grooming-v1 --> more"
+    # ... and is absent from what the page shows, so a caller reading the rendering never sees it.
+    assert para.plain == "text more"
+
+
+def test_plain_is_a_links_text_and_not_its_syntax():
+    # Codex on #462: `## [Execution autonomy](url)` renders as the heading *Execution autonomy*,
+    # and a key matched against the source saw a link and never the heading.
+    (heading,) = md.parse("## [Execution autonomy](https://example.test)\n")
+    assert heading.text == "[Execution autonomy](https://example.test)"
+    assert heading.plain == "Execution autonomy"
+    (para,) = md.parse("[maintainer decision](https://example.test 'title') required\n")
+    assert para.plain == "maintainer decision required"
+
+
+def test_plain_drops_markup_decodes_the_source_and_keeps_what_the_page_shows():
+    (para,) = md.parse(
+        "**Auto<!-- note -->nomy:** &amp; \\*x\\* `co de` ![alt](i.png) <b>b</b> a\nb  \nc\n"
+    )
+    # Emphasis and code markup are gone and their content stays; the comment splitting the key
+    # vanishes so the key is one word; an entity and a backslash escape are decoded; an image is
+    # its alternative text; a tag is a space, as are both kinds of break.
+    assert para.plain == "Autonomy: & *x* co de alt b a b c"
+    # Strike-through is not enabled, so a struck-out token keeps its tildes and a caller matching
+    # the token against it fails to: GitHub shows the text crossed out, which is a retraction.
+    (para,) = md.parse("~~agent-can-do-alone~~\n")
+    assert para.plain == "~~agent-can-do-alone~~"
+
+
+def test_a_tag_leaves_a_space_so_words_it_separates_on_the_page_stay_separate():
+    (para,) = md.parse("maintainer<br>decision<li>required</li>\n")
+    assert para.plain == "maintainer decision required"
+    # A bare `<` that is not a tag is prose, as it is on the page.
+    (para,) = md.parse("n < 5 and m > 3\n")
+    assert para.plain == "n < 5 and m > 3"
+
+
+def test_an_html_blocks_plain_is_its_visible_text_and_a_comment_blocks_is_empty():
+    (html,) = md.parse("<details>\n<summary>maintainer decision required</summary>\n</details>\n")
+    assert html.plain == "maintainer decision required"
+    (comment,) = md.parse("<!-- Autonomy: agent-can-do-alone -->\n")
+    assert comment.plain == ""
+
+
+def test_a_table_rows_plain_cells_are_rendered_in_order():
+    (table,) = md.parse("| **Field** | [Value](u) |\n|---|---|\n| `Autonomy` | *x* &amp; y |\n")
+    assert [row.plain for row in table.rows] == [("Field", "Value"), ("Autonomy", "x & y")]
+    # A one-column table has one cell per row, and no second cell at all.
+    (table,) = md.parse("| Autonomy |\n| --- |\n")
+    assert [row.plain for row in table.rows] == [("Autonomy",)]
 
 
 def test_a_block_quote_contains_its_blocks_and_a_quoted_item_is_not_at_column_zero():
@@ -214,12 +305,12 @@ def test_a_block_quote_contains_its_blocks_and_a_quoted_item_is_not_at_column_ze
     assert isinstance(quote, md.BlockQuote) and quote.line == 0
     lst, para = quote.blocks
     assert lst.items[0].column == 2
-    assert para == md.Paragraph(text="prose", line=2)
+    assert para == md.Paragraph(text="prose", plain="prose", line=2)
 
 
 def test_a_thematic_break_is_a_rule_and_not_a_setext_underline():
     doc = md.parse("para\n\n---\n")
-    assert doc == (md.Paragraph(text="para", line=0), md.Rule(line=2))
+    assert doc == (md.Paragraph(text="para", plain="para", line=0), md.Rule(line=2))
 
 
 def test_crlf_input_yields_the_same_tree_and_lines_as_lf_input():
@@ -268,7 +359,9 @@ def test_a_block_opening_on_its_parent_items_line_has_its_own_column():
     # scanned from the parent's content column, so compact nesting is distinguishable from the
     # top level - the distinction the gate's column-zero rule turns on.
     (lst,) = md.parse("- # Notes\n")
-    assert lst.items[0].blocks[0] == md.Heading(level=1, text="Notes", line=0, column=2, markup="#")
+    assert lst.items[0].blocks[0] == md.Heading(
+        level=1, text="Notes", plain="Notes", line=0, column=2, markup="#"
+    )
 
     def inner(src: str) -> md.ListItem:
         (outer,) = md.parse(src)
@@ -316,7 +409,12 @@ def test_a_quoted_table_ending_in_a_bare_quote_marker_is_read_rather_than_crashe
     assert doc == (
         md.BlockQuote(
             line=0,
-            blocks=(md.Table(line=0, rows=(md.TableRow(cells=("a", "b"), line=0, header=True),)),),
+            blocks=(
+                md.Table(
+                    line=0,
+                    rows=(md.TableRow(cells=("a", "b"), plain=("a", "b"), line=0, header=True),),
+                ),
+            ),
         ),
     )
 

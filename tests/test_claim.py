@@ -553,6 +553,85 @@ def test_inline_html_is_invisible_to_the_key_as_it_is_on_the_page() -> None:
     assert inline is not None and "cannot start" in inline, inline
 
 
+def test_keys_and_values_are_matched_on_the_rendered_text_not_the_source() -> None:
+    """Codex on #462 (read of `7f3a250`): `## [Execution autonomy](https://example.test)` over
+    `maintainer decision required` beside a plain admitting bullet was claimable. The gate had
+    stripped HTML from the source itself, and the link syntax hid the key from it while GitHub
+    shows the heading *Execution autonomy*. Keys and values are now read from the parser's own
+    rendering of the inline tokens (``plain``, ADR-0066) rather than from a pattern over the
+    source, so a link is its text, an entity and an escape are decoded, and the same shape admits
+    when it is the registered one.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    linked = "## [Execution autonomy](https://example.test)\n\nmaintainer decision required\n"
+    refusal = claim._autonomy_refusal(admitting + linked)
+    assert refusal is not None, "a linked restrictive heading was not read - fail-open"
+    assert "maintainer decision" in refusal and "heading" in refusal, refusal
+    assert (
+        claim._autonomy_refusal("## [Execution autonomy](https://x)\n\nagent-can-do-alone\n")
+        is None
+    )
+
+    # A link in the value is its text; an entity in the key is decoded. Neither is a shape the
+    # forms write; the point is that no two spellings GitHub renders alike are read differently.
+    assert (
+        claim._autonomy_refusal("## Execution autonomy\n\n[agent-can-do-alone](https://x)\n")
+        is None
+    )
+    entity = claim._autonomy_refusal(
+        admitting + "## Execution&nbsp;autonomy\n\nhuman review required\n"
+    )
+    assert entity is not None and "human review required" in entity, entity
+
+
+def test_a_one_column_autonomy_table_is_a_declaration_with_an_empty_value() -> None:
+    """Codex on #462 (read of `7f3a250`): `| Autonomy |\\n| --- |` is a valid one-column table whose
+    row is keyed `autonomy` and has no cell after the key, and the table branch recorded nothing
+    for it - so beside an admitting heading the issue was claimable on a recognised autonomy row
+    holding no value at all. A row with no value cell now records an empty value, which fails the
+    same exact check every other table declaration faces.
+    """
+    heading = "## Execution autonomy\n\nagent-can-do-alone\n\n"
+    table = "| Autonomy |\n| --- |\n"
+    refusal = claim._autonomy_refusal(heading + table)
+    assert refusal is not None, "a one-column autonomy table was ignored - fail-open"
+    assert "not a registered" in refusal and "table row" in refusal, refusal
+    alone = claim._autonomy_refusal(table)
+    assert alone is not None and "not a registered" in alone, alone
+
+    # A body row under that header is a row of its own, keyed by its first cell: a registered
+    # token there is a one-cell row keyed by the token, which is no autonomy row, and the header
+    # row above it still refuses on its own.
+    refusal = claim._autonomy_refusal(heading + table + "| agent-can-do-alone |\n")
+    assert refusal is not None and "not a registered" in refusal, refusal
+
+
+def test_only_the_latest_grooming_block_governs() -> None:
+    """Codex on #462 (read of `7f3a250`): a body with two grooming markers was read as the union
+    of both blocks, so a first block's `- **Autonomy:** agent-can-do-alone` admitted an issue whose
+    latest pass declared only `- **Status:** ready`. A grooming block supersedes the body because
+    it is the later statement; a second block is later again and alone governs. The latest pass
+    saying nothing is silence, and silence refuses - the precedence the sibling tests establish
+    for the body, applied between blocks too.
+    """
+    marker = "<!-- tether-grooming-v1 -->\n"
+    first = marker + "- **Autonomy:** agent-can-do-alone\n\n"
+    silent = claim._autonomy_refusal(first + marker + "- **Status:** ready\n")
+    assert silent is not None, "an earlier grooming block's declaration governed - fail-open"
+    assert "declares no Execution autonomy" in silent and "its grooming block" in silent, silent
+
+    restricted = claim._autonomy_refusal(
+        first + marker + "- **Autonomy:** maintainer decision required\n"
+    )
+    assert restricted is not None and "maintainer decision" in restricted, restricted
+
+    # The other direction too: the latest pass admitting is what counts, not an earlier refusal.
+    relaxed = claim._autonomy_refusal(
+        marker + "- **Autonomy:** maintainer decision required\n\n" + first
+    )
+    assert relaxed is None, relaxed
+
+
 def test_autonomy_refusals_distinguish_absent_restricted_and_unregistered_values() -> None:
     """Each repairable failure says which of the three issue-body edits is needed."""
     absent = claim._autonomy_refusal("Acceptance criteria\n")

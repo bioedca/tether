@@ -15,9 +15,15 @@ tree of the blocks below, each carrying its 0-based source line, and ``claim.py`
 rules on top. Keeping the two apart is the point - the parser is the one component here that
 cannot be improved by another regular expression.
 
-Only block structure is modelled. Inline text is returned as the parser hands it over: the
-source between the block's own markup and the end of the block, soft line breaks as ``\\n``,
-emphasis and inline HTML left in place for the caller to read.
+Only block structure is modelled, but each block of inline text is returned two ways. ``text``
+is the source as the parser hands it over - between the block's own markup and the end of the
+block, soft line breaks as ``\\n``, emphasis, links and inline HTML left in place - for a caller
+that must find something the page hides, such as a marker written as a comment. ``plain`` is
+what GitHub shows of it: the text of a link rather than its syntax, emphasis and code markup
+removed, entities and escapes decoded, a comment gone, a tag and a line break each a space.
+``## [Execution autonomy](url)`` renders as the heading *Execution autonomy*, and a caller matching
+a key against the source read that heading as a link (#462); ``plain`` is rendered from the
+parser's inline tokens so no caller has to do that with a pattern.
 
 **Code is literal.** A fenced or indented code block is returned as :class:`Code` so a caller can
 see it, and never as the structure its text resembles: a quoted table row or bullet in an example
@@ -91,15 +97,24 @@ _TABLE_SCAFFOLD = frozenset({"thead_open", "thead_close", "tbody_open", "tbody_c
 _CELL_OPEN = frozenset({"th_open", "td_open"})
 _CELL_CLOSE = frozenset({"th_close", "td_close"})
 
+#: Inline HTML, as it reaches ``plain``. A comment is not rendered and leaves nothing behind, so
+#: ``Auto<!-- note -->nomy`` is the one word the page shows. A tag leaves a space, because GitHub
+#: lays ``<li>`` and ``<br>`` out as breaks and joining ``maintainer</li><li>decision`` into one
+#: word would hide, from a caller, two words the page shows. The tag pattern is a tag as HTML
+#: defines one - a name, then attributes - so ``n < 5 and m > 3`` stays prose, as on the page.
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+_HTML_TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
+
 
 class MarkdownStructureError(ValueError):
     """The parser emitted a block this module does not model, or could not read the text."""
 
 
 class Paragraph(NamedTuple):
-    """A run of inline text. ``text`` keeps soft line breaks as ``\\n``."""
+    """A run of inline text. ``text`` keeps soft line breaks as ``\\n``; ``plain`` is rendered."""
 
     text: str
+    plain: str
     line: int
 
 
@@ -111,11 +126,12 @@ class Heading(NamedTuple):
     when the heading opens on the same line as the item's marker, so only a top-level, unquoted,
     unindented heading has column zero. ``markup`` is the ``#`` run or the ``=``/``-`` underline,
     so the two forms are distinguishable too. ``text`` is the heading content with any closing
-    ``#`` sequence already removed.
+    ``#`` sequence already removed, and ``plain`` is that content rendered.
     """
 
     level: int
     text: str
+    plain: str
     line: int
     column: int
     markup: str
@@ -164,9 +180,14 @@ class Code(NamedTuple):
 
 
 class Html(NamedTuple):
-    """A block-level run of raw HTML, which is how an HTML comment on its own lines arrives."""
+    """A block-level run of raw HTML, which is how an HTML comment on its own lines arrives.
+
+    ``plain`` is the text GitHub shows inside it - a ``<summary>``'s words, say - with every tag
+    and comment removed by the same rule inline HTML gets, so a comment block is empty.
+    """
 
     text: str
+    plain: str
     line: int
 
 
@@ -177,9 +198,13 @@ class Rule(NamedTuple):
 
 
 class TableRow(NamedTuple):
-    """One row of a GFM table; ``header`` marks the row above the delimiter line."""
+    """One row of a GFM table; ``header`` marks the row above the delimiter line.
+
+    ``cells`` are the cells' inline source and ``plain`` the same cells rendered, in order.
+    """
 
     cells: tuple[str, ...]
+    plain: tuple[str, ...]
     line: int
     header: bool
 
@@ -263,6 +288,38 @@ def _content_column(text: str, column: int) -> int:
     return end + padding if 1 <= padding <= 4 else end + 1
 
 
+def _plain(inline: Token) -> str:
+    """The inline token's content as GitHub shows it, whitespace collapsed to single spaces.
+
+    Rendered from the children the parser produced, not from the source: a link is its text, the
+    markup of emphasis and inline code is gone (the code's content stays - it is shown), an image
+    is its alternative text, a soft or hard break is a space, and the parser has already decoded
+    entities and backslash escapes into the ``text`` children. Inline HTML follows the rule the
+    module-level patterns state. Strike-through is a GFM extension the parser does not enable, so
+    ``~~x~~`` keeps its tildes: GitHub shows that text struck out, and a caller matching a token
+    against it then fails to - the right direction, since a struck-out value is a retracted one.
+    An inline the parser gave no children is its content as it stands, which only happens for an
+    inline it did not need to tokenize.
+    """
+    if inline.children is None:
+        return " ".join(inline.content.split())
+    parts: list[str] = []
+    for child in inline.children:
+        if child.type in ("text", "code_inline", "image"):
+            parts.append(child.content)
+        elif child.type in ("softbreak", "hardbreak"):
+            parts.append(" ")
+        elif child.type == "html_inline":
+            parts.append(_visible_html(child.content))
+        # Every other child is the open or close of a span - emphasis, a link - and has no text.
+    return " ".join("".join(parts).split())
+
+
+def _visible_html(text: str) -> str:
+    """Raw HTML as GitHub shows it: comments leave nothing, tags leave a space."""
+    return _HTML_TAG.sub(" ", _HTML_COMMENT.sub("", text))
+
+
 def _line(token: Token) -> int:
     if token.map is None:  # pragma: no cover - every block token the parser opens carries a map
         raise MarkdownStructureError(f"{token.type} token carries no source line")
@@ -288,14 +345,17 @@ def _blocks(
         if until is not None and token.type == until:
             return tuple(found), at + 1
         if token.type == "paragraph_open":
-            found.append(Paragraph(tokens[at + 1].content, _line(token)))
+            inline = tokens[at + 1]
+            found.append(Paragraph(inline.content, _plain(inline), _line(token)))
             at += 3
         elif token.type == "heading_open":
             line = _line(token)
+            inline = tokens[at + 1]
             found.append(
                 Heading(
                     int(token.tag[1:]),
-                    tokens[at + 1].content,
+                    inline.content,
+                    _plain(inline),
                     line,
                     _column(lines, line, origin),
                     token.markup,
@@ -315,7 +375,8 @@ def _blocks(
             found.append(Code(token.content, _line(token), False, ""))
             at += 1
         elif token.type == "html_block":
-            found.append(Html(token.content.rstrip("\n"), _line(token)))
+            text = token.content.rstrip("\n")
+            found.append(Html(text, " ".join(_visible_html(text).split()), _line(token)))
             at += 1
         elif token.type == "hr":
             found.append(Rule(_line(token)))
@@ -364,6 +425,7 @@ def _rows(tokens: list[Token], at: int) -> tuple[tuple[TableRow, ...], int]:
             header = token.type == "thead_open"
         elif token.type == "tr_open":
             cells: list[str] = []
+            plain: list[str] = []
             line = _line(token)
             at += 1
             while tokens[at].type != "tr_close":
@@ -372,8 +434,9 @@ def _rows(tokens: list[Token], at: int) -> tuple[tuple[TableRow, ...], int]:
                 if tokens[at + 1].type != "inline" or tokens[at + 2].type not in _CELL_CLOSE:
                     raise MarkdownStructureError("a table cell without its inline content")
                 cells.append(tokens[at + 1].content)
+                plain.append(_plain(tokens[at + 1]))
                 at += 3
-            rows.append(TableRow(tuple(cells), line, header))
+            rows.append(TableRow(tuple(cells), tuple(plain), line, header))
         else:
             raise MarkdownStructureError(f"unmodelled table token {token.type!r}")
         at += 1
