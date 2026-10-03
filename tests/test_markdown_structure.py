@@ -518,6 +518,50 @@ def test_an_unclosed_comment_in_a_raw_block_hides_the_rest_of_the_document():
     assert not md._opens_unclosed_comment('<img alt="<!--"><!-- y -->')
 
 
+def test_raw_html_is_walked_once_a_hidden_form_or_a_tag_whichever_opens_first():
+    """Codex on #462 (read of `97662e4`): `<span title="<!--">Autonomy: maintainer decision
+    required</span>` draws the restriction - the opener is the attribute's text - where
+    removing the hidden forms before reading the tags let the unclosed comment swallow the
+    tag and everything after it. Every reader walks the one grammar once now, and nothing is
+    read off what a removal left: `<b<!-- x -->>` is the text the page shows, not a tag.
+    """
+    for text, plain in (
+        ('<span title="<!--">Autonomy: x</span>', "Autonomy: x"),
+        ('a <span title="<!-- x -->">b</span> <!-- c --> d', "a b d"),
+        ("<b<!-- x -->>", "<b>"),
+        ('<img alt="<!--"> Autonomy: x', "<!-- Autonomy: x"),
+        ('<del title="<!--">x</del> y', "~~x~~ y"),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert para.plain == plain, (text, para.plain)
+    (raw,) = md.parse('<div title="<!--">Autonomy: x</div>\n')
+    assert raw.shown == (md.Shown("Autonomy: x", "div"),)
+    (raw,) = md.parse("<p>a<!-- <hr> -->b</p>\n")
+    assert raw.shown == (md.Shown("ab", "p"),)
+    assert md.has_tag('<span title="<!--">x</span>')
+    assert list(md.tags("<b<!-- </details> -->>")) == []
+    assert list(md.tags('<details title="<!--"></details>')) == [
+        ("details", False),
+        ("details", True),
+    ]
+
+
+def test_a_continuation_resolves_the_bodys_references():
+    """Codex on #462 (read of `97662e4`): GitHub resolves a reference link in a footnote's
+    continuation against the definitions anywhere in the body, so the link's text is drawn,
+    where reading the lines in an environment of their own left the brackets literal."""
+    (note, continued) = md.parse(
+        "[ref]: /u\n\n[^1]: note\n\n    [Autonomy: human review required][ref]\n"
+    )
+    assert note.footnote and continued.note == note.note
+    assert continued.plain == "Autonomy: human review required"
+    (note, continued) = md.parse("[^1]: note\n\n    [x][ref]\n\n[ref]: /u\n")
+    assert continued.plain == "x"
+    # The body's definitions are not read again as the continuation's own footnotes.
+    (first, second, continued) = md.parse("[^1]: /url\n\n[^2]: note\n\n    text\n")
+    assert first.note != second.note and continued.note == second.note
+
+
 def test_raw_html_is_rendered_as_what_github_keeps_of_it():
     """Codex on #462 (read of `9fc6782`): GitHub sanitizes raw HTML before rendering, and a tag
     it does not keep is removed with its text left in place, so `Auto<foo></foo>nomy:` shows

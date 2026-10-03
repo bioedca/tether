@@ -1504,6 +1504,35 @@ def test_a_marker_inside_a_tag_attribute_is_no_marker() -> None:
     read = claim._autonomy_refusal("<div>\n<!-- x\n</div>\n\n" + plain)
     assert read is not None and "declar" in read, read
     assert claim._autonomy_refusal("<div>\n<!-- x -->\n</div>\n\n" + plain) is None
+    # Codex on #462 (read of `97662e4`): an unclosed opener inside a quoted attribute value is
+    # the tag's, and the restriction after the tag is drawn and read.
+    for attributed in (
+        '<span title="<!--">Autonomy: maintainer decision required</span>\n',
+        '- <span title="<!--">Autonomy: maintainer decision required</span>\n',
+        '<div title="<!--">Autonomy: maintainer decision required</div>\n',
+        '<p title="<!--">Autonomy: maintainer decision required</p>\n',
+    ):
+        read = claim._autonomy_refusal(plain + attributed)
+        assert read is not None and "maintainer decision" in read, (attributed, read)
+
+
+def test_a_continuation_reads_a_reference_link_defined_in_the_body() -> None:
+    """Codex on #462 (read of `97662e4`): `[Autonomy: human review required][ref]` indented
+    under a footnote definition, with `[ref]` defined elsewhere in the body, draws the key on
+    the page, where reading the continuation in an environment of its own left the brackets
+    literal, the key unread, and an admitting bullet beside it carried the issue.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for body in (
+        "[ref]: /u\n\n[^1]: note\n\n    [Autonomy: human review required][ref]\n",
+        "[^1]: note\n\n    [Autonomy: human review required][ref]\n\n[ref]: /u\n",
+        "[ref]: /u\n\n[^1]: /url\n\n    - [**Autonomy:** maintainer decision required][ref]\n",
+    ):
+        read = claim._autonomy_refusal(admitting + body)
+        assert read is not None and "cannot admit" not in read, (body, read)
+        assert "review required" in read or "maintainer decision" in read, (body, read)
+    # Undefined, the brackets are literal on the page too, and nothing is read.
+    assert claim._autonomy_refusal(admitting + "[^1]: note\n\n    [Autonomy: x][none]\n") is None
     without = claim._markdown.without_tags
     assert without('a <img alt="<!-- x -->"> <!-- y --> b') == "a  <!-- y --> b"
     assert without("<!-- a <b> --> <b>c</b>") == "<!-- a <b> --> c"

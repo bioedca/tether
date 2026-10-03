@@ -251,19 +251,34 @@ _STRUCK_CLOSE = _DROPPED + "-"
 _TILDE_RUN = re.compile(r"~+")
 
 
-def _sanitized(text: str) -> str:
-    """``text`` as it reaches the page's tags: the hidden forms gone. An empty strike element
-    is still a tag here - a source carrying one is not plain Markdown - and draws nothing only
-    in :func:`_struck_marks`.
-    """
-    return _HTML_HIDDEN.sub("", text)
-
-
-#: A comment, another hidden form or a tag, whichever opens first: what
-#: :func:`without_tags` walks.
+#: A comment, another hidden form or a tag, whichever opens first: what every reader of raw
+#: HTML here walks (:func:`_pieces`, :func:`without_tags`).
 _HIDDEN_OR_TAG = re.compile(
     rf"(?P<comment>{_HTML_COMMENT})|{_HTML_HIDDEN.pattern}|{_HTML_TAG.pattern}", re.S
 )
+
+
+def _pieces(text: str) -> Iterator[str | re.Match[str]]:
+    """``text`` walked once as the page's parser walks it: each run of text between the
+    constructs, and each tag as its match; a hidden form yields nothing.
+
+    A comment, another hidden form or a tag, whichever opens first, as the one grammar above
+    has them, so a comment opener inside a quoted attribute value is the tag's and a tag
+    inside a comment is the comment's. Every reader of raw HTML walks this once and lays out
+    what it yields, where removing the hidden forms first and reading the tags off what was
+    left let an unclosed ``<!--`` in a ``title=""`` swallow the tag and the restriction after
+    it, which the page draws (Codex on #462), and would read ``<b<!-- x -->>``, which the page
+    shows as text, as the tag the removal joined. An empty strike element is still a tag here
+    - a source carrying one is not plain Markdown - and draws nothing only in
+    :func:`_struck_marks`.
+    """
+    at = 0
+    for found in _HIDDEN_OR_TAG.finditer(text):
+        yield text[at : found.start()]
+        if found.group("open") is not None or found.group("close") is not None:
+            yield found
+        at = found.end()
+    yield text[at:]
 
 
 def without_tags(text: str) -> str:
@@ -620,7 +635,7 @@ def _in_quote(lines: list[str], line: int) -> bool:
     return label >= 0 and ">" in text[:label]
 
 
-def _continuation(content: str, line: int, note: int) -> list[Block]:
+def _continuation(content: str, line: int, note: int, env: dict[str, Any]) -> list[Block]:
     """The blocks a definition's continuation draws, read from ``content``, the indented code
     block CommonMark made of its lines, with the indent gone - each carrying ``note``, at its
     source line.
@@ -643,12 +658,23 @@ def _continuation(content: str, line: int, note: int) -> list[Block]:
     reads them by the body's rules over the blocks that carry the note (:func:`at_foot`),
     nothing of which admits. A definition nested in the continuation keeps a note of its own,
     moved to the source as well.
+
+    ``env`` is the document's: GitHub resolves a reference link in the continuation against
+    the definitions anywhere in the body, so ``[Autonomy: human review required][ref]`` under
+    a definition draws the key, where reading the lines in an environment of their own left
+    the brackets literal and the restriction unread (Codex on #462). The references are
+    handed down without their source maps, which index the body's lines and would otherwise
+    be read again here as definitions of the continuation's.
     """
     text = content if content.endswith("\n") else content + "\n"
     lines = text.split("\n")
-    env: dict[str, Any] = {}
-    tokens = _PARSER.parse(text, env)
-    return [_placed(block, line, note) for block in _document(tokens, lines, env)]
+    inherited = {
+        label: {key: value for key, value in reference.items() if key != "map"}
+        for label, reference in (env.get("references") or {}).items()
+    }
+    own: dict[str, Any] = {"references": inherited}
+    tokens = _PARSER.parse(text, own)
+    return [_placed(block, line, note) for block in _document(tokens, lines, own)]
 
 
 def _placed(block: Any, line: int, note: int) -> Any:
@@ -804,7 +830,7 @@ def _plain(inline: Token) -> str:
     hard break is a space, and the parser has already decoded entities and backslash escapes
     into the ``text`` children. Inline HTML follows the rule the
     module-level patterns state, and the children are rendered *together* - the text escaped,
-    the inline HTML raw, the whole laid out as :func:`_visible_html` lays out a raw run - so a
+    the inline HTML raw, the whole laid out as :func:`_shown_html` lays out a raw run - so a
     tag's effect on what sits between it and its close is read across the children: an empty
     ``<del></del>`` draws nothing, where rendering each tag on its own drew ``~~~~`` (Codex on
     #462). The escaping is undone with the character references at the end, so ``n < 5`` and
@@ -870,17 +896,19 @@ def _pictured(inline: Token) -> bool:
 def tags(text: str) -> Iterator[tuple[str, bool]]:
     """Every HTML tag in ``text`` - a block's source ``text`` - in order, as ``(name, closing)``.
 
-    Read by the grammar above with the hidden forms removed first, so a tag written inside a
-    comment is not a tag: ``<!-- </details> -->`` closes nothing on the page and must close
-    nothing for a caller counting nesting (Codex on #462). A tag inside a stripped element is
+    Read by the grammar above, a hidden form or a tag whichever opens first, so a tag written
+    inside a comment is not a tag: ``<!-- </details> -->`` closes nothing on the page and must
+    close nothing for a caller counting nesting (Codex on #462). A tag inside a stripped element is
     one: the page drops the ``<svg>`` of ``<svg></details></svg>`` and keeps what it held, so
     that ``</details>`` closes the widget there, and a rule that dropped it with the element -
     read off the sanitizer's source rather than the page - kept open a widget the page had
     closed (read 29 of #462, reversed at read 31). Names are lower-cased.
     """
-    for tag in _HTML_TAG.finditer(_sanitized(text)):
-        closing = tag.group("close") is not None
-        yield (tag.group("close") or tag.group("open")).lower(), closing
+    for piece in _pieces(text):
+        if isinstance(piece, str):
+            continue
+        closing = piece.group("close") is not None
+        yield (piece.group("close") or piece.group("open")).lower(), closing
 
 
 def inline_html(text: str) -> Iterator[str]:
@@ -950,34 +978,29 @@ def has_tag(text: str) -> bool:
     return next(tags(text), None) is not None
 
 
-def _visible_html(text: str) -> str:
-    """Raw HTML as GitHub shows it: a tag that draws something what it draws, a tag in
-    ``_SPACED_TAGS`` a space, every other tag - hidden, phrasing or stripped - nothing, the
-    text a strike tag holds between ``~~`` marks, and character references decoded last. A
-    tilde in a raw block is literal, the page reading no Markdown there (its markdown
-    endpoint, 2026-10-03), so only the tags strike anything here."""
-    return html.unescape(_struck_marks(_laid_out(text), markdown=False))
-
-
 def _laid_out(text: str) -> str:
     """Raw HTML as GitHub lays it out, with the strike tags standing as spans: the character
     the page drops gone, the hidden forms and the empty strike elements gone, a tag that draws
     something what it draws, a tag in ``_SPACED_TAGS`` a space, a strike tag its sentinel, every
     other tag - phrasing or stripped - nothing. Character references are still encoded, so a
     reference to a tilde is not yet a tilde."""
+    return "".join(
+        piece if isinstance(piece, str) else _laid_out_tag(piece)
+        for piece in _pieces(text.replace(_DROPPED, ""))
+    )
 
-    def laid_out(tag: re.Match[str]) -> str:
-        name = (tag.group("open") or tag.group("close")).lower()
-        if name in _STRIKE_TAGS:
-            return _STRUCK_CLOSE if tag.group("close") is not None else _STRUCK_OPEN
-        if name in _DRAWN_TAGS:
-            return _DRAWN_TAGS[name]
-        if name == "img" and tag.group("open") is not None:
-            shown = _attributes(tag.group(0)).get("alt", "")
-            return f" {shown} " if shown else " "
-        return " " if name in _SPACED_TAGS else ""
 
-    return _HTML_TAG.sub(laid_out, _sanitized(text.replace(_DROPPED, "")))
+def _laid_out_tag(tag: re.Match[str]) -> str:
+    """What the page lays out for one tag: see :func:`_laid_out`."""
+    name = (tag.group("open") or tag.group("close")).lower()
+    if name in _STRIKE_TAGS:
+        return _STRUCK_CLOSE if tag.group("close") is not None else _STRUCK_OPEN
+    if name in _DRAWN_TAGS:
+        return _DRAWN_TAGS[name]
+    if name == "img" and tag.group("open") is not None:
+        shown = _attributes(tag.group(0)).get("alt", "")
+        return f" {shown} " if shown else " "
+    return " " if name in _SPACED_TAGS else ""
 
 
 def strike_pairs(text: str) -> tuple[tuple[int, int, int], ...]:
@@ -1075,8 +1098,12 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
     """Raw HTML as GitHub lays it out, one :class:`Shown` per block it draws.
 
     The run is cut at every tag in ``BLOCK_TAGS`` - the kept tags the page lays out as a block
-    of their own - each piece then rendered as :func:`_visible_html` renders the whole and
-    named for the opening tag it follows. Cutting at a tag the page draws inside a block would
+    of their own - each piece laid out as it is walked, as GitHub shows raw HTML: a tag that
+    draws something what it draws, a tag in ``_SPACED_TAGS`` a space, every other tag - hidden,
+    phrasing or stripped - nothing, the text a strike tag holds between ``~~`` marks, and
+    character references decoded last; a tilde in a raw block is literal, the page reading no
+    Markdown there (its markdown endpoint, 2026-10-03), so only the tags strike anything here -
+    and named for the opening tag it follows. Cutting at a tag the page draws inside a block would
     only split a run the page shows whole - a caller reading a key off a piece then reads an
     empty value, which fails closed - while *not* cutting at one the page draws as a boundary
     joins two blocks into text the page never shows, which is the direction that admitted
@@ -1094,21 +1121,28 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
     ``hr`` let a caller take the text as the first block drawn after a raw heading, with the
     rule the page draws between them gone (Codex on #462).
     """
-    stripped = _sanitized(text)
-    pieces: list[tuple[str, str]] = []
-    at, opener = 0, ""
-    for tag in _HTML_TAG.finditer(stripped):
-        name = (tag.group("open") or tag.group("close")).lower()
-        if name not in BLOCK_TAGS:
+    pieces: list[tuple[list[str], str]] = []
+    laid: list[str] = []
+    opener = ""
+    for piece in _pieces(text.replace(_DROPPED, "")):
+        if isinstance(piece, str):
+            laid.append(piece)
             continue
-        pieces.append((stripped[at : tag.start()], opener))
-        at = tag.end()
-        opener = "" if tag.group("close") is not None else name
+        name = (piece.group("open") or piece.group("close")).lower()
+        if name not in BLOCK_TAGS:
+            laid.append(_laid_out_tag(piece))
+            continue
+        pieces.append((laid, opener))
+        laid = []
+        opener = "" if piece.group("close") is not None else name
         if opener in _VOID_BLOCK_TAGS:
-            pieces.append(("", opener))
+            pieces.append(([], opener))
             opener = ""
-    pieces.append((stripped[at:], opener))
-    shown = ((" ".join(_visible_html(piece).split()), opener) for piece, opener in pieces)
+    pieces.append((laid, opener))
+    shown = (
+        (" ".join(html.unescape(_struck_marks("".join(laid), markdown=False)).split()), opener)
+        for laid, opener in pieces
+    )
     return tuple(Shown(piece, opener) for piece, opener in shown if piece or opener)
 
 
@@ -1173,7 +1207,7 @@ def _blocks(
             line = _line(token)
             note = _continued_note(found, lines, line, env, origin, quoted)
             if note is not None:
-                found.extend(_continuation(token.content, line, note))
+                found.extend(_continuation(token.content, line, note, env))
             else:
                 found.append(Code(token.content, line, False, ""))
             at += 1
