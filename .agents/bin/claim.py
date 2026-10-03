@@ -498,6 +498,9 @@ _AUTONOMY_KEY = re.compile(
 #: treating either as "no grooming block" handed the decision back to the stale body the block
 #: was written to supersede. An empty groom is still a groom.
 _GROOMING_MARKER = re.compile(r"<!--[ \t]*tether-grooming-v1[ \t]*-->")
+#: The checkbox GitHub draws at the front of a task-list item, as it reaches the rendered text:
+#: the ``commonmark`` preset has no task-list rule, so ``[ ]`` and ``[x]`` stay literal.
+_TASK_MARKER = re.compile(r"\[(?: |x|X)\](?: |$)")
 _MARKUP = re.compile(r"[`*_]+")
 
 
@@ -640,15 +643,22 @@ def _scan_only(leaves: list[_Leaf], where: str) -> list[_AutonomyValue]:
 
 
 def _is_grooming_marker(block: Any) -> bool:
-    """Whether ``block`` is a marker line: a raw HTML block that **begins** with the marker.
+    """Whether ``block`` is a marker line: a raw HTML block that **begins** with the marker and
+    **shows nothing**.
 
     Begins with, not contains. Markdown ends a comment block on the line that closes the
     comment, so a marker written on its own line is its own block whatever follows it; a marker
     *inside* some other raw HTML - `<div>`, marker, `</div>` - is one block with the `<div>`, and
     searching that block's text for the marker made the whole construct a grooming block that was
     never on a line of its own (Codex on #462). `_misplaced_marker` refuses that body instead.
+
+    Shows nothing, because the comment block runs to the end of the line that closes it: a
+    marker followed on its own line by `maintainer decision required` is one block that begins
+    with the marker, and reading it as the marker discarded the restriction the page shows beside
+    it (Codex on #462). A block that shows text is not a marker on its own line, and the misplaced
+    rule refuses it. A marker followed only by other comments shows nothing and is still a marker.
     """
-    if not isinstance(block, _markdown.Html):
+    if not isinstance(block, _markdown.Html) or block.plain:
         return False
     return _GROOMING_MARKER.match(block.text.lstrip()) is not None
 
@@ -786,6 +796,13 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 )
                 found.append(_AutonomyValue(_prose(value.block), f"{where} heading", admits=admits))
                 found.extend(_scan_only(section[1:], f"{where} heading remainder"))
+            else:
+                # A recognised heading with no prose below it - the last line of the body, or
+                # a heading straight under it - has declared an empty value, and recording
+                # nothing let an admitting bullet elsewhere carry the issue past a field that
+                # names no registered value (Codex on #462). The empty value fails the exact
+                # check, as the one-column table's does.
+                found.append(_AutonomyValue("", f"{where} heading", admits=False))
         elif isinstance(block, _markdown.TableRow):
             if block.plain and _AUTONOMY_KEY.fullmatch(block.plain[0]):
                 # A row keyed `autonomy` is a declaration that cannot admit: its second cell
@@ -832,15 +849,23 @@ def _bullet(item: _markdown.ListItem, where: str) -> list[_AutonomyValue]:
         return []
     # Matched on the rendered text, not the source: an inline comment splitting the key, or a
     # `<b>` around it, is invisible on the page and must be invisible here (Codex on #462).
-    match = _AUTONOMY_BULLET.fullmatch(_prose(first))
+    text = _prose(first)
+    # A task-list item draws a checkbox before its text, and the key is the text: `- [ ]
+    # **Autonomy:** maintainer decision required` is a restriction the page shows, and matching
+    # the checkbox as part of the key dropped it (Codex on #462). The checkbox is also not the
+    # registered shape, so the item can refuse and cannot admit.
+    task = _TASK_MARKER.match(text)
+    if task is not None:
+        text = text[task.end() :]
+    match = _AUTONOMY_BULLET.fullmatch(text)
     if match is None:
         return []
     qualifier = _normalize_autonomy(match.group("qualifier"))
     value = " ".join(match.group("value").split())
     # Exact-checked like any declaration, but only the registered shape - column zero, `-` or
-    # `*` - may admit. A `+`, indented, nested or quoted bullet can refuse and can never be the
-    # reason an issue is claimed.
-    registered = item.column == 0 and item.marker in "-*"
+    # `*`, no checkbox - may admit. A `+`, indented, nested, quoted or task-list bullet can refuse
+    # and can never be the reason an issue is claimed.
+    registered = item.column == 0 and item.marker in "-*" and task is None
     found = [_AutonomyValue(value, f"{where} bullet", qualifier=qualifier, admits=registered)]
     found.extend(_scan_only(_flat(item.blocks[1:]), f"{where} bullet remainder"))
     return found
@@ -869,8 +894,9 @@ def _autonomy_refusal(body: str) -> str | None:
     if _misplaced_marker(document):
         return (
             "carries a tether-grooming-v1 marker inside a paragraph, list item, block quote or "
-            "other raw HTML, where a grooming block cannot start, so what it supersedes cannot be "
-            "read. Put the marker on its own top-level line above the groomed text"
+            "other raw HTML, or beside text on its own line, where a grooming block cannot start, "
+            "so what it supersedes cannot be read. Put the marker on its own top-level line, with "
+            "nothing else on it, above the groomed text"
         )
     values = _declarations(document)
 
@@ -920,8 +946,9 @@ def _autonomy_refusal(body: str) -> str | None:
             shape = declarations[0]
             return (
                 f"declares autonomy {shape.raw.strip()!r} only in a shape that cannot admit "
-                f"({shape.where}: a `+`, indented, nested or quoted bullet, a table row, or a "
-                "heading whose value is not its own next paragraph). Write it as a column-zero "
+                f"({shape.where}: a `+`, indented, nested, quoted or task-list bullet, a table "
+                "row, or a heading whose value is not its own next paragraph). Write it as a "
+                "column-zero "
                 f"`-` bullet or an `## Execution autonomy` heading over {AUTONOMY_ADMITS[0]!r} "
                 "as a plain paragraph"
             )

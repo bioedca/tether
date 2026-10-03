@@ -290,6 +290,14 @@ def test_a_tag_is_read_as_the_page_lays_it_out():
     # Tag names are read regardless of case, and attributes do not change the kind of tag.
     (para,) = md.parse('Auto<B class="k">nomy</B> <DIV>d</DIV>\n')
     assert para.plain == "Autonomy d"
+    # Codex on #462: a `>` inside a quoted attribute value is not the end of the tag. The tag
+    # grammar is CommonMark's, with quoted, single-quoted and unquoted values alike.
+    (para,) = md.parse("""Auto<b title="a>b">nomy</b> <a href='u>v'>x</a> <img src=y>z\n""")
+    assert para.plain == "Autonomy x z"
+    # Codex on #462: `<q>` draws quotation marks, so it is the one phrasing tag that leaves
+    # something behind - and `Auto<q></q>nomy` is the defaced word the page shows, not the key.
+    (para,) = md.parse("Auto<q></q>nomy: <q>x</q>\n")
+    assert para.plain == 'Auto""nomy: "x"'
     # A bare `<` that is not a tag is prose, as it is on the page.
     (para,) = md.parse("n < 5 and m > 3\n")
     assert para.plain == "n < 5 and m > 3"

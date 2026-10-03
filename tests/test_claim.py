@@ -651,6 +651,94 @@ def test_only_the_latest_grooming_block_governs() -> None:
     assert relaxed is None, relaxed
 
 
+def test_a_marker_that_shares_its_line_with_visible_text_is_not_on_its_own_line() -> None:
+    """Codex on #462 (read of `f3a58e3`): a comment block runs to the end of the line that closes
+    it, so `<!-- tether-grooming-v1 --> maintainer decision required` is one block that begins
+    with the marker. Reading it as the marker discarded the restriction the page shows beside it,
+    and an admitting bullet below became the only declaration. A marker block must show nothing;
+    one that shows text is a marker where a grooming block cannot start, and refuses the body.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    beside = claim._autonomy_refusal(
+        "<!-- tether-grooming-v1 --> maintainer decision required\n" + admitting
+    )
+    assert beside is not None, "text beside the marker was discarded - fail-open"
+    assert "cannot start" in beside, beside
+    # A marker followed only by another comment still shows nothing and is still the marker.
+    nested = claim._autonomy_refusal(
+        admitting + "\n<!-- tether-grooming-v1 --><!-- nothing to report -->\n"
+    )
+    assert nested is not None and "its grooming block" in nested, nested
+
+
+def test_a_quoted_attribute_value_does_not_end_a_tag_early() -> None:
+    """Codex on #462 (read of `f3a58e3`): a `>` inside a quoted attribute value stopped the tag
+    matcher, so `<b title="a>b">` was left in the rendered text, the key was not the key and the
+    restriction under it was dropped. The tag grammar is CommonMark's, quoted values included.
+    """
+    refusal = claim._autonomy_refusal(
+        "- **Autonomy:** agent-can-do-alone\n"
+        '- **Auto<b title="a>b">nomy</b>:** maintainer decision required\n'
+    )
+    assert refusal is not None, "a key wrapped in a quoted-attribute tag was not read - fail-open"
+    assert "maintainer decision" in refusal, refusal
+
+
+def test_a_recognised_heading_with_nothing_below_it_declares_an_empty_value() -> None:
+    """Codex on #462 (read of `f3a58e3`): `## Execution autonomy` as the last line of a body, or
+    straight above another heading, had an empty section and recorded nothing, so an admitting
+    bullet elsewhere carried the issue past a field naming no registered value. It is now an
+    empty value, which fails the exact check as the one-column table's does.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for where, body in {
+        "terminal": admitting + "## Execution autonomy\n",
+        "under another heading": admitting + "## Execution autonomy\n\n## Notes\n\nprose\n",
+        "over code only": admitting + "## Execution autonomy\n\n```\nagent-can-do-alone\n```\n",
+    }.items():
+        refusal = claim._autonomy_refusal(body)
+        assert refusal is not None, f"{where}: an empty heading recorded nothing - fail-open"
+        assert "not a registered" in refusal and "heading" in refusal, f"{where}: {refusal}"
+    alone = claim._autonomy_refusal("## Execution autonomy\n")
+    assert alone is not None and "not a registered" in alone, alone
+
+
+def test_a_task_list_item_is_read_past_its_checkbox_and_cannot_admit() -> None:
+    """Codex on #462 (read of `f3a58e3`): `- [ ] **Autonomy:** maintainer decision required`
+    renders as a checkbox before a restrictive declaration, but the preset keeps `[ ]` as text,
+    the key never matched and the restriction was dropped beside an admitting bullet. The
+    checkbox is read past; the shape is one more that can refuse and cannot admit.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    for box in ("[ ]", "[x]", "[X]"):
+        refusal = claim._autonomy_refusal(
+            admitting + f"- {box} **Autonomy:** maintainer decision required\n"
+        )
+        assert refusal is not None, f"{box}: a task-list restriction was dropped - fail-open"
+        assert "maintainer decision" in refusal, f"{box}: {refusal}"
+        alone = claim._autonomy_refusal(f"- {box} **Autonomy:** agent-can-do-alone\n")
+        assert alone is not None and "only in a shape that cannot admit" in alone, alone
+        assert "task-list" in alone, alone
+    # `[ ]` with no space after it is not a checkbox on the page, and not one here: the item's
+    # text then starts with `[ ]`, which is not the key.
+    literal = claim._autonomy_refusal("- [ ]**Autonomy:** agent-can-do-alone\n")
+    assert literal is not None and "declares no Execution autonomy" in literal, literal
+
+
+def test_a_q_element_is_the_quotation_marks_the_page_draws() -> None:
+    """Codex on #462 (read of `f3a58e3`): `<q>` was in the phrasing set and vanished, so
+    `**Auto<q></q>nomy:**` was read as the key while the page shows `Auto“”nomy:`. It now leaves
+    the quotation marks the page draws, so a key defaced by one is not the key and a value inside
+    one is still the value.
+    """
+    defaced = claim._autonomy_refusal("- **Auto<q></q>nomy:** agent-can-do-alone\n")
+    assert defaced is not None and "declares no Execution autonomy" in defaced, defaced
+    quoted = claim._autonomy_refusal(
+        "- **Autonomy:** agent-can-do-alone\n- **Autonomy:** <q>maintainer decision required</q>\n"
+    )
+    assert quoted is not None and "maintainer decision" in quoted, quoted
+
+
 def test_autonomy_refusals_distinguish_absent_restricted_and_unregistered_values() -> None:
     """Each repairable failure says which of the three issue-body edits is needed."""
     absent = claim._autonomy_refusal("Acceptance criteria\n")
@@ -1285,12 +1373,18 @@ def test_a_grooming_marker_anywhere_but_its_own_top_level_line_refuses_the_body(
             f"{where}: {refusal}"
         )
 
-    # On its own top-level line it is the authoritative source, however it is dressed.
-    for marker in ("<!-- tether-grooming-v1 -->", "<!--tether-grooming-v1--> **groomed**"):
+    # On its own top-level line, with nothing shown beside it, it is the authoritative source.
+    for marker in ("<!-- tether-grooming-v1 -->", "<!--tether-grooming-v1--><!-- by hand -->"):
         refusal = claim._autonomy_refusal(
             stale + marker + "\n- **Autonomy:** maintainer decision\n"
         )
         assert refusal is not None and "maintainer decision" in refusal, marker
+    # Text on the marker's line is part of the same raw HTML block, shown literally on the page
+    # and once discarded with the marker (Codex on #462); that line is not the marker on its own.
+    dressed = claim._autonomy_refusal(
+        stale + "<!--tether-grooming-v1--> **groomed**\n- **Autonomy:** maintainer decision\n"
+    )
+    assert dressed is not None and "grooming block cannot start" in dressed, dressed
 
 
 def test_the_refusal_names_the_declared_value_so_a_worker_knows_not_to_retry(

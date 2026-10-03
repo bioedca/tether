@@ -103,16 +103,24 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: set below - wraps text without breaking it, so it leaves nothing and ``Auto<b>nomy</b>`` is
 #: one word (Greptile on #462: a space there split a key the page shows whole); any other tag -
 #: ``<li>``, ``<br>``, ``<p>``, ``<td>`` - is laid out as a break, so it leaves a space and
-#: ``maintainer</li><li>decision`` stays the two words the page shows. Either way the text reads
-#: as it renders, so a caller sees neither a word the page joins nor one it splits. The tag
-#: pattern is a tag as HTML defines one - a name, then attributes - so ``n < 5 and m > 3`` stays
-#: prose, as on the page.
+#: ``maintainer</li><li>decision`` stays the two words the page shows. One phrasing tag draws
+#: something: ``<q>`` renders quotation marks around its content, so it leaves a ``"`` on each
+#: side and ``Auto<q></q>nomy`` is the defaced key the page shows rather than the key (Codex on
+#: #462). Either way the text reads as it renders, so a caller sees neither a word the page joins
+#: nor one it splits. The tag pattern is the CommonMark open and close tag grammar - a name, then
+#: attributes whose values may be quoted - so ``n < 5 and m > 3`` stays prose, as on the page,
+#: and a ``>`` inside a quoted attribute value does not end the tag early (Codex on #462).
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
-_HTML_TAG = re.compile(r"</?([A-Za-z][A-Za-z0-9-]*)(?:\s[^<>]*)?/?>")
+_HTML_TAG = re.compile(
+    r"<(?:/(?P<close>[A-Za-z][A-Za-z0-9-]*)\s*"
+    r"|(?P<open>[A-Za-z][A-Za-z0-9-]*)"
+    r"(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*"
+    r"\s*/?)>"
+)
 _PHRASING_TAGS = frozenset(
     {"a", "abbr", "b", "bdi", "bdo", "cite", "code", "del", "dfn", "em", "font", "i", "ins", "kbd"}
-    | {"mark", "q", "rp", "rt", "ruby", "s", "samp", "small", "span", "strike", "strong", "sub"}
-    | {"sup", "time", "tt", "u", "var"}
+    | {"mark", "rp", "rt", "ruby", "s", "samp", "small", "span", "strike", "strong", "sub", "sup"}
+    | {"time", "tt", "u", "var"}
 )
 
 
@@ -329,7 +337,10 @@ def _visible_html(text: str) -> str:
     """Raw HTML as GitHub shows it: a comment or phrasing tag leaves nothing, other tags a space."""
 
     def laid_out(tag: re.Match[str]) -> str:
-        return "" if tag.group(1).lower() in _PHRASING_TAGS else " "
+        name = (tag.group("open") or tag.group("close")).lower()
+        if name == "q":
+            return '"'
+        return "" if name in _PHRASING_TAGS else " "
 
     return _HTML_TAG.sub(laid_out, _HTML_COMMENT.sub("", text))
 
