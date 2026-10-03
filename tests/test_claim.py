@@ -739,6 +739,37 @@ def test_a_q_element_is_the_quotation_marks_the_page_draws() -> None:
     assert quoted is not None and "maintainer decision" in quoted, quoted
 
 
+def test_raw_html_is_read_as_the_page_draws_it_in_three_more_ways() -> None:
+    """Codex on #462 (read of `6993d3c`): three shapes the rendering rule still read wrongly.
+    `<wbr>` is a break *opportunity* that draws nothing, so `Auto<wbr>nomy:` is the key and a
+    space there dropped the restriction beside it. A character reference inside a raw block -
+    `maintainer&#32;decision` - is a space on the page and was left undecoded, hiding the token
+    from the remainder scan. And `<del>`, `<s>`, `<strike>` strike a value out, which is the
+    retraction `~~x~~` already is, yet they vanished and the struck-out token admitted.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    wbr = claim._autonomy_refusal(admitting + "- **Auto<wbr>nomy:** maintainer decision required\n")
+    assert wbr is not None, "a key split by <wbr> was not read - fail-open"
+    assert "maintainer decision" in wbr, wbr
+
+    entity = claim._autonomy_refusal(
+        "## Execution autonomy\n\nagent-can-do-alone\n\n"
+        "<div>maintainer&#32;decision required</div>\n"
+    )
+    assert entity is not None, "an undecoded character reference hid the token - fail-open"
+    assert "maintainer decision" in entity and "heading remainder" in entity, entity
+
+    for tag in ("del", "s", "strike"):
+        struck = claim._autonomy_refusal(f"- **Autonomy:** <{tag}>agent-can-do-alone</{tag}>\n")
+        assert struck is not None, f"<{tag}>: a struck-out value admitted - fail-open"
+        assert "not a registered" in struck and "~~agent-can-do-alone~~" in struck, struck
+        # A struck-out restriction is still read: the token is in the text either way.
+        restrictive = claim._autonomy_refusal(
+            admitting + f"- **Autonomy:** <{tag}>maintainer decision required</{tag}>\n"
+        )
+        assert restrictive is not None and "maintainer decision" in restrictive, restrictive
+
+
 def test_autonomy_refusals_distinguish_absent_restricted_and_unregistered_values() -> None:
     """Each repairable failure says which of the three issue-body edits is needed."""
     absent = claim._autonomy_refusal("Acceptance criteria\n")

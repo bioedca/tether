@@ -298,9 +298,22 @@ def test_a_tag_is_read_as_the_page_lays_it_out():
     # something behind - and `Auto<q></q>nomy` is the defaced word the page shows, not the key.
     (para,) = md.parse("Auto<q></q>nomy: <q>x</q>\n")
     assert para.plain == 'Auto""nomy: "x"'
+    # Codex on #462: `<wbr>` is a break opportunity that draws nothing, so it is phrasing; and
+    # `<del>`, `<s>`, `<strike>` strike their content out, a retraction, so they leave the `~~`
+    # their Markdown spelling keeps and the two spellings read the same.
+    (para,) = md.parse("Auto<wbr>nomy <del>a</del> <s>b</s> <strike>c</strike>\n")
+    assert para.plain == "Autonomy ~~a~~ ~~b~~ ~~c~~"
     # A bare `<` that is not a tag is prose, as it is on the page.
     (para,) = md.parse("n < 5 and m > 3\n")
     assert para.plain == "n < 5 and m > 3"
+
+
+def test_a_character_reference_in_a_raw_block_is_decoded_after_its_tags_are_read():
+    # Codex on #462: markdown-it decodes references in text it tokenizes, but a raw block is
+    # handed over whole, and `maintainer&#32;decision` kept its `&#32;` while the page shows a
+    # space. Decoded after the tags are read, so `&lt;b&gt;` is the literal `<b>` the page shows.
+    (html,) = md.parse("<div>maintainer&#32;decision required &amp; &lt;b&gt;</div>\n")
+    assert html.plain == "maintainer decision required & <b>"
 
 
 def test_an_html_blocks_plain_is_its_visible_text_and_a_comment_blocks_is_empty():
