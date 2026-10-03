@@ -456,6 +456,91 @@ def test_hidden_inline_html_leaves_nothing_behind_as_a_comment_does():
         assert isinstance(raw, md.Html) and raw.plain == "" and raw.shown == (), block
 
 
+def test_raw_html_is_rendered_as_what_github_keeps_of_it():
+    """Codex on #462 (read of `9fc6782`): GitHub sanitizes raw HTML before rendering, and a tag
+    it does not keep is removed with its text left in place, so `Auto<foo></foo>nomy:` shows
+    the key whole - where rendering every unknown tag as a space split it into `Auto nomy:`.
+    The kept elements are html-pipeline's allowlist (v3.2.4, last changed 2024-02-02), pinned
+    here so a drift in the module's partition of it is a red test; a stripped block-ish tag -
+    Selma's `whitespace_elements` - leaves a space on each side of its text, as the sanitizer
+    does; and a raw run is cut only at a kept block tag, never at one the page strips."""
+    kept = {
+        "h1", "h2", "h3", "h4", "h5", "h6", "br", "b", "i", "strong", "em", "a", "pre", "code",
+        "img", "tt", "div", "ins", "del", "sup", "sub", "p", "picture", "ol", "ul", "table",
+        "thead", "tbody", "tfoot", "blockquote", "dl", "dt", "dd", "kbd", "q", "samp", "var",
+        "hr", "ruby", "rt", "rp", "li", "tr", "td", "th", "s", "strike", "summary", "details",
+        "caption", "figure", "figcaption", "abbr", "bdo", "cite", "dfn", "mark", "small",
+        "source", "span", "time", "wbr",
+    }  # fmt: skip
+    assert frozenset(kept) == md.KEPT_TAGS
+    assert md.BLOCK_TAGS < md.KEPT_TAGS
+    # A stripped tag joins; a kept phrasing tag joins; a kept block tag and a stripped
+    # block-ish tag each leave a space.
+    for text, plain in (
+        (
+            "**Auto<foo></foo>nomy:** maintainer decision required",
+            "Autonomy: maintainer decision required",
+        ),
+        ("Auto<font>nomy</font>: x", "Autonomy: x"),
+        ("Auto<u>nomy</u>: x", "Autonomy: x"),
+        ("Auto<center/>nomy: x", "Autonomy: x"),
+        ("needs<foo></foo>maintainer", "needsmaintainer"),
+        ("Auto<b>nomy</b>: x", "Autonomy: x"),
+        ("maintainer<br>decision", "maintainer decision"),
+        ("Auto<section></section>nomy: x", "Auto nomy: x"),
+        ("Auto<nav>nomy</nav>: x", "Auto nomy : x"),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert para.plain == plain, (text, para.plain)
+    # Raw blocks are cut at kept block tags only: an unknown tag is no boundary, and nor is
+    # a stripped block-ish one, whose text flows into the block around it with a space.
+    (joined,) = md.parse("<p>Auto<foo></foo>nomy: maintainer decision required</p>\n")
+    assert joined.shown == (md.Shown("Autonomy: maintainer decision required", "p"),)
+    (spaced,) = md.parse("<div><section>Autonomy:</section> maintainer decision</div>\n")
+    assert spaced.shown == (md.Shown("Autonomy: maintainer decision", "div"),)
+    (cut,) = md.parse("<div><p>Autonomy:</p> maintainer decision</div>\n")
+    assert cut.shown == (
+        md.Shown("", "div"),
+        md.Shown("Autonomy:", "p"),
+        md.Shown("maintainer decision", ""),
+    )
+    # Every tag the page strips is still a tag to `has_tag`: the rendering may read it, and
+    # the registered shapes may not carry it.
+    assert md.has_tag("Auto<foo></foo>nomy") and md.has_tag("<section>x</section>")
+
+
+def test_a_footnote_definition_the_reference_rule_swallowed_is_the_paragraph_the_page_draws():
+    """Codex on #462 (read of `9fc6782`): GitHub renders footnotes and the parser does not, so
+    `[^1]: Autonomy: maintainer decision required` is a paragraph whose text starts with the
+    label - and `[^1]: Autonomy:`, whose text is one word, is a link reference definition to
+    CommonMark, swallowed into the parser's environment with no block at all, while the page
+    draws a footnote holding `Autonomy:`. The swallowed ones come back as the paragraphs they
+    would otherwise be, label and all, at their source line, sorted in after a block that opens
+    on the same line; a reference whose label does not open with `^` draws nothing."""
+    assert md.parse("[^1]: Autonomy:\n") == (md.Paragraph("[^1]: Autonomy:", "[^1]: Autonomy:", 0),)
+    (para,) = md.parse("[^1]: Autonomy: maintainer decision required\n")
+    assert para == md.Paragraph(
+        "[^1]: Autonomy: maintainer decision required",
+        "[^1]: Autonomy: maintainer decision required",
+        0,
+    )
+    assert md.parse("[foo]: /url\n") == ()
+    assert md.parse('[foo]: /url "Autonomy: x"\n') == ()
+    # A quoted title is part of the footnote's text, and the label keeps the author's case.
+    (titled,) = md.parse('[^Note]: Autonomy: "maintainer decision required"\n')
+    assert titled.plain == '[^Note]: Autonomy: "maintainer decision required"'
+    # Sorted in by line; after the list whose item it opens, since the list opens first.
+    blocks = md.parse("intro\n\n[^1]: *Autonomy:*\n\n- item\n\n[^2]: x\n")
+    assert kinds(blocks) == ["Paragraph", "Paragraph", "ListBlock", "Paragraph"]
+    assert [block.line for block in blocks] == [0, 2, 4, 6]
+    assert blocks[1].plain == "[^1]: Autonomy:"
+    nested = md.parse("- [^1]: Autonomy:\n")
+    assert kinds(nested) == ["ListBlock", "Paragraph"] and nested[1].line == 0
+    # A definition continued onto the next line is one paragraph, as a footnote is.
+    (continued,) = md.parse("[^1]:\n  Autonomy:\n")
+    assert continued.plain == "[^1]: Autonomy:" and continued.line == 0
+
+
 def test_a_table_rows_plain_cells_are_rendered_in_order():
     (table,) = md.parse("| **Field** | [Value](u) |\n|---|---|\n| `Autonomy` | *x* &amp; y |\n")
     assert [row.plain for row in table.rows] == [("Field", "Value"), ("Autonomy", "x & y")]

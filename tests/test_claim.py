@@ -1080,6 +1080,25 @@ def test_a_details_opened_in_running_text_collapses_what_follows_it() -> None:
         assert popped is None, f"{scoped!r}: {popped}"
     unclosed = claim._autonomy_refusal(f"<table><tr><td><details>note\n\n{admitting}")
     assert unclosed is not None and "only in a shape that cannot admit" in unclosed, unclosed
+    # Codex on #462 (read of `9fc6782`), one shape over: a tag GitHub strips is no scope, since
+    # its end tag is stripped too and closes nothing on the page - `<section><details>...
+    # </section>` leaves the widget open to the end of the body, so what follows is hidden.
+    # A kept element around the stripped one still pops it.
+    for stripped in ("section", "main", "article", "nav", "center", "fieldset", "dialog"):
+        opened = claim._autonomy_refusal(
+            f"<{stripped}>\n<details><summary>s</summary>\n</{stripped}>\n\n{admitting}"
+        )
+        assert opened is not None and "only in a shape that cannot admit" in opened, (
+            stripped,
+            opened,
+        )
+    assert (
+        claim._autonomy_refusal(
+            f"<table><tr><td><nav><details><summary>s</summary></nav></td></tr></table>\n\n{admitting}"
+        )
+        is None
+    )
+    assert claim._HTML_SCOPES < claim._markdown.BLOCK_TAGS and "section" not in claim._HTML_SCOPES
     # And a `</details>` inside a raw cell cannot close one opened outside the table, while
     # one inside a raw `<li>` can, a list item being no scope boundary.
     through = claim._autonomy_refusal(
@@ -1089,6 +1108,134 @@ def test_a_details_opened_in_running_text_collapses_what_follows_it() -> None:
     assert (
         claim._autonomy_refusal(f"<details>\n\n<ul><li></details></li></ul>\n\n{admitting}") is None
     )
+
+
+def test_a_tag_github_strips_leaves_the_key_it_was_written_inside_whole() -> None:
+    """Codex on #462 (read of `9fc6782`): GitHub sanitizes raw HTML before rendering, and an
+    element it does not keep is removed with its text left in place, so `- **Auto<foo></foo>
+    nomy:** maintainer decision required` shows an ordinary restrictive declaration - which the
+    rendering read as `Auto nomy`, no key, and an admitting bullet beside it carried the issue.
+    Rendered as the page renders it, the key is whole and the restriction governs; a tag in the
+    key still bars admitting, as every tag does. A stripped block-ish tag - `<section>` - leaves
+    a space on each side, as the sanitizer does, so the key it splits is split on the page too
+    and the restriction beside it is still read as remainder text.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for split in (
+        "- **Auto<foo></foo>nomy:** maintainer decision required\n",
+        "- **Auto<center>nomy</center>:** maintainer decision required\n",
+        "Auto<x/>nomy: maintainer decision required\n",
+        "## Auto<foo></foo>nomy\n\nmaintainer decision required\n",
+        "| Auto<foo></foo>nomy | maintainer decision required |\n|---|---|\n",
+        "<p>Auto<foo></foo>nomy: maintainer decision required</p>\n",
+    ):
+        joined = claim._autonomy_refusal(admitting + split)
+        assert joined is not None, f"{split!r}: a key a stripped tag splits was not read"
+        assert "maintainer decision" in joined, f"{split!r}: {joined}"
+    assert claim._autonomy_refusal("- **Auto<foo></foo>nomy:** agent-can-do-alone\n") is not None
+    # The sanitizer's own spacing: text inside a stripped `<section>` is spaced, not joined.
+    spaced = claim._autonomy_refusal(
+        admitting + "- **Autonomy:** <section>agent-can-do-alone</section>maintainer decision\n"
+    )
+    assert spaced is not None and "maintainer decision" in spaced, spaced
+    # And what the page joins is joined: `needsmaintainer` is one word there, naming nothing.
+    assert claim._autonomy_refusal(admitting + "needs<foo></foo>maintainer review\n") is None
+
+
+def test_a_footnote_is_read_behind_its_label_and_never_admits() -> None:
+    """Codex on #462 (read of `9fc6782`): GitHub renders footnotes and the parser does not, so
+    `[^1]: Autonomy: maintainer decision required` reached `_keyed` with the label in front of
+    the key and was no declaration, while the page draws the restriction at its foot. The label
+    is read past as a task-list checkbox is, and bars admitting as the checkbox does: a footnote
+    is drawn at the foot of the page, not in its list. A definition whose text is one word is
+    swallowed by CommonMark's reference rule and handed back by `markdown_structure` as the
+    paragraph the page draws, so it is read the same way.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for footnote in (
+        "See note[^1].\n\n[^1]: Autonomy: maintainer decision required\n",
+        "[^1]: **Autonomy:** maintainer decision required\n",
+        "[^note]: Autonomy:maintainer-decision-required\n",
+        '[^1]: Autonomy: "maintainer decision required"\n',
+        "[^1]: Autonomy:\n",
+        "[^1]: Autonomy: human review required\n",
+        "- [^1]: Autonomy: human review required\n",
+        "> [^1]: Autonomy: human review required\n",
+        "[^1]: Execution autonomy\n\nmaintainer decision required\n",
+    ):
+        footed = claim._autonomy_refusal(admitting + footnote)
+        assert footed is not None, f"{footnote!r}: a footnote's declaration was not read"
+    # A footnote can refuse and cannot admit, wherever it sits.
+    for shape in (
+        "[^1]: Autonomy: agent-can-do-alone\n",
+        "- [^1]: Autonomy: agent-can-do-alone\n",
+        "- [^1]: **Autonomy:** agent-can-do-alone\n",
+        "## Execution autonomy\n\n[^1]: agent-can-do-alone\n",
+        "## Execution autonomy\n\n[^1]: agent-can-do-alone extra\n",
+        "**Execution autonomy**\n\n[^1]: agent-can-do-alone\n",
+    ):
+        unregistered = claim._autonomy_refusal(shape)
+        assert unregistered is not None, f"{shape!r}: a footnote admitted"
+        assert "only in a shape that cannot admit" in unregistered or "not a registered" in (
+            unregistered
+        ), f"{shape!r}: {unregistered}"
+    # An escaped label is text on the page, and the text behind it is read the same way.
+    assert claim._autonomy_refusal(admitting + "\\[^1]: Autonomy: human review required\n")
+    # A footnote that is only prose is prose, and a label with nothing after it draws nothing.
+    for prose in ("[^1]: Autonomy is discussed above.\n", "[^1]:\n", "See note[^1].\n"):
+        assert claim._autonomy_refusal(admitting + prose) is None, prose
+    # The checkbox is still read past, and a bullet carrying it still cannot admit.
+    assert claim._autonomy_refusal("- [ ] **Autonomy:** agent-can-do-alone\n") is not None
+    assert claim._autonomy_refusal(admitting + "- [x] Autonomy: human review required\n")
+
+
+def test_every_cell_of_a_row_is_read_as_a_raw_cell_is() -> None:
+    """Codex on #462 (read of `9fc6782`): `| Autonomy | agent-can-do-alone | Autonomy: human
+    review required |` was accepted beside a valid bullet: the third cell is a second, visible
+    declaration, but every cell past the value was scan-only, and `human review required`
+    names no token, so it was never exact-checked. A row is read one cell at a time, as a raw
+    `<tr>` is read one piece at a time: a cell that starts with the key heads the cell after
+    it, a keyed cell is a declaration, and the rest is remainder. Its raw mirror is read the
+    same way, in the one place it was not: a `<td>` that starts with a qualified key -
+    `Autonomy after unblock` - was no key at all, while the Markdown row refused.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    keyed_third = "| Autonomy | agent-can-do-alone | Autonomy: human review required |"
+    for row in (
+        f"{keyed_third}\n|---|---|---|\n",
+        f"| a | b | c |\n|---|---|---|\n{keyed_third}\n",
+        "| note | Autonomy | human review required |\n|---|---|---|\n",
+        "| note | Autonomy after unblock | maintainer decision required |\n|---|---|---|\n",
+        "| note | Autonomy: human review required |\n|---|---|\n",
+        "| Autonomy | agent-can-do-alone | Autonomy |\n|---|---|---|\n",
+        "<table><tr><td>Autonomy after unblock</td><td>maintainer decision required</td>"
+        "</tr></table>\n",
+        "<table><tr><td>note</td><td>Autonomy</td><td>human review required</td></tr></table>\n",
+        "<table><tr><td>Autonomy</td><td>agent-can-do-alone</td>"
+        "<td>Autonomy: human review required</td></tr></table>\n",
+        "<table><tr><td>Autonomy</td></tr></table>\n\nagent-can-do-alone\n",
+        "<table><tr><th>Autonomy</th><th>Owner</th></tr></table>\n",
+    ):
+        unread = claim._autonomy_refusal(admitting + row)
+        assert unread is not None, f"{row!r}: a cell's declaration was not exact-checked"
+        assert "not a registered" in unread or "qualifier" in unread or "maintainer" in unread, (
+            f"{row!r}: {unread}"
+        )
+    # A dash-led key in a cell makes its row one about the field, scanned and declaring
+    # nothing, in Markdown and raw HTML alike; a row of registered values declares nothing
+    # that refuses; and a cell's value is the cell after it, not the paragraph after the table.
+    for about in (
+        "| Autonomy - notes | agent-can-do-alone |\n|---|---|\n",
+        "<table><tr><td>Autonomy - notes</td><td>see above</td></tr></table>\n",
+        "| Field | Value |\n|---|---|\n| Autonomy | agent-can-do-alone |\n",
+        "<table><tr><td>Autonomy</td><td>agent-can-do-alone</td></tr></table>\n\n"
+        "See the maintainer.\n",
+    ):
+        assert claim._autonomy_refusal(admitting + about) is None, about
+    scanned = claim._autonomy_refusal(
+        admitting + "| Autonomy - notes | needs maintainer decision |\n|---|---|\n"
+    )
+    assert scanned is not None and "maintainer decision" in scanned, scanned
 
 
 def test_an_empty_bullet_value_is_a_declaration_that_fails_the_exact_check() -> None:

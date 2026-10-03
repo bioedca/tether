@@ -42,7 +42,7 @@ import html
 import re
 import sys
 from collections.abc import Iterator
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 try:
     from markdown_it import MarkdownIt
@@ -57,11 +57,13 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment, not logic
     ) from exc
 
 __all__ = [
+    "BLOCK_TAGS",
     "Block",
     "BlockQuote",
     "Code",
     "Heading",
     "Html",
+    "KEPT_TAGS",
     "ListBlock",
     "ListItem",
     "MarkdownStructureError",
@@ -108,27 +110,38 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: declaration or a CDATA section, the three other forms the CommonMark inline HTML grammar
 #: admits - the HTML parser reads ``<?note?>`` and ``<![CDATA[x]]>`` as bogus comments and
 #: ignores a declaration in the body - so ``Auto<?note?>nomy`` is that one word too (Codex on
-#: #462). ``_HTML_HIDDEN`` names all four. A tag is read as the page lays it
-#: out: a *phrasing* tag - ``<b>``, ``<em>``, ``<code>``, ``<a>``, ``<span>`` and the rest of the
-#: set below - wraps text without breaking it, so it leaves nothing and ``Auto<b>nomy</b>`` is
-#: one word (Greptile on #462: a space there split a key the page shows whole); any other tag -
-#: ``<li>``, ``<br>``, ``<p>``, ``<td>`` - is laid out as a break, so it leaves a space and
-#: ``maintainer</li><li>decision`` stays the two words the page shows; ``<wbr>`` is a break
-#: *opportunity* that draws nothing, and an empty ``<picture>`` or ``<source>`` draws nothing
-#: either, so they are phrasing, while ``<img>`` draws a picture between two words and is a
-#: space (Codex on #462). Two kinds of phrasing tag
-#: draw something. ``<q>`` renders quotation marks around its content, so it leaves a ``"`` on
-#: each side and ``Auto<q></q>nomy`` is the defaced key the page shows rather than the key. And
-#: ``<del>``, ``<s>`` and ``<strike>`` strike their content out, which is a retraction, so they
-#: leave the ``~~`` their Markdown spelling keeps (see ``_plain``): ``<del>agent-can-do-alone``
-#: ``</del>`` reads as ``~~agent-can-do-alone~~`` and a caller matching a token against it fails
-#: to, as it should (both Codex on #462). Either way the text reads as it renders, so a caller
-#: sees neither a word the page joins nor one it splits. A character reference in a raw block -
-#: ``&#32;``, ``&amp;`` - is decoded after the tags are read, so ``&lt;b&gt;`` is the literal
-#: ``<b>`` the page shows and never a tag (Codex on #462). The tag pattern is the CommonMark open
-#: and close tag grammar - a name, then attributes whose values may be quoted - so
-#: ``n < 5 and m > 3`` stays prose, as on the page, and a ``>`` inside a quoted attribute value
-#: does not end the tag early (Codex on #462).
+#: #462). ``_HTML_HIDDEN`` names all four. A tag is read as the page lays it out, and the
+#: page lays out only what GitHub keeps: an issue body passes through html-pipeline's
+#: ``SanitizationFilter`` (v3.2.4; its allowlist last changed 2024-02-02), which keeps exactly
+#: the elements in ``KEPT_TAGS`` and strips every other tag while leaving its text in place, so
+#: ``Auto<foo></foo>nomy`` shows ``Autonomy``, one word - and rendering the unknown tag as a
+#: space split the key and lost the restriction after it (Codex on #462). The sanitizer (Selma
+#: 0.5.3, ``Config::DEFAULT``) refines that twice: the block-ish stripped tags in its
+#: ``whitespace_elements`` - ``<section>``, ``<article>``, ``<nav>`` - leave a space on each side
+#: of their text, and ``<svg>``, ``<math>``, ``<noscript>`` and the rest of its
+#: ``remove_contents`` go with their text. That last rule is the one not mirrored: text the
+#: page hides can only refuse, never admit, so reading it is the safe error. (GFM's tag filter
+#: shows ``<script>``, ``<style>`` and seven more as literal text before the sanitizer runs,
+#: text and all, so those hide nothing.) Among the kept tags, a *phrasing* one - ``<b>``,
+#: ``<em>``, ``<code>``, ``<a>``, ``<span>`` - wraps text without breaking it and leaves nothing,
+#: as a stripped tag does, so ``Auto<b>nomy</b>`` is one word (Greptile on #462: a space there
+#: split a key the page shows whole); ``<wbr>`` is a break *opportunity* that draws nothing, and
+#: an empty ``<picture>`` or ``<source>`` draws nothing either. A *block* one - ``<li>``,
+#: ``<p>``, ``<td>``, ``<h2>`` - is laid out as a block of its own, so it leaves a space and
+#: ``maintainer</li><li>decision`` stays the two words the page shows, and ``<br>`` and
+#: ``<img>`` draw a break and a picture *inside* a block, a space each (Codex on #462). Two
+#: kinds of kept tag draw something. ``<q>`` renders quotation marks around its content, so it
+#: leaves a ``"`` on each side and ``Auto<q></q>nomy`` is the defaced key the page shows rather
+#: than the key. And ``<del>``, ``<s>`` and ``<strike>`` strike their content out, which is a
+#: retraction, so they leave the ``~~`` their Markdown spelling keeps (see ``_plain``):
+#: ``<del>agent-can-do-alone</del>`` reads as ``~~agent-can-do-alone~~`` and a caller matching
+#: a token against it fails to, as it should (both Codex on #462). Either way the text reads as
+#: it renders, so a caller sees neither a word the page joins nor one it splits. A character
+#: reference in a raw block - ``&#32;``, ``&amp;`` - is decoded after the tags are read, so
+#: ``&lt;b&gt;`` is the literal ``<b>`` the page shows and never a tag (Codex on #462). The tag
+#: pattern is the CommonMark open and close tag grammar - a name, then attributes whose values
+#: may be quoted - so ``n < 5 and m > 3`` stays prose, as on the page, and a ``>`` inside a
+#: quoted attribute value does not end the tag early (Codex on #462).
 _HTML_HIDDEN = re.compile(r"<!--.*?-->|<\?.*?\?>|<!\[CDATA\[.*?\]\]>|<![A-Za-z][^>]*>", re.S)
 _HTML_TAG = re.compile(
     r"<(?:/(?P<close>[A-Za-z][A-Za-z0-9-]*)\s*"
@@ -136,12 +149,31 @@ _HTML_TAG = re.compile(
     r"(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*"
     r"\s*/?)>"
 )
+#: The kept tags that wrap text and draw nothing.
 _PHRASING_TAGS = frozenset(
-    {"a", "abbr", "b", "bdi", "bdo", "cite", "code", "dfn", "em", "font", "i", "ins", "kbd", "mark"}
-    | {"picture", "rp", "rt", "ruby", "samp", "small", "source", "span", "strong", "sub", "sup"}
-    | {"time", "tt", "u", "var", "wbr"}
+    {"a", "abbr", "b", "bdo", "cite", "code", "dfn", "em", "i", "ins", "kbd", "mark", "picture"}
+    | {"rp", "rt", "ruby", "samp", "small", "source", "span", "strong", "sub", "sup", "time"}
+    | {"tt", "var", "wbr"}
 )
+#: The kept tags that draw a mark around their text.
 _DRAWN_TAGS = {"q": '"', "del": "~~", "s": "~~", "strike": "~~"}
+#: The kept tags that draw *inside* a block without wrapping text: a line break and a picture.
+_INSIDE_TAGS = frozenset({"br", "img"})
+#: The kept tags the page lays out as a block of their own - the boundaries a raw run is cut at.
+BLOCK_TAGS = frozenset(
+    {"blockquote", "caption", "dd", "details", "div", "dl", "dt", "figcaption", "figure", "h1"}
+    | {"h2", "h3", "h4", "h5", "h6", "hr", "li", "ol", "p", "pre", "summary", "table", "tbody"}
+    | {"td", "tfoot", "th", "thead", "tr", "ul"}
+)
+#: Every element GitHub keeps: the html-pipeline allowlist, partitioned above by what it draws.
+KEPT_TAGS = _PHRASING_TAGS | frozenset(_DRAWN_TAGS) | _INSIDE_TAGS | BLOCK_TAGS
+#: The stripped tags whose text the sanitizer wraps in spaces - Selma's ``whitespace_elements``
+#: less the ones GitHub keeps.
+_STRIPPED_SPACED_TAGS = frozenset(
+    {"address", "article", "aside", "footer", "header", "hgroup", "nav", "section"}
+)
+#: The tags that leave a space: every other tag, kept or stripped, leaves nothing.
+_SPACED_TAGS = BLOCK_TAGS | _INSIDE_TAGS | _STRIPPED_SPACED_TAGS
 
 
 class MarkdownStructureError(ValueError):
@@ -242,9 +274,10 @@ class Html(NamedTuple):
     ``shown`` is the text GitHub shows inside it, one :class:`Shown` per block the page lays
     out: a ``<div>`` holding two ``<p>`` is one Markdown block and two rendered paragraphs, and
     a caller matching a key against the whole run read ``Notes Autonomy: ...`` where the page
-    shows ``Notes`` over ``Autonomy: ...`` (Codex on #462). Every tag that is not phrasing
-    splits, bar the two that draw inside a block - ``<br>`` and ``<img>`` - so a run is never
-    joined across a boundary the page draws; a block a tag opens that shows no text is a piece
+    shows ``Notes`` over ``Autonomy: ...`` (Codex on #462). Every kept tag the page lays out
+    as a block - ``BLOCK_TAGS`` - splits, so a run is never joined across a boundary the page
+    draws, and no other tag does, so a run is never cut where the page shows it whole (Codex on
+    #462, both ways); a block a tag opens that shows no text is a piece
     with no text, since the page draws its opening; and a comment block shows nothing.
     ``plain`` is the same text as one string, which is what a caller reading for a token wants.
     """
@@ -284,7 +317,9 @@ Block = Paragraph | Heading | ListBlock | BlockQuote | Code | Html | Rule | Tabl
 
 
 def parse(text: str) -> tuple[Block, ...]:
-    """The top-level blocks of ``text``, in document order.
+    """The top-level blocks of ``text``, in document order, with the GitHub footnote
+    definitions the parser swallowed as reference definitions put back as the paragraphs the
+    page draws (:func:`_footnotes`).
 
     Line endings are folded to ``\\n`` first, as the parser folds them, so every ``line`` indexes
     ``text.splitlines()`` whichever convention the source used. A missing final newline is
@@ -297,14 +332,46 @@ def parse(text: str) -> tuple[Block, ...]:
     if text and not text.endswith("\n"):
         text += "\n"
     lines = [line.expandtabs(_TAB) for line in text.split("\n")]
+    env: dict[str, Any] = {}
     try:
-        tokens = _PARSER.parse(text)
+        tokens = _PARSER.parse(text, env)
     except Exception as exc:
         raise MarkdownStructureError(f"the parser could not read this text: {exc!r}") from exc
     blocks, end = _blocks(tokens, 0, None, lines, None)
     if end != len(tokens):  # pragma: no cover - the parser balances its own tokens
         raise MarkdownStructureError(f"unbalanced token stream at {end}")
-    return blocks
+    footnotes = _footnotes(env.get("references") or {}, lines)
+    if not footnotes:
+        return blocks
+    return tuple(sorted(blocks + footnotes, key=lambda block: block.line))
+
+
+def _footnotes(references: dict[str, Any], lines: list[str]) -> tuple[Paragraph, ...]:
+    """The GitHub footnote definitions the reference rule swallowed, as the paragraphs the page
+    draws, each at its source line.
+
+    ``[^1]: Autonomy:`` is a link reference definition to CommonMark - a label, a colon, a
+    destination - so the parser files it under ``env["references"]`` and emits no block, while
+    GitHub, whose footnotes extension reads ``[^`` first, draws it as a footnote at the foot of
+    the body: a paragraph holding the rest of the line. A caller that reads what the page shows
+    then never saw the declaration (Codex on #462). Each such reference comes back here as that
+    paragraph, label and all - its source from the ``[^`` on, so a reader that knows the label
+    reads the text behind it - and is sorted in by line, after a block that opens on the same
+    line. Only a definition whose text is a bare destination, one word with an optional quoted
+    title, is swallowed: one with a sentence after the label is no definition and is already
+    the paragraph. A reference whose label does not open with ``^`` is a link definition on
+    GitHub too, and draws nothing.
+    """
+    found: list[Paragraph] = []
+    for label, reference in references.items():
+        if not label.startswith("^") or "map" not in reference:
+            continue
+        start, end = reference["map"]
+        source = "\n".join(lines[start:end])
+        text = source[source.find("[^") :]
+        inline = _PARSER.parseInline(text, {})[0]
+        found.append(Paragraph(text, _plain(inline), start, _pictured(inline)))
+    return tuple(found)
 
 
 def walk(blocks: tuple[Block, ...] | list[Block]) -> Iterator[Block]:
@@ -442,33 +509,31 @@ def has_tag(text: str) -> bool:
 
 
 def _visible_html(text: str) -> str:
-    """Raw HTML as GitHub shows it: a hidden form or phrasing tag leaves nothing, other tags a
-    space, a tag that draws something what it draws, and character references decoded last."""
+    """Raw HTML as GitHub shows it: a tag that draws something what it draws, a tag in
+    ``_SPACED_TAGS`` a space, every other tag - hidden, phrasing or stripped - nothing, and
+    character references decoded last."""
 
     def laid_out(tag: re.Match[str]) -> str:
         name = (tag.group("open") or tag.group("close")).lower()
         if name in _DRAWN_TAGS:
             return _DRAWN_TAGS[name]
-        return "" if name in _PHRASING_TAGS else " "
+        return " " if name in _SPACED_TAGS else ""
 
     return html.unescape(_HTML_TAG.sub(laid_out, _HTML_HIDDEN.sub("", text)))
-
-
-#: Tags that draw *inside* a block without wrapping text: a line break and a picture. Every
-#: other non-phrasing tag opens or closes a block the page lays out on its own.
-_INSIDE_TAGS = frozenset({"br", "img"})
 
 
 def _shown_html(text: str) -> tuple[Shown, ...]:
     """Raw HTML as GitHub lays it out, one :class:`Shown` per block it draws.
 
-    The run is cut at every tag that is neither phrasing nor one of ``_INSIDE_TAGS``, each
-    piece then rendered as :func:`_visible_html` renders the whole and named for the opening
-    tag it follows. Cutting at a tag the page draws inside a block would only split a run the
-    page shows whole - a caller reading a key off a piece then reads an empty value, which
-    fails closed - while *not* cutting at one the page draws as a boundary joins two blocks
-    into text the page never shows, which is the direction that admitted (Codex on #462). So
-    the rule errs toward cutting.
+    The run is cut at every tag in ``BLOCK_TAGS`` - the kept tags the page lays out as a block
+    of their own - each piece then rendered as :func:`_visible_html` renders the whole and
+    named for the opening tag it follows. Cutting at a tag the page draws inside a block would
+    only split a run the page shows whole - a caller reading a key off a piece then reads an
+    empty value, which fails closed - while *not* cutting at one the page draws as a boundary
+    joins two blocks into text the page never shows, which is the direction that admitted
+    (Codex on #462). So the rule errs toward cutting, among the tags the page keeps; a tag it
+    strips is no boundary at all, and cutting ``<p>Auto<foo></foo>nomy:</p>`` at the unknown
+    tag read a key the page shows whole as two pieces (Codex on #462).
 
     A piece with no text is kept when a tag opened it: the page draws something for the
     opening of a block - a rule for ``<hr>``, a widget for ``<details>``, a box - and a caller
@@ -481,7 +546,7 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
     at, opener = 0, ""
     for tag in _HTML_TAG.finditer(stripped):
         name = (tag.group("open") or tag.group("close")).lower()
-        if name in _PHRASING_TAGS or name in _DRAWN_TAGS or name in _INSIDE_TAGS:
+        if name not in BLOCK_TAGS:
             continue
         pieces.append((stripped[at : tag.start()], opener))
         at = tag.end()
