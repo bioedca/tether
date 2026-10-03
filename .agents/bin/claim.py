@@ -588,6 +588,48 @@ def _normalize_autonomy(value: str) -> str:
     return value.strip().rstrip(".").strip().lower()
 
 
+def _normalize_qualifier(qualifier: str) -> str:
+    """A key's qualifier - what sits between `autonomy` and the colon - with its whitespace
+    collapsed and lower-cased, and nothing else removed.
+
+    A period is a character the page shows: `**Autonomy.:**` is not the bare field, and
+    dropping a trailing period here as :func:`_normalize_autonomy` does for a *value* made it
+    one, so a column-zero bullet carrying it admitted (Codex on #462). Whitespace is no
+    qualifier - `Autonomy :` is the field with a space before its colon - so it goes.
+    """
+    return " ".join(qualifier.split()).lower()
+
+
+#: The marks the parser renders a strike-through between - `~~x~~` and `<del>x</del>` alike.
+_STRIKE = "~~"
+
+
+def _key_text(text: str) -> str:
+    """``text`` - a block's rendered text - with the strike marks about its key gone.
+
+    The parser renders struck text between `~~` marks, so the page's crossed-out words stay
+    visible to the exact check and `~~maintainer decision required~~` as a value refuses. The
+    *key* has to be read through them: struck out whole, `- ~~Autonomy: maintainer decision
+    required~~` matched no key and was not read at all, while an admitting bullet beside it
+    carried the issue (Codex on #462). The marks cut one way - a struck key is read, and a
+    shape carrying any strike never admits (:func:`_struck`). A text that opens with a mark
+    loses that mark and the one closing it, wherever that falls - after the key, after the
+    colon, after the value - and nothing else, so a strike that stays inside the value is
+    quoted as the page shows it. A mark with no close is literal and stays.
+    """
+    if not text.startswith(_STRIKE):
+        return text
+    close = text.find(_STRIKE, len(_STRIKE))
+    if close < 0:
+        return text
+    return text[len(_STRIKE) : close] + text[close + len(_STRIKE) :]
+
+
+def _struck(text: str) -> bool:
+    """Whether ``text`` carries a strike-through anywhere: a retraction, which never admits."""
+    return _STRIKE in text
+
+
 def _flatten_autonomy(value: str) -> str:
     """The **comparison** form: separators become spaces, and runs collapse.
 
@@ -1063,7 +1105,9 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
     for index, leaf in enumerate(leaves):
         block = leaf.block
         key = (
-            _AUTONOMY_KEY.fullmatch(_prose(block)) if isinstance(block, _markdown.Heading) else None
+            _AUTONOMY_KEY.fullmatch(_key_text(_prose(block)))
+            if isinstance(block, _markdown.Heading)
+            else None
         )
         if key is not None and _PROSE_QUALIFIER.match(key.group("qualifier")):
             # A heading about the field: what it heads is read for a restriction and is not
@@ -1074,7 +1118,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
             found.append(_AutonomyValue(key.group("qualifier").strip(), about, scan_only=True))
             found.extend(_scan_only(_section(leaves, index), about))
         elif key is not None:
-            qualifier = _normalize_autonomy(key.group("qualifier"))
+            qualifier = _normalize_qualifier(key.group("qualifier"))
             section = _section(leaves, index)
             if section:
                 # The first block the page draws below the heading is the value, whatever it
@@ -1089,6 +1133,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 value = section[0]
                 admits = (
                     not qualifier
+                    and not _struck(_prose(block))
                     and block.column == 0
                     and block.markup.startswith("#")
                     and isinstance(value.block, _markdown.Paragraph)
@@ -1149,7 +1194,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
         if any(block is lead for lead in leads):
             continue
         if isinstance(block, _markdown.Heading):
-            if _AUTONOMY_KEY.fullmatch(_prose(block)):
+            if _AUTONOMY_KEY.fullmatch(_key_text(_prose(block))):
                 continue
             texts = [(_prose(block), "heading line")]
         elif isinstance(block, _markdown.Html):
@@ -1159,7 +1204,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
             text = _prose(block)
             task = _TASK_MARKER.match(text)
             shape = "footnote" if block.footnote else "paragraph"
-            if _BARE_KEY.fullmatch(text[task.end() :] if task else text):
+            if _BARE_KEY.fullmatch(_key_text(text[task.end() :] if task else text)):
                 section = _foot(leaves, index) if block.footnote else _section(leaves, index)
                 value = _prose(section[0].block) if section else ""
                 found.append(_AutonomyValue(value, f"{where} {shape} bare key", admits=False))
@@ -1174,7 +1219,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
         for text, shape in texts:
             keyed = _keyed(text)
             if keyed is not None:
-                qualifier, value, _ = keyed
+                qualifier, value, _, _ = keyed
                 found.append(
                     _AutonomyValue(value, f"{where} {shape}", qualifier=qualifier, admits=False)
                 )
@@ -1212,7 +1257,7 @@ def _row(block: _markdown.TableRow, where: str) -> list[_AutonomyValue]:
             owed = None
 
     for cell in block.plain:
-        key = _AUTONOMY_KEY.fullmatch(cell)
+        key = _AUTONOMY_KEY.fullmatch(_key_text(cell))
         if key is not None:
             settle("")
             keyed_yet = True
@@ -1222,7 +1267,7 @@ def _row(block: _markdown.TableRow, where: str) -> list[_AutonomyValue]:
                 found.append(_AutonomyValue(qualifier.strip(), section, scan_only=True))
             else:
                 section = f"{shape} remainder"
-                owed = (shape, _normalize_autonomy(qualifier))
+                owed = (shape, _normalize_qualifier(qualifier))
             continue
         if owed is not None:
             settle(cell)
@@ -1230,7 +1275,7 @@ def _row(block: _markdown.TableRow, where: str) -> list[_AutonomyValue]:
         keyed = _keyed(cell)
         if keyed is not None:
             keyed_yet = True
-            qualifier, value, _ = keyed
+            qualifier, value, _, _ = keyed
             found.append(
                 _AutonomyValue(value, f"{where} table cell", qualifier=qualifier, admits=False)
             )
@@ -1292,7 +1337,7 @@ def _raw_html(
             continue
         heading = piece.tag in _HTML_HEADINGS
         cell = piece.tag in _HTML_CELLS
-        key = (_AUTONOMY_KEY if heading or cell else _BARE_KEY).fullmatch(piece.text)
+        key = (_AUTONOMY_KEY if heading or cell else _BARE_KEY).fullmatch(_key_text(piece.text))
         if heading and key is None:
             settle("")
             keyed_yet = False
@@ -1307,7 +1352,7 @@ def _raw_html(
                 found.append(_AutonomyValue(qualifier.strip(), section, scan_only=True))
             else:
                 section = f"{shape} remainder"
-                owed = (shape, _normalize_autonomy(qualifier))
+                owed = (shape, _normalize_qualifier(qualifier))
             continue
         if owed is not None:
             if not confined or cell:
@@ -1318,7 +1363,7 @@ def _raw_html(
         keyed = _keyed(piece.text)
         if keyed is not None:
             keyed_yet = True
-            qualifier, value, _ = keyed
+            qualifier, value, _, _ = keyed
             found.append(_AutonomyValue(value, shape, qualifier=qualifier, admits=False))
         elif keyed_yet and piece.text:
             found.append(
@@ -1455,16 +1500,18 @@ def _bullet(
     keyed = _keyed(_prose(first))
     if keyed is None:
         return []
-    qualifier, value, task = keyed
+    qualifier, value, task, struck = keyed
     # Exact-checked like any declaration, but only the registered shape - column zero, `-` or
-    # `*`, no checkbox, plain Markdown, on the page - may admit. A `+`, indented, nested, quoted
-    # or task-list bullet, one carrying a tag or an image, or one inside a `<details>` block can
-    # refuse and can never be the reason an issue is claimed. A footnote definition never gets
-    # here: it is not the item's lead (`_lead`), the page drawing it elsewhere.
+    # `*`, no checkbox, no strike, plain Markdown, on the page - may admit. A `+`, indented,
+    # nested, quoted or task-list bullet, one carrying a tag or an image, one struck out, or one
+    # inside a `<details>` block can refuse and can never be the reason an issue is claimed. A
+    # footnote definition never gets here: it is not the item's lead (`_lead`), the page drawing
+    # it elsewhere.
     registered = (
         item.column == 0
         and item.marker in "-*"
         and not task
+        and not struck
         and _plain_markdown(first)
         and _on_the_page(collapsed, item.line)
     )
@@ -1504,23 +1551,25 @@ def _lead(item: _markdown.ListItem) -> Any | None:
     return None
 
 
-def _keyed(text: str) -> tuple[str, str, bool] | None:
+def _keyed(text: str) -> tuple[str, str, bool, bool] | None:
     """``text`` - a paragraph's rendered text - read as a bullet-shaped declaration, or ``None``.
 
-    Returns the normalized qualifier, the value with its whitespace collapsed, and whether a
-    task-list checkbox was read past first. A task-list item draws a checkbox before its text,
-    and the key is the text: `- [ ] **Autonomy:** maintainer decision required` is a restriction
-    the page shows, and matching the checkbox as part of the key dropped it (Codex on #462).
+    Returns the normalized qualifier, the value with its whitespace collapsed, whether a
+    task-list checkbox was read past first, and whether the text carries a strike-through. A
+    task-list item draws a checkbox before its text, and the key is the text: `- [ ] **Autonomy:**
+    maintainer decision required` is a restriction the page shows, and matching the checkbox as
+    part of the key dropped it (Codex on #462). The key is read through strike marks
+    (:func:`_key_text`); a struck declaration is read and never admits.
     """
     task = _TASK_MARKER.match(text)
     if task is not None:
         text = text[task.end() :]
-    match = _AUTONOMY_BULLET.fullmatch(text)
+    match = _AUTONOMY_BULLET.fullmatch(_key_text(text))
     if match is None:
         return None
-    qualifier = _normalize_autonomy(match.group("qualifier"))
+    qualifier = _normalize_qualifier(match.group("qualifier"))
     value = " ".join(match.group("value").split())
-    return qualifier, value, task is not None
+    return qualifier, value, task is not None, _struck(text)
 
 
 def _autonomy_refusal(body: str) -> str | None:

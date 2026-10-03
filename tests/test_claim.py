@@ -1439,6 +1439,109 @@ def test_a_struck_out_restriction_still_refuses_and_a_struck_out_admission_never
     assert claim._autonomy_refusal("- **Autonomy:** agent-can-do-alone\n") is None
 
 
+def test_a_struck_out_key_is_read_and_never_admits() -> None:
+    """Codex on #462 (read of `35710e3`): the parser renders a strike-through between `~~`
+    marks, so a key struck out whole - `- ~~Autonomy: maintainer decision required~~` - matched
+    no key and the item was not read at all, while an admitting bullet beside it carried the
+    issue. The marks cut one way: the key is read through them, the value stays as the page
+    shows it, and a shape carrying any strike never admits.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for struck in (
+        "- ~~Autonomy: maintainer decision required~~\n",
+        "- ~~**Autonomy:** maintainer decision required~~\n",
+        "- <del>Autonomy: maintainer decision required</del>\n",
+        "- ~~Autonomy:~~ maintainer decision required\n",
+        "- ~~Autonomy~~: maintainer decision required\n",
+        "- [ ] ~~Autonomy: maintainer decision required~~\n",
+        "## ~~Execution autonomy~~\n\nmaintainer decision required\n",
+        "~~Autonomy~~\n\nmaintainer decision required\n",
+        "| ~~Autonomy~~ | maintainer decision required |\n|---|---|\n",
+        "<p><del>Autonomy: maintainer decision required</del></p>\n",
+        "<p><del>Autonomy</del></p><p>maintainer decision required</p>\n",
+    ):
+        read = claim._autonomy_refusal(admitting + struck)
+        assert read is not None and "maintainer decision" in read, (struck, read)
+    # A retracted admission is read as not admitting, in every shape that could have admitted.
+    for retracted in (
+        "- ~~**Autonomy:** agent-can-do-alone~~\n",
+        "- ~~Autonomy:~~ agent-can-do-alone\n",
+        "- <del>Autonomy: agent-can-do-alone</del>\n",
+        "## ~~Execution autonomy~~\n\nagent-can-do-alone\n",
+    ):
+        read = claim._autonomy_refusal(retracted)
+        assert read is not None and "cannot admit" in read, (retracted, read)
+    # And the admitting bullet beside a retracted admission still admits: a retraction only
+    # withdraws what it strikes.
+    assert claim._autonomy_refusal(admitting + "- ~~**Autonomy:** agent-can-do-alone~~\n") is None
+    assert claim._key_text("~~Autonomy:~~ ~~x~~") == "Autonomy: ~~x~~"
+    assert claim._key_text("~~Autonomy: x~~") == "Autonomy: x"
+    assert claim._key_text("Autonomy: ~~x~~") == "Autonomy: ~~x~~"
+    assert claim._key_text("~~Autonomy: a~~ ~~b~~") == "Autonomy: a ~~b~~"
+    assert claim._key_text("~~") == "~~" and claim._key_text("~~Autonomy: x") == "~~Autonomy: x"
+
+
+def test_an_empty_heading_is_drawn() -> None:
+    """Codex on #462 (read of `35710e3`): `- ## <!-- note -->` over `Autonomy:
+    agent-can-do-alone` in the same item is an empty `<h2>` over the paragraph on the page
+    (GitHub's markdown endpoint, 2026-10-03), a block with height of its own, so the paragraph
+    is not the item's lead and the item is not the registered bullet. The heading read as
+    undrawn - rendering to nothing, carrying no tag - and the paragraph admitted as the lead.
+    A heading is drawn whatever it holds.
+    """
+    for item in (
+        "- ## <!-- note -->\n\n  Autonomy: agent-can-do-alone\n",
+        "- ##\n\n  Autonomy: agent-can-do-alone\n",
+        "- ###### <!-- note -->\n\n  Autonomy: agent-can-do-alone\n",
+    ):
+        read = claim._autonomy_refusal(item)
+        assert read is not None and "cannot admit" in read, (item, read)
+    restricted = claim._autonomy_refusal(
+        "- **Autonomy:** agent-can-do-alone\n\n"
+        "- ## <!-- note -->\n\n  Autonomy: maintainer decision required\n"
+    )
+    assert restricted is not None and "maintainer decision" in restricted, restricted
+    # Controls: an empty heading above a registered bullet is a heading, and a key heading's
+    # empty value under it still refuses.
+    assert (
+        claim._autonomy_refusal("## <!-- note -->\n\n- **Autonomy:** agent-can-do-alone\n") is None
+    )
+    empty = claim._autonomy_refusal(
+        "## Execution autonomy\n\n### <!-- note -->\n\nagent-can-do-alone\n"
+    )
+    assert empty is not None and "declares autonomy ''" in empty, empty
+    assert claim._markdown.draws(claim._markdown.Heading(2, "## <!-- note -->", "", 0, 0, "##"))
+
+
+def test_a_period_in_the_qualifier_is_a_qualifier() -> None:
+    """Codex on #462 (read of `35710e3`): `- **Autonomy.:** agent-can-do-alone` - the page
+    shows `Autonomy.:`, not the bare field - read as the bare key, because the qualifier was
+    normalized as a value is, trailing period dropped, and a column-zero bullet carrying it
+    admitted. A qualifier keeps every character the page shows; only its whitespace goes.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for shape in (
+        "- **Autonomy.:** agent-can-do-alone\n",
+        "- **Autonomy..:** agent-can-do-alone\n",
+        "## Autonomy.\n\nagent-can-do-alone\n",
+        "## Execution autonomy.\n\nagent-can-do-alone\n",
+    ):
+        read = claim._autonomy_refusal(shape)
+        dotted = any(f"with qualifier '{dots}'" in (read or "") for dots in (".", ".."))
+        assert read is not None and dotted, (shape, read)
+    for shape in (
+        "| Autonomy. | agent-can-do-alone |\n|---|---|\n",
+        "<p>Autonomy.: agent-can-do-alone</p>\n",
+        "<table><tr><td>Autonomy.</td><td>agent-can-do-alone</td></tr></table>\n",
+    ):
+        read = claim._autonomy_refusal(admitting + shape)
+        assert read is not None and "qualifier" in read, (shape, read)
+    # Controls: a period ends a value, and whitespace before the colon is no qualifier.
+    assert claim._autonomy_refusal("- **Autonomy:** agent-can-do-alone.\n") is None
+    assert claim._autonomy_refusal("- **Autonomy :** agent-can-do-alone\n") is None
+    assert claim._normalize_qualifier(" (after  unblock) ") == "(after unblock)"
+
+
 def test_a_footnote_continuation_is_read_at_the_foot() -> None:
     """Codex on #462 (read of `e259a99`): a footnote definition's continuation - its lines
     indented four spaces - is drawn inside the footnote at the page's foot, and the parser

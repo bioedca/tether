@@ -788,13 +788,18 @@ def draws(block: Block) -> bool:
     Prose is drawn, and so is what shows no prose: a picture with no alternative text, a raw
     HTML block whose tags draw a widget or a picture, a code block, a rule, a table, and a
     container - a list, a block quote - whatever it holds, since the page draws the bullet and
-    the bar. Only a block the page shows nothing for - a comment on its own lines, a paragraph
-    that renders to nothing and carries neither a picture nor a tag - is not. A tag counts as
-    drawn whatever the rendering made of it, for the reason :func:`has_tag` gives: the
-    approximation may not err in the admitting direction. claim.py's ``_drawn`` is this at the
-    leaf level, where a table row and a list's item are leaves too.
+    the bar. A heading is drawn whatever it holds too: `## <!-- note -->` is an empty `<h2>`
+    on the page, a block with its own height - and, at the first two levels, its own rule
+    beneath - so an item that opens with one does not open with the paragraph after it, which
+    read as the item's lead let `- ## <!-- note -->` over `Autonomy: agent-can-do-alone` admit
+    as the registered bullet (Codex on #462). Only a block the page shows nothing for - a
+    comment on its own lines, a paragraph that renders to nothing and carries neither a
+    picture nor a tag - is not. A tag counts as drawn whatever the rendering made of it, for
+    the reason :func:`has_tag` gives: the approximation may not err in the admitting
+    direction. claim.py's ``_drawn`` is this at the leaf level, where a table row and a list's
+    item are leaves too.
     """
-    if isinstance(block, (Paragraph, Heading)):
+    if isinstance(block, Paragraph):
         return bool(block.plain) or block.pictured or has_tag(block.text)
     if isinstance(block, Html):
         return bool(block.plain) or has_tag(block.text)
