@@ -310,7 +310,8 @@ def test_no_refusal_token_depends_on_the_separator_it_is_written_with(token: str
     separators = (" ", "-", "_", "/")
     canonical = claim._flatten_autonomy(token)
     body = (
-        f"| **autonomy** | {token} applies here |\n\n## Execution autonomy\n\nagent-can-do-alone\n"
+        f"| Field | Value |\n| --- | --- |\n| **autonomy** | {token} applies here |\n\n"
+        "## Execution autonomy\n\nagent-can-do-alone\n"
     )
     for separator in separators:
         respelled = canonical.replace(" ", separator)
@@ -332,11 +333,13 @@ def test_an_autonomy_table_row_can_refuse_but_not_admit(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A sizing-table restriction governs beside a bare, registered heading value."""
-    table_only = claim._autonomy_refusal("| **autonomy** | agent-can-do-alone |\n")
+    table_only = claim._autonomy_refusal(
+        "| Field | Value |\n| --- | --- |\n| **autonomy** | agent-can-do-alone |\n"
+    )
     assert table_only is not None and "declares no Execution autonomy" in table_only
 
     body = (
-        "| **autonomy** | maintainer decision required |\n\n"
+        "| Field | Value |\n| --- | --- |\n| **autonomy** | maintainer decision required |\n\n"
         "## Execution autonomy\n\nagent-can-do-alone\n"
     )
     routes = _routes({("GET", "/repos/bioedca/tether/issues/7"): (200, _issue(body=body))})
@@ -357,9 +360,9 @@ def test_an_autonomy_table_row_is_read_with_or_without_its_outer_pipes() -> None
     """
     heading = "\n\n## Execution autonomy\n\nagent-can-do-alone\n"
     rows = {
-        "no outer pipes": "Autonomy | maintainer decision required\n--- | ---",
-        "trailing pipe only": "**Autonomy** | maintainer decision required |\n--- | --- |",
-        "leading pipe only": "| autonomy | maintainer decision required\n| --- | ---",
+        "no outer pipes": "Autonomy | maintainer decision required",
+        "trailing pipe only": "**Autonomy** | maintainer decision required |",
+        "leading pipe only": "| autonomy | maintainer decision required",
         "indented, no outer pipes": "  Execution autonomy | maintainer decision required",
         # The first cell's emphasis is typography as well, and so is a trailing colon.
         "code-formatted key": "| `autonomy` | maintainer decision required |",
@@ -368,13 +371,20 @@ def test_an_autonomy_table_row_is_read_with_or_without_its_outer_pipes() -> None
         "colon outside the emphasis": "_Autonomy_: | maintainer decision required",
     }
     for where, row in rows.items():
-        refusal = claim._autonomy_refusal(row + heading)
+        # The row is a table's header row: GitHub needs the delimiter line below it to render a
+        # table at all, and the parser reads what GitHub renders (ADR-0066).
+        refusal = claim._autonomy_refusal(row + "\n--- | ---" + heading)
         assert refusal is not None, f"{where}: a restrictive table row was not read - fail-open"
         assert "maintainer decision" in refusal, f"{where}: {refusal}"
 
     # Still scan-only: dropping the pipe must not turn a row into a way to admit.
     bare = claim._autonomy_refusal("autonomy | agent-can-do-alone\n--- | ---\n")
     assert bare is not None and "declares no Execution autonomy" in bare
+
+    # Without the delimiter line there is no table: GitHub renders the pipes as text, and a
+    # paragraph is not a declaration shape, so the line is read exactly as it is rendered.
+    lone = claim._autonomy_refusal("| **autonomy** | maintainer decision required |" + heading)
+    assert lone is None, "a lone piped line is a paragraph on GitHub, not a table row"
 
 
 def test_autonomy_refusals_distinguish_absent_restricted_and_unregistered_values() -> None:
@@ -588,9 +598,6 @@ def test_a_line_that_cannot_interrupt_a_paragraph_stays_in_the_declaration() -> 
         "heading, ordered marker not starting at 1": (
             f"## Execution autonomy\n\nagent-can-do-alone\n2. {condition}\n"
         ),
-        "bullet, ordered marker not starting at 1": (
-            f"- **Autonomy:** agent-can-do-alone\n2. {condition}\n"
-        ),
         "heading, ten is not one": (
             f"## Execution autonomy\n\nagent-can-do-alone\n10. {condition}\n"
         ),
@@ -601,14 +608,6 @@ def test_a_line_that_cannot_interrupt_a_paragraph_stays_in_the_declaration() -> 
             f"- **Autonomy:** agent-can-do-alone\n      - {condition}\n"
         ),
         "heading, empty marker": f"## Execution autonomy\n\nagent-can-do-alone\n+\n{condition}\n",
-        # Codex on #462: a marker followed by five or more spaces opens indented code, not a list
-        # item, and indented code cannot interrupt a paragraph either.
-        "heading, marker padded five spaces": (
-            f"## Execution autonomy\n\nagent-can-do-alone\n-     {condition}\n"
-        ),
-        "bullet, marker padded five spaces": (
-            f"- **Autonomy:** agent-can-do-alone\n1.     {condition}\n"
-        ),
         # Codex on #462: a tab after the marker reaches column 4, not column 5, so a marker
         # indented eight columns is four past the content edge and cannot interrupt.
         "bullet, tab padding then an eight-column marker": (
@@ -619,6 +618,45 @@ def test_a_line_that_cannot_interrupt_a_paragraph_stays_in_the_declaration() -> 
         refusal = claim._autonomy_refusal(body)
         assert refusal is not None, f"{where}: a condition Markdown keeps in the value was admitted"
         assert "is not a registered autonomy value" in refusal, f"{where}: {refusal}"
+
+
+def test_a_block_markdown_starts_after_a_declaration_is_outside_it() -> None:
+    """The declaration ends exactly where the rendered block ends, and not a line sooner or later.
+
+    Two shapes the regex reader got wrong in the *closed* direction, both settled by the parser
+    (ADR-0066). A `2.` line after a bullet item is outside that item, where any list may begin -
+    the rule that `2.` cannot interrupt a paragraph protects the paragraph's own lines, and this
+    one is not one of them - so GitHub renders a new numbered list, not a wrapped bullet. And a
+    marker padded five or more columns does open a list item, one whose content is indented code:
+    a non-empty item interrupts a paragraph whatever its first block is. Either way the condition
+    is rendered as its own block below the value and never joined into the exact match. Under a
+    heading that block is still in the section and scan-only; after a bullet it is a sibling item,
+    outside the declaration exactly as a sibling bullet always was. Code in it is literal besides.
+    """
+    condition = "unless the sizing note says otherwise"
+    outside = {
+        "bullet, then an ordered item": f"- **Autonomy:** agent-can-do-alone\n2. {condition}\n",
+        "heading, marker padded five spaces": (
+            f"## Execution autonomy\n\nagent-can-do-alone\n-     {condition}\n"
+        ),
+        "bullet, then an item holding indented code": (
+            f"- **Autonomy:** agent-can-do-alone\n1.     {condition}\n"
+        ),
+        "heading, marker padded two tabs": (
+            f"## Execution autonomy\n\nagent-can-do-alone\n-\t\t{condition}\n"
+        ),
+    }
+    for where, body in outside.items():
+        assert claim._autonomy_refusal(body) is None, f"{where}: a separate block joined the value"
+    # The block below a heading's value is still read: a refusal token there governs.
+    below = claim._autonomy_refusal(
+        "## Execution autonomy\n\nagent-can-do-alone\n-     this needs maintainer input\n"
+    )
+    assert below is None, "indented code inside the item is literal"
+    below = claim._autonomy_refusal(
+        "## Execution autonomy\n\nagent-can-do-alone\n- this needs maintainer input\n"
+    )
+    assert below is not None and "maintainer input" in below
 
 
 def test_a_restrictive_bullet_governs_under_any_marker_markdown_accepts(
@@ -769,20 +807,11 @@ def test_a_heading_markdown_still_renders_is_read_wherever_it_is_indented() -> N
     assert glued is not None and "declares no Execution autonomy" in glued
 
 
-def test_markdown_measures_marker_padding_and_child_indent_in_columns() -> None:
-    """Tab stops and the containing item's column decide block structure, not character counts.
-
-    Codex on #462, twice. `-` followed by two tabs puts the content seven columns past the
-    marker, which opens indented code rather than a list item, so that line cannot interrupt the
-    paragraph and must stay in the value. And a child list under an autonomy bullet is nested
-    relative to *that bullet's* content column, so two child items are two blocks and a token
-    must not be assembled across them.
+def test_a_child_list_under_a_bullet_is_scanned_one_item_at_a_time() -> None:
+    """A child list under an autonomy bullet is nested relative to *that bullet's* content
+    column, so two child items are two blocks and a token must not be assembled across them
+    (Codex on #462). The parser draws the item boundaries; this asserts the scan respects them.
     """
-    condition = "unless the sizing note says otherwise"
-    two_tabs = f"## Execution autonomy\n\nagent-can-do-alone\n-\t\t{condition}\n"
-    joined = claim._autonomy_refusal(two_tabs)
-    assert joined is not None and "is not a registered autonomy value" in joined
-
     children = (
         "- **Autonomy:** agent-can-do-alone\n"
         "    - The reviewer is a human\n"
@@ -795,9 +824,10 @@ def test_fenced_code_is_literal_and_declares_nothing() -> None:
     """A fenced example can neither restrict nor admit, and cannot stand in for a grooming block.
 
     Codex on #462: a fenced snippet containing `Autonomy | maintainer decision required` was
-    scanned as a real table row and refused an admitting issue. Fences are removed before any
-    pattern runs - before the grooming marker is looked for too, since an example block quoting
-    the marker must not become the authoritative source.
+    scanned as a real table row and refused an admitting issue. The parser returns code as a
+    literal block (ADR-0066), so no declaration pattern ever sees it - and the grooming marker is
+    looked for among HTML blocks, so an example block quoting the marker is not the authoritative
+    source either.
     """
     admitting = "## Execution autonomy\n\nagent-can-do-alone\n\n"
     assert (
@@ -820,6 +850,66 @@ def test_fenced_code_is_literal_and_declares_nothing() -> None:
     # An unclosed fence runs to the end of the body, as Markdown renders it.
     unclosed = claim._autonomy_refusal(admitting + "```\n| autonomy | maintainer decision |\n")
     assert unclosed is None
+
+
+def test_the_structure_the_regex_reader_misread_is_read_as_github_renders_it() -> None:
+    """The four shapes Codex's eighth read of #462 found still wrong, now settled by the parser.
+
+    Each was a fail-open: a structure the expressions did not see was a restriction the gate did
+    not read. ADR-0066 replaced them with a CommonMark parser, and these pin that the gate now
+    reads each shape where a reader of the rendered issue sees it.
+    """
+    restriction = "maintainer decision required"
+    # A tab before `##` inside a list item is four columns of indent, so the heading belongs to
+    # the item; the regex reader ended the surrounding section there and lost the paragraph.
+    tab_heading = (
+        f"- Notes\n\t## Execution autonomy\n\n{restriction}\n\n- **Autonomy:** agent-can-do-alone\n"
+    )
+    refusal = claim._autonomy_refusal(tab_heading)
+    assert refusal is not None and "maintainer decision" in refusal
+    # A backtick fence is not closed by tildes, so the restriction after the `~~~` is still code.
+    mixed_closer = (
+        "- **Autonomy:** agent-can-do-alone\n\n```\nexample\n~~~\n"
+        f"- **Autonomy:** {restriction}\n```\n"
+    )
+    assert claim._autonomy_refusal(mixed_closer) is None, "a mixed-character closer ended a fence"
+    # A lazy continuation inside a nested item is part of that item's paragraph.
+    lazy = "- **Autonomy:** agent-can-do-alone\n  - the sizing question is a\nmaintainer decision\n"
+    refusal = claim._autonomy_refusal(lazy)
+    assert refusal is not None and "maintainer decision" in refusal
+    # Four spaces after a blank line open indented code, which is literal however much it looks
+    # like a table row. Inside a list item the same four spaces are two past the content column
+    # and open a paragraph instead, which is prose and is read.
+    heading = "## Execution autonomy\n\nagent-can-do-alone\n\n"
+    indented_code = f"{heading}    Autonomy | {restriction}\n"
+    assert claim._autonomy_refusal(indented_code) is None, "indented code was read as a row"
+    in_item = f"- **Autonomy:** agent-can-do-alone\n\n    Autonomy | {restriction}\n"
+    refusal = claim._autonomy_refusal(in_item)
+    assert refusal is not None and "maintainer decision" in refusal
+
+    # The four bodies exactly as the eighth read wrote them.
+    exact = {
+        "a tab before ## continues the paragraph, so the condition stays in the value": (
+            "## Execution autonomy\n\nagent-can-do-alone\n\t## note\n"
+            "unless a maintainer decision is made\n",
+            "maintainer decision",
+        ),
+        "a mixed-character closer leaves the fence open, so the bullet is literal": (
+            "```\n```~~~\n- **Autonomy:** agent-can-do-alone\n",
+            "declares no Execution autonomy",
+        ),
+        "a lazy continuation completes the nested item's restriction": (
+            "- **Autonomy:** agent-can-do-alone\n  - This needs a human\naction before upload\n",
+            "human action",
+        ),
+    }
+    for why, (body, expected) in exact.items():
+        refusal = claim._autonomy_refusal(body)
+        assert refusal is not None and expected in refusal, f"{why}: {refusal}"
+    literal_row = (
+        "    Autonomy | maintainer decision required\n\n- **Autonomy:** agent-can-do-alone\n"
+    )
+    assert claim._autonomy_refusal(literal_row) is None, "indented code governed a claim"
 
 
 def test_text_outside_the_declaration_paragraph_does_not_join_it() -> None:
@@ -905,6 +995,40 @@ def test_a_grooming_block_that_declares_no_autonomy_does_not_fall_back_to_the_bo
         assert "autonomy" in capsys.readouterr().err.lower(), where
 
 
+def test_a_grooming_marker_anywhere_but_its_own_top_level_line_refuses_the_body() -> None:
+    """A marker that cannot start a grooming block is not read around; the body is refused.
+
+    A grooming block is a marker on its own line at the top level and the top-level blocks after
+    it (ADR-0066). Written inside a list item or block quote, or inline in a paragraph, the marker
+    still announces that the text above it is superseded, and a reader that cannot say where the
+    superseded text ends must not pick a side. Refusing costs one re-groom; guessing could let a
+    stale admitting line govern. Inside a fence it is literal and is neither, as the fence test
+    pins.
+    """
+    stale = "## Execution autonomy\n\nagent-can-do-alone\n\n"
+    misplaced = {
+        "inside a list item": stale
+        + "- Groomed:\n  <!-- tether-grooming-v1 -->\n  - **Status:** blocked\n",
+        "inside a block quote": stale
+        + "> <!-- tether-grooming-v1 -->\n> - **Autonomy:** agent-can-do-alone\n",
+        "inline in a paragraph": stale + "Groomed <!-- tether-grooming-v1 --> on 2026-08-13.\n",
+        "in a table cell": stale
+        + "| Note | Value |\n| --- | --- |\n| <!-- tether-grooming-v1 --> | x |\n",
+    }
+    for where, body in misplaced.items():
+        refusal = claim._autonomy_refusal(body)
+        assert refusal is not None and "grooming block cannot start" in refusal, (
+            f"{where}: {refusal}"
+        )
+
+    # On its own top-level line it is the authoritative source, however it is dressed.
+    for marker in ("<!-- tether-grooming-v1 -->", "<!--tether-grooming-v1--> **groomed**"):
+        refusal = claim._autonomy_refusal(
+            stale + marker + "\n- **Autonomy:** maintainer decision\n"
+        )
+        assert refusal is not None and "maintainer decision" in refusal, marker
+
+
 def test_the_refusal_names_the_declared_value_so_a_worker_knows_not_to_retry(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -932,6 +1056,37 @@ def test_autonomy_is_read_before_the_comment_page_is_fetched(
     with pytest.raises(SystemExit):
         claim._cmd_claim(_args(issue=7))
     assert not [c for c in fake.calls if "comments" in c[1]]
+
+
+def _unmodelled(body: str) -> Any:
+    raise claim._markdown.MarkdownStructureError("unmodelled block token 'tfoot_open'")
+
+
+def test_a_body_the_parser_cannot_model_is_an_error_not_a_verdict(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The structure reader raises on a block token it does not model and when the pinned parser
+    itself fails (ADR-0066). Neither is a reading of the issue, so neither may reach exit 3: a
+    compliant agent believes `ineligible` and stops, and a false verdict costs approved work
+    (#315). Before this the error surfaced through `main`'s `ValueError` arm as *input exceeds
+    safe processing limits* - the right exit code under a message naming the wrong cause.
+    """
+    monkeypatch.setattr(claim._markdown, "parse", _unmodelled)
+    with pytest.raises(claim.ClaimError) as excinfo:
+        claim._autonomy_refusal(GROOMED_BODY)
+    assert not isinstance(excinfo.value, claim.IneligibleError)
+    assert "tfoot_open" in str(excinfo.value)
+
+    _install(monkeypatch, Fake(_routes()))
+    monkeypatch.setattr(
+        claim.sys, "argv", ["claim.py", "claim", "--issue", "7", "--vendor", "claude"]
+    )
+    assert claim.main() == 2
+    err = capsys.readouterr().err
+    assert err.startswith("error: #7 body could not be read as Markdown"), err
+    assert "tfoot_open" in err
+    assert "ineligible" not in err
+    assert "safe processing limits" not in err
 
 
 # --------------------------------------------------------------------- the mutex
@@ -2262,6 +2417,53 @@ def test_doctor_survives_a_ready_issue_whose_comments_cannot_be_read(
     assert all("marker" in ready[n] for n in (1, 3, 4)), "the other issues stopped being assessed"
     assert "blocked" in report and "unarmed" in report, (
         "one unreadable ready issue took the other two modes down with it"
+    )
+
+
+def test_doctor_reports_a_body_the_parser_cannot_model_as_unreadable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The same failure through the reporter: one issue, not the report, and never a verdict.
+
+    `doctor` mirrors the gate, and the gate reports a body the structure reader cannot model as an
+    error rather than an exit-3 verdict (ADR-0066). So the `autonomy` field may not be written
+    either way for that issue - `true` admits work nobody read, `false` is the verdict in another
+    coat - and the unreadable shape that already covers a comment page is the honest one. Before
+    this, the raise escaped `_doctor_ready` and took every section of the report with it.
+    """
+    real = claim._markdown.parse
+
+    def parse(body: str) -> Any:
+        if "unmodelled" in body:
+            raise claim._markdown.MarkdownStructureError("unmodelled block token 'tfoot_open'")
+        return real(body)
+
+    monkeypatch.setattr(claim._markdown, "parse", parse)
+    _doctor(
+        monkeypatch,
+        {
+            ("GET", "/repos/bioedca/tether/issues?state=open&labels=status:ready"): (
+                200,
+                [
+                    _issue(number=1, title="binds"),
+                    _issue(number=2, title="unmodelled", body="unmodelled"),
+                    _issue(number=3, title="edited since approval"),
+                    _issue(number=4, title="malformed marker"),
+                ],
+            )
+        },
+    )
+    claim._cmd_doctor(_args(owner="bioedca"))
+    report = json.loads(capsys.readouterr().out)
+    ready = {r["issue"]: r for r in report["ready"]}
+    assert set(ready) == {1, 2, 3, 4}, "the unreadable issue was dropped instead of reported"
+    assert "tfoot_open" in ready[2].get("unreadable", ""), ready[2]
+    assert "autonomy" not in ready[2] and "marker" not in ready[2], (
+        "an unreadable body must not be given a verdict in either field"
+    )
+    assert all(ready[n]["autonomy"] is True for n in (1, 3, 4)), "the other issues changed"
+    assert "blocked" in report and "unarmed" in report, (
+        "one unreadable body took the other two modes down with it"
     )
 
 
