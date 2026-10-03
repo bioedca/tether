@@ -1615,8 +1615,11 @@ def test_a_key_in_other_than_the_registered_spelling_is_read_and_never_admits() 
     fold would leave it unread beside an admitting bullet; what it shows is read, and a key
     in other than the registered spelling never admits (`_defaced`). The same for a format
     character the page keeps and draws nothing for - a zero-width space, a joiner, a soft
-    hyphen (GitHub's markdown endpoint, 2026-10-03): read through, never admitting. U+E000
-    the page drops outright, so it is dropped and the key is the key.
+    hyphen (GitHub's markdown endpoint, 2026-10-03) - and for a compatibility character the
+    page draws as a variant of the letter it stands for - fullwidth, circled, mathematical,
+    the long s, a ligature, the fullwidth colon - which NFKC reads as that letter: read
+    through, never admitting. A letter of another script that only looks like the key's is
+    not read. U+E000 the page drops outright, so it is dropped and the key is the key.
     """
     admitting = "- **Autonomy:** agent-can-do-alone\n\n"
     for spelled in (
@@ -1627,7 +1630,12 @@ def test_a_key_in_other_than_the_registered_spelling_is_read_and_never_admits() 
         "- Auto\u00adnomy: maintainer decision required\n",
         "- \ufeffAutonomy: maintainer decision required\n",
         "- Auto\ue000nomy: maintainer decision required\n",
+        "- Ａｕｔｏｎｏｍｙ: maintainer decision required\n",
+        "- Ⓐutonomy： maintainer decision required\n",
+        "- 𝐀𝐮𝐭𝐨𝐧𝐨𝐦𝐲: maintainer decision required\n",
+        "- Execution autonomy\ufb01eld: maintainer decision required\n",
         "## Executıon autonomy\n\nmaintainer decision required\n",
+        "## Ａｕｔｏｎｏｍｙ\n\nmaintainer decision required\n",
         "Auto\u200bnomy\n\nmaintainer decision required\n",
         "| Auto\u200bnomy | maintainer decision required |\n|---|---|\n",
         "<p>Auto\u200bnomy: maintainer decision required</p>\n",
@@ -1641,9 +1649,14 @@ def test_a_key_in_other_than_the_registered_spelling_is_read_and_never_admits() 
         "- Autonomy:\u200b agent-can-do-alone\n",
         "## Executıon autonomy\n\nagent-can-do-alone\n",
         "## Auto\u200bnomy\n\nagent-can-do-alone\n",
+        "- Ａｕｔｏｎｏｍｙ: agent-can-do-alone\n",
+        "- Autonomy： agent-can-do-alone\n",
+        "## 𝐀𝐮𝐭𝐨𝐧𝐨𝐦𝐲\n\nagent-can-do-alone\n",
     ):
         read = claim._autonomy_refusal(unregistered)
         assert read is not None and "cannot admit" in read, (unregistered, read)
+    # A Cyrillic a is another letter: not the key, read as prose.
+    assert claim._keyed("Аutonomy: maintainer decision required") is None
     # Capitalization of the registered spelling is the registered spelling.
     for registered in (
         "- **EXECUTION AUTONOMY:** agent-can-do-alone\n",
@@ -1653,6 +1666,7 @@ def test_a_key_in_other_than_the_registered_spelling_is_read_and_never_admits() 
     ):
         assert claim._autonomy_refusal(registered) is None, registered
     assert claim._shown("Auto\u200bnomy\u00ad: x") == "Autonomy: x"
+    assert claim._shown("Ⓐｕｔｏｎｏｍｙ：\u200b x") == "Autonomy: x"
     assert claim._defaced("Executıon autonomy: x") and claim._defaced("Auto\u200bnomy")
     assert claim._defaced("~~Autonomy~~") and not claim._defaced("Execution autonomy: x")
 

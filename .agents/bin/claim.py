@@ -647,12 +647,22 @@ def _key_texts(text: str) -> Iterator[str]:
 
 
 def _shown(text: str) -> str:
-    """``text`` with its format characters gone: a zero-width space or joiner, a soft hyphen,
-    a byte-order mark, a direction override - Unicode's ``Cf``, which the page keeps and draws
-    nothing for (GitHub's markdown endpoint, 2026-10-03), so `Auto\u200bnomy: maintainer
-    decision required` shows the key over the restriction and is read as that; the character
-    is still in the text a caller tests for the registered spelling (:func:`_defaced`)."""
-    return "".join(char for char in text if unicodedata.category(char) != "Cf")
+    """``text`` as a reader of the page takes it: its format characters gone and its
+    compatibility characters as what they stand for.
+
+    A format character - a zero-width space or joiner, a soft hyphen, a byte-order mark, a
+    direction override, Unicode's ``Cf`` - the page keeps and draws nothing for (GitHub's
+    markdown endpoint, 2026-10-03), so `Auto\u200bnomy: maintainer decision required` shows
+    the key over the restriction and is read as that. A compatibility character - a
+    fullwidth, circled or mathematical letter, a ligature, the Kelvin sign, the long s, the
+    fullwidth colon - the page draws as a variant of the letter it stands for, and Unicode's
+    NFKC form is that letter; `Ａｕｔｏｎｏｍｙ: maintainer decision required` is read as the
+    restriction it shows. Both are read through and neither admits: the characters are still
+    in the text a caller tests for the registered spelling (:func:`_defaced`). A letter of
+    another script that only looks like the key's - a Cyrillic a - is neither, and is not read.
+    """
+    shown = "".join(char for char in text if unicodedata.category(char) != "Cf")
+    return unicodedata.normalize("NFKC", shown)
 
 
 def _match_key(pattern: re.Pattern[str], text: str) -> re.Match[str] | None:
