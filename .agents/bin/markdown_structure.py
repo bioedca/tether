@@ -136,7 +136,7 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: ``<img>`` draw a break and a picture *inside* a block, a space each (Codex on #462) - the
 #: picture with its ``alt`` text between the spaces, since the page shows that text where the
 #: picture is not shown, as a Markdown image's ``plain`` shows its alternative text (Codex on
-#: #462; ``_IMG_ALT``). Two
+#: #462; ``_attributes``). Two
 #: kinds of kept tag draw something. ``<q>`` renders quotation marks around its content, so it
 #: leaves a ``"`` on each side and ``Auto<q></q>nomy`` is the defaced key the page shows rather
 #: than the key. And ``<del>``, ``<s>`` and ``<strike>`` strike their content out, which is a
@@ -155,17 +155,41 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: with a ``[^>]*`` of its own stopped at ``title=">"`` and read the rest of the key as the
 #: element's inside (Codex on #462).
 _HTML_HIDDEN = re.compile(r"<!--.*?-->|<\?.*?\?>|<!\[CDATA\[.*?\]\]>|<![A-Za-z][^>]*>", re.S)
-_HTML_ATTRIBUTES = (
-    r"(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*\s*"
-)
+_ATTRIBUTE_NAME = r"[A-Za-z_:][A-Za-z0-9_.:-]*"
+_ATTRIBUTE_VALUE = r"(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\")"
+_HTML_ATTRIBUTES = rf"(?:\s+{_ATTRIBUTE_NAME}(?:\s*=\s*{_ATTRIBUTE_VALUE})?)*\s*"
 _HTML_TAG = re.compile(
     r"<(?:/(?P<close>[A-Za-z][A-Za-z0-9-]*)\s*"
     r"|(?P<open>[A-Za-z][A-Za-z0-9-]*)" + _HTML_ATTRIBUTES + r"/?)>"
 )
-#: An ``<img>`` tag's ``alt`` value, in any of the three attribute-value spellings.
-_IMG_ALT = re.compile(
-    r"""\salt\s*=\s*(?:"(?P<dq>[^"]*)"|'(?P<sq>[^']*)'|(?P<bare>[^\s"'=<>`]+))""", re.I
+#: One attribute of an opening tag, matched *at* a position, so that :func:`_attributes` reads
+#: them in order and a quoted value is consumed whole: an ``alt=`` inside another attribute's
+#: value is that value's text, where a search for ``alt=`` anywhere in the tag found it first
+#: and read ``note`` for ``<img title=" alt='note'" alt="Autonomy: ...">`` (Codex on #462).
+_HTML_ATTRIBUTE = re.compile(
+    rf"\s+(?P<name>{_ATTRIBUTE_NAME})(?:\s*=\s*(?P<value>{_ATTRIBUTE_VALUE}))?"
 )
+_HTML_TAG_NAME = re.compile(r"<[A-Za-z][A-Za-z0-9-]*")
+
+
+def _attributes(tag: str) -> dict[str, str]:
+    """The attributes of an opening tag's source, name to value, read one after another from
+    the end of the name by the CommonMark attribute grammar. A quoted value loses its quotes;
+    an attribute with no value is ``""``. A name written twice keeps its first value, as the
+    HTML parser keeps it (checked on GitHub's markdown endpoint: ``<img alt="a" alt="b">``
+    reaches the page as ``<img alt="a">``). Names are lower-cased."""
+    opener = _HTML_TAG_NAME.match(tag)
+    at = opener.end() if opener else 0
+    found: dict[str, str] = {}
+    while (attribute := _HTML_ATTRIBUTE.match(tag, at)) is not None:
+        value = attribute.group("value") or ""
+        if value[:1] in ("'", '"'):
+            value = value[1:-1]
+        found.setdefault(attribute.group("name").lower(), value)
+        at = attribute.end()
+    return found
+
+
 #: The kept tags that wrap text and draw nothing.
 _PHRASING_TAGS = frozenset(
     {"a", "abbr", "b", "bdo", "cite", "code", "dfn", "em", "i", "ins", "kbd", "mark", "picture"}
@@ -735,8 +759,7 @@ def _visible_html(text: str) -> str:
         if name in _DRAWN_TAGS:
             return _DRAWN_TAGS[name]
         if name == "img" and tag.group("open") is not None:
-            alt = _IMG_ALT.search(tag.group(0))
-            shown = alt and (alt.group("dq") or alt.group("sq") or alt.group("bare") or "")
+            shown = _attributes(tag.group(0)).get("alt", "")
             return f" {shown} " if shown else " "
         return " " if name in _SPACED_TAGS else ""
 

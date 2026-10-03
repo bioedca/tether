@@ -725,11 +725,32 @@ def test_an_images_alternative_text_is_its_label_rendered():
         ("a<img src=x>b", "a b"),
         ('a<img alt="">b', "a b"),
         ('<img data-alt="no" alt="yes">', "yes"),
+        # Codex on #462 (read of `be3164c`): an `alt=` inside another attribute's quoted value
+        # is that value's text; the attributes are read in order, and a name written twice
+        # keeps its first value, as the page keeps it.
+        (
+            '<img title=" alt=\'note\'" alt="Autonomy: human review required">',
+            "Autonomy: human review required",
+        ),
+        ("<img title='x=\"alt=z\"' alt=y>", "y"),
+        ('<img alt="a" alt="b">', "a"),
+        ('<img ALT="upper" src=x>', "upper"),
+        ("<img alt>", ""),
     ):
         (para,) = md.parse(text + "\n")
         assert para.plain == plain, (text, para.plain)
     (raw,) = md.parse('<p><img src="/m" alt="Autonomy: human review required"></p>\n')
     assert raw.shown == (md.Shown("Autonomy: human review required", "p"),)
+
+
+def test_attributes_are_read_in_order_by_the_grammar():
+    assert md._attributes('<img title=" alt=\'note\'" alt="A: b" src=x>') == {
+        "title": " alt='note'",
+        "alt": "A: b",
+        "src": "x",
+    }
+    assert md._attributes("<img alt='a' alt=\"b\" hidden>") == {"alt": "a", "hidden": ""}
+    assert md._attributes("<img>") == {} and md._attributes("<img />") == {}
 
 
 def test_a_table_rows_plain_cells_are_rendered_in_order():

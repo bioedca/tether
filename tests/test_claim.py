@@ -1405,6 +1405,8 @@ def test_an_images_alternative_text_is_read_as_the_page_shows_it() -> None:
         '<img src="/missing" alt="Autonomy: human review required"> after\n',
         '<p><img src="/m" alt="Autonomy: human review required"></p>\n',
         "- <img alt='Autonomy: maintainer decision required'>\n",
+        # Codex on #462 (read of `be3164c`): the real `alt`, not the one quoted in `title`.
+        '<img title=" alt=\'note\'" alt="Autonomy: human review required">\n',
     ):
         read = claim._autonomy_refusal(admitting + pictured)
         assert read is not None and ("human review" in read or "maintainer decision" in read)
