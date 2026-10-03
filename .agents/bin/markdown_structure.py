@@ -116,13 +116,17 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: the elements in ``KEPT_TAGS`` and strips every other tag while leaving its text in place, so
 #: ``Auto<foo></foo>nomy`` shows ``Autonomy``, one word - and rendering the unknown tag as a
 #: space split the key and lost the restriction after it (Codex on #462). The sanitizer (Selma
-#: 0.5.3, ``Config::DEFAULT``) refines that twice: the block-ish stripped tags in its
-#: ``whitespace_elements`` - ``<section>``, ``<article>``, ``<nav>`` - leave a space on each side
-#: of their text, and ``<svg>``, ``<math>``, ``<noscript>`` and the rest of its
-#: ``remove_contents`` go with their text. That last rule is the one not mirrored: text the
-#: page hides can only refuse, never admit, so reading it is the safe error. (GFM's tag filter
-#: shows ``<script>``, ``<style>`` and seven more as literal text before the sanitizer runs,
-#: text and all, so those hide nothing.) Among the kept tags, a *phrasing* one - ``<b>``,
+#: 0.5.3, ``Config::DEFAULT``) refines that once on the page: the block-ish stripped tags in
+#: its ``whitespace_elements`` - ``<section>``, ``<article>``, ``<nav>`` - leave a space on each
+#: side of their text. Its ``remove_contents`` - ``<svg>``, ``<math>``, ``<noscript>`` - is
+#: **not** in force there: GitHub's markdown endpoint renders ``Auto<svg>y</svg>nomy: x`` as
+#: ``Autoynomy: x`` and ``<svg>maintainer decision required</svg>`` as that paragraph
+#: (2026-10-03), so those three are stripped tags like any other, text kept, and a rule that
+#: dropped their text - taken from the sanitizer's source rather than from the page at read 29
+#: of #462 - hid a restriction the page shows, which is the one direction this module must not
+#: err in; read 31 reversed it. (GFM's tag filter shows ``<script>``, ``<style>`` and seven
+#: more as literal text before the sanitizer runs, text and all, so those hide nothing
+#: either.) Among the kept tags, a *phrasing* one - ``<b>``,
 #: ``<em>``, ``<code>``, ``<a>``, ``<span>`` - wraps text without breaking it and leaves nothing,
 #: as a stripped tag does, so ``Auto<b>nomy</b>`` is one word (Greptile on #462: a space there
 #: split a key the page shows whole); ``<wbr>`` is a break *opportunity* that draws nothing, and
@@ -135,19 +139,25 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: than the key. And ``<del>``, ``<s>`` and ``<strike>`` strike their content out, which is a
 #: retraction, so they leave the ``~~`` their Markdown spelling keeps (see ``_plain``):
 #: ``<del>agent-can-do-alone</del>`` reads as ``~~agent-can-do-alone~~`` and a caller matching
-#: a token against it fails to, as it should (both Codex on #462). Either way the text reads as
+#: the registered value against it fails to, as it should, while ``<del>maintainer decision
+#: required</del>`` still names its restriction to a caller scanning for one - the marks
+#: retract an admission and never a restriction (all Codex on #462). Either way the text reads as
 #: it renders, so a caller sees neither a word the page joins nor one it splits. A character
 #: reference in a raw block - ``&#32;``, ``&amp;`` - is decoded after the tags are read, so
 #: ``&lt;b&gt;`` is the literal ``<b>`` the page shows and never a tag (Codex on #462). The tag
 #: pattern is the CommonMark open and close tag grammar - a name, then attributes whose values
 #: may be quoted - so ``n < 5 and m > 3`` stays prose, as on the page, and a ``>`` inside a
-#: quoted attribute value does not end the tag early (Codex on #462).
+#: quoted attribute value does not end the tag early (Codex on #462). The attribute grammar is
+#: one fragment, ``_HTML_ATTRIBUTES``, and every pattern that reads a tag shares it: a pattern
+#: with a ``[^>]*`` of its own stopped at ``title=">"`` and read the rest of the key as the
+#: element's inside (Codex on #462).
 _HTML_HIDDEN = re.compile(r"<!--.*?-->|<\?.*?\?>|<!\[CDATA\[.*?\]\]>|<![A-Za-z][^>]*>", re.S)
+_HTML_ATTRIBUTES = (
+    r"(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*\s*"
+)
 _HTML_TAG = re.compile(
     r"<(?:/(?P<close>[A-Za-z][A-Za-z0-9-]*)\s*"
-    r"|(?P<open>[A-Za-z][A-Za-z0-9-]*)"
-    r"(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*"
-    r"\s*/?)>"
+    r"|(?P<open>[A-Za-z][A-Za-z0-9-]*)" + _HTML_ATTRIBUTES + r"/?)>"
 )
 #: The kept tags that wrap text and draw nothing.
 _PHRASING_TAGS = frozenset(
@@ -174,40 +184,23 @@ _STRIPPED_SPACED_TAGS = frozenset(
 )
 #: The tags that leave a space: every other tag, kept or stripped, leaves nothing.
 _SPACED_TAGS = BLOCK_TAGS | _INSIDE_TAGS | _STRIPPED_SPACED_TAGS
-#: The stripped elements the sanitizer removes *with their text*: Selma's ``remove_contents``
-#: less the tags GFM's tag filter has already turned into literal text before the sanitizer
-#: runs (``<script>``, ``<style>``, ``<iframe>``, ``<xmp>``, ``<noembed>``, ``<noframes>``,
-#: ``<plaintext>``, whose text the page therefore shows). What is inside ``<svg>``, ``<math>``
-#: or ``<noscript>`` is gone from the page, so ``Auto<svg>x</svg>nomy`` shows ``Autonomy``,
-#: and keeping the ``x`` read ``Autoxnomy``, no key, past a restriction (Codex on #462). The
-#: element's own tags stay, so a source that carries one is still not plain Markdown, and a
-#: tag written inside one - ``<svg></details></svg>`` - is no tag, since the page never sees
-#: it. An element never closed runs to the end of its run; one closed in its own tag -
-#: ``<svg/>`` - holds nothing, and the text after it stays, where reading it as an opener
-#: swallowed the rest of the key (Codex on #462).
-_HTML_REMOVED = re.compile(
-    r"(?P<void><(?:math|noscript|svg)\b[^>]*/>)"
-    r"|(?P<open><(?P<name>math|noscript|svg)\b[^>]*>).*?(?P<close></(?P=name)\s*>|\Z)",
-    re.S | re.I,
-)
 #: An empty ``<del>``, ``<s>`` or ``<strike>`` strikes nothing out and draws nothing, so
 #: ``Auto<del></del>nomy`` shows the key whole, where drawing the marks for both tags read
 #: ``Auto~~~~nomy`` (Codex on #462). Whitespace alone inside is struck whitespace, which the
-#: page shows as the whitespace. An empty ``<q>`` still draws its two quotation marks.
+#: page shows as the whitespace. An empty ``<q>`` still draws its two quotation marks. The
+#: opening tag is read by the shared attribute grammar, so ``<del title=">"></del>`` is the
+#: empty element the page keeps (Codex on #462).
 _HTML_EMPTY_STRIKE = re.compile(
-    r"<(?P<name>del|s|strike)\b[^>]*>(?P<inside>\s*)</(?P=name)\s*>", re.I
+    r"<(?P<name>del|s|strike)" + _HTML_ATTRIBUTES + r">(?P<inside>\s*)</(?P=name)\s*>", re.I
 )
 
 
 def _sanitized(text: str) -> str:
-    """``text`` as it reaches the page's tags: the hidden forms gone, then the text of every
-    removed element gone with its tags kept. An empty strike element is still a tag here - a
-    source carrying one is not plain Markdown - and draws nothing only in :func:`_visible_html`.
+    """``text`` as it reaches the page's tags: the hidden forms gone. An empty strike element
+    is still a tag here - a source carrying one is not plain Markdown - and draws nothing only
+    in :func:`_visible_html`.
     """
-    return _HTML_REMOVED.sub(
-        lambda m: m.group("void") or m.group("open") + m.group("close"),
-        _HTML_HIDDEN.sub("", text),
-    )
+    return _HTML_HIDDEN.sub("", text)
 
 
 def _unstruck(text: str) -> str:
@@ -531,15 +524,18 @@ def _plain(inline: Token) -> str:
     entities and backslash escapes into the ``text`` children. Inline HTML follows the rule the
     module-level patterns state, and the children are rendered *together* - the text escaped,
     the inline HTML raw, the whole laid out as :func:`_visible_html` lays out a raw run - so a
-    tag's effect on what sits between it and its close is read across the children: the text
-    inside ``<svg>x</svg>`` is removed and an empty ``<del></del>`` draws nothing, where
-    rendering each tag on its own kept the ``x`` and drew ``~~~~`` (Codex on #462). The
-    escaping is undone with the character references at the end, so ``n < 5`` and a code
-    span's ``<b>`` are the text they were. Strike-through is a GFM extension the parser does
-    not enable, so ``~~x~~`` keeps its tildes: GitHub shows that text struck out, and a caller
-    matching a token against it then fails to - the right direction, since a struck-out value
-    is a retracted one. An inline the parser gave no children is its content as it stands,
-    which only happens for an inline it did not need to tokenize.
+    tag's effect on what sits between it and its close is read across the children: an empty
+    ``<del></del>`` draws nothing, where rendering each tag on its own drew ``~~~~`` (Codex on
+    #462). The escaping is undone with the character references at the end, so ``n < 5`` and
+    a code span's ``<b>`` are the text they were. Strike-through is a GFM extension the parser
+    does not enable, so ``~~x~~`` keeps its tildes: GitHub shows that text struck out, and the
+    tildes keep the retraction in view. They cut one way. A struck-out value is not the
+    registered one, so ``~~agent-can-do-alone~~`` never admits; a struck-out restriction still
+    names its token to a caller scanning for one, since the words are on the page and the scan
+    reads past the mark - a retraction the gate cannot read as one refuses, which is the safe
+    error (Codex on #462, which read the first half as a rule for both). An inline the parser
+    gave no children is its content as it stands, which only happens for an inline it did not
+    need to tokenize.
     """
     if inline.children is None:
         return " ".join(inline.content.split())
@@ -571,9 +567,11 @@ def tags(text: str) -> Iterator[tuple[str, bool]]:
 
     Read by the grammar above with the hidden forms removed first, so a tag written inside a
     comment is not a tag: ``<!-- </details> -->`` closes nothing on the page and must close
-    nothing for a caller counting nesting (Codex on #462) - and the text of a removed element
-    with them, so ``<svg></details></svg>`` closes nothing either, while the ``<svg>`` itself
-    is still a tag. Names are lower-cased.
+    nothing for a caller counting nesting (Codex on #462). A tag inside a stripped element is
+    one: the page drops the ``<svg>`` of ``<svg></details></svg>`` and keeps what it held, so
+    that ``</details>`` closes the widget there, and a rule that dropped it with the element -
+    read off the sanitizer's source rather than the page - kept open a widget the page had
+    closed (read 29 of #462, reversed at read 31). Names are lower-cased.
     """
     for tag in _HTML_TAG.finditer(_sanitized(text)):
         closing = tag.group("close") is not None
@@ -603,8 +601,7 @@ def inline_tags(text: str) -> Iterator[tuple[str, bool]]:
     :func:`has_tag` - a search of the source - cannot tell. A caller counting what a `<details>`
     opened in running text collapses needs the page's reading, because the HTML parser closes
     the paragraph where that tag opens and the widget takes everything up to its `</details>`.
-    The chunks are read together, so a tag inside a removed element - ``<svg></details></svg>``
-    - is no tag here either (Codex on #462).
+    The chunks are read as one run, as :func:`_plain` renders them.
     """
     yield from tags("".join(inline_html(text)))
 

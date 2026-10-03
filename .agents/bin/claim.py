@@ -986,7 +986,28 @@ def _on_the_page(spans: list[tuple[int, float]], line: int) -> bool:
 def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]:
     """`_declared_autonomy` for an already-parsed body."""
     groomed = _grooming_block(document)
-    source, where = (document, "body") if groomed is None else (groomed, "grooming block")
+    if groomed is None:
+        source: tuple[_markdown.Block, ...] = document
+        where = "body"
+    else:
+        # The page draws every footnote at its foot, wherever the definition sits, so one above
+        # the marker is drawn for the block as for anything: `[^1]: Autonomy: maintainer
+        # decision required` above it and `agent-can-do-alone[^1]` inside it shows the
+        # restriction, while the block alone - the blocks after the marker - left the
+        # definition with the superseded text and the issue admitted (Codex on #462). The
+        # body's footnotes are read with the block, referenced from it or not: a footnote only
+        # refuses (`_section`, `_lead`), so one the block never references costs a refusal on a
+        # body the groomer re-grooms and never a claim, and it needs no reader of references
+        # on the source, which the page draws in a form the parser does not.
+        inside = {id(leaf.block) for leaf in _flat(groomed)}
+        source = groomed + tuple(
+            leaf.block
+            for leaf in _flat(document)
+            if isinstance(leaf.block, _markdown.Paragraph)
+            and leaf.block.footnote
+            and id(leaf.block) not in inside
+        )
+        where = "grooming block"
     found: list[_AutonomyValue] = []
     # The collapsed spans are the whole document's, not the source's: a `<details>` opened above
     # the marker is still open below it, so the grooming block's lines inside it are as hidden
@@ -1275,6 +1296,14 @@ def _names(flat: str, token: str) -> bool:
     and that governs all the same. So the token must begin a word and may end mid-word. A
     separator before it is a boundary: `non-human action` flattens to `non human action` and
     names the token, which is the fail-closed reading of a negation the gate does not parse.
+
+    A token inside strike-through marks is named too. `~~maintainer decision required~~`, or
+    a `<del>` the renderer draws the same way, still shows its words on the page, crossed out,
+    and the gate reads a retraction one way only: a struck-out admission is not the registered
+    value (`_plain` keeps the marks for that) and a struck-out restriction still refuses
+    (Codex on #462, which read the first as a rule for both). Admitting past the marks would
+    be a capability the agent layer does not take from a review finding (ADR-0064); a
+    retracted restriction is deleted by re-grooming.
     """
     return re.search(rf"(?<!\w){re.escape(token)}", flat) is not None
 

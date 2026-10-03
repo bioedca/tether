@@ -1215,45 +1215,63 @@ def test_a_footnote_is_read_behind_its_label_and_never_admits() -> None:
     assert claim._autonomy_refusal(admitting + "- [x] Autonomy: human review required\n")
 
 
-def test_what_the_sanitizer_removes_is_not_on_the_page() -> None:
-    """Codex on #462 (read of `f5c37f0`): Selma removes `<svg>`, `<math>` and `<noscript>` with
-    their text, so `- **Auto<svg>x</svg>nomy:** maintainer decision required` shows the key
-    whole and the restriction governs - where keeping the `x` read `Autoxnomy`, no key, beside
-    an admitting bullet; and an empty `<del>` draws nothing, so `Auto<del></del>nomy:` is the
-    key too - where `~~~~` was drawn for it. One shape over, a `</details>` inside an `<svg>` is
-    gone with it and closes nothing, where reading it as a tag put what followed a real
-    `<details>` back on the page. `<script>` and its kin are literal text on GitHub, text and
-    all, so a key they split is split there too; a `<del>` with text still strikes it out; and
-    an empty `<q>` still defaces the key.
+def test_a_stripped_elements_text_is_on_the_page_and_an_empty_strike_draws_nothing() -> None:
+    """Codex on #462 (read of `f5c37f0`) held, from Selma's source, that the sanitizer removes
+    `<svg>`, `<math>` and `<noscript>` with their text, and read 29 encoded it. GitHub's
+    markdown endpoint (2026-10-03) renders `<svg>maintainer decision required</svg>` as that
+    paragraph, so the three are stripped tags like any other, text kept - and the rule hid a
+    restriction the page shows: `## Execution autonomy` over `agent-can-do-alone` over that
+    element admitted on `270e6ae`, as did the element in a bullet's remainder. Reversed at
+    read 31, where Codex found the pattern mis-reading a quoted `>` as well. An empty `<del>`
+    draws nothing, so `Auto<del></del>nomy:` is the key - where `~~~~` was drawn for it - and
+    so is `Auto<del title=">"></del>nomy:`, the opening tag read by the shared attribute
+    grammar (Codex on #462, read of `c02ab15`). A `</details>` inside an `<svg>` closes the
+    widget, since the page keeps it. `<script>` and its kin are literal text on GitHub, text
+    and all, so a key they split is split there too; a `<del>` with text still strikes it
+    out; and an empty `<q>` still defaces the key.
     """
     admitting = "- **Autonomy:** agent-can-do-alone\n\n"
-    for hidden in (
-        "- **Auto<svg>x</svg>nomy:** maintainer decision required\n",
-        "Auto<math>x</math>nomy: maintainer decision required\n",
-        "Auto<noscript>x</noscript>nomy: maintainer decision required\n",
+    section = "## Execution autonomy\n\nagent-can-do-alone\n\n"
+    # The text inside a stripped element is on the page, so a restriction there governs.
+    for shown in (
+        section + "<svg>maintainer decision required</svg>\n",
+        section + "note <svg>maintainer decision required</svg>\n",
+        section + "<svg>maintainer decision required\n",
+        admitting + "  <math>maintainer decision required</math>\n",
+        admitting + "  <noscript>maintainer decision required</noscript>\n",
+    ):
+        kept = claim._autonomy_refusal(shown)
+        assert kept is not None and "maintainer decision" in kept, (shown, kept)
+    # A key or value a stripped element splits is not plain Markdown, and cannot admit.
+    for split in (
+        "- **Auto<svg>x</svg>nomy:** agent-can-do-alone\n",
+        "- **Autonomy:** <svg>agent-can-do-alone</svg>\n",
+        "- **Autonomy:** agent-<svg>can</svg>-do-alone\n",
+    ):
+        assert claim._autonomy_refusal(split) is not None, split
+    # An empty strike element draws nothing and a self-closing stripped tag holds nothing, so
+    # the key is whole and the restriction behind it governs.
+    for whole in (
         "- **Auto<del></del>nomy:** maintainer decision required\n",
         "Auto<s></s>nomy: maintainer decision required\n",
         "## Auto<strike></strike>nomy\n\nmaintainer decision required\n",
-        "<p>Auto<svg>x</svg>nomy: maintainer decision required</p>\n",
-    ):
-        whole = claim._autonomy_refusal(admitting + hidden)
-        assert whole is not None, f"{hidden!r}: a key the sanitizer leaves whole was not read"
-        assert "maintainer decision" in whole, f"{hidden!r}: {whole}"
-    # Codex on #462 (read of `270e6ae`): an element closed in its own tag holds nothing, so
-    # the key after `<svg/>` is whole, where reading it as an opener swallowed the rest.
-    for void in (
+        '- **Auto<del title=">"></del>nomy:** maintainer decision required\n',
         "- **Auto<svg/>nomy:** maintainer decision required\n",
         'Auto<svg viewBox="0 0 1 1" />nomy: maintainer decision required\n',
+        '- **Auto<svg title=">"/>nomy:** maintainer decision required\n',
         "<p>Auto<math/>nomy: maintainer decision required</p>\n",
     ):
-        kept = claim._autonomy_refusal(admitting + void)
-        assert kept is not None and "maintainer decision" in kept, (void, kept)
-    gone = claim._autonomy_refusal(f"<details>\n\n<svg></details></svg>\n\n{admitting}")
-    assert gone is not None and "only in a shape that cannot admit" in gone, gone
-    inline = claim._autonomy_refusal(
-        f"Notes <details>\n\nmore <svg></details></svg>\n\n{admitting}"
+        read = claim._autonomy_refusal(admitting + whole)
+        assert read is not None and "maintainer decision" in read, (whole, read)
+    # A `</details>` inside an `<svg>` closes the widget on the page, so the bullet after it
+    # is drawn and registered - where one inside a comment closes nothing.
+    assert claim._autonomy_refusal(f"<details>\n\n<svg></details></svg>\n\n{admitting}") is None
+    assert (
+        claim._autonomy_refusal(f"Notes <details>\n\nmore <svg></details></svg>\n\n{admitting}")
+        is None
     )
-    assert inline is not None and "only in a shape that cannot admit" in inline, inline
+    hidden = claim._autonomy_refusal(f"<details>\n\n<!-- </details> -->\n\n{admitting}")
+    assert hidden is not None and "only in a shape that cannot admit" in hidden, hidden
     # Controls: struck text is struck, an empty `<q>` defaces, a literal `<script>` splits.
     struck = claim._autonomy_refusal(
         "- **Autonomy:** <del>maintainer decision</del> agent-can-do-alone\n"
@@ -1269,6 +1287,67 @@ def test_what_the_sanitizer_removes_is_not_on_the_page() -> None:
         )
         is None
     )
+
+
+def test_a_footnote_above_the_marker_is_read_with_the_grooming_block() -> None:
+    """Codex on #462 (read of `c02ab15`): the page draws a footnote at its foot wherever the
+    definition sits, so `[^1]: Autonomy: maintainer decision required` above the marker and
+    `agent-can-do-alone[^1]` inside the block shows the restriction - while the block, being
+    the blocks after the marker, left the definition with the superseded text and the issue
+    admitted. Every footnote of the body is read with the block. One the block never
+    references is read too: a footnote only refuses, so that costs a refusal on a body the
+    groomer re-grooms, never a claim, and it needs no reader of references on the source.
+    """
+    marker = "<!-- tether-grooming-v1 -->\n\n"
+    plain = "- **Autonomy:** agent-can-do-alone\n"
+    groomed = plain + "\nSee[^1].\n"
+    for above in (
+        "[^1]: Autonomy: maintainer decision required\n\n",
+        "[^1]: **Execution autonomy:** maintainer decision required\n\n",
+        "- note\n\n  [^1]: Autonomy: maintainer decision required\n\n",
+        "[^1]: Autonomy: needs-maintainer-input\n\n",
+    ):
+        read = claim._autonomy_refusal(above + marker + groomed)
+        assert read is not None and ("maintainer decision" in read or "maintainer input" in read)
+    # Referenced only from the superseded text, or from nowhere: read all the same.
+    for unreferenced in (
+        "[^1]: Autonomy: maintainer decision required\n\nSee[^1].\n\n",
+        "[^1]: Autonomy: maintainer decision required\n\n",
+    ):
+        read = claim._autonomy_refusal(unreferenced + marker + plain)
+        assert read is not None and "maintainer decision" in read, (unreferenced, read)
+    # An admitting footnote above the marker admits nothing: the block says nothing.
+    assert claim._autonomy_refusal("[^1]: Autonomy: agent-can-do-alone\n\n" + marker) is not None
+    assert claim._autonomy_refusal(marker + plain) is None
+
+
+def test_a_struck_out_restriction_still_refuses_and_a_struck_out_admission_never_admits() -> None:
+    """Codex on #462 (read of `c02ab15`) read `_plain`'s note - a struck-out value fails a
+    token match - as a rule for both directions and asked that the refusal scan skip struck
+    text. The marks cut one way: the page still shows the words, crossed out, and the gate
+    reads a retraction only as not admitting. `~~maintainer decision required~~` in a heading's
+    section or a bullet's remainder refuses, as a `<del>` drawn the same way does, and
+    `~~agent-can-do-alone~~` as a value admits nothing. Admitting past the marks would be a
+    capability the agent layer does not take from a review finding (ADR-0064); a retracted
+    restriction is deleted by re-grooming.
+    """
+    section = "## Execution autonomy\n\nagent-can-do-alone\n\n"
+    for struck in (
+        section + "~~maintainer decision required~~\n",
+        section + "<del>maintainer decision required</del>\n",
+        "- **Autonomy:** agent-can-do-alone\n\n  ~~needs maintainer input~~\n",
+        "- **Autonomy:** agent-can-do-alone ~~(maintainer decision required)~~\n",
+        "- **Autonomy:** ~~maintainer decision required~~ agent-can-do-alone\n",
+    ):
+        read = claim._autonomy_refusal(struck)
+        assert read is not None and ("maintainer decision" in read or "maintainer input" in read)
+    for retracted in (
+        "- **Autonomy:** ~~agent-can-do-alone~~\n",
+        "- **Autonomy:** <del>agent-can-do-alone</del>\n",
+        "## Execution autonomy\n\n~~agent-can-do-alone~~\n",
+    ):
+        assert claim._autonomy_refusal(retracted) is not None, retracted
+    assert claim._autonomy_refusal("- **Autonomy:** agent-can-do-alone\n") is None
 
 
 def test_every_cell_of_a_row_is_read_as_a_raw_cell_is() -> None:

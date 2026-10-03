@@ -572,23 +572,30 @@ def test_a_footnote_definition_is_a_footnote_paragraph_wherever_the_parser_put_i
     assert linked.plain == "see the issue" and linked.footnote
 
 
-def test_a_removed_elements_text_and_an_empty_strike_draw_nothing():
-    """Codex on #462 (read of `f5c37f0`): the sanitizer removes `<svg>`, `<math>` and
-    `<noscript>` with their text, so `Auto<svg>x</svg>nomy:` shows the key whole - where
-    keeping the `x` read `Autoxnomy`; and an empty `<del>`, `<s>` or `<strike>` strikes nothing
-    and draws nothing, so `Auto<del></del>nomy:` is the key too - where drawing the marks for
-    both tags read `Auto~~~~nomy`. Inline children are rendered together, so the rule holds
-    across them; `<script>` and its kin are shown as literal text by GFM's tag filter before
-    the sanitizer runs, so their text stays; an empty `<q>` still draws its quotation marks; and
-    a tag inside a removed element is no tag, while the element's own is."""
+def test_a_stripped_elements_text_stays_and_an_empty_strike_draws_nothing():
+    """Codex on #462 (read of `f5c37f0`) held, from Selma's source, that the sanitizer removes
+    `<svg>`, `<math>` and `<noscript>` with their text, and read 29 encoded it. GitHub's
+    markdown endpoint (2026-10-03) renders `Auto<svg>y</svg>nomy: x` as `Autoynomy: x` and
+    `<svg>maintainer decision required</svg>` as that paragraph, so the three are stripped
+    tags like any other, text kept, and the rule hid a restriction the page shows - reversed
+    at read 31, where Codex found the pattern mis-reading a quoted `>` as well. An empty
+    `<del>`, `<s>` or `<strike>` strikes nothing and draws nothing, so `Auto<del></del>nomy:`
+    is the key - where drawing the marks for both tags read `Auto~~~~nomy` - and its opening
+    tag is read by the shared attribute grammar, so a `>` inside a quoted value does not end
+    it (Codex on #462, read of `c02ab15`). Inline children are rendered together, so the rule
+    holds across them; `<script>` and its kin are literal text; an empty `<q>` still draws its
+    quotation marks; and a tag inside a stripped element is a tag, since the page keeps it."""
     for text, plain in (
         (
             "**Auto<svg>x</svg>nomy:** maintainer decision required",
-            "Autonomy: maintainer decision required",
+            "Autoxnomy: maintainer decision required",
         ),
-        ("Auto<math><mi>x</mi></math>nomy: x", "Autonomy: x"),
-        ("Auto<noscript>x</noscript>nomy: x", "Autonomy: x"),
-        ('Auto<svg viewBox="0 0 1 1"><title>t</title></svg>nomy: x', "Autonomy: x"),
+        ("Auto<math><mi>x</mi></math>nomy: x", "Autoxnomy: x"),
+        ("Auto<noscript>x</noscript>nomy: x", "Autoxnomy: x"),
+        ('Auto<svg viewBox="0 0 1 1"><g>t</g></svg>nomy: x', "Autotnomy: x"),
+        ("Auto<svg>nomy: maintainer decision required", "Autonomy: maintainer decision required"),
+        ('Auto<svg title=">">y</svg>nomy: x', "Autoynomy: x"),
+        ("a <svg>b <b>c</b> d</svg> e", "a b c d e"),
         ("Auto<script>x</script>nomy: x", "Autoxnomy: x"),
         ("Auto<style>x</style>nomy: x", "Autoxnomy: x"),
         (
@@ -599,29 +606,42 @@ def test_a_removed_elements_text_and_an_empty_strike_draw_nothing():
         ("Auto<strike></strike>nomy: x", "Autonomy: x"),
         ("Auto<del><s></s></del>nomy: x", "Autonomy: x"),
         ("Auto<del> </del>nomy: x", "Auto nomy: x"),
+        ('Auto<del title=">"></del>nomy: x', "Autonomy: x"),
+        ("Auto<del title='>' >  </del>nomy: x", "Auto nomy: x"),
         ("<del>agent-can-do-alone</del>", "~~agent-can-do-alone~~"),
+        ("<del>maintainer decision required</del>", "~~maintainer decision required~~"),
         ("Auto<q></q>nomy: x", 'Auto""nomy: x'),
-        ("n < 5 and `<b>` and <svg>x</svg>&amp;", "n < 5 and <b> and &"),
+        ("n < 5 and `<b>` and <svg>x</svg>&amp;", "n < 5 and <b> and x&"),
     ):
         (para,) = md.parse(text + "\n")
         assert para.plain == plain, (text, para.plain)
-    # An element never closed runs to the end of its run; one closed in its own tag holds
-    # nothing and swallows nothing (Codex on #462, read of `270e6ae`).
-    (open_svg,) = md.parse("Auto<svg>nomy: maintainer decision required\n")
-    assert open_svg.plain == "Auto"
-    for void in ("<svg/>", "<svg />", '<math viewBox="0 0 1 1"/>', "<noscript/>", "<svg/><svg/>"):
+    # A self-closing stripped tag holds nothing, so the text after it is whole (Codex on #462,
+    # read of `270e6ae`), with or without a quoted `>` in its attributes.
+    for void in (
+        "<svg/>",
+        "<svg />",
+        '<math viewBox="0 0 1 1"/>',
+        "<noscript/>",
+        "<svg/><svg/>",
+        '<svg title=">"/>',
+    ):
         (closed,) = md.parse(f"**Auto{void}nomy:** maintainer decision required\n")
         assert closed.plain == "Autonomy: maintainer decision required", (void, closed.plain)
     (raw_void,) = md.parse("<p>Auto<svg/>nomy: maintainer decision required</p>\n")
     assert raw_void.shown == (md.Shown("Autonomy: maintainer decision required", "p"),)
-    assert list(md.tags("<svg/><details>")) == [("svg", False), ("details", False)]
-    # The same in a raw block, and for the tags a caller counts.
+    # The same in a raw block, and for the tags a caller counts: a `</details>` inside an
+    # `<svg>` closes the widget on the page, which drops the `<svg>` and keeps what it held.
     (raw,) = md.parse("<p>Auto<svg>x</svg>nomy: maintainer decision required</p>\n")
-    assert raw.shown == (md.Shown("Autonomy: maintainer decision required", "p"),)
+    assert raw.shown == (md.Shown("Autoxnomy: maintainer decision required", "p"),)
+    (block,) = md.parse("<svg>\nmaintainer decision required\n</svg>\n")
+    assert block.shown == (md.Shown("maintainer decision required", ""),)
+    (inline,) = md.parse("<svg>maintainer decision required</svg>\n")
+    assert inline.plain == "maintainer decision required"
     assert md.has_tag("<svg>x</svg>") and md.has_tag("<del></del>")
-    assert list(md.tags("<svg></details></svg>")) == [("svg", False), ("svg", True)]
-    assert list(md.inline_tags("a <svg></details></svg> b")) == [("svg", False), ("svg", True)]
-    assert list(md.inline_tags("<svg></details>")) == [("svg", False)]
+    closes = [("svg", False), ("details", True), ("svg", True)]
+    assert list(md.tags("<svg></details></svg>")) == closes
+    assert list(md.inline_tags("a <svg></details></svg> b")) == closes
+    assert list(md.tags("<svg/><details>")) == [("svg", False), ("details", False)]
 
 
 def test_a_table_rows_plain_cells_are_rendered_in_order():
