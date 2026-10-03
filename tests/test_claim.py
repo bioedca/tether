@@ -1050,10 +1050,15 @@ def test_a_list_item_is_read_past_a_leading_block_that_draws_nothing() -> None:
         claim._autonomy_refusal("- <!-- groomed -->\n  **Autonomy:** agent-can-do-alone\n") is None
     )
     # A drawn first block is the item's lead, so the key below it is not the bullet's; it is
-    # read as a keyed paragraph, which can refuse and cannot admit.
-    pictured = claim._autonomy_refusal("- ![](x.png)\n\n  **Autonomy:** agent-can-do-alone\n")
-    assert pictured is not None and "only in a shape that cannot admit" in pictured, pictured
-    assert "paragraph" in pictured, pictured
+    # read as a keyed paragraph, which can refuse and cannot admit. Codex on #462 (read of
+    # `ef646ee`): a nested list or a block quote the item opens with is drawn too, and skipping
+    # it let the paragraph under it admit as the item's own text.
+    for lead in ("![](x.png)", "- child", "> quoted"):
+        led = claim._autonomy_refusal(f"- {lead}\n\n  **Autonomy:** agent-can-do-alone\n")
+        assert led is not None, f"{lead!r}: the paragraph under a drawn lead admitted"
+        assert "only in a shape that cannot admit" in led and "paragraph" in led, led
+    empty_marker = claim._autonomy_refusal("-\n  - child\n\n  **Autonomy:** agent-can-do-alone\n")
+    assert empty_marker is not None and "only in a shape that cannot admit" in empty_marker
 
 
 def test_keyed_text_anywhere_on_the_page_is_a_declaration_that_cannot_admit() -> None:
@@ -1099,10 +1104,13 @@ def test_a_qualified_heading_or_row_key_is_a_declaration_that_cannot_admit() -> 
     decision required` was no heading key at all, so an admitting bullet beside it carried the
     issue while the page shows the restriction under a heading naming the field. A qualified
     heading is the qualified bullet's counterpart - a declaration that refuses on its qualifier
-    - and so is a table row keyed the same way. The qualifier is bounded by its shape, since no
-    colon bounds it: words, digits, spaces, hyphens, slashes, parentheses and `#`. A heading
-    that goes on with a dash or other punctuation is prose about the field and not a key, as
-    before - the live corpus has one (#442, `status:ready`) and the unbounded reading refused it.
+    - and so is a table row keyed the same way. Codex on #462 (read of `ef646ee`): bounding the
+    qualifier to a character class left `once #123's merged` unread the same way, so every
+    heading that starts with the key is read now, and the qualifier's shape decides how. A
+    dash-led one is a heading *about* the field - the live corpus has one, #442's
+    `### Execution autonomy — declared in the grooming block` over prose, `status:ready`, which
+    reading as the field refused - and its section is scan-only: a restriction there refuses,
+    nothing there admits, nothing is exact-checked.
     """
     admitting = "- **Autonomy:** agent-can-do-alone\n\n"
     heading = claim._autonomy_refusal(
@@ -1116,16 +1124,32 @@ def test_a_qualified_heading_or_row_key_is_a_declaration_that_cannot_admit() -> 
         admitting + "| Autonomy after unblock | agent-can-do-alone |\n|---|---|\n"
     )
     assert row is not None and "qualifier 'after unblock'" in row, row
-    parenthesised = claim._autonomy_refusal(
-        "## Execution autonomy (once #220 lands)\n\nagent-can-do-alone\n"
+    for condition in (
+        "## Execution autonomy (once #220 lands)\n\nagent-can-do-alone\n",
+        "## Execution autonomy once #123's merged\n\nagent-can-do-alone\n",
+        "## Execution autonomy, after unblock\n\nagent-can-do-alone\n",
+    ):
+        qualified = claim._autonomy_refusal(admitting + condition)
+        assert qualified is not None and "qualifier" in qualified, f"{condition!r}: {qualified}"
+    restricted = claim._autonomy_refusal(
+        admitting + "## Execution autonomy once #123's merged\n\nmaintainer decision required\n"
     )
-    assert parenthesised is not None and "qualifier" in parenthesised, parenthesised
+    assert restricted is not None and "maintainer decision" in restricted, restricted
+    # A dash-led heading is about the field: its section refuses on a restriction and never
+    # admits or exact-checks, so the corpus's prose shape keeps admitting beside its bullet.
     for about in (
         "### Execution autonomy — declared in the grooming block\n\nStated once, above.\n",
-        "## Execution autonomy, in brief\n\nSee the grooming block.\n",
+        "## Execution autonomy – in brief\n\nSee the grooming block.\n",
+        "## Execution autonomy - notes\n\nSee the grooming block.\n",
     ):
         prose = claim._autonomy_refusal(admitting + about)
         assert prose is None, f"{about!r}: a heading about the field was read as the field"
+    through = claim._autonomy_refusal(
+        admitting + "### Execution autonomy — see below\n\nmaintainer decision required\n"
+    )
+    assert through is not None and "maintainer decision" in through, through
+    unread = claim._autonomy_refusal("### Execution autonomy — see below\n\nagent-can-do-alone\n")
+    assert unread is not None and "declares no Execution autonomy" in unread, unread
 
 
 def test_a_declaration_carrying_an_html_tag_can_refuse_and_never_admit() -> None:
@@ -1571,8 +1595,10 @@ def test_a_heading_markdown_still_renders_is_read_wherever_it_is_indented() -> N
     assert alone is not None and "only in a shape that cannot admit" in alone
 
     # Codex on #462: closing hashes need a space before them; `autonomy##` is the heading's text.
+    # Since the read of `ef646ee` a heading carrying more than the field is a qualified key, so
+    # it refuses on its qualifier rather than going unread - the glued hashes are that qualifier.
     glued = claim._autonomy_refusal("## Execution autonomy##\n\nagent-can-do-alone\n")
-    assert glued is not None and "declares no Execution autonomy" in glued
+    assert glued is not None and "qualifier '##'" in glued, glued
 
 
 def test_a_child_list_under_a_bullet_is_scanned_one_item_at_a_time() -> None:

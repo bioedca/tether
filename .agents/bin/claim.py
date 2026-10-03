@@ -493,19 +493,23 @@ _AUTONOMY_BULLET = re.compile(
 #: run already removed and its indent measured into `Heading.column`, a row's outer pipes already
 #: Markdown's business, and emphasis, code and link markup already gone. A trailing colon is
 #: tolerated once - `## Autonomy:` is a heading the corpus writes - and never twice, for the
-#: reason the bullet gives (Codex on #462). A qualifier is read much as the bullet's is:
-#: `## Execution autonomy after unblock` over a restriction was no key at all, so an admitting
-#: bullet beside it carried the issue while the page shows the field qualified (Codex on #462),
-#: and the qualified key is a declaration that refuses on its qualifier. Unlike the bullet's,
-#: which a colon bounds, a heading's qualifier is bounded by its shape: words, digits, spaces,
-#: hyphens, slashes, parentheses and `#`, as a condition is written - `after unblock`, `(once #220
-#: lands)`. A heading that goes on with a dash, a comma or any other punctuation is a heading
-#: *about* the field, not the field qualified: `### Execution autonomy — declared in the
-#: grooming block` heads a paragraph of prose on #442, a `status:ready` issue the unbounded
-#: reading refused. Such a heading is not a key, as before.
-_AUTONOMY_KEY = re.compile(
-    r"(?:execution[ \t]+)?autonomy(?P<qualifier>(?:[ \t]+[\w()/#-][\w()/# \t-]*)?)[ \t]*:?", re.I
-)
+#: reason the bullet gives (Codex on #462). Whatever follows the key on the line is its
+#: qualifier, and every heading that starts with the key is read: `## Execution autonomy after
+#: unblock` over a restriction was no key at all, so an admitting bullet beside it carried the
+#: issue while the page shows the field qualified, and bounding the qualifier to a character
+#: class left `once #123's merged` unread the same way (Codex on #462, twice). How the section
+#: is read turns on the qualifier's shape - see `_PROSE_QUALIFIER`.
+_AUTONOMY_KEY = re.compile(r"(?:execution[ \t]+)?autonomy(?P<qualifier>[^:\n]*?)[ \t]*:?", re.I)
+#: A qualifier that makes the heading one *about* the field rather than the field qualified: it
+#: goes on with a dash. `### Execution autonomy — declared in the grooming block` heads a
+#: paragraph of prose on #442, a `status:ready` issue, and reading that paragraph as the field's
+#: value refused it. A condition is written without one - `after unblock`, `once #123's merged`,
+#: `(if #220 lands)` - and such a heading is a declaration that refuses on its qualifier. A
+#: dash-led heading's section is read for restrictions, every block scan-only, and declares
+#: nothing; so no heading that names the field goes unread, and the one shape the corpus writes
+#: as prose keeps admitting. The hyphen counts only with whitespace beside it, since a condition
+#: hyphenates its words.
+_PROSE_QUALIFIER = re.compile(r"[\u2014\u2013]|(?<=\s)-|-(?=\s)")
 #: The grooming marker. Source selection keys on **this**, never on the text the block yields: a
 #: marker ending the body captures no blocks at all, as does one followed only by a comment, and
 #: treating either as "no grooming block" handed the decision back to the stale body the block
@@ -882,7 +886,11 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
         key = (
             _AUTONOMY_KEY.fullmatch(_prose(block)) if isinstance(block, _markdown.Heading) else None
         )
-        if key is not None:
+        if key is not None and _PROSE_QUALIFIER.search(key.group("qualifier")):
+            # A heading about the field: what it heads is read for a restriction and is not
+            # the field's value, so nothing here can admit and nothing is exact-checked.
+            found.extend(_scan_only(_section(leaves, index), f"{where} heading about the field"))
+        elif key is not None:
             qualifier = _normalize_autonomy(key.group("qualifier"))
             section = _section(leaves, index)
             if section:
@@ -923,7 +931,13 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 )
         elif isinstance(block, _markdown.TableRow):
             key = _AUTONOMY_KEY.fullmatch(block.plain[0]) if block.plain else None
-            if key is not None:
+            if key is not None and _PROSE_QUALIFIER.search(key.group("qualifier")):
+                found.extend(
+                    _AutonomyValue(cell, f"{where} table row about the field", scan_only=True)
+                    for cell in block.plain[1:]
+                    if cell
+                )
+            elif key is not None:
                 # A row keyed `autonomy` is a declaration that cannot admit: its second cell
                 # is exact-checked like a `+` bullet's value, so `human review required` -
                 # no registered token, not a registered value - refuses rather than slips
@@ -1012,20 +1026,32 @@ def _drawn(block: Any) -> bool:
     """Whether the page draws anything for ``block`` - the test for a leaf a reader sees.
 
     Prose is drawn, and so is what shows no prose: a picture with no alternative text, a raw
-    HTML block whose tags draw a widget or a picture, a code block, a rule, a table row. Only a
-    block the page shows nothing for - a comment on its own lines, a paragraph that renders to
-    nothing and carries neither a picture nor a tag - is not. A tag counts as drawn whatever
-    the rendering made of it, for the reason `_plain_markdown` gives: the approximation may not
-    err in the admitting direction. The distinction matters in one place. A heading's value is
-    the first thing the page draws below it, and selecting the first *prose* leaf instead let
-    `![](x.png)` or a `<details>` opening tag sit between the heading and the paragraph that then
-    admitted as its own next paragraph (Codex on #462).
+    HTML block whose tags draw a widget or a picture, a code block, a rule, a table row, and a
+    container - a list, a block quote, a table - whatever it holds. Only a block the page shows
+    nothing for - a comment on its own lines, a paragraph that renders to nothing and carries
+    neither a picture nor a tag - is not. A tag counts as drawn whatever the rendering made of
+    it, for the reason `_plain_markdown` gives: the approximation may not err in the admitting
+    direction. The distinction matters in two places. A heading's value is the first thing the
+    page draws below it, and selecting the first *prose* leaf instead let `![](x.png)` or a
+    `<details>` opening tag sit between the heading and the paragraph that then admitted as its
+    own next paragraph; and an item's lead is its first drawn block, and a lead that skipped a
+    nested list let the paragraph under that list admit as the item's own text (Codex on #462).
     """
     if isinstance(block, (_markdown.Paragraph, _markdown.Heading)):
         return bool(block.plain) or block.pictured or _markdown.has_tag(block.text)
     if isinstance(block, _markdown.Html):
         return bool(block.plain) or _markdown.has_tag(block.text)
-    return isinstance(block, (_markdown.TableRow, _markdown.Code, _markdown.Rule))
+    return isinstance(
+        block,
+        (
+            _markdown.TableRow,
+            _markdown.Code,
+            _markdown.Rule,
+            _markdown.ListBlock,
+            _markdown.BlockQuote,
+            _markdown.Table,
+        ),
+    )
 
 
 def _section(leaves: list[_Leaf], index: int) -> list[_Leaf]:
