@@ -222,18 +222,6 @@ _STRIPPED_SPACED_TAGS = frozenset(
 )
 #: The tags that leave a space: every other tag, kept or stripped, leaves nothing.
 _SPACED_TAGS = BLOCK_TAGS | _INSIDE_TAGS | _STRIPPED_SPACED_TAGS
-#: An empty ``<del>``, ``<s>`` or ``<strike>`` strikes nothing out and draws nothing, so
-#: ``Auto<del></del>nomy`` shows the key whole, where drawing the marks for both tags read
-#: ``Auto~~~~nomy`` (Codex on #462). Whitespace alone inside is struck whitespace, which the
-#: page shows as the whitespace. An empty ``<q>`` still draws its two quotation marks. The
-#: opening tag is read by the shared attribute grammar, so ``<del title=">"></del>`` is the
-#: empty element the page keeps (Codex on #462). A tag name is ASCII, so the case folding is:
-#: under Unicode folding ``<ſ></ſ>`` - a long s - was an empty ``<s>`` and vanished, where the
-#: page shows it as the text it is (Codex on #462, on the key's own patterns).
-_HTML_EMPTY_STRIKE = re.compile(
-    r"<(?P<name>del|s|strike)" + _HTML_ATTRIBUTES + r">(?P<inside>\s*)</(?P=name)\s*>",
-    re.I | re.A,
-)
 #: The one character GitHub drops from a page outright: a literal U+E000 renders as nothing,
 #: where U+E001 and the rest of the private-use area, every format character and an unassigned
 #: code point are kept (its markdown endpoint, 2026-10-03). So the page shows ``Auto\ue000nomy``
@@ -250,18 +238,19 @@ _TILDE_RUN = re.compile(r"~+")
 def _sanitized(text: str) -> str:
     """``text`` as it reaches the page's tags: the hidden forms gone. An empty strike element
     is still a tag here - a source carrying one is not plain Markdown - and draws nothing only
-    in :func:`_visible_html`.
+    in :func:`_struck_marks`.
     """
     return _HTML_HIDDEN.sub("", text)
 
 
-def _unstruck(text: str) -> str:
-    """``text`` with every empty strike element gone, innermost first."""
-    while True:
-        emptied = _HTML_EMPTY_STRIKE.sub(lambda m: m.group("inside"), text)
-        if emptied == text:
-            return text
-        text = emptied
+def without_tags(text: str) -> str:
+    """``text`` with its tags gone, so that what sits inside one is not read as the page's
+    content: ``<img alt="<!-- tether-grooming-v1 -->">`` is a picture whose alternative text
+    quotes the marker, not a comment, and a search of the run for the marker found it there
+    and refused the body for a marker the page does not carry (Codex on #462). The tags are
+    read by the grammar above, so a comment inside a quoted attribute value goes with the
+    tag and a comment beside one stays."""
+    return _HTML_TAG.sub("", text)
 
 
 class MarkdownStructureError(ValueError):
@@ -500,11 +489,31 @@ def _last_line(paragraph: Paragraph) -> int:
 
 
 def _continued_note(
-    found: list[Block], lines: list[str], line: int, env: dict[str, Any]
+    found: list[Block],
+    lines: list[str],
+    line: int,
+    env: dict[str, Any],
+    origin: tuple[int, int] | None,
+    quoted: bool,
 ) -> int | None:
     """The definition an indented code block opening at ``line`` continues - its ``note`` - or
     ``None`` for a code block: the nearest line above it that is not blank ends a footnote
-    paragraph, the last block read or a swallowed definition."""
+    paragraph, the last block read or a swallowed definition, **in the container the code
+    block is in**.
+
+    cmark-gfm continues a definition into the lines indented four spaces after it inside the
+    list item both are in, and never into a container the definition is not in: `[^1]: /url`
+    over `-     Autonomy: human review required` is the footnote and then an item holding a
+    code block, which the page shows literal, where a lookup by adjacent source lines alone
+    took the code for the footnote's continuation, read it as Markdown, and refused an issue
+    for a declaration the page shows as code (Codex on #462). ``origin`` is the enclosing
+    item's content position, so a swallowed definition continues only from its own item - a
+    line at or after the item's; the last block read is in this container already. And a
+    definition inside a block quote absorbs nothing, four spaces or six, sentence or bare
+    destination (GitHub's markdown endpoint, 2026-10-03), so ``quoted`` ends it.
+    """
+    if quoted:
+        return None
     above = line - 1
     while above >= 0 and not lines[above].strip():
         above -= 1
@@ -512,7 +521,7 @@ def _continued_note(
         return None
     swallowed = env.get(_SWALLOWED, {}).get(above)
     if swallowed is not None:
-        return swallowed.note
+        return swallowed.note if swallowed.line >= (origin[0] if origin else 0) else None
     last = found[-1] if found else None
     if isinstance(last, Paragraph) and last.footnote and _last_line(last) == above:
         return last.note
@@ -876,7 +885,7 @@ def _laid_out(text: str) -> str:
             return f" {shown} " if shown else " "
         return " " if name in _SPACED_TAGS else ""
 
-    return _HTML_TAG.sub(laid_out, _unstruck(_sanitized(text.replace(_DROPPED, ""))))
+    return _HTML_TAG.sub(laid_out, _sanitized(text.replace(_DROPPED, "")))
 
 
 def strike_pairs(text: str) -> tuple[tuple[int, int, int], ...]:
@@ -923,7 +932,14 @@ def _struck_marks(laid: str, markdown: bool) -> str:
     written any of those ways went unread beside an admitting bullet (found beside Codex's
     read of ``6c060e7`` on #462). A literal tilde stays where it is: a mark with no partner,
     or a run of three, is text the page shows. A closing tag with no open one is ignored, as
-    a browser ignores it.
+    a browser ignores it. A run that strikes nothing draws nothing: an empty ``<del>``,
+    ``<s>`` or ``<strike>`` leaves ``Auto<del></del>nomy`` the key the page shows whole,
+    where drawing the marks for both tags read ``Auto~~~~nomy``, and one holding whitespace
+    alone is struck whitespace, which the page shows as the whitespace - so neither takes
+    marks (Codex on #462). That falls out of the one pass here, where a grammar that removed
+    the empty elements innermost first rescanned the text once per element, and nine
+    thousand nested in a body near GitHub's limit took seconds (Codex on #462). An empty
+    ``<q>`` still draws its two quotation marks.
     """
     pairs = strike_pairs(laid) if markdown else ()
     marks: set[int] = set()
@@ -934,8 +950,8 @@ def _struck_marks(laid: str, markdown: bool) -> str:
         held[opener + length] += 1
         held[closer] -= 1
     pieces: list[str] = []
+    run: list[str] = []
     depth = inside = 0
-    struck = False
     at = 0
     while at < len(laid):
         inside += held[at]
@@ -944,15 +960,23 @@ def _struck_marks(laid: str, markdown: bool) -> str:
             at += 2
             continue
         if at not in marks:
-            now = depth > 0 or inside > 0
-            if now != struck:
-                pieces.append("~~")
-                struck = now
-            pieces.append(laid[at])
+            if depth > 0 or inside > 0:
+                run.append(laid[at])
+            else:
+                if run:
+                    pieces.append(_marked(run))
+                    run = []
+                pieces.append(laid[at])
         at += 1
-    if struck:
-        pieces.append("~~")
+    if run:
+        pieces.append(_marked(run))
     return "".join(pieces)
+
+
+def _marked(run: list[str]) -> str:
+    """A struck run between its marks, or the whitespace it is."""
+    struck = "".join(run)
+    return struck if not struck.strip() else f"~~{struck}~~"
 
 
 def _shown_html(text: str) -> tuple[Shown, ...]:
@@ -1009,13 +1033,15 @@ def _blocks(
     lines: list[str],
     origin: tuple[int, int] | None,
     env: dict[str, Any],
+    quoted: bool = False,
 ) -> tuple[tuple[Block, ...], int]:
     """Read blocks from ``tokens[at:]`` up to the ``until`` closing token, which is consumed.
 
     Returns the blocks and the index just past what was read. ``until`` is ``None`` at the top
     level, where reading stops at the end of the stream. ``origin`` is the enclosing list item's
     content position, passed to :func:`_column`. ``env`` is the parser's environment, which
-    holds the reference definitions a footnote's text may link through.
+    holds the reference definitions a footnote's text may link through. ``quoted`` is whether
+    a block quote encloses this, however deep, which :func:`_continued_note` needs.
     """
     found: list[Block] = []
     while at < len(tokens):
@@ -1042,18 +1068,18 @@ def _blocks(
             at += 3
         elif token.type in ("bullet_list_open", "ordered_list_open"):
             items, at = _items(
-                tokens, at + 1, token.type.replace("open", "close"), lines, origin, env
+                tokens, at + 1, token.type.replace("open", "close"), lines, origin, env, quoted
             )
             found.append(ListBlock(token.type == "ordered_list_open", _line(token), items))
         elif token.type == "blockquote_open":
-            inner, at = _blocks(tokens, at + 1, "blockquote_close", lines, origin, env)
+            inner, at = _blocks(tokens, at + 1, "blockquote_close", lines, origin, env, True)
             found.append(BlockQuote(_line(token), inner))
         elif token.type == "fence":
             found.append(Code(token.content, _line(token), True, token.info.strip()))
             at += 1
         elif token.type == "code_block":
             line = _line(token)
-            note = _continued_note(found, lines, line, env)
+            note = _continued_note(found, lines, line, env, origin, quoted)
             if note is not None:
                 found.extend(_continuation(token.content, line, note))
             else:
@@ -1085,6 +1111,7 @@ def _items(
     lines: list[str],
     origin: tuple[int, int] | None,
     env: dict[str, Any],
+    quoted: bool,
 ) -> tuple[tuple[ListItem, ...], int]:
     items: list[ListItem] = []
     while tokens[at].type != until:
@@ -1094,7 +1121,7 @@ def _items(
         line = _line(token)
         column = _column(lines, line, origin)
         content = (line, _content_column(lines[line], column))
-        inner, at = _blocks(tokens, at + 1, "list_item_close", lines, content, env)
+        inner, at = _blocks(tokens, at + 1, "list_item_close", lines, content, env, quoted)
         items.append(ListItem(token.markup, token.info or None, line, column, inner))
     return tuple(items), at + 1
 

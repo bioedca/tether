@@ -947,7 +947,11 @@ def _misplaced_marker(source: tuple[_markdown.Block, ...]) -> bool:
     leaf is searched for the **HTML the parser found in it** rather than its rendered prose,
     because the marker is a comment and prose hides comments - and not its source either, since
     a code span quoting the marker is text (Codex on #462). A marker in a fence is literal, and
-    a fence is never searched.
+    a fence is never searched. The HTML is searched with its tags gone
+    (:func:`markdown_structure.without_tags`): the marker's text inside a tag's attribute -
+    `<img alt="<!-- tether-grooming-v1 -->">` - is a picture's alternative text on the page
+    and no comment, and searching the run whole refused the body for a marker the page does
+    not carry (Codex on #462).
 
     ``source`` is the authoritative one (`_source`) - the latest grooming block with the body's
     footnotes when there is one, else the body - and not the whole document: a stale paragraph
@@ -961,7 +965,9 @@ def _misplaced_marker(source: tuple[_markdown.Block, ...]) -> bool:
         if _is_grooming_marker(leaf.block):
             if leaf.siblings is not source:
                 return True
-        elif any(_GROOMING_MARKER.search(chunk) for chunk in _html_in(leaf.block)):
+        elif any(
+            _GROOMING_MARKER.search(_markdown.without_tags(chunk)) for chunk in _html_in(leaf.block)
+        ):
             return True
     return False
 

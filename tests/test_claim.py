@@ -1438,6 +1438,69 @@ def test_a_foot_marker_above_the_block_is_misplaced() -> None:
     assert body is not None and "marker inside" in body, body
 
 
+def test_a_marker_inside_a_tag_attribute_is_no_marker() -> None:
+    """Codex on #462 (read of `c3181fb`): `<img alt="<!-- tether-grooming-v1 -->">` is one
+    run of inline HTML to the parser, and searching the run for the marker found it inside
+    the attribute - a picture's alternative text on the page, no comment - and refused the
+    body for a marker it does not carry. The run is searched with its tags gone; a comment
+    beside a tag, even one whose attribute holds `-->`, is still the marker it is.
+    """
+    plain = "- **Autonomy:** agent-can-do-alone\n\n"
+    for quoted in (
+        '<img alt="<!-- tether-grooming-v1 -->" src="x">\n',
+        'see <img alt="<!-- tether-grooming-v1 -->" src="x"> here\n',
+        '<div title="<!-- tether-grooming-v1 -->">x</div>\n',
+        '| a | b |\n|---|---|\n| <img alt="<!-- tether-grooming-v1 -->"> | c |\n',
+        '- <span title="<!-- tether-grooming-v1 -->">note</span>\n',
+    ):
+        assert claim._autonomy_refusal(plain + quoted) is None, quoted
+    for marker in (
+        '<img alt="-->" src="x"><!-- tether-grooming-v1 -->\n',
+        "<p><!-- tether-grooming-v1 --></p>\n",
+        "see <!-- tether-grooming-v1 --> here\n",
+        '<img alt="<!-- tether-grooming-v1 -->"><!-- tether-grooming-v1 -->\n',
+    ):
+        read = claim._autonomy_refusal(plain + marker)
+        assert read is not None and "marker inside" in read, (marker, read)
+    assert (
+        claim._markdown.without_tags('a <img alt="<!-- x -->"> <!-- y --> b') == "a  <!-- y --> b"
+    )
+
+
+def test_a_code_block_after_a_definition_in_another_container_is_code() -> None:
+    """Codex on #462 (read of `c3181fb`): `[^1]: /url` over `-     Autonomy: human review
+    required` is the footnote and then an item holding a code block, which the page shows
+    literal - but the continuation lookup went by adjacent source lines alone, took the
+    item's code for the footnote's continuation, read it as Markdown, and refused the issue
+    for a declaration the page shows as code. cmark-gfm continues a definition only inside
+    the item both are in, and a definition in a block quote absorbs nothing (GitHub's
+    markdown endpoint, 2026-10-03).
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for code in (
+        "[^1]: /url\n-     Autonomy: maintainer decision required\n",
+        "[^1]: /url\n\n-     Autonomy: maintainer decision required\n",
+        "[^1]: /url\n>     Autonomy: maintainer decision required\n",
+        "> [^1]: /url\n>\n>     Autonomy: maintainer decision required\n",
+        "> [^1]: note\n>\n>     Autonomy: maintainer decision required\n",
+        "> [^1]: note\n>\n>       Autonomy: maintainer decision required\n",
+        "- [^1]: /url\n-     Autonomy: maintainer decision required\n",
+        "- > [^1]: /url\n  >\n  >     Autonomy: maintainer decision required\n",
+    ):
+        assert claim._autonomy_refusal(admitting + code) is None, code
+    # A continuation inside the definition's own container is still the footnote's text.
+    for continued in (
+        "[^1]: /url\n\n    Autonomy: maintainer decision required\n",
+        "[^1]: /url\n    Autonomy: maintainer decision required\n",
+        "[^1]: note\n\n    Autonomy: maintainer decision required\n",
+        "- [^1]: /url\n\n      Autonomy: maintainer decision required\n",
+        "- [^1]: note\n\n      Autonomy: maintainer decision required\n",
+        "- a\n  - [^1]: /url\n\n        Autonomy: maintainer decision required\n",
+    ):
+        read = claim._autonomy_refusal(admitting + continued)
+        assert read is not None and "maintainer decision" in read, (continued, read)
+
+
 def test_a_struck_out_restriction_still_refuses_and_a_struck_out_admission_never_admits() -> None:
     """Codex on #462 (read of `c02ab15`) read `_plain`'s note - a struck-out value fails a
     token match - as a rule for both directions and asked that the refusal scan skip struck

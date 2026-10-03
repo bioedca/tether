@@ -11,6 +11,7 @@ shapes is where a reader of the rendered issue would see it.
 from __future__ import annotations
 
 import importlib.util
+import time
 from pathlib import Path
 
 import pytest
@@ -689,6 +690,61 @@ def test_struck_spans_are_laid_out_as_the_runs_the_page_draws():
     assert md.strike_pairs("~~a~~~~b~~") == ((0, 8, 2),)
     assert md.strike_pairs("~a ~~b~~ c~") == ((0, 10, 1), (3, 6, 2))
     assert md.strike_pairs("~~x~") == () and md.strike_pairs("") == ()
+
+
+def test_empty_strike_elements_fall_out_of_the_one_pass():
+    """Codex on #462 (read of `c3181fb`): the grammar that removed empty strike elements
+    innermost first rescanned the text once per element, so nine thousand nested `<s>` in a
+    body near GitHub's limit took seconds before anything was read. A run that strikes
+    nothing draws nothing, which falls out of the pass that lays the struck runs out, and
+    whitespace alone inside is the whitespace, as before.
+    """
+    for text, plain in (
+        ("Auto<del></del>nomy: x", "Autonomy: x"),
+        ("Auto<s><s><s></s></s></s>nomy: x", "Autonomy: x"),
+        ("Auto<del><s></s></del>nomy: x", "Autonomy: x"),
+        ("Auto<del> </del>nomy: x", "Auto nomy: x"),
+        ("Auto<del>  <s> </s> </del>nomy: x", "Auto nomy: x"),
+        ("<del> x </del>", "~~ x ~~"),
+        ("<del>a</del><del> </del>b", "~~a ~~b"),
+        ("<del></del>agent-can-do-alone", "agent-can-do-alone"),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert para.plain == plain, (text, para.plain)
+    nested = "Auto" + "<s>" * 9000 + "</s>" * 9000 + "nomy: x\n"
+    started = time.perf_counter()
+    (deep,) = md.parse(nested)
+    assert deep.plain == "Autonomy: x"
+    assert time.perf_counter() - started < 2.0
+
+
+def test_a_continuation_stays_in_its_definitions_item_and_never_in_a_quote():
+    """Codex on #462 (read of `c3181fb`): a swallowed definition's continuation was looked up
+    by adjacent source lines alone, so `[^1]: /url` over `-     code` - the footnote and then
+    an item holding a code block - read the item's code as the footnote's text. cmark-gfm
+    continues a definition into the lines indented four spaces past the content of the item
+    both are in, and a definition in a block quote absorbs nothing, four spaces or six,
+    sentence or bare destination (GitHub's markdown endpoint, 2026-10-03).
+    """
+    (note, items) = md.parse("[^1]: /url\n-     code\n")
+    assert note.footnote and note.plain == "/url" and isinstance(items, md.ListBlock)
+    (code,) = items.items[0].blocks
+    assert isinstance(code, md.Code) and code.note is None
+    (quote, note) = md.parse("> [^1]: /url\n>\n>     code\n")
+    assert isinstance(quote, md.BlockQuote) and isinstance(quote.blocks[0], md.Code)
+    # A sentence definition in a quote is lifted out of it; the code stays, and is code.
+    (quote, note) = md.parse("> [^1]: note\n>\n>       code\n")
+    (code,) = quote.blocks
+    assert note.footnote and isinstance(code, md.Code) and code.note is None
+    (items, note) = md.parse("- [^1]: /url\n-     code\n")
+    assert isinstance(items.items[1].blocks[0], md.Code) and note.footnote
+    # Inside the item both are in, the continuation is the footnote's.
+    (items, note) = md.parse("- [^1]: /url\n\n      text\n")
+    (continued,) = items.items[0].blocks
+    assert isinstance(continued, md.Paragraph) and continued.note == note.note
+    assert continued.plain == "text"
+    (note, continued) = md.parse("[^1]: /url\n\n    text\n")
+    assert continued.note == note.note and continued.plain == "text"
 
 
 def _laid(blocks):
