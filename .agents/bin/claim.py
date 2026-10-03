@@ -835,13 +835,15 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
         if isinstance(block, _markdown.Heading) and _AUTONOMY_KEY.fullmatch(_prose(block)):
             section = _section(leaves, index)
             if section:
-                # The first rendered block below the heading is the value, whatever it is: a
-                # paragraph is the shape the issue forms write, and anything else fails the
-                # exact match. Only an ATX heading at column zero may admit, and only on its
-                # **own next paragraph** - a sibling in the same container. A value inside a
-                # block quote or a list item below the heading, or written as raw HTML, is
-                # read and exact-checked but is one more shape that can refuse and cannot
-                # admit: the registered shape is the heading with the value as its paragraph.
+                # The first block the page draws below the heading is the value, whatever it
+                # is: a paragraph is the shape the issue forms write, and anything else - a
+                # picture, a fence, a rule, a table row, a raw HTML block - fails the exact
+                # match. Only an ATX heading at column zero may admit, and only on its **own
+                # next paragraph** - a sibling in the same container, on the page as the
+                # heading is. A value inside a block quote or a list item below the heading, or
+                # written as raw HTML, or inside a `<details>` the heading sits above, is read
+                # and exact-checked but is one more shape that can refuse and cannot admit: the
+                # registered shape is the heading with the value as its paragraph.
                 value = section[0]
                 admits = (
                     block.column == 0
@@ -850,6 +852,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                     and value.siblings is leaf.siblings
                     and _plain_markdown(block, value.block)
                     and _on_the_page(collapsed, block.line)
+                    and _on_the_page(collapsed, value.block.line)
                 )
                 found.append(_AutonomyValue(_prose(value.block), f"{where} heading", admits=admits))
                 found.extend(_scan_only(section[1:], f"{where} heading remainder"))
@@ -902,13 +905,33 @@ def _plain_markdown(*blocks: Any) -> bool:
     return not any(_markdown.has_tag(block.text) or block.pictured for block in blocks)
 
 
+def _drawn(block: Any) -> bool:
+    """Whether the page draws anything for ``block`` - the test for a leaf a reader sees.
+
+    Prose is drawn, and so is what shows no prose: a picture with no alternative text, a raw
+    HTML block whose tags draw a widget or a picture, a code block, a rule, a table row. Only a
+    block the page shows nothing for - a comment on its own lines, a paragraph that renders to
+    nothing and carries neither a picture nor a tag - is not. A tag counts as drawn whatever
+    the rendering made of it, for the reason `_plain_markdown` gives: the approximation may not
+    err in the admitting direction. The distinction matters in one place. A heading's value is
+    the first thing the page draws below it, and selecting the first *prose* leaf instead let
+    `![](x.png)` or a `<details>` opening tag sit between the heading and the paragraph that then
+    admitted as its own next paragraph (Codex on #462).
+    """
+    if isinstance(block, (_markdown.Paragraph, _markdown.Heading)):
+        return bool(block.plain) or block.pictured or _markdown.has_tag(block.text)
+    if isinstance(block, _markdown.Html):
+        return bool(block.plain) or _markdown.has_tag(block.text)
+    return isinstance(block, (_markdown.TableRow, _markdown.Code, _markdown.Rule))
+
+
 def _section(leaves: list[_Leaf], index: int) -> list[_Leaf]:
-    """The prose leaves below the heading at ``index``, up to the next heading of any level."""
+    """The drawn leaves below the heading at ``index``, up to the next heading of any level."""
     section: list[_Leaf] = []
     for leaf in leaves[index + 1 :]:
         if isinstance(leaf.block, _markdown.Heading):
             break
-        if _prose(leaf.block):
+        if _drawn(leaf.block):
             section.append(leaf)
     return section
 

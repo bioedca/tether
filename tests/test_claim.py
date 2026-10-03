@@ -954,6 +954,35 @@ def test_an_empty_latest_grooming_block_is_the_source_and_supersedes_a_stale_mar
     assert bare is not None and "grooming block cannot start" in bare, bare
 
 
+def test_a_headings_value_is_the_first_thing_the_page_draws_below_it() -> None:
+    """Codex on #462 (read of `b2efdf1`), two P1s with one cause: the section below a heading
+    kept only leaves with prose, so `![](value.png)` - a picture with no alternative text - and
+    a `<details>` opening tag were skipped, and the paragraph after them admitted as the
+    heading's own next paragraph while the page draws a picture, or a collapsed widget, in
+    between. The value is the first leaf the page draws anything for, and only a comment block
+    draws nothing; the value must be on the page too, not only the heading.
+    """
+    heading = "## Execution autonomy\n\n"
+    for between in (
+        "![](https://example.test/value.png)",
+        '<img src="https://example.test/value.png">',
+        "<details>\n<summary>more</summary>",
+        "```\nexample\n```",
+        "---",
+        "| a | b |\n|---|---|\n| c | d |",
+        "<b></b>",
+    ):
+        refusal = claim._autonomy_refusal(f"{heading}{between}\n\nagent-can-do-alone\n")
+        assert refusal is not None, f"{between!r}: the paragraph past it admitted - fail-open"
+        assert "heading" in refusal, f"{between!r}: {refusal}"
+    # A comment block draws nothing and is read past, as a form's prompt relies on.
+    assert claim._autonomy_refusal(f"{heading}<!-- pick one -->\n\nagent-can-do-alone\n") is None
+    # The value inside a `<details>` the heading sits above is not on the page.
+    collapsed = claim._autonomy_refusal(f"{heading}<details>\n\nagent-can-do-alone\n\n</details>\n")
+    assert collapsed is not None, "a collapsed heading value admitted - fail-open"
+    assert "heading" in collapsed, collapsed
+
+
 def test_a_declaration_carrying_an_html_tag_can_refuse_and_never_admit() -> None:
     """Six reads in a row found a tag the rendering drew differently from the page - `<b>` as a
     space, `<q>` as nothing, `<del>` as nothing, `<wbr>` as a space - and each time the error ran
