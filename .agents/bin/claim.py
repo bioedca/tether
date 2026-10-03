@@ -1457,8 +1457,10 @@ def _drawn(block: Any) -> bool:
     for - a comment on its own lines - is not. A tag counts as drawn whatever
     the rendering made of it, for the reason `_plain_markdown` gives: the approximation may
     not err in the admitting direction. The rule is the parser's ``draws``, one definition for
-    the body and for a footnote's continuation, which stands an undrawn item or quote in for
-    itself as `_flat` does. The distinction matters in two places. A heading's
+    the body and for a footnote's continuation, which is the blocks the parser read
+    (`_markdown.at_foot`), so `_flat` stands an undrawn item or quote in for itself at the
+    foot as in the body; *where* a leaf is drawn is `_drawn_with`'s question. The
+    distinction matters in two places. A heading's
     value is the first thing the page draws below it, and selecting the first *prose* leaf
     instead let `![](x.png)` or a `<details>` opening tag sit between the heading and the
     paragraph that then admitted as its own next paragraph; and an item's lead is its first
