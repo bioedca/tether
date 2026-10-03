@@ -1533,6 +1533,48 @@ def test_a_continuation_reads_a_reference_link_defined_in_the_body() -> None:
         assert "review required" in read or "maintainer decision" in read, (body, read)
     # Undefined, the brackets are literal on the page too, and nothing is read.
     assert claim._autonomy_refusal(admitting + "[^1]: note\n\n    [Autonomy: x][none]\n") is None
+
+
+def test_a_comment_a_continuation_opens_hides_nothing_of_the_body() -> None:
+    """Codex on #462 (read of `1cf54ed`): a raw block of a footnote's continuation is drawn at
+    the page's foot, after every body block, so a comment it opens and never closes hides the
+    rest of the foot and nothing of the body - and a restriction after the definition in the
+    source is drawn, where the cut in source order dropped it and the admitting bullet above
+    the definition carried the issue.
+    """
+    body = (
+        "- **Autonomy:** agent-can-do-alone\n\n[^1]: note\n\n    <div><!-- x</div>\n\n"
+        "- **Autonomy:** maintainer decision required\n"
+    )
+    read = claim._autonomy_refusal(body)
+    assert read is not None and "maintainer decision" in read, read
+
+
+def test_an_end_tag_that_closes_nothing_leaves_the_key_whole() -> None:
+    """Codex on #462 (read of `1cf54ed`): `Auto</q>nomy: human review required` shows the key
+    whole on the page, the stray end tag ignored by its tree builder, where a quotation mark
+    drawn for it split the key and the restriction went unread beside an admitting bullet;
+    the same for every end tag that draws something, inline and in a raw block.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for split in (
+        "Auto</q>nomy: human review required\n",
+        "- Auto</section>nomy: maintainer decision required\n",
+        "- **Auto</div>nomy:** maintainer decision required\n",
+        "<p>Auto</div>nomy: maintainer decision required</p>\n",
+        "<div>Auto</li>nomy: maintainer decision required</div>\n",
+    ):
+        read = claim._autonomy_refusal(admitting + split)
+        assert read is not None and "cannot admit" not in read, (split, read)
+        assert "review required" in read or "maintainer decision" in read, (split, read)
+    # An end tag that closes something open draws what it draws, and a `</p>` always does.
+    assert (
+        claim._autonomy_refusal(admitting + "<q>Auto</q>nomy: maintainer decision required\n")
+        is None
+    )
+    assert (
+        claim._autonomy_refusal(admitting + "Auto</p>nomy: maintainer decision required\n") is None
+    )
     without = claim._markdown.without_tags
     assert without('a <img alt="<!-- x -->"> <!-- y --> b') == "a  <!-- y --> b"
     assert without("<!-- a <b> --> <b>c</b>") == "<!-- a <b> --> c"

@@ -516,6 +516,45 @@ def test_an_unclosed_comment_in_a_raw_block_hides_the_rest_of_the_document():
         assert isinstance(items, md.ListBlock), text
     assert md._opens_unclosed_comment("<div><!-- x</div>")
     assert not md._opens_unclosed_comment('<img alt="<!--"><!-- y -->')
+    # Codex on #462 (read of `1cf54ed`): a raw block of a footnote's continuation is drawn at
+    # the foot, after every body block, so a comment it opens hides nothing of the body.
+    (note, raw, items) = md.parse("[^1]: note\n\n    <div><!-- x</div>\n\n- a\n")
+    assert note.footnote and raw.note == note.note and isinstance(items, md.ListBlock)
+    (items, note, raw, more) = md.parse("- b\n\n[^1]: note\n\n    <div><!-- x</div>\n\nc\n")
+    assert more.plain == "c"
+
+
+def test_an_end_tag_that_closes_nothing_draws_nothing():
+    """Codex on #462 (read of `1cf54ed`): the page's tree builder ignores an end tag with no
+    element to close, so `Auto</q>nomy: human review required` shows the key whole, where a
+    quotation mark drawn for the end tag alone read `Auto"nomy` and missed the restriction.
+    Every end tag the same - a space for `</section>` or `</div>`, a boundary for a block's -
+    but `</p>`, which inserts an empty paragraph, and `</br>`, which is a `<br>` (GitHub's
+    markdown endpoint, 2026-10-03).
+    """
+    for text, plain in (
+        ("Auto</q>nomy: x", "Autonomy: x"),
+        ("<q>Auto</q>nomy: x", '"Auto"nomy: x'),
+        ("<q>Autonomy: x", '"Autonomy: x'),
+        ("Auto</section>nomy: x", "Autonomy: x"),
+        ("Auto</div>nomy: x", "Autonomy: x"),
+        ("Auto</li>nomy: x", "Autonomy: x"),
+        ("Auto</details>nomy: x", "Autonomy: x"),
+        ("Auto</img>nomy: x", "Autonomy: x"),
+        ("Auto</del>nomy: x", "Autonomy: x"),
+        ("Auto</p>nomy: x", "Auto nomy: x"),
+        ("Auto</br>nomy: x", "Auto nomy: x"),
+        ("<div>Auto</div></div>nomy: x", "Auto nomy: x"),
+        ("<q>a</q></q>b<q>c</q>", '"a"b"c"'),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert para.plain == plain, (text, para.plain)
+    (raw,) = md.parse("<p>Auto</div>nomy: x</p>\n")
+    assert raw.shown == (md.Shown("Autonomy: x", "p"),)
+    (raw,) = md.parse("<div>a</div></div><p>b</p>\n")
+    assert raw.shown == (md.Shown("a", "div"), md.Shown("b", "p"))
+    (raw,) = md.parse("<div>a</p>b</div>\n")
+    assert raw.shown == (md.Shown("a", "div"), md.Shown("b", ""))
 
 
 def test_raw_html_is_walked_once_a_hidden_form_or_a_tag_whichever_opens_first():

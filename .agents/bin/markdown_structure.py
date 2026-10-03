@@ -536,9 +536,16 @@ def _until_hidden(blocks: tuple[Block, ...]) -> tuple[tuple[Block, ...], bool]:
     the comment to the block's end and read the bullet (GitHub's markdown endpoint,
     2026-10-03). Everything after that block in source order goes - the rest of its
     container, and every block after - and :func:`_document` drops the foot with them, since
-    the page draws the footnotes after the body, inside the comment. A comment inside a tag's
-    attribute value is the tag's, as :func:`without_tags` walks it. Inline HTML is raw only
-    where the parser found the close, so only a block can open one.
+    the page draws the footnotes after the body, inside the comment. Only a *body* block
+    cuts: a raw block of a footnote's continuation sits at its source line here and at the
+    page's foot there, after every body block, so a comment it opens hides nothing of the
+    body - an admitting bullet, the definition, then a restriction the page draws, and the
+    cut in source order dropped the restriction (Codex on #462). What such a comment hides
+    of the foot - the rest of its footnote and the footnotes the page draws after it, in the
+    order the body refers to them - is read as drawn, which only ever refuses, since nothing
+    at the foot admits. A comment inside a tag's attribute value is the tag's, as
+    :func:`without_tags` walks it. Inline HTML is raw only where the parser found the close,
+    so only a block can open one.
     """
     kept: list[Block] = []
     for block in blocks:
@@ -556,7 +563,11 @@ def _until_hidden(blocks: tuple[Block, ...]) -> tuple[tuple[Block, ...], bool]:
             kept.append(block._replace(blocks=inner))
         else:
             kept.append(block)
-            cut = isinstance(block, Html) and _opens_unclosed_comment(block.text)
+            cut = (
+                isinstance(block, Html)
+                and block.note is None
+                and _opens_unclosed_comment(block.text)
+            )
         if cut:
             return tuple(kept), True
     return tuple(kept), False
@@ -984,23 +995,62 @@ def _laid_out(text: str) -> str:
     something what it draws, a tag in ``_SPACED_TAGS`` a space, a strike tag its sentinel, every
     other tag - phrasing or stripped - nothing. Character references are still encoded, so a
     reference to a tilde is not yet a tilde."""
+    run = _Run()
     return "".join(
-        piece if isinstance(piece, str) else _laid_out_tag(piece)
+        piece if isinstance(piece, str) else run.draw(piece)
         for piece in _pieces(text.replace(_DROPPED, ""))
     )
 
 
-def _laid_out_tag(tag: re.Match[str]) -> str:
-    """What the page lays out for one tag: see :func:`_laid_out`."""
-    name = (tag.group("open") or tag.group("close")).lower()
-    if name in _STRIKE_TAGS:
-        return _STRUCK_CLOSE if tag.group("close") is not None else _STRUCK_OPEN
-    if name in _DRAWN_TAGS:
-        return _DRAWN_TAGS[name]
-    if name == "img" and tag.group("open") is not None:
-        shown = _attributes(tag.group(0)).get("alt", "")
-        return f" {shown} " if shown else " "
-    return " " if name in _SPACED_TAGS else ""
+class _Run:
+    """The tags of one raw run laid out in order, with the elements open so far counted by
+    name, because the page's tree builder ignores an end tag with no element to close and
+    draws nothing for it: ``Auto</q>nomy`` shows the key whole, where drawing a quotation
+    mark for the end tag alone read ``Auto"nomy`` and missed the restriction after it (Codex
+    on #462), and ``Auto</section>nomy``, ``Auto</div>nomy``, ``Auto</li>nomy`` and
+    ``Auto</details>nomy`` show it whole too, where the end tag alone drew a space (GitHub's
+    markdown endpoint, 2026-10-03). Two end tags the builder never ignores: ``</p>`` with no
+    paragraph open inserts an empty one, a boundary, and ``</br>`` is a ``<br>``. A stray
+    end tag of a strike tag closed nothing already (:func:`_struck_marks`). An element is
+    counted open for the run it opens in, so an end tag closing one opened in an earlier
+    raw block is ignored here where the page acts on it - a boundary not drawn, which only
+    joins text the page separates, and so only ever refuses.
+    """
+
+    def __init__(self) -> None:
+        self._open: dict[str, int] = {}
+
+    def live(self, tag: re.Match[str]) -> bool:
+        """Whether the tree builder acts on ``tag``: an opener, or an end tag that closes an
+        element open in this run - or ``</p>`` or ``</br>``, which it never ignores."""
+        name = (tag.group("open") or tag.group("close")).lower()
+        if tag.group("close") is None:
+            self._open[name] = self._open.get(name, 0) + 1
+            return True
+        if name in _UNIGNORED_END_TAGS:
+            return True
+        if self._open.get(name, 0):
+            self._open[name] -= 1
+            return True
+        return False
+
+    def draw(self, tag: re.Match[str]) -> str:
+        """What the page lays out for ``tag``: see :func:`_laid_out`."""
+        if not self.live(tag):
+            return ""
+        name = (tag.group("open") or tag.group("close")).lower()
+        if name in _STRIKE_TAGS:
+            return _STRUCK_CLOSE if tag.group("close") is not None else _STRUCK_OPEN
+        if name in _DRAWN_TAGS:
+            return _DRAWN_TAGS[name]
+        if name == "img" and tag.group("open") is not None:
+            shown = _attributes(tag.group(0)).get("alt", "")
+            return f" {shown} " if shown else " "
+        return " " if name in _SPACED_TAGS else ""
+
+
+#: The end tags the page's tree builder acts on with nothing open to close (:class:`_Run`).
+_UNIGNORED_END_TAGS = frozenset({"p", "br"})
 
 
 def strike_pairs(text: str) -> tuple[tuple[int, int, int], ...]:
@@ -1119,19 +1169,24 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
     so it is a piece of its own at once and what follows it is text no tag opened:
     ``<hr>agent-can-do-alone`` is the rule and then the text, where naming the text's piece
     ``hr`` let a caller take the text as the first block drawn after a raw heading, with the
-    rule the page draws between them gone (Codex on #462).
+    rule the page draws between them gone (Codex on #462). A block end tag that closes
+    nothing open in the run is no boundary: ``<p>Auto</div>nomy:</p>`` is the one paragraph
+    the page shows, the stray ``</div>`` dropped by its tree builder (:class:`_Run`).
     """
     pieces: list[tuple[list[str], str]] = []
     laid: list[str] = []
     opener = ""
+    run = _Run()
     for piece in _pieces(text.replace(_DROPPED, "")):
         if isinstance(piece, str):
             laid.append(piece)
             continue
         name = (piece.group("open") or piece.group("close")).lower()
         if name not in BLOCK_TAGS:
-            laid.append(_laid_out_tag(piece))
+            laid.append(run.draw(piece))
             continue
+        if not run.live(piece):
+            continue  # an end tag closing nothing: no boundary on the page (:class:`_Run`)
         pieces.append((laid, opener))
         laid = []
         opener = "" if piece.group("close") is not None else name
