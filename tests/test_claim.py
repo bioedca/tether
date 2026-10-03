@@ -1302,6 +1302,33 @@ def test_a_bare_key_heads_the_block_the_page_draws_next() -> None:
         alone = claim._autonomy_refusal(shape)
         assert alone is not None, f"{shape!r}: a bare key's value admitted"
         assert "only in a shape that cannot admit" in alone and named in alone, alone
+    # Codex on #462 (read of `5376120`): a raw heading's section is the page's, not the
+    # block's - Markdown ends the raw block at a blank line, and the paragraphs after it sit
+    # under the heading on the page - so it continues through the leaves that follow, the next
+    # drawn one its value if one is still owed, up to the next heading, raw or Markdown.
+    for continued in (
+        "<h2>Execution autonomy \u2014 notes</h2>\n\nThe upload is a maintainer decision.\n",
+        "<h2>Execution autonomy</h2>\n\nmaintainer decision required\n",
+        "<h2>Execution autonomy</h2>\n\nSee below.\n\n- needs maintainer decision\n",
+        "<p>Autonomy</p>\n\nmaintainer decision required\n",
+        "<div><h2>Execution autonomy</h2></div>\n\n| a | b |\n|---|---|\n"
+        "| maintainer decision | c |\n",
+    ):
+        past = claim._autonomy_refusal(admitting + continued)
+        assert past is not None, f"{continued!r}: the section past the raw block was not read"
+        assert "maintainer decision" in past, f"{continued!r}: {past}"
+    owed = claim._autonomy_refusal("<h2>Execution autonomy</h2>\n\nagent-can-do-alone\n")
+    assert owed is not None and "only in a shape that cannot admit" in owed, owed
+    for stopped in (
+        "<h2>Execution autonomy \u2014 notes</h2>\n\nStated above.\n\n## Human action items\n",
+        "<h2>Execution autonomy \u2014 notes</h2>\n\nStated above.\n\n"
+        "<h2>Human action items</h2>\n",
+        "## Execution autonomy \u2014 notes\n\nStated above.\n\n<p>fine</p>"
+        "<h2>Human action items</h2>\n",
+        "**Execution autonomy**\n\nagent-can-do-alone\n\n<div><h3>Human action items</h3></div>\n",
+    ):
+        bounded_section = claim._autonomy_refusal(admitting + stopped)
+        assert bounded_section is None, f"{stopped!r}: {bounded_section}"
     # Codex on #462 (read of `f9fc1f0`): a heading that is not the key opens a section of its
     # own, so the field's remainder stops there, as `_section` stops at a Markdown heading.
     sectioned = claim._autonomy_refusal(

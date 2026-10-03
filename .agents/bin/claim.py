@@ -1100,7 +1100,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 continue
             texts = [(_prose(block), "heading line")]
         elif isinstance(block, _markdown.Html):
-            found.extend(_raw_html(block, where))
+            found.extend(_raw_html(block, where, leaves, index))
             continue
         elif isinstance(block, _markdown.Paragraph):
             if _BARE_KEY.fullmatch(_prose(block)):
@@ -1122,53 +1122,72 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
     return found
 
 
-def _raw_html(block: _markdown.Html, where: str) -> list[_AutonomyValue]:
-    """``block`` read one rendered block at a time, as the page lays it out; nothing here admits.
+def _raw_html(
+    block: _markdown.Html, where: str, leaves: list[_Leaf], index: int
+) -> list[_AutonomyValue]:
+    """``block`` - ``leaves[index]`` - read one rendered block at a time, as the page lays it
+    out; nothing here admits.
 
     A piece the page draws as a heading is read as a Markdown heading is: a key with whatever
-    qualifier it carries, the piece after it its value unless that is a heading too, and a
+    qualifier it carries, the next thing drawn its value unless that is a heading too, and a
     dash-led qualifier prose about the field, scanned itself. Any other piece keyed like a
     bullet is a declaration, and a bare key - `<p>Autonomy</p>`, `<td>Autonomy</td>` - heads
-    the piece after it as a bare paragraph does. Every piece after a key that is not a key is
-    scan-only remainder, as a row's further cells are, up to the next heading piece: a heading
-    opens a section of its own, as `_section` stops at one, and `<h2>Human action items</h2>`
-    after the field refused a registered bullet when the remainder ran through it (Codex on
-    #462). A `<pre>` piece is literal, as a fence is, wherever it falls. `<div><h2>Execution
-    autonomy</h2><p>maintainer decision required</p></div>` was read with the bullet's grammar
-    only, which needs a colon, so the heading and the restriction under it were both unread
-    (Codex on #462).
+    the next thing drawn as a bare paragraph does. What follows a key is scan-only remainder,
+    as a row's further cells are, up to the next heading: a heading opens a section of its own,
+    as `_section` stops at one, and `<h2>Human action items</h2>` after the field refused a
+    registered bullet when the remainder ran through it (Codex on #462). A `<pre>` piece is
+    literal, as a fence is, wherever it falls.
+
+    **A section is the page's, not the block's.** Markdown ends a raw block at a blank line,
+    and the paragraphs after it sit under the raw heading on the page exactly as under a
+    Markdown one; a heading or bare key whose section is still open when the block ends
+    continues through `_section` - the next drawn leaf its value if one is still owed, the rest
+    scanned - where reading the block alone left `The upload is a maintainer decision` under
+    `<h2>Execution autonomy - notes</h2>` unread (Codex on #462). A keyed piece's remainder
+    stays in its block, as a keyed paragraph has none. `<div><h2>Execution autonomy</h2>
+    <p>maintainer decision required</p></div>` was read with the bullet's grammar only, which
+    needs a colon, so the heading and the restriction under it were both unread (Codex on
+    #462).
     """
     found: list[_AutonomyValue] = []
     pieces = block.shown
     shape = f"{where} raw HTML"
-    at = 0
+    # The open section's scan-only label once a heading or bare key has been read, and the
+    # key whose value is still owed - its label and qualifier - when the key was the last
+    # thing drawn so far.
+    section: str | None = None
+    owed: tuple[str, str] | None = None
     keyed_yet = False
-    while at < len(pieces):
-        piece = pieces[at]
-        at += 1
+
+    def settle(value: str) -> None:
+        nonlocal owed
+        if owed is not None:
+            found.append(_AutonomyValue(value, owed[0], qualifier=owed[1], admits=False))
+            owed = None
+
+    for piece in pieces:
         if piece.tag in _HTML_LITERAL:
+            settle("")
             continue
         heading = piece.tag in _HTML_HEADINGS
         key = (_AUTONOMY_KEY if heading else _BARE_KEY).fullmatch(piece.text)
         if heading and key is None:
+            settle("")
             keyed_yet = False
+            section = None
         if key is not None:
+            settle("")
             keyed_yet = True
             qualifier = key.group("qualifier") if heading else ""
             if _PROSE_QUALIFIER.match(qualifier):
-                found.append(
-                    _AutonomyValue(
-                        qualifier.strip(), f"{shape} heading about the field", scan_only=True
-                    )
-                )
-                continue
-            value = ""
-            if at < len(pieces) and pieces[at].tag not in _HTML_HEADINGS:
-                value = "" if pieces[at].tag in _HTML_LITERAL else pieces[at].text
-                at += 1
-            found.append(
-                _AutonomyValue(value, shape, qualifier=_normalize_autonomy(qualifier), admits=False)
-            )
+                section = f"{shape} heading about the field"
+                found.append(_AutonomyValue(qualifier.strip(), section, scan_only=True))
+            else:
+                section = f"{shape} remainder"
+                owed = (shape, _normalize_autonomy(qualifier))
+            continue
+        if owed is not None:
+            settle(piece.text)
             continue
         keyed = _keyed(piece.text)
         if keyed is not None:
@@ -1176,7 +1195,16 @@ def _raw_html(block: _markdown.Html, where: str) -> list[_AutonomyValue]:
             qualifier, value, _ = keyed
             found.append(_AutonomyValue(value, shape, qualifier=qualifier, admits=False))
         elif keyed_yet and piece.text:
-            found.append(_AutonomyValue(piece.text, f"{shape} remainder", scan_only=True))
+            found.append(
+                _AutonomyValue(piece.text, section or f"{shape} remainder", scan_only=True)
+            )
+    if owed is not None or section is not None:
+        rest = _section(leaves, index)
+        if owed is not None:
+            settle(_prose(rest[0].block) if rest else "")
+            rest = rest[1:]
+        if section is not None:
+            found.extend(_scan_only(rest, section))
     return found
 
 
@@ -1245,12 +1273,30 @@ def _drawn(block: Any) -> bool:
 
 
 def _section(leaves: list[_Leaf], index: int) -> list[_Leaf]:
-    """The drawn leaves below the heading at ``index``, up to the next heading of any level."""
+    """The drawn leaves below the heading at ``index``, up to the next heading of any level.
+
+    A heading raw HTML lays out ends the section as a Markdown one does, since the page draws
+    the two alike: a raw block carrying one is cut to the pieces before it - a copy of the
+    block, so a reader of the section sees nothing past the heading - and the section stops
+    there (Codex on #462).
+    """
     section: list[_Leaf] = []
     for leaf in leaves[index + 1 :]:
-        if isinstance(leaf.block, _markdown.Heading):
+        block = leaf.block
+        if isinstance(block, _markdown.Heading):
             break
-        if _drawn(leaf.block):
+        if isinstance(block, _markdown.Html):
+            before = block.shown
+            for at, piece in enumerate(block.shown):
+                if piece.tag in _HTML_HEADINGS:
+                    before = block.shown[:at]
+                    break
+            if before is not block.shown:
+                if before:
+                    plain = " ".join(piece.text for piece in before if piece.text)
+                    section.append(_Leaf(block._replace(plain=plain, shown=before), leaf.siblings))
+                break
+        if _drawn(block):
             section.append(leaf)
     return section
 
