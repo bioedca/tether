@@ -73,6 +73,8 @@ __all__ = [
     "Shown",
     "Table",
     "TableRow",
+    "comments",
+    "end_tag_scope",
     "has_tag",
     "inline_html",
     "inline_tags",
@@ -115,8 +117,10 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: the first ``>``, wherever cmark's own grammar closed the form, and the rest of the form is
 #: text the page draws - ``<?note <!-- x --> ?>`` draws ``?>`` and ``<![CDATA[<b>y</b>]]>``
 #: draws ``y]]>`` (GitHub's markdown endpoint, 2026-10-03). The instruction and the CDATA
-#: section are forms at all only where cmark's close follows, so each requires it ahead;
-#: without it the ``<`` is the text the page shows. A comment is read the same way: the page's
+#: section are forms at all only where cmark's close follows somewhere after - without it the
+#: ``<`` is the text the page shows - which :func:`_forms` settles with one lookup per text,
+#: where a lookahead at each opener scanned the rest of the text from every one of thousands
+#: of them (Codex on #462). A comment is read the same way: the page's
 #: parser takes ``<!-->`` and ``<!--->`` as empty comments and closes one at ``--!>`` as at
 #: ``-->``, so ``<!-->Autonomy:`` shows the key at the front of its line, where reading the
 #: five characters as text pushed the key off it, and ``<!-- x --!> b -->`` draws ``b -->``,
@@ -169,10 +173,7 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: with a ``[^>]*`` of its own stopped at ``title=">"`` and read the rest of the key as the
 #: element's inside (Codex on #462).
 _HTML_COMMENT = r"<!-->|<!--->|<!--(?:.*?(?:-->|--!>)|.*)"
-_HTML_HIDDEN = re.compile(
-    rf"{_HTML_COMMENT}|<\?(?=.*?\?>)[^>]*>|<!\[CDATA\[(?=.*?\]\]>)[^>]*>|<![A-Za-z][^>]*>",
-    re.S,
-)
+_HTML_HIDDEN = r"(?P<pi><\?[^>]*>)|(?P<cdata><!\[CDATA\[[^>]*>)|<![A-Za-z][^>]*>"
 _ATTRIBUTE_NAME = r"[A-Za-z_:][A-Za-z0-9_.:-]*"
 _ATTRIBUTE_VALUE = r"(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\")"
 _HTML_ATTRIBUTES = rf"(?:\s+{_ATTRIBUTE_NAME}(?:\s*=\s*{_ATTRIBUTE_VALUE})?)*\s*"
@@ -241,6 +242,44 @@ _VOID_TAGS = _VOID_BLOCK_TAGS | frozenset({"br", "img", "source", "wbr"})
 #: after the table closed (GitHub's markdown endpoint, 2026-10-03; :class:`_Run`). ``col`` and
 #: ``colgroup`` are not kept and draw nothing either way.
 TABLE_PART_TAGS = frozenset({"caption", "tbody", "td", "tfoot", "th", "thead", "tr"})
+#: HTML5 "in body" end-tag scoping among the kept elements, for :func:`end_tag_scope`. The
+#: default boundaries are the kept members of "has an element in scope"; a list item's add the
+#: lists ("has an element in list item scope"); a table part's are the table alone ("in
+#: table", "in cell"); and the kept formatting elements, which the adoption agency closes past
+#: a block they hold and reconstructs in the block after a paragraph's end.
+_SCOPE_BOUNDARIES = frozenset({"caption", "table", "td", "th"})
+_LIST_ITEM_BOUNDARIES = _SCOPE_BOUNDARIES | {"ol", "ul"}
+_TABLE_BOUNDARIES = frozenset({"table"})
+_HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
+_FORMATTING_TAGS = frozenset({"a", "b", "code", "em", "i", "s", "small", "strike", "strong", "tt"})
+
+
+def end_tag_scope(name: str) -> tuple[frozenset[str], frozenset[str]]:
+    """What the end tag ``name`` closes and what stops it: the names of the elements it
+    closes - its own, or any heading for a heading's - and the names that, open above the
+    nearest of those on the stack of open elements, make the page's tree builder ignore it
+    (HTML5 "in body", the end-tag rules by element; GitHub's markdown endpoint, 2026-10-03).
+
+    ``<ul><li><details><ul></li></ul>`` leaves the widget open over everything after it, the
+    ``</li>`` stopped by the inner list, where a walk past the list closed it and put a hidden
+    bullet on the page (Codex on #462); ``<div><table><tr><td>Auto</div>nomy:`` is the key
+    whole in its cell, the ``</div>`` stopped by the cell, and ``<ul><li><ul>Auto</li>nomy:``
+    the key whole in the inner list; ``</h3>`` closes an open ``<h2>``; and the end tag of a
+    phrasing element - ``</q>``, ``</del>`` - is ignored past any block element, which is the
+    special category among the kept ones, so ``<q><div>Auto</q>nomy:`` is the key whole in
+    its box, where the quotation mark drawn for it split the key.
+    """
+    if name in _HEADING_TAGS:
+        return _HEADING_TAGS, _SCOPE_BOUNDARIES
+    if name == "li":
+        return frozenset({name}), _LIST_ITEM_BOUNDARIES
+    if name in TABLE_PART_TAGS or name == "table":
+        return frozenset({name}), _TABLE_BOUNDARIES
+    if name in BLOCK_TAGS or name in _FORMATTING_TAGS:
+        return frozenset({name}), _SCOPE_BOUNDARIES
+    return frozenset({name}), BLOCK_TAGS
+
+
 #: Every element GitHub keeps: the html-pipeline allowlist, partitioned above by what it draws.
 KEPT_TAGS = _PHRASING_TAGS | frozenset(_DRAWN_TAGS) | _STRIKE_TAGS | _INSIDE_TAGS | BLOCK_TAGS
 #: The stripped tags whose text the sanitizer wraps in spaces - Selma's ``whitespace_elements``
@@ -264,55 +303,86 @@ _TILDE_RUN = re.compile(r"~+")
 
 
 #: A comment, another hidden form or a tag, whichever opens first: what every reader of raw
-#: HTML here walks (:func:`_pieces`, :func:`without_tags`).
+#: HTML here walks (:func:`_forms`).
 _HIDDEN_OR_TAG = re.compile(
-    rf"(?P<comment>{_HTML_COMMENT})|{_HTML_HIDDEN.pattern}|{_HTML_TAG.pattern}", re.S
+    rf"(?P<comment>{_HTML_COMMENT})|{_HTML_HIDDEN}|{_HTML_TAG.pattern}", re.S
 )
 
 
-def _pieces(text: str) -> Iterator[str | re.Match[str]]:
+def _forms(text: str) -> Iterator[str | re.Match[str]]:
     """``text`` walked once as the page's parser walks it: each run of text between the
-    constructs, and each tag as its match; a hidden form yields nothing.
-
-    A comment, another hidden form or a tag, whichever opens first, as the one grammar above
+    constructs, and each construct as its match - a comment, a processing instruction, a
+    CDATA section, a declaration or a tag, whichever opens first, as the one grammar above
     has them, so a comment opener inside a quoted attribute value is the tag's and a tag
-    inside a comment is the comment's. Every reader of raw HTML walks this once and lays out
-    what it yields, where removing the hidden forms first and reading the tags off what was
-    left let an unclosed ``<!--`` in a ``title=""`` swallow the tag and the restriction after
-    it, which the page draws (Codex on #462), and would read ``<b<!-- x -->>``, which the page
-    shows as text, as the tag the removal joined. An empty strike element is still a tag here
-    - a source carrying one is not plain Markdown - and draws nothing only in
-    :func:`_struck_marks`.
+    inside a comment is the comment's.
+
+    Every reader of raw HTML walks this once and lays out what it yields, where removing the
+    hidden forms first and reading the tags off what was left let an unclosed ``<!--`` in a
+    ``title=""`` swallow the tag and the restriction after it, which the page draws (Codex on
+    #462), and would read ``<b<!-- x -->>``, which the page shows as text, as the tag the
+    removal joined. A ``<?`` with no ``?>`` anywhere after it, or a ``<![CDATA[`` with no
+    ``]]>``, is text to cmark and so to the page, and the walk goes on from the character
+    after its ``<``; whether a close follows is settled once per text, by the position of the
+    last one, where a lookahead at every opener scanned the rest of the text from each of
+    them - sixty kilobytes of ``<?`` took eleven seconds (Codex on #462).
     """
-    at = 0
-    for found in _HIDDEN_OR_TAG.finditer(text):
+    instruction = text.rfind("?>")
+    cdata = text.rfind("]]>")
+    at = start = 0
+    while (found := _HIDDEN_OR_TAG.search(text, start)) is not None:
+        if found.group("pi") is not None and instruction < found.start() + 2:
+            start = found.start() + 1
+            continue
+        if found.group("cdata") is not None and cdata < found.start() + 9:
+            start = found.start() + 1
+            continue
         yield text[at : found.start()]
-        if found.group("open") is not None or found.group("close") is not None:
-            yield found
-        at = found.end()
+        yield found
+        at = start = found.end()
     yield text[at:]
 
 
-def without_tags(text: str) -> str:
-    """``text`` with everything but its comments gone, so that what sits inside a tag or
-    another hidden form is not read as a comment: ``<img alt="<!-- tether-grooming-v1 -->">``
-    is a picture whose alternative text quotes the marker, not a comment, and a search of the
-    run for the marker found it there and refused the body for a marker the page does not
-    carry (Codex on #462); ``<?note <!-- tether-grooming-v1 --> ?>`` is a processing
-    instruction to cmark and a bogus comment to the page, holding the marker's bytes and no
-    comment, and keeping it whole for the search refused the same way (Codex on #462), as
-    would a CDATA section or a declaration holding them. The text is walked left to right
-    taking a comment, another hidden form or a tag, whichever opens first, as the page reads
-    it: a comment inside a quoted attribute value goes with the tag, a tag inside a comment is
-    the comment's text - ``<!-- tether-grooming-v1 <b> -->`` is no marker on the page, and
-    dropping the tag out of it made one (found beside Codex on #462) - and a bogus comment
-    ends at the first ``>``, so what cmark read as the rest of the form is walked as the text
-    the page draws it as. A comment beside any of them stays."""
-    return _HIDDEN_OR_TAG.sub(lambda m: m.group("comment") or "", text)
+def _pieces(text: str) -> Iterator[str | re.Match[str]]:
+    """``text`` as :func:`_forms` walks it, with the hidden forms gone: each run of text, and
+    each tag as its match. An empty strike element is still a tag here - a source carrying
+    one is not plain Markdown - and draws nothing only in :func:`_struck_marks`."""
+    for piece in _forms(text):
+        if isinstance(piece, str) or piece.group("open") or piece.group("close"):
+            yield piece
+
+
+def comments(text: str) -> Iterator[str]:
+    """Every comment in ``text``, as the page's tokenizer reads them, each with its delimiters.
+
+    A caller looking for the grooming marker reads these and nothing else: the marker's text
+    inside a tag's attribute - ``<img alt="<!-- tether-grooming-v1 -->">`` - is a picture's
+    alternative text and no comment, and a search of the run for it refused the body for a
+    marker the page does not carry (Codex on #462); inside a processing instruction, a CDATA
+    section or a declaration it is a bogus comment's bytes and no comment either (Codex on
+    #462); and inside another comment - ``<!-- note <!-- tether-grooming-v1 -->`` is one
+    comment, the inner opener its data - it is that comment's text, where a search of the
+    comment found the marker in it and refused the body the same way (Codex on #462). A tag
+    inside a comment is the comment's text, so ``<!-- tether-grooming-v1 <b> -->`` is no
+    marker, as it is none on the page (found beside Codex on #462).
+    """
+    for piece in _forms(text):
+        if not isinstance(piece, str) and piece.group("comment") is not None:
+            yield piece.group(0)
 
 
 class MarkdownStructureError(ValueError):
     """The parser emitted a block this module does not model, or could not read the text."""
+
+
+class Shown(NamedTuple):
+    """One block the page lays out from a raw HTML run: its rendered ``text`` and the lower-cased
+    name of the ``tag`` that opened it - ``h2`` for a heading, ``p``, ``td``, ``li`` - or the
+    empty string for text that no tag opened, such as text after a closing tag. A caller reads
+    a heading as it reads a Markdown heading and anything else as a paragraph (Codex on #462).
+    """
+
+    text: str
+    tag: str
 
 
 class Paragraph(NamedTuple):
@@ -321,6 +391,17 @@ class Paragraph(NamedTuple):
     ``pictured`` is whether the inline carries a Markdown image. The page draws the picture there
     and ``plain`` shows its alternative text in its place, so a caller that admits only what the
     page shows as text has to be told (Codex on #462).
+
+    ``shown`` is the blocks the page lays the paragraph out as when a block tag inside its
+    text cuts it, else empty: the page's tree builder closes the paragraph at a ``<div>``, a
+    ``<p>``, a heading or a list tag in running text and lays what follows out as a block of
+    its own, so ``a <div>Autonomy: maintainer decision required</div>`` is the paragraph
+    ``a`` and then a box the restriction heads, where reading the text as the one paragraph
+    it is to Markdown put the key mid-line and the restriction went unread beside an
+    admitting bullet (found beside Codex's read of ``56e3e65`` on #462; GitHub's markdown
+    endpoint, 2026-10-03). The first piece is the paragraph's own text; a caller reads the
+    rest as it reads a raw block's pieces. ``plain`` stays the whole, which only ever joins
+    what the page cuts, and so only refuses.
 
     ``footnote`` marks a GitHub footnote definition - a paragraph whose source opens with
     ``[^label]:`` - which the page draws at its foot, label gone, and not where the definition
@@ -344,6 +425,7 @@ class Paragraph(NamedTuple):
     line: int
     pictured: bool = False
     note: int | None = None
+    shown: tuple[Shown, ...] = ()
 
     @property
     def footnote(self) -> bool:
@@ -418,17 +500,6 @@ class Code(NamedTuple):
     fenced: bool
     info: str
     note: int | None = None
-
-
-class Shown(NamedTuple):
-    """One block the page lays out from a raw HTML run: its rendered ``text`` and the lower-cased
-    name of the ``tag`` that opened it - ``h2`` for a heading, ``p``, ``td``, ``li`` - or the
-    empty string for text that no tag opened, such as text after a closing tag. A caller reads
-    a heading as it reads a Markdown heading and anything else as a paragraph (Codex on #462).
-    """
-
-    text: str
-    tag: str
 
 
 class Html(NamedTuple):
@@ -556,7 +627,7 @@ def _until_hidden(blocks: tuple[Block, ...]) -> tuple[tuple[Block, ...], bool]:
     of the foot - the rest of its footnote and the footnotes the page draws after it, in the
     order the body refers to them - is read as drawn, which only ever refuses, since nothing
     at the foot admits. A comment inside a tag's attribute value is the tag's, as
-    :func:`without_tags` walks it. Inline HTML is raw only where the parser found the close,
+    :func:`comments` walks it. Inline HTML is raw only where the parser found the close,
     so only a block can open one.
     """
     kept: list[Block] = []
@@ -587,11 +658,7 @@ def _until_hidden(blocks: tuple[Block, ...]) -> tuple[tuple[Block, ...], bool]:
 
 def _opens_unclosed_comment(text: str) -> bool:
     """Whether ``text`` opens a comment it never closes, walked as the page reads it."""
-    for found in _HIDDEN_OR_TAG.finditer(text):
-        comment = found.group("comment")
-        if comment is not None and not comment.endswith(("-->", "--!>")):
-            return True
-    return False
+    return any(not comment.endswith(("-->", "--!>")) for comment in comments(text))
 
 
 #: The ``env`` key under which :func:`_document` leaves the swallowed footnote paragraphs, by
@@ -727,8 +794,14 @@ def _footnote(text: str, label: re.Match[str], line: int, env: dict[str, Any]) -
     rest = text[label.end() :]
     if not rest.strip():
         return Paragraph(text, "", line, note=line)
-    inline = _PARSER.parseInline(rest, env)[0]
-    return Paragraph(text, _plain(inline), line, _pictured(inline), note=line)
+    return _paragraph(text, _PARSER.parseInline(rest, env)[0], line, line)
+
+
+def _paragraph(text: str, inline: Token, line: int, note: int | None = None) -> Paragraph:
+    """The paragraph whose source is ``text`` and whose content the parser read as ``inline``."""
+    return Paragraph(
+        text, _plain(inline, paragraph=True), line, _pictured(inline), note, _shown_inline(inline)
+    )
 
 
 def _paragraphs(inline: Token, line: int, env: dict[str, Any]) -> list[Paragraph]:
@@ -752,15 +825,14 @@ def _paragraphs(inline: Token, line: int, env: dict[str, Any]) -> list[Paragraph
         label = _FOOTNOTE_LABEL.match(text)
         if label is not None:
             return [_footnote(text, label, line, env)]
-        return [Paragraph(text, _plain(inline), line, _pictured(inline))]
+        return [_paragraph(text, inline, line)]
     pieces = text.split("\n")
     found: list[Paragraph] = []
     for start, end in zip(cuts, cuts[1:] + [len(pieces)], strict=True):
         chunk = "\n".join(pieces[start:end])
         label = _FOOTNOTE_LABEL.match(chunk)
         if label is None:
-            shown = _PARSER.parseInline(chunk, env)[0]
-            found.append(Paragraph(chunk, _plain(shown), line, _pictured(shown)))
+            found.append(_paragraph(chunk, _PARSER.parseInline(chunk, env)[0], line))
         else:
             found.append(_footnote(chunk, label, line + start, env))
     return found
@@ -842,7 +914,7 @@ def _content_column(text: str, column: int) -> int:
     return end + padding if 1 <= padding <= 4 else end + 1
 
 
-def _plain(inline: Token) -> str:
+def _plain(inline: Token, paragraph: bool = False) -> str:
     """The inline token's content as GitHub shows it, whitespace collapsed to single spaces.
 
     Rendered from the children the parser produced, not from the source: a link is its text, the
@@ -867,12 +939,20 @@ def _plain(inline: Token) -> str:
     reads past the mark - a retraction the gate cannot read as one refuses, which is the safe
     error (Codex on #462, which read the first half as a rule for both). An inline the parser
     gave no children is its content as it stands, which only happens for an inline it did not
-    need to tokenize.
+    need to tokenize. ``paragraph`` is whether the inline is a paragraph's, which stands in a
+    ``<p>`` a block tag inside it closes (:class:`_Run`).
     """
     if inline.children is None:
         return " ".join(inline.content.split())
+    marked = _struck_marks(_laid_out(_joined(inline), paragraph), markdown=True)
+    return " ".join(html.unescape(marked).split())
+
+
+def _joined(inline: Token) -> str:
+    """The inline token's children as one run for :func:`_laid_out`: text and code escaped,
+    an image its alternative text escaped, a break a space, inline HTML raw."""
     parts: list[str] = []
-    for child in inline.children:
+    for child in inline.children or ():
         if child.type in ("text", "code_inline"):
             parts.append(html.escape(child.content, quote=False))
         elif child.type == "image":
@@ -882,8 +962,16 @@ def _plain(inline: Token) -> str:
         elif child.type == "html_inline":
             parts.append(child.content)
         # Every other child is the open or close of a span - emphasis, a link - and has no text.
-    marked = _struck_marks(_laid_out("".join(parts)), markdown=True)
-    return " ".join(html.unescape(marked).split())
+    return "".join(parts)
+
+
+def _shown_inline(inline: Token) -> tuple[Shown, ...]:
+    """The blocks the page lays a paragraph out as, when a block tag inside it cuts it, else
+    nothing: see :class:`Paragraph`."""
+    if inline.children is None:
+        return ()
+    shown = _shown(_joined(inline), markdown=True, paragraph=True)
+    return shown if len(shown) > 1 else ()
 
 
 def _alternative(image: Token) -> str:
@@ -1001,73 +1089,98 @@ def has_tag(text: str) -> bool:
     return next(tags(text), None) is not None
 
 
-def _laid_out(text: str) -> str:
+def _laid_out(text: str, paragraph: bool = False) -> str:
     """Raw HTML as GitHub lays it out, with the strike tags standing as spans: the character
     the page drops gone, the hidden forms and the empty strike elements gone, a tag that draws
     something what it draws, a tag in ``_SPACED_TAGS`` a space, a strike tag its sentinel, every
     other tag - phrasing or stripped - nothing. Character references are still encoded, so a
-    reference to a tilde is not yet a tilde."""
-    run = _Run()
+    reference to a tilde is not yet a tilde. ``paragraph`` is whether the text is a paragraph's
+    inline content (:class:`_Run`)."""
+    run = _Run(paragraph)
     return "".join(
-        piece if isinstance(piece, str) else run.draw(piece)
+        piece if isinstance(piece, str) else run.draw(piece)[1]
         for piece in _pieces(text.replace(_DROPPED, ""))
     )
 
 
 class _Run:
-    """The tags of one raw run laid out in order, with the elements open so far counted by
-    name, because the page's tree builder ignores an end tag with no element to close and
-    draws nothing for it: ``Auto</q>nomy`` shows the key whole, where drawing a quotation
-    mark for the end tag alone read ``Auto"nomy`` and missed the restriction after it (Codex
-    on #462), and ``Auto</section>nomy``, ``Auto</div>nomy``, ``Auto</li>nomy`` and
-    ``Auto</details>nomy`` show it whole too, where the end tag alone drew a space (GitHub's
-    markdown endpoint, 2026-10-03). Two end tags the builder never ignores: ``</p>`` with no
-    paragraph open inserts an empty one, a boundary, and ``</br>`` is a ``<br>``. A stray
-    end tag of a strike tag closed nothing already (:func:`_struck_marks`). It ignores a
-    start tag too, one of ``TABLE_PART_TAGS`` with no table open - ``<td>Auto</td>nomy:``
-    is the key whole, where cutting at the cell split it and the restriction after it went
-    unread beside an admitting bullet - and a void element, ``_VOID_TAGS``, is never open
-    for its end tag to close, so ``<hr>Auto</hr>nomy:`` is the key whole after the rule
-    (GitHub's markdown endpoint, 2026-10-03). An element is counted open for the run it
-    opens in, so an end tag closing one opened in an earlier raw block is ignored here where
-    the page acts on it, as is a cell of a table opened there - a boundary not drawn, which
-    only joins text the page separates, and so only ever refuses.
+    """The tags of one raw run laid out in order, over the stack of the elements open so far,
+    kept as the page's tree builder keeps its own.
+
+    An end tag closes the nearest open element it names unless a boundary stands above that
+    element (:func:`end_tag_scope`), and one that closes nothing is ignored and draws
+    nothing: ``Auto</q>nomy`` shows the key whole, where drawing a quotation mark for the end
+    tag alone read ``Auto"nomy`` and missed the restriction after it (Codex on #462), and
+    ``Auto</section>nomy``, ``Auto</div>nomy``, ``Auto</li>nomy`` and ``Auto</details>nomy``
+    show it whole too, where the end tag alone drew a space (GitHub's markdown endpoint,
+    2026-10-03). Two end tags the builder never ignores: ``</p>`` with no paragraph open
+    inserts an empty one, a boundary, and ``</br>`` is a ``<br>``. A stray end tag of a strike
+    tag closed nothing already (:func:`_struck_marks`). It ignores a start tag too, one of
+    ``TABLE_PART_TAGS`` with no table open - ``<td>Auto</td>nomy:`` is the key whole, where
+    cutting at the cell split it and the restriction after it went unread beside an admitting
+    bullet - and a void element, ``_VOID_TAGS``, is never open for its end tag to close, so
+    ``<hr>Auto</hr>nomy:`` is the key whole after the rule (GitHub's markdown endpoint,
+    2026-10-03). Closing an element closes what is open inside it and draws their closing
+    marks, but a formatting element, which the builder reconstructs in what follows, and a
+    block tag that opens closes the paragraph it opens in the same way: a run that is a
+    paragraph's inline content stands in a ``<p>`` of cmark's, so ``<q>a<div>b</div></q>Auto-
+    nomy:`` is the key on its own line after the box, the ``</q>`` closing nothing since the
+    box closed the paragraph and the quotation with it, where a quotation mark drawn for it
+    headed the line (GitHub's markdown endpoint, 2026-10-03). An element is open for the run
+    it opens in, so an end tag closing one opened in an earlier raw block is ignored here
+    where the page acts on it, as is a cell of a table opened there - a boundary not drawn,
+    which only joins text the page separates, and so only ever refuses.
     """
 
-    def __init__(self) -> None:
-        self._open: dict[str, int] = {}
+    def __init__(self, paragraph: bool = False) -> None:
+        self._stack: list[str] = ["p"] if paragraph else []
 
-    def live(self, tag: re.Match[str]) -> bool:
-        """Whether the tree builder acts on ``tag``: an opener, unless a table part with no
-        table open in this run, or an end tag that closes an element open in this run - or
-        ``</p>`` or ``</br>``, which it never ignores."""
+    def draw(self, tag: re.Match[str]) -> tuple[bool, str]:
+        """Whether the tree builder acts on ``tag``, and what the page lays out for it - the
+        closing marks of what it closes first, then its own: see :func:`_laid_out`."""
         name = (tag.group("open") or tag.group("close")).lower()
         if tag.group("close") is None:
-            if name in TABLE_PART_TAGS and not self._open.get("table", 0):
-                return False
+            if name in TABLE_PART_TAGS and "table" not in self._stack:
+                return False, ""
+            closed = (self._close("p") if name in BLOCK_TAGS else None) or ""
             if name not in _VOID_TAGS:
-                self._open[name] = self._open.get(name, 0) + 1
-            return True
-        if name in _UNIGNORED_END_TAGS:
-            return True
-        if self._open.get(name, 0):
-            self._open[name] -= 1
-            return True
-        return False
+                self._stack.append(name)
+            if name in _STRIKE_TAGS:
+                return True, closed + _STRUCK_OPEN
+            if name in _DRAWN_TAGS:
+                return True, closed + _DRAWN_TAGS[name]
+            if name == "img":
+                shown = _attributes(tag.group(0)).get("alt", "")
+                return True, f" {shown} " if shown else " "
+            return True, closed + (" " if name in _SPACED_TAGS else "")
+        closed = self._close(name)
+        if closed is None and name not in _UNIGNORED_END_TAGS:
+            return False, ""
+        return True, (closed or "") + (" " if name in _SPACED_TAGS else "")
 
-    def draw(self, tag: re.Match[str]) -> str:
-        """What the page lays out for ``tag``: see :func:`_laid_out`."""
-        if not self.live(tag):
-            return ""
-        name = (tag.group("open") or tag.group("close")).lower()
-        if name in _STRIKE_TAGS:
-            return _STRUCK_CLOSE if tag.group("close") is not None else _STRUCK_OPEN
-        if name in _DRAWN_TAGS:
-            return _DRAWN_TAGS[name]
-        if name == "img" and tag.group("open") is not None:
-            shown = _attributes(tag.group(0)).get("alt", "")
-            return f" {shown} " if shown else " "
-        return " " if name in _SPACED_TAGS else ""
+    def _close(self, name: str) -> str | None:
+        """Close the nearest open element the end tag ``name`` reaches, with everything open
+        inside it but the formatting elements, and return what the page draws for the
+        closings - or ``None`` when it reaches nothing."""
+        targets, boundaries = end_tag_scope(name)
+        for at in range(len(self._stack) - 1, -1, -1):
+            if self._stack[at] in targets:
+                break
+            if self._stack[at] in boundaries:
+                return None
+        else:
+            return None
+        if self._stack[at] in _FORMATTING_TAGS:
+            drawn = _STRUCK_CLOSE if self._stack[at] in _STRIKE_TAGS else ""
+            del self._stack[at]
+            return drawn
+        popped = self._stack[at:]
+        self._stack[at:] = [kept for kept in popped if kept in _FORMATTING_TAGS]
+        return "".join(
+            _DRAWN_TAGS.get(inner, _STRUCK_CLOSE if inner in _STRIKE_TAGS else "")
+            for inner in reversed(popped)
+            if inner not in _FORMATTING_TAGS
+        )
 
 
 #: The end tags the page's tree builder acts on with nothing open to close (:class:`_Run`).
@@ -1196,20 +1309,30 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
     nor is a table part with no table open in the run: ``<td>Auto</td>nomy:`` is the one
     line the page shows, both tags dropped, where inside a table it is the cell drawn.
     """
+    return _shown(text, markdown=False, paragraph=False)
+
+
+def _shown(text: str, markdown: bool, paragraph: bool) -> tuple[Shown, ...]:
+    """``text`` cut at the block tags the page acts on and laid out piece by piece, as
+    :func:`_shown_html` describes - for a raw block, or for a paragraph's inline content,
+    where ``markdown`` is read for strike marks and ``paragraph`` stands the run in its
+    ``<p>`` (:class:`_Run`)."""
     pieces: list[tuple[list[str], str]] = []
     laid: list[str] = []
     opener = ""
-    run = _Run()
+    run = _Run(paragraph)
     for piece in _pieces(text.replace(_DROPPED, "")):
         if isinstance(piece, str):
             laid.append(piece)
             continue
         name = (piece.group("open") or piece.group("close")).lower()
+        live, drawn = run.draw(piece)
         if name not in BLOCK_TAGS:
-            laid.append(run.draw(piece))
+            laid.append(drawn)
             continue
-        if not run.live(piece):
+        if not live:
             continue  # ignored by the page's tree builder: no boundary (:class:`_Run`)
+        laid.append(drawn)  # what closing the block, or the paragraph it opens in, draws
         pieces.append((laid, opener))
         laid = []
         opener = "" if piece.group("close") is not None else name
@@ -1218,7 +1341,7 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
             opener = ""
     pieces.append((laid, opener))
     shown = (
-        (" ".join(html.unescape(_struck_marks("".join(laid), markdown=False)).split()), opener)
+        (" ".join(html.unescape(_struck_marks("".join(laid), markdown)).split()), opener)
         for laid, opener in pieces
     )
     return tuple(Shown(piece, opener) for piece, opener in shown if piece or opener)

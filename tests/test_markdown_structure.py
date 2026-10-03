@@ -614,6 +614,116 @@ def test_a_table_part_outside_a_table_and_a_void_elements_end_tag_draw_nothing()
     assert raw.shown == (md.Shown("Autonomy: x", ""),)
 
 
+def test_comments_are_read_as_the_tokenizer_reads_them():
+    """Codex on #462 (read of `56e3e65`, twice): `<!-- note <!-- x -->` is one comment, the
+    inner opener its data, so a reader of comments gets that one and never the inner bytes;
+    and a `<?` with no `?>` after it is text, settled once per text, where a lookahead at
+    every opener scanned the rest of the text from each of them and sixty kilobytes of them
+    took seconds. A comment inside an attribute value or another hidden form is none.
+    """
+    comments = md.comments
+    assert list(comments("<!-- note <!-- x -->")) == ["<!-- note <!-- x -->"]
+    assert list(comments("<!-- x")) == ["<!-- x"]
+    assert list(comments("a <!--> b <!---> c <!-- d --!> e")) == ["<!-->", "<!--->", "<!-- d --!>"]
+    assert list(comments('a <img alt="<!-- x -->"> <!-- y --> b')) == ["<!-- y -->"]
+    assert list(comments("<?a <!-- x --> ?> <!-- y -->")) == ["<!-- y -->"]
+    assert list(comments("<?a <!-- x --> y")) == ["<!-- x -->"]
+    assert list(comments("<![CDATA[<!-- x -->]]> <!-- y -->")) == ["<!-- y -->"]
+    assert list(comments("<!DOCTYPE <!-- x --> > <!-- y -->")) == ["<!-- y -->"]
+    assert list(comments("<b<!-- x -->> <!-- y -->")) == ["<!-- x -->", "<!-- y -->"]
+    text = "<?x>" * 15000
+    start = time.perf_counter()
+    (raw,) = md.parse(text + "\n")
+    assert time.perf_counter() - start < 2
+    assert raw.plain == text and not list(comments(text)) and not list(md.tags(text))
+    assert list(md.tags("<?x> <b>")) == [("b", False)]
+    # cmark closes an instruction at the first `?>` anywhere after its `<?`, so one with a
+    # `?>` later in the text is a form, read to its first `>`; one with none is text.
+    (para,) = md.parse("a <?x> b <?y ?> c <![CDATA[d <![CDATA[e]]> f\n")
+    assert para.plain == "a b c f"
+    (para,) = md.parse("a <?x> b <![CDATA[c]] d\n")
+    assert para.plain == "a <?x> b <![CDATA[c]] d"
+
+
+def test_end_tags_are_scoped_as_the_tree_builder_scopes_them():
+    """Codex on #462 (read of `56e3e65`): the page's tree builder stops a `</li>` at a list
+    opened inside the item, a `</div>` at a cell, and the end tag of a phrasing element at
+    any block, and ignores what it stops; `</h3>` closes an open `<h2>`; and a block tag in a
+    paragraph's running text closes the paragraph, popping what was open in it but the
+    formatting elements (GitHub's markdown endpoint, 2026-10-03). The elements open in a
+    run are a stack kept that way.
+    """
+    assert md.end_tag_scope("li") == (
+        frozenset({"li"}),
+        frozenset({"caption", "table", "td", "th", "ol", "ul"}),
+    )
+    assert md.end_tag_scope("h3")[0] == frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
+    assert md.end_tag_scope("td") == (frozenset({"td"}), frozenset({"table"}))
+    assert (
+        md.end_tag_scope("div")[1]
+        == md.end_tag_scope("s")[1]
+        == frozenset({"caption", "table", "td", "th"})
+    )
+    assert md.end_tag_scope("q")[1] == md.end_tag_scope("del")[1] == md.BLOCK_TAGS
+    for text, texts in (
+        ("<ul><li><ul>Auto</li>nomy: x</ul></ul>", ["Autonomy: x"]),
+        ("<ol><li><ol>Auto</li>nomy: x</ol></ol>", ["Autonomy: x"]),
+        ("<div><table><tr><td>Auto</div>nomy: x</td></tr></table>", ["Autonomy: x"]),
+        ("<ul><li><table><tr><td>Auto</li>nomy: x</td></tr></table></ul>", ["Autonomy: x"]),
+        ("<ul><li><div>Auto</li>nomy: x</div></ul>", ["Auto", "nomy: x"]),
+        ("<h2><div>Auto</h3>nomy: x</div></h2>", ["Auto", "nomy: x"]),
+        ("<dl><dd><ul>Auto</dd>nomy: x</ul></dl>", ["Auto", "nomy: x"]),
+        ("<div><q>Auto<div></q>nomy: x</div></div>", ['"Auto', "nomy: x", '"']),
+        ("<div><q>Auto</q>nomy: x</div>", ['"Auto"nomy: x']),
+    ):
+        (raw,) = md.parse(text + "\n")
+        assert [piece.text for piece in raw.shown if piece.text] == texts, (text, raw.shown)
+    for text, plain in (
+        ("<q>a<div>b</div></q>Autonomy: x", '"a" b Autonomy: x'),
+        ("<q><div>Auto</q>nomy: x</div>", '"" Autonomy: x'),
+        ("<del><div>Auto</del>nomy: x</div>", "Autonomy: x"),
+        ("<q><b>Auto</q>nomy: x</b>", '"Auto"nomy: x'),
+        ("a <q>b</q> c", 'a "b" c'),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert para.plain == plain, (text, para.plain)
+
+
+def test_a_paragraph_is_cut_where_a_block_tag_ends_it_on_the_page():
+    """Found beside Codex's read of `56e3e65` on #462: the page's tree builder closes a
+    paragraph at a block tag in its running text and lays what follows out as a block of
+    its own, so `a <div>Autonomy: x</div>` is the paragraph `a` and then a box - `shown`,
+    the first piece the paragraph's own text - where `plain` is the whole, which only joins
+    (GitHub's markdown endpoint, 2026-10-03). A tag that opens no block there cuts nothing.
+    """
+    for text, shown in (
+        ("a <div>Autonomy: x</div>", (md.Shown("a", ""), md.Shown("Autonomy: x", "div"))),
+        ("a <p>Autonomy: x", (md.Shown("a", ""), md.Shown("Autonomy: x", "p"))),
+        (
+            "a <h2>Autonomy: x</h2> b",
+            (md.Shown("a", ""), md.Shown("Autonomy: x", "h2"), md.Shown("b", "")),
+        ),
+        ("a <li>Autonomy: x", (md.Shown("a", ""), md.Shown("Autonomy: x", "li"))),
+        ("a <hr>b", (md.Shown("a", ""), md.Shown("", "hr"), md.Shown("b", ""))),
+        ("**a** <div>**Autonomy:** x</div>", (md.Shown("a", ""), md.Shown("Autonomy: x", "div"))),
+        ("a <div>~~b~~</div>", (md.Shown("a", ""), md.Shown("~~b~~", "div"))),
+        ("a </p>b", (md.Shown("a", ""), md.Shown("b", ""))),
+        ("a <br>b", ()),
+        ("a <b>b</b>", ()),
+        ("a <td>b", ()),
+        ("a `<div>` b", ()),
+        ("a", ()),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert isinstance(para, md.Paragraph) and para.shown == shown, (text, para.shown)
+    (para,) = md.parse("a <div>Autonomy: x</div>\n")
+    assert para.plain == "a Autonomy: x"
+    (items,) = md.parse("- a <div>b</div>\n")
+    assert items.items[0].blocks[0].shown == (md.Shown("a", ""), md.Shown("b", "div"))
+    (note,) = md.parse("[^1]: a <div>b</div>\n")
+    assert note.footnote and note.shown == (md.Shown("a", ""), md.Shown("b", "div"))
+
+
 def test_raw_html_is_walked_once_a_hidden_form_or_a_tag_whichever_opens_first():
     """Codex on #462 (read of `97662e4`): `<span title="<!--">Autonomy: maintainer decision
     required</span>` draws the restriction - the opener is the attribute's text - where

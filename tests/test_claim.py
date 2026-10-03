@@ -1575,13 +1575,174 @@ def test_an_end_tag_that_closes_nothing_leaves_the_key_whole() -> None:
     assert (
         claim._autonomy_refusal(admitting + "Auto</p>nomy: maintainer decision required\n") is None
     )
-    without = claim._markdown.without_tags
-    assert without('a <img alt="<!-- x -->"> <!-- y --> b') == "a  <!-- y --> b"
-    assert without("<!-- a <b> --> <b>c</b>") == "<!-- a <b> --> c"
-    assert without('<!-- <img alt=" --> x">') == '<!-- <img alt=" --> x">'
-    assert without("<?a <!-- x --> ?> <!-- y -->") == " ?> <!-- y -->"
-    assert without("<![CDATA[<!-- x -->]]><!DOCTYPE <!-- x --> ><!-- y -->") == "]]> ><!-- y -->"
-    assert without("<?a <!-- x --> y") == "<?a <!-- x --> y"
+    comments = claim._markdown.comments
+    assert list(comments('a <img alt="<!-- x -->"> <!-- y --> b')) == ["<!-- y -->"]
+    assert list(comments("<!-- a <b> --> <b>c</b>")) == ["<!-- a <b> -->"]
+    assert list(comments('<!-- <img alt=" --> x">')) == ['<!-- <img alt=" -->']
+    assert list(comments("<?a <!-- x --> ?> <!-- y -->")) == ["<!-- y -->"]
+    assert list(comments("<![CDATA[<!-- x -->]]><!DOCTYPE <!-- x --> ><!-- y -->")) == [
+        "<!-- y -->"
+    ]
+    assert list(comments("<?a <!-- x --> y")) == ["<!-- x -->"]
+
+
+def test_a_marker_inside_another_comment_is_that_comments_text() -> None:
+    """Codex on #462 (read of `56e3e65`): `<!-- note <!-- tether-grooming-v1 -->` is one
+    comment to the page's tokenizer, the inner opener its data, so the page carries no
+    marker and the body governs - where a search of the comment's text found the marker's
+    bytes in it and refused an eligible issue for a misplaced marker. A comment is the marker
+    when it is the marker whole; one beside other text, or inline, is misplaced as before.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for nested in (
+        "<!-- note <!-- tether-grooming-v1 -->\n",
+        "a <!-- note <!-- tether-grooming-v1 --> b\n",
+        "<!-- <!-- tether-grooming-v1 --> -->\n",
+        "<!-- tether-grooming-v1 <b> -->\n",
+    ):
+        assert claim._autonomy_refusal(admitting + nested) is None, nested
+    for misplaced in (
+        "<p><!-- tether-grooming-v1 --></p>\n",
+        "a <!-- tether-grooming-v1 --> b\n",
+        "<!-- x --><!-- tether-grooming-v1 -->\n",
+    ):
+        read = claim._autonomy_refusal(admitting + misplaced)
+        assert read is not None and "marker inside" in read, (misplaced, read)
+
+
+def test_a_bare_keys_section_is_read_once() -> None:
+    """Codex on #462 (read of `56e3e65`): a body alternating thousands of bare `Autonomy`
+    paragraphs with their values flattened its blocks and read its remainder once per key,
+    quadratic, and four thousand blocks took tens of seconds near GitHub's limit - now a
+    section walk stops at a leaf read already as an earlier key's remainder, the rest of it
+    having been read then, and each container is flattened once. A raw key's section the
+    same. The verdict is the first key's.
+    """
+    bodies = (
+        "Autonomy\n\nmaintainer decision required\n\n" * 2000,
+        "<p>Autonomy</p>\n\nmaintainer decision required\n\n" * 1000,
+        "- Autonomy\n\n  maintainer decision required\n\n" * 1000,
+    )
+    for body in bodies:
+        start = time.perf_counter()
+        read = claim._autonomy_refusal(body)
+        elapsed = time.perf_counter() - start
+        assert read is not None and "maintainer decision" in read, read
+        assert elapsed < 2, f"{elapsed:.1f}s for {len(body)} bytes"
+    # The stop is at a leaf read already, never at the value: the second key's value is read.
+    read = claim._autonomy_refusal("Autonomy\n\nx\n\nAutonomy\n\nmaintainer decision required\n")
+    assert read is not None and "maintainer decision" in read, read
+    read = claim._autonomy_refusal(
+        "Autonomy\n\nx\n\n- Autonomy\n\n  maintainer decision required\n"
+    )
+    assert read is not None and "maintainer decision" in read, read
+
+
+def test_an_end_tag_is_stopped_by_the_scope_the_page_gives_it() -> None:
+    """Codex on #462 (read of `56e3e65`): `<ul><li><details><ul></li></ul>` leaves the widget
+    open over everything after it, since the page's tree builder stops a `</li>` at a list
+    opened inside the item (HTML5 "in list item scope"), where the walk past the inner list
+    closed the item, popped the widget and put a hidden bullet on the page. Every end tag
+    is scoped as the builder scopes it now, in the collapse walker and in the layout of a
+    raw run, and a Markdown item's own end tag the same: `- <details><ul>` hides every
+    bullet after it (GitHub's markdown endpoint, 2026-10-03).
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for hidden in (
+        "<ul><li><details><ul></li></ul>",
+        "<ol><li><details><ol></li></ol>",
+        "- <details><ul>",
+        "1. <details><ol>",
+        "- a\n  <details><ul>\n- b",
+    ):
+        read = claim._autonomy_refusal(f"{hidden}\n\n{admitting}")
+        assert read is not None and "only in a shape that cannot admit" in read, (hidden, read)
+    # Closed where the builder acts on the end tag: no list in the way, a `</ul>` that closes
+    # the outer list and everything in it, a `</dd>` or `</div>` a list does not stop, a
+    # `</h3>` closing an open `<h2>`, and a Markdown item, quote or heading whose end the raw
+    # element inside does not swallow.
+    for shown in (
+        "<ul><li><details><ol></li></ul>",
+        "<ul><li><details><div></li></ul>",
+        "<ul><li><details></li></ul>",
+        "<dl><dd><details><ul></dd></dl>",
+        "<div><details><ul></div></ul>",
+        "<h2><details>x</h3>",
+        "<ul><li><details><table><tr><td></li></td></tr></table></ul>",
+        "- <details><div>",
+        "> <details><ul>",
+        "## x <details><ul>",
+    ):
+        assert claim._autonomy_refusal(f"{shown}\n\n{admitting}") is None, shown
+    # In the layout of a run the same scoping leaves a key whole where an end tag the builder
+    # ignores cut it, and the restriction after it is read: a `</li>` stopped by a list, a
+    # `</div>`, `</blockquote>` or `</li>` stopped by a cell, a `</q>` or `</del>` stopped by
+    # any block - and `</q>` closing nothing after the box closed the paragraph it opened in.
+    for whole in (
+        "<ul><li><ul>Auto</li>nomy: maintainer decision required</ul></ul>\n",
+        "<ol><li><ol>Auto</li>nomy: maintainer decision required</ol></ol>\n",
+        "<div><table><tr><td>Auto</div>nomy: maintainer decision required</td></tr></table>\n",
+        "<blockquote><table><tr><td>Auto</blockquote>nomy: maintainer decision required"
+        "</td></tr></table>\n",
+        "<ul><li><table><tr><td>Auto</li>nomy: maintainer decision required"
+        "</td></tr></table></ul>\n",
+        "<q><div>Auto</q>nomy: maintainer decision required</div>\n",
+        "<del><div>Auto</del>nomy: maintainer decision required</div>\n",
+        "<q>a<div>b</div></q>Autonomy: maintainer decision required\n",
+    ):
+        read = claim._autonomy_refusal(admitting + whole)
+        assert read is not None and "maintainer decision" in read, (whole, read)
+    # And split where the builder acts on it.
+    for split in (
+        "<ul><li><div>Auto</li>nomy: maintainer decision required</div></ul>\n",
+        "<h2><div>Auto</h3>nomy: maintainer decision required</div></h2>\n",
+        "<dl><dd><ul>Auto</dd>nomy: maintainer decision required</ul></dl>\n",
+    ):
+        assert claim._autonomy_refusal(admitting + split) is None, split
+
+
+def test_a_block_tag_in_a_paragraph_opens_a_block_the_page_reads() -> None:
+    """Found beside Codex's read of `56e3e65` on #462: the page's tree builder closes a
+    paragraph at a block tag in its running text and lays what follows out as a block of
+    its own, so `a <div>Autonomy: maintainer decision required</div>` is the paragraph `a`
+    and then a box the restriction heads - where reading the text as the one paragraph it
+    is to Markdown put the key mid-line, and the restriction went unread beside an
+    admitting bullet (GitHub's markdown endpoint, 2026-10-03). The pieces after the tag are
+    read as a raw block's are, in a paragraph, a bullet's lead and a footnote; a tag that
+    opens no block cuts nothing, and nothing after a tag admits.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for after in (
+        "a <div>Autonomy: maintainer decision required</div>\n",
+        "a <p>Autonomy: maintainer decision required\n",
+        "a <h2>Autonomy: maintainer decision required</h2>\n",
+        "a <li>Autonomy: maintainer decision required\n",
+        "a <dd>Autonomy: maintainer decision required\n",
+        "a <blockquote>Autonomy: maintainer decision required</blockquote>\n",
+        "a <table><tr><td>Autonomy: maintainer decision required</td></tr></table>\n",
+        "- a <div>Autonomy: maintainer decision required</div>\n",
+        "**a** <div>**Autonomy:** maintainer decision required</div>\n",
+        "- a\n\n  b <div>Autonomy: maintainer decision required</div>\n",
+        "> a <div>Autonomy: maintainer decision required</div>\n",
+        "[^1]: a <div>Autonomy: maintainer decision required</div>\n",
+        "a <div><h2>Execution autonomy</h2></div>\n\nmaintainer decision required\n",
+    ):
+        read = claim._autonomy_refusal(admitting + after)
+        assert read is not None and "maintainer decision" in read, (after, read)
+    for whole in (
+        "a <br>Autonomy: maintainer decision required\n",
+        "a <b>Autonomy: maintainer decision required</b>\n",
+        "a <td>Autonomy: maintainer decision required\n",
+        "a `<div>`Autonomy: maintainer decision required\n",
+    ):
+        assert claim._autonomy_refusal(admitting + whole) is None, whole
+    for cannot in (
+        "a <div>Autonomy: agent-can-do-alone</div>\n",
+        "- **Autonomy:** <div>agent-can-do-alone</div>\n",
+        "- a <div>**Autonomy:** agent-can-do-alone</div>\n",
+    ):
+        read = claim._autonomy_refusal(cannot)
+        assert read is not None and "cannot admit" in read, (cannot, read)
 
 
 def test_a_table_part_outside_a_table_is_no_boundary() -> None:

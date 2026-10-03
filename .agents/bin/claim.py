@@ -947,11 +947,14 @@ def _misplaced_marker(source: tuple[_markdown.Block, ...]) -> bool:
     leaf is searched for the **HTML the parser found in it** rather than its rendered prose,
     because the marker is a comment and prose hides comments - and not its source either, since
     a code span quoting the marker is text (Codex on #462). A marker in a fence is literal, and
-    a fence is never searched. The HTML is searched with its tags gone
-    (:func:`markdown_structure.without_tags`): the marker's text inside a tag's attribute -
-    `<img alt="<!-- tether-grooming-v1 -->">` - is a picture's alternative text on the page
-    and no comment, and searching the run whole refused the body for a marker the page does
-    not carry (Codex on #462).
+    a fence is never searched. The HTML is read comment by comment
+    (:func:`markdown_structure.comments`), and a comment is the marker when it is the marker
+    whole: the marker's text inside a tag's attribute - `<img alt="<!-- tether-grooming-v1
+    -->">` - is a picture's alternative text on the page and no comment, and searching the
+    run whole refused the body for a marker the page does not carry (Codex on #462); and
+    inside another comment - `<!-- note <!-- tether-grooming-v1 -->`, one comment to the
+    page's tokenizer, the inner opener its data - it is that comment's text and no marker,
+    where a search of the comment's text refused the body the same way (Codex on #462).
 
     ``source`` is the authoritative one (`_source`) - the latest grooming block with the body's
     footnotes when there is one, else the body - and not the whole document: a stale paragraph
@@ -966,7 +969,9 @@ def _misplaced_marker(source: tuple[_markdown.Block, ...]) -> bool:
             if leaf.siblings is not source:
                 return True
         elif any(
-            _GROOMING_MARKER.search(_markdown.without_tags(chunk)) for chunk in _html_in(leaf.block)
+            _GROOMING_MARKER.fullmatch(comment)
+            for chunk in _html_in(leaf.block)
+            for comment in _markdown.comments(chunk)
         ):
             return True
     return False
@@ -1044,13 +1049,17 @@ _HTML_SCOPES = _markdown.BLOCK_TAGS - {"details", "hr", "p"}
 #: The scope boundaries among them: a `</details>` written inside one cannot close a
 #: `<details>` opened outside it (HTML5 "has an element in scope"), and nor can any other end
 #: tag reach past one - save a table part's own, which sees through everything but a table
-#: opened after it (HTML5 "in table", "in cell"). A table part's start tag, with no table
-#: open, is ignored outright (HTML5 "in body"), so it opens no scope and is no boundary:
-#: `<td><details>note</td>` leaves the widget open to the end of the body, the `</td>` closing
-#: nothing, and `<details>x<td>y</details>` closes it, the `<td>` in the way of nothing
-#: (GitHub's markdown endpoint, 2026-10-03).
+#: opened after it (HTML5 "in table", "in cell"), and a list item's own, which a list opened
+#: after it stops as well (HTML5 "in list item scope"): `<ul><li><details><ul></li></ul>`
+#: leaves the widget open over everything after it, where a walk past the inner list closed
+#: the item and put a hidden bullet on the page (Codex on #462). What each end tag closes and
+#: what stops it is `markdown_structure.end_tag_scope`, the one table for the walker here and
+#: for the layout of a raw run. A table part's start tag, with no table open, is ignored
+#: outright (HTML5 "in body"), so it opens no scope and is no boundary: `<td><details>note</td>`
+#: leaves the widget open to the end of the body, the `</td>` closing nothing, and
+#: `<details>x<td>y</details>` closes it, the `<td>` in the way of nothing (GitHub's markdown
+#: endpoint, 2026-10-03).
 _HTML_BOUNDARIES = frozenset({"caption", "table", "td", "th"})
-_HTML_TABLE_PARTS = _markdown.TABLE_PART_TAGS | {"table"}
 
 
 def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]:
@@ -1082,7 +1091,10 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
     open in the block after it, so a `</details>` there, raw or in running text, closes nothing,
     where a stack dropped at the block's end let it put a hidden bullet back on the page (Codex
     on #462). The same cell left open inside a list item or a heading swallows that element's
-    own end tag, so what was opened inside runs on - the parser's reading, and the safe one. A
+    own end tag, so what was opened inside runs on - the parser's reading, and the safe one;
+    a raw list left open inside a Markdown item swallows the item's end tag the same way, and
+    `- <details><ul>` hides every bullet after it, where the item's end popped the widget
+    (GitHub's markdown endpoint, 2026-10-03). A
     cell is one only inside a table: with none open the parser ignores the `<td>`, so
     `<td><details>note</td>` is a widget the `</td>` never pops, and a bullet below it is
     hidden where popping it put the bullet on the page (GitHub's markdown endpoint,
@@ -1136,11 +1148,12 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
             return
         # The end tag of a kept block element pops the element with everything opened inside
         # it - unless the element is not in scope, a boundary opened after it still being open,
-        # when the parser ignores the tag; a table part's own end tag sees through everything
-        # but a table opened after it.
-        blocking = {"table"} if name in _HTML_TABLE_PARTS else _HTML_BOUNDARIES
+        # when the parser ignores the tag: a table part's own end tag sees through everything
+        # but a table opened after it, a list item's is stopped by a list as well, and a
+        # heading's closes any heading (`end_tag_scope`).
+        targets, blocking = _markdown.end_tag_scope(name)
         for index in range(len(scopes) - 1, -1, -1):
-            if scopes[index][1] == name:
+            if scopes[index][1] in targets:
                 break
             if scopes[index][1] in blocking:
                 return
@@ -1150,11 +1163,12 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
         while opened and opened[-1][1] > index:
             pop_details(line)
 
-    def leave(level: int) -> None:
-        # A heading's, list item's or block quote's own end tag pops what was opened inside
-        # it - unless a boundary opened inside it is still open, when the parser ignores the
-        # end tag and everything opened inside runs on.
-        if any(at >= level and scope in _HTML_BOUNDARIES for at, scope in scopes):
+    def leave(level: int, element: str) -> None:
+        # The own end tag of the heading, list item or block quote - `element` - pops what was
+        # opened inside it - unless a boundary that stops that end tag, opened inside it, is
+        # still open, when the parser ignores the end tag and everything opened inside runs on.
+        _, blocking = _markdown.end_tag_scope(element)
+        if any(at >= level and scope in blocking for at, scope in scopes):
             return
         while scopes and scopes[-1][0] >= level:
             scopes.pop()
@@ -1174,14 +1188,14 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
             elif isinstance(block, _markdown.Heading):
                 for name, closing in _markdown.inline_tags(block.text):
                     tag(name, closing, level + 1, block.line)
-                leave(level + 1)
+                leave(level + 1, f"h{block.level}")
             elif isinstance(block, _markdown.ListBlock):
                 for item in block.items:
                     run(item.blocks, level + 1)
-                    leave(level + 1)
+                    leave(level + 1, "li")
             elif isinstance(block, _markdown.BlockQuote):
                 run(block.blocks, level + 1)
-                leave(level + 1)
+                leave(level + 1, "blockquote")
             # A table cell is a scope boundary both ways, code is literal, a rule has no tags.
 
     run(document, 0)
@@ -1204,6 +1218,14 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
     # as any (Codex on #462). The marker supersedes what the body *says*, not where it is drawn.
     collapsed = _collapsed(document)
     leaves = _flat(source)
+    # The leaves read already as the remainder of a bare key or a raw block's section, and
+    # each container's leaves by the container: a section walk stops at a leaf read before,
+    # the rest of it having been read then, and a container is flattened once, where a body
+    # of thousands of bare keys over their values flattened its blocks and read its remainder
+    # once per key, which is quadratic and took half a minute near GitHub's limit (Codex on
+    # #462).
+    read: set[int] = set()
+    members: dict[int, set[int]] = {}
     for index, leaf in enumerate(leaves):
         block = leaf.block
         # The foot is read by the body's rules and named for what it is, since nothing there
@@ -1298,6 +1320,8 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
     for index, leaf in enumerate(leaves):
         block = leaf.block
         if any(block is lead for lead in leads):
+            # The lead was the bullet's declaration; what a block tag in it opens is not.
+            found.extend(_after_block_tag(block, where, leaves, index, read))
             continue
         if isinstance(block, _markdown.Heading):
             if _match_key(_AUTONOMY_KEY, _prose(block)) is not None:
@@ -1309,17 +1333,19 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                 )
             ]
         elif isinstance(block, _markdown.Html):
-            found.extend(_raw_html(block, where, leaves, index))
+            found.extend(_pieces_read(block.shown, _html_shape(block, where), leaves, index, read))
             continue
         elif isinstance(block, _markdown.Paragraph):
+            found.extend(_after_block_tag(block, where, leaves, index, read))
             text = _prose(block)
             task = _TASK_MARKER.match(text)
             shape = "footnote" if block.footnote else "paragraph"
             if _match_key(_BARE_KEY, text[task.end() :] if task else text) is not None:
-                section = _section(leaves, index, leaf.siblings)
+                section = _section(leaves, index, leaf.siblings, read=read, members=members)
                 value = _prose(section[0].block) if section else ""
                 found.append(_AutonomyValue(value, f"{where} {shape} bare key", admits=False))
                 found.extend(_scan_only(section[1:], f"{where} {shape} bare key remainder"))
+                read.update(id(rest.block) for rest in section[1:])
                 continue
             if block.footnote and _keyed(text) is None:
                 found.append(_AutonomyValue(text, f"{where} footnote", scan_only=True))
@@ -1396,11 +1422,35 @@ def _row(block: _markdown.TableRow, where: str) -> list[_AutonomyValue]:
     return found
 
 
-def _raw_html(
-    block: _markdown.Html, where: str, leaves: list[_Leaf], index: int
+def _html_shape(block: Any, where: str) -> str:
+    """The label of a raw HTML block's declarations."""
+    return f"{where} footnote raw HTML" if _markdown.at_foot(block) else f"{where} raw HTML"
+
+
+def _after_block_tag(
+    block: _markdown.Paragraph, where: str, leaves: list[_Leaf], index: int, read: set[int]
 ) -> list[_AutonomyValue]:
-    """``block`` - ``leaves[index]`` - read one rendered block at a time, as the page lays it
-    out; nothing here admits.
+    """The blocks the page lays out after a block tag in the paragraph ``block`` -
+    ``leaves[index]`` - read as a raw block's pieces are, since that is what they are on the
+    page: `a <div>Autonomy: maintainer decision required</div>` is the paragraph `a` and
+    then a box the restriction heads, and reading the text as the one paragraph it is to
+    Markdown put the key mid-line, so the restriction went unread beside an admitting
+    bullet (found beside Codex's read of `56e3e65` on #462). The paragraph's own text is the
+    first piece and is read by the paragraph's rules; nothing here admits."""
+    if not block.shown:
+        return []
+    foot = _markdown.at_foot(block)
+    shape = f"{where} {'footnote ' if foot else ''}paragraph after a block tag"
+    return _pieces_read(block.shown[1:], shape, leaves, index, read)
+
+
+def _pieces_read(
+    pieces: tuple[_markdown.Shown, ...], shape: str, leaves: list[_Leaf], index: int, read: set[int]
+) -> list[_AutonomyValue]:
+    """``pieces`` - the blocks the page lays ``leaves[index]`` out as, or the rest of them -
+    read one rendered block at a time, as the page lays it out; nothing here admits. ``shape``
+    labels what is found, and ``read`` is the leaves read as a section's remainder already,
+    kept as `_declarations` keeps it.
 
     A piece the page draws as a heading is read as a Markdown heading is: a key with whatever
     qualifier it carries, the next thing drawn its value unless that is a heading too, and a
@@ -1426,8 +1476,6 @@ def _raw_html(
     so the heading and the restriction under it were both unread (Codex on #462).
     """
     found: list[_AutonomyValue] = []
-    pieces = block.shown
-    shape = f"{where} footnote raw HTML" if _markdown.at_foot(block) else f"{where} raw HTML"
     # The open section's scan-only label once a key has been read; the key whose value is
     # still owed - its label and qualifier - when the key was the last thing drawn so far; and
     # whether the open section is a cell's, which the block ends.
@@ -1483,12 +1531,13 @@ def _raw_html(
     if confined:
         settle("")
     elif owed is not None or section is not None:
-        rest = _section(leaves, index)
+        rest = _section(leaves, index, read=read)
         if owed is not None:
             settle(_prose(rest[0].block) if rest else "")
             rest = rest[1:]
         if section is not None:
             found.extend(_scan_only(rest, section))
+            read.update(id(leaf.block) for leaf in rest)
     return found
 
 
@@ -1582,10 +1631,24 @@ def _foot_blocks(blocks: tuple[_markdown.Block, ...]) -> Iterator[_markdown.Bloc
             yield from _foot_blocks(block.blocks)
 
 
-def _section(leaves: list[_Leaf], index: int, within: tuple[Any, ...] | None = None) -> list[_Leaf]:
+def _section(
+    leaves: list[_Leaf],
+    index: int,
+    within: tuple[Any, ...] | None = None,
+    *,
+    read: set[int] | None = None,
+    members: dict[int, set[int]] | None = None,
+) -> list[_Leaf]:
     """The drawn leaves below the heading or bare key at ``index``, up to the next heading of
     any level, among the leaves drawn where it is drawn - in the body, or at the foot of its
     footnote.
+
+    ``read`` is the leaves a caller has read already as the remainder of an earlier key's
+    section: past the first leaf, which is the value whoever read it, the walk stops at one of
+    them, since the earlier key's section ran on from there to an end no later than this
+    one's - the next heading, or the container both are confined to - and reading it again
+    read the same leaves once per key, which is quadratic (Codex on #462). ``members`` is
+    each container's leaves by the container, filled here, so ``within`` is flattened once.
 
     A heading raw HTML lays out ends the section as a Markdown one does, since the page draws
     the two alike: a raw block carrying one is cut to the pieces before it - a copy of the
@@ -1609,7 +1672,12 @@ def _section(leaves: list[_Leaf], index: int, within: tuple[Any, ...] | None = N
     it (`_flat`).
     """
     place = leaves[index].block.note
-    inside = None if within is None else {id(leaf.block) for leaf in _flat(within)}
+    inside = None
+    if within is not None:
+        if members is None:
+            inside = {id(leaf.block) for leaf in _flat(within)}
+        elif (inside := members.get(id(within))) is None:
+            inside = members[id(within)] = {id(leaf.block) for leaf in _flat(within)}
     section: list[_Leaf] = []
     for leaf in leaves[index + 1 :]:
         block = leaf.block
@@ -1617,6 +1685,8 @@ def _section(leaves: list[_Leaf], index: int, within: tuple[Any, ...] | None = N
             break
         if block.note != place:
             continue
+        if read is not None and section and id(block) in read:
+            break  # read already, and everything after it, as an earlier key's remainder
         if isinstance(block, _markdown.Heading):
             break
         if isinstance(block, _markdown.Html):
