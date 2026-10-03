@@ -58,6 +58,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment, not logic
 
 __all__ = [
     "BLOCK_TAGS",
+    "TABLE_PART_TAGS",
     "Block",
     "BlockQuote",
     "Code",
@@ -229,6 +230,17 @@ BLOCK_TAGS = frozenset(
 #: The block tags that hold nothing: the page draws the element and whatever follows it is
 #: outside it.
 _VOID_BLOCK_TAGS = frozenset({"hr"})
+#: The kept tags that hold nothing, block or not, so the page's tree builder never has one open
+#: for an end tag to close: ``</hr>``, ``</img>``, ``</wbr>`` and ``</source>`` are ignored and
+#: draw nothing - ``<hr>Auto</hr>nomy:`` is a rule and then the key whole - save ``</br>``,
+#: which it reads as a ``<br>`` (GitHub's markdown endpoint, 2026-10-03; :class:`_Run`).
+_VOID_TAGS = _VOID_BLOCK_TAGS | frozenset({"br", "img", "source", "wbr"})
+#: The block tags the page's tree builder acts on only inside a table. With no ``<table>``
+#: open, a table-part start tag is ignored and draws nothing, so the text around it joins:
+#: ``<td>Auto</td>nomy:`` is the key whole, as a raw block and in running text, and so is one
+#: after the table closed (GitHub's markdown endpoint, 2026-10-03; :class:`_Run`). ``col`` and
+#: ``colgroup`` are not kept and draw nothing either way.
+TABLE_PART_TAGS = frozenset({"caption", "tbody", "td", "tfoot", "th", "thead", "tr"})
 #: Every element GitHub keeps: the html-pipeline allowlist, partitioned above by what it draws.
 KEPT_TAGS = _PHRASING_TAGS | frozenset(_DRAWN_TAGS) | _STRIKE_TAGS | _INSIDE_TAGS | BLOCK_TAGS
 #: The stripped tags whose text the sanitizer wraps in spaces - Selma's ``whitespace_elements``
@@ -1011,21 +1023,30 @@ class _Run:
     ``Auto</details>nomy`` show it whole too, where the end tag alone drew a space (GitHub's
     markdown endpoint, 2026-10-03). Two end tags the builder never ignores: ``</p>`` with no
     paragraph open inserts an empty one, a boundary, and ``</br>`` is a ``<br>``. A stray
-    end tag of a strike tag closed nothing already (:func:`_struck_marks`). An element is
-    counted open for the run it opens in, so an end tag closing one opened in an earlier
-    raw block is ignored here where the page acts on it - a boundary not drawn, which only
-    joins text the page separates, and so only ever refuses.
+    end tag of a strike tag closed nothing already (:func:`_struck_marks`). It ignores a
+    start tag too, one of ``TABLE_PART_TAGS`` with no table open - ``<td>Auto</td>nomy:``
+    is the key whole, where cutting at the cell split it and the restriction after it went
+    unread beside an admitting bullet - and a void element, ``_VOID_TAGS``, is never open
+    for its end tag to close, so ``<hr>Auto</hr>nomy:`` is the key whole after the rule
+    (GitHub's markdown endpoint, 2026-10-03). An element is counted open for the run it
+    opens in, so an end tag closing one opened in an earlier raw block is ignored here where
+    the page acts on it, as is a cell of a table opened there - a boundary not drawn, which
+    only joins text the page separates, and so only ever refuses.
     """
 
     def __init__(self) -> None:
         self._open: dict[str, int] = {}
 
     def live(self, tag: re.Match[str]) -> bool:
-        """Whether the tree builder acts on ``tag``: an opener, or an end tag that closes an
-        element open in this run - or ``</p>`` or ``</br>``, which it never ignores."""
+        """Whether the tree builder acts on ``tag``: an opener, unless a table part with no
+        table open in this run, or an end tag that closes an element open in this run - or
+        ``</p>`` or ``</br>``, which it never ignores."""
         name = (tag.group("open") or tag.group("close")).lower()
         if tag.group("close") is None:
-            self._open[name] = self._open.get(name, 0) + 1
+            if name in TABLE_PART_TAGS and not self._open.get("table", 0):
+                return False
+            if name not in _VOID_TAGS:
+                self._open[name] = self._open.get(name, 0) + 1
             return True
         if name in _UNIGNORED_END_TAGS:
             return True
@@ -1171,7 +1192,9 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
     ``hr`` let a caller take the text as the first block drawn after a raw heading, with the
     rule the page draws between them gone (Codex on #462). A block end tag that closes
     nothing open in the run is no boundary: ``<p>Auto</div>nomy:</p>`` is the one paragraph
-    the page shows, the stray ``</div>`` dropped by its tree builder (:class:`_Run`).
+    the page shows, the stray ``</div>`` dropped by its tree builder (:class:`_Run`), and
+    nor is a table part with no table open in the run: ``<td>Auto</td>nomy:`` is the one
+    line the page shows, both tags dropped, where inside a table it is the cell drawn.
     """
     pieces: list[tuple[list[str], str]] = []
     laid: list[str] = []
@@ -1186,7 +1209,7 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
             laid.append(run.draw(piece))
             continue
         if not run.live(piece):
-            continue  # an end tag closing nothing: no boundary on the page (:class:`_Run`)
+            continue  # ignored by the page's tree builder: no boundary (:class:`_Run`)
         pieces.append((laid, opener))
         laid = []
         opener = "" if piece.group("close") is not None else name

@@ -1584,6 +1584,46 @@ def test_an_end_tag_that_closes_nothing_leaves_the_key_whole() -> None:
     assert without("<?a <!-- x --> y") == "<?a <!-- x --> y"
 
 
+def test_a_table_part_outside_a_table_is_no_boundary() -> None:
+    """Found beside the end-tag rule on #462: the page's tree builder ignores a table-part tag
+    with no table open and a void element's end tag, so `<td>Auto</td>nomy: maintainer
+    decision required` and `<hr>Auto</hr>nomy: ...` show the key whole and the restriction
+    with it, where cutting at the tag split the key and an admitting bullet beside it was
+    admitted; and `<td><details>note</td>` leaves the widget open to the end of the body,
+    the bullet below it hidden, where the `</td>` popped it (GitHub's markdown endpoint,
+    2026-10-03). Inside a table the parts are the cells the page draws, and a cell's end tag
+    pops what was opened in it.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for whole in (
+        "<td>Auto</td>nomy: maintainer decision required\n",
+        "<th>Auto</th>nomy: maintainer decision required\n",
+        "<tr>Auto</tr>nomy: maintainer decision required\n",
+        "<thead>Auto</thead>nomy: maintainer decision required\n",
+        "<tbody>Auto</tbody>nomy: maintainer decision required\n",
+        "<tfoot>Auto</tfoot>nomy: maintainer decision required\n",
+        "<caption>Auto</caption>nomy: maintainer decision required\n",
+        "<td>Auto<td>nomy: maintainer decision required\n",
+        "<div>Auto<td>nomy: maintainer decision required</div>\n",
+        "<table></table><td>Auto</td>nomy: maintainer decision required\n",
+        "<table><tr><td>a</td></tr></table>\n\n<td>Auto</td>nomy: maintainer decision required\n",
+        "<hr>Auto</hr>nomy: maintainer decision required\n",
+        "- Auto<td>nomy: maintainer decision required\n",
+    ):
+        read = claim._autonomy_refusal(admitting + whole)
+        assert read is not None and "maintainer decision" in read, (whole, read)
+    # Inside a table the parts are cells, drawn apart, and a key split across two is none.
+    cells = "<table><tr><td>Auto</td><td>nomy: maintainer decision required</td></tr></table>\n"
+    assert claim._autonomy_refusal(admitting + cells) is None
+    # A `<details>` opened after an ignored `<td>` is popped by no `</td>`, and a `<td>`
+    # ignored inside one is in the way of no `</details>`; a cell of a table pops as before.
+    hidden = claim._autonomy_refusal("<td><details>note</td>\n\n" + admitting)
+    assert hidden is not None and "only in a shape that cannot admit" in hidden, hidden
+    assert claim._autonomy_refusal("<details>x<td>y</details>\n\n" + admitting) is None
+    popped = claim._autonomy_refusal("<table><td><details>note</td></table>\n\n" + admitting)
+    assert popped is None, popped
+
+
 def test_a_code_block_after_a_definition_in_another_container_is_code() -> None:
     """Codex on #462 (read of `c3181fb`): `[^1]: /url` over `-     Autonomy: human review
     required` is the footnote and then an item holding a code block, which the page shows

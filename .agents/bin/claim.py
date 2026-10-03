@@ -1044,9 +1044,13 @@ _HTML_SCOPES = _markdown.BLOCK_TAGS - {"details", "hr", "p"}
 #: The scope boundaries among them: a `</details>` written inside one cannot close a
 #: `<details>` opened outside it (HTML5 "has an element in scope"), and nor can any other end
 #: tag reach past one - save a table part's own, which sees through everything but a table
-#: opened after it (HTML5 "in table", "in cell").
+#: opened after it (HTML5 "in table", "in cell"). A table part's start tag, with no table
+#: open, is ignored outright (HTML5 "in body"), so it opens no scope and is no boundary:
+#: `<td><details>note</td>` leaves the widget open to the end of the body, the `</td>` closing
+#: nothing, and `<details>x<td>y</details>` closes it, the `<td>` in the way of nothing
+#: (GitHub's markdown endpoint, 2026-10-03).
 _HTML_BOUNDARIES = frozenset({"caption", "table", "td", "th"})
-_HTML_TABLE_PARTS = _HTML_BOUNDARIES | {"tbody", "tfoot", "thead", "tr"}
+_HTML_TABLE_PARTS = _markdown.TABLE_PART_TAGS | {"table"}
 
 
 def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]:
@@ -1079,8 +1083,11 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
     where a stack dropped at the block's end let it put a hidden bullet back on the page (Codex
     on #462). The same cell left open inside a list item or a heading swallows that element's
     own end tag, so what was opened inside runs on - the parser's reading, and the safe one. A
-    start tag's implicit close of an open sibling - a second `<li>` or `<td>` - is not
-    modelled, which can only over-collapse.
+    cell is one only inside a table: with none open the parser ignores the `<td>`, so
+    `<td><details>note</td>` is a widget the `</td>` never pops, and a bullet below it is
+    hidden where popping it put the bullet on the page (GitHub's markdown endpoint,
+    2026-10-03). A start tag's implicit close of an open sibling - a second `<li>` or `<td>` -
+    is not modelled, which can only over-collapse.
 
     A tag in a footnote is drawn at the page's foot, after the whole body, wherever the
     definition sits in the source, so it is not counted at all. A `<details>` there collapses
@@ -1120,6 +1127,11 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
         if name not in _HTML_SCOPES:
             return
         if not closing:
+            # A table part with no table open is ignored by the parser: no scope, no boundary.
+            if name in _markdown.TABLE_PART_TAGS and not any(
+                scope == "table" for _, scope in scopes
+            ):
+                return
             scopes.append((level, name))
             return
         # The end tag of a kept block element pops the element with everything opened inside

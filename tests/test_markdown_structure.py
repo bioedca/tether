@@ -557,6 +557,63 @@ def test_an_end_tag_that_closes_nothing_draws_nothing():
     assert raw.shown == (md.Shown("a", "div"), md.Shown("b", ""))
 
 
+def test_a_table_part_outside_a_table_and_a_void_elements_end_tag_draw_nothing():
+    """Found beside the end-tag rule on #462: the page's tree builder ignores a table-part
+    start tag with no table open, so `<td>Auto</td>nomy: maintainer decision required` draws
+    the key whole - as a raw block, in running text, inside a `<div>` and after a closed
+    table - where cutting at the cell split it and the restriction went unread beside an
+    admitting bullet; and it never has a void element open to close, so `<hr>Auto</hr>nomy:`
+    is the rule and then the key whole (GitHub's markdown endpoint, 2026-10-03). Inside a
+    table the parts are the cells the page draws.
+    """
+    for text, plain in (
+        ("Auto<td>nomy: x", "Autonomy: x"),
+        ("Auto<th>nomy: x", "Autonomy: x"),
+        ("Auto<tr>nomy: x", "Autonomy: x"),
+        ("Auto<thead>nomy: x", "Autonomy: x"),
+        ("Auto<tbody>nomy: x", "Autonomy: x"),
+        ("Auto<tfoot>nomy: x", "Autonomy: x"),
+        ("Auto<caption>nomy: x", "Autonomy: x"),
+        ("a <td>Auto</td>nomy: x", "a Autonomy: x"),
+        ("a <hr>Auto</hr>nomy: x", "a Autonomy: x"),
+        ("a <table><td>Auto</td>nomy: x", "a Auto nomy: x"),
+        ("Auto<dd>nomy: x", "Auto nomy: x"),
+        ("Auto<li>nomy: x", "Auto nomy: x"),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert para.plain == plain, (text, para.plain)
+    for text, shown in (
+        ("<td>Auto</td>nomy: x", (md.Shown("Autonomy: x", ""),)),
+        ("<td>Auto<td>nomy: x", (md.Shown("Autonomy: x", ""),)),
+        ("<caption>Auto</caption>nomy: x", (md.Shown("Autonomy: x", ""),)),
+        ("<div>Auto<td>nomy: x</div>", (md.Shown("Autonomy: x", "div"),)),
+        ("<hr>Auto</hr>nomy: x", (md.Shown("", "hr"), md.Shown("Autonomy: x", ""))),
+        (
+            "<table></table><td>Auto</td>nomy: x",
+            (md.Shown("", "table"), md.Shown("Autonomy: x", "")),
+        ),
+        (
+            "<table><tr><td>Auto</td><td>nomy: x</td></tr></table>",
+            (
+                md.Shown("", "table"),
+                md.Shown("", "tr"),
+                md.Shown("Auto", "td"),
+                md.Shown("nomy: x", "td"),
+            ),
+        ),
+        (
+            "<table><td>Auto</td>nomy: x</table>",
+            (md.Shown("", "table"), md.Shown("Auto", "td"), md.Shown("nomy: x", "")),
+        ),
+    ):
+        (raw,) = md.parse(text + "\n")
+        assert raw.shown == shown, (text, raw.shown)
+    # A cell of a table opened in an earlier block is ignored here, where the page draws it:
+    # a boundary not drawn, which only joins.
+    (table, raw) = md.parse("<table>\n\n<td>Auto</td>nomy: x\n")
+    assert raw.shown == (md.Shown("Autonomy: x", ""),)
+
+
 def test_raw_html_is_walked_once_a_hidden_form_or_a_tag_whichever_opens_first():
     """Codex on #462 (read of `97662e4`): `<span title="<!--">Autonomy: maintainer decision
     required</span>` draws the restriction - the opener is the attribute's text - where
