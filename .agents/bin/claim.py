@@ -825,7 +825,10 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
     groomed = _grooming_block(document)
     source, where = (document, "body") if groomed is None else (groomed, "grooming block")
     found: list[_AutonomyValue] = []
-    collapsed = _collapsed(source)
+    # The collapsed spans are the whole document's, not the source's: a `<details>` opened above
+    # the marker is still open below it, so the grooming block's lines inside it are as hidden
+    # as any (Codex on #462). The marker supersedes what the body *says*, not where it is drawn.
+    collapsed = _collapsed(document)
     leaves = _flat(source)
     for index, leaf in enumerate(leaves):
         block = leaf.block
@@ -882,7 +885,7 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
 
 
 def _plain_markdown(*blocks: Any) -> bool:
-    """Whether none of ``blocks`` carries an HTML tag in its source.
+    """Whether none of ``blocks`` carries an HTML tag in its source or a Markdown image.
 
     The registered shapes are plain Markdown. A key or value written with a tag in it renders
     through a rule that approximates a browser - a phrasing tag vanishes, `<q>` draws quotes,
@@ -891,8 +894,12 @@ def _plain_markdown(*blocks: Any) -> bool:
     retracted value (Codex on #462, six reads). The rendering is kept for what it is good for,
     finding a restriction however it is dressed; it is no longer allowed to be the reason an
     issue is claimed. A comment is not a tag: it draws nothing, and `_plain` already drops it.
+
+    An image is the same rule from the other side: the page draws a picture, and the rendering
+    shows its alternative text, which a reader never sees while the picture loads (Codex on
+    #462). The alternative text stays in `plain` so a restriction written there is still found.
     """
-    return not any(_markdown.has_tag(block.text) for block in blocks)
+    return not any(_markdown.has_tag(block.text) or block.pictured for block in blocks)
 
 
 def _section(leaves: list[_Leaf], index: int) -> list[_Leaf]:
@@ -935,8 +942,8 @@ def _bullet(
     value = " ".join(match.group("value").split())
     # Exact-checked like any declaration, but only the registered shape - column zero, `-` or
     # `*`, no checkbox, plain Markdown, on the page - may admit. A `+`, indented, nested, quoted
-    # or task-list bullet, one carrying a tag, or one inside a `<details>` block can refuse and
-    # can never be the reason an issue is claimed.
+    # or task-list bullet, one carrying a tag or an image, or one inside a `<details>` block can
+    # refuse and can never be the reason an issue is claimed.
     registered = (
         item.column == 0
         and item.marker in "-*"
@@ -969,7 +976,11 @@ def _autonomy_refusal(body: str) -> str | None:
         document = _markdown.parse(body)
     except _markdown.MarkdownStructureError as exc:
         raise ClaimError(f"body could not be read as Markdown: {exc}") from exc
-    if _misplaced_marker(_grooming_block(document) or document):
+    # The latest grooming block is the source even when it is empty: an empty tuple is a block
+    # that says nothing, and falling back to the body for it re-read a stale marker the block
+    # supersedes (Codex on #462). Silence then refuses for what it is, below.
+    groomed = _grooming_block(document)
+    if _misplaced_marker(document if groomed is None else groomed):
         return (
             "carries a tether-grooming-v1 marker inside a paragraph, list item, block quote or "
             "other raw HTML, or beside text on its own line, where a grooming block cannot start, "
@@ -1026,8 +1037,8 @@ def _autonomy_refusal(body: str) -> str | None:
                 f"declares autonomy {shape.raw.strip()!r} only in a shape that cannot admit "
                 f"({shape.where}: a `+`, indented, nested, quoted or task-list bullet, a table "
                 "row, a heading whose value is not its own next paragraph, a key or value "
-                "carrying an HTML tag, or anything inside a `<details>` block). Write it as a "
-                "column-zero "
+                "carrying an HTML tag or an image, or anything inside a `<details>` block). "
+                "Write it as a column-zero "
                 f"`-` bullet or an `## Execution autonomy` heading over {AUTONOMY_ADMITS[0]!r} "
                 "as a plain paragraph"
             )

@@ -277,6 +277,28 @@ def test_plain_drops_markup_decodes_the_source_and_keeps_what_the_page_shows():
     assert para.plain == "~~agent-can-do-alone~~"
 
 
+def test_pictured_is_whether_the_inline_carries_an_image_by_the_parsers_reading():
+    # Codex on #462: an image renders to its alternative text, which the page shows only when
+    # the picture fails to load, so a caller admitting only what the page shows as text is told.
+    (para,) = md.parse("![agent-can-do-alone](v.png)\n")
+    assert para.pictured and para.plain == "agent-can-do-alone"
+    (heading,) = md.parse("## ![Execution autonomy](k.png)\n")
+    assert heading.pictured and heading.plain == "Execution autonomy"
+    # Read off the children, not the source: an escaped `!`, a code span and a reference-style
+    # image whose definition sits elsewhere are each answered as the page answers them.
+    (para,) = md.parse("\\![x](y) `![x](y)`\n")
+    assert not para.pictured and para.plain == "!x ![x](y)"
+    (para,) = md.parse("![x][r]\n\n[r]: u\n")
+    assert para.pictured and para.plain == "x"
+    # Inside a link or emphasis the image is still a child the parser lists.
+    (para,) = md.parse("[![x](i)](u) and *![y](j)*\n")
+    assert para.pictured
+    # Without one, and on a record built without saying, it is false.
+    (para,) = md.parse("plain\n")
+    assert not para.pictured
+    assert not md.Paragraph("t", "t", 1).pictured
+
+
 def test_a_tag_is_read_as_the_page_lays_it_out():
     # A tag the page lays out as a break leaves a space, so two words stay two words.
     (para,) = md.parse("maintainer<br>decision<li>required</li>\n")

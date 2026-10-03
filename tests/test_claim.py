@@ -884,6 +884,76 @@ def test_nothing_inside_a_details_block_can_admit() -> None:
     assert "only in a shape that cannot admit" in commented, commented
 
 
+def test_a_details_block_opened_above_the_marker_still_collapses_the_grooming_block() -> None:
+    """Codex on #462 (read of `78687b5`): the collapsed spans were read off the grooming block
+    alone, so a `<details>` opened above the marker and closed below the declaration was never
+    counted, and a bullet the page keeps collapsed admitted. The spans are the whole document's:
+    the marker supersedes what the body says, not where the page draws it.
+    """
+    marker = "<!-- tether-grooming-v1 -->"
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    hidden = claim._autonomy_refusal(
+        f"<details>\n<summary>groomed</summary>\n\n{marker}\n\n{admitting}\n</details>\n"
+    )
+    assert hidden is not None, "a grooming block inside <details> admitted - fail-open"
+    assert "only in a shape that cannot admit" in hidden and "grooming block" in hidden, hidden
+    # Unclosed above the marker, the block runs to the end of the body as it does on the page.
+    unclosed = claim._autonomy_refusal(f"<details>\n\n{marker}\n\n{admitting}")
+    assert unclosed is not None and "only in a shape that cannot admit" in unclosed, unclosed
+    # A block closed above the marker hides nothing below it.
+    closed = claim._autonomy_refusal(
+        f"<details>\n<summary>old</summary>\n</details>\n\n{marker}\n\n{admitting}"
+    )
+    assert closed is None, closed
+
+
+def test_a_declaration_drawn_as_an_image_can_refuse_and_never_admit() -> None:
+    """Codex on #462 (read of `78687b5`): `![agent-can-do-alone](url)` under the heading rendered
+    to its alternative text and admitted, while the page draws a picture there and shows that
+    text only when the picture fails to load. A key or value carrying an image is the tag rule
+    from the other side - a shape that can refuse and never admit - with the alternative text
+    kept so a restriction written there is still found.
+    """
+    for shape in (
+        "## Execution autonomy\n\n![agent-can-do-alone](https://example.test/value.png)\n",
+        "- **Autonomy:** ![agent-can-do-alone](https://example.test/value.png)\n",
+        "- ![Autonomy:](https://example.test/key.png) agent-can-do-alone\n",
+        # Reference-style, its definition elsewhere in the body: still a picture on the page.
+        "## Execution autonomy\n\n![agent-can-do-alone][v]\n\n[v]: https://example.test/v.png\n",
+    ):
+        refusal = claim._autonomy_refusal(shape)
+        assert refusal is not None, f"{shape!r}: a pictured declaration admitted"
+        assert "only in a shape that cannot admit" in refusal and "image" in refusal, refusal
+    # Not an image on the page, not an image here: the escape makes it a `!` and a link, and
+    # the value the page shows is `!agent-can-do-alone`, which is not a registered token.
+    escaped = claim._autonomy_refusal("## Execution autonomy\n\n\\![agent-can-do-alone](x)\n")
+    assert escaped is not None and "'!agent-can-do-alone'" in escaped, escaped
+    # The alternative text is still read for a restriction.
+    through = claim._autonomy_refusal(
+        "- **Autonomy:** agent-can-do-alone\n"
+        "- **Autonomy:** ![maintainer decision required](https://example.test/x.png)\n"
+    )
+    assert through is not None and "maintainer decision" in through, through
+
+
+def test_an_empty_latest_grooming_block_is_the_source_and_supersedes_a_stale_marker() -> None:
+    """Codex on #462 (read of `78687b5`): the misplaced-marker check fell back to the whole body
+    when the latest grooming block was empty - the marker as the last line - because an empty
+    tuple read as no block, and a stale inline marker above it then refused the body for the
+    wrong reason, naming a fix already applied. The empty block is the source: it says nothing,
+    and silence refuses as silence.
+    """
+    marker = "<!-- tether-grooming-v1 -->"
+    silent = claim._autonomy_refusal(
+        f"see {marker} above\n\n- **Autonomy:** agent-can-do-alone\n\n{marker}\n"
+    )
+    assert silent is not None and "declares no Execution autonomy" in silent, silent
+    assert "its grooming block" in silent and "cannot start" not in silent, silent
+    # With no block after it, the stale marker is the only one and is misplaced as before.
+    bare = claim._autonomy_refusal(f"see {marker} above\n\n- **Autonomy:** agent-can-do-alone\n")
+    assert bare is not None and "grooming block cannot start" in bare, bare
+
+
 def test_a_declaration_carrying_an_html_tag_can_refuse_and_never_admit() -> None:
     """Six reads in a row found a tag the rendering drew differently from the page - `<b>` as a
     space, `<q>` as nothing, `<del>` as nothing, `<wbr>` as a space - and each time the error ran

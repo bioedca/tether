@@ -142,11 +142,17 @@ class MarkdownStructureError(ValueError):
 
 
 class Paragraph(NamedTuple):
-    """A run of inline text. ``text`` keeps soft line breaks as ``\\n``; ``plain`` is rendered."""
+    """A run of inline text. ``text`` keeps soft line breaks as ``\\n``; ``plain`` is rendered.
+
+    ``pictured`` is whether the inline carries a Markdown image. The page draws the picture there
+    and ``plain`` shows its alternative text in its place, so a caller that admits only what the
+    page shows as text has to be told (Codex on #462).
+    """
 
     text: str
     plain: str
     line: int
+    pictured: bool = False
 
 
 class Heading(NamedTuple):
@@ -157,7 +163,8 @@ class Heading(NamedTuple):
     when the heading opens on the same line as the item's marker, so only a top-level, unquoted,
     unindented heading has column zero. ``markup`` is the ``#`` run or the ``=``/``-`` underline,
     so the two forms are distinguishable too. ``text`` is the heading content with any closing
-    ``#`` sequence already removed, and ``plain`` is that content rendered.
+    ``#`` sequence already removed, and ``plain`` is that content rendered. ``pictured`` is as
+    on :class:`Paragraph`.
     """
 
     level: int
@@ -166,6 +173,7 @@ class Heading(NamedTuple):
     line: int
     column: int
     markup: str
+    pictured: bool = False
 
 
 class ListItem(NamedTuple):
@@ -346,6 +354,17 @@ def _plain(inline: Token) -> str:
     return " ".join("".join(parts).split())
 
 
+def _pictured(inline: Token) -> bool:
+    """Whether the inline token carries an image, by the parser's reading of it.
+
+    Read off the children rather than the source so that an escaped `\\![x](y)`, a `![x](y)`
+    inside a code span and a reference-style `![x][ref]` whose definition sits elsewhere in the
+    body are each answered as the page answers them: the first two are text, the last is a
+    picture. An image inside a link or emphasis is still a top-level child here.
+    """
+    return any(child.type == "image" for child in inline.children or ())
+
+
 def tags(text: str) -> Iterator[tuple[str, bool]]:
     """Every HTML tag in ``text`` - a block's source ``text`` - in order, as ``(name, closing)``.
 
@@ -408,7 +427,7 @@ def _blocks(
             return tuple(found), at + 1
         if token.type == "paragraph_open":
             inline = tokens[at + 1]
-            found.append(Paragraph(inline.content, _plain(inline), _line(token)))
+            found.append(Paragraph(inline.content, _plain(inline), _line(token), _pictured(inline)))
             at += 3
         elif token.type == "heading_open":
             line = _line(token)
@@ -421,6 +440,7 @@ def _blocks(
                     line,
                     _column(lines, line, origin),
                     token.markup,
+                    _pictured(inline),
                 )
             )
             at += 3
