@@ -304,8 +304,9 @@ def test_no_refusal_token_depends_on_the_separator_it_is_written_with(token: str
 
     So this asserts the property over **every** entry rather than the one that broke. The parameter
     set is frozen at collection time so a mutation that empties the module attribute still runs
-    these assertions. Each restriction sits in a scan-only table row above a bare admitting
-    heading, so token matching is its only possible reason to refuse under the exact-value rule.
+    these assertions. Each restriction sits in a table row that cannot admit, above a bare
+    admitting heading, and is phrased so the row's exact check cannot be what refuses it: token
+    matching is its only possible reason to refuse.
     """
     separators = (" ", "-", "_", "/")
     canonical = claim._flatten_autonomy(token)
@@ -377,7 +378,7 @@ def test_an_autonomy_table_row_is_read_with_or_without_its_outer_pipes() -> None
         assert refusal is not None, f"{where}: a restrictive table row was not read - fail-open"
         assert "maintainer decision" in refusal, f"{where}: {refusal}"
 
-    # Still scan-only: dropping the pipe must not turn a row into a way to admit.
+    # Still unable to admit: dropping the pipe must not turn a row into a way to admit.
     bare = claim._autonomy_refusal("autonomy | agent-can-do-alone\n--- | ---\n")
     assert bare is not None and "declares no Execution autonomy" in bare
 
@@ -385,6 +386,100 @@ def test_an_autonomy_table_row_is_read_with_or_without_its_outer_pipes() -> None
     # paragraph is not a declaration shape, so the line is read exactly as it is rendered.
     lone = claim._autonomy_refusal("| **autonomy** | maintainer decision required |" + heading)
     assert lone is None, "a lone piped line is a paragraph on GitHub, not a table row"
+
+
+def test_a_recognised_table_value_is_exact_checked_but_never_admits() -> None:
+    """Codex on #462 (read of `f7c11d7`): `Autonomy | human review required` beside an admitting
+    heading was claimable. The row was scan-only, and `human review required` is not one of the
+    finite `AUTONOMY_REFUSES` phrases, so a recognised autonomy declaration holding neither
+    registered value was ignored. A row keyed `autonomy` is now a declaration like a `+` bullet:
+    its value cell is exact-checked, so any unregistered value refuses, and it still cannot admit.
+    """
+    heading = "## Execution autonomy\n\nagent-can-do-alone\n\n"
+    table = "| Field | Value |\n| --- | --- |\n| Autonomy | {} |\n"
+    unregistered = claim._autonomy_refusal(heading + table.format("human review required"))
+    assert unregistered is not None, "an unregistered table value was ignored - fail-open"
+    assert "human review required" in unregistered and "not a registered" in unregistered
+    assert "table row" in unregistered, unregistered
+
+    # A registered value in the row counts for nothing either way: the heading admits, and the
+    # row alone is still absence.
+    assert claim._autonomy_refusal(heading + table.format("agent-can-do-alone")) is None
+    alone = claim._autonomy_refusal(table.format("agent-can-do-alone"))
+    assert alone is not None and "declares no Execution autonomy" in alone
+
+    # Cells past the value are scanned for a token, one cell at a time.
+    wide = "| Field | Value | Note |\n| --- | --- | --- |\n| Autonomy | agent-can-do-alone | {} |\n"
+    assert claim._autonomy_refusal(heading + wide.format("after a maintainer decision")) is not None
+    assert claim._autonomy_refusal(heading + wide.format("small and self-contained")) is None
+
+
+def test_a_styled_autonomy_heading_is_read_like_a_styled_bullet() -> None:
+    """Codex on #462 (read of `f7c11d7`): `## **Execution autonomy**` over `maintainer decision
+    required` was not read as the autonomy heading, because `Heading.text` carries the inline
+    `**`, so a plain admitting bullet elsewhere made the issue claimable. Typography must not
+    decide a verdict in either direction - the bullet's `**` has been optional for the same
+    reason - so the heading key tolerates the same dress the table cell does, and a styled
+    heading at column zero admits exactly as a plain one would.
+    """
+    restricted = (
+        "- **Autonomy:** agent-can-do-alone\n\n## **Execution autonomy**\n\n"
+        "maintainer decision required\n"
+    )
+    refusal = claim._autonomy_refusal(restricted)
+    assert refusal is not None, "a styled restrictive heading was skipped - fail-open"
+    assert "maintainer decision" in refusal and "heading" in refusal, refusal
+
+    for styled in ("## **Execution autonomy**", "## _Autonomy_:", "## `Execution autonomy`"):
+        assert claim._autonomy_refusal(f"{styled}\n\nagent-can-do-alone\n") is None, styled
+        indented = claim._autonomy_refusal(f"   {styled}\n\nagent-can-do-alone\n")
+        assert indented is not None and "declares no Execution autonomy" in indented, styled
+
+
+def test_a_marker_inside_other_raw_html_cannot_start_a_grooming_block() -> None:
+    """Codex on #462 (read of `f7c11d7`): `<div>`, marker, `</div>` is one raw HTML block to
+    Markdown, and searching that block's text for the marker made the whole construct a grooming
+    block - so a restriction above it was discarded and an admitting declaration below it
+    governed, for a marker that was never on a line of its own. A marker block *begins* with the
+    marker; a block that merely contains one is a misplaced marker and the body refuses outright.
+    """
+    marker = "<!-- tether-grooming-v1 -->"
+    restrict = "## Execution autonomy\n\nmaintainer decision required\n\n"
+    admit = "\n\n## Execution autonomy\n\nagent-can-do-alone\n"
+    buried = claim._autonomy_refusal(restrict + f"<div>\n{marker}\n</div>" + admit)
+    assert buried is not None, "a marker inside other raw HTML started a grooming block"
+    assert "cannot start" in buried and "raw HTML" in buried, buried
+
+    # On its own line the marker is its own block whatever raw HTML follows it, and the grooming
+    # block it starts governs: the restriction above is superseded as the groomer intended.
+    own_line = claim._autonomy_refusal(restrict + f"{marker}\n<div>note</div>" + admit)
+    assert own_line is None, own_line
+
+
+def test_visible_raw_html_is_read_and_comments_are_not() -> None:
+    """Codex on #462 (read of `f7c11d7`): a `<details><summary>maintainer decision required
+    </summary></details>` under an admitting heading is rendered by GitHub and was read by the
+    regex scan, but the parser returns it as one raw HTML block and `_prose` made every HTML
+    block empty, so the restriction vanished. What GitHub shows of raw HTML is prose; what it
+    hides - a comment - is not; and a value written in raw HTML is read and exact-checked but is
+    one more shape that cannot admit.
+    """
+    heading = "## Execution autonomy\n\nagent-can-do-alone\n\n"
+    details = "<details>\n<summary>maintainer decision required</summary>\n</details>\n"
+    shown = claim._autonomy_refusal(heading + details)
+    assert shown is not None, "a restriction rendered from raw HTML was dropped - fail-open"
+    assert "maintainer decision" in shown and "heading remainder" in shown, shown
+
+    hidden = claim._autonomy_refusal(heading + "<!-- maintainer decision required, once -->\n")
+    assert hidden is None, hidden
+
+    as_value = claim._autonomy_refusal("## Execution autonomy\n\n<p>agent-can-do-alone</p>\n")
+    assert as_value is not None and "declares no Execution autonomy" in as_value, as_value
+    unregistered = claim._autonomy_refusal(
+        "- **Autonomy:** agent-can-do-alone\n\n## Execution autonomy\n\n"
+        "<p>human review required</p>\n"
+    )
+    assert unregistered is not None and "not a registered" in unregistered, unregistered
 
 
 def test_autonomy_refusals_distinguish_absent_restricted_and_unregistered_values() -> None:
