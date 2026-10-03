@@ -98,12 +98,22 @@ _CELL_OPEN = frozenset({"th_open", "td_open"})
 _CELL_CLOSE = frozenset({"th_close", "td_close"})
 
 #: Inline HTML, as it reaches ``plain``. A comment is not rendered and leaves nothing behind, so
-#: ``Auto<!-- note -->nomy`` is the one word the page shows. A tag leaves a space, because GitHub
-#: lays ``<li>`` and ``<br>`` out as breaks and joining ``maintainer</li><li>decision`` into one
-#: word would hide, from a caller, two words the page shows. The tag pattern is a tag as HTML
-#: defines one - a name, then attributes - so ``n < 5 and m > 3`` stays prose, as on the page.
+#: ``Auto<!-- note -->nomy`` is the one word the page shows. A tag is read as the page lays it
+#: out: a *phrasing* tag - ``<b>``, ``<em>``, ``<code>``, ``<a>``, ``<span>`` and the rest of the
+#: set below - wraps text without breaking it, so it leaves nothing and ``Auto<b>nomy</b>`` is
+#: one word (Greptile on #462: a space there split a key the page shows whole); any other tag -
+#: ``<li>``, ``<br>``, ``<p>``, ``<td>`` - is laid out as a break, so it leaves a space and
+#: ``maintainer</li><li>decision`` stays the two words the page shows. Either way the text reads
+#: as it renders, so a caller sees neither a word the page joins nor one it splits. The tag
+#: pattern is a tag as HTML defines one - a name, then attributes - so ``n < 5 and m > 3`` stays
+#: prose, as on the page.
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
-_HTML_TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
+_HTML_TAG = re.compile(r"</?([A-Za-z][A-Za-z0-9-]*)(?:\s[^<>]*)?/?>")
+_PHRASING_TAGS = frozenset(
+    {"a", "abbr", "b", "bdi", "bdo", "cite", "code", "del", "dfn", "em", "font", "i", "ins", "kbd"}
+    | {"mark", "q", "rp", "rt", "ruby", "s", "samp", "small", "span", "strike", "strong", "sub"}
+    | {"sup", "time", "tt", "u", "var"}
+)
 
 
 class MarkdownStructureError(ValueError):
@@ -316,8 +326,12 @@ def _plain(inline: Token) -> str:
 
 
 def _visible_html(text: str) -> str:
-    """Raw HTML as GitHub shows it: comments leave nothing, tags leave a space."""
-    return _HTML_TAG.sub(" ", _HTML_COMMENT.sub("", text))
+    """Raw HTML as GitHub shows it: a comment or phrasing tag leaves nothing, other tags a space."""
+
+    def laid_out(tag: re.Match[str]) -> str:
+        return "" if tag.group(1).lower() in _PHRASING_TAGS else " "
+
+    return _HTML_TAG.sub(laid_out, _HTML_COMMENT.sub("", text))
 
 
 def _line(token: Token) -> int:

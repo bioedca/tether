@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -304,16 +305,15 @@ def test_no_refusal_token_depends_on_the_separator_it_is_written_with(token: str
 
     So this asserts the property over **every** entry rather than the one that broke. The parameter
     set is frozen at collection time so a mutation that empties the module attribute still runs
-    these assertions. Each restriction sits in a table row that cannot admit, above a bare
-    admitting heading, and is phrased so the row's exact check cannot be what refuses it: token
-    matching is its only possible reason to refuse.
+    these assertions. Each restriction sits in **scan-only** prose - the remainder of a bare
+    admitting heading's section - where the token scan is the only check that runs, and the
+    refusal must name the entry it matched: token matching is its only possible reason to refuse.
+    This used to sit in a table row's value cell, and once that cell became exact-checked the body
+    refused for a second reason and the assertion held with the scan broken (Greptile on #462).
     """
     separators = (" ", "-", "_", "/")
     canonical = claim._flatten_autonomy(token)
-    body = (
-        f"| Field | Value |\n| --- | --- |\n| **autonomy** | {token} applies here |\n\n"
-        "## Execution autonomy\n\nagent-can-do-alone\n"
-    )
+    body = f"## Execution autonomy\n\nagent-can-do-alone\n\n{token} applies here\n"
     for separator in separators:
         respelled = canonical.replace(" ", separator)
         assert claim._flatten_autonomy(respelled) == canonical, (
@@ -323,9 +323,18 @@ def test_no_refusal_token_depends_on_the_separator_it_is_written_with(token: str
         original = claim.AUTONOMY_REFUSES
         try:
             claim.AUTONOMY_REFUSES = patched
-            assert claim._autonomy_refusal(body) is not None, (
+            refusal = claim._autonomy_refusal(body)
+            assert refusal is not None, (
                 f"{token!r} written as {respelled!r} stopped refusing - fail-open"
             )
+            # The token verdict names the table entry it matched - the first in table order, which
+            # for `needs human action` is the shorter `human action` - and the scan-only place.
+            named = re.search(r"It names '([^']*)'", refusal)
+            assert named is not None and named.group(1) in patched, refusal
+            assert "heading remainder" in refusal, refusal
+            # The scan is the only reason: with no entries to match, the same body admits.
+            claim.AUTONOMY_REFUSES = ()
+            assert claim._autonomy_refusal(body) is None
         finally:
             claim.AUTONOMY_REFUSES = original
 
@@ -533,6 +542,16 @@ def test_inline_html_is_invisible_to_the_key_as_it_is_on_the_page() -> None:
     )
     assert tagged is not None and "maintainer decision" in tagged, tagged
     assert claim._autonomy_refusal("- **Autonomy:** <b>agent-can-do-alone</b>\n") is None
+
+    # Greptile on #462 (read of `4b61fb0`): a phrasing tag *inside* the key was read as a space,
+    # so `Auto<b>nomy</b>:` was two words, not the key, and the restriction beside it was dropped.
+    # The page shows one word; so does the gate.
+    split_by_tag = claim._autonomy_refusal(
+        "- **Auto<b>nomy</b>:** human review required\n" + admitting
+    )
+    assert split_by_tag is not None, "a key split by a phrasing tag was not read - fail-open"
+    assert "human review required" in split_by_tag and "bullet" in split_by_tag, split_by_tag
+    assert claim._autonomy_refusal("- **Auto<b>nomy</b>:** agent-can-do-alone\n") is None
 
     # A comment in the value is hidden on the page and hidden here; a token the page shows across
     # a tag boundary is still a token; `<` in prose is not a tag.

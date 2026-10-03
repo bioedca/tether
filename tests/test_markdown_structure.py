@@ -277,9 +277,19 @@ def test_plain_drops_markup_decodes_the_source_and_keeps_what_the_page_shows():
     assert para.plain == "~~agent-can-do-alone~~"
 
 
-def test_a_tag_leaves_a_space_so_words_it_separates_on_the_page_stay_separate():
+def test_a_tag_is_read_as_the_page_lays_it_out():
+    # A tag the page lays out as a break leaves a space, so two words stay two words.
     (para,) = md.parse("maintainer<br>decision<li>required</li>\n")
     assert para.plain == "maintainer decision required"
+    # Greptile on #462: a phrasing tag wraps text without breaking it, so it leaves nothing -
+    # `Auto<b>nomy</b>` is the one word the page shows, and a space there split the key.
+    (para,) = md.parse("**Auto<b>nomy</b>:** <em>x</em>y <a href='u'>z</a> <span>w</span>\n")
+    assert para.plain == "Autonomy: xy z w"
+    (para,) = md.parse("maintainer<b>decision</b>\n")
+    assert para.plain == "maintainerdecision"  # one word on the page too
+    # Tag names are read regardless of case, and attributes do not change the kind of tag.
+    (para,) = md.parse('Auto<B class="k">nomy</B> <DIV>d</DIV>\n')
+    assert para.plain == "Autonomy d"
     # A bare `<` that is not a tag is prose, as it is on the page.
     (para,) = md.parse("n < 5 and m > 3\n")
     assert para.plain == "n < 5 and m > 3"
