@@ -1047,9 +1047,36 @@ def test_a_list_item_is_read_past_a_leading_block_that_draws_nothing() -> None:
     assert (
         claim._autonomy_refusal("- <!-- groomed -->\n  **Autonomy:** agent-can-do-alone\n") is None
     )
-    # A drawn first block is the item's first block, as before.
+    # A drawn first block is the item's lead, so the key below it is not the bullet's; it is
+    # read as a keyed paragraph, which can refuse and cannot admit.
     pictured = claim._autonomy_refusal("- ![](x.png)\n\n  **Autonomy:** agent-can-do-alone\n")
-    assert pictured is not None and "declares no Execution autonomy" in pictured, pictured
+    assert pictured is not None and "only in a shape that cannot admit" in pictured, pictured
+    assert "paragraph" in pictured, pictured
+
+
+def test_a_keyed_paragraph_anywhere_is_a_declaration_that_cannot_admit() -> None:
+    """A paragraph keyed `**Autonomy:**` that is not a list item's lead - on its own at the top
+    level, second in an item, inside a block quote - is a field the page shows, and it was not
+    read at all, so a restriction written that way beside an admitting bullet was never seen:
+    the class of the comment-led item (Codex on #462, read of `a1408d7`) one shape over. It is
+    a declaration of the `+` bullet's kind - exact-checked, able to refuse, never able to admit.
+    The live corpus has three such paragraphs, each already refusing for another reason.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    for shape in (
+        "**Autonomy:** maintainer decision required\n",
+        "- note\n\n  **Autonomy:** maintainer decision required\n",
+        "> **Autonomy:** maintainer decision required\n",
+        "Execution autonomy: maintainer-decision required\n",
+    ):
+        refusal = claim._autonomy_refusal(admitting + "\n" + shape)
+        assert refusal is not None, f"{shape!r}: a keyed paragraph was not read - fail-open"
+        assert "maintainer decision" in refusal, f"{shape!r}: {refusal}"
+    alone = claim._autonomy_refusal("**Autonomy:** agent-can-do-alone\n")
+    assert alone is not None and "only in a shape that cannot admit" in alone, alone
+    assert "paragraph" in alone, alone
+    # A bullet's lead is read once, as the bullet, and a paragraph that is not keyed is prose.
+    assert claim._autonomy_refusal(admitting + "\nAutonomy is discussed above.\n") is None
 
 
 def test_a_qualified_heading_or_row_key_is_a_declaration_that_cannot_admit() -> None:

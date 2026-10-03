@@ -946,10 +946,26 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
                     for cell in cells[1:]
                     if cell
                 )
+    leads: list[Any] = []
     for block in _markdown.walk(source):
         if isinstance(block, _markdown.ListBlock):
             for item in block.items:
+                lead = _lead(item)
+                if lead is not None:
+                    leads.append(lead)
                 found.extend(_bullet(item, where, collapsed))
+    # A paragraph keyed like a bullet that is not an item's lead - on its own at the top level,
+    # second in an item, inside a block quote - is a field the page shows all the same, and not
+    # reading it let a restriction written that way sit beside an admitting bullet unseen. It is
+    # a declaration of the `+` bullet's kind: exact-checked, able to refuse, never able to admit.
+    for block in _markdown.walk(source):
+        if isinstance(block, _markdown.Paragraph) and not any(block is lead for lead in leads):
+            keyed = _keyed(_prose(block))
+            if keyed is not None:
+                qualifier, value, _ = keyed
+                found.append(
+                    _AutonomyValue(value, f"{where} paragraph", qualifier=qualifier, admits=False)
+                )
     return found
 
 
@@ -1016,27 +1032,15 @@ def _bullet(
     declares nothing here; a nested list inside it is visited by the caller's walk like any
     other. ``collapsed`` is `_collapsed` of the document.
     """
-    blocks = item.blocks
-    while blocks and not _drawn(blocks[0]):
-        blocks = blocks[1:]
-    first = blocks[0] if blocks else None
+    first = _lead(item)
     if not isinstance(first, _markdown.Paragraph):
         return []
     # Matched on the rendered text, not the source: an inline comment splitting the key, or a
     # `<b>` around it, is invisible on the page and must be invisible here (Codex on #462).
-    text = _prose(first)
-    # A task-list item draws a checkbox before its text, and the key is the text: `- [ ]
-    # **Autonomy:** maintainer decision required` is a restriction the page shows, and matching
-    # the checkbox as part of the key dropped it (Codex on #462). The checkbox is also not the
-    # registered shape, so the item can refuse and cannot admit.
-    task = _TASK_MARKER.match(text)
-    if task is not None:
-        text = text[task.end() :]
-    match = _AUTONOMY_BULLET.fullmatch(text)
-    if match is None:
+    keyed = _keyed(_prose(first))
+    if keyed is None:
         return []
-    qualifier = _normalize_autonomy(match.group("qualifier"))
-    value = " ".join(match.group("value").split())
+    qualifier, value, task = keyed
     # Exact-checked like any declaration, but only the registered shape - column zero, `-` or
     # `*`, no checkbox, plain Markdown, on the page - may admit. A `+`, indented, nested, quoted
     # or task-list bullet, one carrying a tag or an image, or one inside a `<details>` block can
@@ -1044,13 +1048,44 @@ def _bullet(
     registered = (
         item.column == 0
         and item.marker in "-*"
-        and task is None
+        and not task
         and _plain_markdown(first)
         and _on_the_page(collapsed, item.line)
     )
     found = [_AutonomyValue(value, f"{where} bullet", qualifier=qualifier, admits=registered)]
-    found.extend(_scan_only(_flat(blocks[1:]), f"{where} bullet remainder"))
+    rest = list(item.blocks)
+    while rest and rest[0] is not first:
+        rest.pop(0)
+    found.extend(_scan_only(_flat(tuple(rest[1:])), f"{where} bullet remainder"))
     return found
+
+
+def _lead(item: _markdown.ListItem) -> Any | None:
+    """The item's first block the page draws anything for, or ``None`` for an item that draws
+    nothing - the block a reader takes for the item's own text."""
+    for block in item.blocks:
+        if _drawn(block):
+            return block
+    return None
+
+
+def _keyed(text: str) -> tuple[str, str, bool] | None:
+    """``text`` - a paragraph's rendered text - read as a bullet-shaped declaration, or ``None``.
+
+    Returns the normalized qualifier, the value with its whitespace collapsed, and whether a
+    task-list checkbox was read past first. A task-list item draws a checkbox before its text,
+    and the key is the text: `- [ ] **Autonomy:** maintainer decision required` is a restriction
+    the page shows, and matching the checkbox as part of the key dropped it (Codex on #462).
+    """
+    task = _TASK_MARKER.match(text)
+    if task is not None:
+        text = text[task.end() :]
+    match = _AUTONOMY_BULLET.fullmatch(text)
+    if match is None:
+        return None
+    qualifier = _normalize_autonomy(match.group("qualifier"))
+    value = " ".join(match.group("value").split())
+    return qualifier, value, task is not None
 
 
 def _autonomy_refusal(body: str) -> str | None:
@@ -1132,7 +1167,8 @@ def _autonomy_refusal(body: str) -> str | None:
             shape = declarations[0]
             return (
                 f"declares autonomy {shape.raw.strip()!r} only in a shape that cannot admit "
-                f"({shape.where}: a `+`, indented, nested, quoted or task-list bullet, a table "
+                f"({shape.where}: a `+`, indented, nested, quoted or task-list bullet, a keyed "
+                "paragraph that is not a bullet, a table "
                 "row, a heading whose value is not its own next paragraph, a key or value "
                 "carrying an HTML tag or an image, or anything inside a `<details>` block). "
                 "Write it as a column-zero "
