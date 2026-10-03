@@ -115,7 +115,14 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: text the page draws - ``<?note <!-- x --> ?>`` draws ``?>`` and ``<![CDATA[<b>y</b>]]>``
 #: draws ``y]]>`` (GitHub's markdown endpoint, 2026-10-03). The instruction and the CDATA
 #: section are forms at all only where cmark's close follows, so each requires it ahead;
-#: without it the ``<`` is the text the page shows. A tag is read as the page lays it out, and the
+#: without it the ``<`` is the text the page shows. A comment is read the same way: the page's
+#: parser takes ``<!-->`` and ``<!--->`` as empty comments and closes one at ``--!>`` as at
+#: ``-->``, so ``<!-->Autonomy:`` shows the key at the front of its line, where reading the
+#: five characters as text pushed the key off it, and ``<!-- x --!> b -->`` draws ``b -->``,
+#: where reading to cmark's close hid it (GitHub's markdown endpoint, 2026-10-03); the parser
+#: pinned here already takes those spans as inline HTML by the same CommonMark rule, so only
+#: the grammar here had to follow. A raw block opening a comment it never closes is a comment
+#: to the end, as the page's parser has it. A tag is read as the page lays it out, and the
 #: page lays out only what GitHub keeps: an issue body passes through html-pipeline's
 #: ``SanitizationFilter`` (v3.2.4; its allowlist last changed 2024-02-02), which keeps exactly
 #: the elements in ``KEPT_TAGS`` and strips every other tag while leaving its text in place, so
@@ -160,8 +167,10 @@ _CELL_CLOSE = frozenset({"th_close", "td_close"})
 #: one fragment, ``_HTML_ATTRIBUTES``, and every pattern that reads a tag shares it: a pattern
 #: with a ``[^>]*`` of its own stopped at ``title=">"`` and read the rest of the key as the
 #: element's inside (Codex on #462).
+_HTML_COMMENT = r"<!-->|<!--->|<!--(?:.*?(?:-->|--!>)|.*)"
 _HTML_HIDDEN = re.compile(
-    r"<!--.*?-->|<\?(?=.*?\?>)[^>]*>|<!\[CDATA\[(?=.*?\]\]>)[^>]*>|<![A-Za-z][^>]*>", re.S
+    rf"{_HTML_COMMENT}|<\?(?=.*?\?>)[^>]*>|<!\[CDATA\[(?=.*?\]\]>)[^>]*>|<![A-Za-z][^>]*>",
+    re.S,
 )
 _ATTRIBUTE_NAME = r"[A-Za-z_:][A-Za-z0-9_.:-]*"
 _ATTRIBUTE_VALUE = r"(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\")"
@@ -253,7 +262,7 @@ def _sanitized(text: str) -> str:
 #: A comment, another hidden form or a tag, whichever opens first: what
 #: :func:`without_tags` walks.
 _HIDDEN_OR_TAG = re.compile(
-    rf"(?P<comment><!--.*?-->)|{_HTML_HIDDEN.pattern}|{_HTML_TAG.pattern}", re.S
+    rf"(?P<comment>{_HTML_COMMENT})|{_HTML_HIDDEN.pattern}|{_HTML_TAG.pattern}", re.S
 )
 
 

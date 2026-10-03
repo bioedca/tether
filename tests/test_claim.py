@@ -1487,9 +1487,18 @@ def test_a_marker_inside_a_tag_attribute_is_no_marker() -> None:
         "<?x ?><!-- tether-grooming-v1 -->\n",
         "<?x > <!-- tether-grooming-v1 --> ?>\n",
         "<![CDATA[x]]><!-- tether-grooming-v1 -->\n",
+        "<!--><!-- tether-grooming-v1 -->\n",
+        "<!-- x --!><!-- tether-grooming-v1 --> -->\n",
     ):
         read = claim._autonomy_refusal(plain + marker)
         assert read is not None and "marker inside" in read, (marker, read)
+    # Found beside it: `<!-->` is an empty comment to the page, so a key after one heads its
+    # line and is read, and an unclosed comment block hides the rest of the body, so a body
+    # that is one declares nothing.
+    read = claim._autonomy_refusal("- <!-->Autonomy: maintainer decision required\n" + plain)
+    assert read is not None and "maintainer decision" in read, read
+    read = claim._autonomy_refusal("<!-- x\n\n" + plain)
+    assert read is not None and "maintainer decision" not in read and "declar" in read, read
     without = claim._markdown.without_tags
     assert without('a <img alt="<!-- x -->"> <!-- y --> b') == "a  <!-- y --> b"
     assert without("<!-- a <b> --> <b>c</b>") == "<!-- a <b> --> c"

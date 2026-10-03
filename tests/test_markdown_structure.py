@@ -471,6 +471,21 @@ def test_hidden_inline_html_leaves_nothing_behind_as_a_comment_does():
         assert para.plain == plain, (text, para.plain)
     (raw,) = md.parse("<?x > Autonomy: maintainer decision required ?>\n")
     assert isinstance(raw, md.Html) and raw.plain == "Autonomy: maintainer decision required ?>"
+    # A comment the same way: `<!-->` and `<!--->` are empty comments to the page's parser, and
+    # `--!>` closes one as `-->` does, the rest drawn (GitHub's markdown endpoint, 2026-10-03).
+    for text, plain in (
+        ("a <!--> x --> b", "a x --> b"),
+        ("a <!---> x --> b", "a x --> b"),
+        ("a <!-- x --!> b --> c", "a b --> c"),
+        ("a <!-- x -- y --> b", "a b"),
+        ("a <!----> b", "a b"),
+        ("<!-->Autonomy: x", "Autonomy: x"),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert para.plain == plain, (text, para.plain)
+    # A raw block opening a comment it never closes is a comment to the end of the document.
+    (raw,) = md.parse("<!-- x\n\n- **Autonomy:** agent-can-do-alone\n")
+    assert isinstance(raw, md.Html) and raw.plain == "" and raw.shown == ()
 
 
 def test_raw_html_is_rendered_as_what_github_keeps_of_it():
