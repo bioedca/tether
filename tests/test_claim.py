@@ -1137,6 +1137,40 @@ def test_closing_a_raw_details_pops_the_scopes_opened_inside_it() -> None:
     )
 
 
+def test_raw_scopes_are_the_documents_and_outlive_the_block() -> None:
+    """Codex on #462 (read of `22b148b`): `<details><table><tr><td>` ending at a blank line,
+    then `</details>` in a later raw block - the cell is still open on the page, so the end
+    tag is inside it and closes nothing, and a registered bullet below stays hidden (GitHub's
+    markdown endpoint, 2026-10-03). The scope stack was dropped at the block's end, so the
+    later block closed the disclosure and the bullet was on the page. The stack is the
+    document's now, as the parser's is: raw or in running text, the end tag is inside the
+    cell; closing the cell and the table first closes it; a `</div>` closes a disclosure
+    opened inside the div and what follows is on the page; and a cell left open inside a
+    list item swallows the item's own end tag, so a disclosure opened there runs on.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    for hidden in (
+        f"<details><table><tr><td>\n\n</details>\n\n{admitting}",
+        f"<details><table><tr><td>\n\nx </details>\n\n{admitting}",
+        f"<details>\n\n<table><tr><td>\n\n</details>\n\n{admitting}",
+        f"<details><table><tr><td>\n\n</td>\n\n</details>\n\n{admitting}",
+        f"- <table><tr><td><details>note\n\n{admitting}",
+        f"- <details><table><tr><td>note\n\n{admitting}",
+        f"<div><details>\n\n{admitting}\n</div>\n",
+    ):
+        read = claim._autonomy_refusal(hidden)
+        assert read is not None and "only in a shape that cannot admit" in read, (hidden, read)
+    for shown in (
+        f"<details><table><tr><td>\n\n</td></tr></table></details>\n\n{admitting}",
+        f"<details><table><tr><td>\n\n</table></details>\n\n{admitting}",
+        f"<div><details>\n\nx\n\n</div>\n\n{admitting}",
+        f"<div>\n\n<details>\n\nx\n\n</div>\n\n{admitting}",
+        f"- <table><tr><td><details>note</td></tr></table>\n\n{admitting}",
+        f"<table><tr><td>\n\n</td></tr></table>\n\n<details>x</details>\n\n{admitting}",
+    ):
+        assert claim._autonomy_refusal(shown) is None, shown
+
+
 def test_a_details_tag_in_a_footnote_acts_at_the_foot_and_not_in_the_body() -> None:
     """The mirror of Codex's read-34 finding on #462 (a continuation's raw HTML), found while
     fixing it: a footnote is drawn at the page's foot, after the whole body, so a tag in one
@@ -1469,6 +1503,50 @@ def test_a_bare_key_in_a_footnote_heads_that_footnote_alone() -> None:
         + "[^1]: note\n\n    <div><p>Notes</p><p>Autonomy: human review required</p></div>\n"
     )
     assert raw is not None and "human review required" in raw, raw
+
+
+def test_a_block_the_foot_draws_with_no_text_keeps_its_place() -> None:
+    """Codex on #462 (read of `22b148b`): `[^1]: Autonomy` over an indented `<hr>` over
+    `agent-can-do-alone` is, at the foot, a bare key heading a rule - the page draws the rule
+    first (GitHub's markdown endpoint, 2026-10-03), and in the body a rule or a code block
+    under a bare key is its empty value. The continuation dropped what drew no text, so the
+    key headed the registered value and an admitting bullet beside it carried the issue.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\nSee[^1].\n\n"
+    for empty in ("<hr>", "---", "    code", "<div></div>"):
+        read = claim._autonomy_refusal(
+            f"{admitting}[^1]: Autonomy\n\n    {empty}\n\n    agent-can-do-alone\n"
+        )
+        assert read is not None and "declares autonomy ''" in read, (empty, read)
+    # Control: with nothing between, the key heads the value, and the foot cannot admit.
+    assert claim._autonomy_refusal(f"{admitting}[^1]: Autonomy\n\n    agent-can-do-alone\n") is None
+    alone = claim._autonomy_refusal("See[^1].\n\n[^1]: Autonomy\n\n    agent-can-do-alone\n")
+    assert alone is not None and "cannot admit" in alone, alone
+
+
+def test_a_list_draws_a_bullet_per_item_whatever_the_item_holds() -> None:
+    """Codex on #462 (read of `22b148b`): `## Execution autonomy` over `- <!-- c -->` over
+    `- agent-can-do-alone` draws an empty bullet over the value (GitHub's markdown endpoint,
+    2026-10-03), so the heading's value is empty and refuses. The stand-in for an undrawn
+    container was given per list, only when no item drew, so the empty first item vanished
+    and the second item's value was the heading's own; it is given per item now.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for shape in (
+        "## Execution autonomy\n\n- <!-- c -->\n- agent-can-do-alone\n",
+        "## Execution autonomy\n\n* <!-- c -->\n* agent-can-do-alone\n",
+        "## Execution autonomy\n\n1. <!-- c -->\n2. agent-can-do-alone\n",
+        "Autonomy\n\n- <!-- c -->\n- agent-can-do-alone\n",
+        "## Execution autonomy\n\n> - <!-- c -->\n> - agent-can-do-alone\n",
+    ):
+        read = claim._autonomy_refusal(admitting + shape)
+        assert read is not None and "declares autonomy ''" in read, (shape, read)
+    # Controls: a drawn first item is the value, wherever an undrawn item sits after it.
+    for shape in (
+        "## Execution autonomy\n\n- agent-can-do-alone\n- <!-- c -->\n",
+        "## Execution autonomy\n\n- agent-can-do-alone\n",
+    ):
+        assert claim._autonomy_refusal(admitting + shape) is None, shape
 
 
 def test_an_images_alternative_text_is_read_as_the_page_shows_it() -> None:

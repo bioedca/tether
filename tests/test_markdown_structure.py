@@ -685,7 +685,7 @@ def test_a_footnote_continuation_is_more_footnote_paragraphs():
     (para, code) = md.parse("text\n\n    Autonomy: maintainer decision required\n")
     assert isinstance(code, md.Code) and not code.fenced
     doc = md.parse("[^1]: note\n\n    ```\n    Autonomy: human action\n    ```\n\n    after\n")
-    assert [block.plain for block in doc] == ["note", "after"]
+    assert [block.plain for block in doc] == ["note", "", "after"]
     # A table in a continuation is a footnote paragraph per row; a nested definition is one too.
     doc = md.parse("[^1]: note\n\n    | Autonomy | human action |\n    | --- | --- |\n")
     assert [(block.plain, block.footnote) for block in doc] == [
@@ -699,13 +699,25 @@ def test_a_footnote_continuation_is_more_footnote_paragraphs():
         "[^1]: note\n\n    <div><p>Notes</p><p>Autonomy: human review required</p></div>\n\n"
         "    [^2]: nested\n\n[^3]: next\n"
     )
+    # The `<div>` opens a block of its own that shows no text, a piece as it is in the body.
     assert [(block.plain, block.note) for block in doc] == [
         ("note", 0),
+        ("", 0),
         ("Notes", 0),
         ("Autonomy: human review required", 0),
         ("nested", 4),
         ("next", 6),
     ]
+    # Codex on #462 (read of `22b148b`): a block the foot draws with no text - a rule, a code
+    # block, a raw piece showing nothing - keeps its place as an empty footnote paragraph, so
+    # a bare key above it heads the rule and not the value below, as it would in the body.
+    for empty in ("<hr>", "---", "    code", "<div></div>"):
+        doc = md.parse(f"[^1]: Autonomy\n\n    {empty}\n\n    agent-can-do-alone\n")
+        assert [(block.plain, block.note) for block in doc] == [
+            ("Autonomy", 0),
+            ("", 0),
+            ("agent-can-do-alone", 0),
+        ], empty
 
 
 def test_an_images_alternative_text_is_its_label_rendered():

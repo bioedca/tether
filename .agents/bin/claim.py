@@ -647,12 +647,20 @@ def _flat(blocks: tuple[_markdown.Block, ...]) -> list[_Leaf]:
     as a leaf itself. The page draws a block quote's bar and a list's bullet whatever they hold,
     so `> <!-- note -->` under `## Execution autonomy` is something the reader sees between the
     heading and the paragraph below it; opened up to its one undrawn leaf, it vanished, and that
-    paragraph admitted as the heading's own next paragraph (Codex on #462).
+    paragraph admitted as the heading's own next paragraph (Codex on #462). A list draws a bullet
+    *per item*, so the stand-in is the item: `- <!-- c -->` over `- agent-can-do-alone` under
+    the heading is an empty bullet over a value, and one stand-in for the whole list, given
+    only when no item draws, let the value be the heading's own (Codex on #462).
     """
     leaves: list[_Leaf] = []
     for block in blocks:
         if isinstance(block, _markdown.ListBlock):
-            inner = [leaf for item in block.items for leaf in _flat(item.blocks)]
+            inner = []
+            for item in block.items:
+                own = _flat(item.blocks)
+                if not any(_drawn(leaf.block) for leaf in own):
+                    inner.append(_Leaf(item, blocks))
+                inner.extend(own)
         elif isinstance(block, _markdown.BlockQuote):
             inner = _flat(block.blocks)
         elif isinstance(block, _markdown.Table):
@@ -881,8 +889,11 @@ def _declared_autonomy(body: str) -> list[_AutonomyValue]:
 #: `<hr>` is void; and `</details>` is the closer itself.
 _HTML_SCOPES = _markdown.BLOCK_TAGS - {"details", "hr", "p"}
 #: The scope boundaries among them: a `</details>` written inside one cannot close a
-#: `<details>` opened outside it (HTML5 "has an element in scope").
+#: `<details>` opened outside it (HTML5 "has an element in scope"), and nor can any other end
+#: tag reach past one - save a table part's own, which sees through everything but a table
+#: opened after it (HTML5 "in table", "in cell").
 _HTML_BOUNDARIES = frozenset({"caption", "table", "td", "th"})
+_HTML_TABLE_PARTS = _HTML_BOUNDARIES | {"tbody", "tfoot", "thead", "tr"}
 
 
 def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]:
@@ -905,6 +916,19 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
     reader sees, so it may refuse and may not admit; `<details open>` is collapsed here too,
     because a disclosure widget is not the registered shape whichever way it starts.
 
+    Raw HTML has scopes of its own, and they are the document's, as the HTML parser's stack is,
+    not the block's. A `<details>` opened inside a `<td>`, an `<li>`, a `<div>` or any other
+    `_HTML_SCOPES` element is popped by that element's end tag - left to the end of the body,
+    `<td><details>note</td>` collapsed a registered bullet below the table (Codex on #462) -
+    and a `</details>` inside a cell cannot close one opened outside the table, in the same
+    block or in a later one: `<details><table><tr><td>` left open at a blank line is still
+    open in the block after it, so a `</details>` there, raw or in running text, closes nothing,
+    where a stack dropped at the block's end let it put a hidden bullet back on the page (Codex
+    on #462). The same cell left open inside a list item or a heading swallows that element's
+    own end tag, so what was opened inside runs on - the parser's reading, and the safe one. A
+    start tag's implicit close of an open sibling - a second `<li>` or `<td>` - is not
+    modelled, which can only over-collapse.
+
     A tag in a footnote is drawn at the page's foot, after the whole body, wherever the
     definition sits in the source, so it is not counted at all. A `<details>` there collapses
     the rest of the foot and nothing of the body, and the foot can only refuse; a `</details>`
@@ -914,77 +938,77 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
     finding on #462, a continuation's raw HTML read as a run).
     """
     spans: list[tuple[int, float]] = []
-    # Each open `<details>`: the nesting level it was opened at and its source line, innermost
-    # last. Level zero is the document's own blocks; each heading, list item or block quote is a
-    # level deeper, and its end tag pops whatever was opened inside it.
-    opened: list[tuple[int, int]] = []
+    # Each open `<details>`: the nesting level it was opened at - zero for the document's own
+    # blocks, one deeper for each heading, list item or block quote - how many raw scopes were
+    # open then, and its source line; innermost last.
+    opened: list[tuple[int, int, int]] = []
+    # Each open raw scope - a kept block element, `_HTML_SCOPES` - with the nesting level it
+    # was opened at; innermost last.
+    scopes: list[tuple[int, str]] = []
 
-    def read(found: Iterator[tuple[str, bool]], level: int, line: int) -> None:
-        for name, closing in found:
-            if name != "details":
-                continue
+    def pop_details(line: int) -> None:
+        level, _, start = opened.pop()
+        if level == 0:
+            spans.append((start, line))
+
+    def tag(name: str, closing: bool, level: int, line: int) -> None:
+        if name == "details":
             if not closing:
-                opened.append((level, line))
-            elif opened:
-                at, start = opened.pop()
-                if at == 0:
-                    spans.append((start, line))
+                opened.append((level, len(scopes), line))
+            elif opened and not any(
+                scope in _HTML_BOUNDARIES for _, scope in scopes[opened[-1][1] :]
+            ):
+                # The end tag reaches the innermost open disclosure unless a boundary opened
+                # after it is still open, and pops everything opened inside it with it, so
+                # `<details><div>x</details>` leaves no `div` for a later `</div>` to close.
+                del scopes[opened[-1][1] :]
+                pop_details(line)
+            return
+        if name not in _HTML_SCOPES:
+            return
+        if not closing:
+            scopes.append((level, name))
+            return
+        # The end tag of a kept block element pops the element with everything opened inside
+        # it - unless the element is not in scope, a boundary opened after it still being open,
+        # when the parser ignores the tag; a table part's own end tag sees through everything
+        # but a table opened after it.
+        blocking = {"table"} if name in _HTML_TABLE_PARTS else _HTML_BOUNDARIES
+        for index in range(len(scopes) - 1, -1, -1):
+            if scopes[index][1] == name:
+                break
+            if scopes[index][1] in blocking:
+                return
+        else:
+            return
+        del scopes[index:]
+        while opened and opened[-1][1] > index:
+            pop_details(line)
 
     def leave(level: int) -> None:
-        while opened and opened[-1][0] >= level:
+        # A heading's, list item's or block quote's own end tag pops what was opened inside
+        # it - unless a boundary opened inside it is still open, when the parser ignores the
+        # end tag and everything opened inside runs on.
+        if any(at >= level and scope in _HTML_BOUNDARIES for at, scope in scopes):
+            return
+        while scopes and scopes[-1][0] >= level:
+            scopes.pop()
+        while opened and (opened[-1][0] >= level or opened[-1][1] > len(scopes)):
             opened.pop()
-
-    def raw(block: _markdown.Html, level: int) -> None:
-        # Raw HTML has scopes of its own. A `<details>` opened inside a `<td>`, an `<li>`, a
-        # `<div>` or any other `_HTML_SCOPES` element is popped by that element's end tag, and
-        # a `</details>` inside a table cell cannot close one opened outside the cell. Left to
-        # the end of the body, `<td><details>note</td>` collapsed a registered bullet below the
-        # table (Codex on #462). The scope stack is this block's own: whatever is still open
-        # when the block ends is read as top-level, since the parser keeps the scope open
-        # across the blocks that follow and the safe reading of an unclosed cell is that it
-        # collapses to the end. A start tag's implicit close of an open sibling - a second
-        # `<li>` or `<td>` - is not modelled, which can only over-collapse.
-        scopes: list[str] = []
-        first = len(opened)
-        for name, closing in _markdown.tags(block.text):
-            if name == "details":
-                if not closing:
-                    opened.append((level + len(scopes), block.line))
-                    continue
-                bounded = [depth for depth, scope in enumerate(scopes) if scope in _HTML_BOUNDARIES]
-                floor = level + 1 + bounded[-1] if bounded else 0
-                if opened and opened[-1][0] >= floor:
-                    at, start = opened.pop()
-                    # The end tag pops everything opened inside the disclosure with it, so
-                    # `<details><div>x</details>` leaves no `div` open and the `</div>` after
-                    # a second `<details>` closes nothing - where leaving the `div` on the
-                    # stack let that `</div>` pop the second disclosure and put the bullet it
-                    # hides back on the page (Codex on #462).
-                    del scopes[max(0, at - level) :]
-                    if at == 0:
-                        spans.append((start, block.line))
-            elif name not in _HTML_SCOPES:
-                continue
-            elif not closing:
-                scopes.append(name)
-            elif name in scopes:
-                while scopes:
-                    popped = scopes.pop()
-                    leave(level + len(scopes) + 1)
-                    if popped == name:
-                        break
-        opened[first:] = [(level, line) for _, line in opened[first:]]
 
     def run(blocks: tuple[_markdown.Block, ...], level: int) -> None:
         for block in blocks:
             if isinstance(block, _markdown.Html):
-                raw(block, level)
+                for name, closing in _markdown.tags(block.text):
+                    tag(name, closing, level, block.line)
             elif isinstance(block, _markdown.Paragraph):
                 if block.footnote:
                     continue  # drawn at the foot: opens and closes nothing of the body
-                read(_markdown.inline_tags(block.text), level, block.line)
+                for name, closing in _markdown.inline_tags(block.text):
+                    tag(name, closing, level, block.line)
             elif isinstance(block, _markdown.Heading):
-                read(_markdown.inline_tags(block.text), level + 1, block.line)
+                for name, closing in _markdown.inline_tags(block.text):
+                    tag(name, closing, level + 1, block.line)
                 leave(level + 1)
             elif isinstance(block, _markdown.ListBlock):
                 for item in block.items:
@@ -996,7 +1020,7 @@ def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]
             # A table cell is a scope boundary both ways, code is literal, a rule has no tags.
 
     run(document, 0)
-    spans.extend((start, float("inf")) for at, start in opened if at == 0)
+    spans.extend((start, float("inf")) for _, _, start in opened)
     return spans
 
 
@@ -1357,15 +1381,16 @@ def _drawn(block: Any) -> bool:
 
     Prose is drawn, and so is what shows no prose: a picture with no alternative text, a raw
     HTML block whose tags draw a widget or a picture, a code block, a rule, a table row, and a
-    container - a list, a block quote, a table - whatever it holds. Only a block the page shows
-    nothing for - a comment on its own lines, a paragraph that renders to nothing and carries
-    neither a picture nor a tag - is not. A tag counts as drawn whatever the rendering made of
-    it, for the reason `_plain_markdown` gives: the approximation may not err in the admitting
-    direction. The distinction matters in two places. A heading's value is the first thing the
-    page draws below it, and selecting the first *prose* leaf instead let `![](x.png)` or a
-    `<details>` opening tag sit between the heading and the paragraph that then admitted as its
-    own next paragraph; and an item's lead is its first drawn block, and a lead that skipped a
-    nested list let the paragraph under that list admit as the item's own text (Codex on #462).
+    container - a list, an item of one, a block quote, a table - whatever it holds. Only a
+    block the page shows nothing for - a comment on its own lines, a paragraph that renders to
+    nothing and carries neither a picture nor a tag - is not. A tag counts as drawn whatever
+    the rendering made of it, for the reason `_plain_markdown` gives: the approximation may
+    not err in the admitting direction. The distinction matters in two places. A heading's
+    value is the first thing the page draws below it, and selecting the first *prose* leaf
+    instead let `![](x.png)` or a `<details>` opening tag sit between the heading and the
+    paragraph that then admitted as its own next paragraph; and an item's lead is its first
+    drawn block, and a lead that skipped a nested list let the paragraph under that list
+    admit as the item's own text (Codex on #462).
     """
     if isinstance(block, (_markdown.Paragraph, _markdown.Heading)):
         return bool(block.plain) or block.pictured or _markdown.has_tag(block.text)
@@ -1378,6 +1403,7 @@ def _drawn(block: Any) -> bool:
             _markdown.Code,
             _markdown.Rule,
             _markdown.ListBlock,
+            _markdown.ListItem,
             _markdown.BlockQuote,
             _markdown.Table,
         ),

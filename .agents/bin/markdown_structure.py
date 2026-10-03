@@ -491,12 +491,16 @@ def _continuation(content: str, line: int, note: int) -> list[Paragraph]:
     paragraph as itself, a table as a paragraph per row, and a raw HTML block as a paragraph
     *per block the page draws of it*, since `<div><p>Notes</p><p>Autonomy: human review
     required</p></div>` is two paragraphs at the foot and joined into one the key was not at
-    its start (Codex on #462). The foot never admits, so nothing is lost in the flattening that
-    a caller could have admitted on; code is literal and a rule draws no text, so neither
-    comes back. A raw piece comes back as its rendered text, tags gone, and a paragraph with
-    its source: a caller counting disclosures reads neither, since a tag in a footnote is
-    drawn at the foot and opens or closes nothing of the body. A definition nested in the
-    continuation keeps a note of its own.
+    its start (Codex on #462). A block the foot draws with no text - a rule, a code block,
+    which is literal, a raw block's piece that shows nothing - comes back as an empty footnote
+    paragraph, so that it keeps its place: `[^1]: Autonomy` over an indented `<hr>` over
+    `agent-can-do-alone` is a bare key heading a rule on the page, as it is in the body, and
+    with the rule dropped the key headed the value (Codex on #462). The foot never admits, so
+    nothing is lost in the flattening that a caller could have admitted on. A raw piece comes
+    back as its rendered text, tags gone, and a paragraph with its source: a caller counting
+    disclosures reads neither, since a tag in a footnote is drawn at the foot and opens or
+    closes nothing of the body. A definition nested in the continuation keeps a note of its
+    own.
     """
     text = content if content.endswith("\n") else content + "\n"
     lines = text.split("\n")
@@ -513,12 +517,13 @@ def _continuation(content: str, line: int, note: int) -> list[Paragraph]:
             )
         elif isinstance(block, Html):
             for piece in block.shown:
-                if piece.text:
-                    found.append(Paragraph(piece.text, piece.text, line + block.line, False, note))
+                found.append(Paragraph(piece.text, piece.text, line + block.line, False, note))
         elif isinstance(block, Table):
             for row in block.rows:
                 drawn = " ".join(cell for cell in row.plain if cell)
                 found.append(Paragraph(" ".join(row.cells), drawn, line + row.line, False, note))
+        elif isinstance(block, (Rule, Code)):
+            found.append(Paragraph("", "", line + block.line, False, note))
     return found
 
 
