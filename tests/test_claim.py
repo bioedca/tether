@@ -1459,12 +1459,22 @@ def test_a_marker_inside_a_tag_attribute_is_no_marker() -> None:
         "<p><!-- tether-grooming-v1 --></p>\n",
         "see <!-- tether-grooming-v1 --> here\n",
         '<img alt="<!-- tether-grooming-v1 -->"><!-- tether-grooming-v1 -->\n',
+        '<!-- <img alt=" --> x"><!-- tether-grooming-v1 -->\n',
     ):
         read = claim._autonomy_refusal(plain + marker)
         assert read is not None and "marker inside" in read, (marker, read)
-    assert (
-        claim._markdown.without_tags('a <img alt="<!-- x -->"> <!-- y --> b') == "a  <!-- y --> b"
-    )
+    # A tag inside a comment is the comment's text, and a comment the marker's text does not
+    # fill whole is no marker - as the block form of it is none.
+    for comment in (
+        "<!-- tether-grooming-v1 <b> -->\n",
+        "see <!-- tether-grooming-v1 <b> --> here\n",
+        "<!-- tether-<b></b>grooming-v1 -->\n",
+    ):
+        assert claim._autonomy_refusal(plain + comment) is None, comment
+    without = claim._markdown.without_tags
+    assert without('a <img alt="<!-- x -->"> <!-- y --> b') == "a  <!-- y --> b"
+    assert without("<!-- a <b> --> <b>c</b>") == "<!-- a <b> --> c"
+    assert without('<!-- <img alt=" --> x">') == '<!-- <img alt=" --> x">'
 
 
 def test_a_code_block_after_a_definition_in_another_container_is_code() -> None:

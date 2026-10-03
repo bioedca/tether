@@ -243,14 +243,21 @@ def _sanitized(text: str) -> str:
     return _HTML_HIDDEN.sub("", text)
 
 
+#: A hidden form or a tag, whichever opens first: what :func:`without_tags` walks.
+_HIDDEN_OR_TAG = re.compile(rf"(?P<hidden>{_HTML_HIDDEN.pattern})|{_HTML_TAG.pattern}", re.S)
+
+
 def without_tags(text: str) -> str:
     """``text`` with its tags gone, so that what sits inside one is not read as the page's
     content: ``<img alt="<!-- tether-grooming-v1 -->">`` is a picture whose alternative text
     quotes the marker, not a comment, and a search of the run for the marker found it there
-    and refused the body for a marker the page does not carry (Codex on #462). The tags are
-    read by the grammar above, so a comment inside a quoted attribute value goes with the
-    tag and a comment beside one stays."""
-    return _HTML_TAG.sub("", text)
+    and refused the body for a marker the page does not carry (Codex on #462). The text is
+    walked left to right taking a hidden form or a tag, whichever opens first, as the page
+    reads it: a comment inside a quoted attribute value goes with the tag, and a tag inside a
+    comment is the comment's text - ``<!-- tether-grooming-v1 <b> -->`` is no marker on the
+    page, and dropping the tag out of it made one (found beside Codex on #462). A comment
+    beside a tag stays."""
+    return _HIDDEN_OR_TAG.sub(lambda m: m.group("hidden") or "", text)
 
 
 class MarkdownStructureError(ValueError):
