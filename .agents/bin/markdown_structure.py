@@ -70,6 +70,7 @@ __all__ = [
     "Table",
     "TableRow",
     "has_tag",
+    "inline_tags",
     "parse",
     "tags",
     "walk",
@@ -375,6 +376,21 @@ def tags(text: str) -> Iterator[tuple[str, bool]]:
     for tag in _HTML_TAG.finditer(_HTML_COMMENT.sub("", text)):
         closing = tag.group("close") is not None
         yield (tag.group("close") or tag.group("open")).lower(), closing
+
+
+def inline_tags(text: str) -> Iterator[tuple[str, bool]]:
+    """Every HTML tag in the inline ``text`` of a paragraph, heading or table cell, as
+    :func:`tags` reads them, taken from the inline HTML the parser found there.
+
+    A tag inside a code span or behind a backslash is text on the page and is not here, which
+    :func:`has_tag` - a search of the source - cannot tell. A caller counting what a `<details>`
+    opened in running text collapses needs the page's reading, because the HTML parser closes
+    the paragraph where that tag opens and the widget takes everything up to its `</details>`.
+    """
+    for token in _PARSER.parseInline(text, {}):
+        for child in token.children or ():
+            if child.type == "html_inline":
+                yield from tags(child.content)
 
 
 def has_tag(text: str) -> bool:

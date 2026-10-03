@@ -43,6 +43,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
 from typing import Any, NamedTuple
 
 # `markdown_structure.py` sits beside this file and is loaded by path, the way `reaper.py` loads
@@ -791,14 +792,15 @@ def _collapsed(source: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]:
     sees, so it may refuse and may not admit (Codex on #462); `<details open>` is collapsed here
     too, because a disclosure widget is not the registered shape whichever way it starts. The
     tags are the parser's reading of the block, comments removed first, so a `</details>` written
-    inside a comment closes nothing here as it closes nothing on the page (Codex on #462).
+    inside a comment closes nothing here as it closes nothing on the page (Codex on #462). A
+    `<details>` opened in running text - a paragraph, a heading, a table cell - opens on the page
+    as well, since the HTML parser closes the paragraph there and the widget takes what follows,
+    so the inline HTML the parser found counts too; a tag in a code span is text and does not.
     """
     spans: list[tuple[int, float]] = []
     depth, start = 0, 0
     for block in _markdown.walk(source):
-        if not isinstance(block, _markdown.Html):
-            continue
-        for name, closing in _markdown.tags(block.text):
+        for name, closing in _tags(block):
             if name != "details":
                 continue
             if closing:
@@ -813,6 +815,19 @@ def _collapsed(source: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]:
     if depth > 0:
         spans.append((start, float("inf")))
     return spans
+
+
+def _tags(block: Any) -> Iterator[tuple[str, bool]]:
+    """The HTML tags ``block`` puts on the page, in order: a raw block's own, and the inline HTML
+    of a paragraph, heading or table cell. Code is literal and has none."""
+    if isinstance(block, _markdown.Html):
+        yield from _markdown.tags(block.text)
+    elif isinstance(block, (_markdown.Paragraph, _markdown.Heading)):
+        yield from _markdown.inline_tags(block.text)
+    elif isinstance(block, _markdown.Table):
+        for row in block.rows:
+            for cell in row.cells:
+                yield from _markdown.inline_tags(cell)
 
 
 def _on_the_page(spans: list[tuple[int, float]], line: int) -> bool:

@@ -983,6 +983,25 @@ def test_a_headings_value_is_the_first_thing_the_page_draws_below_it() -> None:
     assert "heading" in collapsed, collapsed
 
 
+def test_a_details_opened_in_running_text_collapses_what_follows_it() -> None:
+    """The HTML parser closes a paragraph where an inline `<details>` opens, and the widget takes
+    everything up to its `</details>`, so a declaration below such a line is collapsed on the
+    page - while the span scan read only raw HTML blocks. The inline HTML the parser found in a
+    paragraph, heading or table cell counts too; a `<details>` in a code span is text and opens
+    nothing.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n"
+    for opener in ("Notes <details>", "## Notes <details>", "| a |\n|---|\n| <details> |"):
+        inline = claim._autonomy_refusal(f"{opener}\n\n{admitting}\n</details>\n")
+        assert inline is not None, f"{opener!r}: a declaration under it admitted - fail-open"
+        assert "only in a shape that cannot admit" in inline, f"{opener!r}: {inline}"
+    literal = claim._autonomy_refusal(f"Notes `<details>`\n\n{admitting}")
+    assert literal is None, literal
+    # Closed in running text as well, the declaration after it is on the page again.
+    closed = claim._autonomy_refusal(f"<details>\n\nmore </details>\n\n{admitting}")
+    assert closed is None, closed
+
+
 def test_a_declaration_carrying_an_html_tag_can_refuse_and_never_admit() -> None:
     """Six reads in a row found a tag the rendering drew differently from the page - `<b>` as a
     space, `<q>` as nothing, `<del>` as nothing, `<wbr>` as a space - and each time the error ran

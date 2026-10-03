@@ -330,6 +330,16 @@ def test_a_tag_is_read_as_the_page_lays_it_out():
     assert para.plain == "Autonomy a b"
 
 
+def test_inline_tags_are_the_inline_html_the_parser_found_and_not_the_source():
+    # A tag in running text is read as `tags` reads it; one in a code span or behind a backslash
+    # is text on the page and is not reported, which a search of the source could not tell.
+    assert list(md.inline_tags("a <details> b </DETAILS> `<img>` \\<br> <!-- <p> -->")) == [
+        ("details", False),
+        ("details", True),
+    ]
+    assert list(md.inline_tags("plain text")) == []
+
+
 def test_tags_are_read_with_comments_removed_first():
     # Codex on #462: a `</details>` inside a comment closes nothing on the page, and a caller
     # counting nesting off the raw text closed the span on it.
