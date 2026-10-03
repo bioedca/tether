@@ -1145,11 +1145,14 @@ def test_a_tag_github_strips_leaves_the_key_it_was_written_inside_whole() -> Non
 def test_a_footnote_is_read_behind_its_label_and_never_admits() -> None:
     """Codex on #462 (read of `9fc6782`): GitHub renders footnotes and the parser does not, so
     `[^1]: Autonomy: maintainer decision required` reached `_keyed` with the label in front of
-    the key and was no declaration, while the page draws the restriction at its foot. The label
-    is read past as a task-list checkbox is, and bars admitting as the checkbox does: a footnote
-    is drawn at the foot of the page, not in its list. A definition whose text is one word is
-    swallowed by CommonMark's reference rule and handed back by `markdown_structure` as the
-    paragraph the page draws, so it is read the same way.
+    the key and was no declaration, while the page draws the restriction at its foot. The
+    parser now marks the paragraph a footnote and renders the text behind the label, so it is
+    read as any paragraph is; a definition whose text is one word is swallowed by CommonMark's
+    reference rule and handed back the same way. And Codex on #462 (read of `f5c37f0`): the
+    page draws a footnote at its foot, not where the definition sits, so it is in no heading's
+    section and leads no item - `## Execution autonomy` over `[^1]: note` over
+    `agent-can-do-alone` shows the registered value first, where taking the definition as the
+    value refused the issue - and so a footnote never admits.
     """
     admitting = "- **Autonomy:** agent-can-do-alone\n\n"
     for footnote in (
@@ -1179,14 +1182,80 @@ def test_a_footnote_is_read_behind_its_label_and_never_admits() -> None:
         assert "only in a shape that cannot admit" in unregistered or "not a registered" in (
             unregistered
         ), f"{shape!r}: {unregistered}"
-    # An escaped label is text on the page, and the text behind it is read the same way.
-    assert claim._autonomy_refusal(admitting + "\\[^1]: Autonomy: human review required\n")
+    # A footnote under the field's heading is not its value: the page draws it at the foot,
+    # and the paragraph after it is the first thing under the heading. The definition is still
+    # read for what it declares, wherever it sits, and a line opening one cuts the paragraph
+    # above it as cmark-gfm does.
+    for moved in (
+        "## Execution autonomy\n\n[^1]: note\n\nagent-can-do-alone\n\nSee[^1].\n",
+        "## Execution autonomy\n\n[^1]: Autonomy is discussed above.\n\nagent-can-do-alone\n",
+        "**Execution autonomy**\n\n[^1]: note\n\nagent-can-do-alone\n" + admitting,
+        "- [^1]: note\n\n" + admitting,
+    ):
+        assert claim._autonomy_refusal(moved) is None, moved
+    for still in (
+        "## Execution autonomy\n\n[^1]: Autonomy: maintainer decision required\n\n"
+        "agent-can-do-alone\n",
+        "## Execution autonomy\n\n[^1]: Autonomy: human review required\n\nagent-can-do-alone\n",
+        admitting + "prose\n[^1]: Autonomy: human review required\n",
+    ):
+        read = claim._autonomy_refusal(still)
+        assert read is not None and "paragraph" in read, (still, read)
+    # An escaped label is text on the page, and the key is then not the paragraph's start.
+    assert claim._autonomy_refusal(admitting + "\\[^1]: Autonomy: human review required\n") is None
     # A footnote that is only prose is prose, and a label with nothing after it draws nothing.
     for prose in ("[^1]: Autonomy is discussed above.\n", "[^1]:\n", "See note[^1].\n"):
         assert claim._autonomy_refusal(admitting + prose) is None, prose
     # The checkbox is still read past, and a bullet carrying it still cannot admit.
     assert claim._autonomy_refusal("- [ ] **Autonomy:** agent-can-do-alone\n") is not None
     assert claim._autonomy_refusal(admitting + "- [x] Autonomy: human review required\n")
+
+
+def test_what_the_sanitizer_removes_is_not_on_the_page() -> None:
+    """Codex on #462 (read of `f5c37f0`): Selma removes `<svg>`, `<math>` and `<noscript>` with
+    their text, so `- **Auto<svg>x</svg>nomy:** maintainer decision required` shows the key
+    whole and the restriction governs - where keeping the `x` read `Autoxnomy`, no key, beside
+    an admitting bullet; and an empty `<del>` draws nothing, so `Auto<del></del>nomy:` is the
+    key too - where `~~~~` was drawn for it. One shape over, a `</details>` inside an `<svg>` is
+    gone with it and closes nothing, where reading it as a tag put what followed a real
+    `<details>` back on the page. `<script>` and its kin are literal text on GitHub, text and
+    all, so a key they split is split there too; a `<del>` with text still strikes it out; and
+    an empty `<q>` still defaces the key.
+    """
+    admitting = "- **Autonomy:** agent-can-do-alone\n\n"
+    for hidden in (
+        "- **Auto<svg>x</svg>nomy:** maintainer decision required\n",
+        "Auto<math>x</math>nomy: maintainer decision required\n",
+        "Auto<noscript>x</noscript>nomy: maintainer decision required\n",
+        "- **Auto<del></del>nomy:** maintainer decision required\n",
+        "Auto<s></s>nomy: maintainer decision required\n",
+        "## Auto<strike></strike>nomy\n\nmaintainer decision required\n",
+        "<p>Auto<svg>x</svg>nomy: maintainer decision required</p>\n",
+    ):
+        whole = claim._autonomy_refusal(admitting + hidden)
+        assert whole is not None, f"{hidden!r}: a key the sanitizer leaves whole was not read"
+        assert "maintainer decision" in whole, f"{hidden!r}: {whole}"
+    gone = claim._autonomy_refusal(f"<details>\n\n<svg></details></svg>\n\n{admitting}")
+    assert gone is not None and "only in a shape that cannot admit" in gone, gone
+    inline = claim._autonomy_refusal(
+        f"Notes <details>\n\nmore <svg></details></svg>\n\n{admitting}"
+    )
+    assert inline is not None and "only in a shape that cannot admit" in inline, inline
+    # Controls: struck text is struck, an empty `<q>` defaces, a literal `<script>` splits.
+    struck = claim._autonomy_refusal(
+        "- **Autonomy:** <del>maintainer decision</del> agent-can-do-alone\n"
+    )
+    assert struck is not None and "maintainer decision" in struck, struck
+    assert (
+        claim._autonomy_refusal(admitting + "Auto<q></q>nomy: maintainer decision required\n")
+        is None
+    )
+    assert (
+        claim._autonomy_refusal(
+            admitting + "Auto<script>x</script>nomy: maintainer decision required\n"
+        )
+        is None
+    )
 
 
 def test_every_cell_of_a_row_is_read_as_a_raw_cell_is() -> None:
@@ -1466,6 +1535,18 @@ def test_a_bare_key_heads_the_block_the_page_draws_next() -> None:
         assert "maintainer decision" in past, f"{continued!r}: {past}"
     owed = claim._autonomy_refusal("<h2>Execution autonomy</h2>\n\nagent-can-do-alone\n")
     assert owed is not None and "only in a shape that cannot admit" in owed, owed
+    # Codex on #462 (read of `f5c37f0`): a checkbox before the bare key is read past as
+    # `_keyed` reads past one - `- [ ] **Autonomy**` over `human review required` is the key
+    # over its block - and what the key heads still cannot admit.
+    for checked in (
+        "- [ ] **Autonomy**\n\n  human review required\n",
+        "- [x] **Execution autonomy**\n\n  maintainer decision required\n",
+        "- [ ] Autonomy\n\n  - human review required\n",
+    ):
+        boxed = claim._autonomy_refusal(admitting + checked)
+        assert boxed is not None, f"{checked!r}: a bare key behind a checkbox was not read"
+        assert "bare key" in boxed, f"{checked!r}: {boxed}"
+    assert claim._autonomy_refusal("- [ ] **Autonomy**\n\n  agent-can-do-alone\n") is not None
     for stopped in (
         "<h2>Execution autonomy \u2014 notes</h2>\n\nStated above.\n\n## Human action items\n",
         "<h2>Execution autonomy \u2014 notes</h2>\n\nStated above.\n\n"

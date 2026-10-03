@@ -543,18 +543,14 @@ _GROOMING_MARKER = re.compile(r"<!--[ \t]*tether-grooming-v1[ \t]*-->")
 #: The checkbox GitHub draws at the front of a task-list item, as it reaches the rendered text:
 #: the ``commonmark`` preset has no task-list rule, so ``[ ]`` and ``[x]`` stay literal.
 _TASK_MARKER = re.compile(r"\[(?: |x|X)\](?: |$)")
-#: A GitHub footnote definition's label, as it reaches the rendered text: the preset has no
-#: footnote rule either, so `[^1]: Autonomy: maintainer decision required` is a paragraph here
-#: whose text begins with the label, while the page draws the footnote's own paragraph at the
-#: foot of the body with the label gone - and the key behind the label was no key, so the
-#: restriction sat beside an admitting bullet unread (Codex on #462). A definition whose text is
-#: one word is a link reference definition to CommonMark, and `markdown_structure` hands it back
-#: as the paragraph it would otherwise be, label and all, so it is read here the same way. The
-#: label is read past as the checkbox is and bars admitting as the checkbox does: a footnote is
-#: drawn at the foot of the body, not where its definition sits. A label with no text after it
-#: is a footnote that is empty, and the paragraph stays prose. The label's grammar is
-#: cmark-gfm's: `[^`, anything but `]` and whitespace, `]:`.
-_FOOTNOTE_LABEL = re.compile(r"\[\^[^\]\s]+\]:(?:[ \t]+|$)")
+#: A GitHub footnote definition - `[^1]: Autonomy: maintainer decision required` - is the
+#: parser's business: `markdown_structure` marks the paragraph `footnote` and renders the text
+#: behind the label, so it is read here as any paragraph is. What differs is where the page
+#: draws it - at its foot, not where the definition sits - so `_section` and `_lead` skip it: a
+#: footnote is never a heading's value, never the block a bare key heads, never an item's lead,
+#: and so never admits; a declaration in one refuses as a keyed paragraph does (Codex on #462,
+#: twice: the restriction unread behind the label, then the footnote read as the value of the
+#: heading it sat under on the page's foot).
 
 
 class _AutonomyValue(NamedTuple):
@@ -1077,9 +1073,10 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
     # scan-only, as a row's further cells are - `<td>Autonomy:</td><td>maintainer decision
     # required</td>` is an empty value and then the restriction, and both are read. And the
     # key alone - `**Execution autonomy**` as a paragraph, over the paragraph that holds its
-    # value - heads what the page draws next, as a heading does (`_BARE_KEY`), a footnote
-    # label before it read past as `_keyed` reads past one. Every table row was read above,
-    # cell by cell, in `_row`.
+    # value - heads what the page draws next, as a heading does (`_BARE_KEY`), a checkbox
+    # before it read past as `_keyed` reads past one: `- [ ] **Autonomy**` over `human review
+    # required` is the key over its block, checkbox and all, and the bare key heads nothing
+    # that can admit (Codex on #462). Every table row was read above, cell by cell, in `_row`.
     for index, leaf in enumerate(leaves):
         block = leaf.block
         if any(block is lead for lead in leads):
@@ -1093,8 +1090,8 @@ def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]
             continue
         elif isinstance(block, _markdown.Paragraph):
             text = _prose(block)
-            label = _FOOTNOTE_LABEL.match(text)
-            if _BARE_KEY.fullmatch(text[label.end() :] if label else text):
+            task = _TASK_MARKER.match(text)
+            if _BARE_KEY.fullmatch(text[task.end() :] if task else text):
                 section = _section(leaves, index)
                 value = _prose(section[0].block) if section else ""
                 found.append(_AutonomyValue(value, f"{where} bare key", admits=False))
@@ -1338,13 +1335,18 @@ def _section(leaves: list[_Leaf], index: int) -> list[_Leaf]:
     A heading raw HTML lays out ends the section as a Markdown one does, since the page draws
     the two alike: a raw block carrying one is cut to the pieces before it - a copy of the
     block, so a reader of the section sees nothing past the heading - and the section stops
-    there (Codex on #462).
+    there (Codex on #462). A footnote definition is not in any section: the page draws it at
+    its foot, and `## Execution autonomy` over `[^1]: note` over `agent-can-do-alone` shows the
+    registered value first, where taking the definition as the value refused the issue (Codex
+    on #462). The keyed pass reads it where it is.
     """
     section: list[_Leaf] = []
     for leaf in leaves[index + 1 :]:
         block = leaf.block
         if isinstance(block, _markdown.Heading):
             break
+        if isinstance(block, _markdown.Paragraph) and block.footnote:
+            continue
         if isinstance(block, _markdown.Html):
             before = block.shown
             for at, piece in enumerate(block.shown):
@@ -1383,16 +1385,16 @@ def _bullet(
     keyed = _keyed(_prose(first))
     if keyed is None:
         return []
-    qualifier, value, prefixed = keyed
+    qualifier, value, task = keyed
     # Exact-checked like any declaration, but only the registered shape - column zero, `-` or
-    # `*`, nothing drawn before the key, plain Markdown, on the page - may admit. A `+`,
-    # indented, nested, quoted or task-list bullet, a footnote definition, one carrying a tag
-    # or an image, or one inside a `<details>` block can refuse and can never be the reason an
-    # issue is claimed.
+    # `*`, no checkbox, plain Markdown, on the page - may admit. A `+`, indented, nested, quoted
+    # or task-list bullet, one carrying a tag or an image, or one inside a `<details>` block can
+    # refuse and can never be the reason an issue is claimed. A footnote definition never gets
+    # here: it is not the item's lead (`_lead`), the page drawing it elsewhere.
     registered = (
         item.column == 0
         and item.marker in "-*"
-        and not prefixed
+        and not task
         and _plain_markdown(first)
         and _on_the_page(collapsed, item.line)
     )
@@ -1406,8 +1408,12 @@ def _bullet(
 
 def _lead(item: _markdown.ListItem) -> Any | None:
     """The item's first block the page draws anything for, or ``None`` for an item that draws
-    nothing - the block a reader takes for the item's own text."""
+    nothing - the block a reader takes for the item's own text. A footnote definition is drawn
+    at the page's foot, not in the item, so `- [^1]: Autonomy: agent-can-do-alone` leads with
+    nothing and the definition is read as the keyed paragraph it is, unable to admit."""
     for block in item.blocks:
+        if isinstance(block, _markdown.Paragraph) and block.footnote:
+            continue
         if _drawn(block):
             return block
     return None
@@ -1416,28 +1422,20 @@ def _lead(item: _markdown.ListItem) -> Any | None:
 def _keyed(text: str) -> tuple[str, str, bool] | None:
     """``text`` - a paragraph's rendered text - read as a bullet-shaped declaration, or ``None``.
 
-    Returns the normalized qualifier, the value with its whitespace collapsed, and whether
-    something was read past before the key: a task-list checkbox, or a footnote label. A
-    task-list item draws a checkbox before its text, and the key is the text: `- [ ]
-    **Autonomy:** maintainer decision required` is a restriction the page shows, and matching
-    the checkbox as part of the key dropped it (Codex on #462). A footnote definition's label
-    is the same one shape over - `[^1]: Autonomy: maintainer decision required` is a restriction
-    drawn at the foot of the page, label gone (Codex on #462; `_FOOTNOTE_LABEL`). Either bars
-    the registered shape: what the page draws with a checkbox, or at its foot, is not a plain
-    bullet in its list.
+    Returns the normalized qualifier, the value with its whitespace collapsed, and whether a
+    task-list checkbox was read past first. A task-list item draws a checkbox before its text,
+    and the key is the text: `- [ ] **Autonomy:** maintainer decision required` is a restriction
+    the page shows, and matching the checkbox as part of the key dropped it (Codex on #462).
     """
-    prefixed = False
-    for drawn in (_TASK_MARKER, _FOOTNOTE_LABEL):
-        lead = drawn.match(text)
-        if lead is not None:
-            text = text[lead.end() :]
-            prefixed = True
+    task = _TASK_MARKER.match(text)
+    if task is not None:
+        text = text[task.end() :]
     match = _AUTONOMY_BULLET.fullmatch(text)
     if match is None:
         return None
     qualifier = _normalize_autonomy(match.group("qualifier"))
     value = " ".join(match.group("value").split())
-    return qualifier, value, prefixed
+    return qualifier, value, task is not None
 
 
 def _autonomy_refusal(body: str) -> str | None:

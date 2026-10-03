@@ -174,6 +174,45 @@ _STRIPPED_SPACED_TAGS = frozenset(
 )
 #: The tags that leave a space: every other tag, kept or stripped, leaves nothing.
 _SPACED_TAGS = BLOCK_TAGS | _INSIDE_TAGS | _STRIPPED_SPACED_TAGS
+#: The stripped elements the sanitizer removes *with their text*: Selma's ``remove_contents``
+#: less the tags GFM's tag filter has already turned into literal text before the sanitizer
+#: runs (``<script>``, ``<style>``, ``<iframe>``, ``<xmp>``, ``<noembed>``, ``<noframes>``,
+#: ``<plaintext>``, whose text the page therefore shows). What is inside ``<svg>``, ``<math>``
+#: or ``<noscript>`` is gone from the page, so ``Auto<svg>x</svg>nomy`` shows ``Autonomy``,
+#: and keeping the ``x`` read ``Autoxnomy``, no key, past a restriction (Codex on #462). The
+#: element's own tags stay, so a source that carries one is still not plain Markdown, and a
+#: tag written inside one - ``<svg></details></svg>`` - is no tag, since the page never sees
+#: it. An element never closed runs to the end of its run.
+_HTML_REMOVED = re.compile(
+    r"(?P<open><(?P<name>math|noscript|svg)\b[^>]*>).*?(?P<close></(?P=name)\s*>|\Z)",
+    re.S | re.I,
+)
+#: An empty ``<del>``, ``<s>`` or ``<strike>`` strikes nothing out and draws nothing, so
+#: ``Auto<del></del>nomy`` shows the key whole, where drawing the marks for both tags read
+#: ``Auto~~~~nomy`` (Codex on #462). Whitespace alone inside is struck whitespace, which the
+#: page shows as the whitespace. An empty ``<q>`` still draws its two quotation marks.
+_HTML_EMPTY_STRIKE = re.compile(
+    r"<(?P<name>del|s|strike)\b[^>]*>(?P<inside>\s*)</(?P=name)\s*>", re.I
+)
+
+
+def _sanitized(text: str) -> str:
+    """``text`` as it reaches the page's tags: the hidden forms gone, then the text of every
+    removed element gone with its tags kept. An empty strike element is still a tag here - a
+    source carrying one is not plain Markdown - and draws nothing only in :func:`_visible_html`.
+    """
+    return _HTML_REMOVED.sub(
+        lambda m: m.group("open") + m.group("close"), _HTML_HIDDEN.sub("", text)
+    )
+
+
+def _unstruck(text: str) -> str:
+    """``text`` with every empty strike element gone, innermost first."""
+    while True:
+        emptied = _HTML_EMPTY_STRIKE.sub(lambda m: m.group("inside"), text)
+        if emptied == text:
+            return text
+        text = emptied
 
 
 class MarkdownStructureError(ValueError):
@@ -186,12 +225,19 @@ class Paragraph(NamedTuple):
     ``pictured`` is whether the inline carries a Markdown image. The page draws the picture there
     and ``plain`` shows its alternative text in its place, so a caller that admits only what the
     page shows as text has to be told (Codex on #462).
+
+    ``footnote`` marks a GitHub footnote definition - a paragraph whose source opens with
+    ``[^label]:`` - which the page draws at its foot, label gone, and not where the definition
+    sits: ``plain`` is the text behind the label, ``text`` the whole source, and a caller
+    reading what sits under a heading, or what an item leads with, skips it (Codex on #462,
+    twice; see :func:`_paragraphs`).
     """
 
     text: str
     plain: str
     line: int
     pictured: bool = False
+    footnote: bool = False
 
 
 class Heading(NamedTuple):
@@ -318,8 +364,8 @@ Block = Paragraph | Heading | ListBlock | BlockQuote | Code | Html | Rule | Tabl
 
 def parse(text: str) -> tuple[Block, ...]:
     """The top-level blocks of ``text``, in document order, with the GitHub footnote
-    definitions the parser swallowed as reference definitions put back as the paragraphs the
-    page draws (:func:`_footnotes`).
+    definitions the parser swallowed as reference definitions put back as the footnote
+    paragraphs the page draws (:func:`_footnotes`, :func:`_paragraphs`).
 
     Line endings are folded to ``\\n`` first, as the parser folds them, so every ``line`` indexes
     ``text.splitlines()`` whichever convention the source used. A missing final newline is
@@ -337,40 +383,87 @@ def parse(text: str) -> tuple[Block, ...]:
         tokens = _PARSER.parse(text, env)
     except Exception as exc:
         raise MarkdownStructureError(f"the parser could not read this text: {exc!r}") from exc
-    blocks, end = _blocks(tokens, 0, None, lines, None)
+    blocks, end = _blocks(tokens, 0, None, lines, None, env)
     if end != len(tokens):  # pragma: no cover - the parser balances its own tokens
         raise MarkdownStructureError(f"unbalanced token stream at {end}")
-    footnotes = _footnotes(env.get("references") or {}, lines)
+    footnotes = _footnotes(env, lines)
     if not footnotes:
         return blocks
     return tuple(sorted(blocks + footnotes, key=lambda block: block.line))
 
 
-def _footnotes(references: dict[str, Any], lines: list[str]) -> tuple[Paragraph, ...]:
-    """The GitHub footnote definitions the reference rule swallowed, as the paragraphs the page
-    draws, each at its source line.
+#: A GitHub footnote definition's label at the start of a source line: cmark-gfm's grammar,
+#: ``[^``, anything but ``]`` and whitespace, ``]:``, then any blank. Up to three spaces may
+#: precede it, as before any block opener.
+_FOOTNOTE_LABEL = re.compile(r" {0,3}\[\^[^\]\s]+\]:[ \t]*")
+
+
+def _footnote(text: str, line: int, env: dict[str, Any]) -> Paragraph:
+    """The footnote paragraph whose source is ``text`` - the label and what follows it."""
+    label = _FOOTNOTE_LABEL.match(text)
+    assert label is not None, text
+    rest = text[label.end() :]
+    if not rest.strip():
+        return Paragraph(text, "", line, footnote=True)
+    inline = _PARSER.parseInline(rest, env)[0]
+    return Paragraph(text, _plain(inline), line, _pictured(inline), footnote=True)
+
+
+def _paragraphs(inline: Token, line: int, env: dict[str, Any]) -> list[Paragraph]:
+    """The paragraph the inline token holds - or the paragraphs, where GitHub's footnote
+    definitions cut it.
+
+    GitHub renders footnotes and the preset has no rule for them, so ``[^1]: Autonomy:
+    maintainer decision required`` is a paragraph here whose text opens with the label, while
+    the page draws the restriction at its foot, label gone (Codex on #462). Such a paragraph is
+    a footnote paragraph: ``plain`` is the text behind the label. And cmark-gfm opens a footnote
+    definition on any line that starts with one, closing the paragraph above it as a block
+    quote opener would, where CommonMark reads that line as a lazy continuation of the
+    paragraph; so a paragraph is cut at every later line that opens a definition, each cut a
+    footnote paragraph at its own line.
+    """
+    text = inline.content
+    cuts = [0] + [
+        at for at, piece in enumerate(text.split("\n")) if at and _FOOTNOTE_LABEL.match(piece)
+    ]
+    if len(cuts) == 1:
+        if _FOOTNOTE_LABEL.match(text):
+            return [_footnote(text, line, env)]
+        return [Paragraph(text, _plain(inline), line, _pictured(inline))]
+    pieces = text.split("\n")
+    found: list[Paragraph] = []
+    for start, end in zip(cuts, cuts[1:] + [len(pieces)], strict=True):
+        chunk = "\n".join(pieces[start:end])
+        if start == 0 and not _FOOTNOTE_LABEL.match(chunk):
+            shown = _PARSER.parseInline(chunk, env)[0]
+            found.append(Paragraph(chunk, _plain(shown), line, _pictured(shown)))
+        else:
+            found.append(_footnote(chunk, line + start, env))
+    return found
+
+
+def _footnotes(env: dict[str, Any], lines: list[str]) -> tuple[Paragraph, ...]:
+    """The GitHub footnote definitions the reference rule swallowed, as the footnote
+    paragraphs the page draws, each at its source line.
 
     ``[^1]: Autonomy:`` is a link reference definition to CommonMark - a label, a colon, a
     destination - so the parser files it under ``env["references"]`` and emits no block, while
     GitHub, whose footnotes extension reads ``[^`` first, draws it as a footnote at the foot of
     the body: a paragraph holding the rest of the line. A caller that reads what the page shows
     then never saw the declaration (Codex on #462). Each such reference comes back here as that
-    paragraph, label and all - its source from the ``[^`` on, so a reader that knows the label
-    reads the text behind it - and is sorted in by line, after a block that opens on the same
-    line. Only a definition whose text is a bare destination, one word with an optional quoted
-    title, is swallowed: one with a sentence after the label is no definition and is already
-    the paragraph. A reference whose label does not open with ``^`` is a link definition on
-    GitHub too, and draws nothing.
+    footnote paragraph - its source from the ``[^`` on - sorted in by line, after a block that
+    opens on the same line. Only a definition whose text is a bare destination, one word with
+    an optional quoted title, is swallowed: one with a sentence after the label is no
+    definition and is already the paragraph. A reference whose label does not open with ``^``
+    is a link definition on GitHub too, and draws nothing.
     """
     found: list[Paragraph] = []
-    for label, reference in references.items():
+    for label, reference in (env.get("references") or {}).items():
         if not label.startswith("^") or "map" not in reference:
             continue
         start, end = reference["map"]
         source = "\n".join(lines[start:end])
-        text = source[source.find("[^") :]
-        inline = _PARSER.parseInline(text, {})[0]
-        found.append(Paragraph(text, _plain(inline), start, _pictured(inline)))
+        found.append(_footnote(source[source.find("[^") :], start, env))
     return tuple(found)
 
 
@@ -426,24 +519,30 @@ def _plain(inline: Token) -> str:
     markup of emphasis and inline code is gone (the code's content stays - it is shown), an image
     is its alternative text, a soft or hard break is a space, and the parser has already decoded
     entities and backslash escapes into the ``text`` children. Inline HTML follows the rule the
-    module-level patterns state. Strike-through is a GFM extension the parser does not enable, so
-    ``~~x~~`` keeps its tildes: GitHub shows that text struck out, and a caller matching a token
-    against it then fails to - the right direction, since a struck-out value is a retracted one.
-    An inline the parser gave no children is its content as it stands, which only happens for an
-    inline it did not need to tokenize.
+    module-level patterns state, and the children are rendered *together* - the text escaped,
+    the inline HTML raw, the whole laid out as :func:`_visible_html` lays out a raw run - so a
+    tag's effect on what sits between it and its close is read across the children: the text
+    inside ``<svg>x</svg>`` is removed and an empty ``<del></del>`` draws nothing, where
+    rendering each tag on its own kept the ``x`` and drew ``~~~~`` (Codex on #462). The
+    escaping is undone with the character references at the end, so ``n < 5`` and a code
+    span's ``<b>`` are the text they were. Strike-through is a GFM extension the parser does
+    not enable, so ``~~x~~`` keeps its tildes: GitHub shows that text struck out, and a caller
+    matching a token against it then fails to - the right direction, since a struck-out value
+    is a retracted one. An inline the parser gave no children is its content as it stands,
+    which only happens for an inline it did not need to tokenize.
     """
     if inline.children is None:
         return " ".join(inline.content.split())
     parts: list[str] = []
     for child in inline.children:
         if child.type in ("text", "code_inline", "image"):
-            parts.append(child.content)
+            parts.append(html.escape(child.content, quote=False))
         elif child.type in ("softbreak", "hardbreak"):
             parts.append(" ")
         elif child.type == "html_inline":
-            parts.append(_visible_html(child.content))
+            parts.append(child.content)
         # Every other child is the open or close of a span - emphasis, a link - and has no text.
-    return " ".join("".join(parts).split())
+    return " ".join(_visible_html("".join(parts)).split())
 
 
 def _pictured(inline: Token) -> bool:
@@ -462,9 +561,11 @@ def tags(text: str) -> Iterator[tuple[str, bool]]:
 
     Read by the grammar above with the hidden forms removed first, so a tag written inside a
     comment is not a tag: ``<!-- </details> -->`` closes nothing on the page and must close
-    nothing for a caller counting nesting (Codex on #462). Names are lower-cased.
+    nothing for a caller counting nesting (Codex on #462) - and the text of a removed element
+    with them, so ``<svg></details></svg>`` closes nothing either, while the ``<svg>`` itself
+    is still a tag. Names are lower-cased.
     """
-    for tag in _HTML_TAG.finditer(_HTML_HIDDEN.sub("", text)):
+    for tag in _HTML_TAG.finditer(_sanitized(text)):
         closing = tag.group("close") is not None
         yield (tag.group("close") or tag.group("open")).lower(), closing
 
@@ -492,9 +593,10 @@ def inline_tags(text: str) -> Iterator[tuple[str, bool]]:
     :func:`has_tag` - a search of the source - cannot tell. A caller counting what a `<details>`
     opened in running text collapses needs the page's reading, because the HTML parser closes
     the paragraph where that tag opens and the widget takes everything up to its `</details>`.
+    The chunks are read together, so a tag inside a removed element - ``<svg></details></svg>``
+    - is no tag here either (Codex on #462).
     """
-    for chunk in inline_html(text):
-        yield from tags(chunk)
+    yield from tags("".join(inline_html(text)))
 
 
 def has_tag(text: str) -> bool:
@@ -519,7 +621,7 @@ def _visible_html(text: str) -> str:
             return _DRAWN_TAGS[name]
         return " " if name in _SPACED_TAGS else ""
 
-    return html.unescape(_HTML_TAG.sub(laid_out, _HTML_HIDDEN.sub("", text)))
+    return html.unescape(_HTML_TAG.sub(laid_out, _unstruck(_sanitized(text))))
 
 
 def _shown_html(text: str) -> tuple[Shown, ...]:
@@ -541,7 +643,7 @@ def _shown_html(text: str) -> tuple[Shown, ...]:
     past an ``<hr>`` stand as a raw heading's own value (Codex on #462). Text that no tag
     opened and that renders to nothing is nothing.
     """
-    stripped = _HTML_HIDDEN.sub("", text)
+    stripped = _sanitized(text)
     pieces: list[tuple[str, str]] = []
     at, opener = 0, ""
     for tag in _HTML_TAG.finditer(stripped):
@@ -568,12 +670,14 @@ def _blocks(
     until: str | None,
     lines: list[str],
     origin: tuple[int, int] | None,
+    env: dict[str, Any],
 ) -> tuple[tuple[Block, ...], int]:
     """Read blocks from ``tokens[at:]`` up to the ``until`` closing token, which is consumed.
 
     Returns the blocks and the index just past what was read. ``until`` is ``None`` at the top
     level, where reading stops at the end of the stream. ``origin`` is the enclosing list item's
-    content position, passed to :func:`_column`.
+    content position, passed to :func:`_column`. ``env`` is the parser's environment, which
+    holds the reference definitions a footnote's text may link through.
     """
     found: list[Block] = []
     while at < len(tokens):
@@ -581,8 +685,7 @@ def _blocks(
         if until is not None and token.type == until:
             return tuple(found), at + 1
         if token.type == "paragraph_open":
-            inline = tokens[at + 1]
-            found.append(Paragraph(inline.content, _plain(inline), _line(token), _pictured(inline)))
+            found.extend(_paragraphs(tokens[at + 1], _line(token), env))
             at += 3
         elif token.type == "heading_open":
             line = _line(token)
@@ -600,10 +703,12 @@ def _blocks(
             )
             at += 3
         elif token.type in ("bullet_list_open", "ordered_list_open"):
-            items, at = _items(tokens, at + 1, token.type.replace("open", "close"), lines, origin)
+            items, at = _items(
+                tokens, at + 1, token.type.replace("open", "close"), lines, origin, env
+            )
             found.append(ListBlock(token.type == "ordered_list_open", _line(token), items))
         elif token.type == "blockquote_open":
-            inner, at = _blocks(tokens, at + 1, "blockquote_close", lines, origin)
+            inner, at = _blocks(tokens, at + 1, "blockquote_close", lines, origin, env)
             found.append(BlockQuote(_line(token), inner))
         elif token.type == "fence":
             found.append(Code(token.content, _line(token), True, token.info.strip()))
@@ -636,6 +741,7 @@ def _items(
     until: str,
     lines: list[str],
     origin: tuple[int, int] | None,
+    env: dict[str, Any],
 ) -> tuple[tuple[ListItem, ...], int]:
     items: list[ListItem] = []
     while tokens[at].type != until:
@@ -645,7 +751,7 @@ def _items(
         line = _line(token)
         column = _column(lines, line, origin)
         content = (line, _content_column(lines[line], column))
-        inner, at = _blocks(tokens, at + 1, "list_item_close", lines, content)
+        inner, at = _blocks(tokens, at + 1, "list_item_close", lines, content, env)
         items.append(ListItem(token.markup, token.info or None, line, column, inner))
     return tuple(items), at + 1
 

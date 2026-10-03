@@ -509,36 +509,104 @@ def test_raw_html_is_rendered_as_what_github_keeps_of_it():
     assert md.has_tag("Auto<foo></foo>nomy") and md.has_tag("<section>x</section>")
 
 
-def test_a_footnote_definition_the_reference_rule_swallowed_is_the_paragraph_the_page_draws():
+def test_a_footnote_definition_is_a_footnote_paragraph_wherever_the_parser_put_it():
     """Codex on #462 (read of `9fc6782`): GitHub renders footnotes and the parser does not, so
     `[^1]: Autonomy: maintainer decision required` is a paragraph whose text starts with the
     label - and `[^1]: Autonomy:`, whose text is one word, is a link reference definition to
     CommonMark, swallowed into the parser's environment with no block at all, while the page
-    draws a footnote holding `Autonomy:`. The swallowed ones come back as the paragraphs they
-    would otherwise be, label and all, at their source line, sorted in after a block that opens
-    on the same line; a reference whose label does not open with `^` draws nothing."""
-    assert md.parse("[^1]: Autonomy:\n") == (md.Paragraph("[^1]: Autonomy:", "[^1]: Autonomy:", 0),)
-    (para,) = md.parse("[^1]: Autonomy: maintainer decision required\n")
+    draws a footnote holding `Autonomy:`. Both are footnote paragraphs: `plain` is the text
+    behind the label, as the page draws it at its foot, `text` the source, and `footnote` set
+    so a caller can keep them out of the sections and leads the page draws them away from
+    (Codex on #462, read of `f5c37f0`). A swallowed one sits at its source line, sorted in
+    after a block that opens on the same line; a reference whose label does not open with `^`
+    draws nothing; and a line that opens a definition cuts the paragraph above it, as
+    cmark-gfm closes a paragraph for one where CommonMark reads a lazy continuation."""
+    note = md.Paragraph("[^1]: Autonomy:", "Autonomy:", 0, footnote=True)
+    assert md.parse("[^1]: Autonomy:\n") == (note,)
+    assert md.parse("[^1]:Autonomy:\n") == (
+        md.Paragraph("[^1]:Autonomy:", "Autonomy:", 0, footnote=True),
+    )
+    (para,) = md.parse("[^1]: **Autonomy:** maintainer decision required\n")
     assert para == md.Paragraph(
-        "[^1]: Autonomy: maintainer decision required",
-        "[^1]: Autonomy: maintainer decision required",
+        "[^1]: **Autonomy:** maintainer decision required",
+        "Autonomy: maintainer decision required",
         0,
+        footnote=True,
     )
     assert md.parse("[foo]: /url\n") == ()
     assert md.parse('[foo]: /url "Autonomy: x"\n') == ()
-    # A quoted title is part of the footnote's text, and the label keeps the author's case.
+    # A quoted title is part of the footnote's text; an escaped label is text, not a footnote.
     (titled,) = md.parse('[^Note]: Autonomy: "maintainer decision required"\n')
-    assert titled.plain == '[^Note]: Autonomy: "maintainer decision required"'
+    assert titled.plain == 'Autonomy: "maintainer decision required"' and titled.footnote
+    (escaped,) = md.parse("\\[^1]: Autonomy: x\n")
+    assert escaped == md.Paragraph("\\[^1]: Autonomy: x", "[^1]: Autonomy: x", 0)
     # Sorted in by line; after the list whose item it opens, since the list opens first.
     blocks = md.parse("intro\n\n[^1]: *Autonomy:*\n\n- item\n\n[^2]: x\n")
     assert kinds(blocks) == ["Paragraph", "Paragraph", "ListBlock", "Paragraph"]
     assert [block.line for block in blocks] == [0, 2, 4, 6]
-    assert blocks[1].plain == "[^1]: Autonomy:"
+    assert blocks[1].plain == "Autonomy:" and blocks[1].footnote and not blocks[0].footnote
     nested = md.parse("- [^1]: Autonomy:\n")
     assert kinds(nested) == ["ListBlock", "Paragraph"] and nested[1].line == 0
-    # A definition continued onto the next line is one paragraph, as a footnote is.
+    (listed,) = md.parse("- [^1]: Autonomy: x\n")
+    assert listed.items[0].blocks[0].footnote and listed.items[0].blocks[0].plain == "Autonomy: x"
+    # A definition continued onto the next line is one paragraph, as a footnote is; a later
+    # line that opens one cuts the paragraph, each cut at its own line.
     (continued,) = md.parse("[^1]:\n  Autonomy:\n")
-    assert continued.plain == "[^1]: Autonomy:" and continued.line == 0
+    assert continued.plain == "Autonomy:" and continued.line == 0 and continued.footnote
+    cut = md.parse("prose\n[^1]: Autonomy: x\nmore\n [^2]: y\n")
+    assert [(p.plain, p.line, p.footnote) for p in cut] == [
+        ("prose", 0, False),
+        ("Autonomy: x more", 1, True),
+        ("y", 3, True),
+    ]
+    # A footnote whose text links through a reference defined elsewhere renders the link.
+    (linked,) = md.parse("[^1]: see [the issue][ref]\n\n[ref]: /u\n")
+    assert linked.plain == "see the issue" and linked.footnote
+
+
+def test_a_removed_elements_text_and_an_empty_strike_draw_nothing():
+    """Codex on #462 (read of `f5c37f0`): the sanitizer removes `<svg>`, `<math>` and
+    `<noscript>` with their text, so `Auto<svg>x</svg>nomy:` shows the key whole - where
+    keeping the `x` read `Autoxnomy`; and an empty `<del>`, `<s>` or `<strike>` strikes nothing
+    and draws nothing, so `Auto<del></del>nomy:` is the key too - where drawing the marks for
+    both tags read `Auto~~~~nomy`. Inline children are rendered together, so the rule holds
+    across them; `<script>` and its kin are shown as literal text by GFM's tag filter before
+    the sanitizer runs, so their text stays; an empty `<q>` still draws its quotation marks; and
+    a tag inside a removed element is no tag, while the element's own is."""
+    for text, plain in (
+        (
+            "**Auto<svg>x</svg>nomy:** maintainer decision required",
+            "Autonomy: maintainer decision required",
+        ),
+        ("Auto<math><mi>x</mi></math>nomy: x", "Autonomy: x"),
+        ("Auto<noscript>x</noscript>nomy: x", "Autonomy: x"),
+        ('Auto<svg viewBox="0 0 1 1"><title>t</title></svg>nomy: x', "Autonomy: x"),
+        ("Auto<script>x</script>nomy: x", "Autoxnomy: x"),
+        ("Auto<style>x</style>nomy: x", "Autoxnomy: x"),
+        (
+            "**Auto<del></del>nomy:** maintainer decision required",
+            "Autonomy: maintainer decision required",
+        ),
+        ("Auto<s></s>nomy: x", "Autonomy: x"),
+        ("Auto<strike></strike>nomy: x", "Autonomy: x"),
+        ("Auto<del><s></s></del>nomy: x", "Autonomy: x"),
+        ("Auto<del> </del>nomy: x", "Auto nomy: x"),
+        ("<del>agent-can-do-alone</del>", "~~agent-can-do-alone~~"),
+        ("Auto<q></q>nomy: x", 'Auto""nomy: x'),
+        ("n < 5 and `<b>` and <svg>x</svg>&amp;", "n < 5 and <b> and &"),
+    ):
+        (para,) = md.parse(text + "\n")
+        assert para.plain == plain, (text, para.plain)
+    # An element never closed runs to the end of its run.
+    (open_svg,) = md.parse("Auto<svg>nomy: maintainer decision required\n")
+    assert open_svg.plain == "Auto"
+    # The same in a raw block, and for the tags a caller counts.
+    (raw,) = md.parse("<p>Auto<svg>x</svg>nomy: maintainer decision required</p>\n")
+    assert raw.shown == (md.Shown("Autonomy: maintainer decision required", "p"),)
+    assert md.has_tag("<svg>x</svg>") and md.has_tag("<del></del>")
+    assert list(md.tags("<svg></details></svg>")) == [("svg", False), ("svg", True)]
+    assert list(md.inline_tags("a <svg></details></svg> b")) == [("svg", False), ("svg", True)]
+    assert list(md.inline_tags("<svg></details>")) == [("svg", False)]
 
 
 def test_a_table_rows_plain_cells_are_rendered_in_order():
