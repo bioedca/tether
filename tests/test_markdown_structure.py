@@ -488,6 +488,36 @@ def test_hidden_inline_html_leaves_nothing_behind_as_a_comment_does():
     assert isinstance(raw, md.Html) and raw.plain == "" and raw.shown == ()
 
 
+def test_an_unclosed_comment_in_a_raw_block_hides_the_rest_of_the_document():
+    """Found beside the comment grammar on #462: the page's parser reads the rendered document
+    whole, so a comment a `<div>` block opens and never closes runs to the end of it, and an
+    admitting bullet after the block is gone from the page - `<div>`, `<!-- x`, `</div>`,
+    the bullet draws an empty `<div>` alone (GitHub's markdown endpoint, 2026-10-03). The
+    rest of the block's container goes with it, and the foot, drawn after the body.
+    """
+    (raw,) = md.parse("<div>\n<!-- x\n</div>\n\n- **Autonomy:** agent-can-do-alone\n")
+    assert isinstance(raw, md.Html) and raw.plain == ""
+    (raw,) = md.parse("<div><!-- x</div>\n\n- a\n\nb\n")
+    assert isinstance(raw, md.Html)
+    (items,) = md.parse("- a\n- <div><!-- x</div>\n- b\n\nc\n")
+    assert [item.blocks[0].plain for item in items.items] == ["a", ""]
+    (quote,) = md.parse("> <div><!-- x</div>\n>\n> b\n\nc\n")
+    assert len(quote.blocks) == 1
+    (raw,) = md.parse("[^1]: /url\n\n<div><!-- x</div>\n\n- a\n")
+    assert isinstance(raw, md.Html)
+    # A closed comment, one closed at `--!>`, or one inside an attribute value hides nothing.
+    for text in (
+        "<div><!-- x --></div>\n\n- a\n",
+        "<div><!-- x --!></div>\n\n- a\n",
+        '<div title="<!--"></div>\n\n- a\n',
+        "<div><!--></div>\n\n- a\n",
+    ):
+        (raw, items) = md.parse(text)
+        assert isinstance(items, md.ListBlock), text
+    assert md._opens_unclosed_comment("<div><!-- x</div>")
+    assert not md._opens_unclosed_comment('<img alt="<!--"><!-- y -->')
+
+
 def test_raw_html_is_rendered_as_what_github_keeps_of_it():
     """Codex on #462 (read of `9fc6782`): GitHub sanitizes raw HTML before rendering, and a tag
     it does not keep is removed with its text left in place, so `Auto<foo></foo>nomy:` shows

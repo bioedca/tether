@@ -503,9 +503,57 @@ def _document(tokens: list[Token], lines: list[str], env: dict[str, Any]) -> tup
     blocks, end = _blocks(tokens, 0, None, lines, None, env)
     if end != len(tokens):  # pragma: no cover - the parser balances its own tokens
         raise MarkdownStructureError(f"unbalanced token stream at {end}")
-    if not footnotes:
-        return blocks
-    return tuple(sorted(blocks + footnotes, key=lambda block: block.line))
+    if footnotes:
+        blocks = tuple(sorted(blocks + footnotes, key=lambda block: block.line))
+    shown, cut = _until_hidden(blocks)
+    if cut:
+        return tuple(block for block in shown if block.note is None)
+    return shown
+
+
+def _until_hidden(blocks: tuple[Block, ...]) -> tuple[tuple[Block, ...], bool]:
+    """``blocks`` up to and including the first raw block that opens a comment it never
+    closes, at any depth, and whether there was one.
+
+    The page's parser reads the rendered document whole, so a comment a raw block opens and
+    never closes runs to the end of it: ``<div>``, ``<!-- x``, ``</div>`` and then an admitting
+    bullet draws an empty ``<div>`` and nothing after, where reading the block on its own hid
+    the comment to the block's end and read the bullet (GitHub's markdown endpoint,
+    2026-10-03). Everything after that block in source order goes - the rest of its
+    container, and every block after - and :func:`_document` drops the foot with them, since
+    the page draws the footnotes after the body, inside the comment. A comment inside a tag's
+    attribute value is the tag's, as :func:`without_tags` walks it. Inline HTML is raw only
+    where the parser found the close, so only a block can open one.
+    """
+    kept: list[Block] = []
+    for block in blocks:
+        if isinstance(block, ListBlock):
+            items: list[ListItem] = []
+            cut = False
+            for item in block.items:
+                inner, cut = _until_hidden(item.blocks)
+                items.append(item._replace(blocks=inner))
+                if cut:
+                    break
+            kept.append(block._replace(items=tuple(items)))
+        elif isinstance(block, BlockQuote):
+            inner, cut = _until_hidden(block.blocks)
+            kept.append(block._replace(blocks=inner))
+        else:
+            kept.append(block)
+            cut = isinstance(block, Html) and _opens_unclosed_comment(block.text)
+        if cut:
+            return tuple(kept), True
+    return tuple(kept), False
+
+
+def _opens_unclosed_comment(text: str) -> bool:
+    """Whether ``text`` opens a comment it never closes, walked as the page reads it."""
+    for found in _HIDDEN_OR_TAG.finditer(text):
+        comment = found.group("comment")
+        if comment is not None and not comment.endswith(("-->", "--!>")):
+            return True
+    return False
 
 
 #: The ``env`` key under which :func:`_document` leaves the swallowed footnote paragraphs, by

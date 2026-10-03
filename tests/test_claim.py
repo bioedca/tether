@@ -1499,6 +1499,11 @@ def test_a_marker_inside_a_tag_attribute_is_no_marker() -> None:
     assert read is not None and "maintainer decision" in read, read
     read = claim._autonomy_refusal("<!-- x\n\n" + plain)
     assert read is not None and "maintainer decision" not in read and "declar" in read, read
+    # And one a `<div>` block opens hides the rest of the document the same way, the bullet
+    # after it with it; closed, it hides nothing.
+    read = claim._autonomy_refusal("<div>\n<!-- x\n</div>\n\n" + plain)
+    assert read is not None and "declar" in read, read
+    assert claim._autonomy_refusal("<div>\n<!-- x -->\n</div>\n\n" + plain) is None
     without = claim._markdown.without_tags
     assert without('a <img alt="<!-- x -->"> <!-- y --> b') == "a  <!-- y --> b"
     assert without("<!-- a <b> --> <b>c</b>") == "<!-- a <b> --> c"
