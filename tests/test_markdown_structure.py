@@ -732,10 +732,21 @@ def test_a_continuation_stays_in_its_definitions_item_and_never_in_a_quote():
     assert isinstance(code, md.Code) and code.note is None
     (quote, note) = md.parse("> [^1]: /url\n>\n>     code\n")
     assert isinstance(quote, md.BlockQuote) and isinstance(quote.blocks[0], md.Code)
-    # A sentence definition in a quote is lifted out of it; the code stays, and is code.
+    # A one-word sentence is a destination to the parser, so that definition is swallowed
+    # too and sorted in at the top; the code stays in the quote, and is code.
     (quote, note) = md.parse("> [^1]: note\n>\n>       code\n")
     (code,) = quote.blocks
     assert note.footnote and isinstance(code, md.Code) and code.note is None
+    # The quote closed before the code: still nothing continued, at the top or in an item.
+    (quote, note, code) = md.parse("> [^1]: /url\n\n    code\n")
+    assert isinstance(quote, md.BlockQuote) and quote.blocks == ()
+    assert note.footnote and isinstance(code, md.Code) and code.note is None
+    (items, note) = md.parse("- > [^1]: /url\n\n      code\n")
+    (quote, code) = items.items[0].blocks
+    assert isinstance(quote, md.BlockQuote) and isinstance(code, md.Code) and code.note is None
+    assert md._in_quote(["> [^1]: /url", "- > - [^1]: /url", "  - [^1]: /url", "x > [^"], 0)
+    assert md._in_quote(["> [^1]: /url", "- > - [^1]: /url", "  - [^1]: /url", "x > [^"], 1)
+    assert not md._in_quote(["> [^1]: /url", "- > - [^1]: /url", "  - [^1]: /url", "x"], 2)
     (items, note) = md.parse("- [^1]: /url\n-     code\n")
     assert isinstance(items.items[1].blocks[0], md.Code) and note.footnote
     # Inside the item both are in, the continuation is the footnote's.

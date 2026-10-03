@@ -1486,6 +1486,9 @@ def test_a_code_block_after_a_definition_in_another_container_is_code() -> None:
         "> [^1]: note\n>\n>       Autonomy: maintainer decision required\n",
         "- [^1]: /url\n-     Autonomy: maintainer decision required\n",
         "- > [^1]: /url\n  >\n  >     Autonomy: maintainer decision required\n",
+        "> [^1]: /url\n\n    Autonomy: maintainer decision required\n",
+        "> [^1]: note\n\n    Autonomy: maintainer decision required\n",
+        "- > [^1]: /url\n\n      Autonomy: maintainer decision required\n",
     ):
         assert claim._autonomy_refusal(admitting + code) is None, code
     # A continuation inside the definition's own container is still the footnote's text.
@@ -1499,6 +1502,14 @@ def test_a_code_block_after_a_definition_in_another_container_is_code() -> None:
     ):
         read = claim._autonomy_refusal(admitting + continued)
         assert read is not None and "maintainer decision" in read, (continued, read)
+    # Four spaces after a quoted definition in an item, or after an item's own, is the
+    # item's next paragraph on the page, and refuses as the paragraph it is.
+    for paragraph in (
+        "- > [^1]: /url\n\n    Autonomy: maintainer decision required\n",
+        "- [^1]: /url\n\n    Autonomy: maintainer decision required\n",
+    ):
+        read = claim._autonomy_refusal(admitting + paragraph)
+        assert read is not None and "maintainer decision" in read, (paragraph, read)
 
 
 def test_a_struck_out_restriction_still_refuses_and_a_struck_out_admission_never_admits() -> None:

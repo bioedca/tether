@@ -510,7 +510,10 @@ def _continued_note(
     item's content position, so a swallowed definition continues only from its own item - a
     line at or after the item's; the last block read is in this container already. And a
     definition inside a block quote absorbs nothing, four spaces or six, sentence or bare
-    destination (GitHub's markdown endpoint, 2026-10-03), so ``quoted`` ends it.
+    destination, the code inside the quote or after it closes (GitHub's markdown endpoint,
+    2026-10-03): ``quoted`` ends it for the code inside, and a swallowed definition whose
+    line carries a quote marker - the parser files a quoted ``[^1]: /url`` under the same
+    references, and the map it leaves records no container - ends it for the code after.
     """
     if quoted:
         return None
@@ -521,11 +524,21 @@ def _continued_note(
         return None
     swallowed = env.get(_SWALLOWED, {}).get(above)
     if swallowed is not None:
-        return swallowed.note if swallowed.line >= (origin[0] if origin else 0) else None
+        if _in_quote(lines, swallowed.line) or swallowed.line < (origin[0] if origin else 0):
+            return None
+        return swallowed.note
     last = found[-1] if found else None
     if isinstance(last, Paragraph) and last.footnote and _last_line(last) == above:
         return last.note
     return None
+
+
+def _in_quote(lines: list[str], line: int) -> bool:
+    """Whether the footnote definition opening on ``line`` sits inside a block quote: a quote
+    marker before its label, where only container markers and indentation can be."""
+    text = lines[line]
+    label = text.find("[^")
+    return label >= 0 and ">" in text[:label]
 
 
 def _continuation(content: str, line: int, note: int) -> list[Block]:
