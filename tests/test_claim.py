@@ -1201,6 +1201,10 @@ def test_a_footnote_is_read_behind_its_label_and_never_admits() -> None:
     ):
         read = claim._autonomy_refusal(still)
         assert read is not None and "paragraph" in read, (still, read)
+    # Codex on #462 (read of `270e6ae`): a reference whose label opens with `^` but is no
+    # footnote label is a link definition, draws nothing, and is not an error.
+    for link in ("[^release note]: /url\n", "[^]: /url\n"):
+        assert claim._autonomy_refusal(admitting + link) is None, link
     # An escaped label is text on the page, and the key is then not the paragraph's start.
     assert claim._autonomy_refusal(admitting + "\\[^1]: Autonomy: human review required\n") is None
     # A footnote that is only prose is prose, and a label with nothing after it draws nothing.
@@ -1235,6 +1239,15 @@ def test_what_the_sanitizer_removes_is_not_on_the_page() -> None:
         whole = claim._autonomy_refusal(admitting + hidden)
         assert whole is not None, f"{hidden!r}: a key the sanitizer leaves whole was not read"
         assert "maintainer decision" in whole, f"{hidden!r}: {whole}"
+    # Codex on #462 (read of `270e6ae`): an element closed in its own tag holds nothing, so
+    # the key after `<svg/>` is whole, where reading it as an opener swallowed the rest.
+    for void in (
+        "- **Auto<svg/>nomy:** maintainer decision required\n",
+        'Auto<svg viewBox="0 0 1 1" />nomy: maintainer decision required\n',
+        "<p>Auto<math/>nomy: maintainer decision required</p>\n",
+    ):
+        kept = claim._autonomy_refusal(admitting + void)
+        assert kept is not None and "maintainer decision" in kept, (void, kept)
     gone = claim._autonomy_refusal(f"<details>\n\n<svg></details></svg>\n\n{admitting}")
     assert gone is not None and "only in a shape that cannot admit" in gone, gone
     inline = claim._autonomy_refusal(

@@ -182,9 +182,12 @@ _SPACED_TAGS = BLOCK_TAGS | _INSIDE_TAGS | _STRIPPED_SPACED_TAGS
 #: and keeping the ``x`` read ``Autoxnomy``, no key, past a restriction (Codex on #462). The
 #: element's own tags stay, so a source that carries one is still not plain Markdown, and a
 #: tag written inside one - ``<svg></details></svg>`` - is no tag, since the page never sees
-#: it. An element never closed runs to the end of its run.
+#: it. An element never closed runs to the end of its run; one closed in its own tag -
+#: ``<svg/>`` - holds nothing, and the text after it stays, where reading it as an opener
+#: swallowed the rest of the key (Codex on #462).
 _HTML_REMOVED = re.compile(
-    r"(?P<open><(?P<name>math|noscript|svg)\b[^>]*>).*?(?P<close></(?P=name)\s*>|\Z)",
+    r"(?P<void><(?:math|noscript|svg)\b[^>]*/>)"
+    r"|(?P<open><(?P<name>math|noscript|svg)\b[^>]*>).*?(?P<close></(?P=name)\s*>|\Z)",
     re.S | re.I,
 )
 #: An empty ``<del>``, ``<s>`` or ``<strike>`` strikes nothing out and draws nothing, so
@@ -202,7 +205,8 @@ def _sanitized(text: str) -> str:
     source carrying one is not plain Markdown - and draws nothing only in :func:`_visible_html`.
     """
     return _HTML_REMOVED.sub(
-        lambda m: m.group("open") + m.group("close"), _HTML_HIDDEN.sub("", text)
+        lambda m: m.group("void") or m.group("open") + m.group("close"),
+        _HTML_HIDDEN.sub("", text),
     )
 
 
@@ -398,10 +402,8 @@ def parse(text: str) -> tuple[Block, ...]:
 _FOOTNOTE_LABEL = re.compile(r" {0,3}\[\^[^\]\s]+\]:[ \t]*")
 
 
-def _footnote(text: str, line: int, env: dict[str, Any]) -> Paragraph:
-    """The footnote paragraph whose source is ``text`` - the label and what follows it."""
-    label = _FOOTNOTE_LABEL.match(text)
-    assert label is not None, text
+def _footnote(text: str, label: re.Match[str], line: int, env: dict[str, Any]) -> Paragraph:
+    """The footnote paragraph whose source is ``text``, ``label`` its ``_FOOTNOTE_LABEL`` match."""
     rest = text[label.end() :]
     if not rest.strip():
         return Paragraph(text, "", line, footnote=True)
@@ -427,18 +429,20 @@ def _paragraphs(inline: Token, line: int, env: dict[str, Any]) -> list[Paragraph
         at for at, piece in enumerate(text.split("\n")) if at and _FOOTNOTE_LABEL.match(piece)
     ]
     if len(cuts) == 1:
-        if _FOOTNOTE_LABEL.match(text):
-            return [_footnote(text, line, env)]
+        label = _FOOTNOTE_LABEL.match(text)
+        if label is not None:
+            return [_footnote(text, label, line, env)]
         return [Paragraph(text, _plain(inline), line, _pictured(inline))]
     pieces = text.split("\n")
     found: list[Paragraph] = []
     for start, end in zip(cuts, cuts[1:] + [len(pieces)], strict=True):
         chunk = "\n".join(pieces[start:end])
-        if start == 0 and not _FOOTNOTE_LABEL.match(chunk):
+        label = _FOOTNOTE_LABEL.match(chunk)
+        if label is None:
             shown = _PARSER.parseInline(chunk, env)[0]
             found.append(Paragraph(chunk, _plain(shown), line, _pictured(shown)))
         else:
-            found.append(_footnote(chunk, line + start, env))
+            found.append(_footnote(chunk, label, line + start, env))
     return found
 
 
@@ -455,15 +459,21 @@ def _footnotes(env: dict[str, Any], lines: list[str]) -> tuple[Paragraph, ...]:
     opens on the same line. Only a definition whose text is a bare destination, one word with
     an optional quoted title, is swallowed: one with a sentence after the label is no
     definition and is already the paragraph. A reference whose label does not open with ``^``
-    is a link definition on GitHub too, and draws nothing.
+    is a link definition on GitHub too, and draws nothing - as is one whose label opens with
+    ``^`` but is no footnote label, ``[^release note]: /url`` with its space, which the parser
+    files under a ``^`` key all the same (Codex on #462): the source line decides, read by the
+    footnote grammar, and a line that fails it draws nothing.
     """
     found: list[Paragraph] = []
-    for label, reference in (env.get("references") or {}).items():
-        if not label.startswith("^") or "map" not in reference:
+    for key, reference in (env.get("references") or {}).items():
+        if not key.startswith("^") or "map" not in reference:
             continue
         start, end = reference["map"]
         source = "\n".join(lines[start:end])
-        found.append(_footnote(source[source.find("[^") :], start, env))
+        text = source[source.find("[^") :]
+        label = _FOOTNOTE_LABEL.match(text)
+        if label is not None:
+            found.append(_footnote(text, label, start, env))
     return tuple(found)
 
 

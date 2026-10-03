@@ -559,6 +559,14 @@ def test_a_footnote_definition_is_a_footnote_paragraph_wherever_the_parser_put_i
         ("Autonomy: x more", 1, True),
         ("y", 3, True),
     ]
+    # A reference whose label opens with `^` but is no footnote label - a space inside it -
+    # is a link definition, filed under a `^` key all the same, and draws nothing (Codex on
+    # #462, read of `270e6ae`); it used to trip an assertion.
+    for link in ("[^release note]: /url\n", "[^]: /url\n", "[^a\tb]: /url\n", "[^ x]: /url\n"):
+        assert md.parse(link) == (), link
+    assert (
+        md.parse("[^release note]: /url\n\nSee [^release note].\n")[0].plain == "See ^release note."
+    )
     # A footnote whose text links through a reference defined elsewhere renders the link.
     (linked,) = md.parse("[^1]: see [the issue][ref]\n\n[ref]: /u\n")
     assert linked.plain == "see the issue" and linked.footnote
@@ -597,9 +605,16 @@ def test_a_removed_elements_text_and_an_empty_strike_draw_nothing():
     ):
         (para,) = md.parse(text + "\n")
         assert para.plain == plain, (text, para.plain)
-    # An element never closed runs to the end of its run.
+    # An element never closed runs to the end of its run; one closed in its own tag holds
+    # nothing and swallows nothing (Codex on #462, read of `270e6ae`).
     (open_svg,) = md.parse("Auto<svg>nomy: maintainer decision required\n")
     assert open_svg.plain == "Auto"
+    for void in ("<svg/>", "<svg />", '<math viewBox="0 0 1 1"/>', "<noscript/>", "<svg/><svg/>"):
+        (closed,) = md.parse(f"**Auto{void}nomy:** maintainer decision required\n")
+        assert closed.plain == "Autonomy: maintainer decision required", (void, closed.plain)
+    (raw_void,) = md.parse("<p>Auto<svg/>nomy: maintainer decision required</p>\n")
+    assert raw_void.shown == (md.Shown("Autonomy: maintainer decision required", "p"),)
+    assert list(md.tags("<svg/><details>")) == [("svg", False), ("details", False)]
     # The same in a raw block, and for the tags a caller counts.
     (raw,) = md.parse("<p>Auto<svg>x</svg>nomy: maintainer decision required</p>\n")
     assert raw.shown == (md.Shown("Autonomy: maintainer decision required", "p"),)
