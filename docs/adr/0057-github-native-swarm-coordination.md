@@ -142,12 +142,11 @@ number reservation; **the scheduled reaper** (`.agents/bin/reaper.py`, `agent-re
 **vendor label mirror** — and, with them, the removal of the coordinator, the leases and the run
 records from the contract. ADR-0052 no longer governs anything.
 
-**Superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md); removal
-pending.** The decision is made against **event-driven triage and the review-round counter**
+**Superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md), and
+removed.** The decision is made against **event-driven triage and the review-round counter**
 (`.agents/bin/triage.py`, `agent-triage.yml`), **the slot launcher** (`.agents/bin/swarm_slots.py`,
 `.agents/bin/gate.ps1`) and **the advisory scope guard** (`.agents/bin/scope_guard.py`,
-`scope-guard.yml`) — but they still run until the subtractive pull request that deletes them lands,
-so until then they still govern.
+`scope-guard.yml`) — all six were deleted by `c53c690` (#431).
 
 **What is not superseded:** the provider lane itself. Draft-first ordering, reading the Greptile
 balance before spending a credit, and one CodeRabbit review with no actionable comments as the last

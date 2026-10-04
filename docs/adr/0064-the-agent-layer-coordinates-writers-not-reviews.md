@@ -375,7 +375,10 @@ record, which is what that issue's third criterion asks for.
 
 **Landing separately:** the `CLAUDE.md` collapse, the reaper shrink with `#278`'s archive, the
 launcher removal, the triage-and-scope-guard removal (one pull request — they are one unit), and the
-contract rewrite. Until each lands, the code it names still runs and still governs.
+contract rewrite. All but one have since landed: the `CLAUDE.md` collapse in #430, `#278`'s archive
+in #429, and the launcher removal, the triage-and-scope-guard removal and the contract rewrite
+together in #431 (`c53c690`). The reaper shrink did not: #429 dropped it, because the label paths it
+would have removed are the ones this record keeps.
 
 **The [PRD](https://github.com/bioedca/tether/blob/main/docs/PRD.md) §12 is part of that contract
 rewrite and is therefore stale between this record merging and that one.** It still describes
