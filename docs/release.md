@@ -58,8 +58,11 @@ release**, not the binaries, and it is unaffected by any of the above.
     from step 1 evaluates on **every** run, dry runs included. Tag only commits that
     already contain the post-merge gate: the pipeline that runs is the `release.yml` **in
     the tagged tree**, so a tag on an older commit executes that tree's gate-less
-    definition ([#464](https://github.com/bioedca/tether/issues/464) tracks the
-    repository-level control).
+    definition. **No repository-level control enforces this — the risk is accepted**
+    ([#464](https://github.com/bioedca/tether/issues/464), 2026-10-04): a `v*` tag ruleset
+    was considered and declined, so it rests on whoever cuts the tag. Before tagging,
+    `git merge-base --is-ancestor 6df78e4 <commit>` must exit `0`; `6df78e4` (#461) is the
+    commit that added the gate.
 3. To rehearse without publishing, run the **`release`** workflow via *Actions → release
    → Run workflow* with `dry_run: true` and, as `ref`, a fresh `v*` rc tag cut from the
    `main` you are about to release — it builds, install-smokes, checksums and SBOMs, but
