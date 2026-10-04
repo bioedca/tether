@@ -227,14 +227,16 @@ validity turns on it being the right test — must satisfy both.
   (first bullet), so a CLI run finds your own defects before a provider is asked — the same category
   as running the tests. Run it freely, it is unmetered; just never record it as the Codex leg.
   **On a diff that edits agent instructions, do not run it under them.** The CLI takes them from
-  the checkout by two routes: it discovers `AGENTS.md`, `AGENTS.override.md` anywhere (which takes
-  precedence) and `CLAUDE.md`, **and** it injects repository skills from `.agents/skills/**`. A diff
-  touching either route shapes its own reader, so the trigger is both — a skill-only change edits
-  none of the three files and still qualifies. Run
+  the checkout by two routes, observed on 0.147.0 in #451: it injects `AGENTS.md` from every
+  directory between the repository root and where it runs, an `AGENTS.override.md` replacing it in
+  its own directory, and `CLAUDE.md` where a user's `project_doc_fallback_filenames` names it and no
+  `AGENTS.md` sits beside it, **and** it injects each repository skill's description from
+  `.agents/skills/**`. A diff touching either route shapes its own reader, so the trigger is both —
+  a skill-only change edits none of the three files and still qualifies. Run
   `codex review --strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false --base origin/main`
   — two switches because the skills one is separate and defaults to on, and `--strict-config` so a
   mistyped key fails loudly rather than leaving a read that reports as isolated and is not. This does
-  not reach the **posted** bot review, whose loading is not ours to configure; **#451** covers that.
+  not reach the **posted** bot review, whose loading is not ours to configure or to observe.
 - **Four things shut that close, and each is readable off the pull request rather than out of your
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
   it is a wait. If either completed review came back clean, its evidence still stands under the
