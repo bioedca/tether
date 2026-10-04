@@ -227,10 +227,8 @@ validity turns on it being the right test — must satisfy both.
   (first bullet), so a CLI run finds your own defects before a provider is asked — the same category
   as running the tests. Run it freely, it is unmetered; just never record it as the Codex leg.
   **On a diff that edits agent instructions, do not run it under them.** The CLI takes them from
-  the checkout by two routes, observed on 0.147.0 in #451: it injects `AGENTS.md` from every
-  directory between the repository root and where it runs, an `AGENTS.override.md` replacing it in
-  its own directory, and `CLAUDE.md` where a user's `project_doc_fallback_filenames` names it and no
-  `AGENTS.md` sits beside it, **and** it injects each repository skill's description from
+  the checkout by two routes, as #451 observed: files it discovers — `AGENTS.md`,
+  `AGENTS.override.md` anywhere, and `CLAUDE.md` if user config names it — **and** skills from
   `.agents/skills/**`. A diff touching either route shapes its own reader, so the trigger is both —
   a skill-only change edits none of the three files and still qualifies. Run
   `codex review --strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false --base origin/main`
