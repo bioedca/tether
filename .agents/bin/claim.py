@@ -32,6 +32,7 @@ import argparse
 import calendar
 import hashlib
 import http.client
+import importlib.util
 import json
 import os
 import re
@@ -40,9 +41,28 @@ import ssl
 import subprocess
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.request
-from typing import Any
+from collections.abc import Iterator
+from typing import Any, NamedTuple
+
+# `markdown_structure.py` sits beside this file and is loaded by path, the way `reaper.py` loads
+# this one: these scripts run from any working directory and are never installed. It is the one
+# module here that is not stdlib - it imports the CommonMark parser the base lock pins (ADR-0066),
+# and a lane whose interpreter lacks it is told what to install rather than shown a traceback.
+_structure = importlib.util.spec_from_file_location(
+    "tether_markdown_structure",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "markdown_structure.py"),
+)
+if _structure is None or _structure.loader is None:  # pragma: no cover - packaging accident
+    raise SystemExit("error: markdown_structure.py is missing next to claim.py")
+_markdown = importlib.util.module_from_spec(_structure)
+try:
+    _structure.loader.exec_module(_markdown)
+except ModuleNotFoundError as exc:  # pragma: no cover - environment, not logic
+    print(f"error: {exc}", file=sys.stderr)
+    sys.exit(2)
 
 REPO = os.environ.get("TETHER_REPO", "bioedca/tether")
 API = "https://api.github.com"
@@ -441,10 +461,9 @@ def _scope_hash(title: str, body: str) -> str:
 #: prose spelling that predates the dropdown and is still on live issues.
 AUTONOMY_ADMITS = ("agent-can-do-alone", "agent can complete alone")
 
-#: Any of these anywhere in the declared value refuses it, even when it *opens* with an admitting
-#: token. A value like "agent-can-do-alone for the drafting; the membership question is a
-#: maintainer decision" declares two things, and the safe reading of a split declaration is the
-#: restrictive one.
+#: Any of these anywhere in a declared value or scan-only restriction refuses it. A value like
+#: "agent-can-do-alone for the drafting; the membership question is a maintainer decision"
+#: declares two things, and the safe reading of a split declaration is the restrictive one.
 AUTONOMY_REFUSES = (
     "maintainer decision",
     "maintainer input",
@@ -455,44 +474,276 @@ AUTONOMY_REFUSES = (
     "external/human",
 )
 
-_AUTONOMY_HEADING = re.compile(
-    r"^\#{1,6}[ \t]*(?:execution[ \t]+)?autonomy[ \t]*$\n(.*?)(?=^\#{1,6}[ \t]|\Z)",
-    re.M | re.S | re.I,
-)
-#: The `**` emphasis is **optional**. Requiring it meant a plainly written `- Autonomy: ...` bullet
-#: was invisible to this gate, so a restriction written without emphasis was skipped and an
-#: emphasized declaration below it governed. Markdown does not require the emphasis, issue authors
-#: do not reliably use it, and a safety verdict must not turn on typography.
+#: The key of a bullet declaration, matched against the **whole first paragraph** of a list
+#: item as the parser hands it over - so Markdown has already decided where the item begins, which
+#: lines its paragraph spans, and that a fenced example is not a bullet (ADR-0066). The `**`
+#: emphasis is not in the pattern at all, because the pattern reads the **rendered** text
+#: (``plain``): `- **Autonomy:**`, `- Autonomy:` and `- <b>Autonomy:</b>` all render as the one
+#: key, so a restriction written any of those ways is read and a safety verdict never turns on
+#: typography. One colon, exactly: `Autonomy::` is not the key the forms write, and a pattern
+#: that tolerated a second colon admitted it (Codex on #462). The value may be empty: `-
+#: **Autonomy:**` with nothing after it is a field the page shows, and a pattern that required a
+#: character there made it vanish beside an admitting bullet (Codex on #462); as an empty value
+#: it fails the exact check instead. Whether the item may *admit* is decided from its marker,
+#: column and source in `_bullet`, not here. The case folding is Unicode's, on purpose, and it
+#: cuts one way: `Executıon autonomy: maintainer decision required` - a dotless i - is the
+#: restriction a reader of the page sees and is read as one, while `Executıon autonomy:
+#: agent-can-do-alone` admitted as the registered key, which the page does not show it to be
+#: (Codex on #462); what keeps it from admitting is `_defaced`, not an ASCII fold that would
+#: leave the restriction unread beside an admitting bullet. The same for the two patterns below.
 _AUTONOMY_BULLET = re.compile(
-    r"^[-*][ \t]*\*{0,2}[ \t]*(?:execution[ \t]+)?autonomy(?P<qualifier>[^:*\n]*)[:*]*\*{0,2}"
-    r"[: \t]*(?P<value>.+)$",
-    re.M | re.I,
+    r"(?:execution[ \t]+)?autonomy(?P<qualifier>[^:\n]*):[ \t]*(?P<value>.*)",
+    re.I | re.S,
 )
-#: A grooming block runs to the **next grooming marker** or the end of the body - not to the next
-#: HTML comment of any kind. Terminating on any `<!--` meant one nested comment truncated the
-#: authoritative source, so a declaration written above it governed and a restriction written below
-#: it was never read: the same fail-open direction as the other defects in this path. Nested
-#: comments are stripped from the captured text by `_grooming_section` instead of ending it.
-_GROOMING_BLOCK = re.compile(
-    r"<!--[ \t]*tether-grooming-v1[ \t]*-->(.*?)(?=<!--[ \t]*tether-grooming-v1|\Z)", re.S
-)
-#: Any HTML comment, so a nested one can be removed from a grooming block rather than truncate it.
-_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
-#: The marker alone. Source selection keys on **this**, never on the text the block yields: a
-#: marker ending the body with no trailing newline captures exactly `""`, as does one holding only
-#: a nested comment, and treating either as "no grooming block" handed the decision back to the
-#: stale body the block was written to supersede. An empty groom is still a groom.
+#: The key as a heading's text or a table cell's - any cell, Markdown or raw - rendered: a
+#: heading's closing `#` run already removed and its indent measured into `Heading.column`, a
+#: row's outer pipes already Markdown's business, and emphasis, code and link markup already
+#: gone. A trailing colon is
+#: tolerated once - `## Autonomy:` is a heading the corpus writes - and never twice, for the
+#: reason the bullet gives (Codex on #462). Whatever follows the key on the line is its
+#: qualifier, and every heading that starts with the key is read: `## Execution autonomy after
+#: unblock` over a restriction was no key at all, so an admitting bullet beside it carried the
+#: issue while the page shows the field qualified, and bounding the qualifier to a character
+#: class left `once #123's merged` unread the same way (Codex on #462, twice). How the section
+#: is read turns on the qualifier's shape - see `_PROSE_QUALIFIER`.
+_AUTONOMY_KEY = re.compile(r"(?:execution[ \t]+)?autonomy(?P<qualifier>[^:\n]*?)[ \t]*:?", re.I)
+#: The key alone, as a paragraph of its own - `**Execution autonomy**` over the paragraph that
+#: holds its value - or as a block raw HTML lays out that is not a heading. It heads what the
+#: page draws next, as a heading does, and nothing it heads can admit. No qualifier and no
+#: colon: a paragraph is prose, and `Autonomy is discussed above.` must stay prose, while
+#: `Autonomy:` alone is the bullet's grammar with an empty value and is read as that. The
+#: raw HTML shape was found by Codex on #462 (`<div><h2>Execution autonomy</h2><p>maintainer
+#: decision required</p></div>`, read with the bullet's grammar only, which needs a colon);
+#: the paragraph is its Markdown mirror.
+_BARE_KEY = re.compile(r"(?:execution[ \t]+)?autonomy", re.I)
+#: The blocks raw HTML lays out as headings, read as a Markdown heading is read.
+_HTML_HEADINGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
+#: The blocks raw HTML lays out as table cells, read as a Markdown cell is read: a cell that
+#: starts with the key, qualified or bare, heads the cell after it. `<td>Autonomy after
+#: unblock</td><td>maintainer decision required</td>` was read with the bare key only, so the
+#: qualified field and the restriction beside it were both unread, while the Markdown row
+#: `| Autonomy after unblock | maintainer decision required |` refused (Codex on #462, one
+#: shape over from the keyed cell it found unchecked).
+_HTML_CELLS = frozenset({"td", "th"})
+#: The block raw HTML lays out as code, literal as a fence is: an example in a `<pre>` neither
+#: declares nor restricts (Codex on #462).
+_HTML_LITERAL = frozenset({"pre"})
+#: A qualifier that makes the heading one *about* the field rather than the field qualified: it
+#: **opens** with a dash. `### Execution autonomy — declared in the grooming block` heads a
+#: paragraph of prose on #442, a `status:ready` issue, and reading that paragraph as the field's
+#: value refused it. A condition is written without one - `after unblock`, `once #123's merged`,
+#: `(if #220 lands)` - and such a heading is a declaration that refuses on its qualifier. A
+#: dash-led heading's section is read for restrictions, every block scan-only, and declares
+#: nothing; so no heading that names the field goes unread, and the one shape the corpus writes
+#: as prose keeps admitting. The dash must be the qualifier's first character after whitespace,
+#: matched with ``match`` and never searched for: a dash *later* in it - `after unblock - notes`
+#: - made a condition into prose about the field, and the condition was never exact-checked
+#: (Codex on #462). A hyphen counts only with whitespace after it, since a condition hyphenates
+#: its words.
+_PROSE_QUALIFIER = re.compile(r"\s*(?:[\u2014\u2013]|-(?=\s))")
+#: The grooming marker. Source selection keys on **this**, never on the text the block yields: a
+#: marker ending the body captures no blocks at all, as does one followed only by a comment, and
+#: treating either as "no grooming block" handed the decision back to the stale body the block
+#: was written to supersede. An empty groom is still a groom.
 _GROOMING_MARKER = re.compile(r"<!--[ \t]*tether-grooming-v1[ \t]*-->")
-_MARKUP = re.compile(r"[`*_]+")
+#: The checkbox GitHub draws at the front of a task-list item, as it reaches the rendered text:
+#: the ``commonmark`` preset has no task-list rule, so ``[ ]`` and ``[x]`` stay literal.
+_TASK_MARKER = re.compile(r"\[(?: |x|X)\](?: |$)")
+#: A GitHub footnote definition - `[^1]: Autonomy: maintainer decision required` - is the
+#: parser's business: `markdown_structure` marks the paragraph `footnote` and renders the text
+#: behind the label, so it is read here as any paragraph is. What differs is where the page
+#: draws it - at its foot, not where the definition sits - so `_section` and `_lead` skip it: a
+#: footnote is never a heading's value, never the block a bare key heads, never an item's lead,
+#: and so never admits; a declaration in one refuses as a keyed paragraph does (Codex on #462,
+#: twice: the restriction unread behind the label, then the footnote read as the value of the
+#: heading it sat under on the page's foot). And the foot is read whole: a footnote that is not
+#: keyed is scan-only, as an item's remainder is, since a note at the foot sits under no key
+#: of the body's; and a bare key in one heads what is drawn after it at that foot (`_section`)
+#: and nothing of the body. The parser hands a definition's continuation - its lines indented
+#: four spaces, which the page draws inside the footnote - over as the blocks it holds, each
+#: carrying the definition's note (`_markdown.at_foot`), and every reader here reads them by
+#: the rule it reads the body by, over the blocks drawn where it is reading: reading only the
+#: first left `Autonomy: maintainer decision required` in the second unread, and a foot
+#: flattened into paragraphs lost a heading's qualifier, a raw heading, a table's cells and an
+#: item's boundary, one read at a time (Codex on #462).
+
+
+class _AutonomyValue(NamedTuple):
+    """One value to exact-check, or prose to scan for an explicit refusal token.
+
+    ``admits`` is whether this shape may be the reason an issue is claimed. A value that is
+    exact-checked but cannot admit - a `+` or indented bullet - refuses when it is not a registered
+    value and otherwise counts for nothing, so reading it widens what the gate sees and not what
+    it accepts.
+    """
+
+    raw: str
+    where: str
+    scan_only: bool = False
+    qualifier: str = ""
+    admits: bool = True
 
 
 def _normalize_autonomy(value: str) -> str:
-    """Lowercase, strip Markdown emphasis, trim the ends, drop a trailing period.
+    """Lowercase, trim the ends, drop a trailing period.
 
     Feeds :func:`_flatten_autonomy`, which is what comparison uses. Internal whitespace is left
-    alone here; the flattener collapses it.
+    alone here; the flattener collapses it. This used to strip `` ` ``, `*` and `_` as Markdown
+    emphasis, which was right while values were read off the source and wrong once they were
+    rendered: a `*` that survives rendering was escaped or quoted and is **shown** on the page, so
+    `agent\\*-can-do-alone` is not the registered value and stripping the star admitted it
+    (Codex on #462). The parser removes the markup that is markup; nothing is removed here.
     """
-    return _MARKUP.sub("", value).strip().rstrip(".").strip().lower()
+    return value.strip().rstrip(".").strip().lower()
+
+
+def _normalize_qualifier(qualifier: str) -> str:
+    """A key's qualifier - what sits between `autonomy` and the colon - with its whitespace
+    collapsed and lower-cased, and nothing else removed.
+
+    A period is a character the page shows: `**Autonomy.:**` is not the bare field, and
+    dropping a trailing period here as :func:`_normalize_autonomy` does for a *value* made it
+    one, so a column-zero bullet carrying it admitted (Codex on #462). Whitespace is no
+    qualifier - `Autonomy :` is the field with a space before its colon - so it goes.
+    """
+    return " ".join(qualifier.split()).lower()
+
+
+def _unmarked(text: str, pairs: tuple[tuple[int, int, int], ...]) -> str:
+    """``text`` with the marks of ``pairs`` - balanced strike pairs, as
+    :func:`markdown_structure.strike_pairs` finds them - gone and their text left."""
+    cuts = sorted((at, length) for opener, closer, length in pairs for at in (opener, closer))
+    pieces: list[str] = []
+    last = 0
+    for at, length in cuts:
+        pieces.append(text[last:at])
+        last = at + length
+    pieces.append(text[last:])
+    return "".join(pieces)
+
+
+def _key_texts(text: str) -> Iterator[str]:
+    """``text`` - a block's rendered text - then ``text`` with its first balanced pair of strike
+    marks gone, then the next, until none is left: the readings of its key through the marks.
+
+    The parser renders struck text between `~~` marks, so the page's crossed-out words stay
+    visible to the exact check and `~~maintainer decision required~~` as a value refuses. The
+    *key* has to be read through them: struck out whole, `- ~~Autonomy: maintainer decision
+    required~~` matched no key and was not read at all, while an admitting bullet beside it
+    carried the issue; and struck in part, `- Auto<del>nomy</del>: maintainer decision
+    required` - `Auto~~nomy~~:` rendered - matched none either while only a text *opening*
+    with a mark was read through (Codex on #462, twice). A caller matches its key against
+    each reading in turn (:func:`_match_key`) and takes the first that matches, so the pairs
+    before and inside the key are gone and the pairs after it - inside the value - are quoted
+    as the page shows them. The marks cut one way - a struck key is read, and a shape
+    carrying any tilde never admits (:func:`_defaced`). A mark with no close is literal and
+    stays. The pairs are the parser module's (:func:`markdown_structure.strike_pairs`), found
+    in one pass; a reading that searched the text afresh for each pair was quadratic in the
+    pairs, and a paragraph of thousands of struck spans stalled the claim (Codex on #462).
+    """
+    pairs = _markdown.strike_pairs(text)
+    for count in range(len(pairs) + 1):
+        yield _unmarked(text, pairs[:count])
+
+
+#: Unicode's default-ignorable code points (DerivedCoreProperties.txt,
+#: ``Default_Ignorable_Code_Point``, Unicode 15.0 as :mod:`unicodedata` carries it), as
+#: ranges: the soft hyphen, the combining grapheme joiner, the Arabic letter mark, the Hangul
+#: fillers, the Khmer inherent vowels, the Mongolian and the variation selectors, the
+#: zero-width and the bidirectional controls, the shorthand and the musical format controls,
+#: the tag characters, and the points reserved beside them.
+_DEFAULT_IGNORABLE = (
+    (0x00AD, 0x00AD),
+    (0x034F, 0x034F),
+    (0x061C, 0x061C),
+    (0x115F, 0x1160),
+    (0x17B4, 0x17B5),
+    (0x180B, 0x180F),
+    (0x200B, 0x200F),
+    (0x202A, 0x202E),
+    (0x2060, 0x206F),
+    (0x3164, 0x3164),
+    (0xFE00, 0xFE0F),
+    (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0),
+    (0xFFF0, 0xFFF8),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+)
+
+
+def _undrawn(char: str) -> bool:
+    """Whether the page keeps ``char`` and draws nothing for it: a format character,
+    Unicode's ``Cf``, or a default-ignorable code point (:data:`_DEFAULT_IGNORABLE`)."""
+    if unicodedata.category(char) == "Cf":
+        return True
+    point = ord(char)
+    return any(low <= point <= high for low, high in _DEFAULT_IGNORABLE)
+
+
+def _shown(text: str) -> str:
+    """``text`` as a reader of the page takes it: the characters it draws nothing for gone
+    and its compatibility characters as what they stand for.
+
+    A format character - a zero-width space or joiner, a soft hyphen, a byte-order mark, a
+    direction override, Unicode's ``Cf`` - the page keeps and draws nothing for (GitHub's
+    markdown endpoint, 2026-10-03), so `Auto\u200bnomy: maintainer decision required` shows
+    the key over the restriction and is read as that. So is a default-ignorable code point
+    of another category, which a renderer draws nothing for by the same rule - the combining
+    grapheme joiner, a variation selector, a Khmer inherent vowel (``Mn``), a Hangul filler
+    (``Lo``), a point reserved beside them (``Cn``) - so `Auto\u034fnomy: human review
+    required` is read as the restriction it shows, where a filter on the category alone
+    kept the joiner, matched no key, and left the restriction unread beside an admitting
+    bullet (Codex on #462); the set is Unicode's (:func:`_undrawn`), a renderer that draws
+    a filler as a gap drawing no letter either. A compatibility character - a
+    fullwidth, circled or mathematical letter, a ligature, the Kelvin sign, the long s, the
+    fullwidth colon - the page draws as a variant of the letter it stands for, and Unicode's
+    NFKC form is that letter; `Ａｕｔｏｎｏｍｙ: maintainer decision required` is read as the
+    restriction it shows. Both are read through and neither admits: the characters are still
+    in the text a caller tests for the registered spelling (:func:`_defaced`). A letter of
+    another script that only looks like the key's - a Cyrillic a - is neither, and is not read.
+    """
+    shown = "".join(char for char in text if not _undrawn(char))
+    return unicodedata.normalize("NFKC", shown)
+
+
+def _match_key(pattern: re.Pattern[str], text: str) -> re.Match[str] | None:
+    """``pattern`` matched whole against the first reading of ``text`` through its strike marks
+    that it matches (:func:`_key_texts`), the format characters gone first (:func:`_shown`),
+    or ``None``.
+
+    The reading with every mark gone is tried first, as the test of whether any reading can
+    match: every pattern given here accepts a tilde wherever it accepts text past the key, so
+    a reading that matches goes on matching as more marks go, and one that fails with every
+    mark gone fails with any of them. Without that test a paragraph of thousands of struck
+    spans that was no key was matched once per span, each time against a fresh copy of the
+    text, and the readings are built one at a time only up to the first that matches, which
+    for a key is the one that uncovers it (Codex on #462).
+    """
+    shown = _shown(text)
+    pairs = _markdown.strike_pairs(shown)
+    if pattern.fullmatch(_unmarked(shown, pairs)) is None:
+        return None
+    readings = (_unmarked(shown, pairs[:count]) for count in range(len(pairs) + 1))
+    return next(m for reading in readings if (m := pattern.fullmatch(reading)) is not None)
+
+
+def _defaced(text: str) -> bool:
+    """Whether ``text`` - a declaration's rendered text - carries a tilde or a character
+    outside ASCII, either of which is read and never admits.
+
+    A tilde is a strike-through, which is a retraction, or a stray mark the page shows, which
+    is not the registered shape either - GitHub decides which by rules this module does not
+    reproduce in full, so either is read as the retraction it may be. A character outside
+    ASCII in a declaration that could otherwise admit is in its key - the registered values
+    are ASCII and fail the exact check with one, and whitespace the page shows as a space is a
+    space already (`_plain`) - and a key in other than the registered spelling is read for
+    what it may restrict and admits nothing: a letter that only folds to the key's under
+    Unicode case rules, `Executıon` with a dotless i, or a format or default-ignorable
+    character the page draws nothing for (Codex on #462, three times).
+    """
+    return "~" in text or not text.isascii()
 
 
 def _flatten_autonomy(value: str) -> str:
@@ -511,21 +762,266 @@ def _flatten_autonomy(value: str) -> str:
     the fail-open this function exists to close, for a body that opens with an admitting prefix.
 
     **It closes the separator class and nothing wider.** A restriction phrased outside
-    `AUTONOMY_REFUSES` altogether - "needs maintainer sign-off", "human review required" - is still
-    admitted, because this compares against a list rather than reading English. The list is the
-    guarantee; the flattener only stops punctuation defeating it. Every phrasing the corpus actually
-    uses is on the list, which is why the list is not speculatively widened.
+    `AUTONOMY_REFUSES` altogether - "needs maintainer sign-off", "human review required" - makes a
+    declaration fail the separate exact-value check; this function does not infer its meaning.
+    The list stays load-bearing for scan-only heading prose and table rows, where exact matching is
+    deliberately not applied. The flattener only stops punctuation defeating those explicit tokens.
 
-    **Separators are widened before the markup strip, not after.** `_MARKUP` removes `_` because it
-    is Markdown emphasis, so running it first turns `needs_human_action` into `needshumanaction` -
-    one word, matching nothing, admitted. Widening first makes it `needs human action`.
+    **Separators are widened on the rendered text**, so `needs_human_action` - literal
+    underscores, which CommonMark does not read as emphasis inside a word - becomes
+    `needs human action` and matches the entry.
     """
     widened = re.sub(r"[\s_/-]+", " ", value)
     return re.sub(r"\s+", " ", _normalize_autonomy(widened)).strip()
 
 
-def _declared_autonomy(body: str) -> list[tuple[str, str]]:
-    """Every Execution-autonomy declaration in the authoritative source, as ``(raw value, where)``.
+class _Leaf(NamedTuple):
+    """A leaf block and the container it was parsed in - the tuple of blocks it is one of.
+
+    The container travels with the leaf because flattening erases it, and one decision needs it
+    back: whether a heading's value is the heading's **own** next paragraph or a paragraph inside
+    a block quote or list item below it. `## Execution autonomy` over `> agent-can-do-alone` put a
+    registered value in the quote, and the flattened section could not tell (Codex on #462).
+    Identity, not equality: the tuple is the one the parser built, and two containers never share
+    it.
+    """
+
+    block: Any
+    siblings: tuple[Any, ...]
+
+
+def _flat(blocks: tuple[_markdown.Block, ...]) -> list[_Leaf]:
+    """The leaf blocks of ``blocks`` in document order: what a reader of the rendering sees, top
+    to bottom, with list items and block quotes opened up and a table given one leaf per row.
+
+    Containers are not leaves. A heading's section is read off this sequence rather than off the
+    heading's siblings, because a reader does not see the ``<li>`` a heading happens to sit in: an
+    indented `## Execution autonomy` that Markdown nests inside the bullet above it is still, on
+    the rendered page, a heading with the paragraph below it, and the regex reader's successor must
+    not lose that paragraph to a container boundary the reader cannot see. Each leaf still names
+    its container, for the one decision that must see the boundary.
+
+    One exception, in the other direction: a container none of whose leaves is drawn stands in
+    as a leaf itself. The page draws a block quote's bar and a list's bullet whatever they hold,
+    so `> <!-- note -->` under `## Execution autonomy` is something the reader sees between the
+    heading and the paragraph below it; opened up to its one undrawn leaf, it vanished, and that
+    paragraph admitted as the heading's own next paragraph (Codex on #462). A list draws a bullet
+    *per item*, so the stand-in is the item: `- <!-- c -->` over `- agent-can-do-alone` under
+    the heading is an empty bullet over a value, and one stand-in for the whole list, given
+    only when no item draws, let the value be the heading's own (Codex on #462). Drawn
+    *where the container is* (`_drawn_with`): `- [^1]: note` holds a definition the page
+    draws at its foot and is an empty bullet in the body.
+    """
+    leaves: list[_Leaf] = []
+    for block in blocks:
+        if isinstance(block, _markdown.ListBlock):
+            inner = []
+            for item in block.items:
+                own = _flat(item.blocks)
+                if not any(_drawn_with(leaf.block, item) for leaf in own):
+                    inner.append(_Leaf(item, blocks))
+                inner.extend(own)
+        elif isinstance(block, _markdown.BlockQuote):
+            inner = _flat(block.blocks)
+        elif isinstance(block, _markdown.Table):
+            inner = [_Leaf(row, blocks) for row in block.rows]
+        else:
+            leaves.append(_Leaf(block, blocks))
+            continue
+        if not any(_drawn_with(leaf.block, block) for leaf in inner):
+            leaves.append(_Leaf(block, blocks))
+        leaves.extend(inner)
+    return leaves
+
+
+def _prose(block: Any) -> str:
+    """The text a reader of the rendered ``block`` would see, one string, as flat as the flattener.
+
+    Code is literal, so it is empty here: a token quoted in an example is not a restriction.
+    Everything else is the parser's rendering of it - ``plain``, rendered from the inline tokens
+    (ADR-0066) - because every attempt to read the rendering off the source with a pattern missed
+    a shape: `maintainer decision required` inside a `<summary>` was dropped as non-prose, a key
+    split by an inline comment was not the key, and `## [Execution autonomy](url)` was a link
+    rather than the heading (all Codex on #462). What the page hides - a comment - is not here,
+    so a token inside one is not a restriction. A table row is its cells in order.
+    """
+    if isinstance(block, (_markdown.Paragraph, _markdown.Heading, _markdown.Html)):
+        return block.plain
+    if isinstance(block, _markdown.TableRow):
+        return " ".join(cell for cell in block.plain if cell)
+    return ""
+
+
+def _html_in(block: Any) -> Iterator[str]:
+    """Every run of HTML in ``block`` as the parser read it - comments included - for finding a
+    marker that prose hides.
+
+    A raw HTML block is HTML throughout. Inline text yields what the parser found to be HTML,
+    and not the source: a code span quoting the marker is text on the page, and searching the
+    source read ``Use `<!-- tether-grooming-v1 -->` when re-grooming`` as a misplaced marker
+    (Codex on #462). Code is nothing: a marker in a fence is literal.
+    """
+    if isinstance(block, _markdown.Html):
+        yield block.text
+    elif isinstance(block, (_markdown.Paragraph, _markdown.Heading)):
+        yield from _markdown.inline_html(block.text)
+    elif isinstance(block, _markdown.TableRow):
+        for cell in block.cells:
+            yield from _markdown.inline_html(cell)
+
+
+def _scan_only(leaves: list[_Leaf], where: str) -> list[_AutonomyValue]:
+    """``leaves`` as scan-only values, **one per rendered block**, never one string for the lot.
+
+    Joined across a block boundary, `... is a human` and `Action items ...` read as `human action`
+    and refused a registered declaration (Codex on #462). A token governs where it is written.
+    """
+    found: list[_AutonomyValue] = []
+    for leaf in leaves:
+        if isinstance(leaf.block, _markdown.TableRow):
+            # One per cell, for the same reason: `| human | action items |` is two cells on
+            # the page and joining them read `human action` where nobody wrote it (Codex on #462).
+            found.extend(
+                _AutonomyValue(cell, where, scan_only=True) for cell in leaf.block.plain if cell
+            )
+            continue
+        if isinstance(leaf.block, _markdown.Html):
+            # And one per block the raw HTML lays out, for the same reason again; a `<pre>` is
+            # literal, as a fence is.
+            found.extend(
+                _AutonomyValue(piece.text, where, scan_only=True)
+                for piece in leaf.block.shown
+                if piece.text and piece.tag not in _HTML_LITERAL
+            )
+            continue
+        text = _prose(leaf.block)
+        if text:
+            found.append(_AutonomyValue(text, where, scan_only=True))
+    return found
+
+
+def _is_grooming_marker(block: Any) -> bool:
+    """Whether ``block`` is a marker line: a raw HTML block that **begins** with the marker and
+    **shows nothing**.
+
+    Begins with, not contains. Markdown ends a comment block on the line that closes the
+    comment, so a marker written on its own line is its own block whatever follows it; a marker
+    *inside* some other raw HTML - `<div>`, marker, `</div>` - is one block with the `<div>`, and
+    searching that block's text for the marker made the whole construct a grooming block that was
+    never on a line of its own (Codex on #462). `_misplaced_marker` refuses that body instead.
+
+    Shows nothing, because the comment block runs to the end of the line that closes it: a
+    marker followed on its own line by `maintainer decision required` is one block that begins
+    with the marker, and reading it as the marker discarded the restriction the page shows beside
+    it (Codex on #462). A block that shows text is not a marker on its own line, and the misplaced
+    rule refuses it. Nor is one that draws something without text - `<img>` beside the marker,
+    an empty `<details>` - which `plain` is empty for and `_drawn` is not (Codex on #462). A
+    marker followed only by other comments draws nothing and is still a marker. One in a
+    footnote's continuation is drawn at the foot and starts nothing, so the misplaced rule
+    refuses it rather than a stale declaration above governing (Codex on #462).
+    """
+    if not isinstance(block, _markdown.Html) or _markdown.at_foot(block) or _drawn(block):
+        return False
+    return _GROOMING_MARKER.match(block.text.lstrip()) is not None
+
+
+def _grooming_block(document: tuple[_markdown.Block, ...]) -> tuple[_markdown.Block, ...] | None:
+    """The blocks of the **latest** ``tether-grooming-v1`` block, or ``None`` when there is none.
+
+    A grooming block is a marker **on its own line at the top level** and the top-level blocks
+    after it, up to the next marker or the end of the body. It runs *through* any other HTML
+    comment: terminating on any `<!--` meant one nested aside truncated the authoritative source,
+    so a declaration above it governed and a restriction below it was never read - the same
+    fail-open direction as every other defect in this path. A comment is not prose, so an aside
+    inside the block cannot itself declare or restrict anything.
+
+    **When there are several, the last one is the latest pass and it alone governs.** A block
+    supersedes the body because it is the later statement of readiness, and a second block is
+    later again: reading every block let an admitting declaration in the first govern a body
+    whose latest pass dropped it, which is exactly the fallback the precedence exists to refuse
+    (Codex on #462). The latest pass saying nothing is silence, and silence refuses.
+
+    A marker written anywhere else - inside a list item or block quote, or inline in a paragraph -
+    is **not** a grooming block, and `_autonomy_refusal` refuses the body outright rather than read
+    around it: the marker's whole purpose is to supersede the text above it, and a reader that
+    cannot say where that text ends must not guess. A marker inside a fence is literal and is
+    neither (ADR-0066).
+    """
+    current: list[_markdown.Block] | None = None
+    for block in document:
+        if _is_grooming_marker(block):
+            current = []
+        elif current is not None:
+            current.append(block)
+    return None if current is None else tuple(current)
+
+
+def _source(document: tuple[_markdown.Block, ...]) -> tuple[tuple[_markdown.Block, ...], str]:
+    """The authoritative source and its name: the body, or the latest grooming block with the
+    body's footnotes.
+
+    The page draws every footnote at its foot, wherever the definition sits, so one above the
+    marker is drawn for the block as for anything: `[^1]: Autonomy: maintainer decision
+    required` above it and `agent-can-do-alone[^1]` inside it shows the restriction, while the
+    block alone - the blocks after the marker - left the definition with the superseded text
+    and the issue admitted (Codex on #462). The body's footnotes are read with the block,
+    referenced from it or not: a footnote only refuses (`_section`, `_lead`), so one the block
+    never references costs a refusal on a body the groomer re-grooms and never a claim, and it
+    needs no reader of references on the source, which the page draws in a form the parser
+    does not. One source for every reader of it: the declarations read the footnotes with the
+    block while the misplaced-marker check read the block alone, so `[^1]: <!--
+    tether-grooming-v1 -->` above the marker - a marker drawn at the foot, where a block
+    cannot start - was never seen and an admitting bullet in the block carried the issue
+    (Codex on #462).
+    """
+    groomed = _grooming_block(document)
+    if groomed is None:
+        return document, "body"
+    inside = {id(block) for block in _markdown.walk(groomed)}
+    foot = tuple(block for block in _foot_blocks(document) if id(block) not in inside)
+    return groomed + foot, "grooming block"
+
+
+def _misplaced_marker(source: tuple[_markdown.Block, ...]) -> bool:
+    """Whether a grooming marker sits anywhere in ``source`` that a grooming block cannot start.
+
+    That is a marker block that is not top-level, or the marker's text anywhere that is not a
+    marker block: inline in a paragraph, in a table cell, or inside some other raw HTML. Every
+    leaf is searched for the **HTML the parser found in it** rather than its rendered prose,
+    because the marker is a comment and prose hides comments - and not its source either, since
+    a code span quoting the marker is text (Codex on #462). A marker in a fence is literal, and
+    a fence is never searched. The HTML is read comment by comment
+    (:func:`markdown_structure.comments`), and a comment is the marker when it is the marker
+    whole: the marker's text inside a tag's attribute - `<img alt="<!-- tether-grooming-v1
+    -->">` - is a picture's alternative text on the page and no comment, and searching the
+    run whole refused the body for a marker the page does not carry (Codex on #462); and
+    inside another comment - `<!-- note <!-- tether-grooming-v1 -->`, one comment to the
+    page's tokenizer, the inner opener its data - it is that comment's text and no marker,
+    where a search of the comment's text refused the body the same way (Codex on #462).
+
+    ``source`` is the authoritative one (`_source`) - the latest grooming block with the body's
+    footnotes when there is one, else the body - and not the whole document: a stale paragraph
+    that *quotes* the marker, above a later marker on its own line, is superseded like
+    everything else above that line, and refusing the body for it refused a correctly
+    re-groomed issue (Codex on #462). Inside the latest block a misplaced marker still refuses,
+    since it is there that what it supersedes cannot be read; and so does one in a footnote,
+    which the page draws at its foot for the block as for the body.
+    """
+    for leaf in _flat(source):
+        if _is_grooming_marker(leaf.block):
+            if leaf.siblings is not source:
+                return True
+        elif any(
+            _GROOMING_MARKER.fullmatch(comment)
+            for chunk in _html_in(leaf.block)
+            for comment in _markdown.comments(chunk)
+        ):
+            return True
+    return False
+
+
+def _declared_autonomy(body: str) -> list[_AutonomyValue]:
+    """Every autonomy value or scan-only restriction in the authoritative source.
 
     The value is returned **unnormalized**. `_normalize_autonomy` strips `_` as Markdown
     emphasis, so normalizing here would glue `needs_human_action` into one word before
@@ -535,13 +1031,16 @@ def _declared_autonomy(body: str) -> list[tuple[str, str]]:
     `## Autonomy` one, a ``- **Autonomy:**`` bullet, and a ``<!-- tether-grooming-v1 -->`` block -
     and they do not always agree, so the order below is the decision.
 
-    **A grooming block wins whenever one is present** - not merely when it happens to declare an
-    autonomy - because those blocks exist to restate readiness after the body above them went
-    stale. Reading the body first would let a superseded value admit work the grooming pass had
-    already restricted, and *falling back* to the body when the block declares nothing is the same
-    failure wearing a different hat: the value the pass dropped would govern because it was
-    dropped. A block that says nothing about autonomy has said nothing, and the caller refuses
-    silence.
+    **A grooming block wins whenever one is present, and the latest of them wins over the rest**
+    - not merely when it happens to declare an autonomy - because those blocks exist to restate
+    readiness after the body above them went stale. Reading the body first would let a superseded
+    value admit work the grooming pass had already restricted, and *falling back* to the body when
+    the block declares nothing is the same failure wearing a different hat: the value the pass
+    dropped would govern because it was dropped. A block that says nothing about autonomy has
+    said nothing, and the caller refuses silence. A second block is later again, so it supersedes
+    the first the way the first supersedes the body: reading both let an admitting value in an
+    earlier pass govern a body whose latest pass had dropped it, the same fallback in a different
+    place (Codex on #462).
 
     **Within one source there is no such precedence, so every declaration in it is returned and the
     caller refuses if any of them does.** This returned only the first match and looked for bullets
@@ -552,59 +1051,784 @@ def _declared_autonomy(body: str) -> list[tuple[str, str]]:
     is not clearly groomed, which is the case this gate exists to refuse. It is the same rule
     `_autonomy_refusal` already applies to a single value that names both.
 
-    **`Autonomy after unblock` declares autonomy like any other spelling.** It is tempting to read
-    it as conditional and refuse, but that conflates two questions. *What kind of work is this* is
-    what this function answers; *is it still blocked* is what the `status:` label answers, and #336
-    scopes dependency parsing out of this check deliberately. Refusing on the qualifier produced a
-    measured false negative: #214's own grooming block reads `**Status:** unblocked` two lines above
-    `**Autonomy after unblock:** agent-can-do-alone`, so the condition it names is already met and
-    refusing it would bar work that is genuinely ready. The qualifier is kept in the returned label
-    so a refusal message can still quote where the value came from.
+    **A qualified bullet key refuses.** `Autonomy after unblock` is not the bare field the issue
+    forms collect, and accepting it leaves a condition-shaped path around exact value matching.
+    The one measured false negative that justified the old behavior, #214, closed on 2026-08-12.
+    Reading a neighbouring `Status:` bullet to decide whether the qualifier is satisfied is not a
+    substitute: that would teach this mutex gate to adjudicate blockedness from prose, which #326
+    and #336 deliberately exclude. The qualifier travels separately so the refusal names the line
+    a groomer must rewrite.
+
+    **Where a declaration begins and ends is Markdown's decision, and the parser makes it**
+    (ADR-0066). A bullet's value is the whole of its first paragraph, however many lines it wraps
+    across, and nothing of its second; a heading's value is the first prose block below it on the
+    rendered page, and its section runs to the next heading of any level; a fenced or indented
+    example is literal. The rest of a list item and the rest of a heading's section are scan-only,
+    one rendered block at a time: an explicit `AUTONOMY_REFUSES` token there still governs, but
+    ordinary explanatory prose cannot become an unregistered second declaration.
+
+    **Only the registered shapes admit**: a `-` or `*` bullet at column zero, and an ATX heading at
+    column zero whose value is a paragraph. GitHub also renders `+` bullets, indented bullets,
+    nested and block-quoted items, setext headings, headings inside list items, a table row keyed
+    `autonomy` and a value written in raw HTML, and a restriction written any of those ways must
+    still be read - so they are exact-checked like any declaration and marked unable to admit. An
+    unregistered value in one refuses; a registered value in one counts for nothing. That widens
+    what the gate sees without widening what it accepts, the only direction a mutex gate may grow.
     """
-    # A grooming block is authoritative **when its marker is present**, including when it declares
-    # no autonomy and including when it captures nothing at all. Falling through to the body let
-    # the stale value a grooming pass had dropped govern the claim *because* it was dropped, which
-    # inverts the rule this precedence exists to serve. Keying on the captured text rather than the
-    # marker left the same hole open for a block that yields `""` - a marker ending the body with
-    # no trailing newline, or one holding only a nested comment. Silence in the latest pass is
-    # silence, and silence already refuses.
-    if _GROOMING_MARKER.search(body):
-        source, where = _grooming_section(body), "grooming block"
-    else:
-        source, where = body, "body"
-    found: list[tuple[str, str]] = []
-    for match in _AUTONOMY_BULLET.finditer(source):
-        qualifier = _normalize_autonomy(match.group("qualifier"))
-        label = f"{where} bullet" + (f" ({qualifier})" if qualifier else "")
-        found.append((match.group("value"), label))
-    # `finditer`, not `search`: a source can carry the heading twice, and taking only the first
-    # hid a second one that restricted the issue behind an admitting first one - the same
-    # first-match-wins defect this function was just fixed for, one level down.
-    for heading in _AUTONOMY_HEADING.finditer(source):
-        lines = [ln.strip() for ln in heading.group(1).split("\n") if ln.strip()]
-        if lines:
-            # The **whole section**, not `lines[0]`. A restriction is often written as the
-            # sentence under the declaration - "agent-can-do-alone" then "the upload step is a
-            # maintainer decision" - and reading one line dropped it. Joined into a single value
-            # rather than one declaration per line, because per-line would refuse any issue that
-            # explains itself: a prose sentence does not *admit*, so it would fail the admits
-            # check and turn every well-groomed issue into a refusal. As one value it meets the
-            # rule already written for a value naming two things - open with an admitting token,
-            # contain no refusing one - under which explanatory prose changes nothing.
-            found.append((" ".join(lines), f"{where} heading"))
+    return _declarations(_markdown.parse(body))
+
+
+#: Raw HTML elements whose end tag pops the stack back to them, closing a `<details>` opened
+#: inside (HTML5 "in body": the end tags that generate implied end tags and pop to their
+#: element; "in table", "in row" and "in cell" for the table ones) - among the elements GitHub
+#: keeps, since a stripped tag's end tag closes nothing on the page: `<section><details>
+#: </section>` leaves the widget open to the end of the body, and a bullet below it is hidden
+#: there, while reading `</section>` as a close put it on the page (Codex on #462, one shape
+#: over from the stripped tag that split a key). `<div>` is one of them - `</div>` is listed by
+#: name - as is every list, table and heading element. Of the kept block tags, `<p>` is not: a
+#: `<details>` start tag closes an open `<p>` first, so no `<details>` is ever inside one;
+#: `<hr>` is void; and `</details>` is the closer itself.
+_HTML_SCOPES = _markdown.BLOCK_TAGS - {"details", "hr", "p"}
+#: The scope boundaries among them: a `</details>` written inside one cannot close a
+#: `<details>` opened outside it (HTML5 "has an element in scope"), and nor can any other end
+#: tag reach past one - save a table part's own, which sees through everything but a table
+#: opened after it (HTML5 "in table", "in cell"), and a list item's own, which a list opened
+#: after it stops as well (HTML5 "in list item scope"): `<ul><li><details><ul></li></ul>`
+#: leaves the widget open over everything after it, where a walk past the inner list closed
+#: the item and put a hidden bullet on the page (Codex on #462). What each end tag closes and
+#: what stops it is `markdown_structure.end_tag_scope`, the one table for the walker here and
+#: for the layout of a raw run. A table part's start tag, with no table open, is ignored
+#: outright (HTML5 "in body"), so it opens no scope and is no boundary: `<td><details>note</td>`
+#: leaves the widget open to the end of the body, the `</td>` closing nothing, and
+#: `<details>x<td>y</details>` closes it, the `<td>` in the way of nothing (GitHub's markdown
+#: endpoint, 2026-10-03).
+_HTML_BOUNDARIES = frozenset({"caption", "table", "td", "th"})
+
+
+def _collapsed(document: tuple[_markdown.Block, ...]) -> list[tuple[int, float]]:
+    """The source-line spans GitHub collapses: from a top-level ``<details>`` to its end.
+
+    What a `<details>` takes is the HTML parser's decision, not Markdown's, and these are its
+    rules (HTML5 "in body", the start and end tags of `details`). One opened in a raw block, or in
+    the running text of a top-level paragraph - where it closes the paragraph - stays open across
+    the blocks that follow, to its `</details>` or the end of the body. One opened inside a
+    heading, a list item, a block quote or a table cell is popped by that element's own end tag
+    and takes nothing past it (Codex on #462). A `</details>` closes the innermost open one from
+    wherever it is written - a paragraph, a heading, a list item - a table cell excepted, since a
+    cell is a scope boundary the end tag cannot see through. Only the top-level spans are
+    returned: the registered shapes are both at column zero, so what a `<details>` inside a
+    container collapses is refused already.
+
+    Tags are the parser's reading, comments removed first - a `</details>` in a comment closes
+    nothing - and inline HTML is what the parser found, so a tag in a code span is text and
+    opens nothing (Codex on #462). A declaration on a line inside a span is not on the page a
+    reader sees, so it may refuse and may not admit; `<details open>` is collapsed here too,
+    because a disclosure widget is not the registered shape whichever way it starts.
+
+    Raw HTML has scopes of its own, and they are the document's, as the HTML parser's stack is,
+    not the block's. A `<details>` opened inside a `<td>`, an `<li>`, a `<div>` or any other
+    `_HTML_SCOPES` element is popped by that element's end tag - left to the end of the body,
+    `<td><details>note</td>` collapsed a registered bullet below the table (Codex on #462) -
+    and a `</details>` inside a cell cannot close one opened outside the table, in the same
+    block or in a later one: `<details><table><tr><td>` left open at a blank line is still
+    open in the block after it, so a `</details>` there, raw or in running text, closes nothing,
+    where a stack dropped at the block's end let it put a hidden bullet back on the page (Codex
+    on #462). The same cell left open inside a list item or a heading swallows that element's
+    own end tag, so what was opened inside runs on - the parser's reading, and the safe one;
+    a raw list left open inside a Markdown item swallows the item's end tag the same way, and
+    `- <details><ul>` hides every bullet after it, where the item's end popped the widget
+    (GitHub's markdown endpoint, 2026-10-03). A
+    cell is one only inside a table: with none open the parser ignores the `<td>`, so
+    `<td><details>note</td>` is a widget the `</td>` never pops, and a bullet below it is
+    hidden where popping it put the bullet on the page (GitHub's markdown endpoint,
+    2026-10-03). A start tag's implicit close of an open sibling - a second `<li>` or `<td>` -
+    is not modelled, which can only over-collapse.
+
+    A tag in a footnote is drawn at the page's foot, after the whole body, wherever the
+    definition sits in the source, so it is not counted at all. A `<details>` there collapses
+    the rest of the foot and nothing of the body, and the foot can only refuse; a `</details>`
+    there closes a disclosure the body left open *after* the body, so what that disclosure
+    hides stays hidden - read in source order, `[^1]: x </details>` closed it above a bullet
+    the page hides (GitHub's markdown endpoint, 2026-10-03; the mirror of Codex's read-34
+    finding on #462, a continuation's raw HTML read as a run).
+    """
+    spans: list[tuple[int, float]] = []
+    # Each open `<details>`: the nesting level it was opened at - zero for the document's own
+    # blocks, one deeper for each heading, list item or block quote - how many raw scopes were
+    # open then, and its source line; innermost last.
+    opened: list[tuple[int, int, int]] = []
+    # Each open raw scope - a kept block element, `_HTML_SCOPES` - with the nesting level it
+    # was opened at; innermost last.
+    scopes: list[tuple[int, str]] = []
+
+    def pop_details(line: int) -> None:
+        level, _, start = opened.pop()
+        if level == 0:
+            spans.append((start, line))
+
+    def tag(name: str, closing: bool, level: int, line: int) -> None:
+        if name == "details":
+            if not closing:
+                opened.append((level, len(scopes), line))
+            elif opened and not any(
+                scope in _HTML_BOUNDARIES for _, scope in scopes[opened[-1][1] :]
+            ):
+                # The end tag reaches the innermost open disclosure unless a boundary opened
+                # after it is still open, and pops everything opened inside it with it, so
+                # `<details><div>x</details>` leaves no `div` for a later `</div>` to close.
+                del scopes[opened[-1][1] :]
+                pop_details(line)
+            return
+        if name not in _HTML_SCOPES:
+            return
+        if not closing:
+            # A table part with no table open is ignored by the parser: no scope, no boundary.
+            if name in _markdown.TABLE_PART_TAGS and not any(
+                scope == "table" for _, scope in scopes
+            ):
+                return
+            scopes.append((level, name))
+            return
+        # The end tag of a kept block element pops the element with everything opened inside
+        # it - unless the element is not in scope, a boundary opened after it still being open,
+        # when the parser ignores the tag: a table part's own end tag sees through everything
+        # but a table opened after it, a list item's is stopped by a list as well, and a
+        # heading's closes any heading (`end_tag_scope`).
+        targets, blocking = _markdown.end_tag_scope(name)
+        for index in range(len(scopes) - 1, -1, -1):
+            if scopes[index][1] in targets:
+                break
+            if scopes[index][1] in blocking:
+                return
+        else:
+            return
+        del scopes[index:]
+        while opened and opened[-1][1] > index:
+            pop_details(line)
+
+    def leave(level: int, element: str) -> None:
+        # The own end tag of the heading, list item or block quote - `element` - pops what was
+        # opened inside it - unless a boundary that stops that end tag, opened inside it, is
+        # still open, when the parser ignores the end tag and everything opened inside runs on.
+        _, blocking = _markdown.end_tag_scope(element)
+        if any(at >= level and scope in blocking for at, scope in scopes):
+            return
+        while scopes and scopes[-1][0] >= level:
+            scopes.pop()
+        while opened and (opened[-1][0] >= level or opened[-1][1] > len(scopes)):
+            opened.pop()
+
+    def run(blocks: tuple[_markdown.Block, ...], level: int) -> None:
+        for block in blocks:
+            if _markdown.at_foot(block):
+                continue  # drawn at the foot: opens and closes nothing of the body
+            if isinstance(block, _markdown.Html):
+                for name, closing in _markdown.tags(block.text):
+                    tag(name, closing, level, block.line)
+            elif isinstance(block, _markdown.Paragraph):
+                for name, closing in _markdown.inline_tags(block.text):
+                    tag(name, closing, level, block.line)
+            elif isinstance(block, _markdown.Heading):
+                for name, closing in _markdown.inline_tags(block.text):
+                    tag(name, closing, level + 1, block.line)
+                leave(level + 1, f"h{block.level}")
+            elif isinstance(block, _markdown.ListBlock):
+                for item in block.items:
+                    run(item.blocks, level + 1)
+                    leave(level + 1, "li")
+            elif isinstance(block, _markdown.BlockQuote):
+                run(block.blocks, level + 1)
+                leave(level + 1, "blockquote")
+            # A table cell is a scope boundary both ways, code is literal, a rule has no tags.
+
+    run(document, 0)
+    spans.extend((start, float("inf")) for _, _, start in opened)
+    return spans
+
+
+def _on_the_page(spans: list[tuple[int, float]], line: int) -> bool:
+    """Whether source line ``line`` is outside every collapsed span."""
+    return not any(start <= line <= end for start, end in spans)
+
+
+def _declarations(document: tuple[_markdown.Block, ...]) -> list[_AutonomyValue]:
+    """`_declared_autonomy` for an already-parsed body, read from the authoritative source
+    (`_source`)."""
+    source, where = _source(document)
+    found: list[_AutonomyValue] = []
+    # The collapsed spans are the whole document's, not the source's: a `<details>` opened above
+    # the marker is still open below it, so the grooming block's lines inside it are as hidden
+    # as any (Codex on #462). The marker supersedes what the body *says*, not where it is drawn.
+    collapsed = _collapsed(document)
+    leaves = _flat(source)
+    # The leaves read already as the remainder of a bare key or a raw block's section, and
+    # each container's leaves by the container: a section walk stops at a leaf read before,
+    # the rest of it having been read then, and a container is flattened once, where a body
+    # of thousands of bare keys over their values flattened its blocks and read its remainder
+    # once per key, which is quadratic and took half a minute near GitHub's limit (Codex on
+    # #462).
+    read: set[int] = set()
+    members: dict[int, set[int]] = {}
+    for index, leaf in enumerate(leaves):
+        block = leaf.block
+        # The foot is read by the body's rules and named for what it is, since nothing there
+        # admits (Codex on #462).
+        here = f"{where} footnote" if _markdown.at_foot(block) else where
+        key = (
+            _match_key(_AUTONOMY_KEY, _prose(block))
+            if isinstance(block, _markdown.Heading)
+            else None
+        )
+        if key is not None and _PROSE_QUALIFIER.match(key.group("qualifier")):
+            # A heading about the field: what it heads is read for a restriction and is not
+            # the field's value, so nothing here can admit and nothing is exact-checked. The
+            # qualifier is read the same way, since `## Execution autonomy - maintainer decision
+            # required` carries the restriction in the heading itself (Codex on #462).
+            about = f"{here} heading about the field"
+            found.append(_AutonomyValue(key.group("qualifier").strip(), about, scan_only=True))
+            found.extend(_scan_only(_section(leaves, index), about))
+        elif key is not None:
+            qualifier = _normalize_qualifier(key.group("qualifier"))
+            section = _section(leaves, index)
+            if section:
+                # The first block the page draws below the heading is the value, whatever it
+                # is: a paragraph is the shape the issue forms write, and anything else - a
+                # picture, a fence, a rule, a table row, a raw HTML block - fails the exact
+                # match. Only an ATX heading at column zero may admit, and only on its **own
+                # next paragraph** - a sibling in the same container, on the page as the
+                # heading is. A value inside a block quote or a list item below the heading, or
+                # written as raw HTML, or inside a `<details>` the heading sits above, is read
+                # and exact-checked but is one more shape that can refuse and cannot admit: the
+                # registered shape is the heading with the value as its paragraph.
+                value = section[0]
+                admits = (
+                    not qualifier
+                    and not _defaced(_prose(block))
+                    and not _markdown.at_foot(block)
+                    and block.column == 0
+                    and block.markup.startswith("#")
+                    and isinstance(value.block, _markdown.Paragraph)
+                    and value.siblings is leaf.siblings
+                    and _plain_markdown(block, value.block)
+                    and _on_the_page(collapsed, block.line)
+                    and _on_the_page(collapsed, value.block.line)
+                )
+                found.append(
+                    _AutonomyValue(
+                        _prose(value.block), f"{here} heading", qualifier=qualifier, admits=admits
+                    )
+                )
+                found.extend(_scan_only(section[1:], f"{here} heading remainder"))
+            else:
+                # A recognised heading with no prose below it - the last line of the body, or
+                # a heading straight under it - has declared an empty value, and recording
+                # nothing let an admitting bullet elsewhere carry the issue past a field that
+                # names no registered value (Codex on #462). The empty value fails the exact
+                # check, as the one-column table's does.
+                found.append(
+                    _AutonomyValue("", f"{here} heading", qualifier=qualifier, admits=False)
+                )
+        elif isinstance(block, _markdown.TableRow):
+            found.extend(_row(block, here))
+    # The leads `_bullet` read, so the pass below does not read them twice. Only a paragraph
+    # lead keyed like a bullet is one: a lead that is raw HTML, or a bare key over the item's
+    # next paragraph, is not the bullet's declaration and was skipped here unread, so it is read
+    # below like any other block the page shows (Codex on #462).
+    leads: list[Any] = []
+    for block in _markdown.walk(source):
+        if isinstance(block, _markdown.ListBlock):
+            for item in block.items:
+                lead = _lead(item)
+                if isinstance(lead, _markdown.Paragraph) and _keyed(_prose(lead)) is not None:
+                    leads.append(lead)
+                found.extend(_bullet(item, where, collapsed))
+    # Any other text the page shows keyed like a bullet is a field the page shows all the same,
+    # and not reading it let a restriction written that way sit beside an admitting bullet
+    # unseen: a paragraph that is not an item's lead - on its own at the top level, second in an
+    # item, inside a block quote - and, one shape over each time (Codex on #462), a raw HTML
+    # block showing `Autonomy: maintainer decision required`, a heading carrying its value on
+    # its own line, a table cell. Each is a declaration of the `+` bullet's kind: exact-checked,
+    # able to refuse, never able to admit. A heading that is a key, and every table row, were
+    # read above. Raw HTML is read one rendered block at a time, as a table is read
+    # one cell at a time: a `<div>` of two `<p>` is one block here and two paragraphs on the
+    # page, and matching the key against the run joined read past the restriction in the
+    # second (Codex on #462). What follows a keyed block in the same run is its remainder,
+    # scan-only, as a row's further cells are - `<td>Autonomy:</td><td>maintainer decision
+    # required</td>` is an empty value and then the restriction, and both are read. And the
+    # key alone - `**Execution autonomy**` as a paragraph, over the paragraph that holds its
+    # value - heads what the page draws next, as a heading does (`_BARE_KEY`), a checkbox
+    # before it read past as `_keyed` reads past one: `- [ ] **Autonomy**` over `human review
+    # required` is the key over its block, checkbox and all, and the bare key heads nothing
+    # that can admit (Codex on #462). Every table row was read above, cell by cell, in `_row`.
+    for index, leaf in enumerate(leaves):
+        block = leaf.block
+        if any(block is lead for lead in leads):
+            # The lead was the bullet's declaration; what a block tag in it opens is not.
+            found.extend(_after_block_tag(block, where, leaves, index, read))
+            continue
+        if isinstance(block, _markdown.Heading):
+            if _match_key(_AUTONOMY_KEY, _prose(block)) is not None:
+                continue
+            texts = [
+                (
+                    _prose(block),
+                    "footnote heading line" if _markdown.at_foot(block) else "heading line",
+                )
+            ]
+        elif isinstance(block, _markdown.Html):
+            found.extend(_pieces_read(block.shown, _html_shape(block, where), leaves, index, read))
+            continue
+        elif isinstance(block, _markdown.Paragraph):
+            found.extend(_after_block_tag(block, where, leaves, index, read))
+            text = _prose(block)
+            task = _TASK_MARKER.match(text)
+            shape = "footnote" if block.footnote else "paragraph"
+            if _match_key(_BARE_KEY, text[task.end() :] if task else text) is not None:
+                section = _section(leaves, index, leaf.siblings, read=read, members=members)
+                value = _prose(section[0].block) if section else ""
+                found.append(_AutonomyValue(value, f"{where} {shape} bare key", admits=False))
+                found.extend(_scan_only(section[1:], f"{where} {shape} bare key remainder"))
+                read.update(id(rest.block) for rest in section[1:])
+                continue
+            if block.footnote and _keyed(text) is None:
+                found.append(_AutonomyValue(text, f"{where} footnote", scan_only=True))
+                continue
+            texts = [(text, shape)]
+        else:
+            continue
+        for text, shape in texts:
+            keyed = _keyed(text)
+            if keyed is not None:
+                qualifier, value, _, _ = keyed
+                found.append(
+                    _AutonomyValue(value, f"{where} {shape}", qualifier=qualifier, admits=False)
+                )
     return found
 
 
-def _grooming_section(body: str) -> str:
-    """The text of a ``tether-grooming-v1`` block, or ``""``. Joined when there are several.
+def _row(block: _markdown.TableRow, where: str) -> list[_AutonomyValue]:
+    """``block`` read one cell at a time, as raw HTML is read one piece at a time; nothing here
+    admits.
 
-    Nested HTML comments are **removed** rather than allowed to end the block. They used to end it,
-    which silently truncated the authoritative source: a groomer's aside between two declarations
-    hid every line after it, so an admitting line above governed and a restriction below was never
-    read. Removing them keeps the whole block authoritative and cannot itself admit anything, since
-    a comment carries no declaration.
+    A cell that starts with the key - bare or qualified - is a declaration whose value is the
+    cell after it, exact-checked like a `+` bullet's value: `human review required` - no
+    registered token, not a registered value - refuses rather than slips past a token scan
+    (Codex on #462), and a key in the last cell, or in a one-column table, has declared an empty
+    value, which fails the same check. A dash-led qualifier makes the row one about the field,
+    scanned whole. Any other cell keyed like a bullet is a declaration too: `| Autonomy |
+    agent-can-do-alone | Autonomy: human review required |` is the two declarations the page
+    shows, and marking every cell past the value scan-only left the third unchecked, since its
+    unregistered value names no token (Codex on #462). A key in a later cell - `| note |
+    Autonomy | human review required |` - heads the cell after it, as a raw `<td>` does. What
+    else follows a key is scan-only remainder, and the row is the whole of it: a table's next
+    row is read on its own. A header row is read the same way; a table whose *column* is
+    autonomy is not a shape the forms write, and failing closed on it costs one re-groom.
     """
-    return "\n".join(_HTML_COMMENT.sub("", m.group(1)) for m in _GROOMING_BLOCK.finditer(body))
+    found: list[_AutonomyValue] = []
+    shape = f"{where} table row"
+    section: str | None = None
+    owed: tuple[str, str] | None = None
+    keyed_yet = False
+
+    def settle(value: str) -> None:
+        nonlocal owed
+        if owed is not None:
+            found.append(_AutonomyValue(value, owed[0], qualifier=owed[1], admits=False))
+            owed = None
+
+    for cell in block.plain:
+        key = _match_key(_AUTONOMY_KEY, cell)
+        if key is not None:
+            settle("")
+            keyed_yet = True
+            qualifier = key.group("qualifier")
+            if _PROSE_QUALIFIER.match(qualifier):
+                section = f"{shape} about the field"
+                found.append(_AutonomyValue(qualifier.strip(), section, scan_only=True))
+            else:
+                section = f"{shape} remainder"
+                owed = (shape, _normalize_qualifier(qualifier))
+            continue
+        if owed is not None:
+            settle(cell)
+            continue
+        keyed = _keyed(cell)
+        if keyed is not None:
+            keyed_yet = True
+            qualifier, value, _, _ = keyed
+            found.append(
+                _AutonomyValue(value, f"{where} table cell", qualifier=qualifier, admits=False)
+            )
+        elif keyed_yet and cell:
+            found.append(_AutonomyValue(cell, section or f"{shape} remainder", scan_only=True))
+    settle("")
+    return found
+
+
+def _html_shape(block: Any, where: str) -> str:
+    """The label of a raw HTML block's declarations."""
+    return f"{where} footnote raw HTML" if _markdown.at_foot(block) else f"{where} raw HTML"
+
+
+def _after_block_tag(
+    block: _markdown.Paragraph, where: str, leaves: list[_Leaf], index: int, read: set[int]
+) -> list[_AutonomyValue]:
+    """The blocks the page lays out after a block tag in the paragraph ``block`` -
+    ``leaves[index]`` - read as a raw block's pieces are, since that is what they are on the
+    page: `a <div>Autonomy: maintainer decision required</div>` is the paragraph `a` and
+    then a box the restriction heads, and reading the text as the one paragraph it is to
+    Markdown put the key mid-line, so the restriction went unread beside an admitting
+    bullet (found beside Codex's read of `56e3e65` on #462). The paragraph's own text is the
+    first piece and is read by the paragraph's rules; nothing here admits."""
+    if not block.shown:
+        return []
+    foot = _markdown.at_foot(block)
+    shape = f"{where} {'footnote ' if foot else ''}paragraph after a block tag"
+    return _pieces_read(block.shown[1:], shape, leaves, index, read)
+
+
+def _pieces_read(
+    pieces: tuple[_markdown.Shown, ...], shape: str, leaves: list[_Leaf], index: int, read: set[int]
+) -> list[_AutonomyValue]:
+    """``pieces`` - the blocks the page lays ``leaves[index]`` out as, or the rest of them -
+    read one rendered block at a time, as the page lays it out; nothing here admits. ``shape``
+    labels what is found, and ``read`` is the leaves read as a section's remainder already,
+    kept as `_declarations` keeps it.
+
+    A piece the page draws as a heading is read as a Markdown heading is: a key with whatever
+    qualifier it carries, the next thing drawn its value unless that is a heading too, and a
+    dash-led qualifier prose about the field, scanned itself. A piece the page draws as a table
+    cell is read as a Markdown cell is (`_row`): a cell that starts with the key, bare or
+    qualified, heads the cell after it, and a key in the last cell of its row has declared an
+    empty value. Any other piece keyed like a bullet is a declaration, and a bare key -
+    `<p>Autonomy</p>` - heads the next thing drawn as a bare paragraph does. What follows a key
+    is scan-only remainder, as a row's further cells are, up to the next heading: a heading
+    opens a section of its own, as `_section` stops at one, and `<h2>Human action items</h2>`
+    after the field refused a registered bullet when the remainder ran through it (Codex on
+    #462). A `<pre>` piece is literal, as a fence is, wherever it falls.
+
+    **A section is the page's, not the block's.** Markdown ends a raw block at a blank line,
+    and the paragraphs after it sit under the raw heading on the page exactly as under a
+    Markdown one; a heading or bare key whose section is still open when the block ends
+    continues through `_section` - the next drawn leaf its value if one is still owed, the rest
+    scanned - where reading the block alone left `The upload is a maintainer decision` under
+    `<h2>Execution autonomy - notes</h2>` unread (Codex on #462). A cell's section is its row,
+    as a Markdown row's is, and ends with the block; a keyed piece's remainder stays in its
+    block, as a keyed paragraph has none. `<div><h2>Execution autonomy</h2><p>maintainer
+    decision required</p></div>` was read with the bullet's grammar only, which needs a colon,
+    so the heading and the restriction under it were both unread (Codex on #462).
+    """
+    found: list[_AutonomyValue] = []
+    # The open section's scan-only label once a key has been read; the key whose value is
+    # still owed - its label and qualifier - when the key was the last thing drawn so far; and
+    # whether the open section is a cell's, which the block ends.
+    section: str | None = None
+    owed: tuple[str, str] | None = None
+    confined = False
+    keyed_yet = False
+
+    def settle(value: str) -> None:
+        nonlocal owed
+        if owed is not None:
+            found.append(_AutonomyValue(value, owed[0], qualifier=owed[1], admits=False))
+            owed = None
+
+    for piece in pieces:
+        if piece.tag in _HTML_LITERAL:
+            settle("")
+            continue
+        heading = piece.tag in _HTML_HEADINGS
+        cell = piece.tag in _HTML_CELLS
+        key = _match_key(_AUTONOMY_KEY if heading or cell else _BARE_KEY, piece.text)
+        if heading and key is None:
+            settle("")
+            keyed_yet = False
+            section = None
+        if key is not None:
+            settle("")
+            keyed_yet = True
+            confined = cell
+            qualifier = key.group("qualifier") if heading or cell else ""
+            if _PROSE_QUALIFIER.match(qualifier):
+                section = f"{shape} {'cell' if cell else 'heading'} about the field"
+                found.append(_AutonomyValue(qualifier.strip(), section, scan_only=True))
+            else:
+                section = f"{shape} remainder"
+                owed = (shape, _normalize_qualifier(qualifier))
+            continue
+        if owed is not None:
+            if not confined or cell:
+                settle(piece.text)
+                continue
+            # A cell's value is the cell after it; anything else drawn next ends its row.
+            settle("")
+        keyed = _keyed(piece.text)
+        if keyed is not None:
+            keyed_yet = True
+            qualifier, value, _, _ = keyed
+            found.append(_AutonomyValue(value, shape, qualifier=qualifier, admits=False))
+        elif keyed_yet and piece.text:
+            found.append(
+                _AutonomyValue(piece.text, section or f"{shape} remainder", scan_only=True)
+            )
+    if confined:
+        settle("")
+    elif owed is not None or section is not None:
+        rest = _section(leaves, index, read=read)
+        if owed is not None:
+            settle(_prose(rest[0].block) if rest else "")
+            rest = rest[1:]
+        if section is not None:
+            found.extend(_scan_only(rest, section))
+            read.update(id(leaf.block) for leaf in rest)
+    return found
+
+
+def _names(flat: str, token: str) -> bool:
+    """Whether the flattened ``flat`` names the flattened ``token`` - at a word's start, and
+    running on if it likes.
+
+    No boundary at all read `nonhuman actions` as `human action` and refused a registered
+    declaration whose prose only mentioned the one (Codex on #462). A boundary at both ends
+    would miss the plural - `human actions`, `maintainer decisions` - that the corpus writes
+    and that governs all the same. So the token must begin a word and may end mid-word. A
+    separator before it is a boundary: `non-human action` flattens to `non human action` and
+    names the token, which is the fail-closed reading of a negation the gate does not parse.
+
+    A token inside strike-through marks is named too. `~~maintainer decision required~~`, or
+    a `<del>` the renderer draws the same way, still shows its words on the page, crossed out,
+    and the gate reads a retraction one way only: a struck-out admission is not the registered
+    value (`_plain` keeps the marks for that) and a struck-out restriction still refuses
+    (Codex on #462, which read the first as a rule for both). Admitting past the marks would
+    be a capability the agent layer does not take from a review finding (ADR-0064); a
+    retracted restriction is deleted by re-grooming.
+    """
+    return re.search(rf"(?<!\w){re.escape(token)}", flat) is not None
+
+
+def _plain_markdown(*blocks: Any) -> bool:
+    """Whether none of ``blocks`` carries an HTML tag in its source or a Markdown image.
+
+    The registered shapes are plain Markdown. A key or value written with a tag in it renders
+    through a rule that approximates a browser - a phrasing tag vanishes, `<q>` draws quotes,
+    `<del>` strikes out - and every round of review found one more tag the approximation drew
+    differently from the page, each time in the direction of admitting a defaced key or a
+    retracted value (Codex on #462, six reads). The rendering is kept for what it is good for,
+    finding a restriction however it is dressed; it is no longer allowed to be the reason an
+    issue is claimed. A comment is not a tag: it draws nothing, and `_plain` already drops it.
+
+    An image is the same rule from the other side: the page draws a picture, and the rendering
+    shows its alternative text, which a reader never sees while the picture loads (Codex on
+    #462). The alternative text stays in `plain` so a restriction written there is still found.
+    """
+    return not any(_markdown.has_tag(block.text) or block.pictured for block in blocks)
+
+
+def _drawn(block: Any) -> bool:
+    """Whether the page draws anything for ``block`` - the test for a leaf a reader sees.
+
+    Prose is drawn, and so is what shows no prose: a picture with no alternative text, a raw
+    HTML block whose tags draw a widget or a picture, a code block, a rule, a table row, a
+    heading or a paragraph however little it holds, and a container - a list, an item of one,
+    a block quote, a table - whatever it holds. Only a raw HTML block the page shows nothing
+    for - a comment on its own lines - is not. A tag counts as drawn whatever
+    the rendering made of it, for the reason `_plain_markdown` gives: the approximation may
+    not err in the admitting direction. The rule is the parser's ``draws``, one definition for
+    the body and for a footnote's continuation, which is the blocks the parser read
+    (`_markdown.at_foot`), so `_flat` stands an undrawn item or quote in for itself at the
+    foot as in the body; *where* a leaf is drawn is `_drawn_with`'s question. The
+    distinction matters in two places. A heading's
+    value is the first thing the page draws below it, and selecting the first *prose* leaf
+    instead let `![](x.png)` or a `<details>` opening tag sit between the heading and the
+    paragraph that then admitted as its own next paragraph; and an item's lead is its first
+    drawn block, and a lead that skipped a nested list let the paragraph under that list
+    admit as the item's own text (Codex on #462).
+    """
+    if isinstance(block, (_markdown.TableRow, _markdown.ListItem)):
+        return True
+    return _markdown.draws(block)
+
+
+def _drawn_with(block: Any, container: Any) -> bool:
+    """Whether ``block`` is drawn where ``container`` is - in the body, or at the foot of the
+    footnote the container is part of (`_markdown.at_foot`).
+
+    A definition inside a body item is drawn at the foot, so `- [^1]: note` is an empty
+    bullet on the page and the item stands in for itself under a heading; a definition
+    nested inside a footnote's own item is a footnote of its own, drawn under its own number,
+    and that item is empty at the foot the same way.
+    """
+    return block.note == container.note and _drawn(block)
+
+
+def _foot_blocks(blocks: tuple[_markdown.Block, ...]) -> Iterator[_markdown.Block]:
+    """Every block of ``blocks`` the page draws at its foot, outermost first: a definition or a
+    block of its continuation, at the top level or inside a body container."""
+    for block in blocks:
+        if _markdown.at_foot(block):
+            yield block
+        elif isinstance(block, _markdown.ListBlock):
+            for item in block.items:
+                yield from _foot_blocks(item.blocks)
+        elif isinstance(block, _markdown.BlockQuote):
+            yield from _foot_blocks(block.blocks)
+
+
+def _section(
+    leaves: list[_Leaf],
+    index: int,
+    within: tuple[Any, ...] | None = None,
+    *,
+    read: set[int] | None = None,
+    members: dict[int, set[int]] | None = None,
+) -> list[_Leaf]:
+    """The drawn leaves below the heading or bare key at ``index``, up to the next heading of
+    any level, among the leaves drawn where it is drawn - in the body, or at the foot of its
+    footnote.
+
+    ``read`` is the leaves a caller has read already as the remainder of an earlier key's
+    section: past the first leaf, which is the value whoever read it, the walk stops at one of
+    them, since the earlier key's section ran on from there to an end no later than this
+    one's - the next heading, or the container both are confined to - and reading it again
+    read the same leaves once per key, which is quadratic (Codex on #462). ``members`` is
+    each container's leaves by the container, filled here, so ``within`` is flattened once.
+
+    A heading raw HTML lays out ends the section as a Markdown one does, since the page draws
+    the two alike: a raw block carrying one is cut to the pieces before it - a copy of the
+    block, so a reader of the section sees nothing past the heading - and the section stops
+    there (Codex on #462). A footnote definition is not in any body section: the page draws
+    it at its foot, and `## Execution autonomy` over `[^1]: note` over `agent-can-do-alone`
+    shows the registered value first, where taking the definition as the value refused the
+    issue (Codex on #462). The keyed pass reads it where it is. Nor is any block of its
+    continuation, and a heading there ends no body section; a key at the foot heads the
+    leaves carrying its note by the same rule, so a bare key in one footnote stops at the
+    next definition - `[^1]: **Autonomy**` over `[^2]: agent-can-do-alone` is an empty
+    declaration and a value (Codex on #462) - and a heading in a continuation heads what
+    follows it there.
+
+    ``within`` confines the section to one container's blocks - the tuple a leaf names as its
+    siblings - which is a bare key's: `- **Autonomy**` over `- agent-can-do-alone` is an item
+    holding the key alone and a sibling holding a value, and the key's section ran into the
+    sibling, so the empty declaration the page shows in the first item never failed the exact
+    check and an admitting bullet beside them carried the issue (Codex on #462). A heading's
+    section is not confined, since the page draws a heading the same wherever Markdown nests
+    it (`_flat`).
+    """
+    place = leaves[index].block.note
+    inside = None
+    if within is not None:
+        if members is None:
+            inside = {id(leaf.block) for leaf in _flat(within)}
+        elif (inside := members.get(id(within))) is None:
+            inside = members[id(within)] = {id(leaf.block) for leaf in _flat(within)}
+    section: list[_Leaf] = []
+    for leaf in leaves[index + 1 :]:
+        block = leaf.block
+        if inside is not None and id(block) not in inside:
+            break
+        if block.note != place:
+            continue
+        if read is not None and section and id(block) in read:
+            break  # read already, and everything after it, as an earlier key's remainder
+        if isinstance(block, _markdown.Heading):
+            break
+        if isinstance(block, _markdown.Html):
+            before = block.shown
+            for at, piece in enumerate(block.shown):
+                if piece.tag in _HTML_HEADINGS:
+                    before = block.shown[:at]
+                    break
+            if before is not block.shown:
+                if before:
+                    plain = " ".join(piece.text for piece in before if piece.text)
+                    section.append(_Leaf(block._replace(plain=plain, shown=before), leaf.siblings))
+                break
+        if _drawn(block):
+            section.append(leaf)
+    return section
+
+
+def _bullet(
+    item: _markdown.ListItem, where: str, collapsed: list[tuple[int, float]]
+) -> list[_AutonomyValue]:
+    """A list item's first drawn paragraph as a bullet declaration, and the rest of it scan-only.
+
+    The item's declaration is its first block the page draws anything for: a comment on its own
+    line above the key - `- <!-- groomed -->` over `**Autonomy:** maintainer decision required`
+    - is read past, because reading the item's literal first block instead declared nothing and
+    an admitting bullet beside it carried the issue while the page shows the restriction in the
+    list (Codex on #462). A leading block the page does draw - a picture, a `<details>` - is the
+    item's first block, and an item whose first drawn block is not a paragraph keyed autonomy
+    declares nothing here; a nested list inside it is visited by the caller's walk like any
+    other. ``collapsed`` is `_collapsed` of the document.
+    """
+    first = _lead(item)
+    if not isinstance(first, _markdown.Paragraph):
+        return []
+    # Matched on the rendered text, not the source: an inline comment splitting the key, or a
+    # `<b>` around it, is invisible on the page and must be invisible here (Codex on #462).
+    keyed = _keyed(_prose(first))
+    if keyed is None:
+        return []
+    qualifier, value, task, defaced = keyed
+    # Exact-checked like any declaration, but only the registered shape - column zero, `-` or
+    # `*`, no checkbox, no strike, the registered spelling, plain Markdown, in the body, on the
+    # page - may admit. A `+`, indented, nested, quoted or task-list bullet, one carrying a tag
+    # or an image, one struck out or spelled with a character outside ASCII, one inside a
+    # `<details>` block, or one in a footnote's continuation can refuse and can never be the
+    # reason an issue is claimed. A footnote definition never gets here: it is not the item's
+    # lead (`_lead`), the page drawing it elsewhere.
+    registered = (
+        item.column == 0
+        and item.marker in "-*"
+        and not task
+        and not defaced
+        and not _markdown.at_foot(item)
+        and _plain_markdown(first)
+        and _on_the_page(collapsed, item.line)
+    )
+    shape = f"{where} footnote bullet" if _markdown.at_foot(item) else f"{where} bullet"
+    found = [_AutonomyValue(value, shape, qualifier=qualifier, admits=registered)]
+    rest = list(item.blocks)
+    while rest and rest[0] is not first:
+        rest.pop(0)
+    found.extend(_scan_only(_flat(tuple(rest[1:])), f"{shape} remainder"))
+    return found
+
+
+def _lead(item: _markdown.ListItem) -> Any | None:
+    """The item's first block the page draws anything for where the item is, or ``None`` for
+    an item that draws nothing there - the block a reader takes for the item's own text. A
+    footnote definition is drawn at the page's foot, not in the item, so `- [^1]: Autonomy:
+    agent-can-do-alone` leads with nothing and the definition is read as the keyed paragraph
+    it is, unable to admit; an item of a footnote's own list leads with its first block drawn
+    at that foot (`_drawn_with`)."""
+    for block in item.blocks:
+        if _drawn_with(block, item):
+            return block
+    return None
+
+
+def _keyed(text: str) -> tuple[str, str, bool, bool] | None:
+    """``text`` - a paragraph's rendered text - read as a bullet-shaped declaration, or ``None``.
+
+    Returns the normalized qualifier, the value with its whitespace collapsed, whether a
+    task-list checkbox was read past first, and whether the text is defaced - struck through,
+    or in other than the registered spelling (:func:`_defaced`). A task-list item draws a
+    checkbox before its text, and the key is the text: `- [ ] **Autonomy:** maintainer
+    decision required` is a restriction the page shows, and matching the checkbox as part of
+    the key dropped it (Codex on #462). The key is read through strike marks and format
+    characters (:func:`_match_key`); a defaced declaration is read and never admits.
+    """
+    task = _TASK_MARKER.match(text)
+    if task is not None:
+        text = text[task.end() :]
+    match = _match_key(_AUTONOMY_BULLET, text)
+    if match is None:
+        return None
+    qualifier = _normalize_qualifier(match.group("qualifier"))
+    value = " ".join(match.group("value").split())
+    return qualifier, value, task is not None, _defaced(text)
 
 
 def _autonomy_refusal(body: str) -> str | None:
@@ -616,36 +1840,92 @@ def _autonomy_refusal(body: str) -> str | None:
     version)"* - a permanent public artifact with wrong metadata, on a registry that will not take
     it back. So an absent declaration refuses too: an issue that never declared autonomy was never
     groomed, and silence is not consent.
+
+    A body the parser cannot model is a fourth case and it is **not** a refusal. The structure
+    reader raises on a block token it does not model and when the pinned parser itself fails
+    (ADR-0066), and either means nobody has read the issue - so the answer is an error, which exits
+    ``2``, and never ``ineligible``, which is a verdict about the issue and would tell every agent
+    not to work it. `doctor` reports the same failure as an unreadable issue and keeps going.
     """
-    declarations = _declared_autonomy(body)
-    if not declarations:
+    try:
+        document = _markdown.parse(body)
+    except _markdown.MarkdownStructureError as exc:
+        raise ClaimError(f"body could not be read as Markdown: {exc}") from exc
+    # The latest grooming block is the source even when it is empty: an empty tuple is a block
+    # that says nothing, and falling back to the body for it re-read a stale marker the block
+    # supersedes (Codex on #462). Silence then refuses for what it is, below.
+    source, _ = _source(document)
+    if _misplaced_marker(source):
+        return (
+            "carries a tether-grooming-v1 marker inside a paragraph, list item, block quote, "
+            "footnote or other raw HTML, or beside anything drawn on its own line, where a "
+            "grooming block "
+            "cannot start, so what it supersedes cannot be read. Put the marker on its own "
+            "top-level line, with "
+            "nothing else on it, above the groomed text"
+        )
+    values = _declarations(document)
+
+    # Refusing tokens are evaluated across every value **before** exact-match or qualifier
+    # failures. Otherwise a raw conditional value can return first and hide the canonical token a
+    # groomer needs to locate, which broke the hyphenated and underscored regressions from #428.
+    for value in values:
+        raw = value.raw.strip()
+        flat = _flatten_autonomy(value.raw)
+        refused = [token for token in AUTONOMY_REFUSES if _names(flat, _flatten_autonomy(token))]
+        if refused:
+            return (
+                f"declares autonomy {raw!r} ({value.where}). It names {refused[0]!r}, so the "
+                f"restrictive statement governs; only {AUTONOMY_ADMITS[0]!r} may be claimed by "
+                "an agent"
+            )
+
+    declarations = [value for value in values if not value.scan_only]
+    # Every declaration in the authoritative source must admit. One restrictive line is enough to
+    # refuse however many admitting ones sit beside it - the same asymmetry as a single value that
+    # names both, applied across the source rather than within one string. This runs before the
+    # absence check so that a bullet which cannot admit still names its unregistered value.
+    admits = {_flatten_autonomy(token) for token in AUTONOMY_ADMITS}
+    for declaration in declarations:
+        # Quote the issue verbatim; decide on the flattened form. Showing the normalized value
+        # would print `needshumanaction` for a body that says `needs_human_action`.
+        value = declaration.raw.strip()
+        if declaration.qualifier:
+            return (
+                f"declares autonomy {value!r} with qualifier {declaration.qualifier!r} "
+                f"({declaration.where}); that qualified key is not a registered autonomy value. "
+                f"Use the bare field with {AUTONOMY_ADMITS[0]!r} before an agent claims it"
+            )
+        if _flatten_autonomy(declaration.raw) not in admits:
+            return (
+                f"declares autonomy {value!r} ({declaration.where}), which is not a registered "
+                f"autonomy value; only {AUTONOMY_ADMITS[0]!r} may be claimed by an agent"
+            )
+    if not any(declaration.admits for declaration in declarations):
         # Same rule as the source choice above: the marker decides, not what it captured. An empty
-        # block reported "its body" and sent the reader to fix the wrong half of the issue.
-        where = "its grooming block" if _GROOMING_MARKER.search(body) else "its body"
+        # block reported "its body" and sent the reader to fix the wrong half of the issue. A
+        # bullet that cannot admit is absence here too: read for restrictions, not a declaration -
+        # but a registered value written in such a shape is named, so the groomer rewrites the
+        # shape rather than hunts for a declaration the message says is missing.
+        where = "its grooming block" if _grooming_block(document) is not None else "its body"
+        if declarations:
+            shape = declarations[0]
+            return (
+                f"declares autonomy {shape.raw.strip()!r} only in a shape that cannot admit "
+                f"({shape.where}: a `+`, indented, nested, quoted or task-list bullet, a key "
+                "with its value in a paragraph that is not a bullet, in raw HTML, on a heading "
+                "line or in a table cell, a key alone over the block below it, a table "
+                "row, a heading whose value is not its own next paragraph, a key or value "
+                "carrying an HTML tag or an image, a key struck out or spelled with a "
+                "character outside ASCII, or anything inside a `<details>` block). "
+                "Write it as a column-zero "
+                f"`-` bullet or an `## Execution autonomy` heading over {AUTONOMY_ADMITS[0]!r} "
+                "as a plain paragraph"
+            )
         return (
             f"declares no Execution autonomy in {where}, so it has not been groomed for agent "
             "work. An absent declaration is refused rather than assumed - add one to the issue"
         )
-    # Every declaration in the authoritative source must admit. One restrictive line is enough to
-    # refuse however many admitting ones sit beside it - the same asymmetry as a single value that
-    # names both, applied across the source rather than within one string.
-    for raw, where in declarations:
-        # Quote the issue verbatim; decide on the flattened form. Showing the normalized value
-        # would print `needshumanaction` for a body that says `needs_human_action`.
-        value = raw.strip()
-        flat = _flatten_autonomy(raw)
-        refused = [token for token in AUTONOMY_REFUSES if _flatten_autonomy(token) in flat]
-        admits = any(flat.startswith(_flatten_autonomy(token)) for token in AUTONOMY_ADMITS)
-        if refused and admits:
-            return (
-                f"declares autonomy {value!r} ({where}). That is a split declaration - it also "
-                f"names {refused[0]!r} - and the restrictive half governs, so it needs a maintainer"
-            )
-        if refused or not admits:
-            return (
-                f"declares autonomy {value!r} ({where}); only {AUTONOMY_ADMITS[0]!r} may be "
-                "claimed by an agent"
-            )
     return None
 
 
@@ -710,7 +1990,11 @@ def _check_eligible(number: int, owner: str) -> dict[str, Any]:
     # marker are both applied *to* an issue; this is the issue's own statement about what finishing
     # it requires, and until #336 nothing read it - so a body saying no agent can do this work was
     # claimable anyway, on the strength of two labels that say nothing about the question (#246).
-    refusal = _autonomy_refusal(issue.get("body") or "")
+    try:
+        refusal = _autonomy_refusal(issue.get("body") or "")
+    except ClaimError as exc:
+        # Not a verdict: the body could not be read, so the issue number travels on an error.
+        raise ClaimError(f"#{number} {exc}") from exc
     if refusal is not None:
         raise IneligibleError(f"#{number} {refusal}")
 
@@ -1068,6 +2352,10 @@ def _doctor_ready(owner: str) -> list[dict[str, Any]]:
         # read, keep going, and never let an absence read as an answer.
         try:
             comments = _paginate(f"/repos/{REPO}/issues/{number}/comments", f"#{number} comments")
+            # A body the parser cannot model is unreadable in exactly the same sense: it is a
+            # fact about one issue, and the gate it mirrors reports it as an error rather than a
+            # verdict (ADR-0066). Reporting `autonomy: false` here would be the verdict.
+            autonomy = _autonomy_refusal(issue.get("body") or "") is None
         except ClaimError as exc:
             title = issue.get("title", "")[:60]
             out.append({"issue": number, "title": title, "unreadable": str(exc)})
@@ -1098,7 +2386,7 @@ def _doctor_ready(owner: str) -> list[dict[str, Any]]:
                 "issue": number,
                 "title": issue.get("title", "")[:60],
                 "marker": marker,
-                "autonomy": _autonomy_refusal(issue.get("body") or "") is None,
+                "autonomy": autonomy,
             }
         )
     return out
