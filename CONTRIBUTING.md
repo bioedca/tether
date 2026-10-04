@@ -369,9 +369,9 @@ freely — it costs nothing and it is uncapped — and do not record it as the C
 run it on a diff that touches `AGENTS.md`, `AGENTS.override.md` (anywhere), `CLAUDE.md` **or
 `.agents/skills/**`** — two routes, discovered files and injected skills — add
 `--strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false`, so the branch
-does not supply the instructions its own reader follows. **#451** observed what the CLI loads, on
-0.147.0, and `AGENTS.md` §Review states it; the trigger stays wider than any one version's set on
-purpose, which costs the reader `main`'s contract and is the cheaper mistake.
+does not supply the instructions its own reader follows. ADR-0065's 2026-10-04 amendment records
+what **#451** observed on 0.147.0; that trigger over-fires deliberately, which costs the reader
+`main`'s contract and is the cheaper mistake.
 
 One exception, and it has already cost money: `.greptile/config.json` is read from
 the pull request's **source branch**, so a branch cut before that file landed still

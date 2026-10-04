@@ -351,12 +351,12 @@ token appeared — in a message the CLI composed, or only in a file the model ch
 `AGENTS.md` from every directory between the repository root and the working directory, root first
 (run from a subdirectory, the nested file joined the root one; run from the root, it did not); an
 `AGENTS.override.md` *instead of* its sibling `AGENTS.md`, not in addition; `CLAUDE.md` **never by
-default**, with or without an `AGENTS.md` beside it, but injected when a user's
+default**, with or without an `AGENTS.md` beside it, but injected when
 `project_doc_fallback_filenames` names it and no `AGENTS.md` shares its directory; and each
 repository skill's `description`, while its body was not. The isolated command injected **none** of
-them. Two consequences. Item 4 above resolves *against* dropping `CLAUDE.md`: its route is a
-per-user setting this repository cannot see, which is the version-and-configuration drift the
-over-approximation exists for, so the trigger is unchanged. And the **posted** review's loading,
+them. Two consequences. Item 4 above resolves *against* dropping `CLAUDE.md`: its route
+depends on a configuration setting — the kind of version-and-configuration drift the
+over-approximation exists for — so the trigger is unchanged. And the **posted** review's loading,
 which the paragraph opening this section assigned to #451, is outside what #451 could observe —
 the bot leaves no local rollout — so it stays unmeasured. The method and raw results are on #451,
 so the next CLI bump can be re-checked rather than re-argued.
