@@ -357,11 +357,15 @@ request was actually posted.
 
 **Codex has two delivery paths and they are not interchangeable.** The GitHub bot triggers
 on opening a PR for review, marking a draft ready, or an `@codex review` comment, and posts an
-artifact naming the head it read — a review object, or a comment when the run is clean (§Review). The CLI runs locally and posts nothing. The bot has refused for
-quota before — #427 and #428, 2026-08-07 — and a refusal is not a
-review. **The Codex leg is the posted review**, asked with an `@codex review` comment, because
+artifact naming the head it read — a review object, or a comment when the run is clean (§Review). The CLI runs locally and posts nothing. **The Codex leg is the posted review**, asked with an `@codex review` comment, because
 `AGENTS.md` §Review requires a posted artifact naming the head, which no local run produces and says in the same breath
 that local output satisfies nothing.
+
+**A quota refusal is a wait** (`AGENTS.md` §Review), and it is not a review. The bot replies *"You
+have reached your Codex usage limits for code reviews"* and names no retry time. On record: refusals
+on #427 and #428 (2026-08-07), then a review on #431 three days later; 21 refusals on #462 across
+nine hours from 2026-10-03, then a read. Re-ask on a spaced interval, never in a loop. The refusal
+offers credits; buying them is the maintainer's decision, and #450 records it: none are bought.
 
 The CLI is still worth running and satisfies **no leg**: it is an author-side tool for finding
 your own defects before a provider is asked, in the same category as running the tests. Use it
