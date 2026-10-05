@@ -67,38 +67,42 @@ _LABEL_END = re.compile(r":| — ")
 _DISCLOSURE = re.compile(r"<details\b", re.IGNORECASE)
 
 
-def _drawn_headings(block: Any) -> list[tuple[int, str]]:
-    """The level and text of each heading the page draws for ``block``: a Markdown heading, or an
-    ``<h1>`` to ``<h6>`` in raw HTML, which the page lays out as a heading too."""
+def _drawn_headings(block: Any) -> list[tuple[int, str, bool]]:
+    """The level and text of each heading the page draws for ``block``, and whether its source
+    is that text literally, bold aside: a Markdown heading, or an ``<h1>`` to ``<h6>`` in raw
+    HTML, which the page lays out as a heading too but never literally. A heading drawn from an
+    image's alternative text, a character reference or any other markup is not literal either."""
     if isinstance(block, _md.Heading):
-        return [(block.level, block.plain)]
+        return [(block.level, block.plain, block.text.replace("**", "") == block.plain)]
     if isinstance(block, (_md.Html, _md.Paragraph)):
-        return [(int(s.tag[1]), s.text) for s in block.shown if re.fullmatch(r"h[1-6]", s.tag)]
+        return [
+            (int(s.tag[1]), s.text, False) for s in block.shown if re.fullmatch(r"h[1-6]", s.tag)
+        ]
     return []
 
 
-def _sections(text: str, heading: str) -> list[list[Any]]:
+def _sections(text: str, heading: str) -> list[tuple[bool, list[Any]]]:
     """The top-level bullets under each level-two ``heading`` the page draws, each as its first
-    paragraph.
+    paragraph, with whether that heading is literal source.
 
     A section runs to the next top-level heading of level one or two, Markdown or raw HTML. A
     bullet is an item of a top-level unordered list whose first block is a paragraph, so a nested
     or quoted bullet is not one, and neither is a bullet inside an HTML comment, a code block or a
     raw HTML block. A footnote, which the page draws at its foot, is not counted, nor is a bullet
-    carrying a Markdown image or any inline HTML — a tag or a comment, as the parser finds them,
-    so a tag quoted in a code span is text — since the page draws those as something other than
-    the text the parse reads.
+    carrying a Markdown image, a tilde anywhere — the page strikes text through between tildes —
+    or any inline HTML — a tag or a comment, as the parser finds them, so a tag quoted in a code
+    span is text — since the page draws those as something other than the text the parse reads.
     """
-    sections: list[list[Any]] = []
+    sections: list[tuple[bool, list[Any]]] = []
     bullets: list[Any] | None = None
     for block in _md.parse(text):
         if _md.at_foot(block):
             continue
-        for level, title in _drawn_headings(block):
+        for level, title, literal in _drawn_headings(block):
             if level <= 2:
                 bullets = [] if level == 2 and title == heading else None
                 if bullets is not None:
-                    sections.append(bullets)
+                    sections.append((literal, bullets))
         if bullets is None or not isinstance(block, _md.ListBlock) or block.ordered:
             continue
         for item in block.items:
@@ -107,6 +111,7 @@ def _sections(text: str, heading: str) -> list[list[Any]]:
                 isinstance(first, _md.Paragraph)
                 and not _md.at_foot(first)
                 and not first.pictured
+                and "~" not in first.text
                 and next(_md.inline_html(first.text), None) is None
             ):
                 bullets.append(first)
@@ -140,7 +145,9 @@ def _fields() -> list[tuple[str, str]]:
     )
     sections = _sections(text, "Linked tracking")
     assert len(sections) == 1, f"'## Linked tracking' must be drawn once, not {len(sections)} times"
-    return [f for f in map(_field, sections[0]) if f is not None]
+    literal, bullets = sections[0]
+    assert literal, "'## Linked tracking' must be written as that text, not drawn from markup"
+    return [f for f in map(_field, bullets) if f is not None]
 
 
 def test_each_review_evidence_field_appears_exactly_once() -> None:
@@ -158,9 +165,9 @@ def test_review_evidence_fields_are_fillable_bullets() -> None:
 
     ``Final head SHA:`` is the one field whose slot is deliberately empty; the rest offer the
     states to choose from. What is pinned is that the bullet *is* a field — label, separator,
-    slot — not what the guidance says. A slot is offered only if it shows a letter or a digit:
-    spaces, punctuation and characters the page does not draw, such as a zero-width space, are
-    not one.
+    slot — not what the guidance says. A slot is offered only if it shows an ASCII letter or
+    digit, as every slot in the template does: spaces, punctuation and characters the page draws
+    blank, such as a zero-width space or a Hangul filler, are not one.
     """
     fields = dict(_fields())
     for name in REVIEW_EVIDENCE_FIELDS:
@@ -168,7 +175,7 @@ def test_review_evidence_fields_are_fillable_bullets() -> None:
     unfilled = [
         n
         for n in REVIEW_EVIDENCE_FIELDS
-        if n != "Final head SHA" and not re.search(r"[^\W_]", fields[n])
+        if n != "Final head SHA" and not re.search(r"[A-Za-z0-9]", fields[n])
     ]
     assert not unfilled, f"these fields offer no value slot to fill: {unfilled}"
 
