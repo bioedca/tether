@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The PR template exposes every review-evidence field; the launcher prompt has no ``gh pr merge``.
+"""The PR template exposes every review-evidence field; the launcher prompt names no ``gh`` merge.
 
 #260 retired ``tests/test_review_policy.py`` because it pinned the *wording* of the review policy
 and so blocked that policy's own correction. Two of its tests were not prose matchers, and #261
@@ -10,7 +10,7 @@ re-covers them structurally:
   ``- <field>:`` bullet under ``## Linked tracking``. A field that goes missing is evidence nobody
   is asked for; a field that appears twice is two places to record one fact, and they drift.
 * the worker launcher's default prompt must still name the worker skill and its claim tool, and
-  must carry no ``gh pr merge`` command: merge authority is per-PR and never conferred by a
+  must name no ``gh`` merge in any spelling: merge authority is per-PR and never conferred by a
   launcher.
 
 Only labels and shape are asserted. No sentence of ``AGENTS.md``, ``CONTRIBUTING.md``,
@@ -148,11 +148,9 @@ def test_review_evidence_fields_are_fillable_bullets() -> None:
 WORKER_SKILL = "$tether-worker"
 CLAIM_TOOL = ".agents/bin/claim.py"
 
-# `gh pr merge` or `gh.exe pr merge`, in any letter case (Windows resolves `GH.EXE` as `gh.exe`),
-# with any whitespace between its words and options there too: each a word starting with `-`,
-# alone or followed by one value word, as in `gh pr -R o/r merge`.
-_OPTIONS = r"(?:\s+-\S+(?:\s+[^-\s]\S*)?)*"
-_MERGE_COMMAND = re.compile(rf"\bgh(?:\.exe)?{_OPTIONS}\s+pr{_OPTIONS}\s+merge\b", re.IGNORECASE)
+# Characters a shell drops from a word rather than reading as text: quotes, and the escapes of
+# POSIX shells (`\`), PowerShell (`` ` ``) and cmd (`^`).
+_SHELL_ELIDED = re.compile(r"['\"`^\\]")
 
 
 class _Loader(yaml.SafeLoader):
@@ -215,14 +213,27 @@ def test_launcher_names_the_worker_skill_and_its_claim_tool() -> None:
     assert (_REPO / CLAIM_TOOL).is_file(), f"the claim tool it names, {CLAIM_TOOL}, is missing"
 
 
-def test_launcher_prompt_carries_no_gh_pr_merge() -> None:
+def _command_words(text: str) -> list[list[str]]:
+    """The lower-cased letters-and-digits words of ``text``, read twice: once with the characters
+    a shell elides taken as word breaks, and once with them deleted."""
+    return [
+        re.findall(r"[a-z0-9]+", variant.lower()) for variant in (text, _SHELL_ELIDED.sub("", text))
+    ]
+
+
+def test_launcher_prompt_carries_no_gh_merge() -> None:
     """Merge authority is per pull request and explicit; the prompt must never embed it.
 
-    Only ``gh pr merge`` is looked for, in the forms ``_MERGE_COMMAND`` admits; a merge spelled any
-    other way, such as through ``gh api``, is not.
+    The rule is deliberately blunt rather than a command matcher: no word ``gh`` may be followed,
+    anywhere later in the prompt, by the word ``merge`` — in any letter case, quoting, escaping or
+    path, so ``'gh' pr merge``, ``& "GH.EXE" PR merge`` and ``gh api …/merge`` all fail it. The
+    cost is that a prompt naming ``gh`` for another reason and mentioning a merge later fails too;
+    reword it. A name a shell builds at run time — a variable, an alias, a command substitution —
+    is not looked for.
     """
-    prompt = _interface()["default_prompt"]
-    assert not _MERGE_COMMAND.search(prompt), (
-        "the launcher prompt carries a 'gh pr merge' command — merge authority is never a "
-        "launcher default"
-    )
+    for words in _command_words(_interface()["default_prompt"]):
+        if "gh" in words:
+            assert "merge" not in words[words.index("gh") + 1 :], (
+                "the launcher prompt names gh and then a merge — merge authority is never a "
+                "launcher default"
+            )
