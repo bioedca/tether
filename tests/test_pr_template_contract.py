@@ -85,7 +85,9 @@ def _sections(text: str, heading: str) -> list[list[Any]]:
     bullet is an item of a top-level unordered list whose first block is a paragraph, so a nested
     or quoted bullet is not one, and neither is a bullet inside an HTML comment, a code block or a
     raw HTML block. A footnote, which the page draws at its foot, is not counted, nor is a bullet
-    carrying an image, which the page draws as a picture rather than as text.
+    carrying a Markdown image or any inline HTML — a tag or a comment, as the parser finds them,
+    so a tag quoted in a code span is text — since the page draws those as something other than
+    the text the parse reads.
     """
     sections: list[list[Any]] = []
     bullets: list[Any] | None = None
@@ -101,7 +103,12 @@ def _sections(text: str, heading: str) -> list[list[Any]]:
             continue
         for item in block.items:
             first = item.blocks[0] if item.blocks else None
-            if isinstance(first, _md.Paragraph) and not _md.at_foot(first) and not first.pictured:
+            if (
+                isinstance(first, _md.Paragraph)
+                and not _md.at_foot(first)
+                and not first.pictured
+                and next(_md.inline_html(first.text), None) is None
+            ):
                 bullets.append(first)
     return sections
 
