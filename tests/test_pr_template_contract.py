@@ -151,22 +151,27 @@ def test_review_evidence_fields_are_fillable_bullets() -> None:
 
     ``Final head SHA:`` is the one field whose slot is deliberately empty; the rest offer the
     states to choose from. What is pinned is that the bullet *is* a field — label, separator,
-    slot — not what the guidance says.
+    slot — not what the guidance says. A slot is offered only if it shows a letter or a digit:
+    spaces, punctuation and characters the page does not draw, such as a zero-width space, are
+    not one.
     """
     fields = dict(_fields())
     for name in REVIEW_EVIDENCE_FIELDS:
         assert name in fields, f"'{name}' is not a '- {name}: …' bullet under '## Linked tracking'"
-    unfilled = [n for n in REVIEW_EVIDENCE_FIELDS if n != "Final head SHA" and not fields[n]]
+    unfilled = [
+        n
+        for n in REVIEW_EVIDENCE_FIELDS
+        if n != "Final head SHA" and not re.search(r"[^\W_]", fields[n])
+    ]
     assert not unfilled, f"these fields offer no value slot to fill: {unfilled}"
 
 
 WORKER_SKILL = "$tether-worker"
 CLAIM_TOOL = ".agents/bin/claim.py"
 
-# Characters a shell drops from a word rather than reading as text: quotes, and the escapes of
-# POSIX shells (`\`), PowerShell (`` ` ``) and cmd (`^`) — each with the line break after it,
-# where the escape joins two lines into one.
-_SHELL_ELIDED = re.compile(r"[`^\\]\r?\n|['\"`^\\]")
+# An escape a shell reads as joining two lines into one: POSIX shells' `\`, PowerShell's
+# `` ` `` and cmd's `^`, each before a line break.
+_LINE_JOIN = re.compile(r"[`^\\]\r?\n")
 
 
 class _Loader(yaml.SafeLoader):
@@ -230,10 +235,15 @@ def test_launcher_names_the_worker_skill_and_its_claim_tool() -> None:
 
 
 def _command_words(text: str) -> list[list[str]]:
-    """The lower-cased letters-and-digits words of ``text``, read twice: once with the characters
-    a shell elides taken as word breaks, and once with them deleted."""
+    """The lower-cased letters-and-digits words of ``text``, read two ways: once with every other
+    character a word break, and once as a shell splices a word — the lines its escapes join
+    joined, and everything but letters and digits deleted inside each whitespace-separated token,
+    so quotes of any kind, ``$'…'``, braces and escapes leave no break where the shell leaves
+    none."""
+    spliced = _LINE_JOIN.sub("", text).lower().split()
     return [
-        re.findall(r"[a-z0-9]+", variant.lower()) for variant in (text, _SHELL_ELIDED.sub("", text))
+        re.findall(r"[a-z0-9]+", text.lower()),
+        [re.sub(r"[^a-z0-9]", "", token) for token in spliced],
     ]
 
 
@@ -242,10 +252,11 @@ def test_launcher_prompt_carries_no_gh_merge() -> None:
 
     The rule is deliberately blunt rather than a command matcher: no word ``gh`` may be followed,
     anywhere later in the prompt, by the word ``merge`` — in any letter case, quoting, escaping or
-    path, so ``'gh' pr merge``, ``& "GH.EXE" PR merge`` and ``gh api …/merge`` all fail it. The
-    cost is that a prompt naming ``gh`` for another reason and mentioning a merge later fails too;
-    reword it. A name a shell builds at run time — a variable, an alias, a command substitution —
-    is not looked for.
+    path, so ``'gh' pr merge``, ``gh pr m$'erge'``, ``& "GH.EXE" PR merge`` and
+    ``gh api …/merge`` all fail it. The cost is that a prompt naming ``gh`` for another reason and
+    mentioning a merge later fails too; reword it. A name a shell decodes or builds at run time —
+    an escape that encodes a letter, a variable, an alias, a command substitution, a glob — is
+    not looked for.
     """
     for words in _command_words(_interface()["default_prompt"]):
         if "gh" in words:
