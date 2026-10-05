@@ -120,8 +120,10 @@ neither a filer nor a template can self-promote work. These three answers are
 *evidence for grooming*, not authority — a reporter selecting `risk: low` does not
 make the work low-risk, exactly as an `autonomy` answer never granted autonomy.
 
-**Why they are required rather than optional.** Both are grooming evidence, so
-the filer answers them rather than grooming guessing. `risk:*` selected the reviewer
+**Why they are required rather than optional.** Each of the three dropdowns
+offers `unsure — leave it to grooming`, so requiring a selection turns what
+would be a blank — the absent-or-unstated ambiguity Option 1 above names —
+into either an answer or a stated uncertainty. `risk:*` selected the reviewer
 under [ADR-0057](0057-github-native-swarm-coordination.md)'s review gate; since
 [ADR-0062](0062-draft-first-review-lane-with-metered-providers.md) it routes no
 provider — every PR walks one lane — and says instead whether a metered credit is
