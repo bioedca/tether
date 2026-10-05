@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The pull-request template exposes every review-evidence field, and the launcher grants no merge.
+"""The PR template exposes every review-evidence field; the launcher prompt has no ``gh pr merge``.
 
 #260 retired ``tests/test_review_policy.py`` because it pinned the *wording* of the review policy
 and so blocked that policy's own correction. Two of its tests were not prose matchers, and #261
@@ -9,26 +9,41 @@ re-covers them structurally:
 * the template must carry each review-evidence field the lane records — once each, as a fillable
   ``- <field>:`` bullet under ``## Linked tracking``. A field that goes missing is evidence nobody
   is asked for; a field that appears twice is two places to record one fact, and they drift.
-* the worker launcher config must still invoke the worker skill and its claim tool, and must carry
-  no merge command: merge authority is per-PR and never conferred by a launcher.
+* the worker launcher's default prompt must still name the worker skill and its claim tool, and
+  must carry no ``gh pr merge`` command: merge authority is per-PR and never conferred by a
+  launcher.
 
 Only labels and shape are asserted. No sentence of ``AGENTS.md``, ``CONTRIBUTING.md``,
 ``docs/PRD.md`` or ``docs/adr/**`` is encoded here, and a field's guidance text after its label may
 change freely — that is the property #260 needed and #261 requires.
 
-Stdlib only, so it runs on the base 3-OS ``test`` matrix.
+Both files are read with a parser rather than line by line: the template through
+``.agents/bin/markdown_structure.py`` (ADR-0066), so a bullet inside an HTML comment, a code block
+or a raw HTML block is not counted, and the launcher with PyYAML.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import re
 from collections import Counter
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 _REPO = Path(__file__).resolve().parents[1]
 
 TEMPLATE = _REPO / ".github" / "pull_request_template.md"
 LAUNCHER = _REPO / ".agents" / "skills" / "tether-worker" / "agents" / "openai.yaml"
+SKILL = LAUNCHER.parents[1] / "SKILL.md"
+
+_spec = importlib.util.spec_from_file_location(
+    "tether_markdown_structure", _REPO / ".agents" / "bin" / "markdown_structure.py"
+)
+assert _spec is not None and _spec.loader is not None
+_md = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_md)
 
 # The review-evidence fields a pull request records, by label. Each names a leg or an outcome of
 # the review lane: the head the evidence binds, each provider's result, the provider that produced
@@ -49,28 +64,61 @@ REVIEW_EVIDENCE_FIELDS = (
 _LABEL_END = re.compile(r":| — ")
 
 
-def _section(text: str, heading: str) -> list[str]:
-    """The lines under ``## <heading>``, up to the next ``## `` heading."""
-    lines = text.splitlines()
-    start = lines.index(f"## {heading}") + 1
-    end = next((i for i in range(start, len(lines)) if lines[i].startswith("## ")), len(lines))
-    return lines[start:end]
+def _drawn_headings(block: Any) -> list[tuple[int, str]]:
+    """The level and text of each heading the page draws for ``block``: a Markdown heading, or an
+    ``<h1>`` to ``<h6>`` in raw HTML, which the page lays out as a heading too."""
+    if isinstance(block, _md.Heading):
+        return [(block.level, block.plain)]
+    if isinstance(block, (_md.Html, _md.Paragraph)):
+        return [(int(s.tag[1]), s.text) for s in block.shown if re.fullmatch(r"h[1-6]", s.tag)]
+    return []
 
 
-def _field(line: str) -> tuple[str, str] | None:
-    """Split a top-level ``- <label>: <value>`` bullet into its label and the rest, or ``None``."""
-    if not line.startswith("- ") or line.startswith("- ["):
+def _sections(text: str, heading: str) -> list[list[str]]:
+    """The top-level bullets under each level-two ``heading`` the page draws, as the text it shows.
+
+    A section runs to the next top-level heading of level one or two, Markdown or raw HTML. A
+    bullet is an item of a top-level unordered list whose first block is a paragraph, so a nested
+    or quoted bullet is not one, and neither is a bullet inside an HTML comment, a code block or a
+    raw HTML block. A footnote, which the page draws at its foot, is not counted, nor is a bullet
+    carrying an image, which the page draws as a picture rather than as text.
+    """
+    sections: list[list[str]] = []
+    bullets: list[str] | None = None
+    for block in _md.parse(text):
+        if _md.at_foot(block):
+            continue
+        for level, title in _drawn_headings(block):
+            if level <= 2:
+                bullets = [] if level == 2 and title == heading else None
+                if bullets is not None:
+                    sections.append(bullets)
+        if bullets is None or not isinstance(block, _md.ListBlock) or block.ordered:
+            continue
+        for item in block.items:
+            first = item.blocks[0] if item.blocks else None
+            if isinstance(first, _md.Paragraph) and not _md.at_foot(first) and not first.pictured:
+                bullets.append(first.plain)
+    return sections
+
+
+def _field(item: str) -> tuple[str, str] | None:
+    """Split a bullet's ``<label>: <value>`` text into its label and the rest, or ``None``.
+
+    A task-list item (``[ ] …``) is not a field.
+    """
+    if item.startswith("["):
         return None
-    bare = line[2:].replace("**", "")
-    match = _LABEL_END.search(bare)
+    match = _LABEL_END.search(item)
     if match is None:
         return None
-    return bare[: match.start()].strip(), bare[match.end() :].strip()
+    return item[: match.start()].strip(), item[match.end() :].strip()
 
 
 def _fields() -> list[tuple[str, str]]:
-    text = TEMPLATE.read_text(encoding="utf-8")
-    return [f for f in map(_field, _section(text, "Linked tracking")) if f is not None]
+    sections = _sections(TEMPLATE.read_text(encoding="utf-8"), "Linked tracking")
+    assert len(sections) == 1, f"'## Linked tracking' must be drawn once, not {len(sections)} times"
+    return [f for f in map(_field, sections[0]) if f is not None]
 
 
 def test_each_review_evidence_field_appears_exactly_once() -> None:
@@ -84,11 +132,11 @@ def test_each_review_evidence_field_appears_exactly_once() -> None:
 
 
 def test_review_evidence_fields_are_fillable_bullets() -> None:
-    """A field is a label the author fills in, so a value slot follows it on the same line.
+    """A field is a label the author fills in, so a value slot follows it in the same bullet.
 
     ``Final head SHA:`` is the one field whose slot is deliberately empty; the rest offer the
-    states to choose from. What is pinned is that the line *is* a field — label, separator, slot —
-    not what the guidance says.
+    states to choose from. What is pinned is that the bullet *is* a field — label, separator,
+    slot — not what the guidance says.
     """
     fields = dict(_fields())
     for name in REVIEW_EVIDENCE_FIELDS:
@@ -97,30 +145,83 @@ def test_review_evidence_fields_are_fillable_bullets() -> None:
     assert not unfilled, f"these fields offer no value slot to fill: {unfilled}"
 
 
-def _launcher_values() -> dict[str, str]:
-    """The ``interface`` keys of the launcher config. Its shape is flat, so stdlib parsing holds."""
-    values: dict[str, str] = {}
-    for line in LAUNCHER.read_text(encoding="utf-8").splitlines():
-        match = re.fullmatch(r"\s+(\w+):\s*\"(.*)\"\s*", line)
-        if match:
-            values[match.group(1)] = match.group(2)
-    return values
+WORKER_SKILL = "$tether-worker"
+CLAIM_TOOL = ".agents/bin/claim.py"
+
+# `gh pr merge` or `gh.exe pr merge`, with any whitespace between its words and options there too:
+# each a word starting with `-`, alone or followed by one value word, as in `gh pr -R o/r merge`.
+_OPTIONS = r"(?:\s+-\S+(?:\s+[^-\s]\S*)?)*"
+_MERGE_COMMAND = re.compile(rf"\bgh(?:\.exe)?{_OPTIONS}\s+pr{_OPTIONS}\s+merge\b")
 
 
-def test_launcher_invokes_the_worker_skill_and_its_claim_tool() -> None:
-    """The launcher's job is to start one worker on the claim mutex — through the skill."""
-    values = _launcher_values()
+class _Loader(yaml.SafeLoader):
+    """PyYAML's safe loader, refusing a repeated mapping key and a ``<<`` merge.
+
+    YAML forbids a repeated key, and PyYAML would otherwise keep the last one silently; a ``<<``
+    merge would read a key written under another mapping as this mapping's own.
+    """
+
+
+def _mapping(loader: _Loader, node: yaml.MappingNode) -> dict[Any, Any]:
+    where = f"the YAML mapping at line {node.start_mark.line + 1}"
+    assert all(key.tag != "tag:yaml.org,2002:merge" for key, _ in node.value), (
+        f"{where} merges another in with '<<'"
+    )
+    keys = [key.value for key, _ in node.value if isinstance(key, yaml.ScalarNode)]
+    repeated = sorted({key for key in keys if keys.count(key) > 1})
+    assert not repeated, f"{where} repeats {repeated}"
+    return loader.construct_mapping(node, deep=True)
+
+
+_Loader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)
+
+
+def _interface() -> dict[str, Any]:
+    """The launcher config's ``interface`` mapping, as YAML decodes it."""
+    config = yaml.load(LAUNCHER.read_text(encoding="utf-8"), Loader=_Loader)
+    interface = config.get("interface") if isinstance(config, dict) else None
+    assert isinstance(interface, dict), f"{LAUNCHER.name} has no 'interface' mapping"
+    return interface
+
+
+def _words(text: str) -> set[str]:
+    """The whitespace-separated words of ``text``, less surrounding quotes, brackets and trailing
+    punctuation, so a name matches only whole: ``claim.py.bak`` is not ``claim.py``."""
+    return {w.lstrip("`'\"([").rstrip("`'\")],.;:!?") for w in text.split()}
+
+
+def test_launcher_names_the_worker_skill_and_its_claim_tool() -> None:
+    """The launcher starts one worker on the claim mutex through the skill, so its prompt names
+    both, and each name is a real one: the skill this launcher sits in, and the claim tool on disk.
+
+    That the prompt tells the worker to *use* them is wording, which this file does not assert.
+    """
+    interface = _interface()
     for key in ("display_name", "short_description", "default_prompt"):
-        assert values.get(key), f"{LAUNCHER.name} has no non-empty interface.{key}"
-    prompt = values["default_prompt"]
-    assert "$tether-worker" in prompt, "the launcher must invoke the tether-worker skill"
-    assert ".agents/bin/claim.py" in prompt, "the launcher must route the claim through claim.py"
-    assert (_REPO / ".agents" / "bin" / "claim.py").is_file(), "the claim tool it names is missing"
+        value = interface.get(key)
+        assert isinstance(value, str) and value.strip(), (
+            f"{LAUNCHER.name} has no non-empty interface.{key}"
+        )
+    words = _words(interface["default_prompt"])
+    assert WORKER_SKILL in words, f"the launcher prompt must name {WORKER_SKILL}"
+    assert CLAIM_TOOL in words, f"the launcher prompt must name {CLAIM_TOOL}"
+    front = re.match(r"---\n(.*?)\n---\n", SKILL.read_text(encoding="utf-8"), re.DOTALL)
+    assert front, "the SKILL.md this launcher sits beside has no front matter"
+    skill = yaml.load(front.group(1), Loader=_Loader)
+    assert isinstance(skill, dict) and skill.get("name") == WORKER_SKILL.removeprefix("$"), (
+        f"the skill it names, {WORKER_SKILL}, is not the one this launcher sits in"
+    )
+    assert (_REPO / CLAIM_TOOL).is_file(), f"the claim tool it names, {CLAIM_TOOL}, is missing"
 
 
-def test_launcher_carries_no_merge_command() -> None:
-    """Merge authority is per pull request and explicit; a launcher must never embed it."""
-    prompt = _launcher_values()["default_prompt"]
-    assert "gh pr merge" not in prompt, (
-        "the launcher prompt carries a merge command — merge authority is never a launcher default"
+def test_launcher_prompt_carries_no_gh_pr_merge() -> None:
+    """Merge authority is per pull request and explicit; the prompt must never embed it.
+
+    Only ``gh pr merge`` is looked for, in the forms ``_MERGE_COMMAND`` admits; a merge spelled any
+    other way, such as through ``gh api``, is not.
+    """
+    prompt = _interface()["default_prompt"]
+    assert not _MERGE_COMMAND.search(prompt), (
+        "the launcher prompt carries a 'gh pr merge' command — merge authority is never a "
+        "launcher default"
     )
