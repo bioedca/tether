@@ -63,6 +63,9 @@ REVIEW_EVIDENCE_FIELDS = (
 # separators the template uses between a label and its guidance.
 _LABEL_END = re.compile(r":| — ")
 
+# The element the page collapses: what sits inside it is not on the page until a reader opens it.
+_DISCLOSURE = re.compile(r"<details\b", re.IGNORECASE)
+
 
 def _drawn_headings(block: Any) -> list[tuple[int, str]]:
     """The level and text of each heading the page draws for ``block``: a Markdown heading, or an
@@ -74,8 +77,9 @@ def _drawn_headings(block: Any) -> list[tuple[int, str]]:
     return []
 
 
-def _sections(text: str, heading: str) -> list[list[str]]:
-    """The top-level bullets under each level-two ``heading`` the page draws, as the text it shows.
+def _sections(text: str, heading: str) -> list[list[Any]]:
+    """The top-level bullets under each level-two ``heading`` the page draws, each as its first
+    paragraph.
 
     A section runs to the next top-level heading of level one or two, Markdown or raw HTML. A
     bullet is an item of a top-level unordered list whose first block is a paragraph, so a nested
@@ -83,8 +87,8 @@ def _sections(text: str, heading: str) -> list[list[str]]:
     raw HTML block. A footnote, which the page draws at its foot, is not counted, nor is a bullet
     carrying an image, which the page draws as a picture rather than as text.
     """
-    sections: list[list[str]] = []
-    bullets: list[str] | None = None
+    sections: list[list[Any]] = []
+    bullets: list[Any] | None = None
     for block in _md.parse(text):
         if _md.at_foot(block):
             continue
@@ -98,25 +102,36 @@ def _sections(text: str, heading: str) -> list[list[str]]:
         for item in block.items:
             first = item.blocks[0] if item.blocks else None
             if isinstance(first, _md.Paragraph) and not _md.at_foot(first) and not first.pictured:
-                bullets.append(first.plain)
+                bullets.append(first)
     return sections
 
 
-def _field(item: str) -> tuple[str, str] | None:
+def _field(item: Any) -> tuple[str, str] | None:
     """Split a bullet's ``<label>: <value>`` text into its label and the rest, or ``None``.
 
-    A task-list item (``[ ] …``) is not a field.
+    A task-list item (``[ ] …``) is not a field, and nor is a bullet whose label is not the
+    literal start of its source, bold aside: a label drawn from markup — an image's alternative
+    text, a tag, a character reference, a link — is not text the page shows the author to fill in.
     """
-    if item.startswith("["):
+    text = item.plain
+    if text.startswith("["):
         return None
-    match = _LABEL_END.search(item)
+    match = _LABEL_END.search(text)
     if match is None:
         return None
-    return item[: match.start()].strip(), item[match.end() :].strip()
+    label = text[: match.start()].strip()
+    if not item.text.replace("**", "").startswith(label):
+        return None
+    return label, text[match.end() :].strip()
 
 
 def _fields() -> list[tuple[str, str]]:
-    sections = _sections(TEMPLATE.read_text(encoding="utf-8"), "Linked tracking")
+    text = TEMPLATE.read_text(encoding="utf-8")
+    assert not _DISCLOSURE.search(text), (
+        "the template carries a <details> element, which collapses what it holds — the review "
+        "evidence must stay on the page"
+    )
+    sections = _sections(text, "Linked tracking")
     assert len(sections) == 1, f"'## Linked tracking' must be drawn once, not {len(sections)} times"
     return [f for f in map(_field, sections[0]) if f is not None]
 
@@ -149,8 +164,9 @@ WORKER_SKILL = "$tether-worker"
 CLAIM_TOOL = ".agents/bin/claim.py"
 
 # Characters a shell drops from a word rather than reading as text: quotes, and the escapes of
-# POSIX shells (`\`), PowerShell (`` ` ``) and cmd (`^`).
-_SHELL_ELIDED = re.compile(r"['\"`^\\]")
+# POSIX shells (`\`), PowerShell (`` ` ``) and cmd (`^`) — each with the line break after it,
+# where the escape joins two lines into one.
+_SHELL_ELIDED = re.compile(r"[`^\\]\r?\n|['\"`^\\]")
 
 
 class _Loader(yaml.SafeLoader):
