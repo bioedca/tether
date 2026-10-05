@@ -375,19 +375,10 @@ record, which is what that issue's third criterion asks for.
 
 **Landing separately:** the `CLAUDE.md` collapse, the reaper shrink with `#278`'s archive, the
 launcher removal, the triage-and-scope-guard removal (one pull request — they are one unit), and the
-contract rewrite. All but one have since landed: the `CLAUDE.md` collapse in #430, `#278`'s archive
+contract rewrite. All but one have landed: the `CLAUDE.md` collapse in #430, `#278`'s archive
 in #429, and the launcher removal, the triage-and-scope-guard removal and the contract rewrite
 together in #431 (`c53c690`). The reaper shrink did not: #429 dropped it, because the label paths it
 would have removed are the ones this record keeps.
-
-**The [PRD](https://github.com/bioedca/tether/blob/main/docs/PRD.md) §12 is part of that contract
-rewrite and is therefore stale between this record merging and that one.** It still describes
-ADR-0062's round cap and launcher as current governance.
-That is deliberate rather than overlooked — the PRD paragraph and the `AGENTS.md` §Review rewrite
-describe one lane and must change together, in the pull request that actually deletes the machinery
-— but a reader arriving in the gap should know which of the two to believe. **This record wins**: it
-is the later decision, and the PRD text it contradicts is a description of tooling that is on its
-way out.
 
 **Retirement gates on the writer, and the two kinds of resource have different writers.** The five
 retired labels go after **`triage.py`** stops writing them; the `refs/amend-rounds/*` and
