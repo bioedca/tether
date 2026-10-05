@@ -53,9 +53,11 @@ release**, not the binaries, and it is unaffected by any of the above.
     tag ruleset was considered and declined, so it rests on whoever cuts the tag. Before
     tagging, `git merge-base --is-ancestor 6df78e4 <commit>` must exit `0`, where
     `<commit>` is the commit the tag will refer to; `6df78e4` (#461) is the commit that
-    added the gate. The check prints nothing when `<commit>` lacks the gate, so read its
-    exit status, not its output. The tag command below names no commit, so it tags
-    `HEAD`: run the check with `HEAD` as `<commit>` before running either command.
+    added the gate. The check prints nothing whether or not `<commit>` descends from
+    `6df78e4`, so read its exit status, not its output. It shows only that descent: it does
+    not show that the gate is still present and enabled at `<commit>`. The tag command
+    below names no commit, so it tags `HEAD`: run the check with `HEAD` as `<commit>`
+    before running either command.
 
     ```bash
     git tag -s v1.0.0 -m "Tether v1.0.0"
