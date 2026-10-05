@@ -148,10 +148,11 @@ def test_review_evidence_fields_are_fillable_bullets() -> None:
 WORKER_SKILL = "$tether-worker"
 CLAIM_TOOL = ".agents/bin/claim.py"
 
-# `gh pr merge` or `gh.exe pr merge`, with any whitespace between its words and options there too:
-# each a word starting with `-`, alone or followed by one value word, as in `gh pr -R o/r merge`.
+# `gh pr merge` or `gh.exe pr merge`, in any letter case (Windows resolves `GH.EXE` as `gh.exe`),
+# with any whitespace between its words and options there too: each a word starting with `-`,
+# alone or followed by one value word, as in `gh pr -R o/r merge`.
 _OPTIONS = r"(?:\s+-\S+(?:\s+[^-\s]\S*)?)*"
-_MERGE_COMMAND = re.compile(rf"\bgh(?:\.exe)?{_OPTIONS}\s+pr{_OPTIONS}\s+merge\b")
+_MERGE_COMMAND = re.compile(rf"\bgh(?:\.exe)?{_OPTIONS}\s+pr{_OPTIONS}\s+merge\b", re.IGNORECASE)
 
 
 class _Loader(yaml.SafeLoader):
