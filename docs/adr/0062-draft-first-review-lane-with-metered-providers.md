@@ -21,10 +21,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > with no actionable comments as the last gate. This record established that ordering, and
 > that part of it still governs.
 >
-> **Superseded is not removed.** `triage.py`, `swarm_slots.py`, `gate.ps1` and `scope_guard.py`
-> still run, and until the subtractive pull request that deletes them lands they still govern.
-> Read the round-cap and launcher detail below as the design of record for code that is live,
-> not as a description of something already gone.
+> **Since removed.** `triage.py`, `swarm_slots.py`, `gate.ps1` and `scope_guard.py` were deleted
+> by `c53c690` (#431). Read the round-cap and launcher detail below as the design of record for
+> code that is gone.
 
 The review gate routed by *risk*: `low`/`standard` to Codex, `high` to Codex and CodeRabbit
 together. That was written when every provider was effectively free, and it stopped being true.

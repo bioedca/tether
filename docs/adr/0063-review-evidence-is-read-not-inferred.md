@@ -17,9 +17,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > which decides to retire `triage.py` rather than correct it again — the growth measured below is
 > evidence for that decision.** **Deciding is not doing.** ADR-0064 records the decision to retire
 > `triage.py`; it does not delete the module, and neither does the pull request that adds it. The
-> module still runs and still governs until the separate subtractive pull request that deletes it
-> lands, so the fixes recorded here remain the live behaviour until then. The measurements stand as
-> evidence either way.
+> module was deleted separately, by `c53c690` (#431), so the fixes recorded here describe behaviour
+> that is gone. The measurements stand as evidence either way.
 
 `.agents/bin/triage.py` reconstructs the lane's state from GitHub REST payloads. It grew from 344 to
 1,316 lines in eight days, and the **five** issues below share one root cause: **the module inferred

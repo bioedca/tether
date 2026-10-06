@@ -131,9 +131,7 @@ superseded means *decided*, not automatically *already switched off*.
 **In force 2026-07-30 → 08-07, and superseded below.** The review gate (material-change rule,
 severity floor, **two-round cap**, capability-vs-quota) in `docs/agents/review.md`: ADR-0064 retired
 the round ledger and the launcher that enforced the cap, so the cap is now a convention and the gate
-lives in `AGENTS.md` §Review. Read that paragraph as history rather than as the live rule — this
-section is the authority on what governs, and what governs is the *Superseded by ADR-0064; removal
-pending* block below.
+lives in `AGENTS.md` §Review. Read that paragraph as history rather than as the live rule.
 
 **In force now:** `main` without the strict up-to-date rule; `sidecar / parity`
 reporting post-merge; the prose-drift guard retired. Since 2026-07-30: **the claim mutex**
@@ -142,12 +140,11 @@ number reservation; **the scheduled reaper** (`.agents/bin/reaper.py`, `agent-re
 **vendor label mirror** — and, with them, the removal of the coordinator, the leases and the run
 records from the contract. ADR-0052 no longer governs anything.
 
-**Superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md); removal
-pending.** The decision is made against **event-driven triage and the review-round counter**
+**Superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md), and
+removed.** The decision is made against **event-driven triage and the review-round counter**
 (`.agents/bin/triage.py`, `agent-triage.yml`), **the slot launcher** (`.agents/bin/swarm_slots.py`,
 `.agents/bin/gate.ps1`) and **the advisory scope guard** (`.agents/bin/scope_guard.py`,
-`scope-guard.yml`) — but they still run until the subtractive pull request that deletes them lands,
-so until then they still govern.
+`scope-guard.yml`) — all six were deleted by `c53c690` (#431).
 
 **What is not superseded:** the provider lane itself. Draft-first ordering, reading the Greptile
 balance before spending a credit, and one CodeRabbit review with no actionable comments as the last
@@ -160,8 +157,8 @@ intended to be — history rather than governance.
 **Not yet implemented:** Projects/Discussions as coordination surfaces.
 
 > **Everything from here to the end of the next section is pre-ADR-0064 history, written in the
-> present tense of 2026-07-30.** ADR-0064 supersedes the machinery it describes; the removal lands
-> separately. What survives of the label model is `agent:claude|codex|copilot` from `claim.py`, and
+> present tense of 2026-07-30.** ADR-0064 supersedes the machinery it describes.
+> What survives of the label model is `agent:claude|codex|copilot` from `claim.py`, and
 > `agent:conflicted` and `agent:needs-amend` from `reaper.py`. Read the next section for what the
 > two-round cap was intended to be, not for what governs.
 
