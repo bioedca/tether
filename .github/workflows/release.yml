@@ -140,9 +140,10 @@ jobs:
         # the compensating control for dropping the strict up-to-date rule (ADR-0057);
         # this step is the release half of that control (issue #266): a tag on a commit
         # whose post-merge checks are red, cancelled, missing or still running must not
-        # publish. Deliberately NO `if:` — the guard evaluates on every run, a dry run
-        # included, and the committed script (not this step) owns both the verdict and
-        # the disposition: publish mode `true` refuses, `false` is advisory, and any
+        # publish. Deliberately NO `if:` — unlike the signature step, the guard is not
+        # gated on publish mode, so a dry run evaluates it too; the committed script (not
+        # this step) owns both the verdict and the disposition: publish mode `true`
+        # refuses, `false` is advisory, and any
         # other value fails loudly. This step only fetches and pipes — it performs no
         # comparison itself — so the decision logic stays unit-testable offline
         # (release.yml cannot run in the local gate matrix).
