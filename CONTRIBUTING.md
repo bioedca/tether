@@ -425,7 +425,7 @@ that exception list WINS over the material paths below, while executable code, s
 schema, locks, CI/release config and the governance text itself (`AGENTS.md` anywhere,
 `CLAUDE.md`, this file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`,
 `.claude/**`, `.github/pull_request_template.md`, `.greptile/**`, and `AGENTS.override.md`
-anywhere) are material — the
+and `.codex/` anywhere) are material — the
 list is *every file that states a rule*, because a push changing what the gate requires
 must not keep evidence gathered under the old requirement. A material push
 re-arms the review but raises no ceiling: there are **at most two completed reviews per

@@ -191,7 +191,7 @@ validity turns on it being the right test — must satisfy both.
   Otherwise: Executable code, scientific claims, data, schema, locks, CI and release
   configuration, and **every file that states a rule** — `AGENTS.md` **anywhere**, `CLAUDE.md`,
   `CONTRIBUTING.md`, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`, `.claude/**`,
-  `.github/pull_request_template.md`, `.greptile/**`, and `AGENTS.override.md` anywhere — are material, and a material push re-arms
+  `.github/pull_request_template.md`, `.greptile/**`, and `AGENTS.override.md` and `.codex/` anywhere — are material, and a material push re-arms
   the review. The rule-stating files are on that list for a specific reason: a push that changes
   what the gate requires must not keep evidence gathered under the old requirement.
 - **Metered credits are the maintainer's money.** Greptile is 50 credits per seat per month shared
