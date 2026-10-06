@@ -300,7 +300,9 @@ branch-modified `SKILL.md` model-visible through a read that reported as isolate
 `--strict-config` makes a mistyped key **fail** rather than be ignored, which matters because the
 failure mode of a silently-dropped override is a read that looks isolated and is not. Both were
 verified against the installed CLI (0.147.0) — a deliberately bogus key is rejected under
-`--strict-config`, and `project_doc_max_bytes` is accepted.
+`--strict-config`, and `project_doc_max_bytes` is accepted. The 2026-10-06 amendment at the end of
+this section adds a third observed route, `.codex/`, one of whose settings needs a switch of its
+own, and records that the command does not isolate the reader.
 
 **That trigger over-approximates on purpose, and the four attempts it took to get there are the
 reason.** Each named a set; each was wrong, in both directions; each was caught only by the next
@@ -365,6 +367,51 @@ over-approximation exists for — so the trigger is unchanged. And the **posted*
 which the paragraph opening this section assigned to #451, is outside what #451 could observe —
 the bot leaves no local rollout — so it stays unmeasured. The method and raw results are on #451,
 so the next CLI bump can be re-checked rather than re-argued.
+
+**Amendment, 2026-10-06 — what #486 observed.** Codex raised a third route on PR #476: a branch's
+`.codex/config.toml`. #486 probed it on **codex-cli 0.147.0** with #451's method and three
+additions: every case ran trusted, through a per-run session override that left the user-level
+trust table unchanged; every setting had a positive control run without the isolating switches;
+and both rollouts a review writes were read — the parent `exec` thread's and the review
+sub-thread's — including each one's `session_meta.base_instructions`. What the CLI did with a
+branch's `.codex/`:
+
+- **`developer_instructions`** was composed into the review sub-thread as a `developer` message, and
+  the command above did **not** stop it; adding `-c developer_instructions=""` did.
+- **`project_doc_fallback_filenames`** named a file the CLI then composed, and
+  **`project_doc_max_bytes`** set there took effect, so this route also steers the file route. The
+  command's own `project_doc_max_bytes=0` outranked both: no file was composed under it.
+- It composed **`instructions`** and **`model_instructions_file`** only into the parent thread's
+  base instructions (a relative `model_instructions_file` resolves against `.codex/` itself on this
+  version). The parent made no model call — it holds no `turn_context`, reasoning or token-count
+  record, and its one `assistant` message is the sub-thread's result, rendered — so neither was
+  composed for the model that reviewed, and the command needs no switch for them.
+  `-c model_instructions_file=""` makes the CLI fail at startup rather than clear it.
+- **`compact_prompt`** and **`experimental_compact_prompt_file`** were composed in no review here,
+  their positive controls included, and no review here was compacted, so what they do in a
+  compacted session was **not observed**; the command leaves them in place. Whether a `.codex/`
+  below the repository root loads was not probed either.
+
+So **three** routes have been observed — files, skills and `.codex/` settings. The trigger covers
+`.codex/` at any depth, by the over-approximation rule above, and the command gains
+`-c 'developer_instructions=""'`. Quoted that way it was run from Git Bash and from PowerShell
+7.6.6 (where `codex` resolves to the npm `.ps1` shim), and neither run composed the setting. From
+PowerShell, the same command without the switch composed it, and a non-empty value quoted the same
+way was composed; no such control was run from bash. `--strict-config` still rejects a mistyped
+key with the new switch in place.
+
+The larger finding qualifies this whole section: **the command does not isolate the reader.** On
+0.147.0 the review sub-thread's own base instructions tell the model to use the project instruction
+files that apply to the changed files, in the usual precedence — `AGENTS.override.md`, `AGENTS.md`,
+then configured fallbacks. In each of #486's isolated runs whose checkout held one, the model
+opened it with a tool and did what it said. It opened `.codex/` files too, and in some runs acted on
+what it read there although none of it was composed for the model that reviewed. So the aim in
+this section's heading — a CLI read that does not run under the rules the branch proposes — is
+**not met** on this version, isolated or not, and no procedure was shown to meet it. *The switch is
+blunt* above describes what the CLI composes, not what the model reads. The isolation stays for
+what the list above shows it keeps out of the composed prompt; a clean CLI read of an
+agent-instruction diff proves less than an ordinary one, which costs the gate nothing, since that
+read satisfies no leg. The method, harness and per-case results are on #486.
 
 ### What condition 4 does not buy
 
