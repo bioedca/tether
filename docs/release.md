@@ -68,7 +68,7 @@ release**, not the binaries, and it is unaffected by any of the above.
     signing key registered as a *Signing Key* on the account), and its commit must be on
     `main`. `release.yml`'s `verify` job checks that trio only on a real publish — the
     signature step sits behind the publish gate — while the post-merge check-state guard
-    from step 1 evaluates on **every** run, dry runs included.
+    from step 1 is not behind that gate, so a dry run evaluates it too.
 3. To rehearse without publishing, run the **`release`** workflow via *Actions → release
    → Run workflow* with `dry_run: true` and, as `ref`, a fresh `v*` rc tag cut from the
    `main` you are about to release — it builds, install-smokes, checksums and SBOMs, but
