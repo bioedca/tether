@@ -284,8 +284,9 @@ ordinary lane read: the CLI discovers `AGENTS.md`, `AGENTS.override.md` anywhere
 checkout it runs in and injects repository skills, so a pull request editing any of them supplies
 the instructions to a provider reading it — the branch graded by its own unmerged contract, which
 *"only agent instructions on the default branch govern; unmerged edits are inert"* refuses in the
-first paragraph of that file. The **posted** review's loading is not ours to configure at all, and
-**#451** covers that half.
+first paragraph of that file. The **posted** review's loading is not ours to configure at all. This
+paragraph first assigned that half to **#451**; the 2026-10-04 amendment at the end of this section
+records that it stayed unmeasured.
 
 So on a diff touching `AGENTS.md`, **`AGENTS.override.md` anywhere**, `CLAUDE.md` **or
 `.agents/skills/**`** — the two routes by which the checkout reaches the model, discovered files and
@@ -320,8 +321,9 @@ What every attempt had in common is that **the contract was asserting how Codex 
 instructions**, and reading filename literals out of a binary does not establish that — precedence,
 fallback and skill injection are behaviour, not strings, and they move between versions. So the
 trigger stopped being a claim about Codex and became a **policy choice**: fire on the agent-layer
-paths, accept the over-approximation, and record why. **#451** is where the real set gets
-established, by observing what a review actually receives rather than by inference.
+paths, accept the over-approximation, and record why. This record left the real set to **#451**;
+the 2026-10-04 amendment at the end of this section records what #451 observed for codex-cli
+0.147.0.
 
 This is the same correction condition 4 needed when it enumerated sources, and the disposition list
 needed when it enumerated dispositions — **inside a safety condition, a list is a hole or a deadlock
