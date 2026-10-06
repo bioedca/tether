@@ -301,8 +301,8 @@ branch-modified `SKILL.md` model-visible through a read that reported as isolate
 failure mode of a silently-dropped override is a read that looks isolated and is not. Both were
 verified against the installed CLI (0.147.0) — a deliberately bogus key is rejected under
 `--strict-config`, and `project_doc_max_bytes` is accepted. The 2026-10-06 amendment at the end of
-this section adds a third observed route, `.codex/`, one of whose settings needs a switch of its
-own, and records that the command does not isolate the reader.
+this section adds a third observed route, `.codex/`, on which the CLI is not run at all, and
+records that the command does not isolate the reader.
 
 **That trigger over-approximates on purpose, and the four attempts it took to get there are the
 reason.** Each named a set; each was wrong, in both directions; each was caught only by the next
@@ -392,13 +392,19 @@ branch's `.codex/`:
   compacted session was **not observed**; the command leaves them in place. Whether a `.codex/`
   below the repository root loads was not probed either.
 
-So **three** routes have been observed — files, skills and `.codex/` settings. The trigger covers
-`.codex/` at any depth, by the over-approximation rule above, and the command gains
-`-c 'developer_instructions=""'`. Quoted that way it was run from Git Bash and from PowerShell
-7.6.6 (where `codex` resolves to the npm `.ps1` shim), and neither run composed the setting. From
-PowerShell, the same command without the switch composed it, and a non-empty value quoted the same
-way was composed; no such control was run from bash. `--strict-config` still rejects a mistyped
-key with the new switch in place.
+So **three** routes have been observed — files, skills and `.codex/` settings.
+`-c 'developer_instructions=""'` stops the one `.codex/` setting seen in a composed message. Quoted
+that way it was run from Git Bash and from PowerShell 7.6.6 (where `codex` resolves to the npm
+`.ps1` shim), and neither run composed the setting. From PowerShell, the same command without the
+switch composed it, and a non-empty value quoted the same way was composed; no such control was
+run from bash. `--strict-config` still rejected a mistyped key with that switch in place.
+
+**Clearing keys one at a time does not close the route, though.** Codex's review of the pull
+request carrying this amendment (#489) pointed out that project settings are not only instructions
+— the configuration reference documents settings that start processes — and no switch was shown to
+turn project-local configuration off as a whole. So the CLI is **not run at all** on a diff
+touching `.codex/` at any depth (the over-approximation rule above sets the depth), and the command
+does not carry the switch: the only `.codex/` it could then clear is the default branch's own.
 
 The larger finding qualifies this whole section: **the command does not isolate the reader.** On
 0.147.0 the review sub-thread's own base instructions tell the model to use the project instruction
@@ -409,7 +415,7 @@ what it read there although none of it was composed for the model that reviewed.
 this section's heading — a CLI read that does not run under the rules the branch proposes — is
 **not met** on this version, isolated or not, and no procedure was shown to meet it. *The switch is
 blunt* above describes what the CLI composes, not what the model reads. The isolation stays for
-what the list above shows it keeps out of the composed prompt; a clean CLI read of an
+the files and skills it keeps out of the composed prompt; a clean CLI read of an
 agent-instruction diff proves less than an ordinary one, which costs the gate nothing, since that
 read satisfies no leg. The method, harness and per-case results are on #486.
 
