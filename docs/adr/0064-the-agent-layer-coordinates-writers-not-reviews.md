@@ -361,11 +361,10 @@ once by a human, `AGENTS.md` is read on every model call by every agent.
 This record is the decision; the removals land as a sequence of subtractive pull requests, so this
 section is the authority on what is actually gone.
 
-**In force on merge of this record, because this pull request writes them into
-`docs/agents/review.md`, `AGENTS.md` and `CLAUDE.md`:** the **drop rule** and the
-**feature-complete freeze**. Those two are behavioural rules an agent must follow, and a rule
-recorded only in an ADR while the contract still says the opposite is not a rule (Greptile P1 on
-issue `#427`).
+**In force since #431 (`c53c690`), which merged before this record:** the **drop rule** and the
+**feature-complete freeze**, both in `AGENTS.md` §Review. Those two are behavioural rules an agent
+must follow, and a rule recorded only in an ADR while the contract still says the opposite is not a
+rule (Greptile P1 on pull request `#427`).
 
 **Recorded here and nowhere else:** the decisions for issues `#278`, `#303` and `#300`. They are
 findings about this repository's own machinery rather than instructions to a worker, so they do not
@@ -380,15 +379,13 @@ in #429, and the launcher removal, the triage-and-scope-guard removal and the co
 together in #431 (`c53c690`). The reaper shrink did not: #429 dropped it, because the label paths it
 would have removed are the ones this record keeps.
 
-**Retirement gates on the writer, and the two kinds of resource have different writers.** The five
-retired labels go after **`triage.py`** stops writing them; the `refs/amend-rounds/*` and
-`refs/lane-advances/*` namespaces go after **`swarm_slots.py`** does, since the launcher is their
-only writer. The removal here deletes both modules in one pull request, so in practice the two
-gates open together — but they are stated separately because gating everything on one module is
-only safe while that stays true, and splitting the removals later would leave the other writer free
-to recreate what had just been retired. For the labels that recreation is also *silent*:
-`POST /repos/{owner}/{repo}/issues/{number}/labels` auto-creates a missing label rather than
-failing, so nothing in the audit trail would show it.
+**Retirement was to wait on the writer, and the two kinds of resource had different writers.** The
+record planned to retire the five labels once **`triage.py`** stopped writing them, and the
+`refs/amend-rounds/*` and `refs/lane-advances/*` namespaces once **`swarm_slots.py`** did, since the
+launcher was their only writer. #431 (`c53c690`) deleted both modules in one commit, so the two
+gates opened together. #431 deleted the writers, not the labels or the refs; on 2026-10-06
+`GET /repos/{owner}/{repo}/labels/{name}` returns 404 for each of the five labels, and
+`git ls-remote` lists no ref under either namespace.
 
 ## Consequences
 
