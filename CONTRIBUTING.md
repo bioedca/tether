@@ -371,18 +371,18 @@ The CLI is still worth running and satisfies **no leg**: it is an author-side to
 your own defects before a provider is asked, in the same category as running the tests. Use it
 freely — it costs nothing and it is uncapped — and do not record it as the Codex leg.
 
-**Do not run it on a diff that touches `.codex/` at any depth.** A branch's project settings can do
-more than instruct the model, and no switch was shown to turn them off as a whole. When you run it
-on a diff that touches `AGENTS.md`, `AGENTS.override.md` (anywhere), `CLAUDE.md` or
-`.agents/skills/**` — the other two observed routes, discovered files and injected skills — add
-`--strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false`.
-
-On codex-cli 0.147.0 that keeps the branch's instruction files and skill descriptions out of the
-prompt the CLI composes. It does **not** keep the instruction files from the reviewer: the review
-prompt itself tells the model to find and apply them, and ADR-0065's 2026-10-06 amendment records
-the model doing so. So a clean CLI read of such a diff proves less than an ordinary one, and
-nothing here makes it stronger. ADR-0065's amendments record what **#451** and **#486** observed;
-the trigger over-fires deliberately, the cheaper mistake.
+**Do not run it on a diff that touches `AGENTS.md`, `AGENTS.override.md` (anywhere), `CLAUDE.md`,
+`.agents/skills/**` or `.codex/` at any depth** — the three observed routes: discovered files,
+injected skills and project settings. This section used to give an isolated command for those
+diffs, `--strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false`. On
+codex-cli 0.147.0 it keeps the branch's instruction files and skill descriptions out of the prompt
+the CLI composes, but not out of what the reviewer reads: the review prompt itself tells the model
+to find and apply the instruction files, and ADR-0065's 2026-10-06 amendment records the model
+doing so. A branch's project settings can also do more than instruct the model, and no switch was
+shown to turn them off as a whole. So no procedure was shown to keep a branch's rules from its own
+CLI reader, and such a diff gets no CLI read; the posted reviews still read it. ADR-0065's
+amendments record what **#451** and **#486** observed; the trigger over-fires deliberately, the
+cheaper mistake.
 
 One exception, and it has already cost money: `.greptile/config.json` is read from
 the pull request's **source branch**, so a branch cut before that file landed still

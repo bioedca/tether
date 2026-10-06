@@ -301,8 +301,8 @@ branch-modified `SKILL.md` model-visible through a read that reported as isolate
 failure mode of a silently-dropped override is a read that looks isolated and is not. Both were
 verified against the installed CLI (0.147.0) — a deliberately bogus key is rejected under
 `--strict-config`, and `project_doc_max_bytes` is accepted. The 2026-10-06 amendment at the end of
-this section adds a third observed route, `.codex/`, on which the CLI is not run at all, and
-records that the command does not isolate the reader.
+this section adds a third observed route, `.codex/`, records that the command does not isolate the
+reader, and retires it: the CLI is not run on a diff touching any of the three routes.
 
 **That trigger over-approximates on purpose, and the four attempts it took to get there are the
 reason.** Each named a set; each was wrong, in both directions; each was caught only by the next
@@ -403,8 +403,8 @@ run from bash. `--strict-config` still rejected a mistyped key with that switch 
 request carrying this amendment (#489) pointed out that project settings are not only instructions
 — the configuration reference documents settings that start processes — and no switch was shown to
 turn project-local configuration off as a whole. So the CLI is **not run at all** on a diff
-touching `.codex/` at any depth (the over-approximation rule above sets the depth), and the command
-does not carry the switch: the only `.codex/` it could then clear is the default branch's own.
+touching `.codex/` at any depth (the over-approximation rule above sets the depth); the next
+paragraph extends that to every route.
 
 The larger finding qualifies this whole section: **the command does not isolate the reader.** On
 0.147.0 the review sub-thread's own base instructions tell the model to use the project instruction
@@ -414,10 +414,14 @@ opened it with a tool and did what it said. It opened `.codex/` files too, and i
 what it read there although none of it was composed for the model that reviewed. So the aim in
 this section's heading — a CLI read that does not run under the rules the branch proposes — is
 **not met** on this version, isolated or not, and no procedure was shown to meet it. *The switch is
-blunt* above describes what the CLI composes, not what the model reads. The isolation stays for
-the files and skills it keeps out of the composed prompt; a clean CLI read of an
-agent-instruction diff proves less than an ordinary one, which costs the gate nothing, since that
-read satisfies no leg. The method, harness and per-case results are on #486.
+blunt* above describes what the CLI composes, not what the model reads.
+
+Codex's second review of #489 drew the consequence. A CLI run on such a diff is an agent working
+under rules that have not merged, which the contract's first paragraph calls inert, however weak
+its verdict is taken to be. So the CLI is **not run** on a diff touching any of the three routes,
+and the isolated command is no longer prescribed; what this section records about it stands as the
+reason. That costs the gate nothing, since a CLI read satisfies no leg and the posted reviews still
+read the diff. The method, harness and per-case results are on #486.
 
 ### What condition 4 does not buy
 
