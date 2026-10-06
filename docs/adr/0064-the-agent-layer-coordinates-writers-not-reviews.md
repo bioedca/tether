@@ -384,8 +384,9 @@ record planned to retire the five labels once **`triage.py`** stopped writing th
 `refs/amend-rounds/*` and `refs/lane-advances/*` namespaces once **`swarm_slots.py`** did, since the
 launcher was their only writer. #431 (`c53c690`) deleted both modules in one commit, so the two
 gates opened together. #431 deleted the writers, not the labels or the refs; on 2026-10-06
-`GET /repos/{owner}/{repo}/labels/{name}` returns 404 for each of the five labels, and
-`git ls-remote` lists no ref under either namespace.
+`GET /repos/{owner}/{repo}/labels/{name}` returned 404 for each of the five labels, and
+`git ls-remote origin` listed no ref under either namespace. Pull request #482 records the commands
+and their results.
 
 ## Consequences
 
@@ -436,10 +437,6 @@ miscalibrated for new-executable work; the materiality digest, which no decision
 automatic resumption of a stranded pull request, which the empty `refs/lane-advances/` namespace
 shows has never once occurred.
 
-**Reversible.** Every removal is subtractive and restorable with `git revert`. The one irreversible
-step is deleting the remote labels, which is sequenced after **`triage.py`** stops writing them —
-`POST /repos/{owner}/{repo}/issues/{number}/labels` auto-creates a missing label, so retiring them
-while a writer survives would silently recreate them. `triage.py` is the writer that matters here
-and it is the one the removal deletes; the reaper writes only `agent:needs-amend` and
-`agent:conflicted`, which are kept, so waiting on the reaper would wait on an event that never
-comes.
+**Reversible.** Every removal from the tracked tree is subtractive and restorable with `git revert`.
+Nothing removed outside that tree is: a revert restores the code that applied the five retired
+labels, not the labels.
