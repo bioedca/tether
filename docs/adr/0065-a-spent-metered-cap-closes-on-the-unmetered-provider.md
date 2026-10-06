@@ -343,6 +343,27 @@ throughout and found twenty-odd defects in the text feeding them, so there is no
 here — but "no sign it mattered" is not the property the trust boundary asks for, and the last round
 of this pull request was re-run with the flag.
 
+**Amendment, 2026-10-04 — what #451 observed.** The set above was a policy because it could not yet
+be a fact. #451 made it one for **codex-cli 0.147.0**, by observation: each candidate file carried
+a unique token, each was committed to the base so it reached the checkout but not the diff, and the
+session rollout `codex review --base main` wrote under `~/.codex/sessions/` was read for where each
+token appeared — in a message the CLI composed, or only in a file the model chose to open. Every
+fixture's files together sat far inside the default `project_doc_max_bytes`, so what follows is
+what the CLI injected under that budget, not past it. Injected:
+`AGENTS.md` from every directory between the repository root and the working directory, root first
+(run from a subdirectory, the nested file joined the root one; run from the root, it did not); an
+`AGENTS.override.md` *instead of* its sibling `AGENTS.md`, not in addition; `CLAUDE.md` **never by
+default**, with or without an `AGENTS.md` beside it, but injected when
+`project_doc_fallback_filenames` named it and its directory held no `AGENTS.md` — no run paired
+it with an `AGENTS.override.md`; and each repository skill's `description`, while its body was
+not. The isolated command injected **none** of them. Two consequences. Item 4 above resolves
+*against* dropping `CLAUDE.md`: its route
+depends on a configuration setting — the kind of version-and-configuration drift the
+over-approximation exists for — so the trigger is unchanged. And the **posted** review's loading,
+which the paragraph opening this section assigned to #451, is outside what #451 could observe —
+the bot leaves no local rollout — so it stays unmeasured. The method and raw results are on #451,
+so the next CLI bump can be re-checked rather than re-argued.
+
 ### What condition 4 does not buy
 
 It is applied by the worker, and **nothing checks it mechanically.** Every hunk after the cap has to
