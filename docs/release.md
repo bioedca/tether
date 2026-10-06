@@ -46,6 +46,19 @@ release**, not the binaries, and it is unaffected by any of the above.
    whose checks ran to completion instead.
 2. Create a **signed, annotated** tag on the release commit and push it:
 
+    Tag only commits that already contain the post-merge gate: the pipeline that runs is
+    the `release.yml` **in the tagged tree**, so a tag on an older commit executes that
+    tree's gate-less definition. **No repository-level control enforces this — the risk is
+    accepted** ([#464](https://github.com/bioedca/tether/issues/464), 2026-10-04): a `v*`
+    tag ruleset was considered and declined, so it rests on whoever cuts the tag. Before
+    tagging, `git merge-base --is-ancestor 6df78e4 <commit>` must exit `0`, where
+    `<commit>` is the commit the tag will refer to; `6df78e4` (#461) is the commit that
+    added the gate. The check prints nothing whether or not `<commit>` descends from
+    `6df78e4`, so read its exit status, not its output. It shows only that descent: it does
+    not show that the gate is still present and enabled at `<commit>`. The tag command
+    below names no commit, so it tags `HEAD`: run the check with `HEAD` as `<commit>`
+    before running either command.
+
     ```bash
     git tag -s v1.0.0 -m "Tether v1.0.0"
     git push origin v1.0.0
@@ -55,11 +68,7 @@ release**, not the binaries, and it is unaffected by any of the above.
     signing key registered as a *Signing Key* on the account), and its commit must be on
     `main`. `release.yml`'s `verify` job checks that trio only on a real publish — the
     signature step sits behind the publish gate — while the post-merge check-state guard
-    from step 1 evaluates on **every** run, dry runs included. Tag only commits that
-    already contain the post-merge gate: the pipeline that runs is the `release.yml` **in
-    the tagged tree**, so a tag on an older commit executes that tree's gate-less
-    definition ([#464](https://github.com/bioedca/tether/issues/464) tracks the
-    repository-level control).
+    from step 1 evaluates on **every** run, dry runs included.
 3. To rehearse without publishing, run the **`release`** workflow via *Actions → release
    → Run workflow* with `dry_run: true` and, as `ref`, a fresh `v*` rc tag cut from the
    `main` you are about to release — it builds, install-smokes, checksums and SBOMs, but
