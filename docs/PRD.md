@@ -1103,7 +1103,7 @@ rebasing `main` in without conflict resolution, formatting, comment/docstring ed
 non-material — and those exceptions WIN over the material paths, which is what lets an ADR renumber-only change keep its review evidence — while executable code, scientific claims, data, schema, locks, CI/release configuration and the
 governance text itself (`AGENTS.md` anywhere, `CLAUDE.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`,
 `.agents/**`, `docs/agents/**`, `.claude/**`, `.github/pull_request_template.md` and
-`.greptile/**`, and `AGENTS.override.md` anywhere) are material — the list is *every file that states a rule*, because a push that
+`.greptile/**`, and `AGENTS.override.md` and `.codex/` anywhere) are material — the list is *every file that states a rule*, because a push that
 changes what the gate requires must not keep evidence gathered under the old requirement. A material push re-arms the review, and a PR gets **at most two completed reviews per metered provider**, Codex being unmetered and uncapped —
 needing a third usually means the issue was scoped too large. The lane does **not** stop for the maintainer: when
 **CodeRabbit's** two-review cap specifically is spent — not any other provider's, since Greptile is optional and its

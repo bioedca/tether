@@ -191,7 +191,7 @@ validity turns on it being the right test — must satisfy both.
   Otherwise: Executable code, scientific claims, data, schema, locks, CI and release
   configuration, and **every file that states a rule** — `AGENTS.md` **anywhere**, `CLAUDE.md`,
   `CONTRIBUTING.md`, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`, `.claude/**`,
-  `.github/pull_request_template.md`, `.greptile/**`, and `AGENTS.override.md` anywhere — are material, and a material push re-arms
+  `.github/pull_request_template.md`, `.greptile/**`, and `AGENTS.override.md` and `.codex/` anywhere — are material, and a material push re-arms
   the review. The rule-stating files are on that list for a specific reason: a push that changes
   what the gate requires must not keep evidence gathered under the old requirement.
 - **Metered credits are the maintainer's money.** Greptile is 50 credits per seat per month shared
@@ -226,15 +226,12 @@ validity turns on it being the right test — must satisfy both.
 - **The Codex CLI satisfies no leg; it is an author-side tool.** Local output satisfies nothing
   (first bullet), so a CLI run finds your own defects before a provider is asked — the same category
   as running the tests. Run it freely, it is unmetered; just never record it as the Codex leg.
-  **On a diff that edits agent instructions, do not run it under them.** The CLI takes them from
-  the checkout by two routes: files — `AGENTS.md`, `AGENTS.override.md` anywhere and `CLAUDE.md`,
-  each discovered on conditions ADR-0065's 2026-10-04 amendment records — **and** skills from
-  `.agents/skills/**`. A diff touching either route shapes its own reader, so the trigger is both —
-  a skill-only change edits none of the three files and still qualifies. Run
-  `codex review --strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false --base origin/main`
-  — two switches because the skills one is separate and defaults to on, and `--strict-config` so a
-  mistyped key fails loudly rather than leaving a read that reports as isolated and is not. This does
-  not reach the **posted** bot review, whose loading is not ours to configure.
+  **Do not run it on a diff that edits agent instructions** — files (`AGENTS.md`,
+  `AGENTS.override.md` anywhere, `CLAUDE.md`), skills (`.agents/skills/**`) or settings (`.codex/` at
+  any depth), the three routes observed. On 0.147.0 no switch was shown to keep a branch's rules from
+  the reviewer: its own prompt sends it to read and apply the project's instruction files, so it
+  would run under rules that have not merged. ADR-0065 records what was and was not observed. The
+  **posted** bot review's loading is not ours to configure.
 - **Four things shut that close, and each is readable off the pull request rather than out of your
   own account of why you did something.** A refusal is **not** a spent cap: it reviewed nothing, so
   it is a wait. If either completed review came back clean, its evidence still stands under the
@@ -283,8 +280,8 @@ validity turns on it being the right test — must satisfy both.
   `Deferred: … Tracked in #N` and resolve the thread. Fixing a non-serious finding in the PR is
   scope breach, not diligence.
 - **On agent-layer paths, a sub-floor finding is dropped rather than tracked.** Those paths are
-  `.agents/`, `docs/agents/`, `AGENTS.md` and `AGENTS.override.md` anywhere, `CLAUDE.md` and the
-  agent test modules. Reply
+  `.agents/`, `docs/agents/`, `AGENTS.md` and `AGENTS.override.md` and `.codex/` anywhere,
+  `CLAUDE.md` and the agent test modules. Reply
   `Noted; below the floor on an agent-layer path and not tracked (ADR-0064)` and resolve the thread.
   This inverts the rule above deliberately and only here, because only here does the output feed back
   into the input — sixteen agent-layer issues came from that loop in ten days.

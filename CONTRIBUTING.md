@@ -369,13 +369,20 @@ offers credits; buying them is the maintainer's decision, and #450 records it: n
 
 The CLI is still worth running and satisfies **no leg**: it is an author-side tool for finding
 your own defects before a provider is asked, in the same category as running the tests. Use it
-freely — it costs nothing and it is uncapped — and do not record it as the Codex leg. When you
-run it on a diff that touches `AGENTS.md`, `AGENTS.override.md` (anywhere), `CLAUDE.md` **or
-`.agents/skills/**`** — two routes, discovered files and injected skills — add
-`--strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false`, so the branch
-does not supply the instructions its own reader follows. ADR-0065's 2026-10-04 amendment records
-what **#451** observed on 0.147.0; that trigger over-fires deliberately, which costs the reader
-`main`'s contract and is the cheaper mistake.
+freely — it costs nothing and it is uncapped — and do not record it as the Codex leg.
+
+**Do not run it on a diff that touches `AGENTS.md`, `AGENTS.override.md` (anywhere), `CLAUDE.md`,
+`.agents/skills/**` or `.codex/` at any depth** — the three observed routes: discovered files,
+injected skills and project settings. This section used to give an isolated command for those
+diffs, `--strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false`. On
+codex-cli 0.147.0 it keeps the branch's instruction files and skill descriptions out of the prompt
+the CLI composes, but not out of what the reviewer reads: the review prompt itself tells the model
+to find and apply the instruction files, and ADR-0065's 2026-10-06 amendment records the model
+doing so. A branch's project settings can also do more than instruct the model, and no switch was
+shown to turn them off as a whole. So no procedure was shown to keep a branch's rules from its own
+CLI reader, and such a diff gets no CLI read; the posted reviews still read it. ADR-0065's
+amendments record what **#451** and **#486** observed; the trigger over-fires deliberately, the
+cheaper mistake.
 
 One exception, and it has already cost money: `.greptile/config.json` is read from
 the pull request's **source branch**, so a branch cut before that file landed still
@@ -418,7 +425,7 @@ that exception list WINS over the material paths below, while executable code, s
 schema, locks, CI/release config and the governance text itself (`AGENTS.md` anywhere,
 `CLAUDE.md`, this file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`,
 `.claude/**`, `.github/pull_request_template.md`, `.greptile/**`, and `AGENTS.override.md`
-anywhere) are material — the
+and `.codex/` anywhere) are material — the
 list is *every file that states a rule*, because a push changing what the gate requires
 must not keep evidence gathered under the old requirement. A material push
 re-arms the review but raises no ceiling: there are **at most two completed reviews per
@@ -511,7 +518,7 @@ only provider that reads those. Metered up to the second review's commit, the cl
 it, external throughout — which is what `AGENTS.md` §Review's first bullet asks for and no more.
 Nothing counts this for you; the
 merged history is auditable and you are trusted with it. On agent-layer paths
-(`.agents/`, `docs/agents/`, `AGENTS.md` and `AGENTS.override.md` anywhere, `CLAUDE.md` and the agent test modules) a
+(`.agents/`, `docs/agents/`, `AGENTS.md` and `AGENTS.override.md` and `.codex/` anywhere, `CLAUDE.md` and the agent test modules) a
 finding below the severity floor is **dropped rather than tracked**, because there the
 follow-up issue becomes another agent-layer pull request and the loop feeds itself
 (ADR-0064). Dropped is not silent: reply on the thread in the wording `AGENTS.md`
