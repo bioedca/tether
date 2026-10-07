@@ -280,8 +280,8 @@ validity turns on it being the right test — must satisfy both.
   `Deferred: … Tracked in #N` and resolve the thread. Fixing a non-serious finding in the PR is
   scope breach, not diligence.
 - **On agent-layer paths, a sub-floor finding is dropped rather than tracked.** Those paths are
-  `.agents/`, `docs/agents/`, `AGENTS.md` and `AGENTS.override.md` anywhere, `CLAUDE.md` and the
-  agent test modules. Reply
+  `.agents/`, `docs/agents/`, `AGENTS.md` and `AGENTS.override.md` and `.codex/` anywhere,
+  `CLAUDE.md` and the agent test modules. Reply
   `Noted; below the floor on an agent-layer path and not tracked (ADR-0064)` and resolve the thread.
   This inverts the rule above deliberately and only here, because only here does the output feed back
   into the input — sixteen agent-layer issues came from that loop in ten days.
