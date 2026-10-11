@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every internal link in the docs corpus resolves, including the ones mkdocs cannot see.
+"""Internal links in the docs corpus resolve, including the ones mkdocs cannot see.
 
 ``mkdocs build --strict`` only validates links it can *resolve*. A reference-style use
 ``[text][key]`` whose ``key`` has no ``[key]: …`` definition is not a link at all to
@@ -9,12 +9,18 @@ build to complain about. That is how the parity gallery reached the published si
 showing ``[McCann 2010][mccann2010]`` fourteen times with the required ``docs-build``
 gate green (#183, repaired by hand in #207). This module closes that blind spot, and
 re-checks the targets the build does see so the same guard runs on all three operating
-systems rather than only on the Linux ``docs-build`` job:
+systems rather than only on the Linux ``docs-build`` job. Exactly these are enforced:
 
 * every ``[text][key]`` (and collapsed ``[text][]``) has a definition in the same file;
-* every relative link target exists on disk, inside the published ``docs/`` tree;
-* every ``#fragment`` names a heading slug or an inline ``<a id="…">`` anchor in the
-  target page — the bibliography-anchor form #207 standardised on.
+* every Markdown link, image and reference definition with a relative target names a
+  file that exists inside the published ``docs/`` tree — not a directory, which mkdocs
+  leaves unrewritten and ``--strict`` rejects, and not the excluded ``PRD.md``;
+* every ``#fragment`` on such a link names a heading slug or an inline ``<a id="…">``
+  anchor in the target page — the bibliography-anchor form #207 standardised on;
+* a raw HTML ``<a href>`` is either a URL with a scheme, or a same-page ``#fragment``
+  that resolves; any other target is refused, because mkdocs does not rewrite raw HTML.
+
+External URLs are out of scope here (the advisory ``external-links`` job checks them).
 
 Fenced blocks, inline code spans and HTML comments are blanked before any of this, so
 ``["condition_id"][mask]`` inside a code span is code, not a reference. The walk is
@@ -22,14 +28,16 @@ Fenced blocks, inline code spans and HTML comments are blanked before any of thi
 
 Stdlib only (``re`` + ``pathlib``), like ``tests/test_adr_index.py``: ``python-markdown``
 is not in the base conda-lock, so it cannot be imported on the 3-OS ``test`` matrix. The
-structural parse mirrors the Python-Markdown rules that matter here — a single optional
-space between ``]`` and ``[`` still forms a reference, ids are matched case-insensitively,
-and heading slugs follow ``markdown.extensions.toc.slugify`` with its ``_1``/``_2``
-de-duplication — so it agrees with the renderer on the corpus rather than approximating it.
-Cross-checked against a real ``mkdocs build`` of every page, the one deliberate divergence
-is a fence inside a blockquote: Python-Markdown's ``fenced_code`` does not recognise it and
-renders its lines as prose, but an author who fenced it meant code, so it is never
-link-checked here and any ``#`` comment lines in it are not counted as heading anchors.
+parse is therefore a structural approximation of the Python-Markdown rules that matter
+here — a single optional space between ``]`` and ``[`` still forms a reference, ids are
+matched case-insensitively, and heading slugs follow ``markdown.extensions.toc.slugify``
+with its ``_1``/``_2`` de-duplication — cross-checked against a real ``mkdocs build`` of
+every page. Where it differs from the renderer it errs loud, never silent:
+
+* a fence inside a blockquote is code here, though Python-Markdown's ``fenced_code`` does
+  not recognise it and renders it as prose, so its ``#`` lines are not heading anchors;
+* an indented (four-space) code block is *not* recognised as code, so a ``[a][b]`` inside
+  one is reported as a reference (none exists in ``docs/`` today; tracked in #515).
 """
 
 from __future__ import annotations
@@ -83,6 +91,9 @@ _REF_DEF_RE = re.compile(
 _ATX_RE = re.compile(r"^(#{1,6})(?!#)[ \t]*(.*?)(?:[ \t]+#+)?[ \t]*$")
 _SETEXT_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 _HTML_ID_RE = re.compile(r"<[A-Za-z][^>]*?\s(?:id|name)\s*=\s*[\"']([^\"']+)[\"']", re.DOTALL)
+_HTML_HREF_RE = re.compile(r"<a\s[^>]*?\bhref\s*=\s*[\"']([^\"']*)[\"']", re.DOTALL | re.IGNORECASE)
+# The sources MkDocs turns into a directory's index.html (named in the error as the fix).
+_INDEX_PAGES = ("index.md", "README.md")
 _SCHEME_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*:|//)")
 
 
@@ -228,12 +239,33 @@ def _target_problem(source: Path, target: str) -> str | None:
             return "target is excluded from the site by mkdocs.yml exclude_docs"
         if not resolved.exists():
             return "no such file"
+        if resolved.is_dir():
+            # MkDocs only rewrites links to source files: `dir/` is left as is and
+            # `--strict` aborts on it ("unrecognized relative link"), index page or not.
+            index = [n for n in _INDEX_PAGES if (resolved / n).is_file()]
+            hint = f"link {path_part.rstrip('/')}/{index[0]}" if index else "no index page"
+            return f"directory link, which mkdocs leaves unresolved ({hint})"
     else:
         resolved = source
     is_page = resolved.suffix == ".md" and resolved.is_file()
     if fragment and is_page and fragment not in _anchors(resolved):
         return f"no heading or <a id> anchor '#{fragment}' in {_rel(resolved)}"
     return None
+
+
+def _raw_html_problem(source: Path, href: str) -> str | None:
+    """Why a raw ``<a href>`` breaks on the site, or None if it does not.
+
+    MkDocs rewrites Markdown links but passes raw HTML through untouched, so a relative
+    path there is resolved by the browser against the *rendered* page URL, not against
+    the source file. Only a same-page ``#fragment`` (checked) or a URL with a scheme
+    (left to the advisory external check) is safe; any other target is refused.
+    """
+    if not href or _SCHEME_RE.match(href):
+        return None
+    if href.startswith("#"):
+        return _target_problem(source, href)
+    return "raw HTML href is not rewritten by mkdocs; write it as a Markdown link"
 
 
 def _undefined_references(path: Path) -> list[str]:
@@ -259,6 +291,9 @@ def _broken_targets(path: Path) -> list[str]:
     for start, target in links:
         if problem := _target_problem(path, target):
             out.append(f"{_rel(path)}:{doc.line_of(start)}: link to '{target}': {problem}")
+    for m in _HTML_HREF_RE.finditer(doc.prose):
+        if problem := _raw_html_problem(path, m.group(1)):
+            out.append(f"{_rel(path)}:{doc.line_of(m.start())}: <a href='{m.group(1)}'>: {problem}")
     return out
 
 
@@ -384,3 +419,30 @@ def test_deleting_an_inline_anchor_breaks_its_links(
     without = with_anchor.replace('<a id="mccann2010"></a>', "")
     out = _check(tmp_path, monkeypatch, {"g.md": without})
     assert len(out) == 1 and out[0].startswith("docs/g.md:3:") and "#mccann2010" in out[0]
+
+
+def test_a_directory_link_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """MkDocs leaves ``dir/`` unrewritten and ``--strict`` aborts on it, index page or not."""
+    pages = {
+        "a.md": "# A\n\n[ok](withreadme/README.md#r) [bad](withreadme/) [bad](bare/)\n",
+        "withreadme/README.md": "# R\n",
+        "bare/page.md": "# P\n",
+    }
+    out = _check(tmp_path, monkeypatch, pages)
+    assert len(out) == 2, out
+    assert "'withreadme/'" in out[0] and "link withreadme/README.md" in out[0]
+    assert "'bare/'" in out[1] and "no index page" in out[1]
+
+
+def test_raw_html_links_are_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """MkDocs never rewrites a raw ``<a href>``: a fragment is checked, a path is refused."""
+    body = (
+        '# A\n\n<a id="x"></a>\n'
+        '<a href="#x">ok</a> <a href="https://example.org/">ok</a>\n'
+        '<a href="#nope">bad</a>\n<a href="b.md">bad</a>\n'
+        '`<a href="b.md">code</a>` is code.\n'
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": body, "b.md": "# B\n"})
+    assert len(out) == 2, out
+    assert out[0].startswith("docs/a.md:5: ") and "'#nope'" in out[0]
+    assert out[1].startswith("docs/a.md:6: ") and "Markdown link" in out[1]

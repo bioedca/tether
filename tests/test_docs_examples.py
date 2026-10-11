@@ -9,8 +9,10 @@ the site), extracts every ``from tether…`` / ``import tether…`` statement fr
 fences with :mod:`ast`, and checks that
 
 * each module resolves to a source file or package in this checkout's ``src/tether``, and
-* each imported name is defined at the top level of that module's source, or is one of its
-  submodules.
+* each imported name is bound at runtime at the top level of that module's source — by a
+  ``def``/``class``, an assignment, or an import, including inside ``if``/``try``/``with``
+  but not under ``if TYPE_CHECKING:`` and not by a bare ``name: T`` annotation — or is
+  one of its submodules.
 
 **Nothing is ever imported** — not the module, and not its parent packages. Torch lives only
 in the isolated ``deep/`` lock stack, and ``tether.ml.deep.model`` is importable without it
@@ -156,6 +158,10 @@ def _bound_names(stmts: list[ast.stmt]) -> set[str]:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             names.add(node.name)
         elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            # A bare annotation (`name: T`, no value) only declares a type: the module has
+            # no attribute `name`, so `from module import name` raises ImportError.
+            if isinstance(node, ast.AnnAssign) and node.value is None:
+                continue
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for target in targets:
                 names.update(n.id for n in ast.walk(target) if isinstance(n, ast.Name))
@@ -270,3 +276,9 @@ def test_type_checking_bodies_are_skipped_but_their_else_is_not() -> None:
         "if sys.version_info >= (3, 11):\n    C = 1\n"
     )
     assert _bound_names(tree.body) == {"typing", "B2", "C"}
+
+
+def test_a_bare_annotation_binds_nothing() -> None:
+    """``name: T`` with no value declares a type only; importing ``name`` raises."""
+    tree = ast.parse("x: int\ny: int = 1\nz: int\nz = 2\n")
+    assert _bound_names(tree.body) == {"y", "z"}
