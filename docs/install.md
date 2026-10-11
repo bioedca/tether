@@ -39,11 +39,14 @@ downloaded while it installs.
 ## 2. Check the download
 
 Tether's installers are **not code-signed by Apple or Microsoft**, and for 1.0 they will not
-be ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). What
-stands in for a signature is a published checksum: if the file on your disk produces the same
-SHA-256 value the release lists, it is the file the release workflow built and nothing
-corrupted or replaced it on the way. Open a terminal in the folder holding both files and run
-the line for your system.
+be ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). There
+are two checks, and they answer different questions.
+
+The **checksum** tells you the download arrived whole: if the file on your disk produces the
+SHA-256 value the release lists, nothing was corrupted or cut short on the way. It does not
+tell you *who built* the file, because the checksum list comes from the same release page as
+the installer, and anyone able to replace one could replace both. Open a terminal in the
+folder holding both files and run the line for your system.
 
 **Linux**
 
@@ -73,15 +76,31 @@ It prints `OK`, or stops with `SHA-256 verification failed`.
 
 The release also carries `SHA256SUMS.txt`, one file listing every asset. On Linux you can
 check against it directly with `sha256sum -c --ignore-missing SHA256SUMS.txt`, which skips the
-installers you did not download. A stronger second check, a GitHub build-provenance
-attestation, is described under
-[Verify a downloaded installer](release.md#verify-a-downloaded-installer); it needs the `gh`
-command-line tool.
+installers you did not download.
+
+The **build-provenance attestation** is the check that the file is genuine. GitHub signs a
+record, when the release is built, binding each installer to this repository, the release
+workflow and the exact commit it was built from, and the check below compares your file
+against that record. It needs the [GitHub command-line tool](https://cli.github.com/) (`gh`),
+signed in to any GitHub account. Run it in the download folder with your installer's name:
+
+```bash
+gh attestation verify Tether-1.0.0-rc2-Linux-x86_64.sh \
+  --repo bioedca/tether \
+  --signer-workflow bioedca/tether/.github/workflows/release.yml \
+  --source-ref refs/tags/v1.0.0-rc2 \
+  --source-digest 292dd151c0263f981f8cd0f358d5e2074091d9de
+```
+
+In PowerShell, put the command on one line or end each continued line with a backtick
+(`` ` ``) instead of `\`. A genuine installer reports that verification succeeded; anything
+else means do not run it.
 
 ## 3. Run the installer
 
 Because the installers are unsigned, Windows and macOS will warn you the first time you open
-one. That warning is expected once you have checked the file. What it looks like and how to
+one. The warning is expected, and the attestation check above is what tells you the file is
+genuine before you choose to go past it; the checksum alone cannot. What it looks like and how to
 get past it on each system is in
 [The installer is flagged as unsigned](troubleshooting.md#the-installer-is-flagged-as-unsigned).
 
@@ -229,6 +248,10 @@ Everything else, keyed by the message you saw, is in [Troubleshooting](troublesh
 Tether keeps to its one folder, so removing it is mostly deleting that folder. Then remove
 the PATH line you added in step 4.
 
+> **Check the folder first.** Deleting the install folder deletes *everything* in it. If you
+> ever saved a `.tether` project, a movie or an export inside it, move those out before you
+> uninstall; nothing below asks before deleting them.
+
 **Linux**
 
 ```bash
@@ -250,8 +273,8 @@ Then delete the `export PATH=…/Tether/bin` line from `~/.zshrc`.
 `C:\Users\<you>\Tether\bin` from your user PATH under **Settings → System → About → Advanced
 system settings → Environment Variables**.
 
-Uninstalling never touches your `.tether` projects or your movies; they live wherever you
-saved them.
+Projects, movies and exports saved anywhere **outside** the install folder are not touched
+by any of these steps.
 
 ## The optional GPU add-on
 
