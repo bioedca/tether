@@ -954,10 +954,12 @@ def commit_cell(column: str, pointer: str, commit: object) -> Cell:
 
 #: The page's three statements that the ebFRET block was measured on the build the live
 #: gate runs: the "no such gap" sentence in (b)'s gap blockquote and in the third Scope
-#: bullet, and the build table's "Matches the build the live gate runs?" cell.
+#: bullet, and the build table's "Same tMAVEN commit and CPython as the live gate?" cell.
+#: "Build" there means exactly those two fields, which are all the artifact records about a
+#: build; the page says so, rather than claiming an identical resolved dependency set.
 _NO_GAP_RE = re.compile(r"\bthe ebFRET block has no such gap\b", re.IGNORECASE)
 _NO_GAP_REGIONS = ((_PARITY_SECTION, _GAP_QUOTE_ANCHOR), (_SCOPE_SECTION, _SCOPE_ANCHOR))
-_LIVE_BUILD_ROW = "Matches the build the live gate runs?"
+_LIVE_BUILD_ROW = "Same tMAVEN commit and CPython as the live gate?"
 
 
 def no_gap_claims(text: str) -> list[str]:
@@ -2855,9 +2857,13 @@ def test_the_ebfret_block_was_measured_on_the_live_build() -> None:
     Every value pin reads its own source, so this is the one assertion that the frozen
     ebFRET record and the live configuration name the same build.
     """
-    assert len(no_gap_claims(PAGE_TEXT)) == 3
     measured = (at(PARITY, _EBHMM_COMMIT), at(PARITY, _EBHMM_PYTHON))
     live = (LIVE_TMAVEN_COMMIT, LIVE_SIDECAR_PYTHON)
+    if measured == live:
+        # While the builds match, all three claims stand: this keeps the readers honest.
+        # Once they differ the page has to drop the claims, so expecting them would fail
+        # the very rewrite the violation message asks for.
+        assert len(no_gap_claims(PAGE_TEXT)) == 3
     assert no_gap_violations(PAGE_TEXT, measured, live) == []
 
 
@@ -2884,3 +2890,16 @@ def test_an_advanced_live_pin_fails_as_a_stale_sentence_not_a_value_mismatch() -
     problems = no_gap_violations(page, measured, (new, LIVE_SIDECAR_PYTHON))
     assert len(problems) == 3
     assert all("'no such gap' sentence has gone stale" in p for p in problems)
+    # Rewriting the three claims, as the message asks, clears it.
+    page = _mutate(_PARITY_SECTION, "The ebFRET block has no such gap.", "Now so is ebFRET.", page)
+    page = _mutate(
+        _SCOPE_SECTION, "the ebFRET block has no such\n  gap.", "now so is ebFRET.", page
+    )
+    page = _mutate(
+        _PARITY_SECTION,
+        f"| {_LIVE_BUILD_ROW} | **No** | Yes |",
+        f"| {_LIVE_BUILD_ROW} | **No** | **No** |",
+        page,
+    )
+    assert no_gap_claims(page) == []
+    assert no_gap_violations(page, measured, (new, LIVE_SIDECAR_PYTHON)) == []
