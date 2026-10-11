@@ -44,7 +44,8 @@ release**, not the binaries, and it is unaffected by any of the above.
    when the next merge lands (`cancel-in-progress` keyed on the ref), a commit whose checks
    were cancelled by a following merge can never be released — release from a later commit
    whose checks ran to completion instead.
-2. Create a **signed, annotated** tag on the release commit and push it:
+2. Create a **signed, annotated** tag on the release commit and push it, with the two
+   commands below the list:
 
     Tag only commits that already contain the post-merge gate: the pipeline that runs is
     the `release.yml` **in the tagged tree**, so a tag on an older commit executes that
@@ -59,16 +60,12 @@ release**, not the binaries, and it is unaffected by any of the above.
     below names no commit, so it tags `HEAD`: run the check with `HEAD` as `<commit>`
     before running either command.
 
-    ```bash
-    git tag -s v1.0.0 -m "Tether v1.0.0"
-    git push origin v1.0.0
-    ```
-
     The tag must be **annotated** and its signature **verified by GitHub** (your SSH
     signing key registered as a *Signing Key* on the account), and its commit must be on
     `main`. `release.yml`'s `verify` job checks that trio only on a real publish — the
     signature step sits behind the publish gate — while the post-merge check-state guard
     from step 1 is not behind that gate, so a dry run evaluates it too.
+
 3. To rehearse without publishing, run the **`release`** workflow via *Actions → release
    → Run workflow* with `dry_run: true` and, as `ref`, a fresh `v*` rc tag cut from the
    `main` you are about to release — it builds, install-smokes, checksums and SBOMs, but
@@ -79,6 +76,13 @@ release**, not the binaries, and it is unaffected by any of the above.
    `packaging/scripts/install_smoke.sh` — fails early on the first absent file. To re-run
    such a tag self-consistently, set **Use workflow from** to the tag itself, the same
    rule the docs dispatch below already states.
+
+The two commands for step 2, run only after the gate check it describes:
+
+```bash
+git tag -s v1.0.0 -m "Tether v1.0.0"
+git push origin v1.0.0
+```
 
 ### What a published Release contains: verified `v1.0.0-rc1`
 
