@@ -47,6 +47,7 @@ from __future__ import annotations
 import ast
 import functools
 import re
+import sys
 from pathlib import Path
 from typing import NamedTuple
 
@@ -182,10 +183,17 @@ def function_default_name(dotted: str, func: str, param: str) -> str:
 
     ``func`` may be dotted, ``Class.method``, because the page documents a method surface
     (``DwellTimeAnalysis.histogram(nbins=…)``) exactly as it documents a function.
+
+    Read through :func:`_keyword_parameters`, the view :func:`_resolve` uses: every row
+    of :data:`_CONSTANT_BACKED_SURFACES` is a ``kw=…`` claim, so a parameter moved before
+    ``/`` has left the surface the page documents even though its default still names
+    the constant.
     """
-    signature = _signature(_function_def(dotted, func))
+    signature = _keyword_parameters(_function_def(dotted, func))
     if param not in signature:
-        raise AssertionError(f"{dotted}.{func} has no parameter {param!r}")
+        raise AssertionError(
+            f"{dotted}.{func} has no parameter {param!r} a caller can pass by keyword"
+        )
     return _name_default(f"{dotted}.{func}", param, signature[param])
 
 
@@ -242,12 +250,16 @@ def dataclass_field_name(dotted: str, class_name: str, field: str) -> str:
     :func:`dataclass_field` with the ``literal_eval`` replaced by an ``ast.Name`` check --
     the dataclass counterpart of :func:`function_default_name`, for a field such as
     ``SidecarSupervision.probe_timeout`` that the page documents through its constant.
+    Read through :func:`_constructor_keywords`, as :func:`_resolve` reads a dataclass
+    token, so a field the constructor no longer takes fails here too.
     """
     for stmt in _module_source(dotted).body:
         if isinstance(stmt, ast.ClassDef) and stmt.name == class_name:
-            fields = _dataclass_fields(stmt)
+            fields = _constructor_keywords(stmt)
             if field not in fields:
-                raise AssertionError(f"{dotted}.{class_name} has no field {field!r}")
+                raise AssertionError(
+                    f"{dotted}.{class_name} has no field {field!r} its constructor accepts"
+                )
             return _name_default(f"{dotted}.{class_name}", field, fields[field])
     raise AssertionError(f"{dotted} has no class {class_name!r}")
 
@@ -1404,11 +1416,13 @@ class _Derived(NamedTuple):
     """What the page's **Set via** cells require of :data:`_CONSTANT_BACKED_SURFACES`.
 
     ``required`` maps each disposition-1 ``(module, qualified name, parameter)`` to the
-    constants named by the row(s) that spelled it; ``unresolved`` holds one message per
-    disposition-3 token or keyword.
+    constants named by each row that spelled it, one set per row and never merged: two
+    rows spelling the same pair make two claims, and a union would let one row's constant
+    vouch for the other's. ``unresolved`` holds one message per disposition-3 token or
+    keyword.
     """
 
-    required: dict[tuple[str, str, str], frozenset[str]]
+    required: dict[tuple[str, str, str], tuple[frozenset[str], ...]]
     unresolved: list[str]
 
 
@@ -1418,7 +1432,7 @@ def _derive(rows: list[list[str]], modules: _Modules | None = None) -> _Derived:
     ``modules`` defaults to the real source tree; a test passes parsed snippets instead.
     """
     modules = _source_modules() if modules is None else modules
-    required: dict[tuple[str, str, str], frozenset[str]] = {}
+    required: dict[tuple[str, str, str], tuple[frozenset[str], ...]] = {}
     unresolved: list[str] = []
     for row in rows:
         if len(row) != 6:
@@ -1452,8 +1466,25 @@ def _derive(rows: list[list[str]], modules: _Modules | None = None) -> _Derived:
                     )
                 elif isinstance(params[keyword], ast.Name):
                     key = (dotted, name, keyword)
-                    required[key] = required.get(key, frozenset()) | constants
+                    required[key] = (*required.get(key, ()), constants)
     return _Derived(required, unresolved)
+
+
+def _foreign(
+    required: dict[tuple[str, str, str], tuple[frozenset[str], ...]],
+    table: dict[tuple[str, str, str], str],
+) -> list[str]:
+    """Each derived pair whose table constant some row spelling it does not name.
+
+    Checked row by row: every row that spells the pair must name the table's constant.
+    """
+    return sorted(
+        f"{'.'.join(key)} -> {table[key]} (row names {sorted(constants)})"
+        for key, rows in required.items()
+        if key in table
+        for constants in rows
+        if table[key] not in constants
+    )
 
 
 def test_every_surface_a_set_via_cell_names_resolves() -> None:
@@ -1492,11 +1523,7 @@ def test_every_spelled_keyword_with_a_constant_default_is_in_the_table() -> None
         "docs/reference/parameters.md documents these constant-defaulted surfaces, but "
         f"_CONSTANT_BACKED_SURFACES does not bind them to their constant: {unbound}"
     )
-    foreign = sorted(
-        f"{'.'.join(key)} -> {table[key]} (row names {sorted(constants)})"
-        for key, constants in required.items()
-        if table[key] not in constants
-    )
+    foreign = _foreign(required, table)
     assert not foreign, (
         "table entries bind a page-named surface to a constant its own row does not name: "
         f"{foreign}"
@@ -1516,7 +1543,9 @@ def test_the_derivation_sorts_each_keyword_into_exactly_one_disposition() -> Non
     )
     derived = _derive([["`bins`<br>`DEFAULT_NBINS`", "`151`", "", "", cell, "**no**"]])
     assert derived.required == {
-        ("tether.analysis.histogram", "apparent_e_histogram", "bins"): frozenset({"DEFAULT_NBINS"})
+        ("tether.analysis.histogram", "apparent_e_histogram", "bins"): (
+            frozenset({"DEFAULT_NBINS"}),
+        )
     }
     assert len(derived.unresolved) == 2
     assert "apparent_e_histogram_x" in derived.unresolved[0]
@@ -1541,7 +1570,7 @@ def test_a_positional_only_parameter_is_not_a_keyword() -> None:
         ("tether.m", "def f(values, bins=DEFAULT_X, /, *, value_range=DEFAULT_X): ...")
     )
     derived = _derive(_one_row("`f(bins=…, value_range=…)`"), modules)
-    assert derived.required == {("tether.m", "f", "value_range"): frozenset({"DEFAULT_X"})}
+    assert derived.required == {("tether.m", "f", "value_range"): (frozenset({"DEFAULT_X"}),)}
     assert len(derived.unresolved) == 1 and "bins=" in derived.unresolved[0]
 
 
@@ -1561,7 +1590,7 @@ def test_a_dataclass_token_resolves_against_its_constructor(source: str, accepte
     """A field the constructor does not take is not a keyword of ``S(…)``."""
     derived = _derive(_one_row("`S(t=…)`"), _snippets(("tether.m", source)))
     if accepted:
-        assert derived == _Derived({("tether.m", "S", "t"): frozenset({"DEFAULT_X"})}, [])
+        assert derived == _Derived({("tether.m", "S", "t"): (frozenset({"DEFAULT_X"}),)}, [])
     else:
         assert derived.required == {} and len(derived.unresolved) == 1
 
@@ -1576,13 +1605,56 @@ def test_a_private_namesake_cannot_stand_in_for_a_removed_surface() -> None:
     public = ("tether.ml.deep.model", "def fine_tune(model, seed=DEFAULT_X): ...")
     cell = "`fine_tune(seed=…)`"
     assert _derive(_one_row(cell), _snippets(private, public)) == _Derived(
-        {("tether.ml.deep.model", "fine_tune", "seed"): frozenset({"DEFAULT_X"})}, []
+        {("tether.ml.deep.model", "fine_tune", "seed"): (frozenset({"DEFAULT_X"}),)}, []
     )
     gone = _derive(_one_row(cell), _snippets(private))
     assert gone.required == {} and "no public" in gone.unresolved[0]
     twin = ("tether.ml.other", "def fine_tune(model, seed=DEFAULT_X): ...")
     ambiguous = _derive(_one_row(cell), _snippets(public, twin))
     assert ambiguous.required == {} and "2 public definitions" in ambiguous.unresolved[0]
+
+
+def test_two_rows_spelling_one_pair_are_checked_row_by_row() -> None:
+    """A row naming the wrong constant fails even when another row names the right one."""
+    modules = _snippets(("tether.m", "def f(values, bins=DEFAULT_A): ..."))
+    rows = [
+        ["`bins`<br>`DEFAULT_A`", "`1`", "", "", "`f(bins=…)`", "**no**"],
+        ["`pre`<br>`DEFAULT_B`", "`2`", "", "", "`f(bins=…)`", "**no**"],
+    ]
+    derived = _derive(rows, modules)
+    key = ("tether.m", "f", "bins")
+    assert derived.required == {key: (frozenset({"DEFAULT_A"}), frozenset({"DEFAULT_B"}))}
+    assert _foreign(derived.required, {key: "DEFAULT_A"}) == [
+        "tether.m.f.bins -> DEFAULT_A (row names ['DEFAULT_B'])"
+    ]
+    assert _foreign({key: derived.required[key][:1]}, {key: "DEFAULT_A"}) == []
+
+
+@pytest.mark.parametrize(
+    ("source", "qualname"),
+    [
+        ("DEFAULT_X = 1\ndef f(values, w0=DEFAULT_X, /): ...\n", "f"),
+        (
+            "DEFAULT_X = 1\n@dataclass(frozen=True, init=False)\nclass S:\n"
+            "    w0: float = DEFAULT_X\n",
+            "S",
+        ),
+    ],
+    ids=["positional-only", "dataclass-init-false"],
+)
+def test_a_table_binding_needs_the_keyword_to_be_passable(
+    source: str, qualname: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A table row is a ``kw=…`` claim, so a default the call cannot take by keyword fails.
+
+    Even though the default still names the constant: the hand-enumerated ``w0`` rows are
+    bound only here, never through :func:`_derive`.
+    """
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "mod.py").write_text(source, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path)
+    with pytest.raises(AssertionError, match="w0"):
+        surface_default_name("pkg.mod", qualname, "w0")
 
 
 def test_every_row_states_whether_it_is_recorded_in_the_project() -> None:
