@@ -68,8 +68,9 @@ The modelled forms:
 * within each block: code spans (``BacktickInlineProcessor``, with its backslash parity
   and its fallback pairing), backslash escapes, link text nested to any depth
   (``getText``), inline link targets (``getLink``, nested parentheses and all), reference
-  uses (``ReferenceInlineProcessor``), and inline HTML (``HTML_RE``). Inline HTML
-  attributes are read by ``html.parser``, so an unquoted ``href`` counts;
+  uses (``ReferenceInlineProcessor``), and inline HTML (``HTML_RE``). A reference with a
+  defined key takes its span before the link pass, in the renderer's pattern order. Inline
+  HTML attributes are read by ``html.parser``, so an unquoted ``href`` counts;
 * heading slugs, by ``toc.slugify`` with its ``_1``/``_2`` de-duplication, over the
   heading's text as rendered. Its links, images and references are read by the same
   passes, in the renderer's pattern order. A link or a defined reference gives its text,
@@ -668,19 +669,24 @@ def _link_target(text: str, index: int) -> tuple[str, int] | None:
     return _unescape(href).strip(), index
 
 
+def _key_tail(text: str, index: int) -> tuple[str, int] | None:
+    """``evalId``: the key and the end of ``[key]``, or None."""
+    m = _REF_TAIL_RE.match(text, index)
+    return None if m is None else (m.group(1), m.end())
+
+
 def _ref_tail(text: str, index: int) -> tuple[str, int] | None:
-    """``evalId``: the key and the end of ``[key]``, or None.
+    """``_key_tail`` for a reference use the checker reports, or None.
 
     One exception of the checker's own: when ``[key](…)`` forms a link, as in
-    ``[text][key](url)``, no literal reference is left on the page — the renderer shows
-    ``[text]`` and a link — so that is not a reference use here.
+    ``[text][key](url)``, no literal reference is left on the page — with ``key`` undefined
+    the renderer shows ``[text]`` and a link, and a defined one takes the span before the
+    link pass (see ``_doc``) — so that is not a reference use here.
     """
-    m = _REF_TAIL_RE.match(text, index)
-    if m is None:
+    t = _key_tail(text, index)
+    if t is not None and text.startswith("(", t[1]) and _link_target(text, t[1]) is not None:
         return None
-    if text.startswith("(", m.end()) and _link_target(text, m.end()) is not None:
-        return None
-    return m.group(1), m.end()
+    return t
 
 
 def _bracketed(text: str, tail, image: bool | None = None) -> list[tuple[int, int, str, int]]:
@@ -798,12 +804,15 @@ def _doc(path: Path) -> _Doc:
     refs: list[_Ref] = []
     tags: list[tuple[int, str, dict[str, str]]] = []
 
+    def lookup_of(view: str, start: int, end: int, key: str) -> str | None:
+        lookup = re.sub(r"\s+", " ", (key or view[start + 1 : end - 1]).lower())
+        # An escape or code span in an id never matches a definition.
+        return None if _CODE in lookup or _ESC in lookup else lookup
+
     def refs_in(view: str, a: int, consumed: list[tuple[int, int]]) -> None:
         for start, end, key, stop in _bracketed(view, _ref_tail):
-            lookup = re.sub(r"\s+", " ", (key or view[start + 1 : end - 1]).lower())
-            if _CODE in lookup or _ESC in lookup:
-                lookup = None  # an escape or code span in an id never matches a definition
-            elif lookup in definitions:
+            lookup = lookup_of(view, start, end, key)
+            if lookup in definitions:
                 consumed.append((end, stop))
             source = blocks[a + start : a + stop]
             shown = blocks[a + end : a + stop].strip()[1:-1] or blocks[a + start + 1 : a + end - 1]
@@ -829,7 +838,24 @@ def _doc(path: Path) -> _Doc:
             crosses(start, end, "a code span")
         view = _mask_escapes(view)
         consumed: list[tuple[int, int]] = []
-        for start, end, target, stop in _bracketed(view, _link_target):
+        # The renderer's pattern order, as in `_heading_text`: a reference whose key is
+        # defined takes its span before the link pass, which reads its text on its own.
+        # An image reference runs after the link pass, so it takes nothing here.
+        taken = [
+            (start, end, stop)
+            for start, end, key, stop in _bracketed(view, _key_tail, image=False)
+            if lookup_of(view, start, end, key) in definitions
+        ]
+        left = view
+        for start, end, stop in taken:
+            left = left[:start] + _CODE * (stop - start) + left[stop:]
+            consumed.append((end, stop))
+        found = _bracketed(left, _link_target) + [
+            (t + 1 + s, t + 1 + e, target, t + 1 + p)
+            for t, t_end, _ in taken
+            for s, e, target, p in _bracketed(view[t + 1 : t_end - 1], _link_target)
+        ]
+        for start, end, target, stop in sorted(found):
             crosses(start, stop, "a link")
             links.append((a + start, target))
             consumed.append((end, stop))
@@ -916,18 +942,14 @@ def _heading_text(raw: str, definitions: frozenset[str]) -> str:
     def any_tail(text: str, index: int) -> tuple[str, int]:
         return "", index
 
-    def ref_tail(text: str, index: int) -> tuple[str, int] | None:
-        m = _REF_TAIL_RE.match(text, index)
-        return None if m is None else (m.group(1), m.end())
-
     # The inline patterns in priority order, each over what the ones before left: reference,
     # link, image link, image reference, short image reference. A short reference's text is
     # its key, which slugifies as the bracketed source does, so it needs no stage.
     stages = (
-        (ref_tail, False, True),
+        (_key_tail, False, True),
         (_link_target, False, False),
         (_link_target, True, False),
-        (ref_tail, True, True),
+        (_key_tail, True, True),
         (any_tail, True, True),
     )
     links: list[tuple[int, int, int]] = []  # (start, text_end, end); an image has no text
@@ -1392,3 +1414,37 @@ def test_a_heading_slug_reads_links_as_the_renderer_does(
     assert len(out) == 2, out
     assert out[0].startswith("docs/a.md:9: ") and "'#xc'" in out[0]
     assert out[1].startswith("docs/a.md:9: ") and "'#a-alt-b'" in out[1]
+
+
+def test_a_defined_reference_takes_its_span_before_the_link_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``ReferenceInlineProcessor`` runs before ``LinkInlineProcessor`` and an undefined key yields.
+
+    A defined ``[a][k]`` consumes its span, so a ``(…)`` after it is text; its own text is
+    read by the later patterns alone. An undefined one consumes nothing, and ``[k](…)`` is a
+    link. After ``![i]`` it is a link whatever ``k`` is: an image reference runs after the
+    link pass, and the reference pattern skips a ``[`` after ``!``, so ``[u]`` pairs with
+    ``[g]`` below.
+    """
+    defined = (
+        "# A\n\n"
+        "[a][k](missing.md), [b] [k](gone.md), [c][](lost.md) and ![i][k](img.png)\n\n"
+        "[[d](nested.md)][k] and [[e](x ][k] y.md)\n\n"
+        "![f][u]\n[g] [k](far.md)\n\n"
+        "[k]: #a\n[c]: #a\n"
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": defined})
+    assert out == [
+        "docs/a.md:7: reference-style link [f][u] has no [u]: definition in this file, "
+        "so it renders as literal text",
+        "docs/a.md:3: link to 'img.png': no such file",
+        "docs/a.md:5: link to 'nested.md': no such file",
+        "docs/a.md:8: link to 'far.md': no such file",
+    ], out
+    undefined = "# A\n\n[a][u](missing.md) and [b][](gone.md)\n"
+    out = _check(tmp_path, monkeypatch, {"a.md": undefined})
+    assert out == [
+        "docs/a.md:3: link to 'missing.md': no such file",
+        "docs/a.md:3: link to 'gone.md': no such file",
+    ], out
