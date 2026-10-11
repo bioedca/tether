@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
+from typing import NamedTuple
 
 import pytest
 import yaml  # provided by the base conda-lock (a mkdocs dependency); see `_steps` below
@@ -1729,7 +1730,7 @@ def test_publish_time_recheck_sits_flush_against_the_publish_steps() -> None:
 
 
 # --- setup-micromamba: one action version, one binary version, and Dependabot can see both ---
-# Two separate silent-drift traps converge on this action, and neither is watched by anything else:
+# Three separate silent-drift traps converge on this action, and none is watched by anything else:
 #
 #  1. `micromamba-version` defaults to `latest`, so the BINARY that restores the pin-and-held
 #     conda-locks re-resolves on every run. Upstream setup-micromamba#306 (STATUS_ACCESS_VIOLATION
@@ -1740,9 +1741,15 @@ def test_publish_time_recheck_sits_flush_against_the_publish_steps() -> None:
 #     plus a ROOT-level action.yml -- NOT `.github/actions/**` (dependabot-core#6345, still open).
 #     That is how `.github/actions/setup-env` sat on setup-micromamba v2 while packaging.yml and
 #     release.yml were bumped to v3.0.0: the composite action was invisible to the bot.
+#  3. Closing (2) took a SECOND `github-actions` entry in .github/dependabot.yml -- group `actions`
+#     for `/` (.github/workflows) and group `actions-composite` for `/.github/actions/*` -- and two
+#     entries open two pull requests for one action bump. Merge one without the other and the
+#     ACTION SHA splits across call sites with CI fully green: #446 alone would have left the
+#     setup-env composite on v3.1.0 while packaging.yml and release.yml ran v3.2.1 (#448).
 #
-# These guards keep both closed: every call site pins the same binary, and every composite action
-# on disk is inside some Dependabot update entry's scope.
+# These guards keep all three closed: every call site pins the same binary AND runs the same
+# action SHA under the same `# v<X.Y.Z>` tag comment, and every composite action on disk is inside
+# some Dependabot update entry's scope.
 GITHUB_DIR = Path(__file__).resolve().parents[1] / ".github"
 DEPENDABOT_CONFIG = GITHUB_DIR / "dependabot.yml"
 SETUP_MICROMAMBA = "mamba-org/setup-micromamba@"
@@ -1753,6 +1760,18 @@ SETUP_MICROMAMBA = "mamba-org/setup-micromamba@"
 #: Bump here first, then every call site -- the guard below requires them to agree.
 MICROMAMBA_PIN = "2.8.1-0"
 
+#: The trailing `# v<X.Y.Z>` tag comment on a `uses: mamba-org/setup-micromamba@<sha>` line,
+#: quoted or not. Read from TEXT because a YAML parse discards comments; counted against the
+#: PARSED call sites per file, so a spelling this misses fails instead of vanishing (#510).
+#: Horizontal whitespace only around the ``#``: ``\s`` would cross the newline and accept a
+#: tag sitting on the NEXT line as this ``uses:`` line's trailing comment.
+_SETUP_MICROMAMBA_TAG = re.compile(
+    r"^\s*(?:-\s*)?uses:\s*[\"']?"
+    + re.escape(SETUP_MICROMAMBA)
+    + r"[^\s\"'#]*[\"']?[ \t]+#[ \t]*(v\d+\.\d+\.\d+)\b",
+    re.M,
+)
+
 
 def _yaml_load(path: Path) -> object:
     """Parse *path* as YAML. Local import, matching tests/test_adr_index.py's precedent."""
@@ -1761,22 +1780,198 @@ def _yaml_load(path: Path) -> object:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def _setup_micromamba_call_sites() -> dict[str, tuple[int, list[str]]]:
-    """``{repo-relative path: (call-site count, declared micromamba-version values)}``.
+def _workflow_or_action_steps(document: object) -> list[dict]:
+    """Every step of a parsed workflow (``jobs.*.steps``) OR composite action (``runs.steps``).
+
+    :func:`_steps` reads ``jobs`` only, and ``.github/actions/setup-env/action.yml`` has no
+    ``jobs:`` key at all (its top level is ``name``/``description``/``inputs``/``runs``) -- a
+    lookup that stopped there would parse, look right, and never see the composite call site
+    this section mostly exists for.
+    """
+    if not isinstance(document, dict):
+        return []
+    containers = [
+        job.get("steps") for job in (document.get("jobs") or {}).values() if isinstance(job, dict)
+    ]
+    runs = document.get("runs")
+    if isinstance(runs, dict):
+        containers.append(runs.get("steps"))
+    return [step for steps in containers for step in (steps or []) if isinstance(step, dict)]
+
+
+def _setup_micromamba_steps(text: str) -> list[dict]:
+    """Every ``setup-micromamba`` step in one document, from the PARSED steps.
+
+    A parse, not a regex: the old line count missed the valid quoted spelling and counted a
+    ``run:`` block scalar that merely contained the text -- the same two false-greens
+    :func:`_steps` records against the attestation guard (#319).
+    """
+    return [
+        step
+        for step in _workflow_or_action_steps(yaml.safe_load(text))
+        if isinstance(step.get("uses"), str) and step["uses"].startswith(SETUP_MICROMAMBA)
+    ]
+
+
+def _setup_micromamba_uses(text: str) -> list[str]:
+    """Every ``setup-micromamba`` ``uses:`` value in one document, one per parsed call site."""
+    return [step["uses"] for step in _setup_micromamba_steps(text)]
+
+
+#: A full commit SHA, the only immutable ref: a branch or tag ref can move under the guard.
+_FULL_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+class _MicromambaCallSites(NamedTuple):
+    """One file's ``setup-micromamba`` call sites."""
+
+    uses: list[str]  # parsed `uses:` values, one per call site
+    pins: list[str | None]  # each call site's OWN `with: micromamba-version`, None if unset
+    tags: list[str]  # trailing `# v<X.Y.Z>` comments on the `uses:` lines (text)
+
+    @property
+    def shas(self) -> list[str]:
+        return [value.split("@", 1)[1] for value in self.uses]
+
+
+def _micromamba_call_sites_in(text: str) -> _MicromambaCallSites:
+    """One document's call sites, each pin read from that step's own ``with:`` mapping.
+
+    Never from pin-shaped lines anywhere in the file: a call site with no
+    ``micromamba-version`` floats to ``latest``, and a matching line in some other step's
+    ``run:`` block must not stand in for it.
+    """
+    steps = _setup_micromamba_steps(text)
+    pins: list[str | None] = []
+    for step in steps:
+        inputs = step.get("with")
+        value = inputs.get("micromamba-version") if isinstance(inputs, dict) else None
+        pins.append(None if value is None else str(value))
+    return _MicromambaCallSites(
+        [step["uses"] for step in steps], pins, _SETUP_MICROMAMBA_TAG.findall(text)
+    )
+
+
+def _mutable_refs(call_sites: dict[str, _MicromambaCallSites]) -> list[str]:
+    """``path: ref`` for every call site whose ref is not a full 40-hex commit SHA."""
+    return sorted(
+        f"{name}: {sha}"
+        for name, site in call_sites.items()
+        for sha in site.shas
+        if not _FULL_SHA.fullmatch(sha)
+    )
+
+
+def _setup_micromamba_call_sites() -> dict[str, _MicromambaCallSites]:
+    """``{repo-relative path: that file's setup-micromamba call sites}``, for every call site.
 
     Discovered by GLOB over ``.github/``, never a hardcoded file list: this repo grew from one
     call site to three, and a hardcoded list would let a fourth float to ``latest`` unnoticed --
-    reintroducing exactly the drift these guards exist to prevent.
+    reintroducing exactly the drift these guards exist to prevent. The glob reaches workflows
+    and ``.github/actions/*/action.yml`` alike; :func:`_setup_micromamba_uses` reads both step
+    containers, so a fourth site in either is covered without editing any list.
     """
-    found: dict[str, tuple[int, list[str]]] = {}
+    found: dict[str, _MicromambaCallSites] = {}
     for path in sorted(GITHUB_DIR.rglob("*.y*ml")):
-        text = path.read_text(encoding="utf-8")
-        uses = len(re.findall(r"^\s*(?:-\s*)?uses:\s*" + re.escape(SETUP_MICROMAMBA), text, re.M))
-        if not uses:
-            continue
-        pins = re.findall(r"^\s*micromamba-version:\s*[\"']?([^\"'\s#]+)", text, re.M)
-        found[path.relative_to(GITHUB_DIR).as_posix()] = (uses, pins)
+        site = _micromamba_call_sites_in(path.read_text(encoding="utf-8"))
+        if site.uses:
+            found[path.relative_to(GITHUB_DIR).as_posix()] = site
     return found
+
+
+def test_the_setup_micromamba_extraction_reads_steps_and_nothing_else() -> None:
+    """The regression test for the extraction itself, since its failure mode is staying green.
+
+    Every guard in this section stands on :func:`_setup_micromamba_uses` finding every call
+    site and nothing else. The line regex it replaced got two of these four rows wrong -- (b)
+    counted zero and (c) counted one -- and a ``jobs:``-only parse gets (d) wrong, counting the
+    composite action as no call site at all while ``len(call_sites) >= 3`` stayed satisfiable
+    only by luck. All four are asserted together so a regression names every row it breaks.
+
+    (a) a plain workflow step counts once;
+    (b) the quoted spelling -- valid YAML, and the form that made the attestation guard
+        false-green -- counts once;
+    (c) the same text inside a ``run:`` block scalar is a line of shell, not a step: zero;
+    (d) a composite action whose only top-level keys are ``name`` and ``runs``, with the call
+        site under ``runs.steps``, counts once.
+    """
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    call = f"{SETUP_MICROMAMBA}{sha}"
+    rows = {
+        "a: plain workflow step": f"jobs:\n  build:\n    steps:\n      - uses: {call}\n",
+        "b: quoted workflow step": f'jobs:\n  build:\n    steps:\n      - uses: "{call}"\n',
+        "c: run block scalar": (
+            "jobs:\n"
+            "  build:\n"
+            "    steps:\n"
+            "      - name: Not a call site\n"
+            "        run: |\n"
+            f"          uses: {call}\n"
+        ),
+        "d: composite runs.steps": (
+            f"name: setup-env\nruns:\n  using: composite\n  steps:\n    - uses: {call}\n"
+        ),
+    }
+    expected = {
+        "a: plain workflow step": 1,
+        "b: quoted workflow step": 1,
+        "c: run block scalar": 0,
+        "d: composite runs.steps": 1,
+    }
+    counts = {row: len(_setup_micromamba_uses(text)) for row, text in rows.items()}
+    assert counts == expected
+
+
+def test_a_call_site_pin_is_read_from_its_own_with_mapping() -> None:
+    """A pin counts only under its own step's ``with:``, never as a pin-shaped line elsewhere.
+
+    The unpinned call site below floats to ``latest``; the ``run:`` block of the next step
+    carries the exact pin text, which a file-wide line count accepted as its pin (#502).
+    """
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    unpinned = (
+        "jobs:\n"
+        "  build:\n"
+        "    steps:\n"
+        f"      - uses: {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+        "      - run: |\n"
+        f"          echo micromamba-version: {MICROMAMBA_PIN}\n"
+    )
+    pinned = (
+        "jobs:\n"
+        "  build:\n"
+        "    steps:\n"
+        f"      - uses: {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+        "        with:\n"
+        f"          micromamba-version: '{MICROMAMBA_PIN}'\n"
+    )
+    assert _micromamba_call_sites_in(unpinned).pins == [None]
+    assert _micromamba_call_sites_in(pinned).pins == [MICROMAMBA_PIN]
+
+
+def test_the_version_tag_must_trail_its_own_uses_line() -> None:
+    """A ``# v<X.Y.Z>`` on the line after ``uses:`` is not that call site's trailing tag.
+
+    With ``\\s`` around the ``#`` the tag regex crossed the newline, so a one-call-site file
+    whose tag had moved down a line still parsed one tag per call site and passed (#502).
+    """
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    trailing = f"jobs:\n  build:\n    steps:\n      - uses: {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+    next_line = (
+        f"jobs:\n  build:\n    steps:\n      - uses: {SETUP_MICROMAMBA}{sha}\n        # v1.2.3\n"
+    )
+    assert _micromamba_call_sites_in(trailing).tags == ["v1.2.3"]
+    assert _micromamba_call_sites_in(next_line).tags == []
+
+
+def test_a_mutable_action_ref_is_not_a_pin() -> None:
+    """Call sites agreeing on ``@main`` or a tag still fail: only a 40-hex SHA is immutable."""
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    sites = {
+        name: _MicromambaCallSites([f"{SETUP_MICROMAMBA}{ref}"], [MICROMAMBA_PIN], ["v1.2.3"])
+        for name, ref in {"a.yml": "main", "b.yml": "v2", "c.yml": sha, "d.yml": sha[:7]}.items()
+    }
+    assert _mutable_refs(sites) == ["a.yml: main", "b.yml: v2", f"d.yml: {sha[:7]}"]
 
 
 def test_every_setup_micromamba_call_site_pins_the_binary() -> None:
@@ -1808,20 +2003,82 @@ def test_every_setup_micromamba_call_site_pins_the_binary() -> None:
     )
 
     mismatched = sorted(
-        f"{name} ({len(pins)} pin(s) for {uses} call site(s))"
-        for name, (uses, pins) in call_sites.items()
-        if len(pins) != uses
+        f"{name} ({site.pins.count(None)} of {len(site.uses)} call site(s) unpinned)"
+        for name, site in call_sites.items()
+        if None in site.pins
     )
     assert not mismatched, (
         "every setup-micromamba call site needs its OWN `micromamba-version` pin -- unset, the "
         f"input floats to `latest` and re-resolves the binary at run time: {mismatched}"
     )
 
-    values = {value for _, pins in call_sites.values() for value in pins}
+    values = {value for site in call_sites.values() for value in site.pins if value is not None}
     assert values == {MICROMAMBA_PIN}, (
         f"all setup-micromamba call sites must pin micromamba-version to {MICROMAMBA_PIN!r} "
         f"(bump MICROMAMBA_PIN and every call site in one commit); found {sorted(values)} "
         f"across {sorted(call_sites)}"
+    )
+
+
+def test_every_setup_micromamba_call_site_runs_the_same_action_version() -> None:
+    """Every ``setup-micromamba`` call site runs ONE action SHA under ONE ``# v<X.Y.Z>`` tag.
+
+    The pin test above guards the BINARY; nothing else in the repository compares the ACTION
+    SHA across call sites, and Dependabot is what moves it -- through two update entries, so two
+    pull requests per bump (trap 3 in the section header). Merging one of the pair alone leaves
+    the composite action and the workflows on different versions of the action with every
+    check green, which is precisely the state #446 would have produced without #445.
+
+    The trailing tag comment is asserted too: a parse discards comments, so it is read from the
+    text, and the file must carry as many tags as it has PARSED call sites -- an unannotated
+    ``uses:`` line fails here rather than being silently skipped. The count is per file, so it
+    does not tie each tag to its own call site's line; #510 tracks that. Every ref must be a
+    full 40-hex commit SHA before agreement is checked: call sites that all moved to ``@main``
+    would otherwise agree on a mutable ref.
+    """
+    call_sites = _setup_micromamba_call_sites()
+    assert len(call_sites) >= 3, (
+        "expected at least the setup-env composite + packaging.yml + release.yml to call "
+        f"setup-micromamba; found {sorted(call_sites)}"
+    )
+
+    mutable = _mutable_refs(call_sites)
+    assert not mutable, (
+        "every setup-micromamba call site must pin the action to a full 40-hex commit SHA -- a "
+        f"branch or tag ref can move without any change here: {mutable}"
+    )
+
+    untagged = sorted(
+        f"{name} ({len(site.tags)} `# v<X.Y.Z>` comment(s) for {len(site.uses)} call site(s))"
+        for name, site in call_sites.items()
+        if len(site.tags) != len(site.uses)
+    )
+    assert not untagged, (
+        "every `uses: mamba-org/setup-micromamba@<sha>` line needs its own trailing "
+        f"`# v<X.Y.Z>` tag comment, so a reviewer can read which release the SHA is: {untagged}"
+    )
+
+    shas = {
+        sha: sorted(name for name, site in call_sites.items() if sha in site.shas)
+        for sha in {sha for site in call_sites.values() for sha in site.shas}
+    }
+    assert len(shas) == 1, (
+        "all setup-micromamba call sites must run the SAME action SHA; found "
+        f"{shas}. The usual cause is a split Dependabot bump: .github/dependabot.yml has two "
+        "`github-actions` entries -- group `actions` for `/` (.github/workflows) and group "
+        "`actions-composite` for `/.github/actions/*` -- so one action bump arrives as TWO pull "
+        "requests, and they must land together. One merged without the other splits the "
+        "versions; land the sibling too, or bump the lagging call site by hand."
+    )
+
+    tags = {
+        tag: sorted(name for name, site in call_sites.items() if tag in site.tags)
+        for tag in {tag for site in call_sites.values() for tag in site.tags}
+    }
+    assert len(tags) == 1, (
+        "all setup-micromamba call sites must carry the SAME trailing `# v<X.Y.Z>` tag "
+        f"comment; found {tags}. A bump that moved the SHA but not the comment (or the reverse) "
+        "leaves the next reviewer reading the wrong release."
     )
 
 
