@@ -24,12 +24,24 @@ the package tree one level at a time with :meth:`importlib.machinery.PathFinder.
 which only searches the given directories. Anchoring the walk at this checkout's ``src/``
 also means the docs are checked against the source beside them, never against whatever
 ``tether`` another environment happens to have installed.
+
+**Scope.** Fences are found as Python-Markdown 3.11's ``fenced_code`` finds them, with its
+``FENCED_BLOCK_RE`` copied: at the root only, opening and closing at column zero, the
+closer repeating the opener. A fence tagged ``python``, ``py``, ``python3``, ``py3`` or
+``pycon`` is read. The coverage guard then reads *every* line of every page, inside a fence
+or not, so a line that reads as a tether import (``from tether…``, or ``import`` naming
+``tether`` anywhere in its list, alone or after a ``;``) and is not checked fails it. This
+covers an untagged fence, a statement the parse cannot read, and a fence-shaped block the
+renderer does not treat as a fence. Anything else is not guaranteed — an import spelled
+another way (``importlib.import_module("tether…")``, say), or one in a fence the renderer
+does not show as Python. Known gaps are tracked in #515.
 """
 
 from __future__ import annotations
 
 import ast
 import re
+import sys
 from functools import cache
 from importlib.machinery import ModuleSpec, PathFinder
 from pathlib import Path
@@ -41,7 +53,22 @@ DOCS = ROOT / "docs"
 SRC = ROOT / "src"
 _EXCLUDED = {DOCS / "PRD.md"}
 
-_FENCE_OPEN_RE = re.compile(r"^(\s*)(`{3,}|~{3,})\s*([^\s`{]*)")
+# fenced_code.FencedBlockPreprocessor.FENCED_BLOCK_RE (Python-Markdown 3.11), copied: the
+# opening and the closing fence both sit at column zero, and the closer repeats the opener
+# exactly. An indented or nested fence-shaped line is no fence to the renderer.
+_FENCED_BLOCK_RE = re.compile(
+    r"""
+(?P<fence>^(?:~{3,}|`{3,}))[ ]*                          # opening fence
+((\{(?P<attrs>[^\n]*)\})|                                # (optional {attrs} or
+(\.?(?P<lang>[\w#.+-]*)[ ]*)?                            # optional (.)lang
+(hl_lines=(?P<quot>"|')(?P<hl_lines>.*?)(?P=quot)[ ]*)?) # optional hl_lines)
+\n                                                       # newline (end of opening fence)
+(?P<code>.*?)(?<=\n)                                     # the code block
+(?P=fence)[ ]*$                                          # closing fence
+""",
+    re.MULTILINE | re.DOTALL | re.VERBOSE,
+)
+_ATTRS_LANG_RE = re.compile(r"(?:^|\s)\.([\w#.+-]+)")  # the first `.class` in `{attrs}`
 _PYTHON_LANGS = {"python", "py", "python3", "py3", "pycon"}
 # Any line that reads as a tether import, whatever fence it sits in: the coverage guard.
 # A statement may follow a `;`, and `tether` may be any name of a multi-name `import`.
@@ -51,26 +78,23 @@ _TETHER_IMPORT_LINE_RE = re.compile(
 )
 
 
+def _page_text(path: Path) -> str:
+    """The page as ``NormalizeWhitespace`` hands it on: newlines unified, tabs expanded."""
+    text = path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    return text.expandtabs(4)
+
+
 def _fences(path: Path) -> list[tuple[str, int, list[str]]]:
-    """``(language, first_body_line_number, body_lines)`` for each closed fence in ``path``."""
-    lines = path.read_text(encoding="utf-8").split("\n")
+    """``(language, first_body_line_number, body_lines)`` for each fence the renderer finds."""
+    text = _page_text(path)
     out = []
-    i = 0
-    while i < len(lines):
-        m = _FENCE_OPEN_RE.match(lines[i])
-        if m:
-            indent, fence, lang = m.groups()
-            for j in range(i + 1, len(lines)):
-                stripped = lines[j].strip()
-                if stripped and set(stripped) == {fence[0]} and len(stripped) >= len(fence):
-                    body = [
-                        ln[len(indent) :] if ln.startswith(indent) else ln.lstrip()
-                        for ln in lines[i + 1 : j]
-                    ]
-                    out.append((lang.lower(), i + 2, body))
-                    i = j
-                    break
-        i += 1
+    for m in _FENCED_BLOCK_RE.finditer(text):
+        lang = m.group("lang") or ""
+        if m.group("attrs") is not None:
+            attr = _ATTRS_LANG_RE.search(m.group("attrs"))
+            lang = attr.group(1) if attr else ""
+        first = text.count("\n", 0, m.start("code")) + 1
+        out.append((lang.lower(), first, m.group("code").split("\n")[:-1]))
     return out
 
 
@@ -256,23 +280,31 @@ def test_docs_import_examples_resolve() -> None:
     assert not problems, "\n".join(problems)
 
 
-def test_every_tether_import_line_in_a_fence_is_checked() -> None:
-    """Coverage guard: no tether import line in any docs fence escapes the check above.
-
-    Catches a fence whose language tag is not Python (or is missing) and a statement the
-    fallback parse could not read — either would otherwise drop out silently.
-    """
+def _unchecked_import_lines() -> list[str]:
+    """Every line of every page that reads as a tether import but is not checked."""
     checked = {(rel, line) for rel, line, _ in _docs_imports()}
     missed = []
     for path in sorted(p for p in DOCS.rglob("*.md") if p not in _EXCLUDED):
         rel = path.relative_to(ROOT).as_posix()
-        for _, first, body in _fences(path):
-            for offset, text in enumerate(body):
-                if _TETHER_IMPORT_LINE_RE.search(text) and (rel, first + offset) not in checked:
-                    missed.append(f"{rel}:{first + offset}: {text.strip()}")
+        for number, text in enumerate(_page_text(path).split("\n"), start=1):
+            if _TETHER_IMPORT_LINE_RE.search(text) and (rel, number) not in checked:
+                missed.append(f"{rel}:{number}: {text.strip()}")
+    return missed
+
+
+def test_every_tether_import_line_is_checked() -> None:
+    """Coverage guard: no line of any page that reads as a tether import escapes the check.
+
+    It reads every line, not only fence bodies, so it catches a fence whose language tag is
+    not Python (or is missing), a statement the fallback parse could not read, and an import
+    the renderer does not put in a fence at all — one in an indented or nested fence-shaped
+    block, say. Any of those would otherwise drop out silently.
+    """
+    missed = _unchecked_import_lines()
     assert not missed, (
-        "these tether imports sit in a docs fence the example check does not read — tag the "
-        "fence ```python, or make the statement parse:\n" + "\n".join(missed)
+        "these tether import lines are not read by the example check — put each in a "
+        "```python fence that opens and closes at column zero, and make it parse:\n"
+        + "\n".join(missed)
     )
 
 
@@ -374,3 +406,37 @@ def test_a_bare_annotation_binds_nothing() -> None:
     """``name: T`` with no value declares a type only; importing ``name`` raises."""
     tree = ast.parse("x: int\ny: int = 1\nz: int\nz = 2\n")
     assert _bound_names(tree.body) == {"y", "z"}
+
+
+def _page(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> None:
+    """Make ``body`` the whole docs corpus, as ``docs/a.md`` under ``tmp_path``."""
+    module = sys.modules[__name__]
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "a.md").write_text(body, encoding="utf-8")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "DOCS", tmp_path / "docs")
+    monkeypatch.setattr(module, "_EXCLUDED", set())
+
+
+def test_a_fence_closes_only_at_column_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``FENCED_BLOCK_RE``: an indented delimiter line is fence content, not its end."""
+    body = "# A\n\n```python\nx = 1\n  ```\nfrom tether.analysis import no_such_name\n```\n"
+    _page(tmp_path, monkeypatch, body)
+    imports = _docs_imports()
+    assert [(rel, line) for rel, line, _ in imports] == [("docs/a.md", 6)]
+    assert "defines no no_such_name" in _problems(*imports[0])[0]
+
+
+def test_the_guard_reads_lines_outside_any_fence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fence-shaped block inside a list item is no fence, so the guard reports its import."""
+    body = (
+        "# A\n\n```python\nfrom tether.analysis import histogram\n```\n\n"
+        "- step\n\n    ```python\n    from tether.analysis import histogram\n    ```\n"
+    )
+    _page(tmp_path, monkeypatch, body)
+    assert [(rel, line) for rel, line, _ in _docs_imports()] == [("docs/a.md", 4)]
+    assert _unchecked_import_lines() == ["docs/a.md:10: from tether.analysis import histogram"]

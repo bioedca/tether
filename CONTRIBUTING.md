@@ -186,12 +186,16 @@ cannot see, on all three operating systems:
   and on a relative link or `#anchor` — heading slug or inline `<a id="…"></a>` — that
   does not resolve. Write a bare citation key as `[Key2018], [Key2005]`, never as
   `[Key2018][Key2005]`, which is a reference link to a missing definition. Its parse
-  models a stated set of Markdown forms (listed in its module docstring) and fails on any
-  other that could change its verdict with `unsupported Markdown form, the checker cannot
-  vouch for it` and the file and line: rewrite the page in a modelled form.
+  models the Markdown forms listed in its module docstring and promises nothing beyond
+  them. An unlisted form it can detect, and that could change its verdict, fails with
+  `unsupported Markdown form, the checker cannot vouch for it` and the file and line:
+  rewrite the page in a listed form. Any other unlisted form is not guaranteed; known
+  gaps are tracked in #515.
 - `tests/test_docs_examples.py` checks that every `from tether…` / `import tether…` line
   in a `python` fence names a real module and object, by reading the source — it never
-  imports, so a deep-stack example resolves without torch.
+  imports, so a deep-stack example resolves without torch. The fence must open and close
+  at column zero, as `fenced_code` requires. A tether import line anywhere else on a page
+  fails the test.
 
 Every `docs-build` run uploads the rendered site as the `docs-site` artifact (kept seven
 days), so a reviewer can open the changed page rather than infer it from markdown.

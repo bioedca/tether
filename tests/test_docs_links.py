@@ -9,7 +9,8 @@ build to complain about. That is how the parity gallery reached the published si
 showing ``[McCann 2010][mccann2010]`` fourteen times with the required ``docs-build``
 gate green (#183, repaired by hand in #207). This module closes that blind spot, and
 re-checks the targets the build does see so the same guard runs on all three operating
-systems rather than only on the Linux ``docs-build`` job. Exactly these are enforced:
+systems rather than only on the Linux ``docs-build`` job. These are enforced, over the
+forms the parse models (below):
 
 * every ``[text][key]`` (and collapsed ``[text][]``) has a definition in the same file;
 * every Markdown link, image and reference definition with a relative target names a
@@ -25,17 +26,27 @@ systems rather than only on the Linux ``docs-build`` job. Exactly these are enfo
 External URLs are out of scope here (the advisory ``external-links`` job checks them). The
 walk is ``docs/**/*.md`` minus ``docs/PRD.md``, which ``mkdocs.yml`` excludes from the site.
 
-**The parse is a model of Python-Markdown 3.11, and its boundary is stated rather than
-discovered.** It is stdlib only (``re``, ``html.parser``, ``pathlib``), like
-``tests/test_adr_index.py``: ``python-markdown`` is not in the base conda-lock, so it cannot
-be imported on the 3-OS ``test`` matrix. So the checker does not approximate the renderer
-everywhere. It models the forms below exactly — most of them with Python-Markdown's own
-regular expressions and procedures, copied and named — and it fails on every other form
-that could change its verdict, with ``unsupported Markdown form, the checker cannot vouch
-for it`` and the file and line. Fix such a failure by rewriting the page in a modelled
-form, or by extending the model with a test checked against a real render. Never fix it
-by guessing. ``mkdocs.yml`` leaves Markdown at mkdocs' default extensions (``toc``,
-``tables``, ``fenced_code``), and these forms are modelled exactly:
+**The parse is a model of Python-Markdown 3.11 with a stated scope, not a renderer.** It is
+stdlib only (``re``, ``html.parser``, ``pathlib``), like ``tests/test_adr_index.py``:
+``python-markdown`` is not in the base conda-lock, so it cannot be imported on the 3-OS
+``test`` matrix. ``mkdocs.yml`` leaves Markdown at mkdocs' default extensions (``toc``,
+``tables``, ``fenced_code``). What this module promises is narrower than "the renderer's
+verdict on any page". It promises this:
+
+* the forms listed below are modelled, most of them with Python-Markdown's own regular
+  expressions and procedures, copied and named. Each is pinned here by a test whose page
+  was rendered with Python-Markdown 3.11, and during review of #511 a differential fuzzer
+  compared the model with an instrumented real render over tens of thousands of generated
+  pages and headings. That fuzzer needs ``python-markdown`` and is not part of this suite;
+* a form outside the list that the checker can detect, and that could change its
+  verdict, fails with ``unsupported Markdown form, the checker cannot vouch for it`` and
+  the file and line. Fix such a failure by rewriting the page in a listed form, or by
+  extending the model with a test checked against a real render — never by guessing;
+* any other form is not guaranteed. The checker may misread it either way.
+
+Known gaps are tracked in #515. A form not listed here is out of scope until it is listed.
+
+The modelled forms:
 
 * whitespace as ``NormalizeWhitespace`` leaves it, with tabs expanded to four spaces;
 * fenced blocks, by ``FENCED_BLOCK_RE`` itself, so only at the root. A fence-shaped line
@@ -60,7 +71,9 @@ by guessing. ``mkdocs.yml`` leaves Markdown at mkdocs' default extensions (``toc
   uses (``ReferenceInlineProcessor``), and inline HTML (``HTML_RE``). Inline HTML
   attributes are read by ``html.parser``, so an unquoted ``href`` counts;
 * heading slugs, by ``toc.slugify`` with its ``_1``/``_2`` de-duplication, over the
-  heading as rendered: a reference whose key is undefined stays in it as written.
+  heading's text as rendered. Its links, images and references are read by the same
+  passes, in the renderer's pattern order. A link or a defined reference gives its text,
+  an image gives none, and an undefined reference stays as written.
 
 These forms are refused, because how the renderer reads them depends on context that the
 model does not track:
@@ -76,10 +89,9 @@ model does not track:
 
 Some forms are read *short* on purpose. A heading or definition that the model cannot
 place is not counted, for example one in a list item's indented continuation or a
-definition inside a blockquote. Leaving one out can only make a link to it fail, never
-pass, so that is loud. For the same reason the lines of an indented block are read as
-prose. A ``[a][b]`` inside a real indented code block is therefore reported (none exists in
-``docs/`` today; tracked in #515).
+definition inside a blockquote. Leaving one out can only make a link to it fail. For the
+same reason the lines of an indented block are read as prose, so a ``[a][b]`` inside a
+real indented code block is reported. None exists in ``docs/`` today.
 """
 
 from __future__ import annotations
@@ -241,7 +253,7 @@ def _raw_html_blocks(text: str) -> tuple[tuple[int, int], ...]:
     end of the page if none does — an unclosed ``<div>`` swallows the rest. A block-level
     start tag later on the closing line opens the next block at once. Where this misjudges,
     it treats too much as raw rather than too little, so a heading is lost and a link to it
-    is reported: loud, never silent.
+    is reported.
     """
     spans = []
     pos = 0
@@ -671,16 +683,19 @@ def _ref_tail(text: str, index: int) -> tuple[str, int] | None:
     return m.group(1), m.end()
 
 
-def _bracketed(text: str, tail) -> list[tuple[int, int, str, int]]:
+def _bracketed(text: str, tail, image: bool | None = None) -> list[tuple[int, int, str, int]]:
     """``(start, text_end, payload, end)`` for each ``[text]`` that ``tail`` reads on from.
 
     Scans left to right as the inline pattern does: a ``[`` whose text does not close or is
     not followed by ``tail`` is retried one character on; a match resumes after its end.
+    With ``image`` set, only a ``[`` after a ``!`` (True) or not after one (False) opens.
     """
     out = []
     pos = 0
     while (start := text.find("[", pos)) != -1:
         pos = start + 1
+        if image is not None and (start > 0 and text[start - 1] == "!") != image:
+            continue
         end = _link_text_end(text, start)
         if end is None or (t := tail(text, end)) is None:
             continue
@@ -885,31 +900,68 @@ def _slugify(value: str) -> str:
 
 
 def _heading_text(raw: str, definitions: frozenset[str]) -> str:
-    """The plain text the toc extension slugifies: rendered heading, tags stripped.
+    """The plain text the toc extension slugifies: the heading as rendered, tags stripped.
 
-    A reference reduces to its text only when its key is defined; an undefined one stays
-    on the page as written, brackets and all, and so in the slug.
+    The inline structure is read with the passes a paragraph gets: code spans, escapes,
+    links by ``getLink`` and reference uses. A link, or a reference whose key is defined,
+    reduces to its text; an image, of either kind, renders no text. An undefined reference
+    stays on the page as written, brackets and all, and so in the slug.
     """
+    view, spans = _mask_code(raw)
+    view = _mask_escapes(view)
 
-    def reference(m: re.Match[str]) -> str:
-        key = re.sub(r"\s+", " ", (m.group(2) or m.group(1)).lower())
-        return m.group(1) if key in definitions else m.group(0)
+    def key(start: int, end: int, tail: str) -> str:
+        return re.sub(r"\s+", " ", (tail or view[start + 1 : end - 1]).lower())
 
-    parts = re.split(r"(`+)(.+?)\1", raw)
-    text = []
-    # re.split with two groups yields [prose, ticks, code, prose, ticks, code, ...].
-    for i in range(0, len(parts), 3):
-        prose = parts[i]
-        prose = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", prose)  # links / images -> text
-        prose = re.sub(r"!?\[([^\]]*)\]\s?\[([^\]]*)\]", reference, prose)
-        prose = re.sub(r"<[^>]+>", "", prose)  # inline HTML
-        prose = re.sub(r"\\(.)", r"\1", prose)  # backslash escapes
-        prose = prose.replace("*", "")
-        prose = re.sub(r"(?<!\w)_+|_+(?!\w)", "", prose)  # emphasis, not snake_case
-        text.append(html.unescape(prose))
-        if i + 2 < len(parts):
-            text.append(parts[i + 2].strip())
-    return "".join(text)
+    def any_tail(text: str, index: int) -> tuple[str, int]:
+        return "", index
+
+    def ref_tail(text: str, index: int) -> tuple[str, int] | None:
+        m = _REF_TAIL_RE.match(text, index)
+        return None if m is None else (m.group(1), m.end())
+
+    # The inline patterns in priority order, each over what the ones before left: reference,
+    # link, image link, image reference, short image reference. A short reference's text is
+    # its key, which slugifies as the bracketed source does, so it needs no stage.
+    stages = (
+        (ref_tail, False, True),
+        (_link_target, False, False),
+        (_link_target, True, False),
+        (ref_tail, True, True),
+        (any_tail, True, True),
+    )
+    links: list[tuple[int, int, int]] = []  # (start, text_end, end); an image has no text
+    left = view  # what the stages so far have not consumed
+    for tail, image, by_key in stages:
+        for start, end, payload, stop in _bracketed(left, tail, image):
+            if by_key and key(start, end, payload) not in definitions:
+                continue
+            begin = start - 1 if image else start
+            links.append((begin, -1 if image else end, stop))
+            left = left[:begin] + _CODE * (stop - begin) + left[stop:]
+
+    def prose(a: int, b: int) -> str:
+        text = _HTML_RE.sub("", view[a:b]).replace("*", "")
+        text = re.sub(r"(?<!\w)_+|_+(?!\w)", "", text)  # emphasis, not snake_case
+        return html.unescape(_unescape(text))
+
+    def plain(a: int, b: int) -> str:
+        out, pos = [], a
+        for start, end in spans:
+            if a <= start and end <= b:
+                code = raw[start:end]
+                ticks = min(len(code) - len(code.lstrip("`")), len(code) - len(code.rstrip("`")))
+                out += [prose(pos, start), code[ticks : len(code) - ticks].strip()]
+                pos = end
+        return "".join(out) + prose(pos, b)
+
+    out, pos = [], 0
+    for start, end, stop in sorted(links):
+        out.append(plain(pos, start))
+        if end != -1:  # link text is inline Markdown of its own: an image in it adds nothing
+            out.append(_heading_text(raw[start + 1 : end - 1], definitions))
+        pos = stop
+    return "".join(out) + plain(pos, len(raw))
 
 
 @cache
@@ -1323,3 +1375,20 @@ def test_a_form_outside_the_model_fails_loudly(
     """A form whose rendering turns on context the model does not track is refused by name."""
     out = _check(tmp_path, monkeypatch, {"a.md": "# A\n\n" + body})
     assert out[0].startswith(f"docs/a.md:{line}: {_UNSUPPORTED}: {what}"), out
+
+
+def test_a_heading_slug_reads_links_as_the_renderer_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A link target is read by ``getLink``, and an image adds nothing to the slug."""
+    body = (
+        "# A\n\n"
+        "## [X](https://example.com/a(b)c)\n\n"
+        "## A ![alt](https://example.org/x.png) B\n\n"
+        "## [a](https://example.org/b c d) e\n\n"
+        "[ok](#x) [ok](#a-b) [ok](#a-e) [bad](#xc) [bad](#a-alt-b)\n"
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 2, out
+    assert out[0].startswith("docs/a.md:9: ") and "'#xc'" in out[0]
+    assert out[1].startswith("docs/a.md:9: ") and "'#a-alt-b'" in out[1]
