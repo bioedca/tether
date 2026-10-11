@@ -4,8 +4,9 @@
 
 Every probe runs against fixtures through an injected transport, and an autouse fixture makes
 the module's real opener raise, so nothing here can reach ``bioedca.github.io`` and the required
-3-OS matrix stays deterministic. The workflow that runs the module is contract-tested in
-``tests/test_marker_contract.py``.
+3-OS matrix stays deterministic. The redirect tests drive urllib's real opener -- its real
+redirect handling included -- with a handler that answers in place of the network. The
+workflow that runs the module is contract-tested in ``tests/test_marker_contract.py``.
 
 ``fixtures/docs_site/gh_pages_index.html`` is the verbatim ``origin/gh-pages:index.html`` at
 ``e080cf6175a7b40cdc33f91d12bc28ffa4dbcc04`` -- mike's redirect stub, the same bytes the live
@@ -16,12 +17,19 @@ root served on 2026-08-13 -- pinned by SHA-256 below rather than retyped, becaus
 from __future__ import annotations
 
 import ast
+import email.message
 import hashlib
 import http.client
 import importlib.util
+import io
 import json
 import sys
+import threading
+import time
+import urllib.parse
 import urllib.request
+import urllib.response
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -37,6 +45,8 @@ guard = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = guard  # @dataclass resolves its annotations through sys.modules
 _spec.loader.exec_module(guard)
 R = guard.Response
+#: The opener the module really fetches through, kept before any fixture replaces it.
+REAL_OPENER = guard._OPENER
 
 #: `gh api repos/bioedca/tether/pages`, captured 2026-08-13 (issue #325).
 PAGES_OK = {
@@ -100,6 +110,13 @@ def _errors(capsys: pytest.CaptureFixture[str]) -> list[str]:
     return [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("::error::")]
 
 
+class _Opener:
+    """Stands in for the module's opener: ``open`` is whatever the test supplies."""
+
+    def __init__(self, open_: Callable[..., object]) -> None:
+        self.open = open_
+
+
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the real opener fail the test, so a probe that loses its fake cannot dial out."""
@@ -107,11 +124,13 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     def _refuse(*_args: object, **_kwargs: object) -> None:
         pytest.fail("check_docs_site tried to reach the network; inject a transport")
 
+    monkeypatch.setattr(guard, "_OPENER", _Opener(_refuse))
     monkeypatch.setattr(guard.urllib.request, "urlopen", _refuse)
 
 
 def test_the_default_transport_cannot_reach_the_network_under_test() -> None:
     assert guard.urllib.request is urllib.request
+    # Raised on the fetch thread and re-raised on the caller's, never mistaken for a deadline.
     with pytest.raises(pytest.fail.Exception, match="tried to reach the network"):
         guard.main(sleep=lambda _s: None, environ={})
 
@@ -285,7 +304,7 @@ class _BrokenBody:
     def __exit__(self, *_exc: object) -> None:
         return None
 
-    def read(self) -> bytes:
+    def read(self, *_size: int) -> bytes:
         raise http.client.IncompleteRead(b"<html>", 4096)
 
 
@@ -298,14 +317,175 @@ class _BrokenBody:
     ids=["incomplete-read", "bad-status-line"],
 )
 def test_an_http_protocol_failure_is_a_transport_failure(
-    monkeypatch: pytest.MonkeyPatch, opener: object
+    monkeypatch: pytest.MonkeyPatch, opener: Callable[..., object]
 ) -> None:
-    monkeypatch.setattr(guard.urllib.request, "urlopen", opener)
+    monkeypatch.setattr(guard, "_OPENER", _Opener(opener))
     response = guard.default_transport(guard.LATEST_URL, {})
     assert response.status is None and response.error
     # ... so it rides the retry path and is reported, never an exception out of main().
     (problem,) = guard.check_latest(response, guard.MAX_ATTEMPTS)
     assert "transport failure" in problem
+
+
+class _Stalled:
+    """A urlopen result whose body never finishes arriving until *release* is set.
+
+    One blocking ``read`` stands for a server trickling bytes inside the socket timeout: no single
+    socket operation times out, so only a deadline on the fetch as a whole can end it.
+    """
+
+    status, headers = 200, {}
+
+    def __init__(self, release: threading.Event) -> None:
+        self.release = release
+
+    def __enter__(self) -> _Stalled:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def read(self, *_size: int) -> bytes:
+        self.release.wait(30)
+        return b"<html>"
+
+
+def test_a_trickling_response_is_cut_off_at_the_whole_fetch_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release = threading.Event()
+    monkeypatch.setattr(guard, "_OPENER", _Opener(lambda *_a, **_k: _Stalled(release)))
+    monkeypatch.setattr(guard, "TIMEOUT_SECONDS", 0.2)
+    started = time.monotonic()
+    try:
+        response = guard.default_transport(guard.LATEST_URL, {})
+    finally:
+        release.set()
+    assert time.monotonic() - started < 5, "the fetch outlived its whole-fetch deadline"
+    assert response.status is None and "deadline" in response.error
+    (problem,) = guard.check_latest(response, guard.MAX_ATTEMPTS)
+    assert "transport failure" in problem
+
+
+class _Sized:
+    """A urlopen result whose body is *size* bytes, honouring ``read``'s size argument."""
+
+    status, headers = 200, {}
+
+    def __init__(self, size: int) -> None:
+        self.stream = io.BytesIO(b"x" * size)
+
+    def __enter__(self) -> _Sized:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def read(self, *size: int) -> bytes:
+        return self.stream.read(*size)
+
+
+@pytest.mark.parametrize(("size", "fails"), [(64, False), (65, True), (64_000, True)])
+def test_a_body_past_the_size_bound_is_not_read(
+    monkeypatch: pytest.MonkeyPatch, size: int, fails: bool
+) -> None:
+    monkeypatch.setattr(guard, "MAX_BODY_BYTES", 64)
+    sized = _Sized(size)
+    monkeypatch.setattr(guard, "_OPENER", _Opener(lambda *_a, **_k: sized))
+    response = guard.default_transport(guard.PRIVACY_URL, {})
+    assert sized.stream.tell() <= 65, "read past one byte beyond the bound"
+    if fails:
+        assert response.status is None and "64 bytes" in response.error
+    else:
+        assert response.status == 200 and len(response.body) == 64
+
+
+class _Origins(urllib.request.BaseHandler):
+    """Answers http(s) inside urllib's real opener from canned routes, recording every request.
+
+    Ordered ahead of the stock HTTP(S) handlers, so they are never reached and nothing dials out,
+    while urllib's real redirect handling runs on the answers -- the path the token would leak by.
+    """
+
+    handler_order = 100
+
+    def __init__(self, routes: dict[str, tuple[int, dict[str, str], bytes]]) -> None:
+        self.routes = routes
+        self.sent: list[tuple[str, dict[str, str]]] = []
+
+    def https_open(self, req: urllib.request.Request) -> urllib.response.addinfourl:
+        self.sent.append((req.full_url, {k.lower(): v for k, v in req.header_items()}))
+        status, headers, body = self.routes[req.full_url]
+        message = email.message.Message()
+        for name, value in headers.items():
+            message[name] = value
+        answer = urllib.response.addinfourl(io.BytesIO(body), message, req.full_url, status)
+        answer.msg = http.client.responses[status]
+        return answer
+
+    http_open = https_open
+
+
+def _redirected_to(location: str) -> _Origins:
+    final = urllib.parse.urljoin(guard.PAGES_API_URL, location)
+    return _Origins(
+        {
+            guard.PAGES_API_URL: (302, {"Location": location}, b""),
+            final: (200, {}, json.dumps(PAGES_OK).encode()),
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://elsewhere.example/repos/bioedca/tether/pages",
+        "http://api.github.com/repos/bioedca/tether/pages",
+        "https://api.github.com:8443/repos/bioedca/tether/pages",
+        "https://pages.api.github.com/repos/bioedca/tether/pages",
+    ],
+    ids=["other-host", "scheme-downgrade", "other-port", "subdomain"],
+)
+def test_a_redirect_off_the_api_origin_drops_the_token(
+    monkeypatch: pytest.MonkeyPatch, location: str
+) -> None:
+    origins = _redirected_to(location)
+    monkeypatch.setattr(guard, "_OPENER", guard._build_opener(origins))
+    response = guard.default_transport(guard.PAGES_API_URL, {"Authorization": "Bearer t0k"})
+    assert response.status == 200
+    (first, first_headers), (second, second_headers) = origins.sent
+    assert first == guard.PAGES_API_URL and first_headers["authorization"] == "Bearer t0k"
+    assert second != guard.PAGES_API_URL and "authorization" not in second_headers
+
+
+def test_a_same_origin_redirect_keeps_the_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    origins = _redirected_to("/repositories/1/pages")
+    monkeypatch.setattr(guard, "_OPENER", guard._build_opener(origins))
+    assert (
+        guard.default_transport(guard.PAGES_API_URL, {"Authorization": "Bearer t0k"}).status == 200
+    )
+    assert [h.get("authorization") for _url, h in origins.sent] == ["Bearer t0k"] * 2
+
+
+def test_main_sends_the_token_to_no_other_origin_through_a_real_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    origins = _redirected_to("https://elsewhere.example/pages")
+    for url, (answer,) in _healthy().items():
+        if url != guard.PAGES_API_URL:
+            origins.routes[url] = (answer.status, {}, answer.body)
+    monkeypatch.setattr(guard, "_OPENER", guard._build_opener(origins))
+    assert guard.main(sleep=lambda _s: None, environ={"GITHUB_TOKEN": "t0k"}) == 0
+    carried = {url for url, headers in origins.sent if "authorization" in headers}
+    assert carried == {guard.PAGES_API_URL}
+    assert "https://elsewhere.example/pages" in {url for url, _h in origins.sent}
+
+
+def test_the_module_opener_redirects_through_the_origin_bound_handler() -> None:
+    redirectors = [
+        h for h in REAL_OPENER.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)
+    ]
+    assert [type(h) for h in redirectors] == [guard._OriginBoundRedirects]
 
 
 def test_a_transient_503_is_retried_and_passes() -> None:

@@ -33,8 +33,9 @@ jobs:
   docs-liveness:
     name: docs-liveness
     runs-on: ubuntu-latest
-    # Above the guard's worst case (five fetches x 3 attempts x 30 s, plus backoff = 10 min), so a
-    # stalled network still ends in its ::error:: lines and step summary, not a cancellation.
+    # Above the guard's worst case (five fetches x 3 attempts x a 30 s whole-fetch deadline, plus
+    # backoff = 10 min), so a stalled network still ends in its ::error:: lines and step summary,
+    # not a cancellation.
     timeout-minutes: 15
     permissions:
       contents: read

@@ -23,7 +23,13 @@ What is asserted, and where:
 
 Flap policy: each fetch is retried in-run (:data:`MAX_ATTEMPTS`, with backoff) on transport
 errors, timeouts, 5xx and 404; a content mismatch is deterministic and is not retried. A fetch
-that never connected is reported as a fetch failure, never as a dead site.
+that never connected is reported as a fetch failure, never as a dead site. Each fetch is bounded
+*as a whole* -- connect, redirects, headers and body together -- by :data:`TIMEOUT_SECONDS`, and
+its body by :data:`MAX_BODY_BYTES`, so the retry budget the workflow states is a real upper bound.
+
+The job token goes to the Pages API and to no other origin. urllib's stock redirect handler
+copies every request header onto the redirected request, so the opener here drops
+``Authorization`` from any redirect that leaves the origin of the request carrying it.
 
 The fetching is behind an injected transport so every assertion is unit-tested offline
 (``tests/test_docs_site_guard.py``). The job runs on the bare runner interpreter, so this module
@@ -36,12 +42,15 @@ import http.client
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
+from typing import IO, Any
 
 ROOT_URL = "https://bioedca.github.io/tether/"
 LATEST_URL = "https://bioedca.github.io/tether/latest/"
@@ -56,7 +65,12 @@ PAGES_API_URL = "https://api.github.com/" + PAGES_ENDPOINT
 MAX_ATTEMPTS = 3
 #: Seconds before the second attempt; doubled before each later one.
 BACKOFF_SECONDS = 10.0
+#: The whole-fetch deadline: connect, TLS, redirects, headers and body together. It is also the
+#: socket timeout, but that alone bounds only each blocking operation -- a server trickling bytes
+#: inside it, or a DNS lookup it does not cover at all, would hold a fetch past any budget.
 TIMEOUT_SECONDS = 30.0
+#: A body longer than this is not read further, and the fetch is a transport failure.
+MAX_BODY_BYTES = 5 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -77,20 +91,105 @@ class Response:
 Transport = Callable[[str, Mapping[str, str]], Response]
 
 
-def default_transport(url: str, headers: Mapping[str, str]) -> Response:
-    """The real network fetch. Tests replace ``urllib.request.urlopen`` so this cannot dial out."""
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _same_origin(first: str, second: str) -> bool:
+    """Whether two absolute URLs share scheme, host and (defaulted) port. Unparseable is not."""
+    try:
+        origins = []
+        for url in (first, second):
+            parts = urllib.parse.urlsplit(url)
+            scheme = parts.scheme.lower()
+            port = parts.port or _DEFAULT_PORTS.get(scheme)
+            origins.append((scheme, (parts.hostname or "").lower(), port))
+    except ValueError:
+        return False
+    return origins[0] == origins[1]
+
+
+class _OriginBoundRedirects(urllib.request.HTTPRedirectHandler):
+    """urllib's redirect handling, except that ``Authorization`` never leaves its origin.
+
+    The stock handler copies every request header onto the redirected request, so a redirect
+    answering the Pages API probe would hand the job token to wherever ``Location`` points. A
+    same-origin redirect keeps it; a change of scheme, host or port drops it.
+    """
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: http.client.HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and not _same_origin(req.full_url, new.full_url):
+            new.remove_header("Authorization")
+        return new
+
+
+def _build_opener(*handlers: urllib.request.BaseHandler) -> urllib.request.OpenerDirector:
+    """urllib's default opener with :class:`_OriginBoundRedirects` as its redirect handler."""
+    return urllib.request.build_opener(_OriginBoundRedirects, *handlers)
+
+
+#: The opener every real fetch goes through. Tests replace it so nothing here can dial out.
+_OPENER = _build_opener()
+
+
+def _read_bounded(status: int, answer: Any, headers: Mapping[str, str] | None) -> Response:
+    """*answer*'s body, read no further than one byte past :data:`MAX_BODY_BYTES`."""
+    body = answer.read(MAX_BODY_BYTES + 1) or b""
+    if len(body) > MAX_BODY_BYTES:
+        return Response(None, error=f"the body exceeded {MAX_BODY_BYTES} bytes; not read further")
+    return Response(status, body, headers=_lower(headers))
+
+
+def _exchange(url: str, headers: Mapping[str, str]) -> Response:
+    """One request through :data:`_OPENER`, every HTTP status included, as a :class:`Response`."""
     request = urllib.request.Request(url, headers=dict(headers))
     try:
         try:
-            with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as answer:
-                return Response(answer.status, answer.read(), headers=_lower(answer.headers))
+            with _OPENER.open(request, timeout=TIMEOUT_SECONDS) as answer:
+                return _read_bounded(answer.status, answer, answer.headers)
         except urllib.error.HTTPError as exc:
-            return Response(exc.code, exc.read() or b"", headers=_lower(exc.headers))
+            return _read_bounded(exc.code, exc, exc.headers)
     # Every way the exchange itself can break -- including a body cut short while it is read
     # (http.client.IncompleteRead) or a malformed status line, which are HTTPException and not
     # OSError -- is a transport failure on the retry path, never an exception out of main().
     except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         return Response(None, error=f"{type(exc).__name__}: {getattr(exc, 'reason', exc)}")
+
+
+def default_transport(url: str, headers: Mapping[str, str]) -> Response:
+    """The real network fetch, bounded as a whole by :data:`TIMEOUT_SECONDS`.
+
+    The exchange runs on a daemon thread that is abandoned at the deadline, which is reported as
+    a transport failure; anything else the exchange raises is re-raised here, on the caller's
+    thread. An abandoned thread holds at most :data:`MAX_BODY_BYTES` and dies with the process.
+    """
+    outcome: list[Response | BaseException] = []
+
+    def exchange() -> None:
+        try:
+            outcome.append(_exchange(url, headers))
+        except BaseException as exc:  # handed to the caller below, never swallowed here
+            outcome.append(exc)
+
+    worker = threading.Thread(target=exchange, name="docs-liveness fetch", daemon=True)
+    worker.start()
+    worker.join(TIMEOUT_SECONDS)
+    if not outcome:
+        return Response(
+            None,
+            error=f"no complete response within the {TIMEOUT_SECONDS:g} s whole-fetch deadline",
+        )
+    if isinstance(outcome[0], BaseException):
+        raise outcome[0]
+    return outcome[0]
 
 
 def _lower(headers: Mapping[str, str] | None) -> dict[str, str]:
