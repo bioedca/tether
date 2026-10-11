@@ -10,7 +10,10 @@ and [Analysis parameters](reference/parameters.md) references, and the
 
 ## The pipeline at a glance
 
-Every movie travels the same road. The stages that keep a result keep it in one
+This is the road a movie takes when Tether extracts it natively. A legacy Deep-LASI
+acquisition joins it later: its traces were already integrated, so it is imported straight
+into a project and skips the split-to-extract stages
+([Legacy Deep-LASI import](io/legacy-import.md)). The stages that keep a result keep it in one
 [`.tether` project file](reference/tether-format.md), which refers to your movie rather than
 copying its pixels ([the store references your movies](compatibility.md#the-store-references-your-movies-it-does-not-copy-them));
 some stages write nothing, and exports are new files beside the project:
@@ -27,11 +30,15 @@ and when a stage's predecessor did not complete it records the later stage as **
 rather than running it on missing inputs
 ([stage status](glossary.md#stage-status-batch);
 [ADR-0030](adr/0030-headless-batch-runner-isolation-and-checkpoint.md)). The steps inside the
-correction stage are enforced the same way: run out of order, each one refuses and names the
-step that has to come first ([correction order](glossary.md#correction-order)).
+correction stage run in a fixed order there. Called directly, the leakage and γ estimators
+refuse to run before the steps they depend on; the final step that stamps how E is computed
+does not refuse, and falls back to apparent E when the factors are missing
+([correction order](glossary.md#correction-order);
+[`tether.project.correct`](https://github.com/bioedca/tether/blob/main/src/tether/project/correct.py)).
 
-Curation is the one stage the batch runner does not run. Accepting or rejecting a molecule is
-your judgement, made in the app, and it can happen any time after extraction.
+The batch runner stops at idealization: curation, analysis and export are not part of it.
+Curation in particular is your judgement, made in the app, and it can happen any time after
+extraction.
 
 ## The stages
 
@@ -110,8 +117,11 @@ file, and row *i* of every trace array is the same molecule
 ### Curate
 
 `tether.project.labels` records each accept or reject you make. The current verdict sits on
-the molecule, and every decision is also appended to a log that is never rewritten, with who
-made it and when ([curation label](glossary.md#curation-label-category-quality-class);
+the molecule, and every decision is also appended to a log, with who made it and when.
+The decision rows are never rewritten; only each row's training weight is recomputed when
+the quality ranker retrains
+([`tether.project.weighting`](https://github.com/bioedca/tether/blob/main/src/tether/project/weighting.py);
+[curation label](glossary.md#curation-label-category-quality-class);
 [ADR-0023](adr/0023-curation-label-codec-and-labels-log.md)).
 
 - **Writes:** `curation_label` on the molecule and a row in `/labels`.
@@ -208,8 +218,7 @@ the `/settings/correction` record can ([correction_method](glossary.md#correctio
 
 γ evens out the difference between the two dyes in brightness and detection. Tether measures
 it on each molecule, from the jump in donor and acceptor intensity at the frame the acceptor
-bleaches, because single-molecule photobleaching is the most direct route to an absolute
-efficiency
+bleaches
 ([`tether.fret.gamma`](https://github.com/bioedca/tether/blob/main/src/tether/fret/gamma.py);
 [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)). A molecule whose bleach step
 does not pass the quality gates takes the median γ of the molecules that did
