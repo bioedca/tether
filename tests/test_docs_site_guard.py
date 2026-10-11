@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import http.client
 import importlib.util
 import json
 import sys
@@ -245,11 +246,66 @@ def test_versions_json_resolves_latest_without_a_version_number() -> None:
     assert guard.check_versions(R(200, b"not json"), 1)
 
 
-@pytest.mark.parametrize("aliases", [b"1", b'"latest"', b"null", b'{"latest": 1}'])
+@pytest.mark.parametrize("aliases", [b"1", b'"latest"', b"null", b'{"latest": 1}', b"[1]"])
 def test_versions_json_requires_aliases_to_be_a_list(aliases: bytes) -> None:
     body = b'[{"version":"dev","title":"dev","aliases":' + aliases + b"}]"
     (problem,) = guard.check_versions(R(200, body), 1)
     assert guard.VERSIONS_URL in problem
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # A malformed entry is reported even when `latest` still resolves (#509 review).
+        b'[{"version":"latest","aliases":1}]',
+        b'[{"version":"dev","aliases":["latest"]},{"version":"0.9","aliases":"old"}]',
+        b'[{"version":"dev","aliases":["latest"]},"0.9"]',
+        b'[{"version":1,"aliases":["latest"]}]',
+        b'[{"version":"dev","title":2,"aliases":["latest"]}]',
+        b'{"version":"dev","aliases":["latest"]}',
+    ],
+)
+def test_versions_json_shape_is_validated_independently_of_latest(body: bytes) -> None:
+    (problem,) = guard.check_versions(R(200, body), 1)
+    assert "shape" in problem and guard.VERSIONS_URL in problem
+
+
+def test_a_version_named_latest_with_no_aliases_resolves() -> None:
+    assert guard.check_versions(R(200, b'[{"version":"latest","title":"latest"}]'), 1) == []
+
+
+class _BrokenBody:
+    """A urlopen result whose body is cut short mid-read, as http.client reports it."""
+
+    status, headers = 200, {}
+
+    def __enter__(self) -> _BrokenBody:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        raise http.client.IncompleteRead(b"<html>", 4096)
+
+
+@pytest.mark.parametrize(
+    "opener",
+    [
+        lambda *_a, **_k: _BrokenBody(),
+        lambda *_a, **_k: (_ for _ in ()).throw(http.client.BadStatusLine("garbage")),
+    ],
+    ids=["incomplete-read", "bad-status-line"],
+)
+def test_an_http_protocol_failure_is_a_transport_failure(
+    monkeypatch: pytest.MonkeyPatch, opener: object
+) -> None:
+    monkeypatch.setattr(guard.urllib.request, "urlopen", opener)
+    response = guard.default_transport(guard.LATEST_URL, {})
+    assert response.status is None and response.error
+    # ... so it rides the retry path and is reported, never an exception out of main().
+    (problem,) = guard.check_latest(response, guard.MAX_ATTEMPTS)
+    assert "transport failure" in problem
 
 
 def test_a_transient_503_is_retried_and_passes() -> None:

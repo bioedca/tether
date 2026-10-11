@@ -32,6 +32,7 @@ imports the standard library only.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sys
@@ -80,12 +81,16 @@ def default_transport(url: str, headers: Mapping[str, str]) -> Response:
     """The real network fetch. Tests replace ``urllib.request.urlopen`` so this cannot dial out."""
     request = urllib.request.Request(url, headers=dict(headers))
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as answer:
-            return Response(answer.status, answer.read(), headers=_lower(answer.headers))
-    except urllib.error.HTTPError as exc:
-        return Response(exc.code, exc.read() or b"", headers=_lower(exc.headers))
-    except (urllib.error.URLError, OSError) as exc:  # TimeoutError is an OSError
-        return Response(None, error=str(getattr(exc, "reason", exc)))
+        try:
+            with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as answer:
+                return Response(answer.status, answer.read(), headers=_lower(answer.headers))
+        except urllib.error.HTTPError as exc:
+            return Response(exc.code, exc.read() or b"", headers=_lower(exc.headers))
+    # Every way the exchange itself can break -- including a body cut short while it is read
+    # (http.client.IncompleteRead) or a malformed status line, which are HTTPException and not
+    # OSError -- is a transport failure on the retry path, never an exception out of main().
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+        return Response(None, error=f"{type(exc).__name__}: {getattr(exc, 'reason', exc)}")
 
 
 def _lower(headers: Mapping[str, str] | None) -> dict[str, str]:
@@ -254,8 +259,32 @@ def check_privacy(response: Response, attempts: int) -> list[str]:
     return []
 
 
+def _versions_shape_errors(entries: object) -> list[str]:
+    """Every way *entries* departs from mike's ``versions.json`` shape, checked in one place.
+
+    The shape is a list of objects, each with a string ``version`` and, where present, a string
+    ``title`` and an ``aliases`` list of strings. It is validated as its own assertion, so a
+    malformed entry is reported even when another entry (or the same one) resolves ``latest``.
+    """
+    if not isinstance(entries, list):
+        return [f"top level is {type(entries).__name__}, not a list"]
+    errors = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            errors.append(f"entry {index} is {type(entry).__name__}, not an object")
+            continue
+        if not isinstance(entry.get("version"), str):
+            errors.append(f"entry {index} has no string `version`")
+        if "title" in entry and not isinstance(entry["title"], str):
+            errors.append(f"entry {index} has a non-string `title`")
+        aliases = entry.get("aliases", [])
+        if not isinstance(aliases, list) or not all(isinstance(a, str) for a in aliases):
+            errors.append(f"entry {index} has `aliases` that is not a list of strings")
+    return errors
+
+
 def check_versions(response: Response, attempts: int) -> list[str]:
-    """``versions.json`` resolves ``latest``; no version number is required (it aliases ``dev``)."""
+    """``versions.json`` is well-formed and resolves ``latest``; no version number is required."""
     problem = _status_problem(VERSIONS_URL, response, attempts)
     if problem:
         return [problem]
@@ -263,15 +292,10 @@ def check_versions(response: Response, attempts: int) -> list[str]:
         entries = json.loads(response.body)
     except ValueError:
         return [f"{VERSIONS_URL} is not valid JSON"]
-    resolves = isinstance(entries, list) and any(
-        isinstance(e, dict)
-        and (
-            (isinstance(e.get("aliases"), list) and "latest" in e["aliases"])
-            or e.get("version") == "latest"
-        )
-        for e in entries
-    )
-    if not resolves:
+    shape = _versions_shape_errors(entries)
+    if shape:
+        return [f"{VERSIONS_URL} is not mike's versions.json shape: {'; '.join(shape)}"]
+    if not any(e["version"] == "latest" or "latest" in e.get("aliases", []) for e in entries):
         return [f"{VERSIONS_URL} has no entry resolving `latest` (no alias or version 'latest')"]
     return []
 
