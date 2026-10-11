@@ -9,9 +9,14 @@ Releases** — true when written, false by the time #240 was filed: ten tags exi
 
 The failure mode is the *shape* of the claim, not the numbers in it. An inventory count
 goes stale on the next tag, silently, and nothing in ``mkdocs build --strict`` can see it —
-a wrong number renders exactly as well as a right one. So the guard forbids the shape and
-pins the two facts the page actually needs: that the retained prerelease is published, and
-that the stable Release is not.
+a wrong number renders exactly as well as a right one. So the guard forbids the shape.
+
+#323 went one step further: the row no longer describes the release state at all. Its
+replacement note ("the only Release published so far is ``v1.0.0-rc1``"; "the stable
+``v1.0.0`` Release has not been published") was a *state* rather than a count, but it went
+false on the next publication just the same. The row now answers "Where is it announced?"
+with a link and lets the Releases page be the source of truth about itself, which retires
+#240's second criterion and the test that pinned it.
 
 Dependency-free and stdlib-only, so it runs on the base 3-OS ``test`` matrix.
 """
@@ -72,33 +77,66 @@ def test_the_guard_reports_the_wording_it_replaced() -> None:
     )
 
 
-def test_the_stability_page_separates_the_prerelease_from_the_stable_release() -> None:
-    """#240's second criterion. The two are distinct facts and the page must not merge them.
+#: The announcement row of the deprecation-policy table.
+_ANNOUNCEMENT_ROW = re.compile(r"^\| Where is it announced\? \|.*$", re.MULTILINE)
 
-    A reader who is told only "there is a Release" will look for `1.0.0` deprecation notes
-    that do not exist; a reader told only "1.0.0 is unpublished" will assume the Releases
-    page is empty and stop looking. Both halves are load-bearing.
+#: A statement about what is or is not currently on the Releases page: a link to one specific
+#: Release, or a claim that something has (not) been published (yet / so far). Each is true
+#: only until the next publication, and none of them fails anything when it stops being so.
+_PUBLICATION_STATE = re.compile(
+    r"releases/tag/|\b(?:has|have)\s+(?:not\s+)?(?:yet\s+)?been\s+published\b"
+    r"|\bpublished\s+so\s+far\b|\bnot\s+(?:yet\s+)?(?:been\s+)?published\b",
+    re.IGNORECASE,
+)
+
+
+def _announcement_row(text: str) -> str:
+    match = _ANNOUNCEMENT_ROW.search(text)
+    assert match, "docs/stability.md must keep its 'Where is it announced?' row"
+    return match.group(0)
+
+
+def test_the_announcement_row_states_no_current_publication_state() -> None:
+    """#323: the row carries no statement a future Release publication silently falsifies.
+
+    This replaces ``test_the_stability_page_separates_the_prerelease_from_the_stable_release``,
+    deleted deliberately: it pinned "the stable ``v1.0.0`` Release has not been published",
+    which made the page's staleness loud by turning CI red at the moment of a release cut.
+    Under the maintainer's decision on #323 the row says nothing about the current state, so
+    there is nothing left to go stale and nothing to pin; this guard keeps it that way.
     """
-    text = STABILITY.read_text(encoding="utf-8")
-    assert RC1_URL in text, "the page must link the retained prerelease it describes"
-    assert "prerelease" in text, "the retained Release must be named as a prerelease"
-    assert re.search(r"stable `v1\.0\.0` Release has not been published", text), (
-        "the page must say the stable v1.0.0 Release is not published, so a reader does "
-        "not read the retained prerelease as the 1.0 release notes"
+    row = _announcement_row(STABILITY.read_text(encoding="utf-8"))
+    offenders = _PUBLICATION_STATE.findall(row)
+    assert not offenders, (
+        "the 'Where is it announced?' row describes what is currently published; link the "
+        f"Releases page instead and let it be the source of truth about itself: {offenders}"
+    )
+
+
+def test_the_publication_state_guard_reports_the_wording_it_replaced() -> None:
+    """Presence before absence: the sentences #323 removed are the ones this guard reports."""
+    assert _PUBLICATION_STATE.search(
+        f"the only Release published so far is the retained [`v1.0.0-rc1` prerelease]({RC1_URL})"
+    )
+    assert _PUBLICATION_STATE.search("**The stable `v1.0.0` Release has not been published**")
+    assert _PUBLICATION_STATE.search("the stable Release is not yet published")
+    assert _PUBLICATION_STATE.search("`v1.0.0` has been published")
+    assert not _PUBLICATION_STATE.search(
+        "The Releases page is the record of every published Release"
     )
 
 
 def test_the_two_release_pages_agree_about_the_retained_prerelease() -> None:
     """#240's third criterion: the announcement guidance stays consistent with `release.md`.
 
-    ``docs/release.md`` is the page that owns the prerelease-retention decision; the
-    stability page only cites it. If that page ever stops describing a retained
-    prerelease, the citation here is the thing that goes wrong, so bind them.
+    ``docs/release.md`` is the page that owns the prerelease-retention decision and the
+    release process; since #323 the stability row no longer names the retained prerelease
+    and only links that page and the Releases page, which are what it must keep.
     """
     release = RELEASE.read_text(encoding="utf-8")
     assert RC1_URL in release, "docs/release.md must still document the retained prerelease"
     assert "retain" in release.lower(), (
-        "docs/stability.md calls the prerelease 'retained' on this page's authority"
+        "docs/release.md owns the decision to retain the prerelease and must still state it"
     )
 
     stability = STABILITY.read_text(encoding="utf-8")
