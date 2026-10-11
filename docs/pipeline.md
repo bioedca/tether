@@ -90,9 +90,11 @@ native fit is gated on its residual, and a map that misses the gate is flagged a
 confidence rather than silently trusted
 ([RMS gate](glossary.md#rms-gate-low-confidence-registration);
 [ADR-0014](adr/0014-registration-map-rms-gate-and-over-gate.md)). If you supply Deep-LASI's own
-`.tmap` instead, Tether uses that map as given: there are no paired spots to measure it
-against, so its residual is recorded as unknown and the gate is not applied
-([`tether.project.extract`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)).
+`.tmap` instead and its channels need only cropping, Tether uses that map as given: there are
+no paired spots to measure it against, so its residual is recorded as unknown and the gate is
+not applied. A `.tmap` that also rotates or flips a channel is refused for now
+([acquisition geometry](compatibility.md#acquisition-geometry);
+[`tether.project.extract`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)).
 
 - **Writes:** the registration map under `/calibration`, with its residual and source.
 - **Read more:** [registration](glossary.md#registration-tmap),
@@ -219,8 +221,9 @@ Tether calls the proximity ratio **apparent E**, and computes it as the correcte
 the correction factors set to do nothing, so the two can never be defined differently
 ([apparent E](glossary.md#apparent-e)).
 
-Two things follow for the plot in front of you. First, every population plot and every
-exported E summary is apparent E, even after the corrections succeeded
+Two things follow for the plot in front of you. First, every population plot that shows
+E, and the E summary in the molecule-table export, is apparent E, even after the corrections
+succeeded
 ([apparent E](glossary.md#apparent-e); [Exports](reference/exports.md)). Second, when α or γ
 cannot be estimated, for example because too few molecules qualify, Tether does not let the
 missing factor reach any number. The factor's cell holds a `NaN` sentinel meaning "no factor
@@ -256,8 +259,8 @@ cross-tool γ comparison has to divide it out
 ### Why bleach frames come first, and why your window wins
 
 Both correction factors are read off photobleaching. α comes from the stretch after the
-acceptor has bleached but the donor has not, when any signal in the acceptor channel can only
-be donor light leaking through
+acceptor has bleached but the donor has not; the estimator assumes that the acceptor-channel
+signal left in that stretch is donor light leaking through
 ([`tether.fret.leakage`](https://github.com/bioedca/tether/blob/main/src/tether/fret/leakage.py)),
 and γ comes from the acceptor's bleach step itself (above). So photobleach detection has to run
 before either factor is estimated, and a molecule it has not run on yet is refused rather
@@ -290,9 +293,13 @@ correction passes ([ADR-0001](adr/0001-provenance-first-data-model.md);
 [`/settings`](reference/tether-format.md#settings-provenance-of-each-pipeline-stage)).
 Photobleach detection is the exception: it records the bleach frames and window it found, but
 not the detector settings it used
-([`tether.project.photobleach`](https://github.com/bioedca/tether/blob/main/src/tether/project/photobleach.py)). A flat CSV of corrected traces carries
-none of that, so from the CSV alone nobody can tell which window, which α, which γ or which
-version produced a number.
+([`tether.project.photobleach`](https://github.com/bioedca/tether/blob/main/src/tether/project/photobleach.py)). The exported files carry only part
+of it. The Deep-LASI `.txt` trace matrix holds intensities alone; the molecule-table CSV adds
+each molecule's window, α, γ and correction method. The provenance sidecar beside each export
+records the export's own parameters, the Tether version that wrote it and the project it came
+from, but not the parameters of the passes that produced the factors, so only the project
+file answers all of those questions
+([provenance sidecar](reference/exports.md#provenance-sidecar)).
 
 Idealization is where this pays off most. By default the model is fitted on the
 background-subtracted donor and acceptor intensities, with no α or γ applied; a fit can be
@@ -310,5 +317,5 @@ took that median
 [staleness](glossary.md#staleness-stale-fresh-live)). That is what lets you say that a dwell
 time or a transition rate came from exactly the trace, window and correction state
 recorded with it, and not from an older version of them. When the result leaves Tether, the
-[provenance sidecar](reference/exports.md#provenance-sidecar) beside each export carries the
-version and parameters with it.
+[provenance sidecar](reference/exports.md#provenance-sidecar) beside each export names the
+project it came from, which is where the rest of that record stays.
