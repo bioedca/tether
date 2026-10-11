@@ -359,19 +359,111 @@ assignment** of the float idealized level (`states_from_idealized` in
 
 `NO_STATE = -1` (`tether.idealize.driver`) — the sentinel filling a Viterbi path outside the
 analysis window, in interior gaps, and wherever the idealized level is non-finite. A
-`NO_STATE` frame is **never itself a dwell and never a transition** — but it does **not split
-a run either**. `tether.analysis.dwell.state_dwells` *strips* the `NO_STATE` frames before
-splitting on state change (tMAVEN's NaN strip), so an interior gap between two frames of the
-same state is stitched over: `0,0,NO_STATE,0,0` is **one 4-frame dwell** of state 0, not two
-2-frame dwells. On the [TDP](#tdp-transition-density-plot) side the gap becomes `NaN` and the
-non-finite pair is dropped, so a `NO_STATE` border never emits a transition point.
+`NO_STATE` frame is **never itself a dwell and never a transition**. What it does to the run
+around it depends on which function reads the path:
+
+- `tether.analysis.dwell.state_dwells` does **not split a run** at it. It *strips* the
+  `NO_STATE` frames before splitting on state change (tMAVEN's NaN strip, kept for parity —
+  `test_state_dwells_strips_no_state_like_tmaven`), so two same-state segments either side
+  of an interior gap are stitched into **one run**.
+- `tether.idealize.dwells_from_states` does the opposite: a `NO_STATE` frame **ends** the run
+  it interrupts (its docstring: "they break a run but are not dwells").
+
+**What a merged dwell's length means.** `state_dwells` reports a run's length as the number
+of frames that survived the strip, so a merged dwell's length is the **sum of the observed
+in-state frames on both sides of the gap; the gap frames are discarded**:
+
+```python
+import numpy as np
+from tether.analysis.dwell import state_dwells
+from tether.idealize import NO_STATE
+
+path = np.array([0, 0, 0, NO_STATE, NO_STATE, NO_STATE, NO_STATE, 0, 0, 0, 1, 1, 1, 0])
+state_dwells([path], no_state=NO_STATE, include_first=True).lengths
+# {0: array([6]), 1: array([3])}
+```
+
+The state-0 frames of the merged run are indices 0–2 and 7–9: a dwell length of **6 frames**,
+across an elapsed span of **10 frames** from the first of them to the last. A merged dwell is
+therefore longer than either segment alone and shorter than the time elapsed between entering
+the state and last being seen in it — and which of those the molecule actually did is what the
+gap makes unobservable. It is not a residence time in either direction.
+
+**A merge is reported only when the merged run is retained.** `state_dwells` always drops a
+molecule's last run, drops its first unless `include_first` (see
+[dwell time](#dwell-time-dwell-time-survival)), and skips a molecule left with a single run. So
+a merged run is reported only when it is neither the molecule's sole run nor its last — and,
+when it is the first, only at `include_first=True`. The bare trace `0,0,NO_STATE,0,0`, whose
+merged run is the molecule's only run, yields **no dwell at all**, at either `include_first`
+setting. A later transition makes the merged run the first of several: it is then reported as
+one 4-frame dwell of state 0 (against an elapsed span of 5 frames), not two 2-frame dwells, at
+`include_first=True`, and dropped as a first run at the default `include_first=False`:
+
+```python
+state_dwells([np.array([0, 0, NO_STATE, 0, 0])], no_state=NO_STATE, include_first=True).lengths
+# {}   (and {} with include_first=False)
+state_dwells([np.array([0, 0, NO_STATE, 0, 0, 1, 1, 0])], no_state=NO_STATE, include_first=True).lengths
+# {0: array([4]), 1: array([2])}
+state_dwells([np.array([0, 0, NO_STATE, 0, 0, 1, 1, 0])], no_state=NO_STATE, include_first=False).lengths
+# {1: array([2])}
+```
+
+**Direction of the effect**, against the same extraction with the gap *splitting* runs instead
+of stitching them (identical first/last handling; a comparison, not a mode Tether implements):
+
+- The sample never gains a dwell, and the pooled frame total never rises. Each merge removes
+  one of its molecule's retained dwells until the molecule has none left to lose: at the
+  default `include_first=False` the bare `0,0,NO_STATE,0,0` above retains none either way (each
+  segment is a first or a last run), so its merge removes nothing.
+- The pooled mean dwell `⟨τ⟩` **rises** when both joined runs would have been retained anyway:
+  the same frames now sit in one fewer dwell. In the first path above, state 0 goes from two
+  3-frame dwells (mean 3 frames) to one 6-frame dwell (mean 6 frames), and
+  `pooled_exit_rates`' `k = 1/⟨τ⟩` **falls** with it, from 0.333333 to 0.166667 per frame at
+  `dt = 1`.
+- When the merged run lands in the always-dropped last slot, or in the first slot at the
+  default `include_first=False`, the segments it absorbed leave the sample, frames and all, and
+  `⟨τ⟩` has **no fixed direction**: it rises if what was removed was shorter on average than the
+  state's pooled dwells, falls if longer, and is unchanged if equal — with `k = 1/⟨τ⟩` moving
+  the other way. At the extreme the molecule is left with one run and contributes nothing —
+  `0,0,NO_STATE,NO_STATE,0,0` returns `{}` at `include_first=True`, where splitting would yield
+  one 2-frame dwell of state 0 — and a state can drop out of the results altogether.
+- Over a population both kinds of merge can occur at once, so the net direction of `⟨τ⟩`, and
+  of `k`, is not fixed by the merge alone.
+- No direction is claimed for the fitted survival lifetime. `population_dwell_times` hands this
+  pool to `survival_curve` and `fit_survival`, so the fit moves with the pool, but a
+  least-squares survival fit is not the reciprocal of a mean.
+
+**Which dwell surfaces see a gap is decided by their callers**, not by the functions: both
+`population_dwell_times` and `tether.analysis.kinetics.pooled_exit_rates` call `state_dwells`
+with the sentinel `-1`, which *is* `NO_STATE`.
+
+- `population_dwell_times` reads its paths through `tether.analysis._store.windowed_states`,
+  which cuts each molecule's window between its first and last non-sentinel frame but keeps
+  any interior gap — so it **merges**.
+- `pooled_exit_rates`' only caller in Tether's source is `two_state_rate_constants`, whose
+  paths come from `viterbi_paths` — an `argmax` over the model's states that never emits the
+  sentinel, so nothing merges there. But `pooled_exit_rates` is public API: hand it a store
+  window and it merges identically.
+
+A gap between two *different* states is not merged: the strip makes the runs either side of it
+adjacent, so the transition is kept, but it happened somewhere inside the gap and its timing
+was not observed — each of those two dwells counts only its observed frames.
+
+On the [TDP](#tdp-transition-density-plot) side the gap becomes `NaN` and the non-finite pair
+is dropped, so a `NO_STATE` border never emits a transition point.
 
 ### dwell time / dwell-time survival
 
 A **dwell** is a run of constant state in a Viterbi path (`tether.analysis.dwell`). Faithful
-to tMAVEN's `generate_dwells`, the **first and last dwell of every molecule are censored**
-(the last always; the first unless `include_first`) — standard right-censoring for a finite
-observation window.
+to tMAVEN's `generate_dwells`, the **first and last dwell of every molecule are dropped** (the
+last always; the first unless `include_first`), so at the default only interior dwells are
+measured. The two are dropped for different reasons. The **last** dwell is right-censored: the
+trace ends before the molecule is seen to leave that state. The **first** is a different case: its start was
+not observed, because the molecule was already in that state when the window opened, while its
+end is a recorded transition. That exit is observed only when no interior `NO_STATE` gap
+separates the first dwell from the next state; across such a gap the exit happened somewhere
+inside it. How an interior gap joins two runs into one dwell, or leaves a transition untimed, is
+under [`NO_STATE`](#no_state).
 
 **Survival** is the empirical `S(τ) = P(dwell > τ)`, fitted with single / double / triple /
 stretched exponentials plus covariance standard errors and Student-*t* confidence intervals.

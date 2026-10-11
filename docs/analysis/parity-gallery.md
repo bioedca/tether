@@ -213,7 +213,7 @@ markers OR density histogram, model overlay, residual subplot via `make_axes_loc
 **Tether reimplementation** — `tether.analysis.dwell` (the three-stage pipeline ported as
 headless array code):
 
-- `state_dwells(state_chunks, *, no_state=None, include_first=False) -> StateDwells` — reimplements `generate_dwells` (`np.split` on `np.diff != 0`; drop the last run always as right-censored, and the first unless `include_first`).
+- `state_dwells(state_chunks, *, no_state=None, include_first=False) -> StateDwells` — reimplements `generate_dwells`: strip the `NO_STATE` frames first (tMAVEN's NaN strip), so same-state segments either side of an interior gap merge into one run whose length is the sum of their observed frames, the gap frames discarded ([`NO_STATE`](../glossary.md#no_state)); then `np.split` on `np.diff != 0`; drop the last run always — right-censored, its exit never observed — and the first unless `include_first` — its start was not observed, the molecule already being in that state when the window opened, and its exit is observed only when no `NO_STATE` gap separates it from the next state.
 - `survival_curve(dwell_lengths) -> (tau, survival)` — reimplements `survival()` with the same `S(0)=1` normalization and identical degenerate empty return.
 - `fit_survival(tau, survival, *, model="single", ci_level=…) -> DwellFit` — reimplements `optimize_*_surv`'s fit: the same `scipy.optimize.curve_fit` (`trf`, bounded), `sqrt(diag(pcov))` standard errors, and R². On top of the ported SE it adds two-sided Student-*t* CIs and a residual array (tMAVEN forms residuals later, in the plotter, not in `optimize_*_surv`). It **grace-fails** (`success=False`, NaN params) instead of raising.
 - `single_exp_survival` / `double_exp_survival` / `triple_exp_survival` / `stretched_exp_survival` — **verbatim copies** of `exponentials.py`.
@@ -223,8 +223,13 @@ Constants carried over verbatim: `DEFAULT_DWELL_NBINS = 51`, `DEFAULT_DWELL_DT =
 
 **Variants.** Empirical survival curve (default) OR density-normalized dwell-time histogram,
 each with a residuals subplot; single/double/triple/stretched fits (tMAVEN also overlays a
-transition-matrix-derived decay in the plotter); first-dwell censoring toggle
-(`include_first`); the last dwell is always censored.
+transition-matrix-derived decay in the plotter); a toggle to keep each molecule's first dwell,
+whose start was not observed (`include_first`); the last dwell, right-censored, is always
+dropped. Interior `NO_STATE` gaps merge only where the caller passes them in:
+`population_dwell_times` reads store windows (`windowed_states`), which keep interior gaps, so
+its dwells merge; `pooled_exit_rates`' only in-tree caller, `two_state_rate_constants`, feeds
+it `viterbi_paths` output, which never carries the sentinel — but handed a store window it
+merges identically ([`NO_STATE`](../glossary.md#no_state)).
 
 ```python
 from tether.analysis.dwell import population_dwell_times
