@@ -407,18 +407,24 @@ state_dwells([np.array([0, 0, NO_STATE, 0, 0, 1, 1, 0])], no_state=NO_STATE, inc
 **Direction of the effect**, against the same extraction with the gap *splitting* runs instead
 of stitching them (identical first/last handling; a comparison, not a mode Tether implements):
 
-- The sample loses one dwell per merge and never gains one, and the pooled frame total never
-  rises.
+- The sample never gains a dwell, and the pooled frame total never rises. Each merge removes
+  one of its molecule's retained dwells until the molecule has none left to lose: at the
+  default `include_first=False` the bare `0,0,NO_STATE,0,0` above retains none either way (each
+  segment is a first or a last run), so its merge removes nothing.
 - The pooled mean dwell `⟨τ⟩` **rises** when both joined runs would have been retained anyway:
   the same frames now sit in one fewer dwell. In the first path above, state 0 goes from two
   3-frame dwells (mean 3 frames) to one 6-frame dwell (mean 6 frames), and
   `pooled_exit_rates`' `k = 1/⟨τ⟩` **falls** with it, from 0.333333 to 0.166667 per frame at
   `dt = 1`.
-- `⟨τ⟩` **falls** instead when the merged run lands in the always-dropped last slot, or in the
-  first slot at the default `include_first=False`: its frames leave the sample entirely. At the
-  extreme the molecule is left with one run and contributes nothing —
+- When the merged run lands in the always-dropped last slot, or in the first slot at the
+  default `include_first=False`, the segments it absorbed leave the sample, frames and all, and
+  `⟨τ⟩` has **no fixed direction**: it rises if what was removed was shorter on average than the
+  state's pooled dwells, falls if longer, and is unchanged if equal — with `k = 1/⟨τ⟩` moving
+  the other way. At the extreme the molecule is left with one run and contributes nothing —
   `0,0,NO_STATE,NO_STATE,0,0` returns `{}` at `include_first=True`, where splitting would yield
   one 2-frame dwell of state 0 — and a state can drop out of the results altogether.
+- Over a population both kinds of merge can occur at once, so the net direction of `⟨τ⟩`, and
+  of `k`, is not fixed by the merge alone.
 - No direction is claimed for the fitted survival lifetime. `population_dwell_times` hands this
   pool to `survival_curve` and `fit_survival`, so the fit moves with the pool, but a
   least-squares survival fit is not the reciprocal of a mean.
@@ -435,6 +441,10 @@ with the sentinel `-1`, which *is* `NO_STATE`.
   sentinel, so nothing merges there. But `pooled_exit_rates` is public API: hand it a store
   window and it merges identically.
 
+A gap between two *different* states is not merged: the strip makes the runs either side of it
+adjacent, so the transition is kept, but it happened somewhere inside the gap and its timing
+was not observed — each of those two dwells counts only its observed frames.
+
 On the [TDP](#tdp-transition-density-plot) side the gap becomes `NaN` and the non-finite pair
 is dropped, so a `NO_STATE` border never emits a transition point.
 
@@ -444,10 +454,12 @@ A **dwell** is a run of constant state in a Viterbi path (`tether.analysis.dwell
 to tMAVEN's `generate_dwells`, the **first and last dwell of every molecule are dropped** (the
 last always; the first unless `include_first`), so only interior dwells are measured. The two
 are dropped for different reasons. The **last** dwell is right-censored: the trace ends before
-the molecule is seen to leave that state. The **first** is not: its exit *is* observed — it
-ends at a transition — but its start was not, because the molecule was already in that state
-when the window opened. How an interior gap joins two runs into one dwell is under
-[`NO_STATE`](#no_state).
+the molecule is seen to leave that state. The **first** is a different case: its start was
+not observed, because the molecule was already in that state when the window opened, while its
+end is a recorded transition. That exit is observed only when no interior `NO_STATE` gap
+separates the first dwell from the next state; across such a gap the exit happened somewhere
+inside it. How an interior gap joins two runs into one dwell, or leaves a transition untimed, is
+under [`NO_STATE`](#no_state).
 
 **Survival** is the empirical `S(τ) = P(dwell > τ)`, fitted with single / double / triple /
 stretched exponentials plus covariance standard errors and Student-*t* confidence intervals.
