@@ -47,7 +47,8 @@ release**, not the binaries, and it is unaffected by any of the above.
    when the next merge lands (`cancel-in-progress` keyed on the ref), a commit whose checks
    were cancelled by a following merge can never be released — release from a later commit
    whose checks ran to completion instead.
-2. Create a **signed, annotated** tag on the release commit and push it:
+2. Create a **signed, annotated** tag on the release commit and push it, with the two
+   commands below the list:
 
     Tag only commits that already contain the post-merge gate: the pipeline that runs is
     the `release.yml` **in the tagged tree**, so a tag on an older commit executes that
@@ -61,11 +62,6 @@ release**, not the binaries, and it is unaffected by any of the above.
     not show that the gate is still present and enabled at `<commit>`. The tag command
     below names no commit, so it tags `HEAD`: run the check with `HEAD` as `<commit>`
     before running either command.
-
-    ```bash
-    git tag -s v1.0.0 -m "Tether v1.0.0"
-    git push origin v1.0.0
-    ```
 
     The tag must have the form `vMAJOR.MINOR.PATCH` (PRD §12.7): three numeric components
     with no leading zeros, optionally followed by a `-<prerelease>` component such as
@@ -82,6 +78,7 @@ release**, not the binaries, and it is unaffected by any of the above.
     commit-on-`main` trio is checked only on a real publish, in the step gated
     `if: steps.resolve.outputs.publish == 'true'`. The post-merge check-state guard from
     step 1 is not behind that gate either, so a dry run evaluates it too.
+
 3. To rehearse without publishing, run the **`release`** workflow via *Actions → release
    → Run workflow* with `dry_run: true` and, as `ref`, a fresh `v*` rc tag cut from the
    `main` you are about to release — it builds, install-smokes, checksums and SBOMs, but
@@ -92,6 +89,13 @@ release**, not the binaries, and it is unaffected by any of the above.
    `packaging/scripts/install_smoke.sh` — fails early on the first absent file. To re-run
    such a tag self-consistently, set **Use workflow from** to the tag itself, the same
    rule the docs dispatch below already states.
+
+The two commands for step 2, run only after the gate check it describes:
+
+```bash
+git tag -s v1.0.0 -m "Tether v1.0.0"
+git push origin v1.0.0
+```
 
 ### What a published Release contains: verified `v1.0.0-rc1`
 
