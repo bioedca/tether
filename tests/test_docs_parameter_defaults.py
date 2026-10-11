@@ -205,10 +205,32 @@ def dataclass_field(dotted: str, class_name: str, field: str) -> object:
     raise AssertionError(f"{dotted} has no class {class_name!r}")
 
 
+def _callee(node: ast.expr | None) -> str | None:
+    """``f`` for a call ``f(…)`` or ``m.f(…)``; ``None`` for anything else."""
+    if not isinstance(node, ast.Call):
+        return None
+    func = node.func
+    return func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+
+
+def _field_default(value: ast.expr | None) -> ast.expr | None:
+    """A field's default node, looking through ``field(default=…)``.
+
+    ``field(default_factory=…)`` has no default *value* to name, so the call itself is
+    returned -- never the factory, which is a bare name (``list``) and would otherwise read
+    as a constant default.
+    """
+    if _callee(value) != "field":
+        return value
+    assert isinstance(value, ast.Call)
+    keywords = {kw.arg: kw.value for kw in value.keywords}
+    return keywords.get("default", value if "default_factory" in keywords else None)
+
+
 def _dataclass_fields(cls: ast.ClassDef) -> dict[str, ast.expr | None]:
     """The annotated fields of a class body mapped to their default nodes."""
     return {
-        item.target.id: item.value
+        item.target.id: _field_default(item.value)
         for item in cls.body
         if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)
     }
@@ -1241,8 +1263,8 @@ def test_a_documented_constant_backed_default_still_names_its_constant(
 #   1. the keyword's default is a *name*      -> the pair must be in the table;
 #   2. it is a literal, or there is no default -> nothing to bind here (a literal default
 #      is ``function_default``'s business);
-#   3. ``NAME`` resolves to nothing, or the keyword is not one of its parameters
-#                                             -> the check fails, naming the token.
+#   3. ``NAME`` resolves to no public definition, or to more than one, or the call as
+#      written would not accept the keyword  -> the check fails, naming the token.
 #
 # There is no fourth. Nothing can declare a surface out of scope, because an exemption
 # list would let the whole check be discharged by binding a few surfaces and exempting the
@@ -1259,8 +1281,11 @@ _SURFACE_TOKEN_RE = re.compile(r"^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\((.*)\)$")
 _KEYWORD_RE = re.compile(r"([A-Za-z_]\w*)\s*=(?!=)")
 
 
+_Modules = tuple[tuple[str, ast.Module], ...]
+
+
 @functools.cache
-def _source_modules() -> tuple[tuple[str, ast.Module], ...]:
+def _source_modules() -> _Modules:
     """Every module under ``src/``, parsed once, as ``(dotted name, tree)``."""
     return tuple(
         (
@@ -1271,33 +1296,107 @@ def _source_modules() -> tuple[tuple[str, ast.Module], ...]:
     )
 
 
-def _resolve(name: str) -> list[tuple[str, dict[str, ast.expr | None]]]:
-    """Every ``(module, parameters)`` that the surface ``name`` resolves to.
+def _is_public(dotted: str) -> bool:
+    """No component of ``dotted`` is private (``__init__`` is the package, not private)."""
+    return not any(part.startswith("_") and part != "__init__" for part in dotted.split("."))
 
-    Three resolvers: a module-level function ``name``; a dataclass ``name``, whose fields
-    are its parameters; and, for a dotted ``name``, the method ``Class.method``. The whole
-    source tree is searched and **every** hit is returned rather than the first: two
-    modules define a module-level ``fine_tune`` today, and picking one would be a quiet
-    mis-resolution the day both default a keyword to a name. Each hit keeps its module, so
-    the coverage check requires a table entry for each one and fails loudly instead.
+
+def _keyword_parameters(fn: ast.FunctionDef) -> dict[str, ast.expr | None]:
+    """The parameters a caller can pass **by keyword**, with their default nodes.
+
+    :func:`_signature` minus the positional-only ones: a documented ``kw=…`` call on a
+    parameter declared before ``/`` is a ``TypeError`` in Python, so it must not resolve.
+    """
+    positional_only = {a.arg for a in fn.args.posonlyargs}
+    return {k: v for k, v in _signature(fn).items() if k not in positional_only}
+
+
+def _is_annotation(node: ast.expr, name: str) -> bool:
+    """Is the annotation ``node`` ``name``, ``typing.name`` or ``name[…]`` (or a string of it)?"""
+    if isinstance(node, ast.Subscript):
+        node = node.value
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value.split("[", 1)[0].rsplit(".", 1)[-1].strip() == name
+    return (isinstance(node, ast.Name) and node.id == name) or (
+        isinstance(node, ast.Attribute) and node.attr == name
+    )
+
+
+def _constructor_keywords(cls: ast.ClassDef) -> dict[str, ast.expr | None]:
+    """The keywords a call ``Cls(…)`` of the dataclass ``cls`` accepts, as Python decides.
+
+    An ``__init__`` written in the class body wins (``@dataclass`` does not overwrite it).
+    Otherwise the generated one takes every annotated field except a ``ClassVar``, the
+    ``KW_ONLY`` marker and a ``field(init=False)`` -- and nothing at all under
+    ``@dataclass(init=False)``. Fields inherited from a base class are not followed, so a
+    page token naming one fails disposition 3 rather than passing unchecked.
+    """
+    for item in cls.body:
+        if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+            return {k: v for k, v in _keyword_parameters(item).items() if k != "self"}
+    for decorator in cls.decorator_list:
+        if isinstance(decorator, ast.Call) and any(
+            kw.arg == "init" and isinstance(kw.value, ast.Constant) and kw.value.value is False
+            for kw in decorator.keywords
+        ):
+            return {}
+    accepted: dict[str, ast.expr | None] = {}
+    for item in cls.body:
+        if not (isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)):
+            continue
+        if _is_annotation(item.annotation, "ClassVar") or _is_annotation(
+            item.annotation, "KW_ONLY"
+        ):
+            continue
+        if (
+            isinstance(item.value, ast.Call)
+            and _callee(item.value) == "field"
+            and any(
+                kw.arg == "init" and isinstance(kw.value, ast.Constant) and kw.value.value is False
+                for kw in item.value.keywords
+            )
+        ):
+            continue
+        accepted[item.target.id] = _field_default(item.value)
+    return accepted
+
+
+def _resolve(name: str, modules: _Modules) -> list[tuple[str, dict[str, ast.expr | None]]]:
+    """Every **public** ``(module, keyword parameters)`` the surface ``name`` resolves to.
+
+    Three resolvers: a module-level function ``name``; a dataclass ``name``, read as its
+    constructor; and, for a dotted ``name``, the method ``Class.method``. Each answers what
+    Python would accept as a keyword on that call (:func:`_keyword_parameters`,
+    :func:`_constructor_keywords`).
+
+    Only public definitions count -- no private module or name -- because the page
+    documents calls a reader makes, and a private same-named helper
+    (``tether.ml.deep._torch_model.fine_tune``) would otherwise keep a token resolving
+    after the documented one was removed. Every public hit is returned, never the first:
+    the caller requires exactly one, so a second public definition of the same name fails
+    loudly instead of being picked quietly. The *module* is still not read off the page,
+    whose **Parameter** cell names where the constant lives, which is not always where the
+    function does (``compute_photobleach`` / ``PB_PRIOR_A``).
     """
     owner, _, leaf = name.rpartition(".")
-    if "." in owner:
+    if "." in owner or any(part.startswith("_") for part in name.split(".")):
         return []
     hits: list[tuple[str, dict[str, ast.expr | None]]] = []
-    for dotted, tree in _source_modules():
+    for dotted, tree in modules:
+        if not _is_public(dotted):
+            continue
         for stmt in tree.body:
             if owner:
                 if isinstance(stmt, ast.ClassDef) and stmt.name == owner:
                     hits += [
-                        (dotted, _signature(item))
+                        (dotted, _keyword_parameters(item))
                         for item in stmt.body
                         if isinstance(item, ast.FunctionDef) and item.name == leaf
                     ]
             elif isinstance(stmt, ast.FunctionDef) and stmt.name == leaf:
-                hits.append((dotted, _signature(stmt)))
+                hits.append((dotted, _keyword_parameters(stmt)))
             elif isinstance(stmt, ast.ClassDef) and stmt.name == leaf and _is_dataclass(stmt):
-                hits.append((dotted, _dataclass_fields(stmt)))
+                hits.append((dotted, _constructor_keywords(stmt)))
     return hits
 
 
@@ -1313,8 +1412,12 @@ class _Derived(NamedTuple):
     unresolved: list[str]
 
 
-def _derive(rows: list[list[str]]) -> _Derived:
-    """Walk the constant-naming six-column rows and sort every spelled keyword."""
+def _derive(rows: list[list[str]], modules: _Modules | None = None) -> _Derived:
+    """Walk the constant-naming six-column rows and sort every spelled keyword.
+
+    ``modules`` defaults to the real source tree; a test passes parsed snippets instead.
+    """
+    modules = _source_modules() if modules is None else modules
     required: dict[tuple[str, str, str], frozenset[str]] = {}
     unresolved: list[str] = []
     for row in rows:
@@ -1328,24 +1431,28 @@ def _derive(rows: list[list[str]]) -> _Derived:
             if match is None:
                 continue
             name, inner = match.groups()
-            hits = _resolve(name)
-            if not hits:
+            hits = _resolve(name, modules)
+            if len(hits) != 1:
                 unresolved.append(
-                    f"`{token}` names {name!r}, which is no module-level function, dataclass "
-                    f"or Class.method under src/"
+                    f"`{token}` names {name!r}, which resolves to "
+                    + (
+                        "no public module-level function, dataclass or Class.method under src/"
+                        if not hits
+                        else f"{len(hits)} public definitions ({sorted(d for d, _ in hits)}), "
+                        "so the page does not say which one it documents"
+                    )
                 )
                 continue
+            ((dotted, params),) = hits
             for keyword in _KEYWORD_RE.findall(inner):
-                owners = [(dotted, params[keyword]) for dotted, params in hits if keyword in params]
-                if not owners:
+                if keyword not in params:
                     unresolved.append(
-                        f"`{token}` spells {keyword}=, which is not a parameter of {name!r} in "
-                        f"any of {sorted(dotted for dotted, _ in hits)}"
+                        f"`{token}` spells {keyword}=, which {dotted}.{name} does not accept "
+                        "by keyword"
                     )
-                for dotted, default in owners:
-                    if isinstance(default, ast.Name):
-                        key = (dotted, name, keyword)
-                        required[key] = required.get(key, frozenset()) | constants
+                elif isinstance(params[keyword], ast.Name):
+                    key = (dotted, name, keyword)
+                    required[key] = required.get(key, frozenset()) | constants
     return _Derived(required, unresolved)
 
 
@@ -1417,6 +1524,65 @@ def test_the_derivation_sorts_each_keyword_into_exactly_one_disposition() -> Non
 
     unwalked = _derive([["`bins`", "`151`", "", "", cell, "**no**"]])
     assert unwalked == _Derived({}, [])
+
+
+def _snippets(*modules: tuple[str, str]) -> _Modules:
+    """Parse ``(dotted name, source)`` pairs into the shape :func:`_derive` reads."""
+    return tuple((dotted, ast.parse(source)) for dotted, source in modules)
+
+
+def _one_row(cell: str) -> list[list[str]]:
+    return [["`x`<br>`DEFAULT_X`", "`1`", "", "", cell, "**no**"]]
+
+
+def test_a_positional_only_parameter_is_not_a_keyword() -> None:
+    """``f(bins=…)`` on a ``bins`` declared before ``/`` is a ``TypeError``, so it fails."""
+    modules = _snippets(
+        ("tether.m", "def f(values, bins=DEFAULT_X, /, *, value_range=DEFAULT_X): ...")
+    )
+    derived = _derive(_one_row("`f(bins=…, value_range=…)`"), modules)
+    assert derived.required == {("tether.m", "f", "value_range"): frozenset({"DEFAULT_X"})}
+    assert len(derived.unresolved) == 1 and "bins=" in derived.unresolved[0]
+
+
+@pytest.mark.parametrize(
+    ("source", "accepted"),
+    [
+        ("@dataclass(frozen=True)\nclass S:\n    t: float = DEFAULT_X\n", True),
+        ("@dataclass(frozen=True, init=False)\nclass S:\n    t: float = DEFAULT_X\n", False),
+        ("@dataclass\nclass S:\n    t: float = field(default=DEFAULT_X, init=False)\n", False),
+        ("@dataclass\nclass S:\n    t: ClassVar[float] = DEFAULT_X\n", False),
+        ("@dataclass\nclass S:\n    t: float = DEFAULT_X\n    def __init__(self): ...\n", False),
+        ("@dataclass\nclass S:\n    t: float = field(default=DEFAULT_X)\n", True),
+    ],
+    ids=["generated", "init-false", "field-init-false", "classvar", "explicit-init", "field"],
+)
+def test_a_dataclass_token_resolves_against_its_constructor(source: str, accepted: bool) -> None:
+    """A field the constructor does not take is not a keyword of ``S(…)``."""
+    derived = _derive(_one_row("`S(t=…)`"), _snippets(("tether.m", source)))
+    if accepted:
+        assert derived == _Derived({("tether.m", "S", "t"): frozenset({"DEFAULT_X"})}, [])
+    else:
+        assert derived.required == {} and len(derived.unresolved) == 1
+
+
+def test_a_private_namesake_cannot_stand_in_for_a_removed_surface() -> None:
+    """The documented ``fine_tune`` gone, a private one left: the token must not resolve.
+
+    And two *public* definitions of one name are ambiguous, so they fail too rather than
+    one being picked.
+    """
+    private = ("tether.ml.deep._torch_model", "def fine_tune(model, seed=None): ...")
+    public = ("tether.ml.deep.model", "def fine_tune(model, seed=DEFAULT_X): ...")
+    cell = "`fine_tune(seed=…)`"
+    assert _derive(_one_row(cell), _snippets(private, public)) == _Derived(
+        {("tether.ml.deep.model", "fine_tune", "seed"): frozenset({"DEFAULT_X"})}, []
+    )
+    gone = _derive(_one_row(cell), _snippets(private))
+    assert gone.required == {} and "no public" in gone.unresolved[0]
+    twin = ("tether.ml.other", "def fine_tune(model, seed=DEFAULT_X): ...")
+    ambiguous = _derive(_one_row(cell), _snippets(public, twin))
+    assert ambiguous.required == {} and "2 public definitions" in ambiguous.unresolved[0]
 
 
 def test_every_row_states_whether_it_is_recorded_in_the_project() -> None:
