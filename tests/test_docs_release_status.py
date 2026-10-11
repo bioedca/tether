@@ -80,16 +80,16 @@ def test_the_guard_reports_the_wording_it_replaced() -> None:
 #: The announcement row of the deprecation-policy table.
 _ANNOUNCEMENT_ROW = re.compile(r"^\| Where is it announced\? \|.*$", re.MULTILINE)
 
-#: A statement about what is or is not currently on the Releases page: a link to one specific
-#: Release, a named release version, "unpublished", or a claim that something has (not) been
-#: published (yet / so far). Each is true only until the next publication, and none of them
-#: fails anything when it stops being so. The bare word "published" is deliberately allowed:
-#: "the record of every published Release" describes the page, not its contents.
-_PUBLICATION_STATE = re.compile(
-    r"releases/tag/|\bv\d+\.\d+\.\d+|\bunpublished\b"
-    r"|\b(?:has|have)\s+(?:not\s+)?(?:yet\s+)?been\s+published\b"
-    r"|\bpublished\s+so\s+far\b|\bnot\s+(?:yet\s+)?(?:been\s+)?published\b",
-    re.IGNORECASE,
+#: The row's exact allowed content, pinned. It describes *where* deprecations are announced and
+#: links the Releases page and the release pipeline page; it says nothing about what is
+#: currently on the Releases page. A denylist of state-describing phrasings could not be made
+#: complete -- each version of one let ordinary wording through -- so the row is pinned whole.
+EXPECTED_ANNOUNCEMENT_ROW = (
+    "| Where is it announced? | **The GitHub release notes** for the release that introduces "
+    "the deprecation, at [github.com/bioedca/tether/releases]"
+    "(https://github.com/bioedca/tether/releases). There is no `CHANGELOG.md` in this "
+    "repository, so do not go looking for one. The Releases page is the record of every "
+    "published Release; the [release pipeline](release.md) describes how a Release is cut. |"
 )
 
 
@@ -99,38 +99,38 @@ def _announcement_row(text: str) -> str:
     return match.group(0)
 
 
-def test_the_announcement_row_states_no_current_publication_state() -> None:
+def test_the_announcement_row_is_pinned_to_describe_the_page_not_its_contents() -> None:
     """#323: the row carries no statement a future Release publication silently falsifies.
 
     This replaces ``test_the_stability_page_separates_the_prerelease_from_the_stable_release``,
     deleted deliberately: it pinned "the stable ``v1.0.0`` Release has not been published",
     which made the page's staleness loud by turning CI red at the moment of a release cut.
-    Under the maintainer's decision on #323 the row says nothing about the current state, so
-    there is nothing left to go stale and nothing to pin; this guard keeps it that way.
+    Under the maintainer's decision on #323 the row says nothing about the current state.
+    Pinning the whole row keeps it that way: any edit fails here and has to be made
+    deliberately, together with this constant.
     """
     row = _announcement_row(STABILITY.read_text(encoding="utf-8"))
-    offenders = _PUBLICATION_STATE.findall(row)
-    assert not offenders, (
-        "the 'Where is it announced?' row describes what is currently published; link the "
-        f"Releases page instead and let it be the source of truth about itself: {offenders}"
+    assert row == EXPECTED_ANNOUNCEMENT_ROW, (
+        "the 'Where is it announced?' row changed. Describe the Releases page, not its "
+        "contents: say nothing about what is or is not currently published (#323). If the "
+        "change is deliberate and does that, update EXPECTED_ANNOUNCEMENT_ROW with it.\n"
+        f"expected: {EXPECTED_ANNOUNCEMENT_ROW}\nfound:    {row}"
     )
 
 
-def test_the_publication_state_guard_reports_the_wording_it_replaced() -> None:
-    """Presence before absence: the sentences #323 removed are the ones this guard reports."""
-    assert _PUBLICATION_STATE.search(
-        f"the only Release published so far is the retained [`v1.0.0-rc1` prerelease]({RC1_URL})"
-    )
-    assert _PUBLICATION_STATE.search("**The stable `v1.0.0` Release has not been published**")
-    assert _PUBLICATION_STATE.search("the stable Release is not yet published")
-    assert _PUBLICATION_STATE.search("`v1.0.0` has been published")
-    # Ordinary phrasings of the same claim, which a wording-only pattern would let through.
-    assert _PUBLICATION_STATE.search("The only published Release is v1.0.0-rc1")
-    assert _PUBLICATION_STATE.search("the stable release remains unpublished")
-    assert _PUBLICATION_STATE.search("v1.0.0 is now available")
-    assert not _PUBLICATION_STATE.search(
-        "The Releases page is the record of every published Release"
-    )
+def test_the_pin_reports_a_row_that_describes_the_page_contents() -> None:
+    """Presence before absence: the removed note, or any rewording of it, fails the pin."""
+    page = STABILITY.read_text(encoding="utf-8")
+    for note in (
+        f"the only Release published so far is the retained [`v1.0.0-rc1` prerelease]({RC1_URL}).",
+        "The prerelease is currently the only available Release.",
+    ):
+        reworded = page.replace(
+            EXPECTED_ANNOUNCEMENT_ROW,
+            EXPECTED_ANNOUNCEMENT_ROW.removesuffix(" |") + f" {note} |",
+        )
+        assert reworded != page
+        assert _announcement_row(reworded) != EXPECTED_ANNOUNCEMENT_ROW
 
 
 def test_the_two_release_pages_agree_about_the_retained_prerelease() -> None:
