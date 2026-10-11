@@ -100,6 +100,30 @@ def test_the_requirement_is_pinned_and_hashed() -> None:
     assert setup.setuptools_wheel_name() == f"setuptools-{version}-py3-none-any.whl"
 
 
+def test_the_pinned_version_stays_below_the_pkg_resources_removal() -> None:
+    """The bound itself, asserted where every pull request reaches it (#447).
+
+    The exact-version and exact-digest assertions above name the *format* of a bump, never
+    its *reason*: a single-hash bump fails as a bare ``'83.0.0' == '80.9.0'``, which reads
+    as "update the assertion to match". That edit would go green here and fail only inside
+    the live ``sidecar / parity`` job, and only because this module happens to match its
+    path filter. This is the fast, local failure that says why the pin cannot move.
+
+    ``81`` is a literal on purpose, in the same numeric-comparison form the install-smoke
+    assertion in ``packaging/scripts/install_smoke.sh`` uses. The version itself is still
+    read from the compatibility file and never restated, and the message spells the bound
+    as prose so a consumer that pastes it cannot restate the requirement either.
+    """
+    version, _digest = setup.setuptools_requirement()
+    assert int(version.split(".")[0]) < 81, (
+        f"{setup.SETUPTOOLS_REQUIREMENTS.name} pins setuptools {version}, but the pin must "
+        "stay below 81: setuptools 82.0.0 removed `pkg_resources`, which tMAVEN's "
+        "`maven_class.__init__` imports without declaring it, so a sidecar past the bound "
+        "dies at the first idealization (#212). Do not update the assertions to match a "
+        "bump; read the REMOVAL TRIGGER in that file instead."
+    )
+
+
 def test_a_requirements_file_that_is_not_one_pinned_hashed_line_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
