@@ -26,7 +26,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Tag (or ref) to build from for a dry-run, e.g. v1.0.0-rc1."
+        description: "Release tag to build from for a dry-run (vMAJOR.MINOR.PATCH, optionally -<prerelease>), e.g. v1.0.0-rc1."
         type: string
         required: true
       dry_run:
@@ -79,6 +79,7 @@ jobs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
       publish: ${{ steps.resolve.outputs.publish }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -88,6 +89,18 @@ jobs:
       - name: Resolve target tag + publish mode
         id: resolve
         # Untrusted inputs routed through env, never inlined into the script.
+        #
+        # The release-tag grammar (PRD §12.7's `vMAJOR.MINOR.PATCH`, issue #380) is declared
+        # ONCE, as TAG_ERE below, and checked on EVERY run -- this step has no `if:`, so a
+        # dry-run dispatch rehearses the same grammar a tag push enforces. Group 4 is the
+        # optional prerelease component and the ONLY thing that decides `prerelease`; both
+        # publish steps in the `release` job read that output rather than re-deriving it from
+        # the tag's spelling. Build metadata (`+...`) and leading zeros in MAJOR.MINOR.PATCH are
+        # rejected outright; the prerelease component is not yet SemVer-checked (#498).
+        # The pattern uses only constructs POSIX ERE and Python `re` read alike, because
+        # tests/test_marker_contract.py extracts this literal and runs its accept/reject table
+        # against it. Keep $TAG_ERE UNQUOTED inside [[ =~ ]]: quoted, it matches literally and
+        # rejects every real tag.
         env:
           EVENT: ${{ github.event_name }}
           PUSH_TAG: ${{ github.ref_name }}
@@ -102,13 +115,23 @@ jobs:
             if [ "$INPUT_DRY_RUN" = "false" ]; then publish="true"; else publish="false"; fi
           fi
           test -n "$tag" || { echo "::error::no tag/ref resolved"; false; }
-          case "$tag" in v*) : ;; *) echo "::error::tag '$tag' must start with 'v'"; false ;; esac
+          TAG_ERE='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
+          # %q keeps a hostile ref on ONE line, so it cannot open a second workflow command.
+          [[ "$tag" =~ $TAG_ERE ]] || {
+            printf '::error::release tag must be vMAJOR.MINOR.PATCH, optionally -<prerelease> (no build metadata, no leading zeros in MAJOR.MINOR.PATCH); got %q\n' "$tag"
+            false
+          }
+          prerelease="false"
+          if [ -n "${BASH_REMATCH[4]}" ]; then
+            prerelease="true"
+          fi
           {
             echo "tag=$tag"
             echo "version=${tag#v}"
             echo "publish=$publish"
+            echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
-          echo "Release tag '$tag' (publish=$publish)."
+          echo "Release tag '$tag' (publish=$publish, prerelease=$prerelease)."
 
       - name: Require an annotated, GitHub-verified signature on a real release
         if: steps.resolve.outputs.publish == 'true'
@@ -633,11 +656,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.verify.outputs.tag }}
           NOTES: ${{ steps.changelog.outputs.notes }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
         run: |
           set -euo pipefail
           flags=(--title "$TAG" --notes-file "$NOTES" --verify-tag)
-          # A hyphenated tag (v1.0.0-rc1) is a pre-release.
-          case "$TAG" in *-*) flags+=(--prerelease) ;; esac
+          # Prerelease status is the `verify` job's parsed prerelease component of the tag
+          # (v1.0.0-rc1), never a search over the tag's spelling here (issue #380).
+          if [ "$PRERELEASE" = "true" ]; then
+            flags+=(--prerelease)
+          fi
           gh release create "$TAG" out/* "${flags[@]}"
           echo "Published GitHub Release $TAG."
 
@@ -654,6 +681,8 @@ jobs:
         # workflow_dispatch, so the skip has to be re-implemented on THIS side: a
         # pre-release like v1.0.0-rc1 collapses to the same `1.0` doc label as the stable
         # tag and would repoint `latest` and the site default at release-candidate docs.
+        # "Pre-release" is the `verify` job's parsed prerelease component (issue #380), the
+        # same output the Release-create step above reads.
         #
         # `--ref "$TAG"` matters: without it `gh workflow run` dispatches against the
         # remote's DEFAULT BRANCH, and docs.yml's checkout would then build whatever main
@@ -665,19 +694,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.verify.outputs.tag }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
         run: |
           set -euo pipefail
-          case "$TAG" in
-            *-*)
-              echo "::notice::$TAG is a pre-release — not publishing the documentation site."
-              echo "Pre-release $TAG: documentation publish skipped." >> "$GITHUB_STEP_SUMMARY"
-              ;;
-            *)
-              gh workflow run docs.yml --ref "$TAG" -f version="$TAG"
-              echo "Dispatched docs.yml to publish the documentation for $TAG."
-              echo "Dispatched docs.yml to publish the documentation for $TAG." >> "$GITHUB_STEP_SUMMARY"
-              ;;
-          esac
+          if [ "$PRERELEASE" = "true" ]; then
+            echo "::notice::$TAG is a pre-release — not publishing the documentation site."
+            echo "Pre-release $TAG: documentation publish skipped." >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh workflow run docs.yml --ref "$TAG" -f version="$TAG"
+            echo "Dispatched docs.yml to publish the documentation for $TAG."
+            echo "Dispatched docs.yml to publish the documentation for $TAG." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Dry-run summary (no Release published)
         if: needs.verify.outputs.publish != 'true'

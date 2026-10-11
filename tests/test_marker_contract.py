@@ -19,9 +19,14 @@ from __future__ import annotations
 
 import ast
 import fnmatch
+import os
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path, PurePosixPath
 
+import pytest
 import yaml  # provided by the base conda-lock (a mkdocs dependency); see `_steps` below
 
 # Must match the glob in .github/workflows/sidecar.yml's parity step
@@ -676,6 +681,325 @@ def test_the_anchor_guard_rejects_an_attestation_that_cannot_run() -> None:
     gate = "        if: needs.verify.outputs.publish == 'true'\n"
     live = f"jobs:\n  release:\n    steps:\n{attest}{gate}"
     assert _is_live(_job_steps(live, PUBLISH_JOB)[0])
+
+
+# The release-tag grammar (issue #380). PRD §12.7 states a release tag's form as
+# `vMAJOR.MINOR.PATCH`, and ADR-0060 §4's update client allowlists exactly that form on the
+# attested `sourceRepositoryRef`. Before #380 the publisher checked only for a leading `v` and
+# called a tag a prerelease when it held a hyphen, so `v1.0.0.0` published as a STABLE Release
+# that the client then refuses. The grammar is declared ONCE, as the `TAG_ERE` literal in the
+# `verify` job's resolve step; the guards below read that literal back out of the parsed
+# workflow (restating it here would test the test), and execute the step scripts themselves,
+# because nothing else in this repository lints a `run:` script.
+RESOLVE_STEP_NAME = "Resolve target tag + publish mode"
+RELEASE_CREATE_STEP_NAME = "Create the GitHub Release"
+DOCS_PUBLISH_STEP_NAME = "Publish the documentation site (dispatch docs.yml)"
+PRERELEASE_EXPRESSION = "${{ needs.verify.outputs.prerelease }}"
+
+#: Committed literals, never `git tag` output: `ci.yml`'s `test` job checks out at the default
+#: depth, so no tag exists in CI. The first ten are the tags that existed when #380 was groomed
+#: (2026-08-13; there is no v0.9.0) -- real shapes, not a standing claim about the tag list.
+TAG_ACCEPT = (
+    "v0.0.0",
+    "v0.1.0",
+    "v0.2.0",
+    "v0.3.0",
+    "v0.4.0",
+    "v0.5.0",
+    "v0.6.0",
+    "v0.7.0",
+    "v0.8.0",
+    "v1.0.0-rc1",
+    "v1.0.0",
+    "v10.2.30",
+    "v1.0.0-rc.2",
+)
+#: `v1.0.0\n` is here because Python's `$` also matches before a trailing newline while bash's
+#: `[[ =~ ]]` does not; it is what makes a test built on `re.match` a red test, not a footnote.
+TAG_REJECT = (
+    "v1.0.0.0",
+    "vfoo",
+    "v1.0",
+    "v1",
+    "v1.0.0+build.7",
+    "v1.0.0-rc1+build.7",
+    "v1.0.0-",
+    "v01.0.0",
+    "1.0.0",
+    "V1.0.0",
+    "refs/heads/main",
+    "v1.0.0\n",
+)
+TAG_PRERELEASE = ("v1.0.0-rc1", "v1.0.0-rc.2")
+TAG_STABLE = ("v1.0.0", "v0.8.0")
+
+
+def _release_step(job_id: str, name: str) -> dict:
+    """The ONE step of ``job_id`` named exactly ``name``, from the parsed release workflow."""
+    steps = [
+        s
+        for s in _job_steps(RELEASE_WORKFLOW.read_text(encoding="utf-8"), job_id)
+        if s.get("name") == name
+    ]
+    assert len(steps) == 1, (
+        f"release.yml's `{job_id}` job must carry exactly one step named {name!r}; "
+        f"found {len(steps)}"
+    )
+    return steps[0]
+
+
+def _release_tag_ere() -> str:
+    """The ``TAG_ERE`` literal, extracted from the resolve step's ``run:`` script.
+
+    Anchored to an assignment line, so a comment that quotes the grammar cannot stand in for it.
+    """
+    run = _release_step("verify", RESOLVE_STEP_NAME).get("run")
+    assert isinstance(run, str), f"the {RESOLVE_STEP_NAME!r} step must carry a `run:` script"
+    found = re.findall(r"^[ \t]*TAG_ERE='([^']+)'[ \t]*$", run, re.MULTILINE)
+    assert len(found) == 1, (
+        f"the {RESOLVE_STEP_NAME!r} step must declare the release-tag grammar exactly once, as "
+        f"a single-quoted `TAG_ERE='...'` literal (issue #380); found {len(found)}"
+    )
+    return found[0]
+
+
+def _bash() -> str:
+    """The bash that runs the extracted step scripts.
+
+    ``ci.yml``'s ``test`` job runs ``bash -el {0}`` on all three OSes (Git Bash on Windows), so
+    bash is expected everywhere; on Linux its absence FAILS rather than skips, so these legs
+    cannot go universally vacuous.
+    """
+    bash = shutil.which("bash")
+    if bash is None:
+        if sys.platform.startswith("linux"):
+            pytest.fail("bash is not on PATH; the release-script tests must not go vacuous")
+        pytest.skip("bash is not on PATH on this platform")
+    return bash
+
+
+def _write_script(path: Path, text: str) -> Path:
+    # LF line endings on every OS: bash reads a CR as part of the command word.
+    path.write_text(text, encoding="utf-8", newline="\n")
+    return path
+
+
+def test_release_tag_grammar_accepts_the_stated_form_only() -> None:
+    """The extracted ``TAG_ERE`` admits exactly the committed accept table and classifies it.
+
+    Applied with ``re.fullmatch``, never ``re.match``/``re.search``: Python's ``$`` also matches
+    immediately before a trailing newline while bash's ``[[ =~ ]]`` anchors at end of string, so
+    a test on ``re.match`` would be strictly looser than the runner it mirrors -- the
+    ``"v1.0.0\\n"`` reject row is what turns that divergence red. The prerelease verdict is
+    group 4's truthiness (bash leaves a non-participating group as ``""``, Python as ``None``),
+    which is the same group the workflow reads from ``BASH_REMATCH[4]``.
+
+    The literal is held to constructs POSIX ERE and Python ``re`` read the same way, since
+    compiling the extracted text with ``re`` is only a test of the runner if both engines agree
+    on it: no POSIX bracket classes, no escape other than ``\\.``, no non-greedy operator, no
+    backreference.
+    """
+    ere = _release_tag_ere()
+    assert "[:" not in ere, f"TAG_ERE must not use a POSIX character class: {ere!r}"
+    assert not re.search(r"\\[^.]", ere), f"TAG_ERE may escape only `.` (`\\.`): {ere!r}"
+    assert not re.search(r"[*+?]\?", ere), f"TAG_ERE must not use a non-greedy operator: {ere!r}"
+    grammar = re.compile(ere)
+
+    def prerelease_of(match: re.Match[str]) -> bool:
+        return bool(match.group(4)) if grammar.groups >= 4 else False
+
+    wrong: list[str] = []
+    for tag in TAG_ACCEPT:
+        if grammar.fullmatch(tag) is None:
+            wrong.append(f"rejected {tag!r}, which the grammar must accept")
+    for tag in TAG_REJECT:
+        if grammar.fullmatch(tag) is not None:
+            wrong.append(f"accepted {tag!r}, which the grammar must reject")
+    for tag, prerelease in [(t, True) for t in TAG_PRERELEASE] + [(t, False) for t in TAG_STABLE]:
+        match = grammar.fullmatch(tag)
+        if match is not None and prerelease_of(match) is not prerelease:
+            wrong.append(f"classified {tag!r} as prerelease={not prerelease}")
+    if grammar.groups < 4:
+        wrong.append("lost group 4, the prerelease component the workflow reads")
+    assert not wrong, f"release.yml's TAG_ERE {ere!r} " + "; ".join(wrong)
+
+
+def test_release_prerelease_verdict_comes_from_the_parsed_tag() -> None:
+    """Every prerelease decision reads the ``verify`` output, never a hyphen search over ``$TAG``.
+
+    (a) ``verify`` exports ``prerelease`` from the resolve step; (b) both publish steps map an
+    env var to that output and read it on a non-comment line -- anchored to non-comment lines
+    because a rationale comment naming the variable would otherwise keep this green with the
+    read deleted, the vacuity trap the staging gate's ``read -ra`` guard records; (c) the
+    ``*-*`` glob appears nowhere in the file, matched as a regex over the whole text so a
+    line-broken ``case`` -- the form the second occurrence had -- cannot hide; (d) neither step
+    tests ``$TAG`` with ``case``, ``[``, ``[[`` or ``test``. This pins where the value comes
+    from; :func:`test_release_publish_scripts_follow_the_prerelease_output` pins what it does.
+    """
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    assert re.search(r"\*-\*", text) is None, (
+        "the `*-*` hyphen-search glob must not appear anywhere in release.yml (issue #380)"
+    )
+    outputs = (yaml.safe_load(text)["jobs"]["verify"].get("outputs")) or {}
+    assert "steps.resolve.outputs.prerelease" in str(outputs.get("prerelease", "")), (
+        "the `verify` job must export `prerelease: ${{ steps.resolve.outputs.prerelease }}`"
+    )
+    tag_operand = re.compile(
+        r'\bcase\s+"?\$\{?TAG\b'
+        r"|(?:^|[\s;&|!(])\[\[?\s[^\]\n]*\$\{?TAG\b"
+        r"|\btest\s[^;&|\n]*\$\{?TAG\b"
+    )
+    for name in (RELEASE_CREATE_STEP_NAME, DOCS_PUBLISH_STEP_NAME):
+        step = _release_step("release", name)
+        keys = [
+            k for k, v in (step.get("env") or {}).items() if str(v).strip() == PRERELEASE_EXPRESSION
+        ]
+        assert keys, f"the {name!r} step must map an env var to `{PRERELEASE_EXPRESSION}`"
+        run = step.get("run")
+        assert isinstance(run, str), f"the {name!r} step must carry a `run:` script"
+        code = [ln for ln in run.splitlines() if not ln.lstrip().startswith("#")]
+        reads = re.compile(r"\$\{?" + re.escape(keys[0]) + r"\b")
+        assert any(reads.search(ln) for ln in code), (
+            f"the {name!r} step must read ${keys[0]} on a non-comment line of its script"
+        )
+        offenders = [ln for ln in code if tag_operand.search(ln)]
+        assert not offenders, (
+            f"the {name!r} step must not decide anything by testing $TAG -- the verdict is the "
+            f"`verify` job's parsed prerelease component: {offenders}"
+        )
+
+
+def _run_resolve(bash: str, tmp_path: Path, tag: str, event: str) -> tuple[int, str, dict]:
+    step = _release_step("verify", RESOLVE_STEP_NAME)
+    declared = set((step.get("env") or {}).keys())
+    assert declared == {"EVENT", "PUSH_TAG", "INPUT_REF", "INPUT_DRY_RUN"}, (
+        f"the {RESOLVE_STEP_NAME!r} step's env keys changed ({sorted(declared)}); "
+        "update this harness so every key it declares is set on both event paths"
+    )
+    script = _write_script(tmp_path / "resolve.sh", step["run"])
+    output = tmp_path / "github_output"
+    output.write_text("", encoding="utf-8")
+    if event == "push":
+        keys = {"EVENT": "push", "PUSH_TAG": tag, "INPUT_REF": "", "INPUT_DRY_RUN": ""}
+    else:
+        keys = {"EVENT": event, "PUSH_TAG": "main", "INPUT_REF": tag, "INPUT_DRY_RUN": "true"}
+    env = {**os.environ, **keys, "GITHUB_OUTPUT": output.as_posix()}
+    proc = subprocess.run(
+        [bash, script.as_posix()],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    written = dict(
+        line.split("=", 1)
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if "=" in line
+    )
+    return proc.returncode, proc.stdout + proc.stderr, written
+
+
+@pytest.mark.parametrize("event", ["workflow_dispatch", "push"])
+@pytest.mark.parametrize("tag", TAG_ACCEPT + TAG_REJECT)
+def test_release_resolve_script_enforces_the_grammar(tmp_path: Path, tag: str, event: str) -> None:
+    """The resolve step's real script, under bash, on BOTH event paths, per table row.
+
+    Nothing in this repository lints a ``run:`` script (no shellcheck, no actionlint), so a
+    shell mistake -- quoting ``"$TAG_ERE"`` inside ``[[ =~ ]]``, which matches the pattern
+    literally and rejects every real tag -- would land behind green YAML-parsing tests. Running
+    the dispatch path (``publish=false``) as well as the tag push (``publish=true``) is what
+    makes "the check is not ``publish``-gated" a test rather than a promise.
+    """
+    bash = _bash()
+    code, out, written = _run_resolve(bash, tmp_path, tag, event)
+    publish = "true" if event == "push" else "false"
+    if tag in TAG_ACCEPT:
+        assert code == 0, f"{event}: the resolve step rejected {tag!r}:\n{out}"
+        expected = {
+            "tag": tag,
+            "publish": publish,
+            "prerelease": "true" if tag in TAG_PRERELEASE else "false",
+        }
+        got = {k: written.get(k) for k in expected}
+        assert got == expected, f"{event}: {tag!r} wrote {written} to $GITHUB_OUTPUT:\n{out}"
+    else:
+        assert code != 0, f"{event}: the resolve step accepted {tag!r}:\n{out}"
+        errors = [ln for ln in out.splitlines() if ln.startswith("::error::")]
+        assert any("vMAJOR.MINOR.PATCH" in ln and tag.strip() in ln for ln in errors), (
+            f"{event}: rejecting {tag!r} must print an `::error::` line naming the tag and the "
+            f"`vMAJOR.MINOR.PATCH` form; got:\n{out}"
+        )
+
+
+@pytest.mark.parametrize("tag", ["v1.0.0-rc1", "v1.0.0"])
+@pytest.mark.parametrize("prerelease", ["true", "false"])
+@pytest.mark.parametrize("name", [RELEASE_CREATE_STEP_NAME, DOCS_PUBLISH_STEP_NAME])
+def test_release_publish_scripts_follow_the_prerelease_output(
+    tmp_path: Path, name: str, prerelease: str, tag: str
+) -> None:
+    """Both publish scripts, run under bash with ``gh`` stubbed, obey ``PRERELEASE`` alone.
+
+    Crossing ``PRERELEASE`` with how the tag is spelled is the point: the verdict must follow
+    the ``verify`` output and ignore the hyphen. ``gh`` is a shell function in a wrapper that
+    ``source``\\ s the extracted script, so nothing depends on an executable bit or a ``PATH``
+    entry and the Windows leg behaves like the others. The compared literal is the lowercase
+    ``true`` the workflow's own step gates use (``needs.verify.outputs.publish == 'true'``).
+    """
+    bash = _bash()
+    step = _release_step("release", name)
+    # The wiring is test_release_prerelease_verdict_comes_from_the_parsed_tag's to pin; this
+    # test pins the behaviour, so it falls back to the conventional name rather than failing
+    # on the wiring first and hiding what the script does.
+    keys = [
+        k for k, v in (step.get("env") or {}).items() if str(v).strip() == PRERELEASE_EXPRESSION
+    ]
+    variable = keys[0] if keys else "PRERELEASE"
+    script = _write_script(tmp_path / "step.sh", step["run"])
+    argv = tmp_path / "gh_argv"
+    wrapper = _write_script(
+        tmp_path / "wrapper.sh",
+        f'gh() {{ printf \'%s\\n\' "$@" >> "$GH_ARGV"; }}\nsource "{script.as_posix()}"\n',
+    )
+    notes = tmp_path / "notes.md"
+    notes.write_text("notes\n", encoding="utf-8")
+    summary = tmp_path / "summary.md"
+    summary.write_text("", encoding="utf-8")
+    env = {
+        **os.environ,
+        "TAG": tag,
+        "NOTES": notes.as_posix(),
+        "GITHUB_STEP_SUMMARY": summary.as_posix(),
+        "GH_ARGV": argv.as_posix(),
+        variable: prerelease,
+    }
+    proc = subprocess.run(
+        [bash, wrapper.as_posix()],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0, f"{name!r} failed (PRERELEASE={prerelease}, TAG={tag}):\n{out}"
+    called = argv.read_text(encoding="utf-8").splitlines() if argv.exists() else []
+    case = f"{name!r} with PRERELEASE={prerelease}, TAG={tag}"
+    if name == RELEASE_CREATE_STEP_NAME:
+        assert called[:2] == ["release", "create"], (
+            f"{case} must call `gh release create`: {called}"
+        )
+        assert ("--prerelease" in called) is (prerelease == "true"), (
+            f"{case}: `--prerelease` must be passed exactly when PRERELEASE is `true`: {called}"
+        )
+    elif prerelease == "true":
+        assert called == [], f"{case} must not dispatch the documentation site: {called}"
+    else:
+        assert called[:3] == ["workflow", "run", "docs.yml"], (
+            f"{case} must dispatch `gh workflow run docs.yml`: {called}"
+        )
 
 
 # --- The shared install-smoke script (packaging.yml + release.yml, issue #217) ---
