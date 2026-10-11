@@ -1473,30 +1473,67 @@ def _workflow_or_action_steps(document: object) -> list[dict]:
     return [step for steps in containers for step in (steps or []) if isinstance(step, dict)]
 
 
-def _setup_micromamba_uses(text: str) -> list[str]:
-    """Every ``setup-micromamba`` ``uses:`` value in one document, from the PARSED steps.
+def _setup_micromamba_steps(text: str) -> list[dict]:
+    """Every ``setup-micromamba`` step in one document, from the PARSED steps.
 
     A parse, not a regex: the old line count missed the valid quoted spelling and counted a
     ``run:`` block scalar that merely contained the text -- the same two false-greens
     :func:`_steps` records against the attestation guard (#319).
     """
     return [
-        step["uses"]
+        step
         for step in _workflow_or_action_steps(yaml.safe_load(text))
         if isinstance(step.get("uses"), str) and step["uses"].startswith(SETUP_MICROMAMBA)
     ]
+
+
+def _setup_micromamba_uses(text: str) -> list[str]:
+    """Every ``setup-micromamba`` ``uses:`` value in one document, one per parsed call site."""
+    return [step["uses"] for step in _setup_micromamba_steps(text)]
+
+
+#: A full commit SHA, the only immutable ref: a branch or tag ref can move under the guard.
+_FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
 
 class _MicromambaCallSites(NamedTuple):
     """One file's ``setup-micromamba`` call sites."""
 
     uses: list[str]  # parsed `uses:` values, one per call site
-    pins: list[str]  # declared `micromamba-version` values (text)
+    pins: list[str | None]  # each call site's OWN `with: micromamba-version`, None if unset
     tags: list[str]  # trailing `# v<X.Y.Z>` comments on the `uses:` lines (text)
 
     @property
     def shas(self) -> list[str]:
         return [value.split("@", 1)[1] for value in self.uses]
+
+
+def _micromamba_call_sites_in(text: str) -> _MicromambaCallSites:
+    """One document's call sites, each pin read from that step's own ``with:`` mapping.
+
+    Never from pin-shaped lines anywhere in the file: a call site with no
+    ``micromamba-version`` floats to ``latest``, and a matching line in some other step's
+    ``run:`` block must not stand in for it.
+    """
+    steps = _setup_micromamba_steps(text)
+    pins: list[str | None] = []
+    for step in steps:
+        inputs = step.get("with")
+        value = inputs.get("micromamba-version") if isinstance(inputs, dict) else None
+        pins.append(None if value is None else str(value))
+    return _MicromambaCallSites(
+        [step["uses"] for step in steps], pins, _SETUP_MICROMAMBA_TAG.findall(text)
+    )
+
+
+def _mutable_refs(call_sites: dict[str, _MicromambaCallSites]) -> list[str]:
+    """``path: ref`` for every call site whose ref is not a full 40-hex commit SHA."""
+    return sorted(
+        f"{name}: {sha}"
+        for name, site in call_sites.items()
+        for sha in site.shas
+        if not _FULL_SHA.fullmatch(sha)
+    )
 
 
 def _setup_micromamba_call_sites() -> dict[str, _MicromambaCallSites]:
@@ -1510,13 +1547,9 @@ def _setup_micromamba_call_sites() -> dict[str, _MicromambaCallSites]:
     """
     found: dict[str, _MicromambaCallSites] = {}
     for path in sorted(GITHUB_DIR.rglob("*.y*ml")):
-        text = path.read_text(encoding="utf-8")
-        uses = _setup_micromamba_uses(text)
-        if not uses:
-            continue
-        pins = re.findall(r"^\s*micromamba-version:\s*[\"']?([^\"'\s#]+)", text, re.M)
-        tags = _SETUP_MICROMAMBA_TAG.findall(text)
-        found[path.relative_to(GITHUB_DIR).as_posix()] = _MicromambaCallSites(uses, pins, tags)
+        site = _micromamba_call_sites_in(path.read_text(encoding="utf-8"))
+        if site.uses:
+            found[path.relative_to(GITHUB_DIR).as_posix()] = site
     return found
 
 
@@ -1563,6 +1596,43 @@ def test_the_setup_micromamba_extraction_reads_steps_and_nothing_else() -> None:
     assert counts == expected
 
 
+def test_a_call_site_pin_is_read_from_its_own_with_mapping() -> None:
+    """A pin counts only under its own step's ``with:``, never as a pin-shaped line elsewhere.
+
+    The unpinned call site below floats to ``latest``; the ``run:`` block of the next step
+    carries the exact pin text, which a file-wide line count accepted as its pin (#502).
+    """
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    unpinned = (
+        "jobs:\n"
+        "  build:\n"
+        "    steps:\n"
+        f"      - uses: {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+        "      - run: |\n"
+        f"          echo micromamba-version: {MICROMAMBA_PIN}\n"
+    )
+    pinned = (
+        "jobs:\n"
+        "  build:\n"
+        "    steps:\n"
+        f"      - uses: {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+        "        with:\n"
+        f"          micromamba-version: '{MICROMAMBA_PIN}'\n"
+    )
+    assert _micromamba_call_sites_in(unpinned).pins == [None]
+    assert _micromamba_call_sites_in(pinned).pins == [MICROMAMBA_PIN]
+
+
+def test_a_mutable_action_ref_is_not_a_pin() -> None:
+    """Call sites agreeing on ``@main`` or a tag still fail: only a 40-hex SHA is immutable."""
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    sites = {
+        name: _MicromambaCallSites([f"{SETUP_MICROMAMBA}{ref}"], [MICROMAMBA_PIN], ["v1.2.3"])
+        for name, ref in {"a.yml": "main", "b.yml": "v2", "c.yml": sha, "d.yml": sha[:7]}.items()
+    }
+    assert _mutable_refs(sites) == ["a.yml: main", "b.yml: v2", f"d.yml: {sha[:7]}"]
+
+
 def test_every_setup_micromamba_call_site_pins_the_binary() -> None:
     """Every ``setup-micromamba`` call site pins ``micromamba-version``, all to the same value.
 
@@ -1592,16 +1662,16 @@ def test_every_setup_micromamba_call_site_pins_the_binary() -> None:
     )
 
     mismatched = sorted(
-        f"{name} ({len(site.pins)} pin(s) for {len(site.uses)} call site(s))"
+        f"{name} ({site.pins.count(None)} of {len(site.uses)} call site(s) unpinned)"
         for name, site in call_sites.items()
-        if len(site.pins) != len(site.uses)
+        if None in site.pins
     )
     assert not mismatched, (
         "every setup-micromamba call site needs its OWN `micromamba-version` pin -- unset, the "
         f"input floats to `latest` and re-resolves the binary at run time: {mismatched}"
     )
 
-    values = {value for site in call_sites.values() for value in site.pins}
+    values = {value for site in call_sites.values() for value in site.pins if value is not None}
     assert values == {MICROMAMBA_PIN}, (
         f"all setup-micromamba call sites must pin micromamba-version to {MICROMAMBA_PIN!r} "
         f"(bump MICROMAMBA_PIN and every call site in one commit); found {sorted(values)} "
@@ -1621,13 +1691,20 @@ def test_every_setup_micromamba_call_site_runs_the_same_action_version() -> None
     The trailing tag comment is asserted too: a parse discards comments, so it is read from the
     text, and the file must carry as many tags as it has PARSED call sites -- an unannotated
     ``uses:`` line fails here rather than being silently skipped. The count is per file, so it
-    does not tie each tag to its own call site's line, and the refs are compared as written
-    without checking that each is a 40-hex SHA; #510 tracks both.
+    does not tie each tag to its own call site's line; #510 tracks that. Every ref must be a
+    full 40-hex commit SHA before agreement is checked: call sites that all moved to ``@main``
+    would otherwise agree on a mutable ref.
     """
     call_sites = _setup_micromamba_call_sites()
     assert len(call_sites) >= 3, (
         "expected at least the setup-env composite + packaging.yml + release.yml to call "
         f"setup-micromamba; found {sorted(call_sites)}"
+    )
+
+    mutable = _mutable_refs(call_sites)
+    assert not mutable, (
+        "every setup-micromamba call site must pin the action to a full 40-hex commit SHA -- a "
+        f"branch or tag ref can move without any change here: {mutable}"
     )
 
     untagged = sorted(
