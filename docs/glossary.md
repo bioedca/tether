@@ -389,19 +389,23 @@ therefore longer than either segment alone and shorter than the time elapsed bet
 the state and last being seen in it — and which of those the molecule actually did is what the
 gap makes unobservable. It is not a residence time in either direction.
 
-**A merge is reported only when the merged run is interior.** `state_dwells` keeps interior
-runs only — the last run of every molecule is always dropped, the first unless
-`include_first` (see [dwell time](#dwell-time-dwell-time-survival)) — and a molecule left with
-a single run contributes nothing. So the bare trace `0,0,NO_STATE,0,0`, whose merged run is
-the molecule's only run, yields **no dwell at all**, at either `include_first` setting. A
-later transition makes the merged run interior, and only then is it reported — as one 4-frame
-dwell of state 0 (against an elapsed span of 5 frames), not two 2-frame dwells:
+**A merge is reported only when the merged run is retained.** `state_dwells` always drops a
+molecule's last run, drops its first unless `include_first` (see
+[dwell time](#dwell-time-dwell-time-survival)), and skips a molecule left with a single run. So
+a merged run is reported only when it is neither the molecule's sole run nor its last — and,
+when it is the first, only at `include_first=True`. The bare trace `0,0,NO_STATE,0,0`, whose
+merged run is the molecule's only run, yields **no dwell at all**, at either `include_first`
+setting. A later transition makes the merged run the first of several: it is then reported as
+one 4-frame dwell of state 0 (against an elapsed span of 5 frames), not two 2-frame dwells, at
+`include_first=True`, and dropped as a first run at the default `include_first=False`:
 
 ```python
 state_dwells([np.array([0, 0, NO_STATE, 0, 0])], no_state=NO_STATE, include_first=True).lengths
 # {}   (and {} with include_first=False)
 state_dwells([np.array([0, 0, NO_STATE, 0, 0, 1, 1, 0])], no_state=NO_STATE, include_first=True).lengths
 # {0: array([4]), 1: array([2])}
+state_dwells([np.array([0, 0, NO_STATE, 0, 0, 1, 1, 0])], no_state=NO_STATE, include_first=False).lengths
+# {1: array([2])}
 ```
 
 **Direction of the effect**, against the same extraction with the gap *splitting* runs instead
@@ -452,9 +456,9 @@ is dropped, so a `NO_STATE` border never emits a transition point.
 
 A **dwell** is a run of constant state in a Viterbi path (`tether.analysis.dwell`). Faithful
 to tMAVEN's `generate_dwells`, the **first and last dwell of every molecule are dropped** (the
-last always; the first unless `include_first`), so only interior dwells are measured. The two
-are dropped for different reasons. The **last** dwell is right-censored: the trace ends before
-the molecule is seen to leave that state. The **first** is a different case: its start was
+last always; the first unless `include_first`), so at the default only interior dwells are
+measured. The two are dropped for different reasons. The **last** dwell is right-censored: the
+trace ends before the molecule is seen to leave that state. The **first** is a different case: its start was
 not observed, because the molecule was already in that state when the window opened, while its
 end is a recorded transition. That exit is observed only when no interior `NO_STATE` gap
 separates the first dwell from the next state; across such a gap the exit happened somewhere
