@@ -16,7 +16,7 @@ into a project and skips the split-to-extract stages
 ([Legacy Deep-LASI import](io/legacy-import.md)). The stages that keep a result keep it in one
 [`.tether` project file](reference/tether-format.md), which refers to your movie rather than
 copying its pixels ([the store references your movies](compatibility.md#the-store-references-your-movies-it-does-not-copy-them));
-some stages write nothing, and exports are new files beside the project:
+some stages write nothing, and exports are new files written where you direct them:
 
 ```text
 movie → split → detect → register → colocalize → extract → curate → photobleach
@@ -26,9 +26,9 @@ movie → split → detect → register → colocalize → extract → curate �
 The order binds where one stage needs another's output. Everything downstream reads the
 extracted traces, so extraction comes first, and the correction steps depend on one another.
 After extraction the road branches rather than running in single file: you can curate, plot
-apparent E or export traces as soon as a movie is extracted. Correction and idealization add
-to what those later steps can use, the correction factors and the fitted states that the dwell
-and transition analyses read; they do not have to come first. The headless batch runner
+apparent E or export traces as soon as a movie is extracted. Correction adds the factors, which
+the molecule table records; idealization adds the fitted states that the dwell and transition
+analyses read. Neither has to come first. The headless batch runner
 groups the automatic part of that road into three stages, `extract → correct → idealize`,
 declared in dependency order as
 [`STAGES` in `tether.project.batch`](https://github.com/bioedca/tether/blob/main/src/tether/project/batch.py),
@@ -129,8 +129,9 @@ file, and row *i* of every trace array is the same molecule
 
 `tether.project.labels` records each accept or reject you make. The current verdict sits on
 the molecule, and every decision is also appended to a log, with who made it and when.
-The decision rows are never rewritten; only each row's training weight is recomputed when
-the quality ranker retrains
+The decision rows are never rewritten; only each row's stored training weight is
+recomputed, on a legacy import or when several curators' decisions are merged back, and the
+quality ranker applies the same weighting in memory when it trains
 ([`tether.project.weighting`](https://github.com/bioedca/tether/blob/main/src/tether/project/weighting.py);
 [curation label](glossary.md#curation-label-category-quality-class);
 [ADR-0023](adr/0023-curation-label-codec-and-labels-log.md)).
@@ -146,8 +147,8 @@ acceptor, and `tether.project.photobleach` writes the result and proposes the an
 ([photobleach frames](glossary.md#photobleach-frames-first-bleach-frame);
 [ADR-0026](adr/0026-photobleach-detection-and-window-default.md)).
 
-- **Writes:** `bleach_frames` and, where you have not narrowed it, `analysis_window` on each
-  molecule.
+- **Writes:** `bleach_frames` and, where the window is still the extraction default,
+  `analysis_window` on each molecule.
 - **Read more:** [Analysis parameters](reference/parameters.md#photobleaching-and-the-analysis-window)
 
 ### α / γ corrections
@@ -158,8 +159,9 @@ corrected efficiency can be formed and records how
 ([correction order](glossary.md#correction-order)).
 
 - **Writes:** `alpha`, `gamma`, `correction_method` and `correction_confidence` on each
-  molecule, and the provenance of each pass under `/settings/leakage`, `/settings/gamma` and
-  `/settings/correction`.
+  molecule, and the provenance of each pass under `/settings/leakage` and
+  `/settings/correction`, plus `/settings/gamma` when α was estimated (the γ step is skipped
+  when α is withheld).
 - **Read more:** [Analysis parameters](reference/parameters.md#correction-factors),
   [Validation & benchmarks](validation.md#e-estimator-edge-cases)
 
@@ -186,7 +188,8 @@ drawn from different sets of molecules
 ([fresh-idealization gating](glossary.md#fresh-idealization-gating-curation-filter)). Two
 idealization-based views are exceptions: the post-synchronized transition heatmap applies the
 curation filter but not the staleness one, and the fitted-model overlay on the E histogram
-reads the model as it was fitted, so it reflects later curation only after a re-fit
+reads the model as it was fitted, so molecules rejected since then stay in it until a fresh
+fit over a new selection; re-fitting a stale model keeps its original molecules
 ([`tether.analysis.histogram`](https://github.com/bioedca/tether/blob/main/src/tether/analysis/histogram.py)).
 
 - **Writes:** nothing to the project file.
@@ -198,7 +201,7 @@ reads the model as it was fitted, so it reflects later curation only after a re-
 self-contained `.tether`, and `tether.analysis.plot_export` writes figures. Each one carries a provenance file
 beside it ([provenance sidecar](reference/exports.md#provenance-sidecar)).
 
-- **Writes:** new files next to your project; the source project is never modified.
+- **Writes:** new files where you direct them; the source project is never modified.
 - **Read more:** [Exports](reference/exports.md)
 
 ## Why it works this way
@@ -214,7 +217,8 @@ E summary read by default; an analysis can be pointed at the `raw` layer, which 
 the background, but then its ratio is a different number. It is internally
 consistent only while the dyes and the instrument stay the same
 ([McCann 2010](https://doi.org/10.1016/j.bpj.2010.04.063)). The γ-corrected efficiency
-removes the leakage and the dye and detection imbalance, and is an absolute energy-transfer
+removes the leakage and the dye and detection imbalance and, under Tether's assumption of no
+direct acceptor excitation (δ = 0, single-laser data), is an absolute energy-transfer
 efficiency ([Hellenkamp 2018](https://doi.org/10.1038/s41592-018-0085-0);
 [`tether.fret.efficiency`](https://github.com/bioedca/tether/blob/main/src/tether/fret/efficiency.py)).
 Tether calls the proximity ratio **apparent E**, and computes it as the corrected formula with
@@ -263,8 +267,8 @@ acceptor has bleached but the donor has not; the estimator assumes that the acce
 signal left in that stretch is donor light leaking through
 ([`tether.fret.leakage`](https://github.com/bioedca/tether/blob/main/src/tether/fret/leakage.py)),
 and γ comes from the acceptor's bleach step itself (above). So photobleach detection has to run
-before either factor is estimated, and a molecule it has not run on yet is refused rather
-than guessed at. That is not the same as a molecule where detection ran and found no bleach
+before either factor is estimated, and if any molecule has not been through it yet, the
+whole estimate is refused rather than guessed at. That is not the same as a molecule where detection ran and found no bleach
 in a channel: that result is recorded as the end of the trace, the molecule is not refused,
 and it can still take the dataset's factor
 ([photobleach frames](glossary.md#photobleach-frames-first-bleach-frame)).
@@ -276,8 +280,9 @@ molecule's full trace and its bleach frames
 [`tether.project.gamma`](https://github.com/bioedca/tether/blob/main/src/tether/project/gamma.py)). Photobleach detection
 proposes one, from the start of the trace to the first bleach of the summed donor and acceptor
 signal, but it writes that proposal only where the window is still the untouched extraction
-default. Once you have narrowed a window by hand, a later detection pass leaves it alone:
-manual bounds win over the automatic one
+default. A later detection pass leaves any other window alone, whether you narrowed it by hand or an
+earlier pass proposed it: manual bounds win over the automatic one, and re-detected bleach
+frames do not move a window that is already set
 ([`tether.project.photobleach`](https://github.com/bioedca/tether/blob/main/src/tether/project/photobleach.py);
 [ADR-0026](adr/0026-photobleach-detection-and-window-default.md)). The bleach frames
 themselves are re-detected each time the correction stage runs. Changing a window is still a
@@ -293,12 +298,13 @@ correction passes ([ADR-0001](adr/0001-provenance-first-data-model.md);
 [`/settings`](reference/tether-format.md#settings-provenance-of-each-pipeline-stage)).
 Photobleach detection is the exception: it records the bleach frames and window it found, but
 not the detector settings it used
-([`tether.project.photobleach`](https://github.com/bioedca/tether/blob/main/src/tether/project/photobleach.py)). The exported files carry only part
+([`tether.project.photobleach`](https://github.com/bioedca/tether/blob/main/src/tether/project/photobleach.py)). The two table exports carry only part
 of it. The Deep-LASI `.txt` trace matrix holds intensities alone; the molecule-table CSV adds
 each molecule's window, α, γ and correction method. The provenance sidecar beside each export
 records the export's own parameters, the Tether version that wrote it and the project it came
-from, but not the parameters of the passes that produced the factors, so only the project
-file answers all of those questions
+from, but not the parameters of the passes that produced the factors, so only a `.tether`
+file, the project or a subset exported from it (which copies `/settings`), answers all of
+those questions
 ([provenance sidecar](reference/exports.md#provenance-sidecar)).
 
 Idealization is where this pays off most. By default the model is fitted on the
@@ -308,11 +314,12 @@ asked to use the `raw` layer instead, and the stored model records which in its
 ([`tether.project.idealize`](https://github.com/bioedca/tether/blob/main/src/tether/project/idealize.py)), but each fitted molecule carries a
 fingerprint of that trace, its window, and the α and γ in force for it when it was fitted.
 Change any of those and the fingerprint no longer matches, the molecule is marked stale, and
-the four staleness-gated analyses above leave it out until it is re-fitted. A change in α marks
+the four staleness-gated analyses above leave it out by default until it is re-fitted. A change in α marks
 every molecule whose E uses the correction stale, because one α applies to all of them; a
-molecule on apparent E is fingerprinted with no factors applied, so a new α leaves it fresh;
-re-running the estimate and getting the same α changes nothing. A shift in the median γ marks only the corrected molecules that
-took that median
+molecule on apparent E is fingerprinted with no factors applied, so a new α leaves it fresh as long
+as it stays on apparent E, and marks it stale if it moves the molecule onto corrected E.
+Re-running the estimate and getting the same α changes nothing. A shift in the median γ marks
+only the corrected molecules that took that median
 ([ADR-0029](adr/0029-idealization-correction-provenance-hash-and-per-factor-staleness.md);
 [staleness](glossary.md#staleness-stale-fresh-live)). That is what lets you say that a dwell
 time or a transition rate came from exactly the trace, window and correction state
