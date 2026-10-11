@@ -180,13 +180,15 @@ The historical attributions differ in how well-founded they are and — more imp
 | `sidecar_python_version` | 3.9.23 | 3.12.13 |
 | `tmaven_commit` | `71cfa1af…` (2025-05-06) | `10f4230b…` (2025-10-05) |
 | How the values were obtained | reconstructed on 2026-07-20 from the interpreter the old workstation path still resolves to; the artifact says "the environment is not guaranteed unchanged since 2026-06-26" | re-derived from the run's own inputs — `.github/workflows/sidecar-measure.yml` (dispatch run 28963324581, whose log records `python 3.12.13` and the resolved `@10f4230`), `sidecar/conda-lock.yml` and the workflow's pinned `TMAVEN_SPEC` |
-| Matches the build the live gate runs? | **No** | Yes |
+| Same tMAVEN commit and CPython as the live gate? | **No** | Yes |
 
 The pin every live assertion uses is `10f4230b6d13c6d2ad67b05d801696b4a40eff4a` on CPython
 3.12.13 — `TMAVEN_SPEC` in `.github/workflows/sidecar.yml`, `python=3.12.*` in
 `sidecar/environment.yml` resolving to 3.12.13 on all four platforms in
 `sidecar/conda-lock.yml`, and the same commit recorded in `NOTICE` and
-`scripts/setup_sidecar.py`.
+`scripts/setup_sidecar.py`. Those two fields are all either `method` block records about its
+build: neither records the rest of the resolved sidecar lock, so "the same build" on this page
+means the same tMAVEN commit on the same CPython, not an identical dependency set.
 
 > Gap, stated plainly. The **default** frozen tolerance — the `$.tolerance` row that gates
 > the required `sidecar / parity` vbconhmm fits and is `applied_to` per-trace vbFRET — was
