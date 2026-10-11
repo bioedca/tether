@@ -42,6 +42,18 @@
 # `tests/test_setup_sidecar.py::test_no_consumer_restates_the_version_or_the_bound` enforces the
 # list, so adding a consumer without adding it there fails rather than drifting.
 #
+# .github/dependabot.yml is not a consumer: it reads nothing from this file. Its `pip` entry
+# ignores setuptools outright so the weekly update group never proposes moving this pin (#444,
+# #455), and the same test sweeps it only because it may not restate the pin either.
+#
+# THE BOUND AS A LITERAL. tests/test_setup_sidecar.py's
+# `test_the_pinned_version_stays_below_the_pkg_resources_removal` holds `81` as a literal
+# inside an assertion — a numeric comparison on the version parsed from here, not a
+# requirement spelling — in the same form the `< (81,)` install-smoke assertion in
+# packaging/scripts/install_smoke.sh already uses. Those are not the only copies of the
+# number: .github/workflows/sidecar-measure.yml installs the bound outright, in a
+# manual-dispatch workflow the restatement sweep does not scan.
+#
 # REMOVAL TRIGGER, so this does not become permanent by inattention: the moment tMAVEN no
 # longer imports `pkg_resources`, delete this file and every consumer named above. Nothing
 # else needs to change — the sidecar lock already resolves a current setuptools on its own.
