@@ -18,7 +18,9 @@ What is asserted, and where:
   stub carries no generator, ``md-nav`` or ``md-search``, so none is required here.
 * **``/latest/``** -- the Material site: a generator naming ``mkdocs-material`` (the name, never a
   version, so a ``requirements-docs.txt`` bump cannot turn it red), ``md-nav`` and ``md-search``.
-* **``/latest/privacy/``** -- ``200`` with a body: the externally published privacy policy.
+* **``/latest/privacy/``** -- ``200`` with a body: the externally published privacy policy, served
+  *at that URL*. urllib follows redirects, so a ``200`` alone could be some other page's (#518);
+  the final URL must still be the policy's -- see :func:`check_privacy`.
 * **``/versions.json``** -- valid JSON with an entry resolving ``latest``; no version number.
 
 Flap policy: each fetch is retried in-run (:data:`MAX_ATTEMPTS`, with backoff) on transport
@@ -82,6 +84,9 @@ class Response:
     error: str = ""
     #: Response headers, names lower-cased.
     headers: Mapping[str, str] = field(default_factory=dict)
+    #: The URL the response actually came from, after every redirect urllib followed. Empty when
+    #: no HTTP response was received, or when an injected transport does not report one.
+    final_url: str = ""
 
     @property
     def text(self) -> str:
@@ -141,11 +146,15 @@ _OPENER = _build_opener()
 
 
 def _read_bounded(status: int, answer: Any, headers: Mapping[str, str] | None) -> Response:
-    """*answer*'s body, read no further than one byte past :data:`MAX_BODY_BYTES`."""
+    """*answer*'s body, read no further than one byte past :data:`MAX_BODY_BYTES`.
+
+    ``answer.url`` is the URL of the request that produced *answer*, which after a followed
+    redirect is the redirect's target, not the URL asked for. An ``HTTPError`` carries it too.
+    """
     body = answer.read(MAX_BODY_BYTES + 1) or b""
     if len(body) > MAX_BODY_BYTES:
         return Response(None, error=f"the body exceeded {MAX_BODY_BYTES} bytes; not read further")
-    return Response(status, body, headers=_lower(headers))
+    return Response(status, body, headers=_lower(headers), final_url=answer.url)
 
 
 def _exchange(url: str, headers: Mapping[str, str]) -> Response:
@@ -348,11 +357,31 @@ def check_latest(response: Response, attempts: int) -> list[str]:
     return problems
 
 
+#: Where a fetch of :data:`PRIVACY_URL` may end up and still be serving the policy: the URL itself,
+#: or the ``index.html`` it is the directory form of -- the same file on Pages, so a redirect
+#: between the two moves nothing (#518).
+PRIVACY_FINAL_URLS = (PRIVACY_URL, PRIVACY_URL + "index.html")
+
+
 def check_privacy(response: Response, attempts: int) -> list[str]:
-    """``/latest/privacy/`` is externally published, so it must resolve with a body."""
+    """``/latest/privacy/`` is externally published, so it must resolve -- there -- with a body.
+
+    The fetch follows redirects, so a ``200`` with a body proves nothing on its own: a redirect to
+    the site root would pass on the root's page (#518). The final URL must therefore be one of
+    :data:`PRIVACY_FINAL_URLS`. An empty ``final_url`` -- a transport that does not report one --
+    is read as the URL requested. No content marker is asserted: every candidate is either the
+    wording of ``docs/privacy.md``, which an edit there would turn red, or Material/``mike``
+    markup this module cannot pin offline; the final-URL check closes the redirect case alone.
+    """
     problem = _status_problem(PRIVACY_URL, response, attempts)
     if problem:
         return [problem]
+    final = response.final_url or PRIVACY_URL
+    if final not in PRIVACY_FINAL_URLS:
+        return [
+            f"{PRIVACY_URL} redirected to {final} -- the published privacy-policy URL no longer "
+            "serves the policy"
+        ]
     if not response.body.strip():
         return [f"{PRIVACY_URL} returned 200 with an empty body"]
     return []

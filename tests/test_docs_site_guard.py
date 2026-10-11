@@ -64,6 +64,7 @@ PAGES_OK = {
 }
 GENERATOR_TODAY = "mkdocs-1.6.1, mkdocs-material-9.7.7"
 GENERATOR_BUMPED = "mkdocs-1.7.0, mkdocs-material-9.9.9"
+PRIVACY_PAGE = b"<html><body>Privacy</body></html>"
 VERSIONS_OK = b'[{"version":"dev","title":"dev","aliases":["latest"]}]'
 JEKYLL_ROOT = (
     b'<!DOCTYPE html><html><head><meta name="generator" content="Jekyll v3.10.0">'
@@ -83,7 +84,7 @@ def _healthy() -> dict[str, list[R]]:
         guard.PAGES_API_URL: [R(200, json.dumps(PAGES_OK).encode())],
         guard.ROOT_URL: [R(200, ROOT_STUB)],
         guard.LATEST_URL: [_latest()],
-        guard.PRIVACY_URL: [R(200, b"<html><body>Privacy</body></html>")],
+        guard.PRIVACY_URL: [R(200, PRIVACY_PAGE)],
         guard.VERSIONS_URL: [R(200, VERSIONS_OK)],
     }
 
@@ -334,7 +335,7 @@ class _Stalled:
     socket operation times out, so only a deadline on the fetch as a whole can end it.
     """
 
-    status, headers = 200, {}
+    status, headers, url = 200, {}, ""
 
     def __init__(self, release: threading.Event) -> None:
         self.release = release
@@ -370,7 +371,7 @@ def test_a_trickling_response_is_cut_off_at_the_whole_fetch_deadline(
 class _Sized:
     """A urlopen result whose body is *size* bytes, honouring ``read``'s size argument."""
 
-    status, headers = 200, {}
+    status, headers, url = 200, {}, ""
 
     def __init__(self, size: int) -> None:
         self.stream = io.BytesIO(b"x" * size)
@@ -486,6 +487,72 @@ def test_the_module_opener_redirects_through_the_origin_bound_handler() -> None:
         h for h in REAL_OPENER.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)
     ]
     assert [type(h) for h in redirectors] == [guard._OriginBoundRedirects]
+
+
+def _privacy_redirected_to(location: str, status: int = 200) -> tuple[_Origins, str]:
+    """``/latest/privacy/`` answering ``301`` to *location*, which answers *status* with a body."""
+    final = urllib.parse.urljoin(guard.PRIVACY_URL, location)
+    origins = _Origins(
+        {
+            guard.PRIVACY_URL: (301, {"Location": location}, b""),
+            final: (status, {}, b"<html><body>Somewhere else</body></html>"),
+        }
+    )
+    return origins, final
+
+
+@pytest.mark.parametrize("location", [guard.ROOT_URL, "/tether/", "../../"])
+def test_privacy_redirected_away_from_the_policy_fails_naming_both_urls(
+    monkeypatch: pytest.MonkeyPatch, location: str
+) -> None:
+    # The #518 demonstration: urllib's real redirect handling lands on the root's 200 and body,
+    # which passed while only the status and the body were kept.
+    origins, final = _privacy_redirected_to(location)
+    assert final == guard.ROOT_URL
+    monkeypatch.setattr(guard, "_OPENER", guard._build_opener(origins))
+    response = guard.default_transport(guard.PRIVACY_URL, {})
+    assert response.status == 200 and response.body.strip()
+    assert response.final_url == guard.ROOT_URL
+    (problem,) = guard.check_privacy(response, 1)
+    assert guard.PRIVACY_URL in problem and f"redirected to {guard.ROOT_URL}" in problem
+
+
+def test_main_fails_a_privacy_url_redirected_to_the_root(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Every other URL healthy, and the root answering its real stub: only the privacy probe fails.
+    origins = _Origins({url: (a.status, {}, a.body) for url, (a,) in _healthy().items()})
+    origins.routes[guard.PRIVACY_URL] = (301, {"Location": guard.ROOT_URL}, b"")
+    monkeypatch.setattr(guard, "_OPENER", guard._build_opener(origins))
+    assert guard.main(sleep=lambda _s: None, environ={}) == 1
+    (error,) = _errors(capsys)
+    assert f"{guard.PRIVACY_URL} redirected to {guard.ROOT_URL}" in error
+
+
+def test_privacy_served_in_place_records_its_own_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    origins = _Origins({guard.PRIVACY_URL: (200, {}, PRIVACY_PAGE)})
+    monkeypatch.setattr(guard, "_OPENER", guard._build_opener(origins))
+    response = guard.default_transport(guard.PRIVACY_URL, {})
+    assert response.final_url == guard.PRIVACY_URL
+    assert guard.check_privacy(response, 1) == []
+
+
+def test_privacy_redirected_to_its_own_index_html_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The directory URL and its index.html are one file on Pages; accepting both is the #518 call.
+    origins, final = _privacy_redirected_to("index.html")
+    assert final == guard.PRIVACY_URL + "index.html"
+    monkeypatch.setattr(guard, "_OPENER", guard._build_opener(origins))
+    response = guard.default_transport(guard.PRIVACY_URL, {})
+    assert response.final_url == final and guard.check_privacy(response, 1) == []
+
+
+def test_an_http_error_after_a_redirect_keeps_the_final_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    origins, final = _privacy_redirected_to("/tether/gone/", status=404)
+    monkeypatch.setattr(guard, "_OPENER", guard._build_opener(origins))
+    response = guard.default_transport(guard.PRIVACY_URL, {})
+    assert response.status == 404 and response.final_url == final
 
 
 def test_a_transient_503_is_retried_and_passes() -> None:
