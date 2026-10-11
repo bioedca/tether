@@ -61,6 +61,21 @@ runs:
         # conda-lock restore chokes on `manager: pip` .whl entries on win-64. Unreachable
         # today: all three committed locks are pure conda (0 `manager: pip` entries).
         # Bump to a release published after 2026-06-24 before adding one.
+        #
+        # DO NOT "fix" this pin on the strength of this error alone (#452):
+        #   Could not find a micromamba binary for release 2.8.1-0 on platform win-64.
+        # The action (v3.2.1, src/micromamba-version.ts) throws it from
+        # `resolveGithubAssetUrl` when EVERY `urlExists` HEAD probe of the release's
+        # download URLs returns non-ok; on win-64 that means both the `.exe` and the
+        # extensionless probe. Transient github.com answers to every probe do that, and
+        # so would a tag or asset that really is missing, so the message alone cannot
+        # tell the two apart. For 2.8.1-0 the second is ruled out: the release (published
+        # 2026-06-09, prerelease: false) ships micromamba-win-64.exe, micromamba-win-64
+        # and micromamba-linux-64. `fetch failed` is the same probe failing at the
+        # transport layer, and the Post step's `Unexpected end of JSON input` is either
+        # one's deterministic companion, not a second fault. At this pin, re-run. If a
+        # re-run fails the same way, or the pin has changed, check the release's assets
+        # before anything else.
         micromamba-version: "2.8.1-0"
         environment-file: ${{ inputs.environment-file }}
         environment-name: ${{ inputs.environment-name }}
