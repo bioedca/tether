@@ -676,8 +676,9 @@ could be undone only by a manual reinstall. "Stable" **shall** be derived from t
 never from the attestation *statement* — an attacker who controls the release query controls that flag too, and the
 statement's predicate is controlled by the originating workflow. That ref **shall** be required to match
 `refs/tags/vMAJOR.MINOR.PATCH` exactly — an allowlist, not a prerelease denylist, since a denylist still admits
-`refs/heads/main` or a four-component `v1.0.0.0`; this is the form §12.7 specifies for a release tag, applied on the
-client and stricter than what `release.yml` enforces on publish today. The version parsed from that ref **shall**
+`refs/heads/main` or a four-component `v1.0.0.0`; this is the form §12.7 specifies for a release tag. `release.yml`
+applies the same grammar on publish, and the client is stricter only in additionally excluding the prerelease
+component that grammar admits. The version parsed from that ref **shall**
 equal the version used for the strictly-newer comparison, so the two cannot diverge. An offered release **shall**
 additionally be **strictly newer than the installed version**, compared on the client, since the same attacker can
 otherwise replay a genuine, genuinely-attested *older* installer, which every signature-style check passes.
@@ -1351,7 +1352,8 @@ namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and 
   pin-and-hold (§4.1) — the tag is the single point where all three are snapshotted for the release.
 - **`CHANGELOG.md`** is **generated from commit history**, never hand-edited (so squash titles must be clean
   Conventional Commits — §12.2/§12.6).
-- **Release pipeline (`release.yml`, triggered on a signed `v*.*.*` tag):**
+- **Release pipeline (`release.yml`, triggered by pushing a signed `v*` tag; its `verify` job enforces the
+  `vMAJOR.MINOR.PATCH` form, optionally with a `-<prerelease>` component, and rejects any other tag):**
   1. **verify-tag** — assert the tag is signed + annotated, on `main`, and all three locks are committed and clean;
      re-run the full required suite as a gate.
   2. **build-installers** (3-OS matrix) — **constructor** installers (§4.1, §8 NFR-PKG, §9 M9) bundling the
