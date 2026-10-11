@@ -1437,8 +1437,8 @@ SETUP_MICROMAMBA = "mamba-org/setup-micromamba@"
 MICROMAMBA_PIN = "2.8.1-0"
 
 #: The trailing `# v<X.Y.Z>` tag comment on a `uses: mamba-org/setup-micromamba@<sha>` line,
-#: quoted or not. Read from TEXT because a YAML parse discards comments; kept honest by requiring
-#: one match per PARSED call site, so a spelling this misses fails instead of vanishing.
+#: quoted or not. Read from TEXT because a YAML parse discards comments; counted against the
+#: PARSED call sites per file, so a spelling this misses fails instead of vanishing (#510).
 _SETUP_MICROMAMBA_TAG = re.compile(
     r"^\s*(?:-\s*)?uses:\s*[\"']?"
     + re.escape(SETUP_MICROMAMBA)
@@ -1619,9 +1619,10 @@ def test_every_setup_micromamba_call_site_runs_the_same_action_version() -> None
     check green, which is precisely the state #446 would have produced without #445.
 
     The trailing tag comment is asserted too: a parse discards comments, so it is read from the
-    text, and one tag per PARSED call site is required -- an unannotated ``uses:`` line fails
-    here rather than being silently skipped, which is also what stops the text half and the
-    parsed half from disagreeing quietly.
+    text, and the file must carry as many tags as it has PARSED call sites -- an unannotated
+    ``uses:`` line fails here rather than being silently skipped. The count is per file, so it
+    does not tie each tag to its own call site's line, and the refs are compared as written
+    without checking that each is a 40-hex SHA; #510 tracks both.
     """
     call_sites = _setup_micromamba_call_sites()
     assert len(call_sites) >= 3, (
