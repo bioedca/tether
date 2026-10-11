@@ -1,7 +1,7 @@
 # Deep trace classifier (optional GPU add-on)
 
 Tether's M8 milestone adds a **deep** trace classifier — a 1-D CNN/LSTM that scores each
-molecule accept/reject from its raw windowed donor/acceptor intensities, in the
+molecule [accept/reject](../pipeline.md#curate) from its raw windowed donor/acceptor intensities, in the
 DeepFRET/Deep-LASI lineage of deep-learning smFRET trace selection
 ([Thomsen 2020](#deepfret); [Wanninger 2023](#deeplasi); [Li 2020](#autosim)). It is a
 **terminal optional add-on**: the classifier is a strict superset of the CPU app, and the

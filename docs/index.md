@@ -11,10 +11,15 @@ acquisition geometry and file formats Tether reads, what it deliberately does no
 what a dataset costs in time and disk. It is the fastest way to find out whether Tether
 suits your experiment before you install anything.
 
+**Want the big picture?** [How Tether works](pipeline.md) walks a movie through every stage,
+from extraction to export, and explains the decisions that change what you can claim in a
+paper.
+
 ## Where to go next
 
 ### Using Tether
 
+- [How Tether works](pipeline.md) — for the order Tether processes a movie in, and why.
 - [Install Tether](install.md) — for downloading, verifying, installing and uninstalling
   the desktop installer.
 - [Installers & offline bundle](packaging.md) — for what an installer contains and how to
@@ -54,6 +59,10 @@ suits your experiment before you install anything.
   for maintainers recording the manual tMAVEN GUI check on each operating system.
 
 ## Modules (PRD §4.2)
+
+Each package below owns one responsibility. The table lists them by package; for the order a
+movie actually passes through them, and what each leaves in the project file, see
+[How Tether works](pipeline.md).
 
 | Module | Responsibility |
 | --- | --- |
