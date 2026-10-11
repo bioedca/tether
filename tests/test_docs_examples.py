@@ -1,0 +1,442 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Every ``tether`` import printed in a docs code fence names a real module and object.
+
+The docs show readers ``from tether.analysis.histogram import population_apparent_e_histogram``
+and the like; nothing else verifies those lines, and the set grows with every new page (#183).
+This module walks ``docs/**/*.md`` (minus ``docs/PRD.md``, which ``mkdocs.yml`` excludes from
+the site), extracts every ``from tether…`` / ``import tether…`` statement from the Python
+fences with :mod:`ast`, and checks that
+
+* each module resolves to a source file or package in this checkout's ``src/tether``, and
+* each imported name is bound at runtime at the top level of that module's source — by a
+  ``def``/``class``, an assignment, or an import, including inside ``if``/``try``/``with``
+  but not in a branch that is statically dead at import time (``if TYPE_CHECKING:``,
+  ``if False:``, ``if __name__ == "__main__":``, …; see :func:`_static_truth`) and not by a
+  bare ``name: T`` annotation — or is one of its submodules.
+
+**Nothing is ever imported** — not the module, and not its parent packages. Torch lives only
+in the isolated ``deep/`` lock stack, and ``tether.ml.deep.model`` is importable without it
+only because it imports torch lazily inside its functions; an import-based check would tie a
+required 3-OS job to that discipline holding forever. :func:`importlib.util.find_spec` on a
+dotted name imports every parent package to read its ``__path__``, so resolution instead walks
+the package tree one level at a time with :meth:`importlib.machinery.PathFinder.find_spec`,
+which only searches the given directories. Anchoring the walk at this checkout's ``src/``
+also means the docs are checked against the source beside them, never against whatever
+``tether`` another environment happens to have installed.
+
+**Scope.** Fences are found as Python-Markdown 3.11's ``fenced_code`` finds them, with its
+``FENCED_BLOCK_RE`` copied: at the root only, opening and closing at column zero, the
+closer repeating the opener. A fence tagged ``python``, ``py``, ``python3``, ``py3`` or
+``pycon`` is read. The coverage guard then reads *every* line of every page, inside a fence
+or not, so a line that reads as a tether import (``from tether…``, or ``import`` naming
+``tether`` anywhere in its list, alone or after a ``;``) and is not checked fails it. This
+covers an untagged fence, a statement the parse cannot read, and a fence-shaped block the
+renderer does not treat as a fence. Anything else is not guaranteed — an import spelled
+another way (``importlib.import_module("tether…")``, say), or one in a fence the renderer
+does not show as Python. Known gaps are tracked in #515.
+"""
+
+from __future__ import annotations
+
+import ast
+import re
+import sys
+from functools import cache
+from importlib.machinery import ModuleSpec, PathFinder
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+DOCS = ROOT / "docs"
+SRC = ROOT / "src"
+_EXCLUDED = {DOCS / "PRD.md"}
+
+# fenced_code.FencedBlockPreprocessor.FENCED_BLOCK_RE (Python-Markdown 3.11), copied: the
+# opening and the closing fence both sit at column zero, and the closer repeats the opener
+# exactly. An indented or nested fence-shaped line is no fence to the renderer.
+_FENCED_BLOCK_RE = re.compile(
+    r"""
+(?P<fence>^(?:~{3,}|`{3,}))[ ]*                          # opening fence
+((\{(?P<attrs>[^\n]*)\})|                                # (optional {attrs} or
+(\.?(?P<lang>[\w#.+-]*)[ ]*)?                            # optional (.)lang
+(hl_lines=(?P<quot>"|')(?P<hl_lines>.*?)(?P=quot)[ ]*)?) # optional hl_lines)
+\n                                                       # newline (end of opening fence)
+(?P<code>.*?)(?<=\n)                                     # the code block
+(?P=fence)[ ]*$                                          # closing fence
+""",
+    re.MULTILINE | re.DOTALL | re.VERBOSE,
+)
+_ATTRS_LANG_RE = re.compile(r"(?:^|\s)\.([\w#.+-]+)")  # the first `.class` in `{attrs}`
+_PYTHON_LANGS = {"python", "py", "python3", "py3", "pycon"}
+# Any line that reads as a tether import, whatever fence it sits in: the coverage guard.
+# A statement may follow a `;`, and `tether` may be any name of a multi-name `import`.
+_TETHER_IMPORT_LINE_RE = re.compile(
+    r"(?:^|;)\s*(?:>>> |\.\.\. )?"
+    r"(?:from\s+tether\b|import\s+(?:[\w.]+(?:\s+as\s+\w+)?\s*,\s*)*tether\b)"
+)
+
+
+def _page_text(path: Path) -> str:
+    """The page as ``NormalizeWhitespace`` hands it on: newlines unified, tabs expanded."""
+    text = path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    return text.expandtabs(4)
+
+
+def _fences(path: Path) -> list[tuple[str, int, list[str]]]:
+    """``(language, first_body_line_number, body_lines)`` for each fence the renderer finds."""
+    text = _page_text(path)
+    out = []
+    for m in _FENCED_BLOCK_RE.finditer(text):
+        lang = m.group("lang") or ""
+        if m.group("attrs") is not None:
+            attr = _ATTRS_LANG_RE.search(m.group("attrs"))
+            lang = attr.group(1) if attr else ""
+        first = text.count("\n", 0, m.start("code")) + 1
+        out.append((lang.lower(), first, m.group("code").split("\n")[:-1]))
+    return out
+
+
+def _statements(body: list[str]) -> list[tuple[int, ast.stmt]]:
+    """Top-level statements of a fence body, with 0-based line offsets into ``body``.
+
+    A whole-fence parse is tried first. A fence that is not valid Python as a whole (an
+    elided ``...`` argument list, a ``>>>`` session) falls back to parsing each statement
+    that starts on its own line, extending it line by line until it parses, so a
+    parenthesised multi-line import is still read as one statement.
+    """
+    body = [re.sub(r"^(?:>>> |\.\.\. )", "", ln) for ln in body]
+    try:
+        tree = ast.parse("\n".join(body))
+        return [(node.lineno - 1, node) for node in tree.body]
+    except SyntaxError:
+        pass
+    out = []
+    for start, line in enumerate(body):
+        if not re.match(r"(?:from|import)\s", line):
+            continue
+        for end in range(start + 1, len(body) + 1):
+            try:
+                tree = ast.parse("\n".join(body[start:end]))
+            except SyntaxError:
+                continue
+            out.extend((start + node.lineno - 1, node) for node in tree.body)
+            break
+    return out
+
+
+def _docs_imports() -> list[tuple[str, int, ast.Import | ast.ImportFrom]]:
+    """Every tether import statement in a Python fence: ``(file, line, node)``."""
+    found = []
+    for path in sorted(p for p in DOCS.rglob("*.md") if p not in _EXCLUDED):
+        rel = path.relative_to(ROOT).as_posix()
+        for lang, first, body in _fences(path):
+            if lang not in _PYTHON_LANGS:
+                continue
+            for offset, node in _statements(body):
+                for sub in ast.walk(node):
+                    if (
+                        isinstance(sub, ast.ImportFrom)
+                        and sub.level == 0
+                        and _is_tether(sub.module)
+                        or isinstance(sub, ast.Import)
+                        and any(_is_tether(a.name) for a in sub.names)
+                    ):
+                        found.append((rel, first + offset + sub.lineno - node.lineno, sub))
+    return found
+
+
+def _is_tether(name: str | None) -> bool:
+    return name is not None and (name == "tether" or name.startswith("tether."))
+
+
+@cache
+def _spec(dotted: str) -> ModuleSpec | None:
+    """Resolve ``dotted`` under ``src/`` one package at a time, without importing anything."""
+    parent, _, _ = dotted.rpartition(".")
+    if parent:
+        parent_spec = _spec(parent)
+        if parent_spec is None or not parent_spec.submodule_search_locations:
+            return None
+        search = list(parent_spec.submodule_search_locations)
+    else:
+        search = [str(SRC)]
+    return PathFinder.find_spec(dotted, search)
+
+
+def _is_main_guard(test: ast.Compare) -> bool:
+    """``__name__ == "__main__"`` written either way round."""
+    if len(test.ops) != 1:
+        return False
+    sides = [test.left, test.comparators[0]]
+    return any(isinstance(s, ast.Name) and s.id == "__name__" for s in sides) and any(
+        isinstance(s, ast.Constant) and s.value == "__main__" for s in sides
+    )
+
+
+def _static_truth(test: ast.expr) -> bool | None:
+    """What ``test`` evaluates to while the module is being *imported*, or None if unknown.
+
+    The one place that decides which conditional bodies can bind a name a reader is able to
+    import: a literal (``if False:``, ``if 0:``), ``TYPE_CHECKING`` or ``<anything>.TYPE_CHECKING``
+    (false at runtime), and ``__name__ == "__main__"`` (false on import, since ``__name__`` is
+    then the dotted module name), plus ``not``/``and``/``or`` over those. Anything else —
+    ``sys.version_info`` checks, feature flags — is unknown, and both arms are read.
+    """
+    if isinstance(test, ast.Constant):
+        return bool(test.value)
+    if (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    ):
+        return False
+    if isinstance(test, ast.Compare) and _is_main_guard(test):
+        if isinstance(test.ops[0], ast.Eq):
+            return False
+        if isinstance(test.ops[0], ast.NotEq):
+            return True
+        return None
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        inner = _static_truth(test.operand)
+        return None if inner is None else not inner
+    if isinstance(test, ast.BoolOp):
+        values = [_static_truth(v) for v in test.values]
+        decisive = isinstance(test.op, ast.Or)  # `or` is decided by a True, `and` by a False
+        if decisive in values:
+            return decisive
+        return None if None in values else not decisive
+    return None
+
+
+def _bound_names(stmts: list[ast.stmt]) -> set[str]:
+    """Names a module binds at top level, descending into if/try/with but not defs.
+
+    An ``if`` whose test :func:`_static_truth` decides contributes only the arm that runs on
+    import: the body of ``if TYPE_CHECKING:`` or ``if __name__ == "__main__":`` never does,
+    so a reader's ``from module import name`` of a name bound only there fails at runtime
+    and must not pass here.
+    """
+    names: set[str] = set()
+    for node in stmts:
+        if isinstance(node, ast.If) and (truth := _static_truth(node.test)) is not None:
+            names |= _bound_names(node.body if truth else node.orelse)
+            continue
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            # A bare annotation (`name: T`, no value) only declares a type: the module has
+            # no attribute `name`, so `from module import name` raises ImportError.
+            if isinstance(node, ast.AnnAssign) and node.value is None:
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                names.update(n.id for n in ast.walk(target) if isinstance(n, ast.Name))
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update((a.asname or a.name).split(".")[0] for a in node.names if a.name != "*")
+        elif isinstance(node, (ast.If, ast.Try, ast.With)):
+            for field in ("body", "orelse", "finalbody"):
+                names |= _bound_names(getattr(node, field, []))
+            for handler in getattr(node, "handlers", []):
+                names |= _bound_names(handler.body)
+    return names
+
+
+@cache
+def _module_names(dotted: str) -> frozenset[str]:
+    spec = _spec(dotted)
+    assert spec is not None and spec.origin
+    tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
+    return frozenset(_bound_names(tree.body))
+
+
+def _problems(rel: str, line: int, node: ast.Import | ast.ImportFrom) -> list[str]:
+    where = f"{rel}:{line}"
+    if isinstance(node, ast.Import):
+        return [
+            f"{where}: 'import {a.name}' — no module {a.name} under src/"
+            for a in node.names
+            if _is_tether(a.name) and _spec(a.name) is None
+        ]
+    module = node.module or ""
+    if _spec(module) is None:
+        return [f"{where}: 'from {module} import …' — no module {module} under src/"]
+    out = []
+    for alias in node.names:
+        if alias.name == "*":
+            continue
+        if alias.name in _module_names(module) or _spec(f"{module}.{alias.name}") is not None:
+            continue
+        out.append(
+            f"{where}: 'from {module} import {alias.name}' — {module} defines no {alias.name}"
+        )
+    return out
+
+
+def test_docs_import_examples_resolve() -> None:
+    """Every tether import shown in a docs Python fence names a real module and object."""
+    imports = _docs_imports()
+    assert len(imports) >= 10, f"expected the docs' tether imports; found only {len(imports)}"
+    problems = [p for rel, line, node in imports for p in _problems(rel, line, node)]
+    assert not problems, "\n".join(problems)
+
+
+def _unchecked_import_lines() -> list[str]:
+    """Every line of every page that reads as a tether import but is not checked."""
+    checked = {(rel, line) for rel, line, _ in _docs_imports()}
+    missed = []
+    for path in sorted(p for p in DOCS.rglob("*.md") if p not in _EXCLUDED):
+        rel = path.relative_to(ROOT).as_posix()
+        for number, text in enumerate(_page_text(path).split("\n"), start=1):
+            if _TETHER_IMPORT_LINE_RE.search(text) and (rel, number) not in checked:
+                missed.append(f"{rel}:{number}: {text.strip()}")
+    return missed
+
+
+def test_every_tether_import_line_is_checked() -> None:
+    """Coverage guard: no line of any page that reads as a tether import escapes the check.
+
+    It reads every line, not only fence bodies, so it catches a fence whose language tag is
+    not Python (or is missing), a statement the fallback parse could not read, and an import
+    the renderer does not put in a fence at all — one in an indented or nested fence-shaped
+    block, say. Any of those would otherwise drop out silently.
+    """
+    missed = _unchecked_import_lines()
+    assert not missed, (
+        "these tether import lines are not read by the example check — put each in a "
+        "```python fence that opens and closes at column zero, and make it parse:\n"
+        + "\n".join(missed)
+    )
+
+
+def test_resolution_never_imports(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The deep-stack example resolves without torch, because nothing is imported."""
+    import sys
+
+    _spec.cache_clear()
+    _module_names.cache_clear()
+    monkeypatch.setitem(sys.modules, "torch", None)  # any `import torch` now raises
+    before = {m for m in sys.modules if m == "tether" or m.startswith("tether.")}
+    assert "train_classifier" in _module_names("tether.ml.deep.model")
+    after = {m for m in sys.modules if m == "tether" or m.startswith("tether.")}
+    assert after == before
+
+
+def test_flags_a_renamed_or_missing_object() -> None:
+    """A wrong name or module is reported with file and line; a submodule import is fine."""
+    node = ast.parse("from tether.analysis.histogram import no_such_function").body[0]
+    assert _problems("docs/x.md", 7, node) == [
+        "docs/x.md:7: 'from tether.analysis.histogram import no_such_function' — "
+        "tether.analysis.histogram defines no no_such_function"
+    ]
+    node = ast.parse("from tether.analysis.no_such_module import x").body[0]
+    assert _problems("docs/x.md", 8, node)[0].startswith("docs/x.md:8: ")
+    node = ast.parse("import tether.no_such_package.sub").body[0]
+    assert _problems("docs/x.md", 9, node)
+    node = ast.parse("from tether.analysis import histogram").body[0]
+    assert _problems("docs/x.md", 10, node) == []
+    # A name bound only under `if TYPE_CHECKING:` does not exist at runtime.
+    node = ast.parse("from tether.ml.active import Sequence").body[0]
+    assert _problems("docs/x.md", 11, node) == [
+        "docs/x.md:11: 'from tether.ml.active import Sequence' — "
+        "tether.ml.active defines no Sequence"
+    ]
+
+
+def test_type_checking_bodies_are_skipped_but_their_else_is_not() -> None:
+    tree = ast.parse(
+        "import typing\n"
+        "if TYPE_CHECKING:\n    from a import A\n"
+        "if typing.TYPE_CHECKING:\n    from b import B\nelse:\n    B2 = 1\n"
+        "if sys.version_info >= (3, 11):\n    C = 1\n"
+    )
+    assert _bound_names(tree.body) == {"typing", "B2", "C"}
+
+
+@pytest.mark.parametrize(
+    ("source", "bound"),
+    [
+        ("if False:\n    ghost = 1\n", set()),
+        ("if 0:\n    ghost = 1\nelse:\n    live = 1\n", {"live"}),
+        ("if True:\n    live = 1\nelse:\n    ghost = 1\n", {"live"}),
+        ('if __name__ == "__main__":\n    def helper(): pass\n', set()),
+        ('if "__main__" == __name__:\n    ghost = 1\nelse:\n    live = 1\n', {"live"}),
+        ('if __name__ != "__main__":\n    live = 1\nelse:\n    ghost = 1\n', {"live"}),
+        ("if not TYPE_CHECKING:\n    live = 1\nelse:\n    ghost = 1\n", {"live"}),
+        ("if TYPE_CHECKING or False:\n    ghost = 1\n", set()),
+        ("if flag and False:\n    ghost = 1\n", set()),
+        ("if flag or True:\n    live = 1\nelse:\n    ghost = 1\n", {"live"}),
+        ("if flag and True:\n    a = 1\nelse:\n    b = 1\n", {"a", "b"}),
+        (
+            "if False:\n    ghost = 1\nelif TYPE_CHECKING:\n    ghost2 = 1\nelse:\n    live = 1\n",
+            {"live"},
+        ),
+    ],
+)
+def test_statically_dead_branches_bind_nothing(source: str, bound: set[str]) -> None:
+    """Only the arm that runs on import binds a name; an unknown test reads both arms."""
+    assert _bound_names(ast.parse(source).body) == bound
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "import os, tether.no_such_module",
+        "import os as o,tether",
+        ">>> import numpy as np, tether.analysis",
+        "x = 1; import tether.no_such_module",
+        "import os; from tether import nope",
+    ],
+)
+def test_the_coverage_guard_sees_tether_anywhere_in_an_import(line: str) -> None:
+    """A tether name later in a multi-name import, or after a ``;``, is still an import line."""
+    assert _TETHER_IMPORT_LINE_RE.search(line)
+
+
+def test_the_coverage_guard_ignores_lookalikes() -> None:
+    for line in (
+        "import tetherx",
+        "from tether_tools import x",
+        "# see tether docs",
+        "pip install tether",
+    ):
+        assert not _TETHER_IMPORT_LINE_RE.search(line), line
+
+
+def test_a_bare_annotation_binds_nothing() -> None:
+    """``name: T`` with no value declares a type only; importing ``name`` raises."""
+    tree = ast.parse("x: int\ny: int = 1\nz: int\nz = 2\n")
+    assert _bound_names(tree.body) == {"y", "z"}
+
+
+def _page(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> None:
+    """Make ``body`` the whole docs corpus, as ``docs/a.md`` under ``tmp_path``."""
+    module = sys.modules[__name__]
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "a.md").write_text(body, encoding="utf-8")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "DOCS", tmp_path / "docs")
+    monkeypatch.setattr(module, "_EXCLUDED", set())
+
+
+def test_a_fence_closes_only_at_column_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``FENCED_BLOCK_RE``: an indented delimiter line is fence content, not its end."""
+    body = "# A\n\n```python\nx = 1\n  ```\nfrom tether.analysis import no_such_name\n```\n"
+    _page(tmp_path, monkeypatch, body)
+    imports = _docs_imports()
+    assert [(rel, line) for rel, line, _ in imports] == [("docs/a.md", 6)]
+    assert "defines no no_such_name" in _problems(*imports[0])[0]
+
+
+def test_the_guard_reads_lines_outside_any_fence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fence-shaped block inside a list item is no fence, so the guard reports its import."""
+    body = (
+        "# A\n\n```python\nfrom tether.analysis import histogram\n```\n\n"
+        "- step\n\n    ```python\n    from tether.analysis import histogram\n    ```\n"
+    )
+    _page(tmp_path, monkeypatch, body)
+    assert [(rel, line) for rel, line, _ in _docs_imports()] == [("docs/a.md", 4)]
+    assert _unchecked_import_lines() == ["docs/a.md:10: from tether.analysis import histogram"]

@@ -8,52 +8,21 @@ DeepFRET/Deep-LASI lineage of deep-learning smFRET trace selection
 load-bearing acceptance clause (PRD §9 M8) is that *"a deep classifier trains on the shared
 label store **and is optional — the CPU base app is unaffected**."*
 
-This page is the setup and usage reference for that add-on: where PyTorch lives, how to build
-the CPU and GPU environments, the training/inference API, and the two advisory CI legs. The
-design rationale is recorded in ADR-0047 (*Deep-model optional stack + torch-free dataset
-substrate*).
+This page puts what you run first: **setup** (the CPU environment from the committed lock,
+then the CUDA wheel for a GPU), then **using the classifier** (the training/inference API and its
+preprocessing contract), and last **why** the add-on lives in a third isolated environment, with
+the lock it pins and the two advisory CI legs. The design rationale is recorded in ADR-0047
+(*Deep-model optional stack + torch-free dataset substrate*).
 
 > **You do not need any of this to run Tether.** The base app never imports a deep-learning
 > framework. Everything below is opt-in, for users who want to train or run the deep model on
 > their own labels. If you only want the classical per-condition ranker (M5), stop here.
 
-## Why a third isolated environment
+## Setup
 
-PyTorch is heavy and GPU-specific, so putting it in the base lock would bloat every install
-and break the "optional / CPU base unaffected" contract. Tether therefore keeps **three**
-pin-and-held conda stacks fully isolated (ADR-0004, extended by ADR-0047) — never merged:
-
-| Stack | Lock | Carries | Consumed by |
-|-------|------|---------|-------------|
-| **base** | `conda-lock.yml` | PySide6 / napari / pyqtgraph on the Numba-bounded NumPy | the whole app |
-| **sidecar** | `sidecar/conda-lock.yml` | PyQt5 + trimmed tMAVEN on `numpy<2` | the vbFRET idealization sidecar (over IPC) |
-| **deep** | `deep/conda-lock.yml` | `pytorch-cpu` + NumPy/SciPy/h5py | the optional deep classifier (this page) |
-
-Keeping the three locks separate is a load-bearing invariant. The `deep/` deps must **never**
-be merged into the base or sidecar environment, and a re-lock of any stack is a deliberate,
-maintainer-approved PR — not a casual bump.
-
-The split runs through the code, too. The framework-agnostic **dataset substrate**
-(`tether.ml.deep.dataset`, pure NumPy) lives in the base env and is covered by the default
-3-OS test matrix; **PyTorch is imported lazily, inside functions** in `tether.ml.deep.model`,
-so merely importing the module in the base env pulls no framework. Only calling
-`train_classifier` / `predict_proba` needs the `deep/` stack.
-
-## The `deep/` environment
-
-`deep/environment.yml` expresses the constraints; the committed, multi-platform
-`deep/conda-lock.yml` pins the exact versions and is the single source of truth (the required
-`conda-lock-verify` check restores it and never solves fresh). It is **CPU-only and
-cross-platform** (`linux-64`, `osx-64`, `osx-arm64`, `win-64`):
-
-- `python=3.12.*` (matches the base pin so the shared substrate behaves identically)
-- `pytorch-cpu>=2.2,<3` — the conda-forge metapackage that pulls the CPU PyTorch build
-  (`cpu_mkl*` on Linux/Windows, `cpu_generic*` on macOS) and **never** a CUDA variant, so the
-  environment stays lean (~200 MB vs ~2 GB for a CUDA build)
-- `numpy>=1.26,<2.2`, `scipy>=1.13`, `h5py>=3.11` — the empirically verified import footprint
-  of the shared substrate (importing `tether.ml.deep.dataset` runs the `tether.ml` package
-  init, which pulls the M5 ranker's `scipy.spatial.cKDTree` and, transitively, the `h5py`
-  store bridge; scikit-learn / xgboost stay lazy and are not needed here)
+The add-on runs in its own `tether-deep` environment, built from the committed
+`deep/conda-lock.yml`. That lock is CPU-only; a GPU box adds a CUDA PyTorch wheel on top.
+[Why a third isolated environment](#why-a-third-isolated-environment) below explains the split.
 
 ### CPU setup (local)
 
@@ -91,7 +60,9 @@ The CUDA wheel bundles the CUDA runtime, so only an NVIDIA **driver** is require
 system CUDA toolkit. This install is intentionally outside pin-and-hold; it is only ever
 exercised on the advisory GPU CI leg (below), never on a gating check.
 
-## Training and inference
+## Using the classifier
+
+### Training and inference
 
 The classifier consumes the raw windowed traces (not the M5 nine-feature vector) as
 fixed-length tensors. Assemble a `DeepTraceDataset` from a `.tether` project, train, and score:
@@ -121,7 +92,7 @@ fields — channel order, channel count, window length, normalization, and inten
 because a mismatch keeps a compatible tensor *shape* yet would produce silently invalid scores.
 Pass a bare `nn.Module` to opt out and own the contract yourself.
 
-### Preprocessing (the never-fabricate discipline)
+#### Preprocessing (the never-fabricate discipline)
 
 Two substrate defaults matter for correctness (both are PRD §11.2 tunables, retuned to the
 trained model):
@@ -139,7 +110,45 @@ trained model):
 Labels are the shared-store **binary** accept(1)/reject(0) curation labels; the six-way
 DeepFRET taxonomy awaits the M4 category codec (ADR-0023) and is a later extension.
 
-## Continuous integration
+## Why a third isolated environment
+
+PyTorch is heavy and GPU-specific, so putting it in the base lock would bloat every install
+and break the "optional / CPU base unaffected" contract. Tether therefore keeps **three**
+pin-and-held conda stacks fully isolated (ADR-0004, extended by ADR-0047) — never merged:
+
+| Stack | Lock | Carries | Consumed by |
+|-------|------|---------|-------------|
+| **base** | `conda-lock.yml` | PySide6 / napari / pyqtgraph on the Numba-bounded NumPy | the whole app |
+| **sidecar** | `sidecar/conda-lock.yml` | PyQt5 + trimmed tMAVEN on `numpy<2` | the vbFRET idealization sidecar (over IPC) |
+| **deep** | `deep/conda-lock.yml` | `pytorch-cpu` + NumPy/SciPy/h5py | the optional deep classifier (this page) |
+
+Keeping the three locks separate is a load-bearing invariant. The `deep/` deps must **never**
+be merged into the base or sidecar environment, and a re-lock of any stack is a deliberate,
+maintainer-approved PR — not a casual bump.
+
+The split runs through the code, too. The framework-agnostic **dataset substrate**
+(`tether.ml.deep.dataset`, pure NumPy) lives in the base env and is covered by the default
+3-OS test matrix; **PyTorch is imported lazily, inside functions** in `tether.ml.deep.model`,
+so merely importing the module in the base env pulls no framework. Only calling
+`train_classifier` / `predict_proba` needs the `deep/` stack.
+
+### The `deep/` environment
+
+`deep/environment.yml` expresses the constraints; the committed, multi-platform
+`deep/conda-lock.yml` pins the exact versions and is the single source of truth (the required
+`conda-lock-verify` check restores it and never solves fresh). It is **CPU-only and
+cross-platform** (`linux-64`, `osx-64`, `osx-arm64`, `win-64`):
+
+- `python=3.12.*` (matches the base pin so the shared substrate behaves identically)
+- `pytorch-cpu>=2.2,<3` — the conda-forge metapackage that pulls the CPU PyTorch build
+  (`cpu_mkl*` on Linux/Windows, `cpu_generic*` on macOS) and **never** a CUDA variant, so the
+  environment stays lean (~200 MB vs ~2 GB for a CUDA build)
+- `numpy>=1.26,<2.2`, `scipy>=1.13`, `h5py>=3.11` — the empirically verified import footprint
+  of the shared substrate (importing `tether.ml.deep.dataset` runs the `tether.ml` package
+  init, which pulls the M5 ranker's `scipy.spatial.cKDTree` and, transitively, the `h5py`
+  store bridge; scikit-learn / xgboost stay lazy and are not needed here)
+
+### Continuous integration
 
 The deep add-on is validated by two **non-required** legs, so it never gates a merge and the
 base app stays torch-free. The base 3-OS `test` matrix deselects the `deep` marker

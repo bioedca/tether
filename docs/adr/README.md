@@ -1,5 +1,10 @@
 # Architecture Decision Records (ADRs)
 
+**Who this page is for.** Anyone who wants the reasoning behind a consequential Tether design
+choice; reading needs no repository access. A record is added or changed only in the pull
+request that implements its decision, which a maintainer with write access to `bioedca/tether`
+merges.
+
 This directory records Tether's architecture decisions in
 [MADR](https://adr.github.io/madr/) format. Each ADR captures one decision, its
 context, the options weighed, and the consequences, so the *rationale* survives

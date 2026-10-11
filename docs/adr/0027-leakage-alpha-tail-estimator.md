@@ -46,7 +46,7 @@ acceptor photobleaches (but before its donor bleaches), the trace *is* a
 per-molecule donor-only measurement, and leakage α is a property of the donor dye +
 emission filters (shared across constructs), so the tail α measures the same
 quantity a bulk Cy3-only sample would — it is the standard, always-available
-estimator [Hellenkamp2018][Lee2005].
+estimator [Hellenkamp2018], [Lee2005].
 
 ## Considered options
 

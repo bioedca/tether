@@ -45,12 +45,19 @@ counts, and every module constant the page prints a value for. Within that set,
 :data:`EXCLUSIONS` records what is deliberately left unpinned and why, because on a
 validation page an unexplained omission and an oversight look identical.
 
-This is **not** a page-wide numerical-coverage manifest. The page restates some pinned
-values a second time in running prose — ``RMS ≤ 0.5 px`` in (a)'s enforcing-tests
-paragraph, the rounded ``$.pooled_worst`` figures in (b)'s blockquote — and those
-restatements sit outside the table row or anchored paragraph each pin selects, so they
-are unguarded. Closing that is #435, deliberately kept separate from the scope #214's
-title/body snapshot was approved against.
+**Restatements (#435).** A value restated outside the region its first pin selects is
+unguarded by that pin, so #435 adds a pin per restatement where a committed artifact is the
+source: both tMAVEN commits in (b)'s build table, (b)'s live-pin paragraph, (b)'s "Gap,
+stated plainly" blockquote and the third *Scope and known limitations* bullet; both
+``sidecar_python_version`` values beside them; the blockquote's rounded ``$.pooled_worst``
+figures, ceilings and run count; and the two prose copies of ebFRET's ``0.5249`` floor.
+Each such pin carries a ``source`` label naming its *location* as well as its pointer,
+because the mutation tests collect every pin sharing a label and require one edited page
+to break all of them.
+
+This is still **not** a page-wide numerical-coverage manifest. What stays unpinned on
+purpose — including ``RMS ≤ 0.5 px`` in (a)'s enforcing-tests sentence, which is a test's
+own literal rather than a transcription — is in :data:`EXCLUSIONS` with its reason.
 """
 
 from __future__ import annotations
@@ -60,6 +67,7 @@ import contextlib
 import json
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
 
@@ -386,6 +394,13 @@ class Quote(NamedTuple):
     value: object
     #: Multiplier applied before rendering — the page prints two rates as percentages.
     scale: float = 1.0
+    #: A *declared* rendering of the live value: :func:`short_commit` or :func:`sci3` where
+    #: the page abbreviates or rounds it, :func:`shortest` where it states a float exactly.
+    #: The default ``:g`` below keeps only six significant digits, so it is not an exact
+    #: rendering of an arbitrary float; a float the page claims to state exactly takes
+    #: :func:`shortest`, and a deliberate rounding is declared rather than left to ``:g``.
+    #: The page's printed text is never transformed; only the live value is.
+    render: Callable[[object], str] | None = None
 
     @property
     def label(self) -> str:
@@ -393,6 +408,8 @@ class Quote(NamedTuple):
 
     def value_text(self) -> str:
         """The live value as the page spells it."""
+        if self.render is not None:
+            return self.render(self.value)
         if isinstance(self.value, str):
             return self.value
         scaled = self.value * self.scale
@@ -520,14 +537,23 @@ def _template_regex(template: str) -> re.Pattern[str]:
     return re.compile(re.escape(head) + r"(\S+?)" + re.escape(tail))
 
 
+#: The ``>`` that opens every line of a Markdown blockquote, with the one space after it.
+_BLOCKQUOTE_MARKER_RE = re.compile(r"^[ \t]*>[ \t]?", re.MULTILINE)
+
+
 def _flat(text: str) -> str:
     """One line, single-spaced — so a pinned phrase survives Markdown re-wrapping.
 
     The page hard-wraps at 90-odd columns, so ``Paper doi`` and the DOI that belongs to it
     sit on different lines. Without this a label-bound phrase would be unmatchable purely
     because of where the paragraph happened to break.
+
+    A blockquote's per-line ``>`` marker is stripped first. Left inline, it lands in the
+    middle of any phrase that wraps — ``are 1.0 on > both floors`` — so a pin inside a
+    blockquote would hold or fail depending on where the line broke, which is the
+    fragility this function exists to remove.
     """
-    return " ".join(text.split())
+    return " ".join(_BLOCKQUOTE_MARKER_RE.sub("", text).split())
 
 
 def _same_kind(literal: object, value: object) -> bool:
@@ -649,6 +675,292 @@ def _blinking_rate(name: str) -> object:
     return ast.literal_eval(stated.pop())
 
 
+# --- Derived renderings ----------------------------------------------------------
+# The page abbreviates or rounds some live values. Each rendering below is applied to the
+# LIVE artifact value only; the page's printed text is compared as printed, never itself
+# rounded or truncated, so a page printing `8.3472e-09` or `8.3e-09` still fails.
+
+_FULL_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def short_commit(commit: object) -> str:
+    """A full 40-hex tMAVEN commit as the page abbreviates it: its first 8 hex.
+
+    The truncation is the page's typography, not the pin's tolerance — the full value is
+    pinned exactly in (b)'s live-pin paragraph. Refuses anything but a full commit, so a
+    pointer that came to hold an abbreviation cannot silently compare prefix-to-prefix.
+    """
+    assert isinstance(commit, str), f"{commit!r} is not a commit string"
+    assert _FULL_COMMIT_RE.match(commit), f"{commit!r} is not a full 40-hex commit"
+    return commit[:8]
+
+
+def sci3(value: object) -> str:
+    """The page's rounding rule: three significant figures in scientific notation.
+
+    ``format(value, ".2e")`` — so ``8.34719832143449e-09`` renders ``8.35e-09`` and
+    ``1.0024658100238614e-09`` renders ``1.00e-09``. ``.3g`` is not the same rule: it
+    drops the trailing zero and yields ``1e-09``.
+    """
+    assert isinstance(value, float), f"{value!r} is not a float"
+    return format(value, ".2e")
+
+
+def shortest(value: object) -> str:
+    """The shortest string that round-trips to ``value`` — ``repr``, so ``1.0`` stays ``1.0``.
+
+    ``f"{value:g}"`` would print ``1``, which is not what the page writes.
+    """
+    assert isinstance(value, float), f"{value!r} is not a float"
+    text = repr(value)
+    assert float(text) == value
+    return text
+
+
+def _common_value(*pointers: str) -> object:
+    """The one value every pointer holds — for a page clause like "1.0 on both floors".
+
+    If the fields ever diverge there is no single value the clause can state, so this
+    fails rather than pinning the page to whichever pointer came first.
+    """
+    values = {pointer: at(PARITY, pointer) for pointer in pointers}
+    assert len(set(values.values())) == 1, (
+        f"{values} differ, so there is no single value the page's shared clause can state"
+    )
+    return values[pointers[0]]
+
+
+#: The ``(… fail; … pass)`` illustration in (b)'s ship-floor bullet.
+_STRADDLE_RE = re.compile(r"\(([^;()]*) fail; ([^;()]*) pass\)")
+
+
+def straddle_violations(text: str, floor: float) -> list[str]:
+    """Literals in the ``(… fail; … pass)`` clause that are on the wrong side of ``floor``.
+
+    The sentence says the default state-count floor *fails* the per-method ordering test
+    once it is dropped to ebFRET's floor or below, and *passes* above it, then illustrates
+    with two literals each side. Transcribing those would only check the page against
+    itself; this checks the claim: every fail-side literal must be ``<= floor`` and every
+    pass-side literal ``> floor``. ``floor`` is a parameter so a re-freeze that moved it
+    past the illustration is testable without editing the artifact.
+    """
+    clauses = _STRADDLE_RE.findall(_flat(text))
+    assert len(clauses) == 1, f"expected one '(… fail; … pass)' clause, found {len(clauses)}"
+    fail_side, pass_side = ([float(n) for n in _NUMBER_RE.findall(side)] for side in clauses[0])
+    assert fail_side and pass_side, f"the clause lost one of its sides: {clauses[0]}"
+    return [f"{x} fails but is above {floor}" for x in fail_side if not x <= floor] + [
+        f"{x} passes but is not above {floor}" for x in pass_side if not x > floor
+    ]
+
+
+#: Where the restatement pins sit. Each one's ``source`` names its location as well as
+#: its pointer: the mutation tests collect every pin sharing a ``source`` and require one
+#: edited page to break all of them, which two different page locations never do.
+_AT_BUILD_TABLE = " @ (b) build table"
+_AT_LIVE_PIN = " @ (b) live-pin paragraph"
+_AT_GAP_QUOTE = " @ (b) gap blockquote"
+_AT_SCOPE = " @ Scope third bullet"
+_SCOPE_SECTION = "Scope and known limitations"
+#: The paragraph naming the pin every live sidecar assertion uses.
+_LIVE_PIN_ANCHOR = ".github/workflows/sidecar.yml"
+#: (b)'s "Gap, stated plainly" blockquote that restates `$.pooled_worst`. §(b) has two
+#: blockquotes with that lead-in, so the anchor carries enough of it to name this one.
+#: Its code spans name script flags and paths rather than its subject, so this uses the
+#: lead-in fallback.
+_GAP_QUOTE_ANCHOR = "> Gap, stated plainly. The **default**"
+#: The bullet list under "What the suite does still enforce against loosening".
+_SHIP_FLOOR_ANCHOR = "$.tolerance.state_count_min_fraction"
+#: The paragraph after it. Its only code spans are the value it restates and
+#: `$.freeze_policy`, which an earlier paragraph also names, so it is selected by lead-in.
+_WIDENING_ANCHOR = "Widening any of the eight bounds"
+#: §Scope's third bullet carries no code span but the two hashes it restates, so the pins
+#: select the Validation-coverage list through another bullet's pointer, and
+#: :func:`test_the_scope_anchor_still_selects_the_third_bullet` asserts the third bullet
+#: is still inside what that selects.
+_SCOPE_ANCHOR = "$.tolerance"
+_SCOPE_BULLET_LEAD_IN = "- The frozen **default** parity tolerance for (b)"
+_M05_COLUMN = "`$.method` (M0.5, vbconhmm)"
+_EBHMM_COLUMN = "`$.measured_by_method.ebhmm.method`"
+_M05_COMMIT = "$.method.tmaven_commit"
+_EBHMM_COMMIT = "$.measured_by_method.ebhmm.method.tmaven_commit"
+_M05_PYTHON = "$.method.sidecar_python_version"
+_EBHMM_PYTHON = "$.measured_by_method.ebhmm.method.sidecar_python_version"
+_EBHMM_FLOOR = "$.tolerance_by_method.ebhmm.state_count_min_fraction"
+
+
+def commit_cell(column: str, pointer: str, commit: object) -> Cell:
+    """A build-table ``tmaven_commit`` cell, which the page prints as 8 hex plus ``…``.
+
+    Built by one factory so the registry and the hypothetical-value test construct the
+    same pin, and a derivation bug cannot hide in either copy.
+    """
+    return Cell(
+        _PARITY_SECTION,
+        _M05_COLUMN,
+        "tmaven_commit",
+        column,
+        f"{pointer}[:8]…{_AT_BUILD_TABLE}",
+        short_commit(commit) + "…",
+    )
+
+
+def _restatement_pins() -> list[Pin]:
+    """Second and later statements of an artifact value, each at its own location (#435)."""
+    pins: list[Pin] = []
+
+    # (b) build table -- both commits, abbreviated the way the page abbreviates them.
+    pins += [
+        commit_cell(_M05_COLUMN, _M05_COMMIT, at(PARITY, _M05_COMMIT)),
+        commit_cell(_EBHMM_COLUMN, _EBHMM_COMMIT, at(PARITY, _EBHMM_COMMIT)),
+    ]
+
+    # (b) "The pin every live assertion uses is ..." -- the full commit, exactly, and both
+    # copies of its interpreter version.
+    pins += [
+        Quote(
+            _PARITY_SECTION,
+            _LIVE_PIN_ANCHOR,
+            "live assertion uses is `{}`",
+            f"{_EBHMM_COMMIT}{_AT_LIVE_PIN}",
+            at(PARITY, _EBHMM_COMMIT),
+        ),
+        Quote(
+            _PARITY_SECTION,
+            _LIVE_PIN_ANCHOR,
+            "on CPython {} — `TMAVEN_SPEC`",
+            f"{_EBHMM_PYTHON}{_AT_LIVE_PIN}, CPython clause",
+            at(PARITY, _EBHMM_PYTHON),
+        ),
+        Quote(
+            _PARITY_SECTION,
+            _LIVE_PIN_ANCHOR,
+            "resolving to {} on all four platforms",
+            f"{_EBHMM_PYTHON}{_AT_LIVE_PIN}, lock clause",
+            at(PARITY, _EBHMM_PYTHON),
+        ),
+    ]
+
+    # (b) "Gap, stated plainly" blockquote. The two pooled-worst figures are ROUNDED on the
+    # page, so they are rendered with `sci3` -- three significant figures in scientific
+    # notation, format(value, ".2e") -- applied to the live value only. The floors clause
+    # and both ceilings are NOT rounded, so they render shortest-round-trip: `:g` would
+    # keep only six significant digits and pass a stale page past a seventh-digit change.
+    floors = (
+        "$.pooled_worst.state_count_fraction",
+        "$.pooled_worst.viterbi_agreement",
+    )
+    pins += [
+        Quote(
+            _PARITY_SECTION,
+            _GAP_QUOTE_ANCHOR,
+            template,
+            f"{source}{_AT_GAP_QUOTE}",
+            value,
+            render=render,
+        )
+        for template, source, value, render in (
+            (
+                "measured against tMAVEN `{}`",
+                f"{_M05_COMMIT}[:8]",
+                at(PARITY, _M05_COMMIT),
+                short_commit,
+            ),
+            (
+                "the pinned `{}`",
+                f"{_EBHMM_COMMIT}[:8]",
+                at(PARITY, _EBHMM_COMMIT),
+                short_commit,
+            ),
+            ("on CPython {}. That is", _M05_PYTHON, at(PARITY, _M05_PYTHON), None),
+            (
+                "are {} on both floors",
+                " == ".join(floors),
+                _common_value(*floors),
+                shortest,
+            ),
+            (
+                "both floors and {} / ",
+                "$.pooled_worst.state_mean_abs_delta, 3 s.f.",
+                at(PARITY, "$.pooled_worst.state_mean_abs_delta"),
+                sci3,
+            ),
+            (
+                " / {} against ceilings",
+                "$.pooled_worst.relative_elbo, 3 s.f.",
+                at(PARITY, "$.pooled_worst.relative_elbo"),
+                sci3,
+            ),
+            (
+                "against ceilings of {} and ",
+                "$.tolerance.state_mean_abs_delta_max",
+                at(PARITY, "$.tolerance.state_mean_abs_delta_max"),
+                shortest,
+            ),
+            (
+                " and {}, and the freeze",
+                "$.tolerance.relative_elbo_max",
+                at(PARITY, "$.tolerance.relative_elbo_max"),
+                shortest,
+            ),
+            # The closing backtick is inside the template: the value ends a code span, and
+            # a template ending in its placeholder would capture a single character.
+            (
+                "--n-runs {}`",
+                "$.method.n_runs_per_fixture",
+                at(PARITY, "$.method.n_runs_per_fixture"),
+                None,
+            ),
+        )
+    ]
+
+    # (b) the two prose copies of ebFRET's state-count floor, rendered shortest-round-trip
+    # like the ceilings above so a change past the sixth significant digit still fails.
+    # The third copy -- the first fail-side literal of "(0.5249 and 0.40 fail; 0.5250 and
+    # 0.60 pass)" -- is checked structurally by `straddle_violations`, which asserts `<=`
+    # rather than equality.
+    floor = at(PARITY, _EBHMM_FLOOR)
+    pins += [
+        Quote(
+            _PARITY_SECTION,
+            _SHIP_FLOOR_ANCHOR,
+            "frozen `{}` or below",
+            f"{_EBHMM_FLOOR} @ (b) ship-floor bullet",
+            floor,
+            render=shortest,
+        ),
+        Quote(
+            _PARITY_SECTION,
+            _WIDENING_ANCHOR,
+            "stays above `{}`",
+            f"{_EBHMM_FLOOR} @ (b) widening paragraph",
+            floor,
+            render=shortest,
+        ),
+    ]
+
+    # Scope and known limitations, third bullet -- both commits and both interpreters.
+    pins += [
+        Quote(_SCOPE_SECTION, _SCOPE_ANCHOR, template, f"{source}{_AT_SCOPE}", value, render=render)
+        for template, source, value, render in (
+            (
+                "measured against tMAVEN `{}`",
+                f"{_M05_COMMIT}[:8]",
+                at(PARITY, _M05_COMMIT),
+                short_commit,
+            ),
+            (
+                "behind the pinned `{}`",
+                f"{_EBHMM_COMMIT}[:8]",
+                at(PARITY, _EBHMM_COMMIT),
+                short_commit,
+            ),
+            ("on CPython {} — 13 upstream", _M05_PYTHON, at(PARITY, _M05_PYTHON), None),
+            ("on CPython {} that CI", _EBHMM_PYTHON, at(PARITY, _EBHMM_PYTHON), None),
+        )
+    ]
+    return pins
+
+
 def _registry() -> list[Pin]:
     pins: list[Pin] = []
 
@@ -762,8 +1074,8 @@ def _registry() -> list[Pin]:
     # The build table sets the two blocks side by side. Note the asymmetry it encodes:
     # the M0.5 date is the artifact's *top-level* `measured_utc` (the vbconhmm block has
     # none of its own), while the ebFRET one hangs off `measured_by_method`.
-    m05_column = "`$.method` (M0.5, vbconhmm)"
-    ebhmm_column = "`$.measured_by_method.ebhmm.method`"
+    m05_column = _M05_COLUMN
+    ebhmm_column = _EBHMM_COLUMN
     pins += [
         Cell(_PARITY_SECTION, m05_column, row, column, source, value)
         for row, column, source, value in (
@@ -972,6 +1284,7 @@ def _registry() -> list[Pin]:
         for name in ("kbright", "kdark")
     ]
 
+    pins += _restatement_pins()
     return pins
 
 
@@ -980,16 +1293,18 @@ REGISTRY = _registry()
 
 # --- What is deliberately left unpinned ----------------------------------------
 
-#: Figures the page prints that no committed artifact holds, so a pin here would assert
-#: nothing (or would assert that two transcriptions of the same prose agree). Recorded
-#: rather than dropped: on a validation page an unexplained omission and an oversight
-#: look identical, and #214 asks for the reason in the test.
+#: Figures the page prints that this module deliberately leaves unpinned. Most are held
+#: by no committed artifact, so a pin would assert nothing (or that two transcriptions of
+#: the same prose agree); the rest say exactly why the artifact that does hold them is not
+#: read. Recorded rather than dropped: on a validation page an unexplained omission and an
+#: oversight look identical, and #214 asks for the reason in the test.
 EXCLUSIONS: dict[str, str] = {
-    "tMAVEN upstream commit hashes and their 2025-05-06 / 2025-10-05 dates": (
-        "The dates are upstream-repository facts held in no committed artifact. #214 puts "
-        "the hashes beside them out of scope; the artifact does in fact record both under "
+    "the tMAVEN upstream commit dates 2025-05-06 / 2025-10-05": (
+        "When each commit was made upstream is a fact of the tMAVEN repository that no "
+        "committed artifact records. The commits themselves are recorded, under "
         "`$.method.tmaven_commit` and `$.measured_by_method.ebhmm.method.tmaven_commit`, "
-        "so pinning them is a separate, filed follow-up rather than a silent widening here."
+        "and are pinned wherever the page prints them (#435): the build table, (b)'s "
+        "live-pin paragraph and gap blockquote, and the third Scope bullet."
     ),
     "'13 upstream commits behind' and the 256 / 42 changed-line counts": (
         "Derived by diffing two upstream tMAVEN commits. Nothing in this repository "
@@ -1008,12 +1323,61 @@ EXCLUSIONS: dict[str, str] = {
         "docs/adr/0022 as prose. There is no machine-readable artifact, so a pin would "
         "only assert that two transcriptions of the same paragraph agree."
     ),
-    "second restatements of a pinned value elsewhere in the page's prose": (
-        "Each pin selects one table row or one anchored paragraph, so a value the page "
-        "also states somewhere else -- `RMS <= 0.5 px` in (a)'s enforcing-tests "
-        "paragraph, the rounded pooled-worst figures in (b)'s blockquote -- is outside "
-        "every selected region. A page-wide numerical manifest is real work and real "
-        "scope, and #214's criteria enumerate a specific set; tracked in #435."
+    "(a)'s enforcing-tests sentence: 'RMS <= 0.5 px', '>= 95 %' and 'within 1 px'": (
+        "All three are the hard-coded literals of the test that sentence describes, "
+        "tests/test_register.py::test_native_fit_reproduces_tmap_within_tolerance "
+        "(`point_rms(...) <= 0.5` and `np.mean(agreement <= 1.0) >= 0.95`), whose "
+        "docstring says they measure registration faithfulness, not the colocalization-"
+        "recall criterion. No artifact or module constant is their source, so there is "
+        "nothing to pin them to. Two coincide numerically with M1 extraction-oracle "
+        "constants -- oracle.RMS_THRESHOLD_PX is 0.5 and oracle.RECALL_THRESHOLD is 0.95 "
+        "-- by accident; both are already pinned where they belong, to (a)'s Frozen "
+        "tolerance table, and binding this sentence to them would attribute a "
+        "registration gate to the extraction oracle. Nothing holds 'within 1 px' at all "
+        "(oracle.MATCH_TOL_PX is 2.0)."
+    ),
+    "'≈1e-9' in the third Scope bullet": (
+        "An order-of-magnitude summary of the two non-unit `$.pooled_worst` metrics, not "
+        "a transcription of either. Both are pinned at full precision in (b)'s table and "
+        "at three significant figures in (b)'s gap blockquote; an approximate sign has no "
+        "exact rendering to compare against."
+    ),
+    "(b) build table, 'How the values were obtained' row: `python 3.12.13`, `@10f4230`, "
+    "2026-06-26": (
+        "Quoted fragments of two free-text fields: the ebFRET cell quotes "
+        "`$.measured_by_method.ebhmm.method.build_provenance`'s 'python 3.12.13 "
+        "hd63d673_0_cpython conda-forge' and its resolved '...tmaven.git@10f4230' (7 hex, "
+        "so no commit[:8] derivation covers it), and the M0.5 cell quotes the date out of "
+        "`$.method.build_provenance`. Both fields hold those strings verbatim, so this is "
+        "not a missing source; it is mechanically unreachable here. `_states` requires a "
+        "cell's whole code-span-or-quoted token set to EQUAL one live value, and the "
+        "ebFRET cell carries five code spans while the M0.5 cell quotes one phrase lifted "
+        "out of a paragraph-long field; `_prose_paragraphs` drops table blocks, so no "
+        "Quote can reach a table cell either. Pinning a fragment inside a cell is "
+        "comparator work, out of #435's scope."
+    ),
+    "the bare `model_281mol.hdf5` (and `smd_281mol`) in (b)'s gap blockquote": (
+        "`model_281mol.hdf5` is the basename of `$.spread_by_fixture.smd_281mol.reference`, "
+        "and no pin reads that field anywhere on the page -- (b)'s Reference-data and "
+        "enforcing-tests paragraphs name the same file unpinned. Covering it would be a "
+        "page-wide coverage extension, not a restatement of a pinned value."
+    ),
+    "the 'M0.5' of 'the M0.5 worst cases' in (b)'s gap blockquote": (
+        "`$.frozen_at_milestone`, already pinned as a Prose entry in (b)'s Frozen-tolerance "
+        "paragraph. Here it is a label naming which block the sentence means."
+    ),
+    'the script-output claims in (b)\'s gap blockquote: `["vbconhmm"]`, `"ebFRET (M6)"`, '
+    "'exactly ten top-level keys' and its key list, 'all three sub-keys of `$.coverage`'": (
+        "They describe what the literal `out = {...}` dict at the end of `main()` in "
+        "scripts/measure_parity.py would write -- the authority the paragraph itself names "
+        "-- not the committed artifact. Verified: 'ebFRET (M6)' appears nowhere in "
+        "schema/parity_tolerance.json, whose `$.coverage.applied_to` is "
+        "['vbFRET (per-trace, M2)', 'consensus VB-HMM (M6)']. The committed value they are "
+        'contrasted with, `"vbconhmm (vb Consensus HMM)"`, IS pinned, as a verbatim quote.'
+    ),
+    "'`applied_to` per-trace vbFRET' in (b)'s gap blockquote": (
+        "A paraphrase of `$.coverage.applied_to`'s 'vbFRET (per-trace, M2)', not a "
+        "quotation of it, so there is no literal to compare."
     ),
     "the paper's '14 published analyses', '17 %' and '9-14 %' figures": (
         "Facts of Gotz et al. 2022. kinsoft_reference.json records them only inside the "
@@ -1125,13 +1489,26 @@ _VERBATIM_QUOTES = (
         _PARITY_SECTION,
         "$.coverage.measured_methods",
     ),
+    # The same quotation restated in (b)'s gap blockquote ("the committed `"vbconhmm (vb
+    # Consensus HMM)"` quoted below"). Not a Quote pin: the fragment contains spaces, and
+    # a Quote placeholder captures one run of non-space characters.
+    (
+        "vbconhmm (vb Consensus HMM)",
+        PARITY,
+        "$.coverage.measured_methods",
+        _PARITY_SECTION,
+        _GAP_QUOTE_ANCHOR,
+    ),
 )
 
 
 @pytest.mark.parametrize(
     ("fragment", "artifact", "pointer", "section", "anchor"),
     _VERBATIM_QUOTES,
-    ids=[pointer for _, _, pointer, _, _ in _VERBATIM_QUOTES],
+    ids=[
+        pointer if anchor == pointer else f"{pointer}@{anchor}"
+        for _, _, pointer, _, anchor in _VERBATIM_QUOTES
+    ],
 )
 def test_the_page_quotes_the_artifact_verbatim(
     fragment: str, artifact: dict, pointer: str, section: str, anchor: str
@@ -1300,6 +1677,133 @@ def _mutate(section: str, old: str, new: str, text: str | None = None) -> str:
             "`DEFAULT_SHIP_BAR_PTS == 10.0`",
             "`DEFAULT_SHIP_BAR_PTS == 11.0`",
             "ml.prequential.DEFAULT_SHIP_BAR_PTS",
+        ),
+        # --- #435: restatements, one case per pinned location ------------------------
+        # (b) build table, both commits, abbreviated.
+        (
+            _PARITY_SECTION,
+            "| `71cfa1af…` (2025-05-06) |",
+            "| `81cfa1af…` (2025-05-06) |",
+            f"{_M05_COMMIT}[:8]…{_AT_BUILD_TABLE}",
+        ),
+        (
+            _PARITY_SECTION,
+            "| `10f4230b…` (2025-10-05) |",
+            "| `20f4230b…` (2025-10-05) |",
+            f"{_EBHMM_COMMIT}[:8]…{_AT_BUILD_TABLE}",
+        ),
+        # (b) live-pin paragraph: the full commit, and both copies of its interpreter.
+        (
+            _PARITY_SECTION,
+            "`10f4230b6d13c6d2ad67b05d801696b4a40eff4a`",
+            "`10f4230b6d13c6d2ad67b05d801696b4a40eff4b`",
+            f"{_EBHMM_COMMIT}{_AT_LIVE_PIN}",
+        ),
+        (
+            _PARITY_SECTION,
+            "3.12.13 — `TMAVEN_SPEC`",
+            "3.12.14 — `TMAVEN_SPEC`",
+            f"{_EBHMM_PYTHON}{_AT_LIVE_PIN}, CPython clause",
+        ),
+        (
+            _PARITY_SECTION,
+            "resolving to 3.12.13",
+            "resolving to 3.12.14",
+            f"{_EBHMM_PYTHON}{_AT_LIVE_PIN}, lock clause",
+        ),
+        # (b) gap blockquote: every artifact value it restates.
+        (
+            _PARITY_SECTION,
+            "tMAVEN `71cfa1af` (2025-05-06) on CPython 3.9.23. That is",
+            "tMAVEN `81cfa1af` (2025-05-06) on CPython 3.9.23. That is",
+            f"{_M05_COMMIT}[:8]{_AT_GAP_QUOTE}",
+        ),
+        (
+            _PARITY_SECTION,
+            "the pinned `10f4230b` (2025-10-05)",
+            "the pinned `20f4230b` (2025-10-05)",
+            f"{_EBHMM_COMMIT}[:8]{_AT_GAP_QUOTE}",
+        ),
+        (
+            _PARITY_SECTION,
+            "on CPython 3.9.23. That is",
+            "on CPython 3.9.24. That is",
+            f"{_M05_PYTHON}{_AT_GAP_QUOTE}",
+        ),
+        (
+            _PARITY_SECTION,
+            "are 1.0 on",
+            "are 1.00 on",
+            "$.pooled_worst.state_count_fraction == $.pooled_worst.viterbi_agreement"
+            + _AT_GAP_QUOTE,
+        ),
+        (
+            _PARITY_SECTION,
+            "8.35e-09 / 1.00e-09",
+            "8.36e-09 / 1.00e-09",
+            f"$.pooled_worst.state_mean_abs_delta, 3 s.f.{_AT_GAP_QUOTE}",
+        ),
+        (
+            _PARITY_SECTION,
+            "8.35e-09 / 1.00e-09",
+            "8.35e-09 / 1.01e-09",
+            f"$.pooled_worst.relative_elbo, 3 s.f.{_AT_GAP_QUOTE}",
+        ),
+        (
+            _PARITY_SECTION,
+            "ceilings of 0.02 and 0.01",
+            "ceilings of 0.03 and 0.01",
+            f"$.tolerance.state_mean_abs_delta_max{_AT_GAP_QUOTE}",
+        ),
+        (
+            _PARITY_SECTION,
+            "ceilings of 0.02 and 0.01",
+            "ceilings of 0.02 and 0.02",
+            f"$.tolerance.relative_elbo_max{_AT_GAP_QUOTE}",
+        ),
+        (
+            _PARITY_SECTION,
+            "--n-runs 20",
+            "--n-runs 30",
+            f"$.method.n_runs_per_fixture{_AT_GAP_QUOTE}",
+        ),
+        # (b) the two prose copies of ebFRET's floor. A bare `0.5249` is not unique.
+        (
+            _PARITY_SECTION,
+            "frozen `0.5249` or below",
+            "frozen `0.5250` or below",
+            f"{_EBHMM_FLOOR} @ (b) ship-floor bullet",
+        ),
+        (
+            _PARITY_SECTION,
+            "stays above `0.5249`",
+            "stays above `0.5250`",
+            f"{_EBHMM_FLOOR} @ (b) widening paragraph",
+        ),
+        # Scope and known limitations, third bullet.
+        (
+            _SCOPE_SECTION,
+            "measured against tMAVEN `71cfa1af`",
+            "measured against tMAVEN `81cfa1af`",
+            f"{_M05_COMMIT}[:8]{_AT_SCOPE}",
+        ),
+        (
+            _SCOPE_SECTION,
+            "behind the pinned `10f4230b`",
+            "behind the pinned `20f4230b`",
+            f"{_EBHMM_COMMIT}[:8]{_AT_SCOPE}",
+        ),
+        (
+            _SCOPE_SECTION,
+            "on CPython 3.9.23 — 13 upstream",
+            "on CPython 3.9.24 — 13 upstream",
+            f"{_M05_PYTHON}{_AT_SCOPE}",
+        ),
+        (
+            _SCOPE_SECTION,
+            "on CPython 3.12.13 that CI",
+            "on CPython 3.12.14 that CI",
+            f"{_EBHMM_PYTHON}{_AT_SCOPE}",
         ),
     ],
 )
@@ -1749,3 +2253,208 @@ def test_mutate_takes_its_boundary_from_the_fence_aware_parser() -> None:
     mutated = _mutate("S", "value 1", "value 2", page)
     assert mutated == page.replace("```\nvalue 1\n", "```\nvalue 2\n")
     assert _sections(mutated)["T"] == "value 1\n"
+
+
+# --- #435: restatements --------------------------------------------------------
+
+
+def test_every_restatement_pin_has_a_source_label_of_its_own() -> None:
+    """A restatement pin's ``source`` names its location, and no other pin shares it.
+
+    The two mutation tests above collect every pin with a given ``source`` and require
+    one edited page to break *all* of them. A restatement pin labelled with a bare pointer
+    would be collected by a mutation of a different location that it rightly survives,
+    and a landed case would go red. The bare pointers stay on the pins that carried them
+    before, which is what the frozen-bound and pooled-worst coverage tests read.
+    """
+    restatements = _restatement_pins()
+    counts: dict[str, int] = {}
+    for pin in REGISTRY:
+        counts[pin.source] = counts.get(pin.source, 0) + 1
+    for pin in restatements:
+        assert " @ " in pin.source, f"{pin.source!r} does not name its location"
+        assert counts[pin.source] == 1, f"{pin.source!r} labels {counts[pin.source]} pins"
+
+
+def test_a_full_commit_in_a_build_table_cell_is_rejected() -> None:
+    """The build table abbreviates, so a pin holding the full 40 hex must not match it.
+
+    Proves the comparison is the exact set equality of :func:`_states` against the
+    *derived* spelling, not a prefix test that would accept either form.
+    """
+    for column, pointer in ((_M05_COLUMN, _M05_COMMIT), (_EBHMM_COLUMN, _EBHMM_COMMIT)):
+        commit = at(PARITY, pointer)
+        assert satisfied(PAGE_TEXT, commit_cell(column, pointer, commit))
+        full = commit_cell(column, pointer, commit)._replace(value=commit)
+        assert not satisfied(PAGE_TEXT, full), f"{pointer}: the full hash matched an abbreviation"
+
+
+def _other_commit(commit: object) -> str:
+    """A hypothetical re-measured commit: same length, a different first hex digit."""
+    assert isinstance(commit, str)
+    return ("0" if commit[0] != "0" else "1") + commit[1:]
+
+
+def test_a_re_measured_commit_is_rejected_by_the_unchanged_page() -> None:
+    """The 8-hex derivation reads the live value; it cannot accept what the page says."""
+    for column, pointer in ((_M05_COLUMN, _M05_COMMIT), (_EBHMM_COLUMN, _EBHMM_COMMIT)):
+        moved = commit_cell(column, pointer, _other_commit(at(PARITY, pointer)))
+        assert not satisfied(PAGE_TEXT, moved), f"{pointer} accepted a commit it does not print"
+    abbreviated = [
+        p for p in _restatement_pins() if isinstance(p, Quote) and p.render is short_commit
+    ]
+    assert len(abbreviated) == 4
+    for pin in abbreviated:
+        assert satisfied(PAGE_TEXT, pin)
+        moved_quote = pin._replace(value=_other_commit(pin.value))
+        assert not satisfied(PAGE_TEXT, moved_quote), f"{pin.source} accepted a moved commit"
+
+
+def test_short_commit_refuses_anything_but_a_full_commit() -> None:
+    with pytest.raises(AssertionError, match="full 40-hex"):
+        short_commit("71cfa1af")
+
+
+def test_a_re_measured_pooled_worst_is_rejected_by_the_unchanged_page() -> None:
+    """The three-significant-figure rounding reads the live value.
+
+    A hypothetical re-measure that moves the third significant figure must fail against
+    the unchanged page, so a derivation bug cannot accept whatever the page prints.
+    """
+    rounded = [p for p in _restatement_pins() if isinstance(p, Quote) and p.render is sci3]
+    assert len(rounded) == 2
+    for pin in rounded:
+        assert satisfied(PAGE_TEXT, pin)
+        assert isinstance(pin.value, float)
+        moved = pin._replace(value=pin.value * 1.02)
+        assert sci3(moved.value) != sci3(pin.value)
+        assert not satisfied(PAGE_TEXT, moved), f"{pin.source} accepted a re-measured value"
+
+
+def test_the_rounded_and_the_exact_rendering_stay_different_paths() -> None:
+    """Rounding is a declared rendering, never the exact one in disguise.
+
+    For `$.pooled_worst.state_mean_abs_delta` the page's table prints the exact value and
+    the blockquote the rounded one; if the two renderings ever agreed for that value, the
+    blockquote pin would no longer be a rounding pin at all.
+    """
+    value = at(PARITY, "$.pooled_worst.state_mean_abs_delta")
+    assert isinstance(value, float)
+    assert sci3(value) != shortest(value)
+    assert float(shortest(value)) == value
+    assert float(sci3(value)) != value
+
+
+@pytest.mark.parametrize("printed", ["8.3472e-09", "8.3e-09", "8.347e-09"])
+def test_the_page_text_is_never_rounded_before_comparison(printed: str) -> None:
+    """Only the live value is rounded. A page printing more or fewer figures fails."""
+    mutated = _mutate(_PARITY_SECTION, "8.35e-09 / 1.00e-09", f"{printed} / 1.00e-09")
+    pin = next(
+        p
+        for p in REGISTRY
+        if p.source == f"$.pooled_worst.state_mean_abs_delta, 3 s.f.{_AT_GAP_QUOTE}"
+    )
+    assert satisfied(PAGE_TEXT, pin)
+    assert not satisfied(mutated, pin)
+
+
+def test_both_floors_must_hold_one_common_value() -> None:
+    """ "1.0 on both floors" only has a value to state while the two floors agree."""
+    with pytest.raises(AssertionError, match="no single value"):
+        _common_value("$.pooled_worst.state_count_fraction", "$.pooled_worst.relative_elbo")
+
+
+def test_a_blockquote_pin_survives_a_rewrap_across_a_line_break() -> None:
+    """The blockquote's ``>`` markers are not part of the sentence.
+
+    Re-wraps the gap blockquote so pinned phrases straddle a line break, and every pin
+    reading that blockquote still holds. The naive flattening — whitespace only, no
+    marker strip — is shown failing on the same re-wrap, which is what the strip fixes.
+    """
+    rewrapped = _mutate(
+        _PARITY_SECTION,
+        "8.35e-09 / 1.00e-09 against ceilings of 0.02 and 0.01, and",
+        "8.35e-09 /\n> 1.00e-09 against\n> ceilings of 0.02 and\n> 0.01, and",
+    )
+    pins = [p for p in REGISTRY if isinstance(p, Quote) and p.anchor == _GAP_QUOTE_ANCHOR]
+    assert len(pins) == 9
+    for pin in pins:
+        assert satisfied(rewrapped, pin), f"{pin.source} broke on a re-wrap"
+    region = paragraph(rewrapped, _PARITY_SECTION, _GAP_QUOTE_ANCHOR)
+    naive = " ".join(region.split())
+    assert "8.35e-09 / 1.00e-09 against ceilings of 0.02 and 0.01" not in naive
+    assert "8.35e-09 / 1.00e-09 against ceilings of 0.02 and 0.01" in _flat(region)
+
+
+def test_the_blockquote_copy_of_the_measured_methods_quotation_is_checked() -> None:
+    """The blockquote's own copy of the quotation fails on its own, not via the other."""
+    entry = next(q for q in _VERBATIM_QUOTES if q[4] == _GAP_QUOTE_ANCHOR)
+    fragment, artifact, pointer, section, anchor = entry
+    mutated = _mutate(
+        _PARITY_SECTION,
+        '`"vbconhmm (vb Consensus HMM)"` quoted below',
+        '`"vbconhmm (VB Consensus HMM)"` quoted below',
+    )
+    before = quotation_sides(fragment, artifact, pointer, paragraph(PAGE_TEXT, section, anchor))
+    after = quotation_sides(fragment, artifact, pointer, paragraph(mutated, section, anchor))
+    assert before == (True, True)
+    assert after == (True, False)
+
+
+def test_the_ship_floor_illustration_straddles_the_ebfret_floor() -> None:
+    """ "(0.5249 and 0.40 fail; 0.5250 and 0.60 pass)" is checked as a claim, not a copy."""
+    floor = at(PARITY, _EBHMM_FLOOR)
+    assert isinstance(floor, float)
+    region = paragraph(PAGE_TEXT, _PARITY_SECTION, _SHIP_FLOOR_ANCHOR)
+    assert straddle_violations(region, floor) == []
+
+
+def test_a_floor_moved_past_the_illustration_rejects_it() -> None:
+    """Driven with a hypothetical re-frozen floor of 0.60, the same sentence is wrong."""
+    region = paragraph(PAGE_TEXT, _PARITY_SECTION, _SHIP_FLOOR_ANCHOR)
+    assert straddle_violations(region, 0.60) == [
+        "0.525 passes but is not above 0.6",
+        "0.6 passes but is not above 0.6",
+    ]
+    # And a fail-side literal above the live floor is caught in the other direction.
+    floor = at(PARITY, _EBHMM_FLOOR)
+    assert isinstance(floor, float)
+    mutated = _mutate(_PARITY_SECTION, "(0.5249 and 0.40 fail;", "(0.5249 and 0.55 fail;")
+    assert straddle_violations(paragraph(mutated, _PARITY_SECTION, _SHIP_FLOOR_ANCHOR), floor)
+
+
+def test_the_scope_anchor_still_selects_the_third_bullet() -> None:
+    """The Scope pins depend on a selection fact; assert it so it fails as itself.
+
+    The third bullet has no code span of its own except two of the values it restates,
+    so the pins select the Validation-coverage list through `$.tolerance` in a later
+    bullet. That works only while the list is one blank-line-free block. A blank line
+    between bullets is a routine edit that would move the restated values out of the
+    selection and make the pins fail as though the page stated a wrong value.
+    """
+    region = paragraph(PAGE_TEXT, _SCOPE_SECTION, _SCOPE_ANCHOR)
+    assert _SCOPE_BULLET_LEAD_IN in region, (
+        f"the '{_SCOPE_SECTION}' paragraph selected by {_SCOPE_ANCHOR!r} no longer holds "
+        f"{_SCOPE_BULLET_LEAD_IN!r}. The values may still be right: re-anchor the Scope "
+        "pins on the paragraph that holds that bullet rather than editing a value."
+    )
+
+
+def test_an_exact_float_restatement_catches_a_change_past_six_digits() -> None:
+    """The ceilings and floor the page restates exactly use the full-precision renderer.
+
+    ``:g`` keeps six significant digits, so a bound re-frozen at ``0.020000001`` would
+    render ``0.02`` and the unchanged page would pass. ``shortest`` renders every bit.
+    """
+    exact = [
+        p
+        for p in _restatement_pins()
+        if isinstance(p, Quote) and isinstance(p.value, float) and p.render is not sci3
+    ]
+    assert len(exact) == 5  # both ceilings, the 1.0 floors clause, both 0.5249 copies
+    for pin in exact:
+        assert pin.render is shortest, f"{pin.source} renders a float with ':g'"
+        assert isinstance(pin.value, float)
+        nudged = pin._replace(value=float(repr(pin.value)) + pin.value * 1e-9)
+        assert nudged.value != pin.value
+        assert not satisfied(PAGE_TEXT, nudged), f"{pin.source} missed a 1e-9 relative change"
