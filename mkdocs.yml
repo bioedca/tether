@@ -37,33 +37,39 @@ theme:
         name: Switch to light mode
 
 nav:
-  - Home: index.md
-  - Does Tether fit my data?: compatibility.md
-  - Roadmap: roadmap.md
-  - Getting started:
-      - Install Tether: install.md
-  - Import:
-      - Legacy Deep-LASI import: io/legacy-import.md
-  - Idealization:
-      - Standalone-tMAVEN hand-off: idealize/standalone-tmaven-handoff.md
-  - Analysis:
-      - Seven-plot parity gallery: analysis/parity-gallery.md
-  - Validation &amp; benchmarks: validation.md
-  - Machine learning:
-      - Deep trace classifier (GPU add-on): ml/deep-classifier.md
-  - Reference:
-      - Command line: cli.md
-      - Exports (files, columns, units): reference/exports.md
-      - Analysis parameters: reference/parameters.md
-      - Project store (.tether HDF5 schema): reference/tether-format.md
-  - Glossary: glossary.md
-  - Troubleshooting: troubleshooting.md
-  - Packaging:
-      - Installers &amp; offline bundle: packaging.md
+  # Two top-level groups, decided on #181 (2026-07-27, confirmed 2026-07-31): what a lab
+  # scientist needs, and what only the project and its maintainers act on. Every page under
+  # "Project & maintainers" opens with a reader statement naming the access it needs.
+  - Using Tether:
+      - Home: index.md
+      - Does Tether fit my data?: compatibility.md
+      - Getting started:
+          - Install Tether: install.md
+          - Installers &amp; offline bundle: packaging.md
+      - Import:
+          - Legacy Deep-LASI import: io/legacy-import.md
+      - Idealization:
+          - Standalone-tMAVEN hand-off: idealize/standalone-tmaven-handoff.md
+      - Analysis:
+          - Seven-plot parity gallery: analysis/parity-gallery.md
+      - Validation &amp; benchmarks: validation.md
+      - Machine learning:
+          - Deep trace classifier (GPU add-on): ml/deep-classifier.md
+      - Reference:
+          - Command line: cli.md
+          - Exports (files, columns, units): reference/exports.md
+          - Analysis parameters: reference/parameters.md
+          - Project store (.tether HDF5 schema): reference/tether-format.md
+      - Glossary: glossary.md
+      - Troubleshooting: troubleshooting.md
+  - Project &amp; maintainers:
+      - Roadmap: roadmap.md
+      - Stability policy: stability.md
+      - Privacy policy: privacy.md
+      - Architecture decisions: adr/README.md
       - Releasing (tag-driven pipeline): release.md
-  - Architecture decisions: adr/README.md
-  - Stability policy: stability.md
-  - Privacy policy: privacy.md
+      - Building the installers: maintainers/building-installers.md
+      - Standalone-tMAVEN cross-OS record: maintainers/standalone-tmaven-cross-os-record.md
 
 # The product spec (PRD.md) is large and section-numbered for the repo; it stays
 # out of the rendered site. The MADR log under adr/ IS wired in: the index page

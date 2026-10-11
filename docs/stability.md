@@ -4,7 +4,8 @@
 a lab standardising on one version, someone scripting `tether batch` into a pipeline, or
 another group writing a tool that reads `.tether` files. It says exactly which surfaces
 carry a compatibility promise in the `1.x` line, which deliberately do not, what happens
-when two people in the same lab run different versions, and how a name is retired.
+when two people in the same lab run different versions, and how a name is retired. No repository
+access is needed to read it or to rely on it.
 
 Tether follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is
 derived from the git tag at build time (`hatch-vcs`, `[tool.hatch.version]` in

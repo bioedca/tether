@@ -207,13 +207,18 @@ def test_index_wired_into_rendered_site() -> None:
 
     cfg = yaml.safe_load((ADR_DIR.parents[1] / "mkdocs.yml").read_text(encoding="utf-8"))
 
-    nav_targets = [
-        value
-        for entry in cfg.get("nav", [])
-        if isinstance(entry, dict)
-        for key, value in entry.items()
-        if key == "Architecture decisions"
-    ]
+    def entries_named(entries: object, name: str) -> list[object]:
+        # The nav nests its pages under two top-level groups (#181), so walk it at any depth.
+        found: list[object] = []
+        if isinstance(entries, list):
+            for entry in entries:
+                found += entries_named(entry, name)
+        elif isinstance(entries, dict):
+            for key, value in entries.items():
+                found += [value] if key == name else entries_named(value, name)
+        return found
+
+    nav_targets = entries_named(cfg.get("nav", []), "Architecture decisions")
     assert nav_targets == ["adr/README.md"], (
         f"mkdocs.yml nav must map 'Architecture decisions' -> adr/README.md; got {nav_targets}"
     )
