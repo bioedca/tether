@@ -141,7 +141,18 @@ jobs:
         # gate and the deploy build with an identical mkdocs/material/mike.
         run: python -m pip install -r requirements-docs.txt
       - name: Build docs (strict)
-        run: mkdocs build --strict
+        run: mkdocs build --strict --site-dir site
+      # The rendered site, so a reviewer can open the page a docs PR changes instead of
+      # inferring it from markdown (#183). `--strict` only sees links it can resolve, so
+      # the rendered HTML is the one place an unresolved `[text][key]` is visible as text.
+      # Upload only — no permissions change, no third-party request.
+      - name: Upload rendered site
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docs-site
+          path: site/
+          if-no-files-found: error
+          retention-days: 7
 
   test:
     name: test
