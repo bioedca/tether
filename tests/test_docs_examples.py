@@ -11,8 +11,9 @@ fences with :mod:`ast`, and checks that
 * each module resolves to a source file or package in this checkout's ``src/tether``, and
 * each imported name is bound at runtime at the top level of that module's source — by a
   ``def``/``class``, an assignment, or an import, including inside ``if``/``try``/``with``
-  but not under ``if TYPE_CHECKING:`` and not by a bare ``name: T`` annotation — or is
-  one of its submodules.
+  but not in a branch that is statically dead at import time (``if TYPE_CHECKING:``,
+  ``if False:``, ``if __name__ == "__main__":``, …; see :func:`_static_truth`) and not by a
+  bare ``name: T`` annotation — or is one of its submodules.
 
 **Nothing is ever imported** — not the module, and not its parent packages. Torch lives only
 in the isolated ``deep/`` lock stack, and ``tether.ml.deep.model`` is importable without it
@@ -43,7 +44,11 @@ _EXCLUDED = {DOCS / "PRD.md"}
 _FENCE_OPEN_RE = re.compile(r"^(\s*)(`{3,}|~{3,})\s*([^\s`{]*)")
 _PYTHON_LANGS = {"python", "py", "python3", "py3", "pycon"}
 # Any line that reads as a tether import, whatever fence it sits in: the coverage guard.
-_TETHER_IMPORT_LINE_RE = re.compile(r"^\s*(?:>>> |\.\.\. )?(?:from|import)\s+tether\b")
+# A statement may follow a `;`, and `tether` may be any name of a multi-name `import`.
+_TETHER_IMPORT_LINE_RE = re.compile(
+    r"(?:^|;)\s*(?:>>> |\.\.\. )?"
+    r"(?:from\s+tether\b|import\s+(?:[\w.]+(?:\s+as\s+\w+)?\s*,\s*)*tether\b)"
+)
 
 
 def _fences(path: Path) -> list[tuple[str, int, list[str]]]:
@@ -136,24 +141,61 @@ def _spec(dotted: str) -> ModuleSpec | None:
     return PathFinder.find_spec(dotted, search)
 
 
-def _is_type_checking(test: ast.expr) -> bool:
-    """``TYPE_CHECKING`` or ``<anything>.TYPE_CHECKING`` — false at runtime."""
-    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
-        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+def _is_main_guard(test: ast.Compare) -> bool:
+    """``__name__ == "__main__"`` written either way round."""
+    if len(test.ops) != 1:
+        return False
+    sides = [test.left, test.comparators[0]]
+    return any(isinstance(s, ast.Name) and s.id == "__name__" for s in sides) and any(
+        isinstance(s, ast.Constant) and s.value == "__main__" for s in sides
     )
+
+
+def _static_truth(test: ast.expr) -> bool | None:
+    """What ``test`` evaluates to while the module is being *imported*, or None if unknown.
+
+    The one place that decides which conditional bodies can bind a name a reader is able to
+    import: a literal (``if False:``, ``if 0:``), ``TYPE_CHECKING`` or ``<anything>.TYPE_CHECKING``
+    (false at runtime), and ``__name__ == "__main__"`` (false on import, since ``__name__`` is
+    then the dotted module name), plus ``not``/``and``/``or`` over those. Anything else —
+    ``sys.version_info`` checks, feature flags — is unknown, and both arms are read.
+    """
+    if isinstance(test, ast.Constant):
+        return bool(test.value)
+    if (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    ):
+        return False
+    if isinstance(test, ast.Compare) and _is_main_guard(test):
+        if isinstance(test.ops[0], ast.Eq):
+            return False
+        if isinstance(test.ops[0], ast.NotEq):
+            return True
+        return None
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        inner = _static_truth(test.operand)
+        return None if inner is None else not inner
+    if isinstance(test, ast.BoolOp):
+        values = [_static_truth(v) for v in test.values]
+        decisive = isinstance(test.op, ast.Or)  # `or` is decided by a True, `and` by a False
+        if decisive in values:
+            return decisive
+        return None if None in values else not decisive
+    return None
 
 
 def _bound_names(stmts: list[ast.stmt]) -> set[str]:
     """Names a module binds at top level, descending into if/try/with but not defs.
 
-    The body of ``if TYPE_CHECKING:`` is skipped (its ``else`` is not): those imports
-    exist only for the type checker, so a reader's ``from module import name`` of one
-    fails at runtime and must not pass here.
+    An ``if`` whose test :func:`_static_truth` decides contributes only the arm that runs on
+    import: the body of ``if TYPE_CHECKING:`` or ``if __name__ == "__main__":`` never does,
+    so a reader's ``from module import name`` of a name bound only there fails at runtime
+    and must not pass here.
     """
     names: set[str] = set()
     for node in stmts:
-        if isinstance(node, ast.If) and _is_type_checking(node.test):
-            names |= _bound_names(node.orelse)
+        if isinstance(node, ast.If) and (truth := _static_truth(node.test)) is not None:
+            names |= _bound_names(node.body if truth else node.orelse)
             continue
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             names.add(node.name)
@@ -226,7 +268,7 @@ def test_every_tether_import_line_in_a_fence_is_checked() -> None:
         rel = path.relative_to(ROOT).as_posix()
         for _, first, body in _fences(path):
             for offset, text in enumerate(body):
-                if _TETHER_IMPORT_LINE_RE.match(text) and (rel, first + offset) not in checked:
+                if _TETHER_IMPORT_LINE_RE.search(text) and (rel, first + offset) not in checked:
                     missed.append(f"{rel}:{first + offset}: {text.strip()}")
     assert not missed, (
         "these tether imports sit in a docs fence the example check does not read — tag the "
@@ -276,6 +318,56 @@ def test_type_checking_bodies_are_skipped_but_their_else_is_not() -> None:
         "if sys.version_info >= (3, 11):\n    C = 1\n"
     )
     assert _bound_names(tree.body) == {"typing", "B2", "C"}
+
+
+@pytest.mark.parametrize(
+    ("source", "bound"),
+    [
+        ("if False:\n    ghost = 1\n", set()),
+        ("if 0:\n    ghost = 1\nelse:\n    live = 1\n", {"live"}),
+        ("if True:\n    live = 1\nelse:\n    ghost = 1\n", {"live"}),
+        ('if __name__ == "__main__":\n    def helper(): pass\n', set()),
+        ('if "__main__" == __name__:\n    ghost = 1\nelse:\n    live = 1\n', {"live"}),
+        ('if __name__ != "__main__":\n    live = 1\nelse:\n    ghost = 1\n', {"live"}),
+        ("if not TYPE_CHECKING:\n    live = 1\nelse:\n    ghost = 1\n", {"live"}),
+        ("if TYPE_CHECKING or False:\n    ghost = 1\n", set()),
+        ("if flag and False:\n    ghost = 1\n", set()),
+        ("if flag or True:\n    live = 1\nelse:\n    ghost = 1\n", {"live"}),
+        ("if flag and True:\n    a = 1\nelse:\n    b = 1\n", {"a", "b"}),
+        (
+            "if False:\n    ghost = 1\nelif TYPE_CHECKING:\n    ghost2 = 1\nelse:\n    live = 1\n",
+            {"live"},
+        ),
+    ],
+)
+def test_statically_dead_branches_bind_nothing(source: str, bound: set[str]) -> None:
+    """Only the arm that runs on import binds a name; an unknown test reads both arms."""
+    assert _bound_names(ast.parse(source).body) == bound
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "import os, tether.no_such_module",
+        "import os as o,tether",
+        ">>> import numpy as np, tether.analysis",
+        "x = 1; import tether.no_such_module",
+        "import os; from tether import nope",
+    ],
+)
+def test_the_coverage_guard_sees_tether_anywhere_in_an_import(line: str) -> None:
+    """A tether name later in a multi-name import, or after a ``;``, is still an import line."""
+    assert _TETHER_IMPORT_LINE_RE.search(line)
+
+
+def test_the_coverage_guard_ignores_lookalikes() -> None:
+    for line in (
+        "import tetherx",
+        "from tether_tools import x",
+        "# see tether docs",
+        "pip install tether",
+    ):
+        assert not _TETHER_IMPORT_LINE_RE.search(line), line
 
 
 def test_a_bare_annotation_binds_nothing() -> None:

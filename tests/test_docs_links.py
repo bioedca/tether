@@ -29,10 +29,13 @@ Fenced blocks, inline code spans and HTML comments are blanked before any of thi
 Stdlib only (``re`` + ``pathlib``), like ``tests/test_adr_index.py``: ``python-markdown``
 is not in the base conda-lock, so it cannot be imported on the 3-OS ``test`` matrix. The
 parse is therefore a structural approximation of the Python-Markdown rules that matter
-here — a single optional space between ``]`` and ``[`` still forms a reference, ids are
-matched case-insensitively, and heading slugs follow ``markdown.extensions.toc.slugify``
-with its ``_1``/``_2`` de-duplication — cross-checked against a real ``mkdocs build`` of
-every page. Where it differs from the renderer it errs loud, never silent:
+here — a single optional space between ``]`` and ``[`` still forms a reference, link text
+may nest brackets to any depth, ids are matched case-insensitively, a ``#`` line or a
+``[key]:`` line inside a raw HTML block (which Python-Markdown passes through unparsed, as
+``md_in_html`` is off) is neither a heading nor a definition, and heading slugs follow
+``markdown.extensions.toc.slugify`` with its ``_1``/``_2`` de-duplication — cross-checked
+against a real ``mkdocs build`` of every page. Where it differs from the renderer it errs
+loud, never silent:
 
 * a fence inside a blockquote is code here, though Python-Markdown's ``fenced_code`` does
   not recognise it and renders it as prose, so its ``#`` lines are not heading anchors;
@@ -65,17 +68,31 @@ _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 # a blank line (a blank line ends the paragraph the span would have to live in).
 _CODE_SPAN_RE = re.compile(r"(?<![`\\])(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)", re.DOTALL)
 
-# Link text: anything but brackets, or one level of nested `[...]`.
-_TEXT = r"((?:[^\[\]\\]|\\.|\[[^\[\]]*\])*)"
-# `[text](target "title")` and `![alt](src)`. The target may hold one level of balanced
-# parentheses, or be wrapped in `<...>`.
-_INLINE_LINK_RE = re.compile(
-    r"(?<!\\)\[" + _TEXT + r"\]\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\s]*\))*)"
+# What follows a link's `[text]` (see `_link_text_end` for the text itself):
+# `(target "title")`, where the target may hold one level of balanced parentheses or be
+# wrapped in `<...>`, for `[text](…)` and `![alt](…)` …
+_INLINE_TAIL_RE = re.compile(
+    r"\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\s]*\))*)"
     r"(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?\s*\)"
 )
-# `[text][key]`, `[text] [key]` and the collapsed `[text][]` — Python-Markdown accepts at
-# most one whitespace character between the two bracket pairs.
-_REF_USE_RE = re.compile(r"(?<![\\\]])\[" + _TEXT + r"\]\s?\[([^\[\]]*)\](?!\()")
+# … and `[key]` for `[text][key]`, `[text] [key]` and the collapsed `[text][]` —
+# Python-Markdown accepts at most one whitespace character between the two bracket pairs.
+_REF_TAIL_RE = re.compile(r"\s?\[([^\[\]]*)\](?!\()")
+_BLANK_LINE_RE = re.compile(r"\n[ \t]*\n")
+# A raw HTML block opens with a block-level start tag at most three spaces into a line —
+# not inside a blockquote — and Python-Markdown parses no Markdown inside it.
+# `markdown.util.BLOCK_LEVEL_ELEMENTS` (3.11) minus `hr`, which its HTMLExtractor treats
+# as empty, so it opens nothing; the tag-name pattern is `html.parser`'s.
+_BLOCK_TAGS = frozenset(
+    ("address", "article", "aside", "blockquote", "details", "div", "dl", "fieldset")
+    + ("figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6")
+    + ("header", "hgroup", "main", "menu", "nav", "ol", "p", "pre", "section", "table", "ul")
+    + ("canvas", "colgroup", "dd", "body", "dt", "group", "html", "iframe", "li", "legend")
+    + ("math", "map", "noscript", "output", "object", "option", "progress", "script", "center")
+    + ("style", "summary", "tbody", "td", "textarea", "tfoot", "th", "thead", "tr", "video")
+)
+_RAW_OPEN_RE = re.compile(r"^[ \t]{0,3}<([A-Za-z][^\t\n\r\f />\x00]*)", re.MULTILINE)
+_TAG_OPEN_RE = re.compile(r"<([A-Za-z][^\t\n\r\f />\x00]*)")
 # `[key]: target "optional title"`, as Python-Markdown's ReferenceProcessor reads it: the
 # target may sit on the next line, and so may the title, but nothing else may follow the
 # target on its line — so a bracketed citation key that happens to open a prose line
@@ -109,9 +126,22 @@ class _Doc:
     path: Path
     blocks: str  # fenced blocks and HTML comments blanked
     prose: str  # additionally, inline code spans blanked
+    raw_html: tuple[tuple[int, int], ...]  # spans of raw HTML blocks, as offsets
 
     def line_of(self, offset: int) -> int:
         return self.prose.count("\n", 0, offset) + 1
+
+    def markdown(self, text: str) -> str:
+        """``text`` (``blocks`` or ``prose``) with the raw HTML blocks blanked too.
+
+        What is left is what Python-Markdown parses as Markdown: a ``# Ghost`` line inside
+        ``<div>…</div>`` is not a heading and a ``[k]: …`` line there is not a definition.
+        Raw HTML's own ``id``/``name`` attributes and ``<a href>`` are still read from the
+        unblanked views, since the renderer passes them through.
+        """
+        for start, end in self.raw_html:
+            text = text[:start] + re.sub(r"[^\n]", " ", text[start:end]) + text[end:]
+        return text
 
 
 def _unquote(line: str) -> str:
@@ -143,10 +173,118 @@ def _blank_fences(text: str) -> str:
     return "\n".join(lines)
 
 
+def _raw_html_blocks(text: str) -> tuple[tuple[int, int], ...]:
+    """Spans of the raw HTML blocks in ``text``, as Python-Markdown 3.11's HTMLExtractor cuts them.
+
+    A block opens with a block-level start tag at the start of a line (up to three spaces in)
+    and runs to the end tag that closes it, counting nested tags of the same name, or to the
+    end of the page if none does — an unclosed ``<div>`` swallows the rest. A block-level
+    start tag later on the closing line opens the next block at once. Where this misjudges,
+    it treats too much as raw rather than too little, so a heading is lost and a link to it
+    is reported: loud, never silent.
+    """
+    spans = []
+    pos = 0
+    while (m := _RAW_OPEN_RE.search(text, pos)) is not None:
+        if m.group(1).lower() not in _BLOCK_TAGS:
+            pos = m.end()
+            continue
+        start = m.start()
+        while True:
+            tag = re.escape(m.group(1))
+            tag_re = re.compile(rf"<(/?){tag}(?=[\s/>])[^>]*>", re.IGNORECASE)
+            depth, end = 0, len(text)
+            for t in tag_re.finditer(text, m.start(1) - 1):
+                depth += -1 if t.group(1) else 1
+                if depth == 0:
+                    end = t.end()
+                    break
+            line_end = text.find("\n", end)
+            line_end = len(text) if line_end == -1 else line_end
+            tail = next(
+                (
+                    t
+                    for t in _TAG_OPEN_RE.finditer(text, end, line_end)
+                    if t.group(1).lower() in _BLOCK_TAGS
+                ),
+                None,
+            )
+            if tail is None:
+                break
+            m = tail
+        spans.append((start, line_end))
+        pos = line_end
+    return tuple(spans)
+
+
 @cache
 def _doc(path: Path) -> _Doc:
     blocks = _COMMENT_RE.sub(_blank, _blank_fences(path.read_text(encoding="utf-8")))
-    return _Doc(path, blocks, _CODE_SPAN_RE.sub(_blank, blocks))
+    return _Doc(path, blocks, _CODE_SPAN_RE.sub(_blank, blocks), _raw_html_blocks(blocks))
+
+
+def _link_text_end(text: str, start: int) -> int | None:
+    """Offset just past the ``]`` that closes the ``[`` at ``start``, or None.
+
+    Python-Markdown's ``LinkInlineProcessor.getText`` counts brackets to any depth, so
+    ``[[array[i]] result][key]`` is one reference use whose text is ``[array[i]] result``.
+    A regular expression cannot nest without bound, so this counts too. A backslash-escaped
+    bracket does not count (the escape processor runs first), and the text cannot run past
+    a blank line, which ends the paragraph that inline parsing works within.
+    """
+    depth = 0
+    i = start
+    while i < len(text):
+        c = text[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        elif c == "\n" and _BLANK_LINE_RE.match(text, i):
+            return None
+        i += 1
+    return None
+
+
+def _bracketed(
+    text: str, tail: re.Pattern[str], not_after: str
+) -> list[tuple[int, int, re.Match[str]]]:
+    """``(start, text_end, tail_match)`` for each ``[text]`` that ``tail`` follows.
+
+    Scans left to right like ``re.finditer``: a ``[`` preceded by a character in
+    ``not_after`` is skipped, a ``[`` whose text does not close or is not followed by
+    ``tail`` is retried one character on, and a match resumes the scan after its end.
+    """
+    out = []
+    pos = 0
+    while (start := text.find("[", pos)) != -1:
+        pos = start + 1
+        if start and text[start - 1] in not_after:
+            continue
+        end = _link_text_end(text, start)
+        if end is None or (m := tail.match(text, end)) is None:
+            continue
+        out.append((start, end, m))
+        pos = m.end()
+    return out
+
+
+def _inline_links(prose: str) -> list[tuple[int, str]]:
+    """``(start, target)`` for each ``[text](target)`` and ``![alt](src)``."""
+    return [(start, m.group(1)) for start, _, m in _bracketed(prose, _INLINE_TAIL_RE, "\\")]
+
+
+def _ref_uses(prose: str) -> list[tuple[int, str, str, str]]:
+    """``(start, source, text, key)`` for each reference-style use; ``key`` may be empty."""
+    return [
+        (start, prose[start : m.end()], prose[start + 1 : end - 1], m.group(1))
+        for start, end, m in _bracketed(prose, _REF_TAIL_RE, "\\]")
+    ]
 
 
 def _pages() -> list[Path]:
@@ -192,7 +330,7 @@ def _anchors(path: Path) -> frozenset[str]:
     """Every fragment a page serves: heading slugs and inline ``id``/``name`` anchors."""
     doc = _doc(path)
     ids: set[str] = set()
-    lines = [_unquote(line) for line in doc.blocks.split("\n")]
+    lines = [_unquote(line) for line in doc.markdown(doc.blocks).split("\n")]
     for i, line in enumerate(lines):
         if m := _ATX_RE.match(line):
             raw = m.group(2)
@@ -216,7 +354,7 @@ def _anchors(path: Path) -> frozenset[str]:
 
 
 def _definitions(doc: _Doc) -> set[str]:
-    return {_norm_key(m.group(1)) for m in _REF_DEF_RE.finditer(doc.prose)}
+    return {_norm_key(m.group(1)) for m in _REF_DEF_RE.finditer(doc.markdown(doc.prose))}
 
 
 def _target_problem(source: Path, target: str) -> str | None:
@@ -272,12 +410,11 @@ def _undefined_references(path: Path) -> list[str]:
     doc = _doc(path)
     defined = _definitions(doc)
     out = []
-    for m in _REF_USE_RE.finditer(doc.prose):
-        key = _norm_key(m.group(2) or m.group(1))
-        if key not in defined:
+    for start, source, text, key in _ref_uses(doc.prose):
+        if _norm_key(key or text) not in defined:
             out.append(
-                f"{_rel(path)}:{doc.line_of(m.start())}: reference-style link "
-                f"{' '.join(m.group(0).split())} has no [{m.group(2) or m.group(1)}]: definition "
+                f"{_rel(path)}:{doc.line_of(start)}: reference-style link "
+                f"{' '.join(source.split())} has no [{key or text}]: definition "
                 "in this file, so it renders as literal text"
             )
     return out
@@ -286,7 +423,7 @@ def _undefined_references(path: Path) -> list[str]:
 def _broken_targets(path: Path) -> list[str]:
     doc = _doc(path)
     out = []
-    links = [(m.start(), m.group(2)) for m in _INLINE_LINK_RE.finditer(doc.prose)]
+    links = _inline_links(doc.prose)
     links += [(m.start(), m.group(2)) for m in _REF_DEF_RE.finditer(doc.prose)]
     for start, target in links:
         if problem := _target_problem(path, target):
@@ -446,3 +583,50 @@ def test_raw_html_links_are_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert len(out) == 2, out
     assert out[0].startswith("docs/a.md:5: ") and "'#nope'" in out[0]
     assert out[1].startswith("docs/a.md:6: ") and "Markdown link" in out[1]
+
+
+def test_link_text_nests_brackets_to_any_depth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Python-Markdown counts brackets without bound, so a deeply nested text is still a link."""
+    body = (
+        "# A\n\n"
+        "See [[array[i]] result][missing] and [[a[b[c]]] d][k].\n\n"
+        "Inline [[x[y]] z](nope.md) and [[x[y]] z](#a).\n\n"
+        r"Escaped \[ is no bracket: [a \[ b][k]." + "\n\n"
+        "A stray [ does not reach past the paragraph.\n\n"
+        "[late][missing2]\n\n"
+        "[k]: #a\n"
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 3, out
+    assert out[0].startswith("docs/a.md:3: reference-style link [[array[i]] result][missing]")
+    assert out[1].startswith("docs/a.md:11: reference-style link [late][missing2]")
+    assert out[2].startswith("docs/a.md:5: link to 'nope.md': no such file")
+
+
+def test_raw_html_blocks_hold_no_headings_or_definitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Python-Markdown passes a raw HTML block through unparsed (``md_in_html`` is off)."""
+    body = (
+        "# Real\n\n"
+        "<div>\n# Ghost\n[gk]: #real\n</div>\n\n"
+        '<DIV class="x">\n<div>\n</div>\n# Nested Ghost\n</div>\n'
+        "# After\n\n"
+        "text\n  <details><summary>s</summary>\n\n## Para Ghost\n\n"
+        "</details><p>\n# Tail Ghost\n</p>\n\n"
+        "<span>\n# Inline Kept\n</span>\n\n"
+        "> <div>\n> # Quoted Kept\n> </div>\n\n"
+        "<hr>\n# Hr Kept\n\n"
+        "[ok](#real) [ok](#after) [ok](#inline-kept) [ok](#quoted-kept) "
+        "[ok](#hr-kept) [ok](#in-raw)\n"
+        "[bad](#ghost)\n[bad](#nested-ghost)\n[bad](#para-ghost)\n[bad](#tail-ghost)\n"
+        "[bad][gk]\n\n"
+        '<section>\n<a id="in-raw"></a>\n# Unclosed Ghost\n'
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert [o.split(":", 2)[1] for o in out] == ["40", "36", "37", "38", "39"], out
+    assert "[bad][gk]" in out[0]
+    assert "'#ghost'" in out[1] and "'#nested-ghost'" in out[2]
+    assert "'#para-ghost'" in out[3] and "'#tail-ghost'" in out[4]
