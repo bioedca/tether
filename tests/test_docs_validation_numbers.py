@@ -55,6 +55,16 @@ Each such pin carries a ``source`` label naming its *location* as well as its po
 because the mutation tests collect every pin sharing a label and require one edited page
 to break all of them.
 
+**Live-build claims (#512).** Where the page says what the live gate *runs* — (b)'s
+live-pin paragraph, the gap blockquote's "the pinned" commit and the third Scope bullet's
+"behind the pinned … on CPython …" clause — the value is read from the configuration it
+describes: ``TMAVEN_SPEC`` in ``.github/workflows/sidecar.yml`` for the commit (expanded to
+40 hex by the release workflow's own ``TMAVEN_SPEC``) and ``sidecar/conda-lock.yml`` /
+``sidecar/environment.yml`` for the interpreter, read as text. What a block was *measured
+on* stays bound to the artifact. That the two name one build — the page's "the ebFRET block
+has no such gap" — is asserted once, by :func:`no_gap_violations`, so a live pin that
+advances past a correctly frozen record fails as a stale sentence, not a value mismatch.
+
 This is still **not** a page-wide numerical-coverage manifest. What stays unpinned on
 purpose — including ``RMS ≤ 0.5 px`` in (a)'s enforcing-tests sentence, which is a test's
 own literal rather than a transcription — is in :data:`EXCLUSIONS` with its reason.
@@ -66,6 +76,7 @@ import ast
 import contextlib
 import importlib
 import json
+import math
 import os
 import re
 import sys
@@ -80,6 +91,10 @@ PAGE = ROOT / "docs" / "validation.md"
 SRC = ROOT / "src"
 PARITY_PATH = ROOT / "schema" / "parity_tolerance.json"
 KINSOFT_PATH = ROOT / "schema" / "kinsoft_reference.json"
+SIDECAR_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "sidecar.yml"
+RELEASE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "release.yml"
+SIDECAR_LOCK_PATH = ROOT / "sidecar" / "conda-lock.yml"
+SIDECAR_ENV_PATH = ROOT / "sidecar" / "environment.yml"
 
 PAGE_TEXT = PAGE.read_text(encoding="utf-8")
 PARITY = json.loads(PARITY_PATH.read_text(encoding="utf-8"))
@@ -732,8 +747,9 @@ _FULL_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 def short_commit(commit: object) -> str:
     """A full 40-hex tMAVEN commit as the page abbreviates it: its first 8 hex.
 
-    The truncation is the page's typography, not the pin's tolerance — the full value is
-    pinned exactly in (b)'s live-pin paragraph. Refuses anything but a full commit, so a
+    The truncation is the page's typography, not the pin's tolerance — the full live commit
+    is pinned exactly in (b)'s live-pin paragraph, and :func:`no_gap_violations` compares the
+    ebFRET record's full commit with it. Refuses anything but a full commit, so a
     pointer that came to hold an abbreviation cannot silently compare prefix-to-prefix.
     """
     assert isinstance(commit, str), f"{commit!r} is not a commit string"
@@ -774,6 +790,96 @@ def _common_value(*pointers: str) -> object:
         f"{values} differ, so there is no single value the page's shared clause can state"
     )
     return values[pointers[0]]
+
+
+# --- The live build configuration (#512) -------------------------------------------
+# What CI, the installers and the sidecar lock run *now*, read from the configuration
+# itself rather than from the artifact that records what a measurement ran on. The two
+# coincide today, but they are different claims: a live pin can advance while a frozen
+# record correctly stays put. Read as text, like everything else here — no YAML parser,
+# no network, no import of what the configuration installs.
+
+_TMAVEN_SPEC_RE = re.compile(
+    r'^[ \t]*TMAVEN_SPEC:[ \t]*"git\+[^"@\s]+@([0-9a-f]{7,40})"[ \t]*$', re.MULTILINE
+)
+_LOCK_ENTRY_RE = re.compile(r"^- name: (\S+)\n((?:  .*\n)*)", re.MULTILINE)
+_LOCK_PLATFORMS_RE = re.compile(r"^  platforms:\n((?:  - \S+\n)+)", re.MULTILINE)
+_ENV_PYTHON_RE = re.compile(r"^[ \t]*-[ \t]*python=(\S+)[ \t]*(?:#.*)?$", re.MULTILINE)
+
+
+def tmaven_spec_ref(text: str, where: str) -> str:
+    """The commit-ish ``TMAVEN_SPEC`` installs, from the one ``TMAVEN_SPEC:`` line in ``text``."""
+    refs = _TMAVEN_SPEC_RE.findall(text)
+    assert len(refs) == 1, f"{where} must set TMAVEN_SPEC to one tMAVEN git ref; found {refs}"
+    return refs[0]
+
+
+def live_tmaven_commit(sidecar_workflow: str, release_workflow: str) -> str:
+    """The full tMAVEN commit every live sidecar assertion installs.
+
+    ``TMAVEN_SPEC`` in ``.github/workflows/sidecar.yml`` is the authority, but it holds a
+    7-hex abbreviation and the page prints all 40. The release workflow's ``TMAVEN_SPEC``
+    — the build the installers bundle — holds the full commit, so it expands the
+    abbreviation, and only while it *extends* it: two workflow pins naming two commits
+    leave no single live commit for the page to state.
+    """
+    ref = tmaven_spec_ref(sidecar_workflow, ".github/workflows/sidecar.yml")
+    full = tmaven_spec_ref(release_workflow, ".github/workflows/release.yml")
+    assert _FULL_COMMIT_RE.match(full), f"release.yml's TMAVEN_SPEC {full!r} is not 40 hex"
+    assert full.startswith(ref), (
+        f"sidecar.yml pins tMAVEN @{ref} but release.yml pins @{full}: the live "
+        "configuration names two commits, so there is no one live pin the page can state"
+    )
+    return full
+
+
+def live_sidecar_python(lock: str, spec: str) -> str:
+    """The CPython ``sidecar/conda-lock.yml`` resolves on every platform it declares.
+
+    Fails rather than choosing when the platforms disagree, when one lacks ``python``, or
+    when the resolved version is not one ``spec`` — ``sidecar/environment.yml``'s
+    ``python=`` — admits: a lock that no longer answers its own environment file states
+    no live interpreter.
+    """
+    declared = _LOCK_PLATFORMS_RE.findall(lock)
+    assert len(declared) == 1, "sidecar/conda-lock.yml must declare one metadata platforms list"
+    platforms = re.findall(r"- (\S+)", declared[0])
+    versions: dict[str, str] = {}
+    for name, entry in _LOCK_ENTRY_RE.findall(lock):
+        if name != "python":
+            continue
+        fields = dict(re.findall(r"^  (version|platform): (\S+)$", entry, re.MULTILINE))
+        versions[fields["platform"]] = fields["version"].strip("'\"")
+    assert sorted(versions) == sorted(platforms), (
+        f"sidecar/conda-lock.yml resolves python on {sorted(versions)}, not on every "
+        f"declared platform {sorted(platforms)}"
+    )
+    resolved = set(versions.values())
+    assert len(resolved) == 1, f"sidecar/conda-lock.yml resolves python differently: {versions}"
+    version = resolved.pop()
+    prefix = spec.rstrip("*").rstrip(".")
+    assert version == prefix or version.startswith(prefix + "."), (
+        f"sidecar/conda-lock.yml resolves python {version}, which sidecar/environment.yml's "
+        f"python={spec} does not admit"
+    )
+    return version
+
+
+def live_sidecar_python_spec(environment: str) -> str:
+    """The ``python=`` spec ``sidecar/environment.yml`` asks the lock to resolve."""
+    specs = _ENV_PYTHON_RE.findall(environment)
+    assert len(specs) == 1, f"sidecar/environment.yml must pin python once; found {specs}"
+    return specs[0]
+
+
+LIVE_TMAVEN_COMMIT = live_tmaven_commit(
+    SIDECAR_WORKFLOW_PATH.read_text(encoding="utf-8"),
+    RELEASE_WORKFLOW_PATH.read_text(encoding="utf-8"),
+)
+LIVE_SIDECAR_PYTHON_SPEC = live_sidecar_python_spec(SIDECAR_ENV_PATH.read_text(encoding="utf-8"))
+LIVE_SIDECAR_PYTHON = live_sidecar_python(
+    SIDECAR_LOCK_PATH.read_text(encoding="utf-8"), LIVE_SIDECAR_PYTHON_SPEC
+)
 
 
 #: The ``(… fail; … pass)`` illustration in (b)'s ship-floor bullet.
@@ -832,6 +938,11 @@ _EBHMM_COMMIT = "$.measured_by_method.ebhmm.method.tmaven_commit"
 _M05_PYTHON = "$.method.sidecar_python_version"
 _EBHMM_PYTHON = "$.measured_by_method.ebhmm.method.sidecar_python_version"
 _EBHMM_FLOOR = "$.tolerance_by_method.ebhmm.state_count_min_fraction"
+#: The live-build sources (#512). What the page says the live gate *runs* is read from the
+#: configuration that runs it; what a block was *measured on* stays bound to the artifact.
+_LIVE_COMMIT = "sidecar.yml TMAVEN_SPEC"
+_LIVE_PYTHON = "sidecar/conda-lock.yml python"
+_LIVE_PYTHON_SPEC = "sidecar/environment.yml python="
 
 
 def commit_cell(column: str, pointer: str, commit: object) -> Cell:
@@ -850,6 +961,51 @@ def commit_cell(column: str, pointer: str, commit: object) -> Cell:
     )
 
 
+#: The page's three statements that the ebFRET block was measured on the build the live
+#: gate runs: the "no such gap" sentence in (b)'s gap blockquote and in the third Scope
+#: bullet, and the build table's "Same tMAVEN commit and CPython as the live gate?" cell.
+#: "Build" there means exactly those two fields, which are all the artifact records about a
+#: build; the page says so, rather than claiming an identical resolved dependency set.
+_NO_GAP_RE = re.compile(r"\bthe ebFRET block has no such gap\b", re.IGNORECASE)
+_NO_GAP_REGIONS = ((_PARITY_SECTION, _GAP_QUOTE_ANCHOR), (_SCOPE_SECTION, _SCOPE_ANCHOR))
+_LIVE_BUILD_ROW = "Same tMAVEN commit and CPython as the live gate?"
+
+
+def no_gap_claims(text: str) -> list[str]:
+    """Where ``text`` says the ebFRET block was measured on the live build."""
+    claims = [
+        f"'{section}' ({anchor!r})"
+        for section, anchor in _NO_GAP_REGIONS
+        if _NO_GAP_RE.search(_flat(paragraph(text, section, anchor)))
+    ]
+    row = Cell(_PARITY_SECTION, _M05_COLUMN, _LIVE_BUILD_ROW, _EBHMM_COLUMN, "", "")
+    if re.fullmatch(r"\**yes\**", cell_text(text, row).strip(), re.IGNORECASE):
+        claims.append(f"the build table's {_LIVE_BUILD_ROW!r} cell")
+    return claims
+
+
+def no_gap_violations(
+    text: str, measured: tuple[object, object], live: tuple[object, object]
+) -> list[str]:
+    """Each claim that the ebFRET block has no gap, while its build and the live one differ.
+
+    ``measured`` and ``live`` are ``(tmaven_commit, sidecar_python_version)``. This is the
+    one place the artifact and the live configuration meet. Each value pin reads its own
+    source, so when the live pin advances and the frozen ebFRET record correctly stays put,
+    a correctly updated paragraph stays green and *this* fails — naming the sentence that
+    went stale rather than reporting a value mismatch.
+    """
+    if measured == live:
+        return []
+    return [
+        f"{claim} says the ebFRET block was measured on the build the live gate runs, but "
+        f"it was measured on tMAVEN @{measured[0]} / CPython {measured[1]} and the live "
+        f"gate runs @{live[0]} / CPython {live[1]}. The 'no such gap' sentence has gone "
+        "stale: rewrite the claim, not a value."
+        for claim in no_gap_claims(text)
+    ]
+
+
 def _restatement_pins() -> list[Pin]:
     """Second and later statements of an artifact value, each at its own location (#435)."""
     pins: list[Pin] = []
@@ -860,29 +1016,39 @@ def _restatement_pins() -> list[Pin]:
         commit_cell(_EBHMM_COLUMN, _EBHMM_COMMIT, at(PARITY, _EBHMM_COMMIT)),
     ]
 
-    # (b) "The pin every live assertion uses is ..." -- the full commit, exactly, and both
-    # copies of its interpreter version.
+    # (b) "The pin every live assertion uses is ..." -- the full commit, exactly, both
+    # copies of its interpreter version and the spec the lock resolves it from. Every one
+    # describes the live configuration, so every one is read from it (#512); whether the
+    # ebFRET block was measured on that build is a separate claim, checked by
+    # `no_gap_violations`.
     pins += [
         Quote(
             _PARITY_SECTION,
             _LIVE_PIN_ANCHOR,
             "live assertion uses is `{}`",
-            f"{_EBHMM_COMMIT}{_AT_LIVE_PIN}",
-            at(PARITY, _EBHMM_COMMIT),
+            f"{_LIVE_COMMIT}{_AT_LIVE_PIN}",
+            LIVE_TMAVEN_COMMIT,
         ),
         Quote(
             _PARITY_SECTION,
             _LIVE_PIN_ANCHOR,
             "on CPython {} — `TMAVEN_SPEC`",
-            f"{_EBHMM_PYTHON}{_AT_LIVE_PIN}, CPython clause",
-            at(PARITY, _EBHMM_PYTHON),
+            f"{_LIVE_PYTHON}{_AT_LIVE_PIN}, CPython clause",
+            LIVE_SIDECAR_PYTHON,
+        ),
+        Quote(
+            _PARITY_SECTION,
+            _LIVE_PIN_ANCHOR,
+            "`python={}` in `sidecar/environment.yml`",
+            f"{_LIVE_PYTHON_SPEC}{_AT_LIVE_PIN}",
+            LIVE_SIDECAR_PYTHON_SPEC,
         ),
         Quote(
             _PARITY_SECTION,
             _LIVE_PIN_ANCHOR,
             "resolving to {} on all four platforms",
-            f"{_EBHMM_PYTHON}{_AT_LIVE_PIN}, lock clause",
-            at(PARITY, _EBHMM_PYTHON),
+            f"{_LIVE_PYTHON}{_AT_LIVE_PIN}, lock clause",
+            LIVE_SIDECAR_PYTHON,
         ),
     ]
 
@@ -913,8 +1079,8 @@ def _restatement_pins() -> list[Pin]:
             ),
             (
                 "the pinned `{}`",
-                f"{_EBHMM_COMMIT}[:8]",
-                at(PARITY, _EBHMM_COMMIT),
+                f"{_LIVE_COMMIT}[:8]",
+                LIVE_TMAVEN_COMMIT,
                 short_commit,
             ),
             ("on CPython {}. That is", _M05_PYTHON, at(PARITY, _M05_PYTHON), None),
@@ -984,7 +1150,9 @@ def _restatement_pins() -> list[Pin]:
         ),
     ]
 
-    # Scope and known limitations, third bullet -- both commits and both interpreters.
+    # Scope and known limitations, third bullet -- both commits and both interpreters: the
+    # M0.5 build it was measured against from the artifact, the build CI runs from the
+    # live configuration.
     pins += [
         Quote(_SCOPE_SECTION, _SCOPE_ANCHOR, template, f"{source}{_AT_SCOPE}", value, render=render)
         for template, source, value, render in (
@@ -996,12 +1164,12 @@ def _restatement_pins() -> list[Pin]:
             ),
             (
                 "behind the pinned `{}`",
-                f"{_EBHMM_COMMIT}[:8]",
-                at(PARITY, _EBHMM_COMMIT),
+                f"{_LIVE_COMMIT}[:8]",
+                LIVE_TMAVEN_COMMIT,
                 short_commit,
             ),
             ("on CPython {} — 13 upstream", _M05_PYTHON, at(PARITY, _M05_PYTHON), None),
-            ("on CPython {} that CI", _EBHMM_PYTHON, at(PARITY, _EBHMM_PYTHON), None),
+            ("on CPython {} that CI", _LIVE_PYTHON, LIVE_SIDECAR_PYTHON, None),
         )
     ]
     return pins
@@ -1347,10 +1515,10 @@ REGISTRY = _registry()
 EXCLUSIONS: dict[str, str] = {
     "the tMAVEN upstream commit dates 2025-05-06 / 2025-10-05": (
         "When each commit was made upstream is a fact of the tMAVEN repository that no "
-        "committed artifact records. The commits themselves are recorded, under "
-        "`$.method.tmaven_commit` and `$.measured_by_method.ebhmm.method.tmaven_commit`, "
-        "and are pinned wherever the page prints them (#435): the build table, (b)'s "
-        "live-pin paragraph and gap blockquote, and the third Scope bullet."
+        "committed artifact records. The commits themselves are pinned wherever the page "
+        "prints them: the measured-on ones to `$.method.tmaven_commit` and "
+        "`$.measured_by_method.ebhmm.method.tmaven_commit` (#435), the live one to "
+        "`TMAVEN_SPEC` in .github/workflows/sidecar.yml (#512)."
     ),
     "'13 upstream commits behind' and the 256 / 42 changed-line counts": (
         "Derived by diffing two upstream tMAVEN commits. Nothing in this repository "
@@ -1738,24 +1906,31 @@ def _mutate(section: str, old: str, new: str, text: str | None = None) -> str:
             "| `20f4230b…` (2025-10-05) |",
             f"{_EBHMM_COMMIT}[:8]…{_AT_BUILD_TABLE}",
         ),
-        # (b) live-pin paragraph: the full commit, and both copies of its interpreter.
+        # (b) live-pin paragraph: the full commit, both copies of its interpreter and the
+        # environment spec, all read from the live configuration.
         (
             _PARITY_SECTION,
             "`10f4230b6d13c6d2ad67b05d801696b4a40eff4a`",
             "`10f4230b6d13c6d2ad67b05d801696b4a40eff4b`",
-            f"{_EBHMM_COMMIT}{_AT_LIVE_PIN}",
+            f"{_LIVE_COMMIT}{_AT_LIVE_PIN}",
         ),
         (
             _PARITY_SECTION,
             "3.12.13 — `TMAVEN_SPEC`",
             "3.12.14 — `TMAVEN_SPEC`",
-            f"{_EBHMM_PYTHON}{_AT_LIVE_PIN}, CPython clause",
+            f"{_LIVE_PYTHON}{_AT_LIVE_PIN}, CPython clause",
+        ),
+        (
+            _PARITY_SECTION,
+            "`python=3.12.*`",
+            "`python=3.11.*`",
+            f"{_LIVE_PYTHON_SPEC}{_AT_LIVE_PIN}",
         ),
         (
             _PARITY_SECTION,
             "resolving to 3.12.13",
             "resolving to 3.12.14",
-            f"{_EBHMM_PYTHON}{_AT_LIVE_PIN}, lock clause",
+            f"{_LIVE_PYTHON}{_AT_LIVE_PIN}, lock clause",
         ),
         # (b) gap blockquote: every artifact value it restates.
         (
@@ -1768,7 +1943,7 @@ def _mutate(section: str, old: str, new: str, text: str | None = None) -> str:
             _PARITY_SECTION,
             "the pinned `10f4230b` (2025-10-05)",
             "the pinned `20f4230b` (2025-10-05)",
-            f"{_EBHMM_COMMIT}[:8]{_AT_GAP_QUOTE}",
+            f"{_LIVE_COMMIT}[:8]{_AT_GAP_QUOTE}",
         ),
         (
             _PARITY_SECTION,
@@ -1837,7 +2012,7 @@ def _mutate(section: str, old: str, new: str, text: str | None = None) -> str:
             _SCOPE_SECTION,
             "behind the pinned `10f4230b`",
             "behind the pinned `20f4230b`",
-            f"{_EBHMM_COMMIT}[:8]{_AT_SCOPE}",
+            f"{_LIVE_COMMIT}[:8]{_AT_SCOPE}",
         ),
         (
             _SCOPE_SECTION,
@@ -1849,7 +2024,7 @@ def _mutate(section: str, old: str, new: str, text: str | None = None) -> str:
             _SCOPE_SECTION,
             "on CPython 3.12.13 that CI",
             "on CPython 3.12.14 that CI",
-            f"{_EBHMM_PYTHON}{_AT_SCOPE}",
+            f"{_LIVE_PYTHON}{_AT_SCOPE}",
         ),
     ],
 )
@@ -2459,18 +2634,57 @@ def test_a_re_measured_pooled_worst_is_rejected_by_the_unchanged_page() -> None:
         assert not satisfied(PAGE_TEXT, moved), f"{pin.source} accepted a re-measured value"
 
 
+#: A value the two renderings provably disagree on, fixed here rather than read live: the
+#: M0.5 `$.pooled_worst.state_mean_abs_delta` as frozen, which `sci3` rounds to 8.35e-09.
+_ROUNDING_PROBE = 8.34719832143449e-09
+
+
+def rendering_path_violations(pin: Quote) -> list[str]:
+    """What is wrong with a rounded pin's rendering path, for any live value.
+
+    The path is fixed by *which function* renders the pin, so it is checked on that
+    identity. Whether the rounded and exact strings differ is a property of one value, not
+    of the path: a legitimate re-freeze onto a value exact at three significant figures
+    (``8.35e-09``) renders identically both ways and is still a correctly rounded pin.
+    """
+    problems = []
+    if pin.render is not sci3:
+        problems.append(f"{pin.source} renders with {pin.render!r}, not sci3")
+    if not isinstance(pin.value, float):
+        problems.append(f"{pin.source} holds {pin.value!r}, not a float")
+    return problems
+
+
 def test_the_rounded_and_the_exact_rendering_stay_different_paths() -> None:
     """Rounding is a declared rendering, never the exact one in disguise.
 
-    For `$.pooled_worst.state_mean_abs_delta` the page's table prints the exact value and
-    the blockquote the rounded one; if the two renderings ever agreed for that value, the
-    blockquote pin would no longer be a rounding pin at all.
+    The page's table prints `$.pooled_worst` exactly and the blockquote rounds it, so the
+    blockquote pins must keep rendering through ``sci3`` and ``sci3`` must stay a
+    different function from ``shortest`` — shown on a fixed probe they disagree on, so the
+    two paths cannot silently become one whatever the live value is.
     """
-    value = at(PARITY, "$.pooled_worst.state_mean_abs_delta")
-    assert isinstance(value, float)
-    assert sci3(value) != shortest(value)
-    assert float(shortest(value)) == value
-    assert float(sci3(value)) != value
+    rounded = [p for p in _restatement_pins() if isinstance(p, Quote) and p.render is sci3]
+    assert len(rounded) == 2
+    for pin in rounded:
+        assert rendering_path_violations(pin) == []
+    assert sci3 is not shortest
+    assert sci3(_ROUNDING_PROBE) != shortest(_ROUNDING_PROBE)
+    assert float(shortest(_ROUNDING_PROBE)) == _ROUNDING_PROBE
+    assert float(sci3(_ROUNDING_PROBE)) != _ROUNDING_PROBE
+
+
+def test_a_re_freeze_onto_a_three_figure_value_keeps_the_rendering_path() -> None:
+    """A live `8.35e-09` is exact at three figures, and the rounded pin still holds (#512)."""
+    pin = next(
+        p
+        for p in REGISTRY
+        if p.source == f"$.pooled_worst.state_mean_abs_delta, 3 s.f.{_AT_GAP_QUOTE}"
+    )
+    refrozen = pin._replace(value=8.35e-09)
+    assert sci3(refrozen.value) == shortest(refrozen.value)
+    assert rendering_path_violations(refrozen) == []
+    assert satisfied(PAGE_TEXT, refrozen)
+    assert rendering_path_violations(refrozen._replace(render=shortest)) != []
 
 
 @pytest.mark.parametrize("printed", ["8.3472e-09", "8.3e-09", "8.347e-09"])
@@ -2583,6 +2797,143 @@ def test_an_exact_float_restatement_catches_a_change_past_six_digits() -> None:
     for pin in exact:
         assert pin.render is shortest, f"{pin.source} renders a float with ':g'"
         assert isinstance(pin.value, float)
-        nudged = pin._replace(value=float(repr(pin.value)) + pin.value * 1e-9)
+        # One ulp, not a relative nudge: `value * 1e-9` is zero for a bound re-frozen at
+        # 0.0, which `freeze_tolerance` produces by clamping a floor metric (#512).
+        nudged = pin._replace(value=math.nextafter(pin.value, math.inf))
         assert nudged.value != pin.value
-        assert not satisfied(PAGE_TEXT, nudged), f"{pin.source} missed a 1e-9 relative change"
+        assert not satisfied(PAGE_TEXT, nudged), f"{pin.source} missed a one-ulp change"
+
+
+def test_the_one_ulp_nudge_moves_a_value_frozen_at_zero() -> None:
+    """The nudge the test above applies still changes, and re-renders, a ``0.0`` pin."""
+    nudged = math.nextafter(0.0, math.inf)
+    assert nudged != 0.0
+    assert shortest(nudged) != shortest(0.0)
+
+
+# --- #512: live-build claims read from the live configuration ------------------
+
+
+def test_the_live_build_values_are_read_from_the_live_configuration() -> None:
+    """The live-pin paragraph, gap blockquote and Scope bullet name the configuration.
+
+    Each "live"/"pinned" value is read from what CI, the installers and the sidecar lock
+    run, under a source label of its own; the measured-on values stay on the artifact.
+    """
+    live_sources = {
+        f"{_LIVE_COMMIT}{_AT_LIVE_PIN}": LIVE_TMAVEN_COMMIT,
+        f"{_LIVE_PYTHON}{_AT_LIVE_PIN}, CPython clause": LIVE_SIDECAR_PYTHON,
+        f"{_LIVE_PYTHON_SPEC}{_AT_LIVE_PIN}": LIVE_SIDECAR_PYTHON_SPEC,
+        f"{_LIVE_PYTHON}{_AT_LIVE_PIN}, lock clause": LIVE_SIDECAR_PYTHON,
+        f"{_LIVE_COMMIT}[:8]{_AT_GAP_QUOTE}": LIVE_TMAVEN_COMMIT,
+        f"{_LIVE_COMMIT}[:8]{_AT_SCOPE}": LIVE_TMAVEN_COMMIT,
+        f"{_LIVE_PYTHON}{_AT_SCOPE}": LIVE_SIDECAR_PYTHON,
+    }
+    by_source = {p.source: p for p in _restatement_pins()}
+    for source, value in live_sources.items():
+        assert source in by_source, f"no pin reads {source}"
+        assert by_source[source].value == value
+    measured = [p for p in _restatement_pins() if p.source.startswith(_EBHMM_COMMIT)]
+    assert [p.source for p in measured] == [f"{_EBHMM_COMMIT}[:8]…{_AT_BUILD_TABLE}"]
+
+
+def test_the_live_tmaven_commit_comes_from_sidecar_yml_expanded_by_release_yml() -> None:
+    sidecar = '      TMAVEN_SPEC: "git+https://github.com/o/tmaven.git@10f4230"\n'
+    release = f'      TMAVEN_SPEC: "git+https://github.com/o/tmaven.git@{"10f4230b" + "0" * 32}"\n'
+    assert live_tmaven_commit(sidecar, release) == "10f4230b" + "0" * 32
+    advanced = sidecar.replace("@10f4230", "@20f4230")
+    with pytest.raises(AssertionError, match="names two commits"):
+        live_tmaven_commit(advanced, release)
+    with pytest.raises(AssertionError, match="one tMAVEN git ref"):
+        live_tmaven_commit(sidecar + sidecar, release)
+
+
+_LOCK_SAMPLE = """\
+metadata:
+  platforms:
+  - linux-64
+  - win-64
+package:
+- name: python
+  version: 3.12.13
+  manager: conda
+  platform: linux-64
+- name: python
+  version: 3.12.13
+  manager: conda
+  platform: win-64
+- name: zlib
+  version: 1.3.1
+  manager: conda
+  platform: win-64
+"""
+
+
+def test_the_live_interpreter_is_the_one_the_lock_resolves_everywhere() -> None:
+    assert live_sidecar_python(_LOCK_SAMPLE, "3.12.*") == "3.12.13"
+    split = _LOCK_SAMPLE.replace(
+        "3.12.13\n  manager: conda\n  platform: win-64",
+        "3.12.12\n  manager: conda\n  platform: win-64",
+    )
+    with pytest.raises(AssertionError, match="resolves python differently"):
+        live_sidecar_python(split, "3.12.*")
+    with pytest.raises(AssertionError, match="does not admit"):
+        live_sidecar_python(_LOCK_SAMPLE, "3.11.*")
+    missing = _LOCK_SAMPLE.replace("  - win-64\n", "  - win-64\n  - osx-64\n")
+    with pytest.raises(AssertionError, match="not on every"):
+        live_sidecar_python(missing, "3.12.*")
+    assert live_sidecar_python_spec("dependencies:\n  - python=3.12.*\n") == "3.12.*"
+
+
+def test_the_ebfret_block_was_measured_on_the_live_build() -> None:
+    """The page's "no such gap" claim, checked as a claim (#512).
+
+    Every value pin reads its own source, so this is the one assertion that the frozen
+    ebFRET record and the live configuration name the same build.
+    """
+    measured = (at(PARITY, _EBHMM_COMMIT), at(PARITY, _EBHMM_PYTHON))
+    live = (LIVE_TMAVEN_COMMIT, LIVE_SIDECAR_PYTHON)
+    if measured == live:
+        # While the builds match, all three claims stand: this keeps the readers honest.
+        # Once they differ the page has to drop the claims, so expecting them would fail
+        # the very rewrite the violation message asks for.
+        assert len(no_gap_claims(PAGE_TEXT)) == 3
+    assert no_gap_violations(PAGE_TEXT, measured, live) == []
+
+
+def test_an_advanced_live_pin_fails_as_a_stale_sentence_not_a_value_mismatch() -> None:
+    """The live pin moves, the frozen ebFRET record correctly stays, the page follows.
+
+    Every value pin holds on that correctly updated page — the live ones against the new
+    pin, the build table against the unchanged record — and only the "no such gap"
+    sentence fails, saying so.
+    """
+    old, new = LIVE_TMAVEN_COMMIT, _other_commit(LIVE_TMAVEN_COMMIT)
+    page = _mutate(_PARITY_SECTION, f"`{old}`", f"`{new}`")
+    page = _mutate(_PARITY_SECTION, f"the pinned `{old[:8]}`", f"the pinned `{new[:8]}`", page)
+    page = _mutate(
+        _SCOPE_SECTION, f"behind the pinned `{old[:8]}`", f"behind the pinned `{new[:8]}`", page
+    )
+    live = [p for p in REGISTRY if p.source.startswith(_LIVE_COMMIT)]
+    assert len(live) == 3
+    assert not any(satisfied(page, pin) for pin in live), "the page edit changed nothing"
+    for pin in REGISTRY:
+        moved = pin._replace(value=new) if pin in live else pin
+        assert satisfied(page, moved), f"{pin.source} rejected a correctly updated page"
+    measured = (at(PARITY, _EBHMM_COMMIT), at(PARITY, _EBHMM_PYTHON))
+    problems = no_gap_violations(page, measured, (new, LIVE_SIDECAR_PYTHON))
+    assert len(problems) == 3
+    assert all("'no such gap' sentence has gone stale" in p for p in problems)
+    # Rewriting the three claims, as the message asks, clears it.
+    page = _mutate(_PARITY_SECTION, "The ebFRET block has no such gap.", "Now so is ebFRET.", page)
+    page = _mutate(
+        _SCOPE_SECTION, "the ebFRET block has no such\n  gap.", "now so is ebFRET.", page
+    )
+    page = _mutate(
+        _PARITY_SECTION,
+        f"| {_LIVE_BUILD_ROW} | **No** | Yes |",
+        f"| {_LIVE_BUILD_ROW} | **No** | **No** |",
+        page,
+    )
+    assert no_gap_claims(page) == []
+    assert no_gap_violations(page, measured, (new, LIVE_SIDECAR_PYTHON)) == []
