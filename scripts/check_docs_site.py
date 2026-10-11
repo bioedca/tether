@@ -39,7 +39,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 
 ROOT_URL = "https://bioedca.github.io/tether/"
@@ -65,6 +65,8 @@ class Response:
     status: int | None
     body: bytes = b""
     error: str = ""
+    #: Response headers, names lower-cased.
+    headers: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def text(self) -> str:
@@ -79,11 +81,24 @@ def default_transport(url: str, headers: Mapping[str, str]) -> Response:
     request = urllib.request.Request(url, headers=dict(headers))
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as answer:
-            return Response(answer.status, answer.read())
+            return Response(answer.status, answer.read(), headers=_lower(answer.headers))
     except urllib.error.HTTPError as exc:
-        return Response(exc.code, exc.read() or b"")
+        return Response(exc.code, exc.read() or b"", headers=_lower(exc.headers))
     except (urllib.error.URLError, OSError) as exc:  # TimeoutError is an OSError
         return Response(None, error=str(getattr(exc, "reason", exc)))
+
+
+def _lower(headers: Mapping[str, str] | None) -> dict[str, str]:
+    return {k.lower(): v for k, v in (headers or {}).items()}
+
+
+def _rate_limited(response: Response) -> bool:
+    """GitHub also answers 403 for a primary or secondary rate limit; that is not a permission."""
+    return (
+        response.headers.get("x-ratelimit-remaining") == "0"
+        or "retry-after" in response.headers
+        or "rate limit" in response.text.lower()
+    )
 
 
 def _retryable(response: Response) -> bool:
@@ -155,6 +170,11 @@ class _Page(HTMLParser):
 
 def check_pages(response: Response, attempts: int) -> list[str]:
     """Pages configuration: ``source`` only -- never ``build_type``, never ``status``."""
+    if response.status == 403 and _rate_limited(response):
+        return [
+            f"the Pages API ({PAGES_ENDPOINT}) returned 403 for a rate limit -- a transient "
+            "condition, not a permission problem and not evidence about the site; re-run later"
+        ]
     if response.status == 403:
         return [
             f"the Pages API ({PAGES_ENDPOINT}) returned 403: the job token cannot read the Pages "
@@ -245,7 +265,10 @@ def check_versions(response: Response, attempts: int) -> list[str]:
         return [f"{VERSIONS_URL} is not valid JSON"]
     resolves = isinstance(entries, list) and any(
         isinstance(e, dict)
-        and ("latest" in (e.get("aliases") or []) or e.get("version") == "latest")
+        and (
+            (isinstance(e.get("aliases"), list) and "latest" in e["aliases"])
+            or e.get("version") == "latest"
+        )
         for e in entries
     )
     if not resolves:

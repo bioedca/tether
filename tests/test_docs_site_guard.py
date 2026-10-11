@@ -168,6 +168,21 @@ def test_a_pages_403_is_a_failure_naming_the_permission() -> None:
     assert len(problems) == 1 and "permissions: pages: read" in problems[0]
 
 
+@pytest.mark.parametrize(
+    "limited",
+    [
+        R(403, b"{}", headers={"x-ratelimit-remaining": "0"}),
+        R(403, b"{}", headers={"retry-after": "60"}),
+        R(403, b'{"message":"You have exceeded a secondary rate limit."}'),
+    ],
+)
+def test_a_rate_limited_403_is_not_diagnosed_as_a_permission(limited: R) -> None:
+    (problem,) = guard.check_pages(limited, 1)
+    assert (
+        "rate limit" in problem and "pages: write" not in problem and "permissions" not in problem
+    )
+
+
 @pytest.mark.parametrize("generator", [GENERATOR_TODAY, GENERATOR_BUMPED])
 def test_latest_matches_the_material_generator_by_name_not_version(generator: str) -> None:
     assert guard.check_latest(_latest(generator), 1) == []
@@ -228,6 +243,13 @@ def test_versions_json_resolves_latest_without_a_version_number() -> None:
     assert guard.check_versions(R(200, VERSIONS_OK), 1) == []
     assert guard.check_versions(R(200, b'[{"version":"dev","title":"dev","aliases":[]}]'), 1)
     assert guard.check_versions(R(200, b"not json"), 1)
+
+
+@pytest.mark.parametrize("aliases", [b"1", b'"latest"', b"null", b'{"latest": 1}'])
+def test_versions_json_requires_aliases_to_be_a_list(aliases: bytes) -> None:
+    body = b'[{"version":"dev","title":"dev","aliases":' + aliases + b"}]"
+    (problem,) = guard.check_versions(R(200, body), 1)
+    assert guard.VERSIONS_URL in problem
 
 
 def test_a_transient_503_is_retried_and_passes() -> None:
@@ -295,3 +317,14 @@ def test_the_guard_imports_only_the_standard_library() -> None:
         elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
             imported.add(node.module.partition(".")[0])
     assert {n for n in imported if n not in sys.stdlib_module_names} <= {"__future__"}
+
+
+def test_the_job_timeout_outlasts_the_worst_case_retry_budget() -> None:
+    import yaml  # provided by the base conda-lock (a mkdocs dependency)
+
+    workflow = yaml.safe_load((_REPO / ".github/workflows/docs-liveness.yml").read_text("utf-8"))
+    (job,) = workflow["jobs"].values()
+    fetches = len(guard.SITE_URLS) + 1  # the four URLs and the Pages API
+    backoff = sum(guard.BACKOFF_SECONDS * 2**i for i in range(guard.MAX_ATTEMPTS - 1))
+    worst = fetches * (guard.MAX_ATTEMPTS * guard.TIMEOUT_SECONDS + backoff)
+    assert job["timeout-minutes"] * 60 > worst + 60, (job["timeout-minutes"], worst)
