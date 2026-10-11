@@ -74,8 +74,10 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import importlib
 import json
 import math
+import os
 import re
 import sys
 from collections.abc import Callable
@@ -170,9 +172,10 @@ _LEADING_TOKEN_RE = re.compile(r"^[A-Za-z_$][\w.$/-]*")
 #: ``requirements-docs.txt`` pins ``mkdocs==1.6.1``, which enables ``fenced_code`` by
 #: default, and leaves Markdown itself unpinned. It is copied rather than imported so the
 #: guard stays dependency-free; :func:`test_the_fence_rule_is_python_markdowns` compares
-#: it with the installed one wherever Markdown is importable. What it encodes: the
-#: opening delimiter starts at column zero; a block exists only once a closing line
-#: repeating the opener exactly is found; an opener with no closer is ordinary text.
+#: it with the installed one wherever Markdown is importable, and the required
+#: ``docs-build`` job makes that import mandatory (#517). What it encodes: the opening
+#: delimiter starts at column zero; a block exists only once a closing line repeating the
+#: opener exactly is found; an opener with no closer is ordinary text.
 _FENCED_BLOCK_RE = re.compile(
     r"""
 (?P<fence>^(?:~{3,}|`{3,}))[ ]*                          # opening fence
@@ -187,16 +190,50 @@ _FENCED_BLOCK_RE = re.compile(
 )
 
 
+#: The token patterns of Python-Markdown's attribute-list scanner, copied verbatim from
+#: ``markdown.extensions.attr_list._scanner`` in Python-Markdown 3.11 for the same reason
+#: and under the same parity test as :data:`_FENCED_BLOCK_RE`. ``FencedBlockPreprocessor``
+#: scans an ``{attrs}`` opener with it and rejects the opener when the text the scanner
+#: could not consume contains a ``}`` — ``{.a} {.b}``, say, whose braces do not balance.
+_ATTR_LIST_PATTERNS = (
+    r'[^ =}]+=".*?"',
+    r"[^ =}]+='.*?'",
+    r"[^ =}]+=[^ =}]+",
+    r"[^ =}]+",
+    r" ",
+)
+_ATTR_LIST_SCANNER = re.Scanner([(pattern, None) for pattern in _ATTR_LIST_PATTERNS])
+
+
+def _attrs_rejected(attrs: str) -> bool:
+    """Whether Python-Markdown refuses an ``{attrs}`` opener carrying ``attrs``.
+
+    ``get_attrs_and_remainder`` discards unscanned text before the first ``}`` and the
+    preprocessor rejects the opener when anything is left, so the test is a ``}`` anywhere
+    in what the scanner could not consume.
+    """
+    _, remainder = _ATTR_LIST_SCANNER.scan(attrs)
+    return "}" in remainder
+
+
 def _fenced(lines: list[str]) -> list[bool]:
     """For each line, is it part of a fenced code block, opener and closer included?
 
-    Blocks are found the way Python-Markdown finds them: complete opener/body/closer
-    matches of :data:`_FENCED_BLOCK_RE`, leftmost first and non-overlapping. One edge is
-    not reproduced: Python-Markdown also rejects an ``{attrs}`` opener whose braces do
-    not balance, and this treats it as a fence.
+    Blocks are found the way Python-Markdown's ``FencedBlockPreprocessor`` finds them:
+    complete opener/body/closer matches of :data:`_FENCED_BLOCK_RE`, leftmost first and
+    non-overlapping. A match whose ``{attrs}`` opener :func:`_attrs_rejected` refuses is
+    not a block, and the search resumes inside that opener line as Python-Markdown's does,
+    so its body lines can still open a later block.
     """
     text = "\n".join(lines)
-    spans = [m.span() for m in _FENCED_BLOCK_RE.finditer(text)]
+    spans: list[tuple[int, int]] = []
+    index = 0
+    while match := _FENCED_BLOCK_RE.search(text, index):
+        if match.group("attrs") and _attrs_rejected(match.group("attrs")):
+            index = match.end("attrs")
+            continue
+        spans.append(match.span())
+        index = match.end()
     out: list[bool] = []
     offset = 0
     for line in lines:
@@ -2396,12 +2433,69 @@ def test_a_fence_closes_only_on_its_own_delimiter(text: str) -> None:
     assert _tables(text.replace("## Fake heading", "| a | b |")) == []
 
 
+def _python_markdown(name: str):
+    """Import a Python-Markdown module, skipping where it is absent unless CI requires it.
+
+    The base lock carries no Markdown, so the 3-OS matrix skips the parity tests. The
+    required ``docs-build`` job installs the Markdown the docs build resolves and sets
+    ``TETHER_REQUIRE_PYTHON_MARKDOWN=1``, which turns that skip into a failure (#517).
+    """
+    if os.environ.get("TETHER_REQUIRE_PYTHON_MARKDOWN") == "1":
+        return importlib.import_module(name)
+    return pytest.importorskip(name)
+
+
 def test_the_fence_rule_is_python_markdowns() -> None:
     """The copied rule still matches the Python-Markdown the docs build would use."""
-    fenced_code = pytest.importorskip("markdown.extensions.fenced_code")
+    fenced_code = _python_markdown("markdown.extensions.fenced_code")
     installed = fenced_code.FencedBlockPreprocessor.FENCED_BLOCK_RE
     assert _FENCED_BLOCK_RE.pattern == installed.pattern
     assert _FENCED_BLOCK_RE.flags == installed.flags
+
+
+def test_the_attr_list_scanner_is_python_markdowns() -> None:
+    """The copied attribute-list tokens still match the ones the fence opener is scanned with."""
+    attr_list = _python_markdown("markdown.extensions.attr_list")
+    installed = attr_list._scanner
+    assert tuple(pattern for pattern, _ in installed.lexicon) == _ATTR_LIST_PATTERNS
+    for attrs in (".a", ".a .b", "#id .a k=v", 'k="x y"', ".a} {.b", "=x", ".a {.b}", "k=}"):
+        assert _attrs_rejected(attrs) == bool(attr_list.get_attrs_and_remainder(attrs)[1])
+
+
+#: An ``{attrs}`` opener whose braces do not balance, around a heading and a table.
+_UNBALANCED_ATTRS_ROW = "## Real section\nbody\n``` {.a} {.b}\n## Second section\n| a | b |\n```\n"
+
+
+def test_an_unbalanced_attrs_opener_does_not_hide_live_content() -> None:
+    sections = _sections(_UNBALANCED_ATTRS_ROW)
+    assert list(sections) == ["Real section", "Second section"]
+    assert _tables(sections["Second section"]) == [Table(("a", "b"), ())]
+
+
+def test_a_balanced_attrs_opener_still_fences() -> None:
+    text = _UNBALANCED_ATTRS_ROW.replace("{.a} {.b}", "{.a .b}")
+    assert list(_sections(text)) == ["Real section"]
+
+
+#: A refused opener whose next delimiter line opens a block over a heading.
+_RESUMED_ROW = "## Real section\n``` {.a} {.b}\n```\n## Fake heading\n```\n"
+
+
+def test_a_rejected_opener_leaves_its_body_free_to_open_a_block() -> None:
+    """The search resumes inside the refused opener, so its next ``` line opens a block."""
+    assert list(_sections(_RESUMED_ROW)) == ["Real section"]
+
+
+def test_the_unbalanced_attrs_row_renders_as_python_markdown_says() -> None:
+    """The synthetic row is live Markdown to the renderer, not just to this guard."""
+    markdown = _python_markdown("markdown")
+    html = markdown.markdown(_UNBALANCED_ATTRS_ROW, extensions=["fenced_code"])
+    assert "<h2>Second section</h2>" in html
+    balanced = _UNBALANCED_ATTRS_ROW.replace("{.a} {.b}", "{.a .b}")
+    html = markdown.markdown(balanced, extensions=["fenced_code"])
+    assert "<h2>Second section</h2>" not in html
+    html = markdown.markdown(_RESUMED_ROW, extensions=["fenced_code"])
+    assert "<h2>Fake heading</h2>" not in html
 
 
 @pytest.mark.parametrize(
