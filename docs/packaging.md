@@ -1,5 +1,9 @@
 # Packaging &amp; installers
 
+> **Looking to install Tether?** This page describes how the installers are built and what
+> they contain, for maintainers. To download, verify, install and run Tether, follow
+> [Install Tether](install.md) instead.
+
 Tether ships as a **self-contained desktop installer** for Windows, macOS and Linux,
 built with [`constructor`](https://conda.github.io/constructor/). One installer bundles
 everything the app needs and resolves **fully offline** — no git or network access is

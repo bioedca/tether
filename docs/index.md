@@ -15,6 +15,8 @@ suits your experiment before you install anything.
 
 ### Using Tether
 
+- [Install Tether](install.md) — for downloading, verifying, installing and uninstalling
+  the desktop installer.
 - [Command line](cli.md) — for scripting or batch-processing movies, and for launching
   Tether after an installer install.
 - [Legacy Deep-LASI import](io/legacy-import.md) — for re-analysing an existing
