@@ -91,16 +91,33 @@ the projects Tether builds on is in
 
 ## Reporting a Tether analysis
 
-Quote the version that actually produced your data, not the version you have installed
-today. Every `.tether` project records it when it is created, as the root attribute
-`app_version`. Read it with any HDF5 viewer, or with `h5py`:
+Quote the version that actually produced the results you report, not the version you have
+installed today. A `.tether` project records versions in more than one place, because a
+project created with one release can be corrected or idealized later with another:
+
+- each analysis step stamps its own `app_version` attribute when it runs: extraction on
+  `/settings/extraction`, the corrections on `/settings/leakage`, `/settings/gamma` and
+  `/settings/correction`, and each idealization on its `/idealization/<model>` group;
+- exported files carry the version that wrote them in their `.provenance.json` sidecar;
+- the root `app_version` attribute records the version that *created* the project. It is
+  optional, so a valid project can lack it.
+
+Read the stamp of the step you are describing. With any HDF5 viewer, or with `h5py`:
 
 ```python
 import h5py
 
 with h5py.File("experiment.tether", "r") as f:
-    print(f.attrs["app_version"])
+    print("created by:", f.attrs.get("app_version", "not recorded"))
+    for name in ("extraction", "leakage", "gamma", "correction"):
+        group = f.get(f"settings/{name}")
+        if group is not None:
+            print(name, group.attrs.get("app_version", "not recorded"))
+    for name, group in f.get("idealization", {}).items():
+        print("idealization", name, group.attrs.get("app_version", "not recorded"))
 ```
+
+If the steps you report ran under different versions, name each one.
 
 A sample methods sentence, to adapt to what you ran:
 
@@ -110,7 +127,7 @@ A sample methods sentence, to adapt to what you ran:
 > (2018), and idealized with the consensus variational-Bayes HMM (Bronson et al., 2009)
 > run through tMAVEN (Verma et al., 2024).
 
-Replace `1.0.0` with your project's `app_version`, and swap the corrections and the
-idealization backend for the rows above that match your analysis. If you need to point at
-one exact release, use that version's own DOI from its Zenodo record instead of the concept
-DOI.
+Replace `1.0.0` with the version stamped on the steps you report, and swap the corrections
+and the idealization backend for the rows above that match your analysis. If you need to
+point at one exact release, use that version's own DOI from its Zenodo record instead of
+the concept DOI.
