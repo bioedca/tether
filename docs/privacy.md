@@ -1,5 +1,8 @@
 # Privacy policy
 
+**Who this page is for.** Anyone who runs Tether or visits this site; no repository access is
+needed to read it or to rely on it.
+
 **Effective date: 30 July 2026**
 
 This policy describes how the **Tether** project handles data. It covers both the

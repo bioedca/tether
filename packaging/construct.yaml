@@ -17,10 +17,11 @@
 # the THREE wheels — see `extra_files` below — and the GPL license text under
 # staging/). See ADR-0049 for the architecture.
 #
-# UNSIGNED in this PR: the `*_signing_*` keys below are documented but left
-# INACTIVE — constructor produces unsigned installers by default. Authenticode
-# (Windows) + productsign/notarization (macOS) are wired with repository secrets in
-# PR-2 (release.yml, §12.7). Do not uncomment them here.
+# UNSIGNED by decision (ADR-0059): installers are not OS-code-signed on any
+# platform, and that is the settled 1.0 position rather than a pending step. The
+# integrity anchor is the published SHA-256 manifests plus build provenance. The
+# signing keys below stay commented out for reference only; re-applying for OS code
+# signing is tracked in #244.
 
 name: Tether
 version: {{ environ.get("TETHER_VERSION", "0.0.0") }}
@@ -106,8 +107,7 @@ license_file: staging/LICENSE.txt
 post_install: scripts/post_install.sh    # [unix]
 post_install: scripts/post_install.bat   # [win]
 
-# Per-OS installer format. exe (NSIS) on Windows, pkg on macOS (productsign-signable
-# in PR-2), sh on Linux.
+# Per-OS installer format. exe (NSIS) on Windows, pkg on macOS, sh on Linux.
 installer_type: exe    # [win]
 installer_type: pkg    # [osx]
 installer_type: sh     # [linux]
@@ -130,9 +130,11 @@ initialize_by_default: false    # [unix]
 register_python: false          # [win]
 menu_packages: []
 
-# --- Code signing — DEFERRED to PR-2 (release.yml, §12.7); DO NOT enable here ----
-# Constructor leaves installers UNSIGNED unless these are set with real credentials,
-# which live as repository secrets wired in the release pipeline:
+# --- Code signing — not applied (ADR-0059); reference only ------------------------
+# Constructor leaves installers UNSIGNED unless these keys are set. Tether ships
+# unsigned by decision (ADR-0059), so no release leg sets them and none is waiting
+# on a credential. They are kept commented out to document what re-applying for OS
+# code signing would touch; that re-application is tracked in #244.
 #   windows_signing_tool: signtool            # [win]  (or azuresigntool)
 #   signing_identity_name: "Developer ID Installer: ..."   # [osx]  productsign
 #   notarization_identity_name: "Developer ID Application: ..."   # [osx]

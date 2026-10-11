@@ -182,14 +182,18 @@ other ref that simply fails to look like a prerelease. The ref **must match** `r
 exactly — three numeric components, no prerelease, no build metadata — which is the form PRD §12.7
 specifies for a release tag (`vMAJOR.MINOR.PATCH`).
 
-It is **not**, however, a form the publishing side enforces today, and this record should not claim
-otherwise. `release.yml`'s only tag-shape check is `case "$tag" in v*)` — the tag must merely start
-with `v` — and it decides prerelease status from the presence of a hyphen (`case "$TAG" in *-*)`),
-which is itself the denylist this section argues against: a four-component `v1.0.0.0` passes both and
-would publish as a **stable** release. So the client is not mirroring an existing pipeline control; it
-is applying §12.7's stated form on its own, and it is the stricter of the two. Closing the gap on the
-publishing side is a separate concern from this decision and is tracked as
-[#380](https://github.com/bioedca/tether/issues/380).
+When this record was accepted, that was **not** a form the publishing side enforced: `release.yml`
+checked only that the tag started with `v`, and decided prerelease status from the presence of a
+hyphen — itself the denylist this section argues against — so a four-component `v1.0.0.0` passed both
+checks and would have published as a **stable** release, and the client was applying §12.7's stated
+form on its own. (Amended 2026-10-11 by [#380](https://github.com/bioedca/tether/issues/380).) The
+publishing side now enforces the same grammar: `release.yml`'s `verify` job rejects, on every run,
+any tag that is not `vMAJOR.MINOR.PATCH` with an optional `-<prerelease>` component — build metadata
+and leading zeros in the three numeric components included — and both places that decide prerelease status read it from that
+grammar's parsed prerelease component. The two forms are still not identical, and this record does
+not say they are: the publisher admits a prerelease component, which publishes as a GitHub
+prerelease, while this decision's allowlist admits no prerelease and no build metadata. Decision 4's
+substance is unchanged; the client remains an allowlist, and remains the stricter of the two.
 
 **And bind the parsed tag to the version being installed.** The version parsed out of the verified
 ref must equal the version the client used for the strictly-newer comparison. Without that binding

@@ -1,8 +1,9 @@
 # Packaging &amp; installers
 
-> **Looking to install Tether?** This page describes how the installers are built and what
-> they contain, for maintainers. To download, verify, install and run Tether, follow
-> [Install Tether](install.md) instead.
+> **Looking to install Tether?** This page describes what an installer contains and how to
+> check a download is genuine. To download, install and run Tether step by step, follow
+> [Install Tether](install.md). Maintainers building the installers themselves want
+> [Building the installers](maintainers/building-installers.md).
 
 Tether ships as a **self-contained desktop installer** for Windows, macOS and Linux,
 built with [`constructor`](https://conda.github.io/constructor/). One installer bundles
@@ -32,20 +33,6 @@ separate, documented install for users with a supported NVIDIA GPU.
 | Windows | `Tether-<version>-Windows-x86_64.exe` (NSIS) |
 | macOS | `Tether-<version>-MacOSX-<arch>.pkg` |
 | Linux | `Tether-<version>-Linux-x86_64.sh` |
-
-## Building from source
-
-Maintainers build the installers with the recipe under `packaging/` — see the
-`packaging/README.md` in the source tree for the full build contract. In continuous
-integration the build runs on all three operating systems in an advisory,
-manually-triggered workflow, which also **install-smokes** each installer: it installs
-into a clean prefix with networking neutralised, launches `tether --version` through the
-same shims a user has on `PATH`, and drives the sidecar's real headless entry point
-offline — constructing the tMAVEN driver, not merely importing the package, since that
-is where an environment problem actually surfaces. The release pipeline (`release.yml`)
-runs the same checked-in script — `packaging/scripts/install_smoke.sh` — on each
-installer it is about to publish, so a release build that cannot install or launch never
-reaches a GitHub Release.
 
 ## How to verify a download
 

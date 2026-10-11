@@ -19,9 +19,15 @@ from __future__ import annotations
 
 import ast
 import fnmatch
+import os
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path, PurePosixPath
+from typing import NamedTuple
 
+import pytest
 import yaml  # provided by the base conda-lock (a mkdocs dependency); see `_steps` below
 
 # Must match the glob in .github/workflows/sidecar.yml's parity step
@@ -765,6 +771,325 @@ def test_docs_liveness_declares_pages_read() -> None:
         assert permissions.get("pages") == "read", permissions
 
 
+# The release-tag grammar (issue #380). PRD §12.7 states a release tag's form as
+# `vMAJOR.MINOR.PATCH`, and ADR-0060 §4's update client allowlists exactly that form on the
+# attested `sourceRepositoryRef`. Before #380 the publisher checked only for a leading `v` and
+# called a tag a prerelease when it held a hyphen, so `v1.0.0.0` published as a STABLE Release
+# that the client then refuses. The grammar is declared ONCE, as the `TAG_ERE` literal in the
+# `verify` job's resolve step; the guards below read that literal back out of the parsed
+# workflow (restating it here would test the test), and execute the step scripts themselves,
+# because nothing else in this repository lints a `run:` script.
+RESOLVE_STEP_NAME = "Resolve target tag + publish mode"
+RELEASE_CREATE_STEP_NAME = "Create the GitHub Release"
+DOCS_PUBLISH_STEP_NAME = "Publish the documentation site (dispatch docs.yml)"
+PRERELEASE_EXPRESSION = "${{ needs.verify.outputs.prerelease }}"
+
+#: Committed literals, never `git tag` output: `ci.yml`'s `test` job checks out at the default
+#: depth, so no tag exists in CI. The first ten are the tags that existed when #380 was groomed
+#: (2026-08-13; there is no v0.9.0) -- real shapes, not a standing claim about the tag list.
+TAG_ACCEPT = (
+    "v0.0.0",
+    "v0.1.0",
+    "v0.2.0",
+    "v0.3.0",
+    "v0.4.0",
+    "v0.5.0",
+    "v0.6.0",
+    "v0.7.0",
+    "v0.8.0",
+    "v1.0.0-rc1",
+    "v1.0.0",
+    "v10.2.30",
+    "v1.0.0-rc.2",
+)
+#: `v1.0.0\n` is here because Python's `$` also matches before a trailing newline while bash's
+#: `[[ =~ ]]` does not; it is what makes a test built on `re.match` a red test, not a footnote.
+TAG_REJECT = (
+    "v1.0.0.0",
+    "vfoo",
+    "v1.0",
+    "v1",
+    "v1.0.0+build.7",
+    "v1.0.0-rc1+build.7",
+    "v1.0.0-",
+    "v01.0.0",
+    "1.0.0",
+    "V1.0.0",
+    "refs/heads/main",
+    "v1.0.0\n",
+)
+TAG_PRERELEASE = ("v1.0.0-rc1", "v1.0.0-rc.2")
+TAG_STABLE = ("v1.0.0", "v0.8.0")
+
+
+def _release_step(job_id: str, name: str) -> dict:
+    """The ONE step of ``job_id`` named exactly ``name``, from the parsed release workflow."""
+    steps = [
+        s
+        for s in _job_steps(RELEASE_WORKFLOW.read_text(encoding="utf-8"), job_id)
+        if s.get("name") == name
+    ]
+    assert len(steps) == 1, (
+        f"release.yml's `{job_id}` job must carry exactly one step named {name!r}; "
+        f"found {len(steps)}"
+    )
+    return steps[0]
+
+
+def _release_tag_ere() -> str:
+    """The ``TAG_ERE`` literal, extracted from the resolve step's ``run:`` script.
+
+    Anchored to an assignment line, so a comment that quotes the grammar cannot stand in for it.
+    """
+    run = _release_step("verify", RESOLVE_STEP_NAME).get("run")
+    assert isinstance(run, str), f"the {RESOLVE_STEP_NAME!r} step must carry a `run:` script"
+    found = re.findall(r"^[ \t]*TAG_ERE='([^']+)'[ \t]*$", run, re.MULTILINE)
+    assert len(found) == 1, (
+        f"the {RESOLVE_STEP_NAME!r} step must declare the release-tag grammar exactly once, as "
+        f"a single-quoted `TAG_ERE='...'` literal (issue #380); found {len(found)}"
+    )
+    return found[0]
+
+
+def _bash() -> str:
+    """The bash that runs the extracted step scripts.
+
+    ``ci.yml``'s ``test`` job runs ``bash -el {0}`` on all three OSes (Git Bash on Windows), so
+    bash is expected everywhere; on Linux its absence FAILS rather than skips, so these legs
+    cannot go universally vacuous.
+    """
+    bash = shutil.which("bash")
+    if bash is None:
+        if sys.platform.startswith("linux"):
+            pytest.fail("bash is not on PATH; the release-script tests must not go vacuous")
+        pytest.skip("bash is not on PATH on this platform")
+    return bash
+
+
+def _write_script(path: Path, text: str) -> Path:
+    # LF line endings on every OS: bash reads a CR as part of the command word.
+    path.write_text(text, encoding="utf-8", newline="\n")
+    return path
+
+
+def test_release_tag_grammar_accepts_the_stated_form_only() -> None:
+    """The extracted ``TAG_ERE`` admits exactly the committed accept table and classifies it.
+
+    Applied with ``re.fullmatch``, never ``re.match``/``re.search``: Python's ``$`` also matches
+    immediately before a trailing newline while bash's ``[[ =~ ]]`` anchors at end of string, so
+    a test on ``re.match`` would be strictly looser than the runner it mirrors -- the
+    ``"v1.0.0\\n"`` reject row is what turns that divergence red. The prerelease verdict is
+    group 4's truthiness (bash leaves a non-participating group as ``""``, Python as ``None``),
+    which is the same group the workflow reads from ``BASH_REMATCH[4]``.
+
+    The literal is held to constructs POSIX ERE and Python ``re`` read the same way, since
+    compiling the extracted text with ``re`` is only a test of the runner if both engines agree
+    on it: no POSIX bracket classes, no escape other than ``\\.``, no non-greedy operator, no
+    backreference.
+    """
+    ere = _release_tag_ere()
+    assert "[:" not in ere, f"TAG_ERE must not use a POSIX character class: {ere!r}"
+    assert not re.search(r"\\[^.]", ere), f"TAG_ERE may escape only `.` (`\\.`): {ere!r}"
+    assert not re.search(r"[*+?]\?", ere), f"TAG_ERE must not use a non-greedy operator: {ere!r}"
+    grammar = re.compile(ere)
+
+    def prerelease_of(match: re.Match[str]) -> bool:
+        return bool(match.group(4)) if grammar.groups >= 4 else False
+
+    wrong: list[str] = []
+    for tag in TAG_ACCEPT:
+        if grammar.fullmatch(tag) is None:
+            wrong.append(f"rejected {tag!r}, which the grammar must accept")
+    for tag in TAG_REJECT:
+        if grammar.fullmatch(tag) is not None:
+            wrong.append(f"accepted {tag!r}, which the grammar must reject")
+    for tag, prerelease in [(t, True) for t in TAG_PRERELEASE] + [(t, False) for t in TAG_STABLE]:
+        match = grammar.fullmatch(tag)
+        if match is not None and prerelease_of(match) is not prerelease:
+            wrong.append(f"classified {tag!r} as prerelease={not prerelease}")
+    if grammar.groups < 4:
+        wrong.append("lost group 4, the prerelease component the workflow reads")
+    assert not wrong, f"release.yml's TAG_ERE {ere!r} " + "; ".join(wrong)
+
+
+def test_release_prerelease_verdict_comes_from_the_parsed_tag() -> None:
+    """Every prerelease decision reads the ``verify`` output, never a hyphen search over ``$TAG``.
+
+    (a) ``verify`` exports ``prerelease`` from the resolve step; (b) both publish steps map an
+    env var to that output and read it on a non-comment line -- anchored to non-comment lines
+    because a rationale comment naming the variable would otherwise keep this green with the
+    read deleted, the vacuity trap the staging gate's ``read -ra`` guard records; (c) the
+    ``*-*`` glob appears nowhere in the file, matched as a regex over the whole text so a
+    line-broken ``case`` -- the form the second occurrence had -- cannot hide; (d) neither step
+    tests ``$TAG`` with ``case``, ``[``, ``[[`` or ``test``. This pins where the value comes
+    from; :func:`test_release_publish_scripts_follow_the_prerelease_output` pins what it does.
+    """
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    assert re.search(r"\*-\*", text) is None, (
+        "the `*-*` hyphen-search glob must not appear anywhere in release.yml (issue #380)"
+    )
+    outputs = (yaml.safe_load(text)["jobs"]["verify"].get("outputs")) or {}
+    assert "steps.resolve.outputs.prerelease" in str(outputs.get("prerelease", "")), (
+        "the `verify` job must export `prerelease: ${{ steps.resolve.outputs.prerelease }}`"
+    )
+    tag_operand = re.compile(
+        r'\bcase\s+"?\$\{?TAG\b'
+        r"|(?:^|[\s;&|!(])\[\[?\s[^\]\n]*\$\{?TAG\b"
+        r"|\btest\s[^;&|\n]*\$\{?TAG\b"
+    )
+    for name in (RELEASE_CREATE_STEP_NAME, DOCS_PUBLISH_STEP_NAME):
+        step = _release_step("release", name)
+        keys = [
+            k for k, v in (step.get("env") or {}).items() if str(v).strip() == PRERELEASE_EXPRESSION
+        ]
+        assert keys, f"the {name!r} step must map an env var to `{PRERELEASE_EXPRESSION}`"
+        run = step.get("run")
+        assert isinstance(run, str), f"the {name!r} step must carry a `run:` script"
+        code = [ln for ln in run.splitlines() if not ln.lstrip().startswith("#")]
+        reads = re.compile(r"\$\{?" + re.escape(keys[0]) + r"\b")
+        assert any(reads.search(ln) for ln in code), (
+            f"the {name!r} step must read ${keys[0]} on a non-comment line of its script"
+        )
+        offenders = [ln for ln in code if tag_operand.search(ln)]
+        assert not offenders, (
+            f"the {name!r} step must not decide anything by testing $TAG -- the verdict is the "
+            f"`verify` job's parsed prerelease component: {offenders}"
+        )
+
+
+def _run_resolve(bash: str, tmp_path: Path, tag: str, event: str) -> tuple[int, str, dict]:
+    step = _release_step("verify", RESOLVE_STEP_NAME)
+    declared = set((step.get("env") or {}).keys())
+    assert declared == {"EVENT", "PUSH_TAG", "INPUT_REF", "INPUT_DRY_RUN"}, (
+        f"the {RESOLVE_STEP_NAME!r} step's env keys changed ({sorted(declared)}); "
+        "update this harness so every key it declares is set on both event paths"
+    )
+    script = _write_script(tmp_path / "resolve.sh", step["run"])
+    output = tmp_path / "github_output"
+    output.write_text("", encoding="utf-8")
+    if event == "push":
+        keys = {"EVENT": "push", "PUSH_TAG": tag, "INPUT_REF": "", "INPUT_DRY_RUN": ""}
+    else:
+        keys = {"EVENT": event, "PUSH_TAG": "main", "INPUT_REF": tag, "INPUT_DRY_RUN": "true"}
+    env = {**os.environ, **keys, "GITHUB_OUTPUT": output.as_posix()}
+    proc = subprocess.run(
+        [bash, script.as_posix()],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    written = dict(
+        line.split("=", 1)
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if "=" in line
+    )
+    return proc.returncode, proc.stdout + proc.stderr, written
+
+
+@pytest.mark.parametrize("event", ["workflow_dispatch", "push"])
+@pytest.mark.parametrize("tag", TAG_ACCEPT + TAG_REJECT)
+def test_release_resolve_script_enforces_the_grammar(tmp_path: Path, tag: str, event: str) -> None:
+    """The resolve step's real script, under bash, on BOTH event paths, per table row.
+
+    Nothing in this repository lints a ``run:`` script (no shellcheck, no actionlint), so a
+    shell mistake -- quoting ``"$TAG_ERE"`` inside ``[[ =~ ]]``, which matches the pattern
+    literally and rejects every real tag -- would land behind green YAML-parsing tests. Running
+    the dispatch path (``publish=false``) as well as the tag push (``publish=true``) is what
+    makes "the check is not ``publish``-gated" a test rather than a promise.
+    """
+    bash = _bash()
+    code, out, written = _run_resolve(bash, tmp_path, tag, event)
+    publish = "true" if event == "push" else "false"
+    if tag in TAG_ACCEPT:
+        assert code == 0, f"{event}: the resolve step rejected {tag!r}:\n{out}"
+        expected = {
+            "tag": tag,
+            "publish": publish,
+            "prerelease": "true" if tag in TAG_PRERELEASE else "false",
+        }
+        got = {k: written.get(k) for k in expected}
+        assert got == expected, f"{event}: {tag!r} wrote {written} to $GITHUB_OUTPUT:\n{out}"
+    else:
+        assert code != 0, f"{event}: the resolve step accepted {tag!r}:\n{out}"
+        errors = [ln for ln in out.splitlines() if ln.startswith("::error::")]
+        assert any("vMAJOR.MINOR.PATCH" in ln and tag.strip() in ln for ln in errors), (
+            f"{event}: rejecting {tag!r} must print an `::error::` line naming the tag and the "
+            f"`vMAJOR.MINOR.PATCH` form; got:\n{out}"
+        )
+
+
+@pytest.mark.parametrize("tag", ["v1.0.0-rc1", "v1.0.0"])
+@pytest.mark.parametrize("prerelease", ["true", "false"])
+@pytest.mark.parametrize("name", [RELEASE_CREATE_STEP_NAME, DOCS_PUBLISH_STEP_NAME])
+def test_release_publish_scripts_follow_the_prerelease_output(
+    tmp_path: Path, name: str, prerelease: str, tag: str
+) -> None:
+    """Both publish scripts, run under bash with ``gh`` stubbed, obey ``PRERELEASE`` alone.
+
+    Crossing ``PRERELEASE`` with how the tag is spelled is the point: the verdict must follow
+    the ``verify`` output and ignore the hyphen. ``gh`` is a shell function in a wrapper that
+    ``source``\\ s the extracted script, so nothing depends on an executable bit or a ``PATH``
+    entry and the Windows leg behaves like the others. The compared literal is the lowercase
+    ``true`` the workflow's own step gates use (``needs.verify.outputs.publish == 'true'``).
+    """
+    bash = _bash()
+    step = _release_step("release", name)
+    # The wiring is test_release_prerelease_verdict_comes_from_the_parsed_tag's to pin; this
+    # test pins the behaviour, so it falls back to the conventional name rather than failing
+    # on the wiring first and hiding what the script does.
+    keys = [
+        k for k, v in (step.get("env") or {}).items() if str(v).strip() == PRERELEASE_EXPRESSION
+    ]
+    variable = keys[0] if keys else "PRERELEASE"
+    script = _write_script(tmp_path / "step.sh", step["run"])
+    argv = tmp_path / "gh_argv"
+    wrapper = _write_script(
+        tmp_path / "wrapper.sh",
+        f'gh() {{ printf \'%s\\n\' "$@" >> "$GH_ARGV"; }}\nsource "{script.as_posix()}"\n',
+    )
+    notes = tmp_path / "notes.md"
+    notes.write_text("notes\n", encoding="utf-8")
+    summary = tmp_path / "summary.md"
+    summary.write_text("", encoding="utf-8")
+    env = {
+        **os.environ,
+        "TAG": tag,
+        "NOTES": notes.as_posix(),
+        "GITHUB_STEP_SUMMARY": summary.as_posix(),
+        "GH_ARGV": argv.as_posix(),
+        variable: prerelease,
+    }
+    proc = subprocess.run(
+        [bash, wrapper.as_posix()],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0, f"{name!r} failed (PRERELEASE={prerelease}, TAG={tag}):\n{out}"
+    called = argv.read_text(encoding="utf-8").splitlines() if argv.exists() else []
+    case = f"{name!r} with PRERELEASE={prerelease}, TAG={tag}"
+    if name == RELEASE_CREATE_STEP_NAME:
+        assert called[:2] == ["release", "create"], (
+            f"{case} must call `gh release create`: {called}"
+        )
+        assert ("--prerelease" in called) is (prerelease == "true"), (
+            f"{case}: `--prerelease` must be passed exactly when PRERELEASE is `true`: {called}"
+        )
+    elif prerelease == "true":
+        assert called == [], f"{case} must not dispatch the documentation site: {called}"
+    else:
+        assert called[:3] == ["workflow", "run", "docs.yml"], (
+            f"{case} must dispatch `gh workflow run docs.yml`: {called}"
+        )
+
+
 # --- The shared install-smoke script (packaging.yml + release.yml, issue #217) ---
 # The per-platform offline install-smoke lives in ONE checked-in script,
 # packaging/scripts/install_smoke.sh, invoked by both the advisory packaging.yml
@@ -1492,7 +1817,7 @@ def test_publish_time_recheck_sits_flush_against_the_publish_steps() -> None:
 
 
 # --- setup-micromamba: one action version, one binary version, and Dependabot can see both ---
-# Two separate silent-drift traps converge on this action, and neither is watched by anything else:
+# Three separate silent-drift traps converge on this action, and none is watched by anything else:
 #
 #  1. `micromamba-version` defaults to `latest`, so the BINARY that restores the pin-and-held
 #     conda-locks re-resolves on every run. Upstream setup-micromamba#306 (STATUS_ACCESS_VIOLATION
@@ -1503,9 +1828,15 @@ def test_publish_time_recheck_sits_flush_against_the_publish_steps() -> None:
 #     plus a ROOT-level action.yml -- NOT `.github/actions/**` (dependabot-core#6345, still open).
 #     That is how `.github/actions/setup-env` sat on setup-micromamba v2 while packaging.yml and
 #     release.yml were bumped to v3.0.0: the composite action was invisible to the bot.
+#  3. Closing (2) took a SECOND `github-actions` entry in .github/dependabot.yml -- group `actions`
+#     for `/` (.github/workflows) and group `actions-composite` for `/.github/actions/*` -- and two
+#     entries open two pull requests for one action bump. Merge one without the other and the
+#     ACTION SHA splits across call sites with CI fully green: #446 alone would have left the
+#     setup-env composite on v3.1.0 while packaging.yml and release.yml ran v3.2.1 (#448).
 #
-# These guards keep both closed: every call site pins the same binary, and every composite action
-# on disk is inside some Dependabot update entry's scope.
+# These guards keep all three closed: every call site pins the same binary AND runs the same
+# action SHA under the same `# v<X.Y.Z>` tag comment, and every composite action on disk is inside
+# some Dependabot update entry's scope.
 GITHUB_DIR = Path(__file__).resolve().parents[1] / ".github"
 DEPENDABOT_CONFIG = GITHUB_DIR / "dependabot.yml"
 SETUP_MICROMAMBA = "mamba-org/setup-micromamba@"
@@ -1516,6 +1847,18 @@ SETUP_MICROMAMBA = "mamba-org/setup-micromamba@"
 #: Bump here first, then every call site -- the guard below requires them to agree.
 MICROMAMBA_PIN = "2.8.1-0"
 
+#: The trailing `# v<X.Y.Z>` tag comment on a `uses: mamba-org/setup-micromamba@<sha>` line,
+#: quoted or not. Read from TEXT because a YAML parse discards comments; counted against the
+#: PARSED call sites per file, so a spelling this misses fails instead of vanishing (#510).
+#: Horizontal whitespace only around the ``#``: ``\s`` would cross the newline and accept a
+#: tag sitting on the NEXT line as this ``uses:`` line's trailing comment.
+_SETUP_MICROMAMBA_TAG = re.compile(
+    r"^\s*(?:-\s*)?uses:\s*[\"']?"
+    + re.escape(SETUP_MICROMAMBA)
+    + r"[^\s\"'#]*[\"']?[ \t]+#[ \t]*(v\d+\.\d+\.\d+)\b",
+    re.M,
+)
+
 
 def _yaml_load(path: Path) -> object:
     """Parse *path* as YAML. Local import, matching tests/test_adr_index.py's precedent."""
@@ -1524,22 +1867,198 @@ def _yaml_load(path: Path) -> object:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def _setup_micromamba_call_sites() -> dict[str, tuple[int, list[str]]]:
-    """``{repo-relative path: (call-site count, declared micromamba-version values)}``.
+def _workflow_or_action_steps(document: object) -> list[dict]:
+    """Every step of a parsed workflow (``jobs.*.steps``) OR composite action (``runs.steps``).
+
+    :func:`_steps` reads ``jobs`` only, and ``.github/actions/setup-env/action.yml`` has no
+    ``jobs:`` key at all (its top level is ``name``/``description``/``inputs``/``runs``) -- a
+    lookup that stopped there would parse, look right, and never see the composite call site
+    this section mostly exists for.
+    """
+    if not isinstance(document, dict):
+        return []
+    containers = [
+        job.get("steps") for job in (document.get("jobs") or {}).values() if isinstance(job, dict)
+    ]
+    runs = document.get("runs")
+    if isinstance(runs, dict):
+        containers.append(runs.get("steps"))
+    return [step for steps in containers for step in (steps or []) if isinstance(step, dict)]
+
+
+def _setup_micromamba_steps(text: str) -> list[dict]:
+    """Every ``setup-micromamba`` step in one document, from the PARSED steps.
+
+    A parse, not a regex: the old line count missed the valid quoted spelling and counted a
+    ``run:`` block scalar that merely contained the text -- the same two false-greens
+    :func:`_steps` records against the attestation guard (#319).
+    """
+    return [
+        step
+        for step in _workflow_or_action_steps(yaml.safe_load(text))
+        if isinstance(step.get("uses"), str) and step["uses"].startswith(SETUP_MICROMAMBA)
+    ]
+
+
+def _setup_micromamba_uses(text: str) -> list[str]:
+    """Every ``setup-micromamba`` ``uses:`` value in one document, one per parsed call site."""
+    return [step["uses"] for step in _setup_micromamba_steps(text)]
+
+
+#: A full commit SHA, the only immutable ref: a branch or tag ref can move under the guard.
+_FULL_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+class _MicromambaCallSites(NamedTuple):
+    """One file's ``setup-micromamba`` call sites."""
+
+    uses: list[str]  # parsed `uses:` values, one per call site
+    pins: list[str | None]  # each call site's OWN `with: micromamba-version`, None if unset
+    tags: list[str]  # trailing `# v<X.Y.Z>` comments on the `uses:` lines (text)
+
+    @property
+    def shas(self) -> list[str]:
+        return [value.split("@", 1)[1] for value in self.uses]
+
+
+def _micromamba_call_sites_in(text: str) -> _MicromambaCallSites:
+    """One document's call sites, each pin read from that step's own ``with:`` mapping.
+
+    Never from pin-shaped lines anywhere in the file: a call site with no
+    ``micromamba-version`` floats to ``latest``, and a matching line in some other step's
+    ``run:`` block must not stand in for it.
+    """
+    steps = _setup_micromamba_steps(text)
+    pins: list[str | None] = []
+    for step in steps:
+        inputs = step.get("with")
+        value = inputs.get("micromamba-version") if isinstance(inputs, dict) else None
+        pins.append(None if value is None else str(value))
+    return _MicromambaCallSites(
+        [step["uses"] for step in steps], pins, _SETUP_MICROMAMBA_TAG.findall(text)
+    )
+
+
+def _mutable_refs(call_sites: dict[str, _MicromambaCallSites]) -> list[str]:
+    """``path: ref`` for every call site whose ref is not a full 40-hex commit SHA."""
+    return sorted(
+        f"{name}: {sha}"
+        for name, site in call_sites.items()
+        for sha in site.shas
+        if not _FULL_SHA.fullmatch(sha)
+    )
+
+
+def _setup_micromamba_call_sites() -> dict[str, _MicromambaCallSites]:
+    """``{repo-relative path: that file's setup-micromamba call sites}``, for every call site.
 
     Discovered by GLOB over ``.github/``, never a hardcoded file list: this repo grew from one
     call site to three, and a hardcoded list would let a fourth float to ``latest`` unnoticed --
-    reintroducing exactly the drift these guards exist to prevent.
+    reintroducing exactly the drift these guards exist to prevent. The glob reaches workflows
+    and ``.github/actions/*/action.yml`` alike; :func:`_setup_micromamba_uses` reads both step
+    containers, so a fourth site in either is covered without editing any list.
     """
-    found: dict[str, tuple[int, list[str]]] = {}
+    found: dict[str, _MicromambaCallSites] = {}
     for path in sorted(GITHUB_DIR.rglob("*.y*ml")):
-        text = path.read_text(encoding="utf-8")
-        uses = len(re.findall(r"^\s*(?:-\s*)?uses:\s*" + re.escape(SETUP_MICROMAMBA), text, re.M))
-        if not uses:
-            continue
-        pins = re.findall(r"^\s*micromamba-version:\s*[\"']?([^\"'\s#]+)", text, re.M)
-        found[path.relative_to(GITHUB_DIR).as_posix()] = (uses, pins)
+        site = _micromamba_call_sites_in(path.read_text(encoding="utf-8"))
+        if site.uses:
+            found[path.relative_to(GITHUB_DIR).as_posix()] = site
     return found
+
+
+def test_the_setup_micromamba_extraction_reads_steps_and_nothing_else() -> None:
+    """The regression test for the extraction itself, since its failure mode is staying green.
+
+    Every guard in this section stands on :func:`_setup_micromamba_uses` finding every call
+    site and nothing else. The line regex it replaced got two of these four rows wrong -- (b)
+    counted zero and (c) counted one -- and a ``jobs:``-only parse gets (d) wrong, counting the
+    composite action as no call site at all while ``len(call_sites) >= 3`` stayed satisfiable
+    only by luck. All four are asserted together so a regression names every row it breaks.
+
+    (a) a plain workflow step counts once;
+    (b) the quoted spelling -- valid YAML, and the form that made the attestation guard
+        false-green -- counts once;
+    (c) the same text inside a ``run:`` block scalar is a line of shell, not a step: zero;
+    (d) a composite action whose only top-level keys are ``name`` and ``runs``, with the call
+        site under ``runs.steps``, counts once.
+    """
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    call = f"{SETUP_MICROMAMBA}{sha}"
+    rows = {
+        "a: plain workflow step": f"jobs:\n  build:\n    steps:\n      - uses: {call}\n",
+        "b: quoted workflow step": f'jobs:\n  build:\n    steps:\n      - uses: "{call}"\n',
+        "c: run block scalar": (
+            "jobs:\n"
+            "  build:\n"
+            "    steps:\n"
+            "      - name: Not a call site\n"
+            "        run: |\n"
+            f"          uses: {call}\n"
+        ),
+        "d: composite runs.steps": (
+            f"name: setup-env\nruns:\n  using: composite\n  steps:\n    - uses: {call}\n"
+        ),
+    }
+    expected = {
+        "a: plain workflow step": 1,
+        "b: quoted workflow step": 1,
+        "c: run block scalar": 0,
+        "d: composite runs.steps": 1,
+    }
+    counts = {row: len(_setup_micromamba_uses(text)) for row, text in rows.items()}
+    assert counts == expected
+
+
+def test_a_call_site_pin_is_read_from_its_own_with_mapping() -> None:
+    """A pin counts only under its own step's ``with:``, never as a pin-shaped line elsewhere.
+
+    The unpinned call site below floats to ``latest``; the ``run:`` block of the next step
+    carries the exact pin text, which a file-wide line count accepted as its pin (#502).
+    """
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    unpinned = (
+        "jobs:\n"
+        "  build:\n"
+        "    steps:\n"
+        f"      - uses: {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+        "      - run: |\n"
+        f"          echo micromamba-version: {MICROMAMBA_PIN}\n"
+    )
+    pinned = (
+        "jobs:\n"
+        "  build:\n"
+        "    steps:\n"
+        f"      - uses: {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+        "        with:\n"
+        f"          micromamba-version: '{MICROMAMBA_PIN}'\n"
+    )
+    assert _micromamba_call_sites_in(unpinned).pins == [None]
+    assert _micromamba_call_sites_in(pinned).pins == [MICROMAMBA_PIN]
+
+
+def test_the_version_tag_must_trail_its_own_uses_line() -> None:
+    """A ``# v<X.Y.Z>`` on the line after ``uses:`` is not that call site's trailing tag.
+
+    With ``\\s`` around the ``#`` the tag regex crossed the newline, so a one-call-site file
+    whose tag had moved down a line still parsed one tag per call site and passed (#502).
+    """
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    trailing = f"jobs:\n  build:\n    steps:\n      - uses: {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+    next_line = (
+        f"jobs:\n  build:\n    steps:\n      - uses: {SETUP_MICROMAMBA}{sha}\n        # v1.2.3\n"
+    )
+    assert _micromamba_call_sites_in(trailing).tags == ["v1.2.3"]
+    assert _micromamba_call_sites_in(next_line).tags == []
+
+
+def test_a_mutable_action_ref_is_not_a_pin() -> None:
+    """Call sites agreeing on ``@main`` or a tag still fail: only a 40-hex SHA is immutable."""
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    sites = {
+        name: _MicromambaCallSites([f"{SETUP_MICROMAMBA}{ref}"], [MICROMAMBA_PIN], ["v1.2.3"])
+        for name, ref in {"a.yml": "main", "b.yml": "v2", "c.yml": sha, "d.yml": sha[:7]}.items()
+    }
+    assert _mutable_refs(sites) == ["a.yml: main", "b.yml: v2", f"d.yml: {sha[:7]}"]
 
 
 def test_every_setup_micromamba_call_site_pins_the_binary() -> None:
@@ -1571,20 +2090,82 @@ def test_every_setup_micromamba_call_site_pins_the_binary() -> None:
     )
 
     mismatched = sorted(
-        f"{name} ({len(pins)} pin(s) for {uses} call site(s))"
-        for name, (uses, pins) in call_sites.items()
-        if len(pins) != uses
+        f"{name} ({site.pins.count(None)} of {len(site.uses)} call site(s) unpinned)"
+        for name, site in call_sites.items()
+        if None in site.pins
     )
     assert not mismatched, (
         "every setup-micromamba call site needs its OWN `micromamba-version` pin -- unset, the "
         f"input floats to `latest` and re-resolves the binary at run time: {mismatched}"
     )
 
-    values = {value for _, pins in call_sites.values() for value in pins}
+    values = {value for site in call_sites.values() for value in site.pins if value is not None}
     assert values == {MICROMAMBA_PIN}, (
         f"all setup-micromamba call sites must pin micromamba-version to {MICROMAMBA_PIN!r} "
         f"(bump MICROMAMBA_PIN and every call site in one commit); found {sorted(values)} "
         f"across {sorted(call_sites)}"
+    )
+
+
+def test_every_setup_micromamba_call_site_runs_the_same_action_version() -> None:
+    """Every ``setup-micromamba`` call site runs ONE action SHA under ONE ``# v<X.Y.Z>`` tag.
+
+    The pin test above guards the BINARY; nothing else in the repository compares the ACTION
+    SHA across call sites, and Dependabot is what moves it -- through two update entries, so two
+    pull requests per bump (trap 3 in the section header). Merging one of the pair alone leaves
+    the composite action and the workflows on different versions of the action with every
+    check green, which is precisely the state #446 would have produced without #445.
+
+    The trailing tag comment is asserted too: a parse discards comments, so it is read from the
+    text, and the file must carry as many tags as it has PARSED call sites -- an unannotated
+    ``uses:`` line fails here rather than being silently skipped. The count is per file, so it
+    does not tie each tag to its own call site's line; #510 tracks that. Every ref must be a
+    full 40-hex commit SHA before agreement is checked: call sites that all moved to ``@main``
+    would otherwise agree on a mutable ref.
+    """
+    call_sites = _setup_micromamba_call_sites()
+    assert len(call_sites) >= 3, (
+        "expected at least the setup-env composite + packaging.yml + release.yml to call "
+        f"setup-micromamba; found {sorted(call_sites)}"
+    )
+
+    mutable = _mutable_refs(call_sites)
+    assert not mutable, (
+        "every setup-micromamba call site must pin the action to a full 40-hex commit SHA -- a "
+        f"branch or tag ref can move without any change here: {mutable}"
+    )
+
+    untagged = sorted(
+        f"{name} ({len(site.tags)} `# v<X.Y.Z>` comment(s) for {len(site.uses)} call site(s))"
+        for name, site in call_sites.items()
+        if len(site.tags) != len(site.uses)
+    )
+    assert not untagged, (
+        "every `uses: mamba-org/setup-micromamba@<sha>` line needs its own trailing "
+        f"`# v<X.Y.Z>` tag comment, so a reviewer can read which release the SHA is: {untagged}"
+    )
+
+    shas = {
+        sha: sorted(name for name, site in call_sites.items() if sha in site.shas)
+        for sha in {sha for site in call_sites.values() for sha in site.shas}
+    }
+    assert len(shas) == 1, (
+        "all setup-micromamba call sites must run the SAME action SHA; found "
+        f"{shas}. The usual cause is a split Dependabot bump: .github/dependabot.yml has two "
+        "`github-actions` entries -- group `actions` for `/` (.github/workflows) and group "
+        "`actions-composite` for `/.github/actions/*` -- so one action bump arrives as TWO pull "
+        "requests, and they must land together. One merged without the other splits the "
+        "versions; land the sibling too, or bump the lagging call site by hand."
+    )
+
+    tags = {
+        tag: sorted(name for name, site in call_sites.items() if tag in site.tags)
+        for tag in {tag for site in call_sites.values() for tag in site.tags}
+    }
+    assert len(tags) == 1, (
+        "all setup-micromamba call sites must carry the SAME trailing `# v<X.Y.Z>` tag "
+        f"comment; found {tags}. A bump that moved the SHA but not the comment (or the reverse) "
+        "leaves the next reviewer reading the wrong release."
     )
 
 
