@@ -24,7 +24,8 @@ Three pieces, mirroring :mod:`tether.analysis.tdp`:
   Dropping it is the standard survival-analysis handling of a finite observation
   window [Schrangl2024]. The **first** dwell's start was not observed — the molecule
   was already in that state when the window opened — while its exit is a recorded
-  transition.
+  transition, observed only when no interior ``NO_STATE`` gap separates it from the
+  next state.
 * :func:`survival_curve` / :func:`fit_survival` — the empirical survival function
   (tMAVEN ``survival``) and its non-linear-least-squares exponential fit (tMAVEN
   ``optimize_*_surv``), with covariance-derived standard errors + Student-``t``

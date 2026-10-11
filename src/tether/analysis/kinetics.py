@@ -22,8 +22,9 @@ Three pieces:
 * :func:`pooled_exit_rates` / :func:`two_state_rate_constants` — the per-state
   **exit rate** from the pooled dwell times, ``k = 1/⟨τ⟩`` (the maximum-likelihood
   estimator the benchmark uses [Götz2022]), reusing
-  :func:`tether.analysis.dwell.state_dwells`, which drops each molecule's first and
-  last dwell, so the estimator is consistent with the M6 dwell analysis.
+  :func:`tether.analysis.dwell.state_dwells`, which drops each molecule's last dwell
+  and, unless ``include_first``, its first, so the estimator is consistent with the
+  M6 dwell analysis.
 * :class:`KinsoftReference` / :func:`load_kinsoft_reference` /
   :func:`evaluate_kinsoft_level` — load the frozen ground-truth + reported
   inter-tool spread (``schema/kinsoft_reference.json``) and check a fitted level
