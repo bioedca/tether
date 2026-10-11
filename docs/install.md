@@ -183,7 +183,12 @@ It prints `tether` and the version, for this release:
 tether 1.0.0rc2
 ```
 
-That proves the install worked and the launcher is found. To start the desktop application:
+If it prints exactly that version, the install worked and your terminal finds its launcher.
+If it prints a **different** version, an older Tether (for example a source checkout) comes
+earlier on your `PATH` and is the one answering; remove that one from your `PATH`, or run the
+new launcher by its full path, `~/tether/bin/tether --version` on Linux,
+`~/Tether/bin/tether --version` on macOS or `& "$env:USERPROFILE\Tether\bin\tether.bat" --version` in
+Windows PowerShell. To start the desktop application:
 
 - **Windows:** open the Start menu and choose **Tether**, or run `tether-gui` in a terminal.
 - **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal.
