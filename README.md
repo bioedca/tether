@@ -50,9 +50,9 @@ stamped into a single self-describing project file, and the trace ⇄ movie
 
 Tether ships as one self-contained, offline installer per platform — a Windows
 `.exe`, a macOS `.pkg` and a Linux `.sh` — that bundles the application and its
-isolated tMAVEN sidecar. See
-[Packaging & installers](https://bioedca.github.io/tether/latest/packaging/) for
-what each installer contains and how to verify the download.
+isolated tMAVEN sidecar. Follow
+**[Install Tether](https://bioedca.github.io/tether/latest/install/)**
+([source](docs/install.md)) to download, verify, install, run and uninstall it.
 
 The installers are **not OS-code-signed**, so expect a Windows SmartScreen or macOS
 Gatekeeper warning; the published SHA-256 manifests and build-provenance attestation
@@ -91,11 +91,14 @@ Open the desktop application from that menu entry, or run the window launcher:
 <install-root>/bin/tether-gui        # Windows: <install-root>\bin\tether-gui.bat
 ```
 
-To use the command line, add `<install-root>/bin` to your `PATH`, check the install,
-and extract a dual-channel TIFF movie into a new project:
+To use the command line, add `<install-root>/bin` to the **end** of your `PATH` (on
+Linux and macOS it also holds the installer's own `python`, `pip` and `conda`, which
+should not shadow yours), check the install, and extract a dual-channel TIFF movie into a
+new project. [Install Tether](https://bioedca.github.io/tether/latest/install/) shows how
+to make the `PATH` change permanent.
 
 ```bash
-export PATH="<install-root>/bin:$PATH"   # PowerShell: $env:PATH = "<install-root>\bin;$env:PATH"
+export PATH="$PATH:<install-root>/bin"   # PowerShell: $env:PATH = "$env:PATH;<install-root>\bin"
 tether --version
 tether extract movie.tif -o project.tether
 ```
