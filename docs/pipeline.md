@@ -245,7 +245,8 @@ E ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md);
 [`tether.project.gamma`](https://github.com/bioedca/tether/blob/main/src/tether/project/gamma.py)).
 
 If you compare γ values with Deep-LASI, expect Tether's to run about `(1 + α)` higher on the
-same bleach step, roughly 9 % at a typical α. That is a difference in convention, not an
+same bleach step, a factor set by your own α. In the one Deep-LASI export ADR-0028 examined,
+the median α was 0.09, which makes the gap about 9 %. That is a difference in convention, not an
 error: Deep-LASI scales the donor by `(1 + α)` and Tether does not, and each tool defines γ to
 match its own donor, so the factor cancels in E itself. It does not cancel in γ, so a
 cross-tool γ comparison has to divide it out
@@ -258,9 +259,12 @@ Both correction factors are read off photobleaching. α comes from the stretch a
 acceptor has bleached but the donor has not, when any signal in the acceptor channel can only
 be donor light leaking through
 ([`tether.fret.leakage`](https://github.com/bioedca/tether/blob/main/src/tether/fret/leakage.py)),
-and γ comes from the acceptor's bleach step itself (above). So the bleach frames have to exist
-before either factor does, and a molecule whose bleach frames were never detected is refused
-rather than guessed at ([photobleach frames](glossary.md#photobleach-frames-first-bleach-frame)).
+and γ comes from the acceptor's bleach step itself (above). So photobleach detection has to run
+before either factor is estimated, and a molecule it has not run on yet is refused rather
+than guessed at. That is not the same as a molecule where detection ran and found no bleach
+in a channel: that result is recorded as the end of the trace, the molecule is not refused,
+and it can still take the dataset's factor
+([photobleach frames](glossary.md#photobleach-frames-first-bleach-frame)).
 
 The analysis window is the stretch of frames that idealization, the analyses and the
 molecule-table export read. The α and γ estimators do not use it: they work from each
