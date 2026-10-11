@@ -368,16 +368,18 @@ def check_privacy(response: Response, attempts: int) -> list[str]:
 
     The fetch follows redirects, so a ``200`` with a body proves nothing on its own: a redirect to
     the site root would pass on the root's page (#518). The final URL must therefore be one of
-    :data:`PRIVACY_FINAL_URLS`. An empty ``final_url`` -- a transport that does not report one --
-    is read as the URL requested. No content marker is asserted: every candidate is either the
-    wording of ``docs/privacy.md``, which an edit there would turn red, or Material/``mike``
-    markup this module cannot pin offline; the final-URL check closes the redirect case alone.
+    :data:`PRIVACY_FINAL_URLS`, fragment aside. An empty ``final_url`` -- a transport that does not
+    report one -- is read as the URL requested. No content marker is asserted: every candidate is
+    either the wording of ``docs/privacy.md``, which an edit there would turn red, or
+    Material/``mike`` markup this module cannot pin offline; the final-URL check closes the
+    redirect case alone.
     """
     problem = _status_problem(PRIVACY_URL, response, attempts)
     if problem:
         return [problem]
     final = response.final_url or PRIVACY_URL
-    if final not in PRIVACY_FINAL_URLS:
+    # A fragment never reaches the server, so a redirect to an anchor on the policy is the policy.
+    if urllib.parse.urldefrag(final).url not in PRIVACY_FINAL_URLS:
         return [
             f"{PRIVACY_URL} redirected to {final} -- the published privacy-policy URL no longer "
             "serves the policy"

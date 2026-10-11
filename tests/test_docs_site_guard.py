@@ -537,13 +537,18 @@ def test_privacy_served_in_place_records_its_own_url(monkeypatch: pytest.MonkeyP
     assert guard.check_privacy(response, 1) == []
 
 
-def test_privacy_redirected_to_its_own_index_html_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("location", ["index.html", "index.html#section"])
+def test_privacy_redirected_to_itself_passes(
+    monkeypatch: pytest.MonkeyPatch, location: str
+) -> None:
     # The directory URL and its index.html are one file on Pages; accepting both is the #518 call.
-    origins, final = _privacy_redirected_to("index.html")
-    assert final == guard.PRIVACY_URL + "index.html"
+    # A fragment is never sent, so an anchor on either is still the policy (#523 review).
+    origins, final = _privacy_redirected_to(location)
     monkeypatch.setattr(guard, "_OPENER", guard._build_opener(origins))
     response = guard.default_transport(guard.PRIVACY_URL, {})
     assert response.final_url == final and guard.check_privacy(response, 1) == []
+    anchored = R(200, PRIVACY_PAGE, final_url=guard.PRIVACY_URL + "#section")
+    assert guard.check_privacy(anchored, 1) == []
 
 
 def test_an_http_error_after_a_redirect_keeps_the_final_url(
