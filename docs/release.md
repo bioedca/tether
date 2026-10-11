@@ -1,12 +1,15 @@
 # Releasing Tether (tag-driven pipeline)
 
+**Who this page is for.** Tether maintainers with write access to `bioedca/tether`; users do
+not need this page. To install a published release, follow [Install Tether](install.md).
+
 Tether ships **self-contained installers** for Windows, macOS and Linux,
 built and published by [`.github/workflows/release.yml`](https://github.com/bioedca/tether/blob/main/.github/workflows/release.yml)
 (see [ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). The pipeline
 runs on a signed `v*` tag: it **verifies** the tag, **builds** the installers (the
 [constructor recipe](packaging.md)), **install-smokes** each one on its build runner —
 the same offline `packaging/scripts/install_smoke.sh` probe sequence the advisory
-[packaging workflow](packaging.md#building-from-source) runs, executed on the exact
+[packaging workflow](maintainers/building-installers.md#building-from-source) runs, executed on the exact
 bytes about to be uploaded, so a broken installer fails the build instead of shipping —
 and **publishes** a GitHub
 Release with checksums, a CycloneDX SBOM, the frozen Tether GUI/runtime (`conda-lock.yml`), sidecar
@@ -60,11 +63,21 @@ release**, not the binaries, and it is unaffected by any of the above.
     below names no commit, so it tags `HEAD`: run the check with `HEAD` as `<commit>`
     before running either command.
 
-    The tag must be **annotated** and its signature **verified by GitHub** (your SSH
-    signing key registered as a *Signing Key* on the account), and its commit must be on
-    `main`. `release.yml`'s `verify` job checks that trio only on a real publish — the
-    signature step sits behind the publish gate — while the post-merge check-state guard
-    from step 1 is not behind that gate, so a dry run evaluates it too.
+    The tag must have the form `vMAJOR.MINOR.PATCH` (PRD §12.7): three numeric components
+    with no leading zeros, optionally followed by a `-<prerelease>` component such as
+    `-rc1`, and nothing else — no build metadata (`+…`), and no fourth component, so
+    `v1.0.0.0` is rejected. A tag with a `-<prerelease>` component publishes as a GitHub
+    **prerelease** and does not repoint the documentation site; that verdict is read from
+    the parsed tag's prerelease component, not from a search for a hyphen. The tag must also
+    be **annotated** and its signature **verified by GitHub** (your SSH signing key
+    registered as a *Signing Key* on the account), and its commit must be on `main`.
+
+    `release.yml`'s `verify` job checks those requirements at two different times. The
+    **tag form** is checked on every run, a `dry_run` dispatch included, in the ungated
+    `Resolve target tag + publish mode` step. The annotated / GitHub-verified signature /
+    commit-on-`main` trio is checked only on a real publish, in the step gated
+    `if: steps.resolve.outputs.publish == 'true'`. The post-merge check-state guard from
+    step 1 is not behind that gate either, so a dry run evaluates it too.
 
 3. To rehearse without publishing, run the **`release`** workflow via *Actions → release
    → Run workflow* with `dry_run: true` and, as `ref`, a fresh `v*` rc tag cut from the

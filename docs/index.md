@@ -17,6 +17,8 @@ suits your experiment before you install anything.
 
 - [Install Tether](install.md) — for downloading, verifying, installing and uninstalling
   the desktop installer.
+- [Installers & offline bundle](packaging.md) — for what an installer contains and how to
+  verify a download.
 - [Command line](cli.md) — for scripting or batch-processing movies, and for launching
   Tether after an installer install.
 - [Legacy Deep-LASI import](io/legacy-import.md) — for re-analysing an existing
@@ -41,13 +43,15 @@ suits your experiment before you install anything.
 
 - [Public roadmap](roadmap.md) — for what the current release contains, what comes
   next, and what is explicitly out of scope.
-- [Packaging & installers](packaging.md) — for what an installer contains and how to
-  verify a download.
-- [Releasing](release.md) — for maintainers cutting a tagged release.
-- [Architecture decisions](adr/README.md) — for the reasoning behind consequential
-  design choices.
 - [Stability policy](stability.md) — for what a version number promises.
 - [Privacy policy](privacy.md) — for what Tether and this site do, and do not, collect.
+- [Architecture decisions](adr/README.md) — for the reasoning behind consequential
+  design choices.
+- [Releasing](release.md) — for maintainers cutting a tagged release.
+- [Building the installers](maintainers/building-installers.md) — for maintainers building
+  and smoke-testing the installers from source.
+- [Standalone-tMAVEN cross-OS record](maintainers/standalone-tmaven-cross-os-record.md) —
+  for maintainers recording the manual tMAVEN GUI check on each operating system.
 
 ## Modules (PRD §4.2)
 

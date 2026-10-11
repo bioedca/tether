@@ -5,6 +5,8 @@
 # NOT a required status check. Dependabot watches pip + github-actions; this job
 # audits the full locked scientific stack that Dependabot does not see. Advisory:
 # findings are surfaced, never block (the conda locks are pin-and-hold, §4.1).
+# The second job, external-links, is the docs' outbound link check (#183) under the
+# same advisory contract.
 name: deps-audit
 
 on:
@@ -37,3 +39,27 @@ jobs:
         run: |
           python -m pip install pip-audit
           pip-audit --progress-spinner off
+
+  # External link check over the docs source (#183). Same contract as pip-audit above:
+  # scheduled/manual only, never a required check, and advisory — a third-party outage
+  # must never turn a PR red, which is why it lives here and not in ci.yml. It follows
+  # links pointing OUT of docs/ only: http(s) schemes, and nothing under the project's own
+  # Pages site, whose liveness is #325's guard (docs.yml), not a second probe here.
+  # Internal links and anchors are the required tests/test_docs_links.py's job.
+  external-links:
+    name: external-links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check external links in docs/ (advisory)
+        continue-on-error: true
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: >-
+            --no-progress
+            --scheme https --scheme http
+            --exclude '^https?://bioedca\.github\.io/'
+            --exclude-path 'docs/PRD\.md'
+            'docs/**/*.md'

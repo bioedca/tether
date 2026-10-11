@@ -225,10 +225,14 @@ which needs an older, incompatible numeric stack of its own. Two full environmen
 bundled Python make the install considerably larger than a single-environment desktop
 utility.
 
-No installed-footprint figure is quoted here on purpose: it has not been measured, and a
-guess about disk usage is worse than no number. Installer **download** sizes are a different
-quantity — an installer is compressed and unpacks to more than it weighs — and those are on
-the [release page](https://github.com/bioedca/tether/releases) for every published build.
+**Measured on Linux only: 3.6 GB.** Installing the `v1.0.0-rc2` Linux installer
+(`Tether-1.0.0-rc2-Linux-x86_64.sh`) into a clean folder left an install folder of 3.6 GB; that
+is the figure [Install Tether](install.md#what-gets-installed-and-where) reports for the same
+release. **Windows and macOS have not been measured**, so no figure is quoted for them: a guess
+about disk usage is worse than no number, and a Linux figure is not a stand-in for theirs.
+Installer **download** sizes are a different quantity — an installer is compressed and unpacks
+to more than it weighs — and those are on the
+[release page](https://github.com/bioedca/tether/releases) for every published build.
 
 ## Still not sure?
 

@@ -4,7 +4,8 @@
 shipping, what comes next, and where its scope stops. This page summarizes the internal
 product requirements; it does not duplicate the frozen schema or parameter tables. Use
 the [project-store reference](reference/tether-format.md) and
-[analysis-parameter reference](reference/parameters.md) for those contracts.
+[analysis-parameter reference](reference/parameters.md) for those contracts. Reading
+this page needs no repository access.
 
 ## Current release
 
