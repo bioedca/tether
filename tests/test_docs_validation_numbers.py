@@ -281,13 +281,22 @@ def _tables(body: str) -> list[Table]:
 
 
 def _prose_paragraphs(body: str) -> list[str]:
-    """Blank-line-separated blocks that are not tables.
+    """Blank-line-separated blocks that are not tables or fenced code.
 
     Tables are excluded because several anchors (``$.tolerance_by_method.ebhmm``) name
     both a sentence and a column header; a :class:`Prose` pin must never resolve to the
     table a :class:`Cell` pin already owns.
+
+    Fenced code is excluded so a pin reads the published claim, never an example of it.
+    Each fenced line, delimiters included, is blanked by :func:`_fenced` *before* the
+    blank-line split, so a fence holding blank lines leaves no fragment behind and the
+    prose on either side of it stays two paragraphs.
     """
-    blocks = [b for b in re.split(r"\n\s*\n", body) if b.strip()]
+    lines = body.split("\n")
+    unfenced = "\n".join(
+        "" if fenced else line for line, fenced in zip(lines, _fenced(lines), strict=True)
+    )
+    blocks = [b for b in re.split(r"\n\s*\n", unfenced) if b.strip()]
     return [
         b
         for b in blocks
@@ -2253,6 +2262,31 @@ def test_mutate_takes_its_boundary_from_the_fence_aware_parser() -> None:
     mutated = _mutate("S", "value 1", "value 2", page)
     assert mutated == page.replace("```\nvalue 1\n", "```\nvalue 2\n")
     assert _sections(mutated)["T"] == "value 1\n"
+
+
+# --- #514: fenced code is not a paragraph ---------------------------------------
+
+#: One example per selection tier, naming its anchor only inside a fence, beside a real
+#: paragraph the same tier selects. Each sits between blank lines *inside* the fence, the
+#: fragment a blank-line split taken before the fence is removed would leave behind.
+_FENCED_EXAMPLES = (
+    ("X", "The example names `X`.", "Real `X`."),
+    ("$.band.rate", "`$.band.rate = 0.12` in an example.", "Real `$.band.rate = 0.12`."),
+    ("**Measured result.**", "**Measured result.** An example.", "**Measured result.** Real."),
+)
+
+
+@pytest.mark.parametrize(
+    ("anchor", "example", "real"), _FENCED_EXAMPLES, ids=["exact", "leading-token", "lead-in"]
+)
+def test_a_fenced_example_is_not_a_paragraph(anchor: str, example: str, real: str) -> None:
+    """A fence is never selected, and never competes with the real paragraph."""
+    fence = f"```text\nopening line\n\n{example}\n\nclosing line\n```"
+    alone = f"## S\n\nProse that names nothing.\n\n{fence}\n"
+    with pytest.raises(AssertionError, match="exactly one non-table paragraph"):
+        paragraph(alone, "S", anchor)
+    beside = f"## S\n\n{real}\n\n{fence}\n"
+    assert paragraph(beside, "S", anchor).strip() == real
 
 
 # --- #435: restatements --------------------------------------------------------
