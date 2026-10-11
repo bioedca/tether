@@ -95,7 +95,8 @@ jobs:
         # dry-run dispatch rehearses the same grammar a tag push enforces. Group 4 is the
         # optional prerelease component and the ONLY thing that decides `prerelease`; both
         # publish steps in the `release` job read that output rather than re-deriving it from
-        # the tag's spelling. Build metadata (`+...`) and leading zeros are rejected outright.
+        # the tag's spelling. Build metadata (`+...`) and leading zeros in MAJOR.MINOR.PATCH are
+        # rejected outright; the prerelease component is not yet SemVer-checked (#498).
         # The pattern uses only constructs POSIX ERE and Python `re` read alike, because
         # tests/test_marker_contract.py extracts this literal and runs its accept/reject table
         # against it. Keep $TAG_ERE UNQUOTED inside [[ =~ ]]: quoted, it matches literally and
@@ -117,7 +118,7 @@ jobs:
           TAG_ERE='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
           # %q keeps a hostile ref on ONE line, so it cannot open a second workflow command.
           [[ "$tag" =~ $TAG_ERE ]] || {
-            printf '::error::release tag must be vMAJOR.MINOR.PATCH, optionally -<prerelease> (no build metadata, no leading zeros); got %q\n' "$tag"
+            printf '::error::release tag must be vMAJOR.MINOR.PATCH, optionally -<prerelease> (no build metadata, no leading zeros in MAJOR.MINOR.PATCH); got %q\n' "$tag"
             false
           }
           prerelease="false"

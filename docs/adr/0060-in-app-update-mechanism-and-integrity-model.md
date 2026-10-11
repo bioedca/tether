@@ -189,7 +189,7 @@ checks and would have published as a **stable** release, and the client was appl
 form on its own. (Amended 2026-10-11 by [#380](https://github.com/bioedca/tether/issues/380).) The
 publishing side now enforces the same grammar: `release.yml`'s `verify` job rejects, on every run,
 any tag that is not `vMAJOR.MINOR.PATCH` with an optional `-<prerelease>` component — build metadata
-and leading zeros included — and both places that decide prerelease status read it from that
+and leading zeros in the three numeric components included — and both places that decide prerelease status read it from that
 grammar's parsed prerelease component. The two forms are still not identical, and this record does
 not say they are: the publisher admits a prerelease component, which publishes as a GitHub
 prerelease, while this decision's allowlist admits no prerelease and no build metadata. Decision 4's
