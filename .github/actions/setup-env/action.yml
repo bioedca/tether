@@ -66,9 +66,10 @@ runs:
         #   Could not find a micromamba binary for release 2.8.1-0 on platform win-64.
         # The action (v3.2.1, src/micromamba-version.ts) throws it from
         # `resolveGithubAssetUrl` when EVERY `urlExists` HEAD probe of the release's
-        # download URLs returns non-ok. One transient github.com answer does that, and so
-        # would a tag or asset that really is missing, so the message alone cannot tell
-        # the two apart. For 2.8.1-0 the second is ruled out: the release (published
+        # download URLs returns non-ok; on win-64 that means both the `.exe` and the
+        # extensionless probe. Transient github.com answers to every probe do that, and
+        # so would a tag or asset that really is missing, so the message alone cannot
+        # tell the two apart. For 2.8.1-0 the second is ruled out: the release (published
         # 2026-06-09, prerelease: false) ships micromamba-win-64.exe, micromamba-win-64
         # and micromamba-linux-64. `fetch failed` is the same probe failing at the
         # transport layer, and the Post step's `Unexpected end of JSON input` is either
