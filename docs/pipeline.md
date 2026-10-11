@@ -54,8 +54,11 @@ the page that covers it in depth where one exists.
 ### Movie
 
 The acquisition is a dual-view TIRF movie: one camera frame carries the donor and the acceptor
-side by side ([dual-view](glossary.md#dual-view)). `tether.io.movie` reads it lazily, so the
-whole movie never has to fit in memory.
+side by side ([dual-view](glossary.md#dual-view)). `tether.io.movie` opens it as a memory map
+and reads frames on demand, so browsing a movie does not load the file. Spot detection does
+build a floating-point copy of each channel's frames, which is larger than the file itself, so
+plan memory for extraction by that rather than by the file size
+([`tether.imaging.detect`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/detect.py)).
 
 - **Writes:** nothing yet. The movie's own record, including a SHA-256 of the file, is written
   when it is extracted.
@@ -100,8 +103,7 @@ against, so its residual is recorded as unknown and the gate is not applied
 `tether.imaging.coloc` pairs each donor spot with the acceptor position the registration map
 predicts for it. The donor is the anchor: every donor spot whose extraction window fits
 inside both channels becomes a molecule, whether or not a separate acceptor spot was detected
-there, since requiring one would bias the
-population toward high E
+there; the ADR records why Tether chose the donor as the anchor
 ([donor-anchored colocalization](glossary.md#donor-anchored-colocalization);
 [ADR-0015](adr/0015-donor-anchored-colocalization.md)).
 
@@ -295,10 +297,11 @@ asked to use the `raw` layer instead, and the stored model records which in its
 ([`tether.project.idealize`](https://github.com/bioedca/tether/blob/main/src/tether/project/idealize.py)), but each fitted molecule carries a
 fingerprint of that trace, its window, and the α and γ in force for it when it was fitted.
 Change any of those and the fingerprint no longer matches, the molecule is marked stale, and
-the four staleness-gated analyses above leave it out until it is re-fitted. A change in α marks every
-molecule stale, because one α applies to all of them; re-running the estimate and getting the
-same α changes nothing. A shift in the median γ marks only the molecules that took that
-median
+the four staleness-gated analyses above leave it out until it is re-fitted. A change in α marks
+every molecule whose E uses the correction stale, because one α applies to all of them; a
+molecule on apparent E is fingerprinted with no factors applied, so a new α leaves it fresh;
+re-running the estimate and getting the same α changes nothing. A shift in the median γ marks only the corrected molecules that
+took that median
 ([ADR-0029](adr/0029-idealization-correction-provenance-hash-and-per-factor-staleness.md);
 [staleness](glossary.md#staleness-stale-fresh-live)). That is what lets you say that a dwell
 time or a transition rate came from exactly the trace, window and correction state
