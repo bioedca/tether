@@ -23,8 +23,14 @@ movie → split → detect → register → colocalize → extract → curate �
       → α / γ corrections → idealize → analyze → export
 ```
 
-The order is not a suggestion. The headless batch runner groups the automatic part of that
-road into three stages, `extract → correct → idealize`, declared in dependency order as
+The order binds where one stage needs another's output. Everything downstream reads the
+extracted traces, so extraction comes first, and the correction steps depend on one another.
+After extraction the road branches rather than running in single file: you can curate, plot
+apparent E or export traces as soon as a movie is extracted. Correction and idealization add
+to what those later steps can use, the correction factors and the fitted states that the dwell
+and transition analyses read; they do not have to come first. The headless batch runner
+groups the automatic part of that road into three stages, `extract → correct → idealize`,
+declared in dependency order as
 [`STAGES` in `tether.project.batch`](https://github.com/bioedca/tether/blob/main/src/tether/project/batch.py),
 and when a stage's predecessor did not complete it records the later stage as **blocked**
 rather than running it on missing inputs
@@ -198,7 +204,10 @@ that decided it, so you can check the reasoning rather than take it on trust.
 
 ### Proximity ratio versus corrected E
 
-The proximity ratio, `A / (D + A)`, is what you get from raw intensities. It is internally
+The proximity ratio, `A / (D + A)`, is what you get from the background-subtracted donor and
+acceptor intensities before any leakage or γ correction. That is the layer Tether's plots and
+E summary read by default; an analysis can be pointed at the `raw` layer, which still carries
+the background, but then its ratio is a different number. It is internally
 consistent only while the dyes and the instrument stay the same
 ([McCann 2010](https://doi.org/10.1016/j.bpj.2010.04.063)). The γ-corrected efficiency
 removes the leakage and the dye and detection imbalance, and is an absolute energy-transfer
@@ -227,8 +236,11 @@ it on each molecule, from the jump in donor and acceptor intensity at the frame 
 bleaches
 ([`tether.fret.gamma`](https://github.com/bioedca/tether/blob/main/src/tether/fret/gamma.py);
 [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)). A molecule whose bleach step
-does not pass the quality gates takes the median γ of the molecules that did
-([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)).
+does not pass the quality gates takes the median γ of the molecules that did, provided
+enough of them passed to form a dataset γ at all (`min_qualifying_traces`, ten by default).
+When too few pass, γ is withheld for every molecule and the whole set falls back to apparent
+E ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md);
+[`tether.project.gamma`](https://github.com/bioedca/tether/blob/main/src/tether/project/gamma.py)).
 
 If you compare γ values with Deep-LASI, expect Tether's to run about `(1 + α)` higher on the
 same bleach step, roughly 9 % at a typical α. That is a difference in convention, not an
@@ -276,8 +288,10 @@ not the detector settings it used
 none of that, so from the CSV alone nobody can tell which window, which α, which γ or which
 version produced a number.
 
-Idealization is where this pays off most. The model is fitted on the background-subtracted
-donor and acceptor intensities, with no α or γ applied
+Idealization is where this pays off most. By default the model is fitted on the
+background-subtracted donor and acceptor intensities, with no α or γ applied; a fit can be
+asked to use the `raw` layer instead, and the stored model records which in its
+`intensity_quantity`
 ([`tether.project.idealize`](https://github.com/bioedca/tether/blob/main/src/tether/project/idealize.py)), but each fitted molecule carries a
 fingerprint of that trace, its window, and the α and γ in force for it when it was fitted.
 Change any of those and the fingerprint no longer matches, the molecule is marked stale, and
