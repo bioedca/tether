@@ -141,29 +141,67 @@ _LEADING_IDENT_RE = re.compile(r"^[A-Za-z_]\w*")
 #: :func:`paragraph`'s second tier, so `$.band.rate_rel_deviation_max = 0.12` is reachable
 #: by the bare pointer `$.band.rate_rel_deviation_max`.
 _LEADING_TOKEN_RE = re.compile(r"^[A-Za-z_$][\w.$/-]*")
-#: A fenced code block's opening line: three or more backticks or tildes.
-_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+#: Python-Markdown's fenced-code rule, copied verbatim from
+#: ``markdown.extensions.fenced_code.FencedBlockPreprocessor.FENCED_BLOCK_RE`` in
+#: Python-Markdown 3.11, the version the docs toolchain resolves here.
+#: ``requirements-docs.txt`` pins ``mkdocs==1.6.1``, which enables ``fenced_code`` by
+#: default, and leaves Markdown itself unpinned. It is copied rather than imported so the
+#: guard stays dependency-free; :func:`test_the_fence_rule_is_python_markdowns` compares
+#: it with the installed one wherever Markdown is importable. What it encodes: the
+#: opening delimiter starts at column zero; a block exists only once a closing line
+#: repeating the opener exactly is found; an opener with no closer is ordinary text.
+_FENCED_BLOCK_RE = re.compile(
+    r"""
+(?P<fence>^(?:~{3,}|`{3,}))[ ]*                          # opening fence
+((\{(?P<attrs>[^\n]*)\})|                                # (optional {attrs} or
+(\.?(?P<lang>[\w#.+-]*)[ ]*)?                            # optional (.)lang
+(hl_lines=(?P<quot>"|')(?P<hl_lines>.*?)(?P=quot)[ ]*)?) # optional hl_lines)
+\n                                                       # newline (end of opening fence)
+(?P<code>.*?)(?<=\n)                                     # the code block
+(?P=fence)[ ]*$                                          # closing fence
+""",
+    re.MULTILINE | re.DOTALL | re.VERBOSE,
+)
 
 
 def _fenced(lines: list[str]) -> list[bool]:
-    """For each line, is it a fence line or inside a fenced code block?
+    """For each line, is it part of a fenced code block, opener and closer included?
 
-    A block closes only on a fence of the same character *and* the same length as the
-    one that opened it, Python-Markdown's rule — so a four-backtick block that shows a
-    three-backtick example stays one block rather than ending at the example's fence.
+    Blocks are found the way Python-Markdown finds them: complete opener/body/closer
+    matches of :data:`_FENCED_BLOCK_RE`, leftmost first and non-overlapping. One edge is
+    not reproduced: Python-Markdown also rejects an ``{attrs}`` opener whose braces do
+    not balance, and this treats it as a fence.
     """
+    text = "\n".join(lines)
+    spans = [m.span() for m in _FENCED_BLOCK_RE.finditer(text)]
     out: list[bool] = []
-    opener: str | None = None
+    offset = 0
     for line in lines:
-        fence = _FENCE_RE.match(line)
-        if opener is None:
-            if fence:
-                opener = fence.group(1)
-            out.append(opener is not None)
-        else:
-            out.append(True)
-            if line.strip() == opener:
-                opener = None
+        out.append(any(start <= offset < end for start, end in spans))
+        offset += len(line) + 1
+    return out
+
+
+def _section_spans(text: str) -> list[tuple[str, int, int]]:
+    """Each ``##`` section of ``text`` as ``(name, body_start, body_end)`` offsets.
+
+    The one place a section boundary is decided, so :func:`_sections` and
+    :func:`_mutate` cannot disagree about where a body ends. A ``## `` line inside a
+    fenced code block is code, not a heading.
+    """
+    out: list[tuple[str, int, int]] = []
+    current: tuple[str, int] | None = None
+    lines = text.split("\n")
+    offset = 0
+    for line, fenced in zip(lines, _fenced(lines), strict=True):
+        heading = None if fenced else _HEADING_RE.match(line)
+        if heading:
+            if current is not None:
+                out.append((current[0], current[1], max(current[1], offset - 1)))
+            current = (heading.group(1).strip(), offset + len(line) + 1)
+        offset += len(line) + 1
+    if current is not None:
+        out.append((current[0], current[1], max(current[1], len(text))))
     return out
 
 
@@ -195,31 +233,16 @@ def _sections(text: str) -> dict[str, str]:
     to every pin here — they would all read the later copy — while the contradictory
     earlier copy stayed published and the suite stayed green.
 
-    A ``## `` line inside a fenced code block is code, not a heading, and is kept as body.
+    A ``## `` line inside a fenced code block is code, not a heading, and is kept as body;
+    the boundary itself comes from :func:`_section_spans`.
     """
     out: dict[str, str] = {}
-    name: str | None = None
-    buf: list[str] = []
-
-    def close() -> None:
-        assert name is not None
+    for name, start, end in _section_spans(text):
         assert name not in out, (
             f"docs/validation.md has two '## {name}' sections. Every pin would read only "
             "the later one while the earlier stayed published; de-duplicate the page."
         )
-        out[name] = "\n".join(buf)
-
-    lines = text.split("\n")
-    for line, fenced in zip(lines, _fenced(lines), strict=True):
-        heading = None if fenced else _HEADING_RE.match(line)
-        if heading:
-            if name is not None:
-                close()
-            name, buf = heading.group(1).strip(), []
-        else:
-            buf.append(line)
-    if name is not None:
-        close()
+        out[name] = text[start:end]
     return out
 
 
@@ -1207,10 +1230,10 @@ def _mutate(section: str, old: str, new: str, text: str | None = None) -> str:
     one mutation chain after another.
     """
     page = PAGE_TEXT if text is None else text
-    heading = f"\n## {section}\n"
-    start = page.index(heading) + len(heading)
-    end = page.find("\n## ", start)
-    end = len(page) if end == -1 else end
+    # The same boundary :func:`_sections` uses, so a fenced `## ` line cannot cut it short.
+    spans = [(start, end) for name, start, end in _section_spans(page) if name == section]
+    assert len(spans) == 1, f"'{section}' is not exactly one section; found {len(spans)}"
+    start, end = spans[0]
     body = page[start:end]
     assert body.count(old) == 1, f"{old!r} is not unique inside '{section}'"
     return page[:start] + body.replace(old, new) + page[end:]
@@ -1694,3 +1717,35 @@ def test_module_constant_skips_an_annotation_without_a_value(
 def test_a_fence_closes_only_on_its_own_delimiter(text: str) -> None:
     assert list(_sections(text)) == ["Real section"]
     assert _tables(text.replace("## Fake heading", "| a | b |")) == []
+
+
+def test_the_fence_rule_is_python_markdowns() -> None:
+    """The copied rule still matches the Python-Markdown the docs build would use."""
+    fenced_code = pytest.importorskip("markdown.extensions.fenced_code")
+    installed = fenced_code.FencedBlockPreprocessor.FENCED_BLOCK_RE
+    assert _FENCED_BLOCK_RE.pattern == installed.pattern
+    assert _FENCED_BLOCK_RE.flags == installed.flags
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # An indented delimiter is not a fence to Python-Markdown's fenced_code.
+        "## Real section\nbody\n   ```\n## Second section\n| a | b |\n   ```\n",
+        # An opener that never closes is ordinary text, not a fence over the rest.
+        "## Real section\nbody\n```\n## Second section\n| a | b |\n",
+    ],
+    ids=["indented-delimiter", "unclosed-opener"],
+)
+def test_a_pseudo_fence_does_not_hide_live_content(text: str) -> None:
+    sections = _sections(text)
+    assert list(sections) == ["Real section", "Second section"]
+    assert _tables(sections["Second section"]) == [Table(("a", "b"), ())]
+
+
+def test_mutate_takes_its_boundary_from_the_fence_aware_parser() -> None:
+    """A fenced `## ` line before the value must not end the section early."""
+    page = "intro\n## S\n```\n## not a heading\n```\nvalue 1\n## T\nvalue 1\n"
+    mutated = _mutate("S", "value 1", "value 2", page)
+    assert mutated == page.replace("```\nvalue 1\n", "```\nvalue 2\n")
+    assert _sections(mutated)["T"] == "value 1\n"
