@@ -66,6 +66,7 @@ import ast
 import contextlib
 import json
 import re
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
@@ -102,18 +103,26 @@ def module_constant(dotted: str, name: str) -> object:
     Parsed rather than imported so the guard has no runtime dependency and executes no
     module-import side effects — the same reason ``test_docs_parameter_defaults`` reads
     its defaults this way.
+
+    The **last** top-level binding is the one returned, because it is the one the runtime
+    uses: a module that rebinds ``X = 5.0`` and then ``X = 8.0`` is read as ``8.0``.
+    Returning the first would pin the page to a value the code never uses.
     """
     path = SRC / Path(*dotted.split(".")).with_suffix(".py")
+    bound: ast.expr | None = None
     for stmt in ast.parse(path.read_text(encoding="utf-8"), filename=str(path)).body:
         if isinstance(stmt, ast.AnnAssign):
-            if isinstance(stmt.target, ast.Name) and stmt.target.id == name:
-                assert stmt.value is not None
-                return ast.literal_eval(stmt.value)
+            # An annotation with no value (`X: float`) binds nothing at runtime, so the
+            # assignment before it stays the effective one.
+            if isinstance(stmt.target, ast.Name) and stmt.target.id == name and stmt.value:
+                bound = stmt.value
         elif isinstance(stmt, ast.Assign):
             for target in stmt.targets:
                 if isinstance(target, ast.Name) and target.id == name:
-                    return ast.literal_eval(stmt.value)
-    raise AssertionError(f"{dotted} has no module-level constant {name!r}")
+                    bound = stmt.value
+    if bound is None:
+        raise AssertionError(f"{dotted} has no module-level constant {name!r}")
+    return ast.literal_eval(bound)
 
 
 # --- Reading the page ----------------------------------------------------------
@@ -135,6 +144,74 @@ _NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
 _CONSTANT_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 #: The identifier a code span opens with, however it continues (`X = 1`, `X=1`, `X`).
 _LEADING_IDENT_RE = re.compile(r"^[A-Za-z_]\w*")
+#: The name a code span opens with, in the :data:`_TOKEN_RE` name shape — so unlike
+#: :data:`_LEADING_IDENT_RE` it admits a leading ``$`` and a dotted pointer. Used by
+#: :func:`paragraph`'s second tier, so `$.band.rate_rel_deviation_max = 0.12` is reachable
+#: by the bare pointer `$.band.rate_rel_deviation_max`.
+_LEADING_TOKEN_RE = re.compile(r"^[A-Za-z_$][\w.$/-]*")
+#: Python-Markdown's fenced-code rule, copied verbatim from
+#: ``markdown.extensions.fenced_code.FencedBlockPreprocessor.FENCED_BLOCK_RE`` in
+#: Python-Markdown 3.11, the version the docs toolchain resolves here.
+#: ``requirements-docs.txt`` pins ``mkdocs==1.6.1``, which enables ``fenced_code`` by
+#: default, and leaves Markdown itself unpinned. It is copied rather than imported so the
+#: guard stays dependency-free; :func:`test_the_fence_rule_is_python_markdowns` compares
+#: it with the installed one wherever Markdown is importable. What it encodes: the
+#: opening delimiter starts at column zero; a block exists only once a closing line
+#: repeating the opener exactly is found; an opener with no closer is ordinary text.
+_FENCED_BLOCK_RE = re.compile(
+    r"""
+(?P<fence>^(?:~{3,}|`{3,}))[ ]*                          # opening fence
+((\{(?P<attrs>[^\n]*)\})|                                # (optional {attrs} or
+(\.?(?P<lang>[\w#.+-]*)[ ]*)?                            # optional (.)lang
+(hl_lines=(?P<quot>"|')(?P<hl_lines>.*?)(?P=quot)[ ]*)?) # optional hl_lines)
+\n                                                       # newline (end of opening fence)
+(?P<code>.*?)(?<=\n)                                     # the code block
+(?P=fence)[ ]*$                                          # closing fence
+""",
+    re.MULTILINE | re.DOTALL | re.VERBOSE,
+)
+
+
+def _fenced(lines: list[str]) -> list[bool]:
+    """For each line, is it part of a fenced code block, opener and closer included?
+
+    Blocks are found the way Python-Markdown finds them: complete opener/body/closer
+    matches of :data:`_FENCED_BLOCK_RE`, leftmost first and non-overlapping. One edge is
+    not reproduced: Python-Markdown also rejects an ``{attrs}`` opener whose braces do
+    not balance, and this treats it as a fence.
+    """
+    text = "\n".join(lines)
+    spans = [m.span() for m in _FENCED_BLOCK_RE.finditer(text)]
+    out: list[bool] = []
+    offset = 0
+    for line in lines:
+        out.append(any(start <= offset < end for start, end in spans))
+        offset += len(line) + 1
+    return out
+
+
+def _section_spans(text: str) -> list[tuple[str, int, int]]:
+    """Each ``##`` section of ``text`` as ``(name, body_start, body_end)`` offsets.
+
+    The one place a section boundary is decided, so :func:`_sections` and
+    :func:`_mutate` cannot disagree about where a body ends. A ``## `` line inside a
+    fenced code block is code, not a heading.
+    """
+    out: list[tuple[str, int, int]] = []
+    current: tuple[str, int] | None = None
+    lines = text.split("\n")
+    offset = 0
+    for line, fenced in zip(lines, _fenced(lines), strict=True):
+        heading = None if fenced else _HEADING_RE.match(line)
+        if heading:
+            if current is not None:
+                out.append((current[0], current[1], max(current[1], offset - 1)))
+            current = (heading.group(1).strip(), offset + len(line) + 1)
+        offset += len(line) + 1
+    if current is not None:
+        out.append((current[0], current[1], max(current[1], len(text))))
+    return out
+
 
 #: Name / string / number, tried in that order so ``smd_281mol`` and ``k12`` stay whole
 #: names rather than decomposing into a name and a stray number. Slashes and hyphens are
@@ -163,40 +240,32 @@ def _sections(text: str) -> dict[str, str]:
     a validation section inserted *before* the canonical one would otherwise be invisible
     to every pin here — they would all read the later copy — while the contradictory
     earlier copy stayed published and the suite stayed green.
+
+    A ``## `` line inside a fenced code block is code, not a heading, and is kept as body;
+    the boundary itself comes from :func:`_section_spans`.
     """
     out: dict[str, str] = {}
-    name: str | None = None
-    buf: list[str] = []
-
-    def close() -> None:
-        assert name is not None
+    for name, start, end in _section_spans(text):
         assert name not in out, (
             f"docs/validation.md has two '## {name}' sections. Every pin would read only "
             "the later one while the earlier stayed published; de-duplicate the page."
         )
-        out[name] = "\n".join(buf)
-
-    for line in text.split("\n"):
-        heading = _HEADING_RE.match(line)
-        if heading:
-            if name is not None:
-                close()
-            name, buf = heading.group(1).strip(), []
-        else:
-            buf.append(line)
-    if name is not None:
-        close()
+        out[name] = text[start:end]
     return out
 
 
 def _tables(body: str) -> list[Table]:
-    """Every Markdown table in ``body``, header row first."""
+    """Every Markdown table in ``body``, header row first.
+
+    A ``|`` line inside a fenced code block is code, not a table row.
+    """
     out: list[Table] = []
     header: list[str] | None = None
     rows: list[tuple[str, ...]] = []
-    for line in body.split("\n"):
+    lines = body.split("\n")
+    for line, fenced in zip(lines, _fenced(lines), strict=True):
         stripped = line.strip()
-        if stripped.startswith("|"):
+        if not fenced and stripped.startswith("|"):
             if _SEPARATOR_RE.match(stripped):
                 continue
             if header is None:
@@ -343,7 +412,16 @@ class Quote(NamedTuple):
             return self.render(self.value)
         if isinstance(self.value, str):
             return self.value
-        return f"{self.value * self.scale:g}"
+        scaled = self.value * self.scale
+        text = f"{scaled:g}"
+        # `:g` keeps six significant digits. A longer value would compare a truncated
+        # artifact value against a truncated page value and accept a rounding, so refuse
+        # to render one rather than let a pin quietly compare less than it claims to.
+        assert float(text) == scaled, (
+            f"{scaled!r} does not round-trip through ':g' (renders {text!r}); this Quote "
+            "would compare a rounded value"
+        )
+        return text
 
     def rendered(self) -> str:
         return self.template.format(self.value_text())
@@ -410,14 +488,33 @@ def cell_text(text: str, pin: Cell) -> str:
 def paragraph(text: str, section: str, anchor: str) -> str:
     """The one non-table paragraph of ``section`` selected by ``anchor``.
 
-    ``anchor`` is normally a backticked token, matched by equality so that
-    ``$.levels.level1`` never resolves through ``$.levels.level1.ground_truth``. A few
-    paragraphs the page never labels with a pointer — ``**Measured result.**`` — are
-    reachable by their bold lead-in instead, and that fallback is only consulted when the
-    token form matched nothing, so no existing anchor changes meaning.
+    Three tiers, each consulted only when the one above it selected nothing:
+
+    1. **Exact code span** — a paragraph carrying a code span whose whole text is
+       ``anchor``.
+    2. **Leading token** — a paragraph carrying a code span that *opens* with ``anchor``
+       as its leading name token, so the bare pointer `$.band.rate_rel_deviation_max`
+       reaches the span `$.band.rate_rel_deviation_max = 0.12`. An anchor therefore never
+       has to repeat the value its pin reads, and a page updated correctly to a new value
+       stays selectable.
+    3. **Lead-in** — a paragraph that starts with ``anchor``, for the few the page never
+       labels with a pointer (``**Measured result.**``).
+
+    The exact tier comes first so that inserting a tier cannot change what an anchor
+    already selects by exact code-span text; that is the same reason the lead-in tier is
+    consulted only when every tier above it matched nothing.
     """
     paragraphs = _prose_paragraphs(_section(text, section))
     matches = [p for p in paragraphs if anchor in _BACKTICKED_RE.findall(p)]
+    if not matches:
+        matches = [
+            p
+            for p in paragraphs
+            if any(
+                (lead := _LEADING_TOKEN_RE.match(span.strip())) and lead.group() == anchor
+                for span in _BACKTICKED_RE.findall(p)
+            )
+        ]
     if not matches:
         matches = [p for p in paragraphs if p.lstrip().startswith(anchor)]
     assert len(matches) == 1, (
@@ -1008,7 +1105,7 @@ def _registry() -> list[Pin]:
     pins.append(
         Prose(
             "(d) Ranker held-out cross-validation",
-            "DEFAULT_SHIP_BAR_PTS = 10.0",
+            "DEFAULT_SHIP_BAR_PTS",
             "DEFAULT_SHIP_BAR_PTS",
             "ml.prequential.DEFAULT_SHIP_BAR_PTS",
             module_constant("tether.ml.prequential", "DEFAULT_SHIP_BAR_PTS"),
@@ -1125,7 +1222,7 @@ def _registry() -> list[Pin]:
     pins.append(
         Prose(
             _KINSOFT_SECTION,
-            "$.band.rate_rel_deviation_max = 0.12",
+            "$.band.rate_rel_deviation_max",
             "$.band.rate_rel_deviation_max",
             "$.band.rate_rel_deviation_max",
             band,
@@ -1134,7 +1231,7 @@ def _registry() -> list[Pin]:
     pins.append(
         Quote(
             _KINSOFT_SECTION,
-            "$.band.rate_rel_deviation_max = 0.12",
+            "$.band.rate_rel_deviation_max",
             "({} % average)",
             f"{spread}.rate_mean_rel_dev_from_gt",
             at(KINSOFT, f"{spread}.rate_mean_rel_dev_from_gt"),
@@ -1144,7 +1241,7 @@ def _registry() -> list[Pin]:
     pins.append(
         Quote(
             _KINSOFT_SECTION,
-            "$.band.rate_rel_deviation_max = 0.12",
+            "$.band.rate_rel_deviation_max",
             "≥ {} % (1σ)",
             f"{spread}.finite_size_uncertainty_1sigma",
             at(KINSOFT, f"{spread}.finite_size_uncertainty_1sigma"),
@@ -1294,7 +1391,6 @@ EXCLUSIONS: dict[str, str] = {
 
 
 def test_page_exists_and_still_has_its_sections() -> None:
-    assert PAGE.is_file(), f"{PAGE} is missing"
     sections = _sections(PAGE_TEXT)
     for name in ("(a) Extraction vs Deep-LASI", _PARITY_SECTION, _KINSOFT_SECTION):
         assert name in sections, f"docs/validation.md lost its '{name}' section"
@@ -1503,15 +1599,21 @@ def test_every_exclusion_records_why() -> None:
 # would actually FAIL, which is the whole of #214 -- a pin that cannot fail is prose.
 
 
-def _mutate(section: str, old: str, new: str) -> str:
-    """Replace ``old`` with ``new`` inside one ``##`` section of the page."""
-    heading = f"\n## {section}\n"
-    start = PAGE_TEXT.index(heading) + len(heading)
-    end = PAGE_TEXT.find("\n## ", start)
-    end = len(PAGE_TEXT) if end == -1 else end
-    body = PAGE_TEXT[start:end]
+def _mutate(section: str, old: str, new: str, text: str | None = None) -> str:
+    """Replace ``old`` with ``new`` inside one ``##`` section of ``text`` (default: the page).
+
+    Asserts ``old`` occurs exactly once in that section, so a mutation that silently did
+    nothing fails here, naming the real cause, rather than further down. ``text`` lets
+    one mutation chain after another.
+    """
+    page = PAGE_TEXT if text is None else text
+    # The same boundary :func:`_sections` uses, so a fenced `## ` line cannot cut it short.
+    spans = [(start, end) for name, start, end in _section_spans(page) if name == section]
+    assert len(spans) == 1, f"'{section}' is not exactly one section; found {len(spans)}"
+    start, end = spans[0]
+    body = page[start:end]
     assert body.count(old) == 1, f"{old!r} is not unique inside '{section}'"
-    return PAGE_TEXT[:start] + body.replace(old, new) + PAGE_TEXT[end:]
+    return page[:start] + body.replace(old, new) + page[end:]
 
 
 @pytest.mark.parametrize(
@@ -1732,8 +1834,11 @@ def test_a_number_moved_to_a_neighbouring_key_fails() -> None:
         "`state_count_fraction` 0.6832740213523132",
         "`state_count_fraction` 0.9355949176941853",
     )
-    swapped_text = swapped.replace(
-        "`viterbi_agreement` 0.9355949176941853", "`viterbi_agreement` 0.6832740213523132"
+    swapped_text = _mutate(
+        _PARITY_SECTION,
+        "`viterbi_agreement` 0.9355949176941853",
+        "`viterbi_agreement` 0.6832740213523132",
+        swapped,
     )
     for metric in ("state_count_fraction", "viterbi_agreement"):
         pin = next(
@@ -1820,7 +1925,7 @@ def test_a_bad_zero_clause_fails(label: str, replacement: str, expected_nonzero:
     Re-implementing the scan here would make this test pass even after the guard regressed
     to reading one occurrence — a mutation test that only proves the mutation happened.
     """
-    mutated = PAGE_TEXT.replace("all other off-diagonal rates zero", replacement)
+    mutated = _mutate(_KINSOFT_SECTION, "all other off-diagonal rates zero", replacement)
     page = _flat(paragraph(mutated, _KINSOFT_SECTION, _LEVEL3_RATES_POINTER))
     assert zero_clauses(page)[1] == expected_nonzero, label
     # And the unmutated page is clean by the same function.
@@ -1861,7 +1966,7 @@ def test_a_row_label_only_matches_at_a_boundary() -> None:
 
 def test_an_extra_transition_on_the_page_fails() -> None:
     """A seventh rate printed beside the six contradicts the "all other zero" clause."""
-    extra = PAGE_TEXT.replace("k32 0.680", "k13 0.010, k32 0.680")
+    extra = _mutate(_KINSOFT_SECTION, "k32 0.680", "k13 0.010, k32 0.680")
     displayed = {
         name
         for name, values in _owned_literals(
@@ -1906,12 +2011,248 @@ def test_a_dropped_quotation_fails_even_though_the_artifact_still_says_it() -> N
 
 def test_an_ambiguous_anchor_fails_loudly_rather_than_picking_one() -> None:
     """Region selection asserts uniqueness, so a page edit cannot silently widen it."""
-    duplicated = PAGE_TEXT.replace(
+    duplicated = _mutate(
+        "(g) Photobleaching detector",
         "**Frozen constants.** The ±2-frame tolerance",
         "`PB_PRIOR_MU` is also mentioned here.\n\n**Frozen constants.** The ±2-frame tolerance",
     )
     with pytest.raises(AssertionError, match="exactly one non-table paragraph"):
         paragraph(duplicated, "(g) Photobleaching detector", "PB_PRIOR_MU")
+
+
+# --- #440: hardening the guard --------------------------------------------------
+
+#: The anchors #440 moved off a value-embedding code span onto the bare pointer.
+_REANCHORED = (
+    (_KINSOFT_SECTION, "$.band.rate_rel_deviation_max"),
+    ("(d) Ranker held-out cross-validation", "DEFAULT_SHIP_BAR_PTS"),
+)
+
+
+@pytest.mark.parametrize(("section", "anchor"), _REANCHORED, ids=[a for _, a in _REANCHORED])
+def test_a_bare_pointer_anchor_selects_exactly_one_paragraph(section: str, anchor: str) -> None:
+    """Neither bare pointer is a whole code span on the page; the leading-token tier finds it."""
+    assert anchor not in _BACKTICKED_RE.findall(_section(PAGE_TEXT, section))
+    assert f"`{anchor} " in paragraph(PAGE_TEXT, section, anchor)
+
+
+def test_no_anchor_embeds_a_value() -> None:
+    """An anchor that repeats the value its pin reads breaks selection on a correct update.
+
+    Deliberately narrow — an anchor written ``rate 0.12`` would still pass — because it
+    fences the one shape this module has actually carried.
+    """
+    embedding = sorted(
+        {p.anchor for p in REGISTRY if isinstance(p, Prose | Quote) and " = " in p.anchor}
+    )
+    assert not embedding, f"these anchors embed a value: {embedding}"
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "source"),
+    [
+        (
+            "`$.band.rate_rel_deviation_max = 0.12`",
+            "`$.band.rate_rel_deviation_max = 0.13`",
+            "$.band.rate_rel_deviation_max",
+        ),
+        (
+            "(5 % average)",
+            "(6 % average)",
+            "$.levels.level1.reported_inter_tool_spread.rate_mean_rel_dev_from_gt",
+        ),
+    ],
+)
+def test_a_re_anchored_pin_still_rejects_a_stale_page(old: str, new: str, source: str) -> None:
+    """Re-anchoring changed how the paragraph is found, not what the pin demands of it.
+
+    Kept out of :func:`test_a_deliberate_one_value_mismatch_fails` on purpose: that test
+    requires every pin sharing a ``source`` to reject the edit, and the two `Advisory band`
+    table cells also carry `$.band.rate_rel_deviation_max` while reading a table this
+    prose-only edit does not touch.
+    """
+    mutated = _mutate(_KINSOFT_SECTION, old, new)
+    pins = [
+        p
+        for p in REGISTRY
+        if isinstance(p, Prose | Quote) and p.source == source and p.anchor == _REANCHORED[0][1]
+    ]
+    assert pins, f"no re-anchored prose pin sources {source}"
+    for pin in pins:
+        assert satisfied(PAGE_TEXT, pin)
+        assert not satisfied(mutated, pin), f"{source} accepted a stale page"
+
+
+def test_a_correctly_updated_span_is_still_selectable() -> None:
+    """The defect the re-anchor removes: a right page must not fail *selection*.
+
+    A page that moved its span to a new band value is still found by the bare pointer,
+    and is then rejected for the value — the artifact still says 0.12 — rather than with
+    a selection error that names the wrong problem.
+    """
+    updated = _mutate(
+        _KINSOFT_SECTION,
+        "`$.band.rate_rel_deviation_max = 0.12`",
+        "`$.band.rate_rel_deviation_max = 0.15`",
+    )
+    pin = next(
+        p for p in REGISTRY if isinstance(p, Prose) and p.source == "$.band.rate_rel_deviation_max"
+    )
+    assert "0.15" in paragraph(updated, pin.section, pin.anchor)
+    assert not satisfied(updated, pin)
+
+
+def test_the_exact_tier_wins_over_the_leading_token_tier() -> None:
+    """Adding the leading-token tier cannot change what an exact anchor selects."""
+    text = "## S\n\nFirst names `X = 1`.\n\nSecond names `X`.\n"
+    assert paragraph(text, "S", "X").strip() == "Second names `X`."
+    assert paragraph("## S\n\nOnly `X = 1` here.\n", "S", "X").strip() == "Only `X = 1` here."
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Real artifact values, neither of which survives ':g'.
+        PARITY["pooled_worst"]["state_mean_abs_delta"],
+        PARITY["measured_by_method"]["ebhmm"]["pooled_worst"]["viterbi_agreement"],
+    ],
+)
+def test_a_quote_refuses_a_value_g_would_round(value: float) -> None:
+    """A Quote on a long float must fail loudly rather than compare a rounding."""
+    pin = Quote(_PARITY_SECTION, "**Measured result.**", "{}", "hypothetical", value)
+    with pytest.raises(AssertionError, match="round-trip"):
+        pin.value_text()
+
+
+def test_module_constant_reads_the_last_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``X = 5.0`` then ``X = 8.0`` is ``8.0`` at runtime, so it is ``8.0`` here."""
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "mod.py").write_text("X = 5.0\nY: float = 1.0\nX = 8.0\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path)
+    assert module_constant("pkg.mod", "X") == 8.0
+    assert module_constant("pkg.mod", "Y") == 1.0
+    with pytest.raises(AssertionError, match="no module-level constant 'Z'"):
+        module_constant("pkg.mod", "Z")
+
+
+def test_mutate_chains_on_a_text_it_is_given() -> None:
+    """The optional ``text`` lets a second mutation build on the first, still checked."""
+    first = _mutate(_KINSOFT_SECTION, "k32 0.680", "k32 0.690")
+    second = _mutate(_KINSOFT_SECTION, "k32 0.690", "k32 0.700", first)
+    assert "k32 0.700" in second
+    assert "k32 0.680" not in second
+    with pytest.raises(AssertionError, match="not unique"):
+        _mutate(_KINSOFT_SECTION, "k32 0.680", "k32 0.710", second)
+
+
+#: The four mutation sites a review found replacing text without proving it applied.
+_ROUTED_THROUGH_MUTATE = (
+    "test_a_number_moved_to_a_neighbouring_key_fails",
+    "test_a_bad_zero_clause_fails",
+    "test_an_extra_transition_on_the_page_fails",
+    "test_an_ambiguous_anchor_fails_loudly_rather_than_picking_one",
+)
+
+
+def test_the_named_mutation_sites_go_through_mutate() -> None:
+    """Scoped to the four named functions; the other direct-replace sites are deliberate."""
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name in _ROUTED_THROUGH_MUTATE
+    }
+    assert set(functions) == set(_ROUTED_THROUGH_MUTATE)
+    for name, function in functions.items():
+        replaces = [
+            node
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "replace"
+        ]
+        assert not replaces, f"{name} still calls .replace() directly"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "```\n## Fake heading\n```\n## Real section\nbody\n",
+        "## Real section\nbody\n```\n## Fake heading\n```\nmore body\n",
+    ],
+    ids=["fence-before-heading", "fence-in-body"],
+)
+def test_a_heading_inside_a_fence_is_not_a_section(text: str) -> None:
+    assert list(_sections(text)) == ["Real section"]
+
+
+def test_a_table_inside_a_fence_is_not_a_table() -> None:
+    assert _tables("prose\n\n```\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```\n") == []
+    # A real table after the fence is still found.
+    assert _tables("```\n| a | b |\n```\n| c | d |\n| --- | --- |\n| 3 | 4 |\n") == [
+        Table(("c", "d"), (("3", "4"),))
+    ]
+
+
+def test_module_constant_skips_an_annotation_without_a_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``X = 5.0`` then a bare ``X: float`` is still ``5.0``; the annotation binds nothing."""
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "mod.py").write_text("X = 5.0\nX: float\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path)
+    assert module_constant("pkg.mod", "X") == 5.0
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A longer fence showing a shorter fenced example stays one block.
+        "## Real section\nbody\n````\n```\n## Fake heading\n```\n````\n",
+        # A backtick fence does not close on tildes.
+        "## Real section\nbody\n```\n~~~\n## Fake heading\n~~~\n```\n",
+    ],
+    ids=["longer-outer-fence", "mismatched-fence-char"],
+)
+def test_a_fence_closes_only_on_its_own_delimiter(text: str) -> None:
+    assert list(_sections(text)) == ["Real section"]
+    assert _tables(text.replace("## Fake heading", "| a | b |")) == []
+
+
+def test_the_fence_rule_is_python_markdowns() -> None:
+    """The copied rule still matches the Python-Markdown the docs build would use."""
+    fenced_code = pytest.importorskip("markdown.extensions.fenced_code")
+    installed = fenced_code.FencedBlockPreprocessor.FENCED_BLOCK_RE
+    assert _FENCED_BLOCK_RE.pattern == installed.pattern
+    assert _FENCED_BLOCK_RE.flags == installed.flags
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # An indented delimiter is not a fence to Python-Markdown's fenced_code.
+        "## Real section\nbody\n   ```\n## Second section\n| a | b |\n   ```\n",
+        # An opener that never closes is ordinary text, not a fence over the rest.
+        "## Real section\nbody\n```\n## Second section\n| a | b |\n",
+    ],
+    ids=["indented-delimiter", "unclosed-opener"],
+)
+def test_a_pseudo_fence_does_not_hide_live_content(text: str) -> None:
+    sections = _sections(text)
+    assert list(sections) == ["Real section", "Second section"]
+    assert _tables(sections["Second section"]) == [Table(("a", "b"), ())]
+
+
+def test_mutate_takes_its_boundary_from_the_fence_aware_parser() -> None:
+    """A fenced `## ` line before the value must not end the section early."""
+    page = "intro\n## S\n```\n## not a heading\n```\nvalue 1\n## T\nvalue 1\n"
+    mutated = _mutate("S", "value 1", "value 2", page)
+    assert mutated == page.replace("```\nvalue 1\n", "```\nvalue 2\n")
+    assert _sections(mutated)["T"] == "value 1\n"
 
 
 # --- #435: restatements --------------------------------------------------------
