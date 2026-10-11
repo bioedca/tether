@@ -15,42 +15,83 @@ systems rather than only on the Linux ``docs-build`` job. Exactly these are enfo
 * every Markdown link, image and reference definition with a relative target names a
   file that exists inside the published ``docs/`` tree — not a directory, which mkdocs
   leaves unrewritten and ``--strict`` rejects, and not the excluded ``PRD.md``;
-* every ``#fragment`` on such a link names a heading slug or an inline ``<a id="…">``
-  anchor in the target page — the bibliography-anchor form #207 standardised on;
-* a raw HTML ``<a href>`` is either a URL with a scheme, or a same-page ``#fragment``
-  that resolves; any other target is refused, because mkdocs does not rewrite raw HTML.
+* every ``#fragment`` on such a link names a heading slug or an HTML anchor in the target
+  page — an ``id`` on any element, or a ``name`` on an ``<a>``, the two a browser scrolls
+  to — such as the inline ``<a id="…">`` bibliography form #207 standardised on;
+* a raw HTML ``<a href>``, quoted or not, is either a URL with a scheme or a same-page
+  ``#fragment`` that resolves; any other target is refused, because mkdocs does not
+  rewrite raw HTML.
 
-External URLs are out of scope here (the advisory ``external-links`` job checks them).
+External URLs are out of scope here (the advisory ``external-links`` job checks them). The
+walk is ``docs/**/*.md`` minus ``docs/PRD.md``, which ``mkdocs.yml`` excludes from the site.
 
-Fenced blocks, inline code spans and HTML comments are blanked before any of this, so
-``["condition_id"][mask]`` inside a code span is code, not a reference. The walk is
-``docs/**/*.md`` minus ``docs/PRD.md``, which ``mkdocs.yml`` excludes from the site.
+**The parse is a model of Python-Markdown 3.11, and its boundary is stated rather than
+discovered.** It is stdlib only (``re``, ``html.parser``, ``pathlib``), like
+``tests/test_adr_index.py``: ``python-markdown`` is not in the base conda-lock, so it cannot
+be imported on the 3-OS ``test`` matrix. So the checker does not approximate the renderer
+everywhere. It models the forms below exactly — most of them with Python-Markdown's own
+regular expressions and procedures, copied and named — and it fails on every other form
+that could change its verdict, with ``unsupported Markdown form, the checker cannot vouch
+for it`` and the file and line. Fix such a failure by rewriting the page in a modelled
+form, or by extending the model with a test checked against a real render. Never fix it
+by guessing. ``mkdocs.yml`` leaves Markdown at mkdocs' default extensions (``toc``,
+``tables``, ``fenced_code``), and these forms are modelled exactly:
 
-Stdlib only (``re`` + ``pathlib``), like ``tests/test_adr_index.py``: ``python-markdown``
-is not in the base conda-lock, so it cannot be imported on the 3-OS ``test`` matrix. The
-parse is therefore a structural approximation of the Python-Markdown rules that matter
-here — a single optional space between ``]`` and ``[`` still forms a reference, link text
-may nest brackets to any depth, ids are matched case-insensitively, a ``#`` line or a
-``[key]:`` line inside a raw HTML block (which Python-Markdown passes through unparsed, as
-``md_in_html`` is off) is neither a heading nor a definition, and heading slugs follow
-``markdown.extensions.toc.slugify`` with its ``_1``/``_2`` de-duplication — cross-checked
-against a real ``mkdocs build`` of every page. Where it differs from the renderer it errs
-loud, never silent:
+* whitespace as ``NormalizeWhitespace`` leaves it, with tabs expanded to four spaces;
+* fenced blocks, by ``FENCED_BLOCK_RE`` itself, so only at the root. A fence-shaped line
+  anywhere else, inside a blockquote or indented, is ordinary text to the renderer and
+  here too: its backticks pair as code spans and its other lines are read;
+* HTML comments, read in page order as ``html.parser`` reads them, so nothing inside one
+  opens a comment or a block of its own; one that opens a line is stashed whole by
+  ``HtmlBlockPreprocessor``. Raw HTML blocks as its ``HTMLExtractor`` cuts them, whose
+  Markdown is not parsed;
+* blockquotes, lazy continuation lines included;
+* the block boundaries that hold in every context: blank lines, ATX headings
+  (``HashHeaderProcessor.RE``, at column zero inside any blockquotes), horizontal rules
+  (``HRProcessor.SEARCH_RE``), and the first line of a blockquote;
+* setext headings whose title certainly opens a block, that is, it follows one of those
+  boundaries, and whose underline is at column zero (``SetextHeaderProcessor.RE``). An
+  underline anywhere else makes no heading;
+* reference definitions (``ReferenceProcessor.RE``), with keys normalised as the
+  renderer normalises them;
+* within each block: code spans (``BacktickInlineProcessor``, with its backslash parity
+  and its fallback pairing), backslash escapes, link text nested to any depth
+  (``getText``), inline link targets (``getLink``, nested parentheses and all), reference
+  uses (``ReferenceInlineProcessor``), and inline HTML (``HTML_RE``). Inline HTML
+  attributes are read by ``html.parser``, so an unquoted ``href`` counts;
+* heading slugs, by ``toc.slugify`` with its ``_1``/``_2`` de-duplication, over the
+  heading as rendered: a reference whose key is undefined stays in it as written.
 
-* a fence inside a blockquote is code here, though Python-Markdown's ``fenced_code`` does
-  not recognise it and renders it as prose, so its ``#`` lines are not heading anchors;
-* an indented (four-space) code block is *not* recognised as code, so a ``[a][b]`` inside
-  one is reported as a reference (none exists in ``docs/`` today; tracked in #515).
+These forms are refused, because how the renderer reads them depends on context that the
+model does not track:
+
+* a code span, link or inline tag that runs from one line onto a line that may start a
+  new block — a list item, a reference definition, a table row, or the first line after
+  an indented block;
+* a heading, rule or definition line inside a table-like block, which is a row if the
+  block is a table and structure if it is not;
+* an HTML ``id`` or ``name`` on a line of an indented block, which is code after a
+  paragraph and prose inside a list;
+* an ``<a>`` tag that ``html.parser`` cannot read as one start tag.
+
+Some forms are read *short* on purpose. A heading or definition that the model cannot
+place is not counted, for example one in a list item's indented continuation or a
+definition inside a blockquote. Leaving one out can only make a link to it fail, never
+pass, so that is loud. For the same reason the lines of an indented block are read as
+prose. A ``[a][b]`` inside a real indented code block is therefore reported (none exists in
+``docs/`` today; tracked in #515).
 """
 
 from __future__ import annotations
 
+import bisect
 import html
 import re
 import sys
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -60,25 +101,77 @@ DOCS = Path(__file__).resolve().parents[1] / "docs"
 # `mkdocs.yml` `exclude_docs:` — not part of the site, so neither walked nor linkable.
 _EXCLUDED = {DOCS / "PRD.md"}
 
-_QUOTE_RE = re.compile(r"^ {0,3}(?:>[ ]?)+")
-_FENCE_OPEN_RE = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
-_FENCE_CLOSE_RE = re.compile(r"^\s*(`{3,}|~{3,})\s*$")
-_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
-# A code span: a backtick run closed by a run of exactly the same length, never across
-# a blank line (a blank line ends the paragraph the span would have to live in).
-_CODE_SPAN_RE = re.compile(r"(?<![`\\])(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)", re.DOTALL)
+_UNSUPPORTED = "unsupported Markdown form, the checker cannot vouch for it"
 
-# What follows a link's `[text]` (see `_link_text_end` for the text itself):
-# `(target "title")`, where the target may hold one level of balanced parentheses or be
-# wrapped in `<...>`, for `[text](…)` and `![alt](…)` …
-_INLINE_TAIL_RE = re.compile(
-    r"\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\s]*\))*)"
-    r"(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?\s*\)"
+# --- Python-Markdown 3.11, copied rather than paraphrased -------------------------------
+# Each pattern names the Python-Markdown attribute it is copied from, so a reader can diff
+# it against the renderer instead of trusting a description of it.
+
+_TAB = 4  # Markdown.tab_length
+# fenced_code.FencedBlockPreprocessor.FENCED_BLOCK_RE: `^` at the root only.
+_FENCED_BLOCK_RE = re.compile(
+    r"""
+(?P<fence>^(?:~{3,}|`{3,}))[ ]*                          # opening fence
+((\{(?P<attrs>[^\n]*)\})|                                # (optional {attrs} or
+(\.?(?P<lang>[\w#.+-]*)[ ]*)?                            # optional (.)lang
+(hl_lines=(?P<quot>"|')(?P<hl_lines>.*?)(?P=quot)[ ]*)?) # optional hl_lines)
+\n                                                       # newline (end of opening fence)
+(?P<code>.*?)(?<=\n)                                     # the code block
+(?P=fence)[ ]*$                                          # closing fence
+""",
+    re.MULTILINE | re.DOTALL | re.VERBOSE,
 )
-# … and `[key]` for `[text][key]`, `[text] [key]` and the collapsed `[text][]` —
-# Python-Markdown accepts at most one whitespace character between the two bracket pairs.
-_REF_TAIL_RE = re.compile(r"\s?\[([^\[\]]*)\](?!\()")
-_BLANK_LINE_RE = re.compile(r"\n[ \t]*\n")
+# blockprocessors.HashHeaderProcessor.RE, matched against one whole line. A line ending
+# in a single backslash is therefore no heading, as it is not to the renderer.
+_HASH_HEADER_RE = re.compile(r"(?P<level>#{1,6})(?P<header>(?:\\.|[^\\])*?)#*")
+# blockprocessors.SetextHeaderProcessor.RE's second line: column zero, one character kind.
+_SETEXT_UNDERLINE_RE = re.compile(r"(?:=+|-+)[ ]*")
+# blockprocessors.HRProcessor.SEARCH_RE, matched against one whole line.
+_HR_RE = re.compile(
+    r"[ ]{0,3}(?=(?P<atomicgroup>(-+[ ]{0,2}){3,}|(_+[ ]{0,2}){3,}|(\*+[ ]{0,2}){3,}))"
+    r"(?P=atomicgroup)[ ]*"
+)
+# blockprocessors.BlockQuoteProcessor.RE's marker, stripped once per nesting level.
+_QUOTE_RE = re.compile(r"[ ]{0,3}>[ ]?")
+# blockprocessors.OListProcessor.RE / UListProcessor.RE: a block that opens with one is a list.
+_LIST_START_RE = re.compile(r"[ ]{0,3}(?:\d+\.|[*+-])[ ]+")
+# OListProcessor.CHILD_RE (up to three spaces in) and INDENT_RE (four to seven): an item
+# line, which starts an item wherever it sits in a list block.
+_LIST_CHILD_RE = re.compile(r"[ ]{0,7}(?:\d+\.|[*+-])[ ]+")
+# The same marker at any indentation: a line that may start an item somewhere.
+_LIST_ITEM_RE = re.compile(r"[ ]*(?:\d+\.|[*+-])[ ]+")
+# A definition four or more spaces in: `ReferenceProcessor.RE` accepts it only once a list
+# item's indentation has been stripped, which the model does not do.
+_DEF_INDENTED_RE = re.compile(r"[ ]{4,}\[[^\[\]]*\]:")
+# blockprocessors.ReferenceProcessor.RE
+_REF_DEF_RE = re.compile(
+    r"^[ ]{0,3}\[([^\[\]]*)\]:[ ]*(?:\n[ ]*)?([^\s]+)[ ]*(?:\n[ ]*)?"
+    r"(([\"'])(.*)\4[ ]*|\((.*)\)[ ]*)?$",
+    re.MULTILINE,
+)
+# inlinepatterns.BACKTICK_RE (see `_code_span_end` for how the runs pair).
+_BACKTICK_RE = re.compile(r"(?:(?<!\\)((?:\\{2})+)(?=`+)|(?<!\\)`)")
+# inlinepatterns.ESCAPE_RE and Markdown.ESCAPED_CHARS, plus the `|` the tables extension adds.
+_ESCAPE_RE = re.compile(r"\\(.)", re.DOTALL)
+_ESCAPED_CHARS = frozenset("\\`*_{}[]()>#+-.!|")
+# inlinepatterns.ReferenceInlineProcessor.RE_LINK
+_REF_TAIL_RE = re.compile(r"\s?\[([^\]]*)\]", re.DOTALL)
+# inlinepatterns.LinkInlineProcessor.RE_LINK (see `_link_target` for the rest of getLink).
+_LINK_TAIL_RE = re.compile(r"""\(\s*(?:(<[^<>]*>)\s*(?:('[^']*'|"[^"]*")\s*)?\))?""", re.DOTALL)
+# inlinepatterns.HTML_RE
+_HTML_RE = re.compile(
+    r"(<(\/?[a-zA-Z][^<>@ ]*( [^<>]*)?|!--(?:(?!<!--|-->).)*--|[?](?:(?!<[?]|[?]>).)*[?]"
+    r"|!\[CDATA\[(?:(?!<!\[CDATA\[|\]\]>).)*\]\])>)",
+    re.DOTALL,
+)
+
+# htmlparser.commentclose. The renderer's HTML preprocessor reads the page in order: a
+# comment runs from `<!--` to the first close, and one with no close is a literal `<`. A
+# comment that opens a line (at most three spaces in, outside any blockquote) is a raw
+# block; any other is inline HTML, which `_HTML_RE` reads in place — but either way what it
+# spans is consumed, so nothing inside it opens a comment or a raw block of its own.
+_COMMENT_CLOSE_RE = re.compile(r"--!?>")
+_LINE_START_RE = re.compile(r"[ ]{0,3}")
 # A raw HTML block opens with a block-level start tag at most three spaces into a line —
 # not inside a blockquote — and Python-Markdown parses no Markdown inside it.
 # `markdown.util.BLOCK_LEVEL_ELEMENTS` (3.11) minus `hr`, which its HTMLExtractor treats
@@ -93,25 +186,21 @@ _BLOCK_TAGS = frozenset(
 )
 _RAW_OPEN_RE = re.compile(r"^[ \t]{0,3}<([A-Za-z][^\t\n\r\f />\x00]*)", re.MULTILINE)
 _TAG_OPEN_RE = re.compile(r"<([A-Za-z][^\t\n\r\f />\x00]*)")
-# `[key]: target "optional title"`, as Python-Markdown's ReferenceProcessor reads it: the
-# target may sit on the next line, and so may the title, but nothing else may follow the
-# target on its line — so a bracketed citation key that happens to open a prose line
-# (`[Götz2022]: eleven tools …`) is not a definition.
-_REF_DEF_RE = re.compile(
-    r"^ {0,3}\[([^\[\]]+)\]:[ \t]*\n?[ \t]*<?([^\s>]+)>?[ \t]*"
-    r"(?:\n[ \t]*)?(?:\"[^\"\n]*\"|'[^'\n]*'|\([^()\n]*\))?[ \t]*$",
-    re.MULTILINE,
-)
-# Python-Markdown, unlike CommonMark, needs no space after the hashes but does need them in
-# column 0: `#315's ...` opening a line is a heading on the published site and gets an id,
-# while `  #394 and ...` on an indented continuation line is prose.
-_ATX_RE = re.compile(r"^(#{1,6})(?!#)[ \t]*(.*?)(?:[ \t]+#+)?[ \t]*$")
-_SETEXT_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
-_HTML_ID_RE = re.compile(r"<[A-Za-z][^>]*?\s(?:id|name)\s*=\s*[\"']([^\"']+)[\"']", re.DOTALL)
-_HTML_HREF_RE = re.compile(r"<a\s[^>]*?\bhref\s*=\s*[\"']([^\"']*)[\"']", re.DOTALL | re.IGNORECASE)
+# A pair of lines `tables.TableProcessor.test` could accept as header and separator: the
+# header holds a pipe and the separator holds a pipe and nothing but `|`, `:`, `-` and
+# spaces. This is a superset of the renderer's test, which also needs the cells to line
+# up and the pair to open a block; the checker only ever refuses inside such a block.
+_TABLE_SEPARATOR_RE = re.compile(r"[ |:-]*\|[ |:-]*")
+_A_TAG_RE = re.compile(r"<a[\s/>]", re.IGNORECASE)
 # The sources MkDocs turns into a directory's index.html (named in the error as the fix).
 _INDEX_PAGES = ("index.md", "README.md")
 _SCHEME_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*:|//)")
+
+# Placeholders, each the length of what it replaces so offsets survive: a code span, and
+# an escaped character (kept, shifted into the private-use area, so a target can be read).
+_CODE = "\x00"
+_ESC = "\x01"
+_ESC_SHIFT = 0xE000
 
 
 def _blank(match: re.Match[str]) -> str:
@@ -119,58 +208,29 @@ def _blank(match: re.Match[str]) -> str:
     return re.sub(r"[^\n]", " ", match.group(0))
 
 
-@dataclass(frozen=True)
-class _Doc:
-    """One page, parsed twice: blocks blanked (for headings) and code blanked (for links)."""
-
-    path: Path
-    blocks: str  # fenced blocks and HTML comments blanked
-    prose: str  # additionally, inline code spans blanked
-    raw_html: tuple[tuple[int, int], ...]  # spans of raw HTML blocks, as offsets
-
-    def line_of(self, offset: int) -> int:
-        return self.prose.count("\n", 0, offset) + 1
-
-    def markdown(self, text: str) -> str:
-        """``text`` (``blocks`` or ``prose``) with the raw HTML blocks blanked too.
-
-        What is left is what Python-Markdown parses as Markdown: a ``# Ghost`` line inside
-        ``<div>…</div>`` is not a heading and a ``[k]: …`` line there is not a definition.
-        Raw HTML's own ``id``/``name`` attributes and ``<a href>`` are still read from the
-        unblanked views, since the renderer passes them through.
-        """
-        for start, end in self.raw_html:
-            text = text[:start] + re.sub(r"[^\n]", " ", text[start:end]) + text[end:]
-        return text
+def _blank_spans(text: str, spans: tuple[tuple[int, int], ...]) -> str:
+    for start, end in spans:
+        text = text[:start] + re.sub(r"[^\n]", " ", text[start:end]) + text[end:]
+    return text
 
 
-def _unquote(line: str) -> str:
-    """The line with any blockquote markers removed."""
-    return _QUOTE_RE.sub("", line, count=1)
+def _normalize(source: str) -> str:
+    """``preprocessors.NormalizeWhitespace``, minus the trailing blank lines it appends."""
+    source = source.replace("\r\n", "\n").replace("\r", "\n").expandtabs(_TAB)
+    return re.sub(r"(?<=\n) +\n", "\n", source)
 
 
-def _blank_fences(text: str) -> str:
-    """Blank every fenced block, fence lines included.
-
-    A fence counts at any indentation and inside a blockquote, so code an author fenced
-    is never link-checked, but only once a closing fence of the same character (and at
-    least the same length, with nothing after it) is found: an opener that is never
-    closed is not a fence to Python-Markdown, so it does not swallow the rest of the page.
-    """
-    lines = text.split("\n")
-    i = 0
-    while i < len(lines):
-        m = _FENCE_OPEN_RE.match(_unquote(lines[i]))
-        if m and not (m.group(2)[0] == "`" and "`" in m.group(3)):
-            char, length = m.group(2)[0], len(m.group(2))
-            for j in range(i + 1, len(lines)):
-                c = _FENCE_CLOSE_RE.match(_unquote(lines[j]))
-                if c and c.group(1)[0] == char and len(c.group(1)) >= length:
-                    lines[i : j + 1] = [""] * (j + 1 - i)
-                    i = j
-                    break
-        i += 1
-    return "\n".join(lines)
+def _comments(text: str) -> tuple[tuple[int, int], ...]:
+    """Spans of the HTML comments in ``text``, read in order as ``html.parser`` reads them."""
+    spans = []
+    pos = 0
+    while (start := text.find("<!--", pos)) != -1:
+        close = _COMMENT_CLOSE_RE.search(text, start + 4)
+        if close is None:
+            break  # unclosed: a literal `<`, and no later `<!--` can close either
+        spans.append((start, close.end()))
+        pos = close.end()
+    return tuple(spans)
 
 
 def _raw_html_blocks(text: str) -> tuple[tuple[int, int], ...]:
@@ -217,74 +277,596 @@ def _raw_html_blocks(text: str) -> tuple[tuple[int, int], ...]:
     return tuple(spans)
 
 
-@cache
-def _doc(path: Path) -> _Doc:
-    blocks = _COMMENT_RE.sub(_blank, _blank_fences(path.read_text(encoding="utf-8")))
-    return _Doc(path, blocks, _CODE_SPAN_RE.sub(_blank, blocks), _raw_html_blocks(blocks))
+# --- block structure ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _Line:
+    start: int  # offset of the line in the page
+    depth: int  # blockquote markers in front of it
+    body: str  # the line inside its blockquotes
+
+
+def _lines(text: str) -> list[_Line]:
+    out, pos = [], 0
+    for line in text.split("\n"):
+        depth, body = 0, line
+        while (m := _QUOTE_RE.match(body)) is not None:
+            depth, body = depth + 1, body[m.end() :]
+        out.append(_Line(pos, depth, body))
+        pos += len(line) + 1
+    return out
+
+
+@dataclass(frozen=True)
+class _Def:
+    key: str  # as ReferenceProcessor stores it
+    target: str
+    first: int  # line indices, inclusive
+    last: int
+
+
+@dataclass
+class _Unit:
+    """A run of lines the renderer parses inline as one piece: a paragraph or a heading."""
+
+    first: int  # line indices, inclusive
+    last: int
+    depth: int  # the deepest blockquote it has reached; a deeper line opens a new one
+    heading: str | None = None  # the heading text, for an ATX or setext heading
+    soft: set[int] = field(default_factory=set)  # lines that may start a block of their own
+    code: set[int] = field(default_factory=set)  # lines that may be an indented code block
+
+
+def _table_lines(lines: list[_Line]) -> set[int]:
+    """Every line of every block that could be a table (see ``_TABLE_SEPARATOR_RE``)."""
+    out: set[int] = set()
+    i = 0
+    while i + 1 < len(lines):
+        head, sep = lines[i], lines[i + 1]
+        if "|" in head.body and sep.depth == head.depth and _TABLE_SEPARATOR_RE.fullmatch(sep.body):
+            while i < len(lines) and lines[i].body.strip():
+                out.add(i)
+                i += 1
+        i += 1
+    return out
+
+
+def _units(lines: list[_Line], tables: set[int], problem) -> list[_Unit]:
+    """Cut the page into inline units at the boundaries that hold in every context.
+
+    A unit starts where the model is sure a block starts: at the top of the page, after a
+    blank line, a heading or a rule, or where a deeper blockquote opens. That is also the
+    only place a setext title is recognised. Inside a block that opens with a list item, as
+    the list processors read it, each item line at most seven spaces in also starts a unit.
+
+    Blockquote depth is tracked as ``BlockQuoteProcessor`` reads it: once a quote opens,
+    the rest of its block belongs to it, lazy lines without a ``>`` included, until a blank
+    line, or until a heading, rule or list item at a shallower depth splits the enclosing
+    block first and so closes it.
+    """
+    units: list[_Unit] = []
+    cur: _Unit | None = None
+    open_ = 0  # the depth of the innermost open blockquote
+    fresh = 0  # blocks at this depth and deeper open afresh at the next unit
+    listy: dict[int, bool] = {}  # whether the open block at each depth is a list
+    underlines: set[int] = set()
+
+    def open_unit(i: int, level: int, *, item: bool = False) -> None:
+        nonlocal cur, fresh
+        body = lines[i].body
+        if not item:
+            for d in range(min(fresh, level), level + 1):
+                listy[d] = d == level and bool(_LIST_START_RE.match(body))
+        for d in [d for d in listy if d > level]:
+            del listy[d]
+        fresh = sys.maxsize
+        cur = _Unit(i, i, level)
+        units.append(cur)
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        body, depth = line.body, line.depth
+        if not body.strip():
+            cur, fresh, open_ = None, min(fresh, depth), depth
+            i += 1
+            continue
+        if depth > open_:  # a blockquote opens here, and its first line opens a block
+            cur, fresh, open_ = None, min(fresh, open_ + 1), depth
+        atx = _HASH_HEADER_RE.fullmatch(body)
+        rule = _HR_RE.fullmatch(body)
+        if i in tables and (atx or rule):
+            problem(line.start, "a heading or rule line inside a table-like block")
+            atx = rule = None
+        if atx or rule:
+            # Split off at its own depth before any deeper blockquote sees it.
+            if atx:
+                units.append(_Unit(i, i, depth, heading=atx["header"].strip()))
+            cur, fresh, open_ = None, min(fresh, depth), depth
+            i += 1
+            continue
+        item = _LIST_CHILD_RE.match(body)
+        if cur is not None and item and (listy.get(depth) or listy.get(open_)):
+            level = depth if listy.get(depth) else open_
+            open_ = level
+            open_unit(i, level, item=True)
+            i += 1
+            continue
+        if cur is None:
+            nxt = lines[i + 1] if i + 1 < len(lines) else None
+            if (
+                depth == open_
+                and fresh <= depth
+                and not body.startswith(" " * _TAB)
+                and nxt is not None
+                and nxt.depth == depth
+                and _SETEXT_UNDERLINE_RE.fullmatch(nxt.body)
+            ):
+                units.append(_Unit(i, i, depth, heading=body.strip()))
+                fresh = min(fresh, depth)
+                i += 2
+                continue
+            open_unit(i, open_)
+            if body.startswith(" " * _TAB):
+                cur.soft.add(i)  # may open an indented code block: see `_mark_code`
+            i += 1
+            continue
+        cur.last = i
+        if _LIST_ITEM_RE.match(body) or i in tables or i - 1 in underlines:
+            cur.soft.add(i)
+        if _SETEXT_UNDERLINE_RE.fullmatch(body):
+            underlines.add(i)  # if the line above opens a block, the pair is a heading
+        i += 1
+    return units
+
+
+def _mark_code(lines: list[_Line], units: list[_Unit]) -> None:
+    """Mark the lines that may be an indented code block, and the line after each run.
+
+    A block that opens four spaces in is a code block after a paragraph but continuation
+    text inside a list, so its leading indented lines may be code, and the first line
+    after them may open the next block. A block may open at a unit's first line or at any
+    soft line.
+    """
+    for unit in units:
+        if unit.heading is not None:
+            continue
+        run = False
+        for k in range(unit.first, unit.last + 1):
+            indented = lines[k].body.startswith(" " * _TAB)
+            if (k == unit.first or k in unit.soft) and indented:
+                run = True
+            if run and indented:
+                unit.code.add(k)
+            elif run:
+                run = False
+                unit.soft.add(k)
+
+
+def _definitions(lines: list[_Line], units: list[_Unit], tables: set[int], problem) -> list[_Def]:
+    """The reference definitions the renderer certainly registers, read inside blockquotes.
+
+    ``ReferenceProcessor`` reads each block, so this reads each unit, whose lines lie in one
+    block or in blocks that a soft line separates. A definition that runs onto a soft line,
+    sits in a table-like block, has a setext underline after it (the pair may be a heading)
+    or is indented four spaces (a definition inside a list, code elsewhere) is refused: the
+    renderer keeps the *last* definition of a key, so one the model cannot place could
+    redirect a use it has checked.
+    """
+    out = []
+    for unit in units:
+        if unit.heading is not None:
+            continue
+        rows = range(unit.first, unit.last + 1)
+        text = "\n".join(lines[k].body for k in rows)
+        starts = _line_starts(text.split("\n"))
+        placed: set[int] = set()
+        for m in _REF_DEF_RE.finditer(text):
+            first = unit.first + bisect.bisect_right(starts, m.start()) - 1
+            last = unit.first + bisect.bisect_right(starts, max(m.end() - 1, m.start())) - 1
+            placed.update(range(first, last + 1))
+            nxt = lines[last + 1] if last + 1 < len(lines) else None
+            if any(k in tables for k in range(first, last + 1)):
+                problem(lines[first].start, "a reference definition inside a table-like block")
+            elif any(k in unit.soft for k in range(first + 1, last + 1)):
+                problem(
+                    lines[first].start,
+                    "a reference definition that runs onto a line which may start a new block",
+                )
+            elif nxt is not None and _SETEXT_UNDERLINE_RE.fullmatch(nxt.body):
+                problem(
+                    lines[first].start,
+                    "a reference definition with a setext underline "
+                    "after it, which may make it a heading instead",
+                )
+            else:
+                # The renderer consumes these lines and splits the block around them, but a
+                # tight list item glues the text on either side back into one inline run:
+                # nothing may cross them either way.
+                unit.soft.add(first)
+                if last + 1 <= unit.last:
+                    unit.soft.add(last + 1)
+                out.append(
+                    _Def(
+                        m.group(1).strip().lower(), m.group(2).lstrip("<").rstrip(">"), first, last
+                    )
+                )
+        for k in rows:
+            if k not in placed and _DEF_INDENTED_RE.match(lines[k].body):
+                problem(
+                    lines[k].start,
+                    "a reference definition indented four spaces or more, "
+                    "which is a definition inside a list item and code elsewhere",
+                )
+    return out
+
+
+# --- inline --------------------------------------------------------------------------------
+
+
+def _code_span_end(text: str, begin: int) -> int | None:
+    """Where the code span opened at ``begin`` ends: ``BacktickInlineProcessor``, verbatim.
+
+    The opening run pairs with the next run of the same length; failing that, with the
+    longest later run, the surplus opening ticks becoming code. Same result, same quirks.
+    """
+    last, start, max_ticks = len(text), begin, 0
+    while start < last and text[start] == "`":
+        max_ticks += 1
+        start += 1
+    longest_span = end = 0
+    i = start
+    while i < last:
+        span_length = 0
+        while i < last and text[i] == "`":
+            span_length += 1
+            i += 1
+        if not span_length:
+            i += 1
+            continue
+        if span_length == max_ticks:
+            return i
+        if span_length > longest_span:
+            longest_span, end = span_length, i
+    return end if longest_span else None
+
+
+def _mask_code(text: str) -> tuple[str, list[tuple[int, int]]]:
+    """``text`` with its code spans masked, and their spans, as the backtick pattern runs.
+
+    An even run of backslashes before a backtick is escaped backslashes, so the backtick
+    stays live; an odd run escapes it.
+    """
+    spans = []
+    pos = 0
+    while True:
+        for m in _BACKTICK_RE.finditer(text, pos):
+            if m.group(1):
+                start, end = m.span()
+                break
+            end_ = _code_span_end(text, m.start())
+            if end_ is not None:
+                start, end = m.start(), end_
+                spans.append((start, end))
+                break
+        else:
+            return text, spans
+        text = text[:start] + _CODE * (end - start) + text[end:]
+        pos = end
+
+
+def _mask_escapes(text: str) -> str:
+    """``EscapeInlineProcessor``: an escaped character is no longer syntax."""
+
+    def sub(m: re.Match[str]) -> str:
+        c = m.group(1)
+        return _ESC + chr(_ESC_SHIFT + ord(c)) if c in _ESCAPED_CHARS else m.group(0)
+
+    return _ESCAPE_RE.sub(sub, text)
+
+
+def _unescape(text: str) -> str:
+    return re.sub(_ESC + "(.)", lambda m: chr(ord(m.group(1)) - _ESC_SHIFT), text, flags=re.DOTALL)
 
 
 def _link_text_end(text: str, start: int) -> int | None:
-    """Offset just past the ``]`` that closes the ``[`` at ``start``, or None.
+    """Offset just past the ``]`` that closes the ``[`` at ``start``: ``getText``.
 
-    Python-Markdown's ``LinkInlineProcessor.getText`` counts brackets to any depth, so
-    ``[[array[i]] result][key]`` is one reference use whose text is ``[array[i]] result``.
-    A regular expression cannot nest without bound, so this counts too. A backslash-escaped
-    bracket does not count (the escape processor runs first), and the text cannot run past
-    a blank line, which ends the paragraph that inline parsing works within.
+    Brackets nest to any depth, so ``[[array[i]] result][key]`` is one reference use. Escaped
+    brackets and code spans are already masked.
     """
     depth = 0
-    i = start
-    while i < len(text):
-        c = text[i]
-        if c == "\\":
-            i += 2
-            continue
-        if c == "[":
+    for i in range(start, len(text)):
+        if text[i] == "[":
             depth += 1
-        elif c == "]":
+        elif text[i] == "]":
             depth -= 1
             if depth == 0:
                 return i + 1
-        elif c == "\n" and _BLANK_LINE_RE.match(text, i):
-            return None
-        i += 1
     return None
 
 
-def _bracketed(
-    text: str, tail: re.Pattern[str], not_after: str
-) -> list[tuple[int, int, re.Match[str]]]:
-    """``(start, text_end, tail_match)`` for each ``[text]`` that ``tail`` follows.
+def _link_target(text: str, index: int) -> tuple[str, int] | None:
+    """``LinkInlineProcessor.getLink`` at ``index``: the href and the end of ``(…)``, or None.
 
-    Scans left to right like ``re.finditer``: a ``[`` preceded by a character in
-    ``not_after`` is skipped, a ``[`` whose text does not close or is not followed by
-    ``tail`` is retried one character on, and a match resumes the scan after its end.
+    Ported line for line, title tracking included, because the title rules decide where
+    the href ends: ``[a](x (t))`` links to ``x (t)``, ``[a](b c d)`` to ``b c d``.
+    """
+    m = _LINK_TAIL_RE.match(text, index)
+    if m is None:
+        return None
+    if m.group(1):
+        return _unescape(m.group(1)[1:-1].strip()).strip(), m.end()
+    bracket_count = backtrack_count = 1
+    start_index = index = m.end()
+    last_bracket = -1
+    quote = alt_quote = None
+    start_quote = exit_quote = start_alt_quote = exit_alt_quote = -1
+    ignore_matches = False
+    last = ""
+    href = ""
+    for pos in range(index, len(text)):
+        c = text[pos]
+        if c == "(":
+            if not ignore_matches:
+                bracket_count += 1
+            elif backtrack_count > 0:
+                backtrack_count -= 1
+        elif c == ")":
+            if (exit_quote != -1 and quote == last) or (exit_alt_quote != -1 and alt_quote == last):
+                bracket_count = 0
+            elif not ignore_matches:
+                bracket_count -= 1
+            elif backtrack_count > 0:
+                backtrack_count -= 1
+                if backtrack_count == 0:
+                    last_bracket = index + 1
+        elif c in ("'", '"'):
+            if not quote:
+                ignore_matches = True
+                backtrack_count = bracket_count
+                bracket_count = 1
+                start_quote = index + 1
+                quote = c
+            elif c != quote and not alt_quote:
+                start_alt_quote = index + 1
+                alt_quote = c
+            elif c == quote:
+                exit_quote = index + 1
+            elif alt_quote and c == alt_quote:
+                exit_alt_quote = index + 1
+        index += 1
+        if bracket_count == 0:
+            if exit_quote >= 0 and quote == last:
+                href = text[start_index : start_quote - 1]
+            elif exit_alt_quote >= 0 and alt_quote == last:
+                href = text[start_index : start_alt_quote - 1]
+            else:
+                href = text[start_index : index - 1]
+            break
+        if c != " ":
+            last = c
+    if bracket_count != 0 and backtrack_count == 0:
+        href = text[start_index : last_bracket - 1]
+        index = last_bracket
+        bracket_count = 0
+    if bracket_count != 0:
+        return None
+    return _unescape(href).strip(), index
+
+
+def _ref_tail(text: str, index: int) -> tuple[str, int] | None:
+    """``evalId``: the key and the end of ``[key]``, or None.
+
+    One exception of the checker's own: when ``[key](…)`` forms a link, as in
+    ``[text][key](url)``, no literal reference is left on the page — the renderer shows
+    ``[text]`` and a link — so that is not a reference use here.
+    """
+    m = _REF_TAIL_RE.match(text, index)
+    if m is None:
+        return None
+    if text.startswith("(", m.end()) and _link_target(text, m.end()) is not None:
+        return None
+    return m.group(1), m.end()
+
+
+def _bracketed(text: str, tail) -> list[tuple[int, int, str, int]]:
+    """``(start, text_end, payload, end)`` for each ``[text]`` that ``tail`` reads on from.
+
+    Scans left to right as the inline pattern does: a ``[`` whose text does not close or is
+    not followed by ``tail`` is retried one character on; a match resumes after its end.
     """
     out = []
     pos = 0
     while (start := text.find("[", pos)) != -1:
         pos = start + 1
-        if start and text[start - 1] in not_after:
-            continue
         end = _link_text_end(text, start)
-        if end is None or (m := tail.match(text, end)) is None:
+        if end is None or (t := tail(text, end)) is None:
             continue
-        out.append((start, end, m))
-        pos = m.end()
+        out.append((start, end, t[0], t[1]))
+        pos = t[1]
     return out
 
 
-def _inline_links(prose: str) -> list[tuple[int, str]]:
-    """``(start, target)`` for each ``[text](target)`` and ``![alt](src)``."""
-    return [(start, m.group(1)) for start, _, m in _bracketed(prose, _INLINE_TAIL_RE, "\\")]
+class _Tags(HTMLParser):
+    """Start tags as ``html.parser`` reads them: names lower-cased, values unescaped."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.tags: list[tuple[str, dict[str, str], tuple[int, int]]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        first: dict[str, str] = {}
+        for name, value in attrs:  # a browser keeps the first of a repeated attribute
+            first.setdefault(name, value or "")
+        self.tags.append((tag, first, self.getpos()))
+
+    handle_startendtag = handle_starttag
 
 
-def _ref_uses(prose: str) -> list[tuple[int, str, str, str]]:
-    """``(start, source, text, key)`` for each reference-style use; ``key`` may be empty."""
-    return [
-        (start, prose[start : m.end()], prose[start + 1 : end - 1], m.group(1))
-        for start, end, m in _bracketed(prose, _REF_TAIL_RE, "\\]")
-    ]
+def _start_tag(source: str) -> tuple[str, dict[str, str]] | None:
+    """The single start tag ``source`` is, or None if ``html.parser`` reads anything else."""
+    parser = _Tags()
+    parser.feed(source)
+    parser.close()
+    if len(parser.tags) == 1 and parser.get_starttag_text() == source:
+        return parser.tags[0][0], parser.tags[0][1]
+    return None
+
+
+# --- one page ------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _Ref:
+    start: int
+    source: str  # as written
+    shown: str  # the key the message names: the key, or the text of a collapsed use
+    key: str | None  # as the renderer looks it up; None when it cannot match any definition
+
+
+@dataclass(frozen=True)
+class _Doc:
+    path: Path
+    starts: tuple[int, ...]  # line offsets
+    headings: tuple[str, ...]  # raw heading texts, in page order
+    definitions: frozenset[str]
+    links: tuple[tuple[int, str], ...]  # Markdown links, images and definitions: (offset, target)
+    refs: tuple[_Ref, ...]
+    tags: tuple[tuple[int, str, dict[str, str]], ...]  # HTML start tags: (offset, name, attrs)
+    problems: tuple[str, ...]
+
+    def line_of(self, offset: int) -> int:
+        return bisect.bisect_right(self.starts, offset)
+
+
+def _line_starts(lines: list[str]) -> list[int]:
+    out, pos = [], 0
+    for line in lines:
+        out.append(pos)
+        pos += len(line) + 1
+    return out
+
+
+@cache
+def _doc(path: Path) -> _Doc:
+    text = _normalize(path.read_text(encoding="utf-8"))
+    lines_ = text.split("\n")
+    starts = tuple(_line_starts(lines_))
+    problems: list[str] = []
+
+    def problem(offset: int, what: str) -> None:
+        line = bisect.bisect_right(starts, offset)
+        problems.append(f"{_rel(path)}:{line}: {_UNSUPPORTED}: {what}")
+
+    fenced = _FENCED_BLOCK_RE.sub(_blank, text)
+    comments = _comments(fenced)
+    raw = _raw_html_blocks(_blank_spans(fenced, comments))
+    blocks = _blank_spans(
+        fenced,
+        tuple(
+            (start, end)
+            for start, end in comments
+            if _LINE_START_RE.fullmatch(fenced, fenced.rfind("\n", 0, start) + 1, start)
+        ),
+    )
+    md = _blank_spans(blocks, raw)
+    lines = _lines(md)
+    tables = _table_lines(lines)
+    units = _units(lines, tables, problem)
+    defs = _definitions(lines, units, tables, problem)
+    _mark_code(lines, units)
+    definitions = frozenset(d.key for d in defs)
+
+    links: list[tuple[int, str]] = [(lines[d.first].start, d.target) for d in defs]
+    refs: list[_Ref] = []
+    tags: list[tuple[int, str, dict[str, str]]] = []
+
+    def refs_in(view: str, a: int, consumed: list[tuple[int, int]]) -> None:
+        for start, end, key, stop in _bracketed(view, _ref_tail):
+            lookup = re.sub(r"\s+", " ", (key or view[start + 1 : end - 1]).lower())
+            if _CODE in lookup or _ESC in lookup:
+                lookup = None  # an escape or code span in an id never matches a definition
+            elif lookup in definitions:
+                consumed.append((end, stop))
+            source = blocks[a + start : a + stop]
+            shown = blocks[a + end : a + stop].strip()[1:-1] or blocks[a + start + 1 : a + end - 1]
+            refs.append(_Ref(a + start, source, shown, lookup))
+
+    for unit in units:
+        a = lines[unit.first].start
+        b = lines[unit.last].start + len(lines_[unit.last])
+        soft = [lines[k].start for k in sorted(unit.soft)]
+
+        def crosses(start: int, end: int, what: str, a: int = a, soft: list[int] = soft) -> None:
+            i = bisect.bisect_right(soft, a + start)
+            if i < len(soft) and soft[i] < a + end:
+                problem(a + start, f"{what} that runs onto a line which may start a new block")
+
+        chunk = blocks[a:b]
+        for d in defs:
+            if unit.first <= d.first <= unit.last:  # a definition is not inline text
+                s_, e_ = lines[d.first].start - a, lines[d.last].start + len(lines_[d.last]) - a
+                chunk = chunk[:s_] + _CODE * (e_ - s_) + chunk[e_:]
+        view, spans = _mask_code(chunk)
+        for start, end in spans:
+            crosses(start, end, "a code span")
+        view = _mask_escapes(view)
+        consumed: list[tuple[int, int]] = []
+        for start, end, target, stop in _bracketed(view, _link_target):
+            crosses(start, stop, "a link")
+            links.append((a + start, target))
+            consumed.append((end, stop))
+        before = len(refs)
+        refs_in(view, a, consumed)
+        for ref in refs[before:]:
+            crosses(ref.start - a, ref.start - a + len(ref.source), "a reference")
+        for start, end in consumed:
+            view = view[:start] + _CODE * (end - start) + view[end:]
+        for m in _HTML_RE.finditer(view):
+            if m.group(0).startswith("<!") or m.group(0).startswith("</"):
+                continue
+            crosses(m.start(), m.end(), "an inline HTML tag")
+            source = blocks[a + m.start() : a + m.end()]
+            tag = _start_tag(source)
+            if tag is None:
+                if _A_TAG_RE.match(source):
+                    problem(a + m.start(), "an <a> tag html.parser cannot read as one start tag")
+                continue
+            line = bisect.bisect_right(starts, a + m.start()) - 1
+            name, attrs = tag
+            if line in unit.code and ("id" in attrs or (name == "a" and "name" in attrs)):
+                problem(a + m.start(), "an HTML anchor on a line of an indented block")
+                continue
+            tags.append((a + m.start(), name, attrs))
+
+    for a, b in raw:
+        chunk = blocks[a:b]
+        parser = _Tags()
+        parser.feed(chunk)
+        parser.close()
+        if len(_A_TAG_RE.findall(chunk)) != sum(1 for t in parser.tags if t[0] == "a"):
+            problem(a, "an <a> tag html.parser cannot read as one start tag")
+        for name, attrs, (row, col) in parser.tags:
+            offset = starts[bisect.bisect_right(starts, a) - 1 + row - 1] + col
+            tags.append((offset, name, attrs))
+        # Raw HTML is passed through as text, so a link or reference here is literal: read
+        # them anyway, which can only report something, never hide it.
+        links.extend((a + s, t) for s, _, t, _ in _bracketed(chunk, _link_target))
+        refs_in(chunk, a, [])
+
+    headings = tuple(u.heading for u in units if u.heading is not None)
+    return _Doc(
+        path,
+        starts,
+        headings,
+        definitions,
+        tuple(links),
+        tuple(refs),
+        tuple(tags),
+        tuple(problems),
+    )
 
 
 def _pages() -> list[Path]:
@@ -295,10 +877,6 @@ def _rel(path: Path) -> str:
     return path.relative_to(DOCS.parent).as_posix()
 
 
-def _norm_key(key: str) -> str:
-    return " ".join(key.split()).lower()
-
-
 def _slugify(value: str) -> str:
     """``markdown.extensions.toc.slugify`` with its default ``-`` separator."""
     value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
@@ -306,15 +884,24 @@ def _slugify(value: str) -> str:
     return re.sub(r"[-\s]+", "-", value)
 
 
-def _heading_text(raw: str) -> str:
-    """The plain text the toc extension slugifies: rendered heading, tags stripped."""
+def _heading_text(raw: str, definitions: frozenset[str]) -> str:
+    """The plain text the toc extension slugifies: rendered heading, tags stripped.
+
+    A reference reduces to its text only when its key is defined; an undefined one stays
+    on the page as written, brackets and all, and so in the slug.
+    """
+
+    def reference(m: re.Match[str]) -> str:
+        key = re.sub(r"\s+", " ", (m.group(2) or m.group(1)).lower())
+        return m.group(1) if key in definitions else m.group(0)
+
     parts = re.split(r"(`+)(.+?)\1", raw)
     text = []
     # re.split with two groups yields [prose, ticks, code, prose, ticks, code, ...].
     for i in range(0, len(parts), 3):
         prose = parts[i]
         prose = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", prose)  # links / images -> text
-        prose = re.sub(r"!?\[([^\]]*)\]\s?\[[^\]]*\]", r"\1", prose)  # reference links
+        prose = re.sub(r"!?\[([^\]]*)\]\s?\[([^\]]*)\]", reference, prose)
         prose = re.sub(r"<[^>]+>", "", prose)  # inline HTML
         prose = re.sub(r"\\(.)", r"\1", prose)  # backslash escapes
         prose = prose.replace("*", "")
@@ -327,34 +914,21 @@ def _heading_text(raw: str) -> str:
 
 @cache
 def _anchors(path: Path) -> frozenset[str]:
-    """Every fragment a page serves: heading slugs and inline ``id``/``name`` anchors."""
+    """Every fragment a page serves: heading slugs, any element's ``id``, an ``<a name>``."""
     doc = _doc(path)
     ids: set[str] = set()
-    lines = [_unquote(line) for line in doc.markdown(doc.blocks).split("\n")]
-    for i, line in enumerate(lines):
-        if m := _ATX_RE.match(line):
-            raw = m.group(2)
-        elif (
-            _SETEXT_RE.match(line)
-            and i > 0
-            and lines[i - 1].strip()
-            and not _ATX_RE.match(lines[i - 1])
-            and not _SETEXT_RE.match(lines[i - 1])
-        ):
-            raw = lines[i - 1].strip()
-        else:
-            continue
-        slug = _slugify(_heading_text(raw))
+    for raw in doc.headings:
+        slug = _slugify(_heading_text(raw, doc.definitions))
         while slug in ids or not slug:
-            m2 = re.match(r"^(.*)_([0-9]+)$", slug)
-            slug = f"{m2.group(1)}_{int(m2.group(2)) + 1}" if m2 else f"{slug}_1"
+            m = re.match(r"^(.*)_([0-9]+)$", slug)
+            slug = f"{m.group(1)}_{int(m.group(2)) + 1}" if m else f"{slug}_1"
         ids.add(slug)
-    ids.update(m.group(1) for m in _HTML_ID_RE.finditer(doc.prose))
+    for _, name, attrs in doc.tags:
+        if attrs.get("id"):
+            ids.add(attrs["id"])
+        if name == "a" and attrs.get("name"):
+            ids.add(attrs["name"])
     return frozenset(ids)
-
-
-def _definitions(doc: _Doc) -> set[str]:
-    return {_norm_key(m.group(1)) for m in _REF_DEF_RE.finditer(doc.markdown(doc.prose))}
 
 
 def _target_problem(source: Path, target: str) -> str | None:
@@ -387,7 +961,7 @@ def _target_problem(source: Path, target: str) -> str | None:
         resolved = source
     is_page = resolved.suffix == ".md" and resolved.is_file()
     if fragment and is_page and fragment not in _anchors(resolved):
-        return f"no heading or <a id> anchor '#{fragment}' in {_rel(resolved)}"
+        return f"no heading or HTML anchor '#{fragment}' in {_rel(resolved)}"
     return None
 
 
@@ -408,30 +982,29 @@ def _raw_html_problem(source: Path, href: str) -> str | None:
 
 def _undefined_references(path: Path) -> list[str]:
     doc = _doc(path)
-    defined = _definitions(doc)
-    out = []
-    for start, source, text, key in _ref_uses(doc.prose):
-        if _norm_key(key or text) not in defined:
-            out.append(
-                f"{_rel(path)}:{doc.line_of(start)}: reference-style link "
-                f"{' '.join(source.split())} has no [{key or text}]: definition "
-                "in this file, so it renders as literal text"
-            )
-    return out
+    return [
+        f"{_rel(path)}:{doc.line_of(ref.start)}: reference-style link "
+        f"{' '.join(ref.source.split())} has no [{ref.shown}]: definition "
+        "in this file, so it renders as literal text"
+        for ref in doc.refs
+        if ref.key not in doc.definitions
+    ]
 
 
 def _broken_targets(path: Path) -> list[str]:
     doc = _doc(path)
     out = []
-    links = _inline_links(doc.prose)
-    links += [(m.start(), m.group(2)) for m in _REF_DEF_RE.finditer(doc.prose)]
-    for start, target in links:
+    for start, target in doc.links:
         if problem := _target_problem(path, target):
             out.append(f"{_rel(path)}:{doc.line_of(start)}: link to '{target}': {problem}")
-    for m in _HTML_HREF_RE.finditer(doc.prose):
-        if problem := _raw_html_problem(path, m.group(1)):
-            out.append(f"{_rel(path)}:{doc.line_of(m.start())}: <a href='{m.group(1)}'>: {problem}")
+    for start, name, attrs in doc.tags:
+        if name == "a" and "href" in attrs and (problem := _raw_html_problem(path, attrs["href"])):
+            out.append(f"{_rel(path)}:{doc.line_of(start)}: <a href='{attrs['href']}'>: {problem}")
     return out
+
+
+def _unsupported(path: Path) -> list[str]:
+    return list(_doc(path).problems)
 
 
 # --- the corpus ------------------------------------------------------------------------
@@ -443,6 +1016,12 @@ def test_walk_covers_the_site_and_skips_the_prd() -> None:
     assert len(pages) >= 50, f"expected the docs corpus; found only {len(pages)} pages"
     assert DOCS / "analysis" / "parity-gallery.md" in pages
     assert DOCS / "PRD.md" not in pages
+
+
+def test_every_page_stays_inside_the_modelled_forms() -> None:
+    """No page uses a form the checker refuses, so the two checks below can vouch for it."""
+    problems = [p for page in _pages() for p in _unsupported(page)]
+    assert not problems, "\n".join(problems)
 
 
 def test_no_undefined_reference_style_links() -> None:
@@ -461,7 +1040,7 @@ def test_internal_link_targets_and_anchors_resolve() -> None:
 
 
 def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pages: dict[str, str]) -> list[str]:
-    """Run both checks over a synthetic ``docs/`` tree under ``tmp_path``."""
+    """Run every check over a synthetic ``docs/`` tree under ``tmp_path``."""
     docs = tmp_path / "docs"
     for name, body in pages.items():
         (docs / name).parent.mkdir(parents=True, exist_ok=True)
@@ -473,7 +1052,11 @@ def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pages: dict[str, str
     _anchors.cache_clear()
     try:
         files = sorted(p for p in docs.rglob("*.md") if p.name != "PRD.md")
-        return [p for f in files for p in _undefined_references(f) + _broken_targets(f)]
+        return [
+            p
+            for f in files
+            for p in _unsupported(f) + _undefined_references(f) + _broken_targets(f)
+        ]
     finally:
         _doc.cache_clear()
         _anchors.cache_clear()
@@ -630,3 +1213,113 @@ def test_raw_html_blocks_hold_no_headings_or_definitions(
     assert "[bad][gk]" in out[0]
     assert "'#ghost'" in out[1] and "'#nested-ghost'" in out[2]
     assert "'#para-ghost'" in out[3] and "'#tail-ghost'" in out[4]
+
+
+# --- forms a naive parse reads differently from the renderer (#511) ---------------------
+# Each body below was rendered with Python-Markdown 3.11 and mkdocs' default extensions.
+# The first five passed silently at 60061f6, one per review finding; the rest pin forms the
+# parse models now, and the refusals that bound it.
+
+
+def test_a_fence_inside_a_blockquote_is_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``fenced_code`` works at the root only, so a quoted fence hides nothing."""
+    body = (
+        "# A\n\n"
+        "> ~~~\n> see [x][missing]\n> ~~~\n\n"
+        "> ```\n> [y][missing] sits in a code span, since the backticks pair\n> ```\n"
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 1, out
+    assert out[0].startswith("docs/a.md:4: reference-style link [x][missing]")
+
+
+def test_name_is_an_anchor_only_on_an_a_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A browser scrolls to any element's ``id`` but to a ``name`` only on ``<a>``."""
+    body = (
+        "# A\n\n"
+        '<div name="ghost"></div>\n\n'
+        'Text <span name="ghost2">s</span> <a name="real"></a> <b id="any"></b>\n\n'
+        "[bad](#ghost) [bad](#ghost2) [ok](#real) [ok](#any)\n"
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 2, out
+    assert "'#ghost'" in out[0] and "'#ghost2'" in out[1]
+
+
+def test_an_unquoted_href_is_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``html.parser`` reads the attributes, so an unquoted value is a value."""
+    body = (
+        "# A\n\n"
+        "<a href=missing.md>x</a> <a href=#nope>y</a> <a href=#a>ok</a>\n\n"
+        "<p><a href=raw.md>z</a></p>\n"
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 3, out
+    assert out[0].startswith("docs/a.md:3: <a href='missing.md'>") and "Markdown link" in out[0]
+    assert out[1].startswith("docs/a.md:3: <a href='#nope'>")
+    assert out[2].startswith("docs/a.md:5: <a href='raw.md'>")
+
+
+def test_a_setext_underline_must_start_at_column_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``Text`` over an indented ``---`` is a paragraph and a rule, not a heading."""
+    body = "# A\n\nText\n  ---\n\nReal\n---\n\n[bad](#text) [ok](#real)\n"
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 1 and "'#text'" in out[0], out
+
+
+def test_an_escaped_backslash_leaves_the_bracket_live(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only an odd run of backslashes escapes the ``[`` or backtick after it."""
+    body = "# A\n\n\\\\[text][missing], \\[esc][k] and \\\\`[code][m3]`\n"
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 1, out
+    assert out[0].startswith("docs/a.md:3: reference-style link [text][missing]")
+
+
+def test_a_comment_hides_the_tags_inside_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A comment inside a raw block hides a closing tag, so the block runs on past it."""
+    body = "# A\n\n<div>\nx <!-- </div> -->\n# Ghost\n</div>\n\n[bad](#ghost)\n"
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 1 and "'#ghost'" in out[0], out
+
+
+def test_an_undefined_reference_stays_in_its_heading_slug(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A heading slug is taken from the rendered text, where an undefined use is literal."""
+    body = (
+        "# A\n\n## See [x][k]\n\n## Also [y][missing]\n\n[k]: #a\n\n"
+        "[ok](#see-x) [bad](#also-y) [ok](#also-ymissing)\n"
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 2, out
+    assert out[0].startswith("docs/a.md:5: reference-style link [y][missing]")
+    assert out[1].startswith("docs/a.md:9: ") and "'#also-y'" in out[1]
+
+
+@pytest.mark.parametrize(
+    ("body", "line", "what"),
+    [
+        ("Text `code\n- item` more\n", 3, "a code span that runs onto a line"),
+        ("| a | b |\n|---|---|\n# c\n", 5, "a heading or rule line inside a table-like"),
+        ('Para\n\n    <a id="x"></a>\n', 5, "an HTML anchor on a line of an indented block"),
+        ("See <a href='x.md>y</a> here.\n", 3, "an <a> tag html.parser cannot read"),
+        ("- item\n\n        [k]: #a\n", 5, "a reference definition indented four spaces"),
+    ],
+    ids=["crosses-a-block-start", "heading-in-a-table", "indented-anchor", "broken-a", "deep-def"],
+)
+def test_a_form_outside_the_model_fails_loudly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, line: int, what: str
+) -> None:
+    """A form whose rendering turns on context the model does not track is refused by name."""
+    out = _check(tmp_path, monkeypatch, {"a.md": "# A\n\n" + body})
+    assert out[0].startswith(f"docs/a.md:{line}: {_UNSUPPORTED}: {what}"), out
