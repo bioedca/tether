@@ -135,10 +135,17 @@ every other flag, and `tether batch`.
 
 ## Citing
 
-If you use Tether, please cite it via [`CITATION.cff`](CITATION.cff) (GitHub's
-"Cite this repository" button). Tether interoperates with and credits
-[tMAVEN](NOTICE), and mirrors algorithms from Deep-LASI and MASH-FRET — see
-[`NOTICE`](NOTICE).
+If you use Tether, please cite it with its Zenodo concept DOI, which always
+resolves to the newest archived version:
+[10.5281/zenodo.23306397](https://doi.org/10.5281/zenodo.23306397). The same
+metadata is in [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this repository"
+button).
+
+The [Citing Tether](https://bioedca.github.io/tether/latest/citing/) page lists
+which upstream papers to cite as well for each part of the pipeline you ran
+(idealization backend, corrections, deep classifier), and how to report the
+exact version that produced your data. Licensing credit for tMAVEN, Deep-LASI
+and MASH-FRET is in [`NOTICE`](NOTICE).
 
 ## License
 

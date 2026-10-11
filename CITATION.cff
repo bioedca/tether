@@ -39,17 +39,25 @@ keywords:
   - provenance
   - napari
   - PySide6
-# `version`, `date-released` and `doi` are added in the release commit, in this order.
-# The ordering is load-bearing and not recoverable after the fact:
-#   1. Enable the Zenodo-GitHub webhook for this repository BEFORE pushing the tag.
-#      Zenodo only archives releases published while the webhook is active — if it is
-#      off at tag time, that version is never archived and the only remedy is cutting
-#      another release.
-#   2. Reserve the DOI in Zenodo and write it into `doi:` below, so the tagged commit
-#      is self-consistent rather than pointing at a DOI minted later.
-#   3. Add `version:` (the tag without the leading "v") and `date-released:` (ISO 8601).
-#   4. The *concept* DOI — which always resolves to the newest version — belongs in
-#      README.md and docs/citing.md, not here; `doi:` below is the *version* DOI.
+# Zenodo archiving (issue #162, maintainer decision of 2026-07-27). The ordering is
+# load-bearing and not recoverable after the fact:
+#   1. The Zenodo-GitHub integration must be ON before a release tag is pushed. Zenodo
+#      only archives releases published while its webhook is active; a release published
+#      with it off is never archived, and only another release (or re-publishing that one)
+#      fixes it. It was switched on 2026-10-11.
+#   2. A DOI cannot be reserved through the integration: Zenodo mints each version's DOI
+#      when the GitHub Release is published, after the tagged commit exists. So no tagged
+#      commit can name its own version DOI, and none is written here.
+#   3. `doi:` below is the *concept* DOI, which always resolves to the newest archived
+#      version. It never changes between releases, and README.md and docs/citing.md
+#      carry the same value. Each version DOI lives on its Zenodo record only.
+#   4. The release commit sets `version:` (the tag without its leading "v") and
+#      `date-released:` (ISO 8601) to the release being cut; until then they describe the
+#      newest archived release.
+# docs/release.md "Archiving (Zenodo)" is the operational copy of these steps.
+version: "1.0.0-rc2"
+date-released: "2026-10-11"
+doi: "10.5281/zenodo.23306397"
 # Keep this file's author list identical to any JOSS paper.md author list.
 references:
   - type: article
@@ -147,3 +155,143 @@ references:
     start: 3
     doi: "10.1186/s12859-014-0429-4"
     notes: "SMD — interchange format; the .tether store is an SMD superset."
+  # The entries below are copied from the docs/PRD.md bibliography (issue #162) so a
+  # citing user can reach them without the PRD, which the docs site does not publish.
+  # Where the PRD abbreviates a long author list with "et al.", so does this file:
+  # only the authors the PRD names are listed, and `notes` says the list is cut.
+  - type: article
+    title: >-
+      Learning rates and states from biophysical time series: a Bayesian approach
+      to model selection and single-molecule FRET data
+    authors:
+      - family-names: "Bronson"
+        given-names: "J. E."
+      - family-names: "Fei"
+        given-names: "J."
+      - family-names: "Hofman"
+        given-names: "J. M."
+      - family-names: "Gonzalez"
+        given-names: "Ruben L."
+        name-suffix: "Jr."
+      - family-names: "Wiggins"
+        given-names: "Chris H."
+    journal: "Biophysical Journal"
+    volume: 97
+    issue: 12
+    year: 2009
+    start: 3196
+    end: 3205
+    doi: "10.1016/j.bpj.2009.09.031"
+    notes: "vbFRET — variational-Bayes HMM behind the VB-HMM idealization backends."
+  - type: article
+    title: >-
+      Optimizing methods to recover absolute FRET efficiency from immobilized
+      single molecules
+    authors:
+      - family-names: "McCann"
+        given-names: "J. J."
+      - family-names: "Choi"
+        given-names: "U. B."
+      - family-names: "Zheng"
+        given-names: "L."
+      - family-names: "Weninger"
+        given-names: "K."
+      - family-names: "Bowen"
+        given-names: "M. E."
+    journal: "Biophysical Journal"
+    volume: 99
+    issue: 3
+    year: 2010
+    start: 961
+    end: 970
+    doi: "10.1016/j.bpj.2010.04.063"
+    notes: "Leakage (alpha) and gamma correction scheme."
+  - type: article
+    title: >-
+      Empirical Bayes methods enable advanced population-level analyses of
+      single-molecule FRET experiments
+    authors:
+      - family-names: "van de Meent"
+        given-names: "Jan-Willem"
+      - family-names: "Bronson"
+        given-names: "J. E."
+      - family-names: "Wiggins"
+        given-names: "Chris H."
+      - family-names: "Gonzalez"
+        given-names: "Ruben L."
+        name-suffix: "Jr."
+    journal: "Biophysical Journal"
+    volume: 106
+    issue: 6
+    year: 2014
+    start: 1327
+    end: 1337
+    doi: "10.1016/j.bpj.2013.12.055"
+    notes: "ebFRET — empirical-Bayes HMM behind the ebhmm idealization backends."
+  - type: article
+    title: >-
+      Precision and accuracy of single-molecule FRET measurements—a
+      multi-laboratory benchmark study
+    authors:
+      - family-names: "Hellenkamp"
+        given-names: "B."
+      - family-names: "Schmid"
+        given-names: "S."
+      - family-names: "Doroshenko"
+        given-names: "O."
+    journal: "Nature Methods"
+    volume: 15
+    issue: 9
+    year: 2018
+    start: 669
+    end: 676
+    doi: "10.1038/s41592-018-0085-0"
+    notes: "Gamma-corrected FRET efficiency. Author list abbreviated (et al.), as in the PRD."
+  - type: article
+    title: >-
+      DeepFRET, a software for rapid and automated single-molecule FRET data
+      classification using deep learning
+    authors:
+      - family-names: "Thomsen"
+        given-names: "J."
+      - family-names: "Sletfjerding"
+        given-names: "M. B."
+      - family-names: "Jensen"
+        given-names: "S. B."
+    journal: "eLife"
+    volume: 9
+    year: 2020
+    start: "e60404"
+    doi: "10.7554/eLife.60404"
+    notes: "DeepFRET — deep trace classifier lineage. Author list abbreviated (et al.), as in the PRD."
+  # The kinSoftChallenge pair below is copied from NOTICE, which already attributes the
+  # bundled CC-BY-4.0 test fixture; listing it here keeps NOTICE and this file in sync.
+  - type: article
+    title: >-
+      A blind benchmark of analysis tools to infer kinetic rate constants from
+      single-molecule FRET trajectories
+    authors:
+      - family-names: "Götz"
+        given-names: "M."
+      - family-names: "Barth"
+        given-names: "A."
+      - family-names: "Bohr"
+        given-names: "S. S.-R."
+    journal: "Nature Communications"
+    volume: 13
+    year: 2022
+    start: 5402
+    doi: "10.1038/s41467-022-33023-3"
+    notes: "kinSoftChallenge — kinetics-validation oracle. Author list abbreviated (et al.), as in the PRD."
+  - type: data
+    title: "kinSoftChallenge simulated datasets"
+    authors:
+      - family-names: "Götz"
+        given-names: "Markus"
+      - family-names: "Schmid"
+        given-names: "Sonja"
+    publisher:
+      name: "Zenodo"
+    license: CC-BY-4.0
+    doi: "10.5281/zenodo.5701310"
+    notes: "Bundled as the gated-tier test fixture tests/fixtures/large/kinsoft_sim.hdf5 (CC-BY-4.0)."

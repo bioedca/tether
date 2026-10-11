@@ -63,6 +63,7 @@ nav:
           - Project store (.tether HDF5 schema): reference/tether-format.md
       - Glossary: glossary.md
       - Troubleshooting: troubleshooting.md
+      - Citing: citing.md
   - Project &amp; maintainers:
       - Roadmap: roadmap.md
       - Stability policy: stability.md
