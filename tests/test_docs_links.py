@@ -68,10 +68,13 @@ _INLINE_LINK_RE = re.compile(
 # `[text][key]`, `[text] [key]` and the collapsed `[text][]` — Python-Markdown accepts at
 # most one whitespace character between the two bracket pairs.
 _REF_USE_RE = re.compile(r"(?<![\\\]])\[" + _TEXT + r"\]\s?\[([^\[\]]*)\](?!\()")
-# `[key]: target "optional title"` — the whole line, as Python-Markdown requires; a
-# bracketed citation key that happens to open a prose line is not a definition.
+# `[key]: target "optional title"`, as Python-Markdown's ReferenceProcessor reads it: the
+# target may sit on the next line, and so may the title, but nothing else may follow the
+# target on its line — so a bracketed citation key that happens to open a prose line
+# (`[Götz2022]: eleven tools …`) is not a definition.
 _REF_DEF_RE = re.compile(
-    r"^ {0,3}\[([^\[\]]+)\]:[ \t]*<?(\S+?)>?(?:[ \t]+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?[ \t]*$",
+    r"^ {0,3}\[([^\[\]]+)\]:[ \t]*\n?[ \t]*<?([^\s>]+)>?[ \t]*"
+    r"(?:\n[ \t]*)?(?:\"[^\"\n]*\"|'[^'\n]*'|\([^()\n]*\))?[ \t]*$",
     re.MULTILINE,
 )
 # Python-Markdown, unlike CommonMark, needs no space after the hashes but does need them in
@@ -326,6 +329,24 @@ def test_defined_references_and_code_are_clean(
         "Citations [Hellenkamp2018], [Lee2005] are plain text, not references.\n"
     )
     assert _check(tmp_path, monkeypatch, {"a.md": body}) == []
+
+
+def test_definition_target_and_title_may_sit_on_the_next_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Python-Markdown reads ``[k]:`` + an indented target line as one definition."""
+    body = (
+        "# A\n\n"
+        "See [x][k], [y][t] and [z][g].\n\n"
+        "[k]:\n    https://example.org\n"
+        '[t]: #a\n    "Title on the next line"\n'
+        "[g]:\n    sub/missing.md\n\n"
+        "[Götz2022]: eleven tools (14 analyses) is prose, not a definition, so [w][Götz2022]\n"
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 2, out
+    assert out[0].startswith("docs/a.md:12: reference-style link [w][Götz2022]")
+    assert out[1].startswith("docs/a.md:9: link to 'sub/missing.md': no such file")
 
 
 def test_adjacent_bracket_pairs_form_a_reference(

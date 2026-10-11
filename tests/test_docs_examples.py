@@ -134,10 +134,25 @@ def _spec(dotted: str) -> ModuleSpec | None:
     return PathFinder.find_spec(dotted, search)
 
 
+def _is_type_checking(test: ast.expr) -> bool:
+    """``TYPE_CHECKING`` or ``<anything>.TYPE_CHECKING`` — false at runtime."""
+    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    )
+
+
 def _bound_names(stmts: list[ast.stmt]) -> set[str]:
-    """Names a module binds at top level, descending into if/try/with but not defs."""
+    """Names a module binds at top level, descending into if/try/with but not defs.
+
+    The body of ``if TYPE_CHECKING:`` is skipped (its ``else`` is not): those imports
+    exist only for the type checker, so a reader's ``from module import name`` of one
+    fails at runtime and must not pass here.
+    """
     names: set[str] = set()
     for node in stmts:
+        if isinstance(node, ast.If) and _is_type_checking(node.test):
+            names |= _bound_names(node.orelse)
+            continue
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             names.add(node.name)
         elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
@@ -239,3 +254,19 @@ def test_flags_a_renamed_or_missing_object() -> None:
     assert _problems("docs/x.md", 9, node)
     node = ast.parse("from tether.analysis import histogram").body[0]
     assert _problems("docs/x.md", 10, node) == []
+    # A name bound only under `if TYPE_CHECKING:` does not exist at runtime.
+    node = ast.parse("from tether.ml.active import Sequence").body[0]
+    assert _problems("docs/x.md", 11, node) == [
+        "docs/x.md:11: 'from tether.ml.active import Sequence' — "
+        "tether.ml.active defines no Sequence"
+    ]
+
+
+def test_type_checking_bodies_are_skipped_but_their_else_is_not() -> None:
+    tree = ast.parse(
+        "import typing\n"
+        "if TYPE_CHECKING:\n    from a import A\n"
+        "if typing.TYPE_CHECKING:\n    from b import B\nelse:\n    B2 = 1\n"
+        "if sys.version_info >= (3, 11):\n    C = 1\n"
+    )
+    assert _bound_names(tree.body) == {"typing", "B2", "C"}
