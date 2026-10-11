@@ -104,8 +104,9 @@ def module_constant(dotted: str, name: str) -> object:
     bound: ast.expr | None = None
     for stmt in ast.parse(path.read_text(encoding="utf-8"), filename=str(path)).body:
         if isinstance(stmt, ast.AnnAssign):
-            if isinstance(stmt.target, ast.Name) and stmt.target.id == name:
-                assert stmt.value is not None
+            # An annotation with no value (`X: float`) binds nothing at runtime, so the
+            # assignment before it stays the effective one.
+            if isinstance(stmt.target, ast.Name) and stmt.target.id == name and stmt.value:
                 bound = stmt.value
         elif isinstance(stmt, ast.Assign):
             for target in stmt.targets:
@@ -140,8 +141,31 @@ _LEADING_IDENT_RE = re.compile(r"^[A-Za-z_]\w*")
 #: :func:`paragraph`'s second tier, so `$.band.rate_rel_deviation_max = 0.12` is reachable
 #: by the bare pointer `$.band.rate_rel_deviation_max`.
 _LEADING_TOKEN_RE = re.compile(r"^[A-Za-z_$][\w.$/-]*")
-#: A fenced code block's opening or closing line.
-_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+#: A fenced code block's opening line: three or more backticks or tildes.
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def _fenced(lines: list[str]) -> list[bool]:
+    """For each line, is it a fence line or inside a fenced code block?
+
+    A block closes only on a fence of the same character *and* the same length as the
+    one that opened it, Python-Markdown's rule — so a four-backtick block that shows a
+    three-backtick example stays one block rather than ending at the example's fence.
+    """
+    out: list[bool] = []
+    opener: str | None = None
+    for line in lines:
+        fence = _FENCE_RE.match(line)
+        if opener is None:
+            if fence:
+                opener = fence.group(1)
+            out.append(opener is not None)
+        else:
+            out.append(True)
+            if line.strip() == opener:
+                opener = None
+    return out
+
 
 #: Name / string / number, tried in that order so ``smd_281mol`` and ``k12`` stay whole
 #: names rather than decomposing into a name and a stray number. Slashes and hyphens are
@@ -185,10 +209,8 @@ def _sections(text: str) -> dict[str, str]:
         )
         out[name] = "\n".join(buf)
 
-    fenced = False
-    for line in text.split("\n"):
-        if _FENCE_RE.match(line):
-            fenced = not fenced
+    lines = text.split("\n")
+    for line, fenced in zip(lines, _fenced(lines), strict=True):
         heading = None if fenced else _HEADING_RE.match(line)
         if heading:
             if name is not None:
@@ -209,11 +231,9 @@ def _tables(body: str) -> list[Table]:
     out: list[Table] = []
     header: list[str] | None = None
     rows: list[tuple[str, ...]] = []
-    fenced = False
-    for line in body.split("\n"):
+    lines = body.split("\n")
+    for line, fenced in zip(lines, _fenced(lines), strict=True):
         stripped = line.strip()
-        if _FENCE_RE.match(line):
-            fenced = not fenced
         if not fenced and stripped.startswith("|"):
             if _SEPARATOR_RE.match(stripped):
                 continue
@@ -1648,3 +1668,29 @@ def test_a_table_inside_a_fence_is_not_a_table() -> None:
     assert _tables("```\n| a | b |\n```\n| c | d |\n| --- | --- |\n| 3 | 4 |\n") == [
         Table(("c", "d"), (("3", "4"),))
     ]
+
+
+def test_module_constant_skips_an_annotation_without_a_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``X = 5.0`` then a bare ``X: float`` is still ``5.0``; the annotation binds nothing."""
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "mod.py").write_text("X = 5.0\nX: float\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path)
+    assert module_constant("pkg.mod", "X") == 5.0
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A longer fence showing a shorter fenced example stays one block.
+        "## Real section\nbody\n````\n```\n## Fake heading\n```\n````\n",
+        # A backtick fence does not close on tildes.
+        "## Real section\nbody\n```\n~~~\n## Fake heading\n~~~\n```\n",
+    ],
+    ids=["longer-outer-fence", "mismatched-fence-char"],
+)
+def test_a_fence_closes_only_on_its_own_delimiter(text: str) -> None:
+    assert list(_sections(text)) == ["Real section"]
+    assert _tables(text.replace("## Fake heading", "| a | b |")) == []
