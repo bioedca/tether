@@ -104,8 +104,10 @@ genuine before you choose to go past it; the checksum alone cannot. What it look
 get past it on each system is in
 [The installer is flagged as unsigned](troubleshooting.md#the-installer-is-flagged-as-unsigned).
 
-No step needs an administrator account if you install for yourself only, which is what this
-page assumes.
+Installing for yourself only, which is what this page assumes, needs no administrator account
+on Windows or Linux, and none on macOS if you use the Terminal command below. The macOS
+**Open Anyway** route does ask for an administrator's password, so on a Mac where you have none,
+use the Terminal command.
 
 **Windows.** Double-click the `.exe`. When SmartScreen says *"Windows protected your PC"*,
 choose **More info → Run anyway**. Accept the license, choose **Just Me**, and keep the
@@ -191,6 +193,8 @@ new launcher by its full path, `~/tether/bin/tether --version` on Linux,
 Windows PowerShell. To start the desktop application:
 
 - **Windows:** open the Start menu and choose **Tether**, or run `tether-gui` in a terminal.
+  If there is no **Tether** entry, the installer could not create the shortcut on your account
+  (it warns and carries on); run `C:\Users\<you>\Tether\bin\tether-gui.bat` instead.
 - **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal.
   (A desktop that was already running may only show the menu entry after you log out and back
   in.)
@@ -211,9 +215,11 @@ Everything lives in the single folder you chose (`~/tether` on Linux, `~/Tether`
 | `envs/sidecar` | A separate, isolated copy of tMAVEN used for one-click idealization. It is kept apart because it needs older library versions than the application. |
 | everything else | The small installer toolkit used once, at install time, to lay down the two folders above. It holds no Tether code. |
 
-Outside the install folder the installer creates exactly one thing: on Windows a **Tether**
+Outside the install folder, Tether's own files are one menu entry: on Windows a **Tether**
 Start menu shortcut, and on Linux an application-menu entry at
-`~/.local/share/applications/tether.desktop`. On macOS it creates nothing outside `~/Tether`.
+`~/.local/share/applications/tether.desktop`. On macOS there is none. Windows and macOS also
+keep their usual record of an installed program: the **Installed apps** entry that the Windows
+uninstaller runs from, and the package receipt macOS records for every `.pkg`.
 
 On a Linux test install of this release the folder came to **3.6 GB**; the other systems have
 not been measured yet.
@@ -272,6 +278,8 @@ rm -rf ~/Tether
 ```
 
 Then delete the `export PATH=…/Tether/bin` line from `~/.zshrc`.
+macOS keeps its package receipt for the install; it is a small record and does no harm left
+in place.
 
 **Windows.** Open **Settings → Apps → Installed apps**, find **Tether**, and choose
 **Uninstall**. If a **Tether** folder is still in the Start menu afterwards, delete it. Remove
