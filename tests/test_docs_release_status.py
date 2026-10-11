@@ -81,10 +81,13 @@ def test_the_guard_reports_the_wording_it_replaced() -> None:
 _ANNOUNCEMENT_ROW = re.compile(r"^\| Where is it announced\? \|.*$", re.MULTILINE)
 
 #: A statement about what is or is not currently on the Releases page: a link to one specific
-#: Release, or a claim that something has (not) been published (yet / so far). Each is true
-#: only until the next publication, and none of them fails anything when it stops being so.
+#: Release, a named release version, "unpublished", or a claim that something has (not) been
+#: published (yet / so far). Each is true only until the next publication, and none of them
+#: fails anything when it stops being so. The bare word "published" is deliberately allowed:
+#: "the record of every published Release" describes the page, not its contents.
 _PUBLICATION_STATE = re.compile(
-    r"releases/tag/|\b(?:has|have)\s+(?:not\s+)?(?:yet\s+)?been\s+published\b"
+    r"releases/tag/|\bv\d+\.\d+\.\d+|\bunpublished\b"
+    r"|\b(?:has|have)\s+(?:not\s+)?(?:yet\s+)?been\s+published\b"
     r"|\bpublished\s+so\s+far\b|\bnot\s+(?:yet\s+)?(?:been\s+)?published\b",
     re.IGNORECASE,
 )
@@ -121,6 +124,10 @@ def test_the_publication_state_guard_reports_the_wording_it_replaced() -> None:
     assert _PUBLICATION_STATE.search("**The stable `v1.0.0` Release has not been published**")
     assert _PUBLICATION_STATE.search("the stable Release is not yet published")
     assert _PUBLICATION_STATE.search("`v1.0.0` has been published")
+    # Ordinary phrasings of the same claim, which a wording-only pattern would let through.
+    assert _PUBLICATION_STATE.search("The only published Release is v1.0.0-rc1")
+    assert _PUBLICATION_STATE.search("the stable release remains unpublished")
+    assert _PUBLICATION_STATE.search("v1.0.0 is now available")
     assert not _PUBLICATION_STATE.search(
         "The Releases page is the record of every published Release"
     )
