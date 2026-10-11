@@ -1,12 +1,15 @@
 # Releasing Tether (tag-driven pipeline)
 
+**Who this page is for.** Tether maintainers with write access to `bioedca/tether`; users do
+not need this page. To install a published release, follow [Install Tether](install.md).
+
 Tether ships **self-contained installers** for Windows, macOS and Linux,
 built and published by [`.github/workflows/release.yml`](https://github.com/bioedca/tether/blob/main/.github/workflows/release.yml)
 (see [ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). The pipeline
 runs on a signed `v*` tag: it **verifies** the tag, **builds** the installers (the
 [constructor recipe](packaging.md)), **install-smokes** each one on its build runner —
 the same offline `packaging/scripts/install_smoke.sh` probe sequence the advisory
-[packaging workflow](packaging.md#building-from-source) runs, executed on the exact
+[packaging workflow](maintainers/building-installers.md#building-from-source) runs, executed on the exact
 bytes about to be uploaded, so a broken installer fails the build instead of shipping —
 and **publishes** a GitHub
 Release with checksums, a CycloneDX SBOM, the frozen Tether GUI/runtime (`conda-lock.yml`), sidecar
