@@ -32,11 +32,18 @@ position (``detection_threshold``, ``min_separation``). Swapping those labels le
 every literal present and distinct, so the guard stayed green while the page printed
 the wrong per-mode number. A registry entry may therefore carry mode labels, and a
 labelled value must appear next to *its own* label — see :class:`Claim`.
+
+A default spelled as a constant (``bins=DEFAULT_NBINS``) is two links, page -> constant
+and constant -> signature, and the registry pins only the first. The second is
+:data:`_CONSTANT_BACKED_SURFACES`, and that table is itself checked against the page: the
+**Set via** column is read, every keyword a constant-naming row spells is resolved in the
+source, and each one defaulted to a name must be in the table (#442).
 """
 
 from __future__ import annotations
 
 import ast
+import functools
 import re
 from pathlib import Path
 from typing import NamedTuple
@@ -120,6 +127,47 @@ def function_default(dotted: str, func: str, param: str) -> object:
     raise AssertionError(f"{dotted} has no module-level function {func!r}")
 
 
+def _signature(fn: ast.FunctionDef) -> dict[str, ast.expr | None]:
+    """Every named parameter of ``fn`` mapped to its default node (``None`` if it has none).
+
+    ``*args`` / ``**kwargs`` are not named parameters and are left out, so a keyword the
+    page spells that is only swallowed by ``**kwargs`` does not count as existing.
+    """
+    args = fn.args
+    positional = args.posonlyargs + args.args
+    padded: list[ast.expr | None] = [None] * (len(positional) - len(args.defaults))
+    out = dict(zip((a.arg for a in positional), padded + list(args.defaults), strict=True))
+    out.update(zip((a.arg for a in args.kwonlyargs), args.kw_defaults, strict=True))
+    return out
+
+
+def _function_def(dotted: str, qualname: str) -> ast.FunctionDef:
+    """The ``def`` for ``qualname`` in module ``dotted``: ``func`` or ``Class.method``."""
+    owner, _, name = qualname.rpartition(".")
+    body: list[ast.stmt] = _module_source(dotted).body
+    if owner:
+        cls = next((s for s in body if isinstance(s, ast.ClassDef) and s.name == owner), None)
+        if cls is None:
+            raise AssertionError(f"{dotted} has no class {owner!r}")
+        body = cls.body
+    for stmt in body:
+        if isinstance(stmt, ast.FunctionDef) and stmt.name == name:
+            return stmt
+    kind = "method" if owner else "module-level function"
+    raise AssertionError(f"{dotted} has no {kind} {qualname!r}")
+
+
+def _name_default(where: str, param: str, node: ast.expr | None) -> str:
+    """``node``'s constant name, or a failure saying the signature has left the constant."""
+    if not isinstance(node, ast.Name):
+        raise AssertionError(
+            f"{where} no longer defaults {param!r} to a named constant "
+            f"(it is {ast.unparse(node) if node is not None else 'absent'}) — the page "
+            f"prints the constant's value for this surface, so the two have parted"
+        )
+    return node.id
+
+
 def function_default_name(dotted: str, func: str, param: str) -> str:
     """The **name** ``param``'s default is spelled with on ``func`` in module ``dotted``.
 
@@ -129,32 +177,14 @@ def function_default_name(dotted: str, func: str, param: str) -> str:
     a lie -- but it leaves one link unguarded: the constant can sit still while the
     *signature* drifts off it. Nothing else in this module reads a signature whose default
     is a name, so nothing else would notice.
+
+    ``func`` may be dotted, ``Class.method``, because the page documents a method surface
+    (``DwellTimeAnalysis.histogram(nbins=…)``) exactly as it documents a function.
     """
-    for stmt in _module_source(dotted).body:
-        if not (isinstance(stmt, ast.FunctionDef) and stmt.name == func):
-            continue
-        args = stmt.args
-        positional = args.posonlyargs + args.args
-        defaulted = positional[len(positional) - len(args.defaults) :]
-        pairs: list[tuple[str, ast.expr | None]] = [
-            (arg.arg, default) for arg, default in zip(defaulted, args.defaults, strict=True)
-        ]
-        pairs += [
-            (arg.arg, default)
-            for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=True)
-        ]
-        for name, node in pairs:
-            if name != param:
-                continue
-            if not isinstance(node, ast.Name):
-                raise AssertionError(
-                    f"{dotted}.{func} no longer defaults {param!r} to a named constant "
-                    f"(it is {ast.unparse(node) if node is not None else 'absent'}) — the page "
-                    f"prints the constant's value for this surface, so the two have parted"
-                )
-            return node.id
-        raise AssertionError(f"{dotted}.{func} has no defaulted parameter {param!r}")
-    raise AssertionError(f"{dotted} has no module-level function {func!r}")
+    signature = _signature(_function_def(dotted, func))
+    if param not in signature:
+        raise AssertionError(f"{dotted}.{func} has no parameter {param!r}")
+    return _name_default(f"{dotted}.{func}", param, signature[param])
 
 
 def dataclass_field(dotted: str, class_name: str, field: str) -> object:
@@ -171,6 +201,57 @@ def dataclass_field(dotted: str, class_name: str, field: str) -> object:
                     return _literal(item.value)
             raise AssertionError(f"{dotted}.{class_name} has no field {field!r}")
     raise AssertionError(f"{dotted} has no class {class_name!r}")
+
+
+def _dataclass_fields(cls: ast.ClassDef) -> dict[str, ast.expr | None]:
+    """The annotated fields of a class body mapped to their default nodes."""
+    return {
+        item.target.id: item.value
+        for item in cls.body
+        if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)
+    }
+
+
+def dataclass_field_name(dotted: str, class_name: str, field: str) -> str:
+    """The **name** the default of dataclass field ``field`` is spelled with.
+
+    :func:`dataclass_field` with the ``literal_eval`` replaced by an ``ast.Name`` check --
+    the dataclass counterpart of :func:`function_default_name`, for a field such as
+    ``SidecarSupervision.probe_timeout`` that the page documents through its constant.
+    """
+    for stmt in _module_source(dotted).body:
+        if isinstance(stmt, ast.ClassDef) and stmt.name == class_name:
+            fields = _dataclass_fields(stmt)
+            if field not in fields:
+                raise AssertionError(f"{dotted}.{class_name} has no field {field!r}")
+            return _name_default(f"{dotted}.{class_name}", field, fields[field])
+    raise AssertionError(f"{dotted} has no class {class_name!r}")
+
+
+def _is_dataclass(cls: ast.ClassDef) -> bool:
+    """Is ``cls`` decorated ``@dataclass`` / ``@dataclass(...)`` / ``@dataclasses.dataclass``?"""
+    for decorator in cls.decorator_list:
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        if (isinstance(target, ast.Name) and target.id == "dataclass") or (
+            isinstance(target, ast.Attribute) and target.attr == "dataclass"
+        ):
+            return True
+    return False
+
+
+def surface_default_name(dotted: str, qualname: str, param: str) -> str:
+    """The constant name a documented surface's default is spelled with, any resolver.
+
+    A bare ``qualname`` naming a dataclass in ``dotted`` is read as a field
+    (:func:`dataclass_field_name`); anything else -- a module-level function or a
+    ``Class.method`` -- as a signature (:func:`function_default_name`).
+    """
+    if "." not in qualname and any(
+        isinstance(s, ast.ClassDef) and s.name == qualname and _is_dataclass(s)
+        for s in _module_source(dotted).body
+    ):
+        return dataclass_field_name(dotted, qualname, param)
+    return function_default_name(dotted, qualname, param)
 
 
 def _fmt(value: object) -> str:
@@ -970,19 +1051,26 @@ def test_every_constant_the_page_prints_a_value_for_is_registered() -> None:
     )
 
 
-#: The surfaces this page newly names whose default is a *constant*, not a literal:
-#: ``(module, function, parameter, the constant it must still be spelled with)``.
+#: The surfaces the page documents whose default is a *constant*, not a literal:
+#: ``(module, qualified name, parameter, the constant it must still be spelled with)``.
+#: The qualified name is a module-level function, a ``Class.method``, or a dataclass whose
+#: field the parameter is (:func:`surface_default_name` tells them apart).
 #:
-#: Every other newly named surface is bound by a ``function_default`` registry entry, which
-#: reads the literal out of the signature. These three cannot be: their defaults are names,
-#: and ``function_default`` refuses a name on purpose. The registry therefore pins their
+#: Every literal-defaulted surface is bound by a ``function_default`` registry entry, which
+#: reads the literal out of the signature. These cannot be: their defaults are names, and
+#: ``function_default`` refuses a name on purpose. The registry therefore pins their
 #: printed value to the *constant* and the signature to nothing, so
 #: ``model_gaussian_overlay(n_points=500)`` with ``DEFAULT_OVERLAY_POINTS`` left at ``1001``
-#: passes every check above while the page tells the reader ``1001``.
+#: would pass every registry check while the page tells the reader ``1001``.
 #:
-#: Deliberately only the surfaces this PR claims. The same hole exists for every
-#: constant-backed default the page has ever documented; closing it everywhere is a
-#: registry-wide change and is tracked separately.
+#: Hand-written, and checked against the page rather than trusted:
+#: :func:`test_every_page_named_constant_default_is_bound_by_the_table` derives every
+#: ``(surface, keyword)`` pair a constant-naming row's **Set via** cell spells and requires
+#: each one defaulted to a name to be here. The table may hold more than the page names
+#: (the ``w0`` seam below); it may not hold less. The *module* is not derived, because the
+#: row names the module its constant lives in, which is not always the function's
+#: (``compute_photobleach`` is in ``tether.project.photobleach``, ``PB_PRIOR_A`` in
+#: ``tether.fret.photobleach``) -- so it is written here, and verified by the resolvers.
 _CONSTANT_BACKED_SURFACES = [
     ("tether.analysis.histogram", "model_gaussian_overlay", "n_points", "DEFAULT_OVERLAY_POINTS"),
     (
@@ -1007,6 +1095,95 @@ _CONSTANT_BACKED_SURFACES = [
     ("tether.project.active", "next_recommendation", "w0", "DEFAULT_SEED_WEIGHT"),
     ("tether.ml.weighting", "seed_weight", "w0", "DEFAULT_SEED_WEIGHT"),
     ("tether.ml.weighting", "effective_weights", "w0", "DEFAULT_SEED_WEIGHT"),
+    # Every remaining (surface, keyword) pair a constant-naming row's **Set via** cell
+    # spells whose signature default is a name (#442). ``idealize_molecules.timeout`` is
+    # also pinned by ``tests/test_idealize_timeout_default.py`` (#222); it is re-bound here
+    # so the page-derived coverage check below needs no second file.
+    ("tether.analysis.cloud", "k_rmse_elbow", "k_max", "DEFAULT_ELBOW_K_MAX"),
+    ("tether.analysis.cloud", "k_rmse_elbow", "restarts", "DEFAULT_ELBOW_RESTARTS"),
+    ("tether.analysis.cloud", "k_rmse_elbow", "seed", "DEFAULT_ELBOW_SEED"),
+    ("tether.analysis.cloud", "raw_fret_cloud", "time_dt", "DEFAULT_CLOUD_TIME_DT"),
+    ("tether.analysis.dwell", "DwellTimeAnalysis.histogram", "nbins", "DEFAULT_DWELL_NBINS"),
+    ("tether.analysis.dwell", "population_dwell_times", "ci_level", "DEFAULT_DWELL_CI_LEVEL"),
+    ("tether.analysis.dwell", "population_dwell_times", "dt", "DEFAULT_DWELL_DT"),
+    ("tether.analysis.histogram", "apparent_e_histogram", "bins", "DEFAULT_NBINS"),
+    ("tether.analysis.histogram", "apparent_e_histogram", "value_range", "DEFAULT_RANGE"),
+    ("tether.analysis.histogram", "bootstrap_histogram_ci", "ci_level", "DEFAULT_CI_LEVEL"),
+    (
+        "tether.analysis.histogram",
+        "bootstrap_histogram_ci",
+        "n_resamples",
+        "DEFAULT_BOOTSTRAP_RESAMPLES",
+    ),
+    ("tether.analysis.histogram", "bootstrap_histogram_ci", "seed", "DEFAULT_SEED"),
+    ("tether.analysis.histogram", "time_signal_histogram2d", "time_dt", "DEFAULT_TIME_DT"),
+    (
+        "tether.analysis.histogram",
+        "transition_sync_histogram2d",
+        "sync_preframe",
+        "DEFAULT_SYNC_PREFRAME",
+    ),
+    ("tether.analysis.kinetics", "fit_gaussian_hmm", "n_iter", "DEFAULT_HMM_MAX_ITER"),
+    ("tether.analysis.kinetics", "fit_gaussian_hmm", "tol", "DEFAULT_HMM_TOL"),
+    ("tether.analysis.kinetics", "fit_gaussian_hmm", "var_floor", "DEFAULT_HMM_VAR_FLOOR"),
+    ("tether.analysis.plot_export", "export_figure", "dpi", "DEFAULT_EXPORT_DPI"),
+    ("tether.analysis.plot_export", "export_figure", "formats", "DEFAULT_PLOT_FORMATS"),
+    (
+        "tether.analysis.state_number",
+        "population_state_number",
+        "states_low",
+        "DEFAULT_STATE_NUMBER_LOW",
+    ),
+    ("tether.fret.photobleach", "detect_photobleach", "a", "PB_PRIOR_A"),
+    ("tether.fret.photobleach", "detect_photobleach", "b", "PB_PRIOR_B"),
+    ("tether.fret.photobleach", "detect_photobleach", "beta", "PB_PRIOR_BETA"),
+    ("tether.fret.photobleach", "detect_photobleach", "mu", "PB_PRIOR_MU"),
+    ("tether.idealize.supervisor", "SidecarSupervision", "probe_timeout", "DEFAULT_PROBE_TIMEOUT"),
+    ("tether.ml.deep.dataset", "assemble_dataset", "channels", "DEFAULT_DEEP_CHANNELS"),
+    ("tether.ml.deep.dataset", "assemble_dataset", "normalization", "DEFAULT_NORMALIZATION"),
+    ("tether.ml.deep.dataset", "assemble_dataset", "window_length", "DEFAULT_WINDOW_LENGTH"),
+    ("tether.ml.deep.dataset", "train_val_split", "seed", "DEFAULT_SPLIT_SEED"),
+    ("tether.ml.deep.dataset", "train_val_split", "val_fraction", "DEFAULT_VAL_FRACTION"),
+    ("tether.ml.deep.model", "fine_tune", "seed", "DEFAULT_SPLIT_SEED"),
+    ("tether.ml.deep.model", "train_classifier", "device", "DEFAULT_DEVICE"),
+    ("tether.ml.deep.model", "train_classifier", "seed", "DEFAULT_SPLIT_SEED"),
+    ("tether.project.deep_dataset", "build_deep_dataset", "channels", "DEFAULT_DEEP_CHANNELS"),
+    ("tether.project.drift", "cross_condition_drift", "alpha", "DEFAULT_DRIFT_ALPHA"),
+    ("tether.project.gamma", "compute_gamma", "ceiling", "GAMMA_CEILING"),
+    ("tether.project.gamma", "compute_gamma", "half_window", "DEFAULT_GAMMA_HALF_WINDOW"),
+    (
+        "tether.project.gamma",
+        "compute_gamma",
+        "min_qualifying_traces",
+        "DEFAULT_MIN_QUALIFYING_TRACES",
+    ),
+    ("tether.project.gamma", "compute_gamma", "min_window_frames", "DEFAULT_MIN_WINDOW_FRAMES"),
+    ("tether.project.idealize", "idealize_molecules", "model_type", "MODEL_TYPE_DEFAULT"),
+    ("tether.project.idealize", "idealize_molecules", "nstates_grid", "NSTATES_GRID_DEFAULT"),
+    ("tether.project.idealize", "idealize_molecules", "timeout", "DEFAULT_SIDECAR_TIMEOUT"),
+    ("tether.project.leakage", "compute_leakage_alpha", "ceiling", "LEAKAGE_CEILING"),
+    (
+        "tether.project.leakage",
+        "compute_leakage_alpha",
+        "min_qualifying_traces",
+        "DEFAULT_MIN_QUALIFYING_TRACES",
+    ),
+    (
+        "tether.project.leakage",
+        "compute_leakage_alpha",
+        "min_window_frames",
+        "DEFAULT_MIN_WINDOW_FRAMES",
+    ),
+    ("tether.project.photobleach", "compute_photobleach", "a", "PB_PRIOR_A"),
+    ("tether.project.photobleach", "compute_photobleach", "b", "PB_PRIOR_B"),
+    ("tether.project.photobleach", "compute_photobleach", "beta", "PB_PRIOR_BETA"),
+    ("tether.project.photobleach", "compute_photobleach", "mu", "PB_PRIOR_MU"),
+    (
+        "tether.project.prequential",
+        "ranker_prequential_uplift",
+        "ship_bar_pts",
+        "DEFAULT_SHIP_BAR_PTS",
+    ),
 ]
 
 
@@ -1044,10 +1221,195 @@ def test_a_documented_constant_backed_default_still_names_its_constant(
     dotted: str, func: str, param: str, constant: str
 ) -> None:
     """A signature the page documents may not drift off the constant it prints."""
-    assert function_default_name(dotted, func, param) == constant, (
+    assert surface_default_name(dotted, func, param) == constant, (
         f"{dotted}.{func} defaults {param!r} to something other than {constant} — "
         f"docs/reference/parameters.md prints {constant}'s value for this surface"
     )
+
+
+# --- The table, checked against the page ----------------------------------------
+# ``_CONSTANT_BACKED_SURFACES`` is enumerated by hand, and an enumeration rots. The page's
+# **Set via** column is what names function surfaces, so it is read here: every backticked
+# ``NAME(kw=…)`` token on a row whose **Parameter** cell names a SCREAMING_CASE constant
+# yields one ``(surface, keyword)`` pair per keyword it spells, and each pair lands in
+# exactly one of three dispositions --
+#
+#   1. the keyword's default is a *name*      -> the pair must be in the table;
+#   2. it is a literal, or there is no default -> nothing to bind here (a literal default
+#      is ``function_default``'s business);
+#   3. ``NAME`` resolves to nothing, or the keyword is not one of its parameters
+#                                             -> the check fails, naming the token.
+#
+# There is no fourth. Nothing can declare a surface out of scope, because an exemption
+# list would let the whole check be discharged by binding a few surfaces and exempting the
+# rest. A token that spells no keyword (``DeepTraceDataset.split(…)``) yields no pair, and
+# a row naming no constant is not walked: the predicate is the keywords a cell *spells*.
+
+#: A **Set via** token naming a callable surface: ``NAME(…)``, where ``NAME`` may be dotted
+#: (``DwellTimeAnalysis.histogram``). CLI flags and prose never match.
+_SURFACE_TOKEN_RE = re.compile(r"^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\((.*)\)$")
+#: A keyword a surface token spells: ``kw=…``. ``==`` is a comparison, not a keyword.
+_KEYWORD_RE = re.compile(r"([A-Za-z_]\w*)\s*=(?!=)")
+
+
+@functools.cache
+def _source_modules() -> tuple[tuple[str, ast.Module], ...]:
+    """Every module under ``src/``, parsed once, as ``(dotted name, tree)``."""
+    return tuple(
+        (
+            ".".join(path.relative_to(SRC).with_suffix("").parts),
+            ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
+        )
+        for path in sorted(SRC.rglob("*.py"))
+    )
+
+
+def _resolve(name: str) -> list[tuple[str, dict[str, ast.expr | None]]]:
+    """Every ``(module, parameters)`` that the surface ``name`` resolves to.
+
+    Three resolvers: a module-level function ``name``; a dataclass ``name``, whose fields
+    are its parameters; and, for a dotted ``name``, the method ``Class.method``. The whole
+    source tree is searched and **every** hit is returned rather than the first: two
+    modules define a module-level ``fine_tune`` today, and picking one would be a quiet
+    mis-resolution the day both default a keyword to a name. Each hit keeps its module, so
+    the coverage check requires a table entry for each one and fails loudly instead.
+    """
+    owner, _, leaf = name.rpartition(".")
+    if "." in owner:
+        return []
+    hits: list[tuple[str, dict[str, ast.expr | None]]] = []
+    for dotted, tree in _source_modules():
+        for stmt in tree.body:
+            if owner:
+                if isinstance(stmt, ast.ClassDef) and stmt.name == owner:
+                    hits += [
+                        (dotted, _signature(item))
+                        for item in stmt.body
+                        if isinstance(item, ast.FunctionDef) and item.name == leaf
+                    ]
+            elif isinstance(stmt, ast.FunctionDef) and stmt.name == leaf:
+                hits.append((dotted, _signature(stmt)))
+            elif isinstance(stmt, ast.ClassDef) and stmt.name == leaf and _is_dataclass(stmt):
+                hits.append((dotted, _dataclass_fields(stmt)))
+    return hits
+
+
+class _Derived(NamedTuple):
+    """What the page's **Set via** cells require of :data:`_CONSTANT_BACKED_SURFACES`.
+
+    ``required`` maps each disposition-1 ``(module, qualified name, parameter)`` to the
+    constants named by the row(s) that spelled it; ``unresolved`` holds one message per
+    disposition-3 token or keyword.
+    """
+
+    required: dict[tuple[str, str, str], frozenset[str]]
+    unresolved: list[str]
+
+
+def _derive(rows: list[list[str]]) -> _Derived:
+    """Walk the constant-naming six-column rows and sort every spelled keyword."""
+    required: dict[tuple[str, str, str], frozenset[str]] = {}
+    unresolved: list[str] = []
+    for row in rows:
+        if len(row) != 6:
+            continue
+        constants = frozenset(t for t in _BACKTICKED_RE.findall(row[0]) if _CONSTANT_RE.match(t))
+        if not constants:
+            continue
+        for token in _BACKTICKED_RE.findall(row[4]):
+            match = _SURFACE_TOKEN_RE.match(token)
+            if match is None:
+                continue
+            name, inner = match.groups()
+            hits = _resolve(name)
+            if not hits:
+                unresolved.append(
+                    f"`{token}` names {name!r}, which is no module-level function, dataclass "
+                    f"or Class.method under src/"
+                )
+                continue
+            for keyword in _KEYWORD_RE.findall(inner):
+                owners = [(dotted, params[keyword]) for dotted, params in hits if keyword in params]
+                if not owners:
+                    unresolved.append(
+                        f"`{token}` spells {keyword}=, which is not a parameter of {name!r} in "
+                        f"any of {sorted(dotted for dotted, _ in hits)}"
+                    )
+                for dotted, default in owners:
+                    if isinstance(default, ast.Name):
+                        key = (dotted, name, keyword)
+                        required[key] = required.get(key, frozenset()) | constants
+    return _Derived(required, unresolved)
+
+
+def test_every_surface_a_set_via_cell_names_resolves() -> None:
+    """Disposition 3: a documented surface or keyword that the code lacks fails outright.
+
+    Rename a surface in a **Set via** cell, or have the code drop the keyword the cell
+    spells, and the page is describing a call no reader can make. That is not a pair the
+    table can skip -- it is the page and the code having parted -- so it fails here.
+    """
+    unresolved = _derive(ROWS).unresolved
+    assert not unresolved, (
+        "docs/reference/parameters.md names surfaces the code does not have:\n"
+        + "\n".join(unresolved)
+    )
+
+
+def test_every_page_named_constant_default_is_bound_by_the_table() -> None:
+    """Disposition 1: every page-named signature defaulting to a name is in the table.
+
+    One-directional -- what the page derives must be a subset of the table, which may hold
+    more (the ``w0`` seam surfaces the page claims in words rather than by name). A table
+    entry for a derived pair must also name a constant that the deriving row documents, so
+    the binding runs page -> constant -> signature with no link left to trust.
+    """
+    required = _derive(ROWS).required
+    assert required, (
+        "no (surface, keyword) pair was derived from any Set via cell -- the page's table "
+        "layout has changed and this check would otherwise pass on nothing"
+    )
+    table = {
+        (dotted, func, param): constant
+        for dotted, func, param, constant in _CONSTANT_BACKED_SURFACES
+    }
+    unbound = sorted(".".join(key) for key in required if key not in table)
+    assert not unbound, (
+        "docs/reference/parameters.md documents these constant-defaulted surfaces, but "
+        f"_CONSTANT_BACKED_SURFACES does not bind them to their constant: {unbound}"
+    )
+    foreign = sorted(
+        f"{'.'.join(key)} -> {table[key]} (row names {sorted(constants)})"
+        for key, constants in required.items()
+        if table[key] not in constants
+    )
+    assert not foreign, (
+        "table entries bind a page-named surface to a constant its own row does not name: "
+        f"{foreign}"
+    )
+
+
+def test_the_derivation_sorts_each_keyword_into_exactly_one_disposition() -> None:
+    """The mechanism itself, on rows built here: a skip would make the guard vacuous.
+
+    One constant-naming row exercising all three dispositions plus the keyword-less token,
+    and the same cell on a row naming no constant, which is not walked at all.
+    """
+    cell = (
+        "`apparent_e_histogram(bins=…)` / `raw_fret_cloud(kde=…)` / "
+        "`DeepTraceDataset.split(…)` / `apparent_e_histogram_x(bins=…)` / "
+        "`apparent_e_histogram(no_such_keyword=…)` / `tether extract --window`"
+    )
+    derived = _derive([["`bins`<br>`DEFAULT_NBINS`", "`151`", "", "", cell, "**no**"]])
+    assert derived.required == {
+        ("tether.analysis.histogram", "apparent_e_histogram", "bins"): frozenset({"DEFAULT_NBINS"})
+    }
+    assert len(derived.unresolved) == 2
+    assert "apparent_e_histogram_x" in derived.unresolved[0]
+    assert "no_such_keyword" in derived.unresolved[1]
+
+    unwalked = _derive([["`bins`", "`151`", "", "", cell, "**no**"]])
+    assert unwalked == _Derived({}, [])
 
 
 def test_every_row_states_whether_it_is_recorded_in_the_project() -> None:
