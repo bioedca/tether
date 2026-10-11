@@ -11,27 +11,54 @@ acquisition geometry and file formats Tether reads, what it deliberately does no
 what a dataset costs in time and disk. It is the fastest way to find out whether Tether
 suits your experiment before you install anything.
 
-Use the site as a route to the level of detail you need:
+## Where to go next
 
-- **Public roadmap** — [what the current release contains, what comes next, and what is
-  explicitly out of scope](roadmap.md).
-- **Reference** — the stable project-store format, analysis parameters, exports, and
-  command-line behavior under the Reference navigation section.
-- **Architecture decisions** — the [MADR log](adr/README.md) for the reasoning behind
-  consequential design choices.
+### Using Tether
+
+- [Command line](cli.md) — for scripting or batch-processing movies, and for launching
+  Tether after an installer install.
+- [Legacy Deep-LASI import](io/legacy-import.md) — for re-analysing an existing
+  Deep-LASI acquisition without re-extracting the movie.
+- [Standalone-tMAVEN hand-off](idealize/standalone-tmaven-handoff.md) — for idealizing
+  in tMAVEN's own window and bringing the result back.
+- [Seven-plot parity gallery](analysis/parity-gallery.md) — for the seven analysis
+  plots and how each corresponds to its tMAVEN counterpart.
+- [Validation & benchmarks](validation.md) — for deciding whether a Tether analysis is
+  defensible enough to publish.
+- [Deep trace classifier](ml/deep-classifier.md) — for users with a supported NVIDIA GPU
+  who want the optional deep-learning add-on.
+- [Exports](reference/exports.md) — for reading the files, columns and units Tether
+  writes.
+- [Analysis parameters](reference/parameters.md) — for every default Tether applies and
+  whether it is recorded in your project.
+- [Project store](reference/tether-format.md) — for reading a `.tether` file directly.
+- [Glossary](glossary.md) — for the terms used across these pages.
+- [Troubleshooting](troubleshooting.md) — for when a result or an install looks wrong.
+
+### Project & maintainers
+
+- [Public roadmap](roadmap.md) — for what the current release contains, what comes
+  next, and what is explicitly out of scope.
+- [Packaging & installers](packaging.md) — for what an installer contains and how to
+  verify a download.
+- [Releasing](release.md) — for maintainers cutting a tagged release.
+- [Architecture decisions](adr/README.md) — for the reasoning behind consequential
+  design choices.
+- [Stability policy](stability.md) — for what a version number promises.
+- [Privacy policy](privacy.md) — for what Tether and this site do, and do not, collect.
 
 ## Modules (PRD §4.2)
 
 | Module | Responsibility |
 | --- | --- |
-| `tether.io` | Readers, the HDF5 project store, the filename parser, and exporters. |
-| `tether.imaging` | Native movie-to-trace extraction and registration. |
-| `tether.fret` | Photobleaching detection, correction factors, and corrected FRET. |
-| `tether.idealize` | The tMAVEN sidecar driver and dwell/rate analysis. |
-| `tether.ml` | The per-condition incrementally-retrained quality ranker. |
-| `tether.analysis` | Histograms, transition-density plots, and population statistics. |
-| `tether.gui` | The PySide6 shell and dockable analysis surfaces. |
-| `tether.project` | The experiment/session model and the headless core. |
+| [`tether.io`](io/legacy-import.md) | Readers, the HDF5 project store, the filename parser, and [exporters](reference/exports.md). |
+| [`tether.imaging`](cli.md#tether-extract) | Native movie-to-trace extraction and registration. |
+| [`tether.fret`](adr/0026-photobleach-detection-and-window-default.md) | Photobleaching detection, correction factors, and corrected FRET. |
+| [`tether.idealize`](idealize/standalone-tmaven-handoff.md) | The tMAVEN sidecar driver and dwell/rate analysis. |
+| [`tether.ml`](ml/deep-classifier.md) | The per-condition incrementally-retrained quality ranker. |
+| [`tether.analysis`](analysis/parity-gallery.md) | Histograms, transition-density plots, and population statistics. |
+| [`tether.gui`](adr/0055-gui-session-writer-ownership.md) | The PySide6 shell and dockable analysis surfaces. |
+| [`tether.project`](adr/0030-headless-batch-runner-isolation-and-checkpoint.md) | The experiment/session model and the headless core. |
 
 ## License
 
