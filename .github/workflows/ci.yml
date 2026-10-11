@@ -142,6 +142,17 @@ jobs:
         run: python -m pip install -r requirements-docs.txt
       - name: Build docs (strict)
         run: mkdocs build --strict --site-dir site
+      # tests/test_docs_validation_numbers.py copies Python-Markdown's fence and attr-list
+      # rules rather than importing them, and the base lock carries no Markdown, so the 3-OS
+      # matrix skips the parity tests. This job installs the Markdown the docs build resolves,
+      # so they run here, and TETHER_REQUIRE_PYTHON_MARKDOWN makes a failed import fail
+      # instead of skip (#517). pytest is pinned to the test matrix's version.
+      - name: Fence-rule parity with the resolved Python-Markdown
+        env:
+          TETHER_REQUIRE_PYTHON_MARKDOWN: "1"
+        run: |
+          python -m pip install "pytest==9.1.1"
+          python -m pytest -v tests/test_docs_validation_numbers.py -k python_markdown
       # The rendered site, so a reviewer can open the page a docs PR changes instead of
       # inferring it from markdown (#183). `--strict` only sees links it can resolve, so
       # the rendered HTML is the one place an unresolved `[text][key]` is visible as text.
