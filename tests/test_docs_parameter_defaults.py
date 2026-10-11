@@ -301,16 +301,19 @@ def surface_default_name(dotted: str, qualname: str, param: str) -> str:
 # table is compared with what it reaches.
 
 
-def _parsed(dotted: str) -> ast.Module | None:
-    """``dotted`` parsed from under ``SRC`` (a module or a package), or ``None`` if it is not.
+def _parsed(dotted: str) -> ast.Module | str:
+    """``dotted`` parsed from under ``SRC`` (a module or a package), or why it cannot be.
 
-    A package wins over a module of the same name, as it does when Python imports it.
+    Where ``x.py`` and ``x/__init__.py`` both exist, which one an import reaches is not
+    modelled here; the collision is reported instead, so it can only fail.
     """
     base = SRC / Path(*dotted.split("."))
-    for path in (base / "__init__.py", base.with_suffix(".py")):
-        if path.is_file():
-            return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    return None
+    paths = [p for p in (base.with_suffix(".py"), base / "__init__.py") if p.is_file()]
+    if len(paths) > 1:
+        return "both a module and a package"
+    if not paths:
+        return "outside src/"
+    return ast.parse(paths[0].read_text(encoding="utf-8"), filename=str(paths[0]))
 
 
 def _binds(node: ast.AST) -> set[str]:
@@ -353,7 +356,7 @@ def _absolute(dotted: str, stmt: ast.ImportFrom) -> str | None:
     parts = dotted.split(".")
     is_package = parts[-1] == "__init__" or (SRC / Path(*parts) / "__init__.py").is_file()
     # A package's ``__init__`` resolves ``.`` against the package itself, a module against
-    # the package that holds it -- the same package-first choice :func:`_parsed` makes.
+    # the package that holds it. (A name that is both is refused by :func:`_parsed`.)
     package = [p for p in parts if p != "__init__"] if is_package else parts[:-1]
     if stmt.level > len(package):
         return None  # Python: "attempted relative import beyond top-level package"
@@ -385,8 +388,9 @@ def bound_constant(dotted: str, qualname: str, name: str) -> _Bound:
     trace. In the surface's own module that statement must also come before the surface,
     since a ``def`` evaluates its defaults when it runs. Anything else -- a second binding of
     any kind (a shadow, a reassignment, a conditional or class-body rebinding, a ``match``
-    capture, a duplicate alias, a star import), a binding nested in another statement, or a
-    module outside ``src/`` -- ends the trace with the reason in ``problem``, so it can only
+    capture, a duplicate alias, a star import), a binding nested in another statement, a
+    module outside ``src/`` or one that is also a package, or a relative import above the
+    top-level package -- ends the trace with the reason in ``problem``, so it can only
     fail. Python's own resolution is never modelled, only ruled out.
     """
     tree = _module_source(dotted)
@@ -399,8 +403,8 @@ def bound_constant(dotted: str, qualname: str, name: str) -> _Bound:
     via: list[str] = []
     while True:
         module = _parsed(dotted)
-        if module is None:
-            return _Bound(dotted, name, tuple(via), "outside src/")
+        if isinstance(module, str):
+            return _Bound(dotted, name, tuple(via), module)
         sites = _binding_sites(module, name)
         if len(sites) != 1:
             return _Bound(dotted, name, tuple(via), f"bound {len(sites)} times there")
@@ -1614,10 +1618,12 @@ class _Derived(NamedTuple):
 
 
 def _is_call(token: str, name: str) -> bool:
-    """Does ``token``, its ``…`` read as ``...``, parse as one call of ``name`` itself --
-    parentheses balanced, and not a call of what that call returns?"""
+    """Does ``token``, its ``…`` read as ``...``, compile as one call of ``name`` itself --
+    parentheses balanced, no keyword repeated, and not a call of what that call returns?"""
+    source = token.replace("…", "...")
     try:
-        body = ast.parse(token.replace("…", "..."), mode="eval").body
+        body = ast.parse(source, mode="eval").body
+        compile(source, "<Set via>", "eval")  # the parser lets a repeated keyword through
     except SyntaxError:
         return False
     return isinstance(body, ast.Call) and ast.unparse(body.func) == name
@@ -1653,7 +1659,7 @@ def _derive(rows: list[list[str]], modules: _Modules | None = None) -> _Derived:
                     unresolved.append(
                         f"`{token}` carries a parenthesis but is not a surface call: NAME(…) "
                         "needs NAME to be a Python identifier, optionally dotted, called once "
-                        "with both parentheses"
+                        "with both parentheses and no keyword repeated"
                     )
                 continue
             name, inner = match.groups()
@@ -1976,7 +1982,7 @@ _PRIORS = "PB_PRIOR_A = 1.0\nPB_PRIOR_MU = 0.0\n"
                 "consts/__init__": "PB_PRIOR_X = 2.0\n",
                 "proj": "from pkg.consts import PB_PRIOR_A\ndef f(a=PB_PRIOR_A): ...\n",
             },
-            "bound 0 times there",
+            "both a module and a package",
         ),
         (
             {
@@ -1985,6 +1991,13 @@ _PRIORS = "PB_PRIOR_A = 1.0\nPB_PRIOR_MU = 0.0\n"
                 "proj": "from ..top import PB_PRIOR_A\ndef f(a=PB_PRIOR_A): ...\n",
             },
             "beyond the top-level package",
+        ),
+        (
+            {
+                "proj": "from pkg.fret import PB_PRIOR_A\ndef f(a=PB_PRIOR_A): ...\n",
+                "proj/__init__": "from pkg.fret import PB_PRIOR_A\n",
+            },
+            "both a module and a package",
         ),
     ],
     ids=[
@@ -2004,6 +2017,7 @@ _PRIORS = "PB_PRIOR_A = 1.0\nPB_PRIOR_MU = 0.0\n"
         "package-init-home",
         "package-shadows-module",
         "relative-beyond-top",
+        "surface-shadowed-by-package",
     ],
 )
 def test_a_name_default_is_traced_to_the_constant_it_is_bound_to(
@@ -2016,9 +2030,9 @@ def test_a_name_default_is_traced_to_the_constant_it_is_bound_to(
 
     An alias, a shadow, a reassignment, a conditional rebinding, a star import, or an import
     the ``def`` runs before all leave the spelled name intact and the value open to change,
-    so each fails and names what it found. So do an import Python would resolve differently
-    (a package beside a module of the same name) or refuse (a relative import above the
-    top-level package). Each key is a path under ``pkg/``; ``../top`` sits beside it.
+    so each fails and names what it found. So do a module that is also a package, on either
+    end of the trace, and a relative import Python would refuse (above the top-level
+    package). Each key is a path under ``pkg/``; ``../top`` sits beside it.
     """
     for name, source in {"fret": _PRIORS, **modules}.items():
         path = tmp_path / "pkg" / f"{name}.py"
@@ -2046,6 +2060,7 @@ def test_a_call_shaped_token_that_names_no_surface_fails() -> None:
         "`apparent_e_histogram(bins=…))`",
         "`apparent_e_histogram((bins=…)`",
         "`apparent_e_histogram(bins=…)(…)`",
+        "`apparent_e_histogram(bins=…, bins=…)`",
     ]
     cell = " / ".join([*malformed, "`tether extract --window`", "`--window`"])
     derived = _derive([["`bins`<br>`DEFAULT_NBINS`", "`151`", "", "", cell, "**no**"]])
