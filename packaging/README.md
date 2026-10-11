@@ -101,9 +101,13 @@ constructor --conda-exe "$(command -v conda-standalone)" --output-dir packaging/
 `$PLATFORM` is one of `linux-64`, `osx-64`, `osx-arm64`, `win-64` — build on (or for)
 the target OS.
 
-## Signing (deferred to PR-2)
+## Code signing
 
-Installers are **unsigned** here. Authenticode (Windows) and `productsign` +
-notarization (macOS) are wired with repository secrets in the release pipeline
-(`release.yml`, PRD §12.7): the `windows_signing_tool` / `signing_identity_name` /
-`notarization_identity_name` keys are documented but inactive in `construct.yaml`.
+Installers are **not OS-code-signed on any platform**, and that is the settled 1.0 position
+rather than a pending step: no Authenticode, `productsign` or notarization leg exists in the
+release pipeline, and none is waiting on a secret. The integrity anchor is the published
+`SHA256SUMS-<platform>.txt` manifests plus the build-provenance attestation over every
+installer. The commented-out signing keys in `construct.yaml` are documentation only.
+**[ADR-0059](../docs/adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)**
+records the decision; re-applying for OS code signing is tracked in
+[#244](https://github.com/bioedca/tether/issues/244).

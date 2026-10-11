@@ -24,7 +24,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "The Tether Authors", email = "bioedca@u.northwestern.edu" }]
 keywords = ["smFRET", "single-molecule", "FRET", "microscopy", "biophysics"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Science/Research",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",

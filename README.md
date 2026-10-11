@@ -3,17 +3,18 @@
 **A provenance-first desktop suite for single-molecule FRET (smFRET) analysis.**
 
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha%20(M0)-orange.svg)](docs/PRD.md)
-
-> **Status — pre-alpha (milestone M0, foundation).** Tether is under active
-> construction. This repository currently holds governance, the frozen product
-> spec, and the scaffold; the analysis features described below are the target
-> defined in [`docs/PRD.md`](docs/PRD.md), landed milestone by milestone (§9).
+[![Docs](https://img.shields.io/badge/docs-bioedca.github.io%2Ftether-indigo.svg)](https://bioedca.github.io/tether/)
 
 Tether is a cross-platform application for the Mondragón Lab (Northwestern
 University) that takes you from a raw TIRF movie to curated, corrected,
 idealized smFRET traces — without ever losing the link between a trace and the
-pixels it came from.
+pixels it came from. Extraction, curation, corrections, idealization and analysis
+are all in the application today; the
+[documentation site](https://bioedca.github.io/tether/) is the user manual.
+
+**Does Tether fit my data?** Check
+[supported inputs, acquisition geometry, scale and non-goals](https://bioedca.github.io/tether/latest/compatibility/)
+before you install.
 
 ## Why Tether
 
@@ -24,7 +25,7 @@ origin**: coordinates, correction factors, parameters, and the app version are
 stamped into a single self-describing project file, and the trace ⇄ movie
 **round-trip** is a property of the data model, not a fragile convenience.
 
-## What it does (target capability — see [PRD §3](docs/PRD.md))
+## What it does
 
 - **Native extraction** — faithful TIFF movie → trace extraction (channel split,
   à trous spot detection, polynomial registration, donor-anchored
@@ -45,32 +46,90 @@ stamped into a single self-describing project file, and the trace ⇄ movie
 
 ## Installation
 
-> Packaging (conda-forge + `constructor` installers) lands at milestone M9. The installers
-> are **not OS-code-signed** — see
-> [ADR-0059](docs/adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md).
-> For now Tether is a source checkout against a pinned conda environment.
+### Desktop installer (recommended)
+
+Tether ships as one self-contained, offline installer per platform — a Windows
+`.exe`, a macOS `.pkg` and a Linux `.sh` — that bundles the application and its
+isolated tMAVEN sidecar. See
+[Packaging & installers](https://bioedca.github.io/tether/latest/packaging/) for
+what each installer contains and how to verify the download.
+
+The installers are **not OS-code-signed**, so expect a Windows SmartScreen or macOS
+Gatekeeper warning; the published SHA-256 manifests and build-provenance attestation
+are the integrity check instead
+([ADR-0059](docs/adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)).
+
+### From source
+
+For development, restore the pinned base environment from the committed
+`conda-lock.yml` (never re-solve it) and install Tether into it without
+dependencies:
 
 ```bash
 git clone https://github.com/bioedca/tether.git
 cd tether
-# environment + editable install instructions arrive with the M0 package
-# skeleton; see CONTRIBUTING.md.
+micromamba create -n tether -f conda-lock.yml
+micromamba activate tether
+pip install -e . --no-deps
 ```
 
-The base application stack (Python, NumPy, Numba, napari/PySide6/pyqtgraph) is
-pinned in a committed `conda-lock`; the tMAVEN idealization sidecar runs in its
-own isolated environment. See [`docs/PRD.md` §4](docs/PRD.md) for the stack.
+Idealization needs the separate tMAVEN sidecar environment, which
+`python scripts/setup_sidecar.py` builds from `sidecar/conda-lock.yml`.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the full setup.
+
+## Quickstart
+
+<!-- A hero screenshot of the round-trip browser goes here. -->
+
+The installer does **not** edit your `PATH`. It writes both launchers into
+`<install-root>/bin/` (`<install-root>\bin\` on Windows), and on Windows and Linux it
+also adds a **Tether** entry to the Start Menu or applications menu.
+
+Open the desktop application from that menu entry, or run the window launcher:
+
+```bash
+<install-root>/bin/tether-gui        # Windows: <install-root>\bin\tether-gui.bat
+```
+
+To use the command line, add `<install-root>/bin` to your `PATH`, check the install,
+and extract a dual-channel TIFF movie into a new project:
+
+```bash
+export PATH="<install-root>/bin:$PATH"   # PowerShell: $env:PATH = "<install-root>\bin;$env:PATH"
+tether --version
+tether extract movie.tif -o project.tether
+```
+
+`--donor-side` (default `left`) must match which half of your frame carries the donor,
+and nothing warns you when it is wrong. The
+[command-line reference](https://bioedca.github.io/tether/latest/cli/) covers that,
+every other flag, and `tether batch`.
 
 ## Documentation
 
+- **User manual:** https://bioedca.github.io/tether/ — use the version selector to
+  match your installed release.
+- **Installers:** [Packaging & installers](https://bioedca.github.io/tether/latest/packaging/)
+  and [launching Tether after an install](https://bioedca.github.io/tether/latest/cli/#launching-tether-after-an-installer-install).
 - **Does Tether fit my data?** —
   [supported inputs, acquisition geometry, scale and non-goals](https://bioedca.github.io/tether/latest/compatibility/).
-  Read this first if you are deciding whether to install.
-- **Product spec:** [`docs/PRD.md`](docs/PRD.md) — the §-numbered source of truth.
 - **Architecture decisions:** [`docs/adr/`](docs/adr/) (MADR format).
 - **Contributing:** [`CONTRIBUTING.md`](CONTRIBUTING.md) — workflow, gates,
   schema-freeze rule, Conventional Commits.
-- **Security:** [`SECURITY.md`](SECURITY.md) — private vulnerability reporting.
+- **Product spec:** [`docs/PRD.md`](docs/PRD.md) — the §-numbered source of truth.
+
+## Getting help
+
+- **Something went wrong?** Check
+  [Troubleshooting](https://bioedca.github.io/tether/latest/troubleshooting/) first.
+- **A question?** Ask in
+  [Discussions Q&A](https://github.com/bioedca/tether/discussions/new?category=q-a),
+  or use the Question form under
+  [New issue](https://github.com/bioedca/tether/issues/new/choose).
+- **A bug or a docs gap?** Open the matching form under
+  [New issue](https://github.com/bioedca/tether/issues/new/choose).
+- **A security problem?** Never open a public issue; follow
+  [`SECURITY.md`](SECURITY.md) to report it privately.
 
 ## Citing
 
