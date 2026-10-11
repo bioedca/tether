@@ -1439,10 +1439,12 @@ MICROMAMBA_PIN = "2.8.1-0"
 #: The trailing `# v<X.Y.Z>` tag comment on a `uses: mamba-org/setup-micromamba@<sha>` line,
 #: quoted or not. Read from TEXT because a YAML parse discards comments; counted against the
 #: PARSED call sites per file, so a spelling this misses fails instead of vanishing (#510).
+#: Horizontal whitespace only around the ``#``: ``\s`` would cross the newline and accept a
+#: tag sitting on the NEXT line as this ``uses:`` line's trailing comment.
 _SETUP_MICROMAMBA_TAG = re.compile(
     r"^\s*(?:-\s*)?uses:\s*[\"']?"
     + re.escape(SETUP_MICROMAMBA)
-    + r"[^\s\"'#]*[\"']?\s+#\s*(v\d+\.\d+\.\d+)\b",
+    + r"[^\s\"'#]*[\"']?[ \t]+#[ \t]*(v\d+\.\d+\.\d+)\b",
     re.M,
 )
 
@@ -1621,6 +1623,21 @@ def test_a_call_site_pin_is_read_from_its_own_with_mapping() -> None:
     )
     assert _micromamba_call_sites_in(unpinned).pins == [None]
     assert _micromamba_call_sites_in(pinned).pins == [MICROMAMBA_PIN]
+
+
+def test_the_version_tag_must_trail_its_own_uses_line() -> None:
+    """A ``# v<X.Y.Z>`` on the line after ``uses:`` is not that call site's trailing tag.
+
+    With ``\\s`` around the ``#`` the tag regex crossed the newline, so a one-call-site file
+    whose tag had moved down a line still parsed one tag per call site and passed (#502).
+    """
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    trailing = f"jobs:\n  build:\n    steps:\n      - uses: {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+    next_line = (
+        f"jobs:\n  build:\n    steps:\n      - uses: {SETUP_MICROMAMBA}{sha}\n        # v1.2.3\n"
+    )
+    assert _micromamba_call_sites_in(trailing).tags == ["v1.2.3"]
+    assert _micromamba_call_sites_in(next_line).tags == []
 
 
 def test_a_mutable_action_ref_is_not_a_pin() -> None:
