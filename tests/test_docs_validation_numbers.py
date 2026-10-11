@@ -325,11 +325,12 @@ class Quote(NamedTuple):
     value: object
     #: Multiplier applied before rendering — the page prints two rates as percentages.
     scale: float = 1.0
-    #: A *declared* rendering of the live value — :func:`short_commit`, :func:`sci3` or
-    #: :func:`shortest` — for where the page abbreviates or rounds it. Kept a separate path
-    #: from the default rendering below so a deliberate rounding is never mistaken for an
-    #: exact transcription. The page's printed text is never transformed; only the live
-    #: value is.
+    #: A *declared* rendering of the live value: :func:`short_commit` or :func:`sci3` where
+    #: the page abbreviates or rounds it, :func:`shortest` where it states a float exactly.
+    #: The default ``:g`` below keeps only six significant digits, so it is not an exact
+    #: rendering of an arbitrary float; a float the page claims to state exactly takes
+    #: :func:`shortest`, and a deliberate rounding is declared rather than left to ``:g``.
+    #: The page's printed text is never transformed; only the live value is.
     render: Callable[[object], str] | None = None
 
     @property
@@ -745,7 +746,8 @@ def _restatement_pins() -> list[Pin]:
     # (b) "Gap, stated plainly" blockquote. The two pooled-worst figures are ROUNDED on the
     # page, so they are rendered with `sci3` -- three significant figures in scientific
     # notation, format(value, ".2e") -- applied to the live value only. The floors clause
-    # is NOT rounded: both floor metrics are exactly 1.0, rendered shortest-round-trip.
+    # and both ceilings are NOT rounded, so they render shortest-round-trip: `:g` would
+    # keep only six significant digits and pass a stale page past a seventh-digit change.
     floors = (
         "$.pooled_worst.state_count_fraction",
         "$.pooled_worst.viterbi_agreement",
@@ -795,13 +797,13 @@ def _restatement_pins() -> list[Pin]:
                 "against ceilings of {} and ",
                 "$.tolerance.state_mean_abs_delta_max",
                 at(PARITY, "$.tolerance.state_mean_abs_delta_max"),
-                None,
+                shortest,
             ),
             (
                 " and {}, and the freeze",
                 "$.tolerance.relative_elbo_max",
                 at(PARITY, "$.tolerance.relative_elbo_max"),
-                None,
+                shortest,
             ),
             # The closing backtick is inside the template: the value ends a code span, and
             # a template ending in its placeholder would capture a single character.
@@ -814,9 +816,11 @@ def _restatement_pins() -> list[Pin]:
         )
     ]
 
-    # (b) the two prose copies of ebFRET's state-count floor. The third copy -- the first
-    # fail-side literal of "(0.5249 and 0.40 fail; 0.5250 and 0.60 pass)" -- is checked
-    # structurally by `straddle_violations`, which asserts `<=` rather than equality.
+    # (b) the two prose copies of ebFRET's state-count floor, rendered shortest-round-trip
+    # like the ceilings above so a change past the sixth significant digit still fails.
+    # The third copy -- the first fail-side literal of "(0.5249 and 0.40 fail; 0.5250 and
+    # 0.60 pass)" -- is checked structurally by `straddle_violations`, which asserts `<=`
+    # rather than equality.
     floor = at(PARITY, _EBHMM_FLOOR)
     pins += [
         Quote(
@@ -825,6 +829,7 @@ def _restatement_pins() -> list[Pin]:
             "frozen `{}` or below",
             f"{_EBHMM_FLOOR} @ (b) ship-floor bullet",
             floor,
+            render=shortest,
         ),
         Quote(
             _PARITY_SECTION,
@@ -832,6 +837,7 @@ def _restatement_pins() -> list[Pin]:
             "stays above `{}`",
             f"{_EBHMM_FLOOR} @ (b) widening paragraph",
             floor,
+            render=shortest,
         ),
     ]
 
@@ -2091,3 +2097,23 @@ def test_the_scope_anchor_still_selects_the_third_bullet() -> None:
         f"{_SCOPE_BULLET_LEAD_IN!r}. The values may still be right: re-anchor the Scope "
         "pins on the paragraph that holds that bullet rather than editing a value."
     )
+
+
+def test_an_exact_float_restatement_catches_a_change_past_six_digits() -> None:
+    """The ceilings and floor the page restates exactly use the full-precision renderer.
+
+    ``:g`` keeps six significant digits, so a bound re-frozen at ``0.020000001`` would
+    render ``0.02`` and the unchanged page would pass. ``shortest`` renders every bit.
+    """
+    exact = [
+        p
+        for p in _restatement_pins()
+        if isinstance(p, Quote) and isinstance(p.value, float) and p.render is not sci3
+    ]
+    assert len(exact) == 5  # both ceilings, the 1.0 floors clause, both 0.5249 copies
+    for pin in exact:
+        assert pin.render is shortest, f"{pin.source} renders a float with ':g'"
+        assert isinstance(pin.value, float)
+        nudged = pin._replace(value=float(repr(pin.value)) + pin.value * 1e-9)
+        assert nudged.value != pin.value
+        assert not satisfied(PAGE_TEXT, nudged), f"{pin.source} missed a 1e-9 relative change"
