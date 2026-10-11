@@ -310,54 +310,36 @@ def _parsed(dotted: str) -> ast.Module | None:
     return None
 
 
-def _scope_nodes(stmt: ast.stmt) -> list[ast.AST]:
-    """``stmt`` and every node under it in the same scope: a nested ``def``, ``class`` or
-    ``lambda`` is included, but its body -- a scope of its own -- is not."""
-    out: list[ast.AST] = []
-    stack: list[ast.AST] = [stmt]
-    while stack:
-        node = stack.pop()
-        out.append(node)
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
-            stack.extend(ast.iter_child_nodes(node))
-    return out
+def _binds(node: ast.AST) -> set[str]:
+    """The names ``node`` binds, rebinds or unbinds, in whatever scope, or ``{"*"}`` for a
+    star import, which may bind any name.
 
-
-def _stored_names(stmt: ast.stmt) -> set[str]:
-    """The names ``stmt`` binds other than by import, on any path through it.
-
-    A compound statement counts (``if``, ``try``, ``with``…): a name it binds on some path
-    is a binding Python may use, so it is never looked past. A bare annotation (``X: int``)
-    binds nothing.
+    Every form Python has: assignment and ``del`` targets, imports, ``def`` and ``class``,
+    ``except … as``, the captures of a ``match`` pattern, and a ``global`` or ``nonlocal``
+    declaration (through which a function rebinds a module name).
     """
-    if isinstance(stmt, ast.AnnAssign) and stmt.value is None:
-        return set()
-    nodes = _scope_nodes(stmt)
-    return {n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)} | {
-        n.name
-        for n in nodes
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-    }
+    if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+        return {node.id}
+    if isinstance(node, ast.alias):
+        return {"*" if node.name == "*" else node.asname or node.name.split(".")[0]}
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return {node.name}
+    if isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and node.name:
+        return {node.name}
+    if isinstance(node, ast.MatchMapping) and node.rest:
+        return {node.rest}
+    if isinstance(node, (ast.Global, ast.Nonlocal)):
+        return set(node.names)
+    return set()
 
 
-def _bound_names(stmt: ast.stmt) -> set[str]:
-    """Every name ``stmt`` binds in the scope it sits in: assignment, import, ``def``, ``class``."""
-    imports = [n for n in _scope_nodes(stmt) if isinstance(n, (ast.Import, ast.ImportFrom))]
-    return _stored_names(stmt) | {
-        alias.asname or alias.name.split(".")[0] for node in imports for alias in node.names
-    }
+def _binding_sites(tree: ast.Module, name: str) -> list[ast.AST]:
+    """Every node anywhere in ``tree`` that binds ``name`` or may (:func:`_binds`).
 
-
-def _binding(body: list[ast.stmt], name: str, before: int | None = None) -> ast.stmt | None:
-    """The last statement of ``body`` (starting above line ``before``) that binds ``name``."""
-    found = None
-    for stmt in body:
-        if before is not None and stmt.lineno >= before:
-            break
-        names = _bound_names(stmt)
-        if name in names or "*" in names:  # a star import may bind anything
-            found = stmt
-    return found
+    Deliberately blind to scope: a function-local of the same name counts too. That can only
+    make the trace fail, never let it pass, and it means no scoping rule has to be right.
+    """
+    return [node for node in ast.walk(tree) if {name, "*"} & _binds(node)]
 
 
 def _absolute(dotted: str, stmt: ast.ImportFrom) -> str:
@@ -365,78 +347,90 @@ def _absolute(dotted: str, stmt: ast.ImportFrom) -> str:
     if not stmt.level:
         return stmt.module or ""
     parts = dotted.split(".")
-    module = SRC / Path(*parts)
-    is_package = parts[-1] != "__init__" and (
-        not module.with_suffix(".py").is_file() and (module / "__init__.py").is_file()
+    is_package = parts[-1] == "__init__" or (
+        not (SRC / Path(*parts)).with_suffix(".py").is_file()
+        and (SRC / Path(*parts) / "__init__.py").is_file()
     )
     # A package's ``__init__`` resolves ``.`` against the package itself, a module against
     # the package that holds it.
-    package = parts if is_package else parts[:-1]
+    package = [p for p in parts if p != "__init__"] if is_package else parts[:-1]
     base = package[: len(package) - (stmt.level - 1)]
     return ".".join(base + ([stmt.module] if stmt.module else []))
 
 
-class _Bound(NamedTuple):
-    """Where a default's name is bound, and the imports followed to get there.
+def _package_name(dotted: str) -> str:
+    """``pkg.mod`` for ``pkg/mod.py`` and ``pkg`` for ``pkg/__init__.py``, as imports spell it."""
+    return dotted.removesuffix(".__init__")
 
-    ``assigned`` is whether that last binding is a plain ``NAME = …`` -- the only kind
-    :func:`module_constant` reads a value from.
-    """
+
+class _Bound(NamedTuple):
+    """Where a default's name is bound, the imports followed to get there, and -- unless the
+    trace ended on the one plain ``NAME = …`` :func:`module_constant` reads -- why not."""
 
     module: str
     name: str
     via: tuple[str, ...]
-    assigned: bool
+    problem: str | None
 
 
 def bound_constant(dotted: str, qualname: str, name: str) -> _Bound:
     """Follow the default ``name`` of the surface ``qualname`` in ``dotted`` to its assignment.
 
-    The name is looked up where Python evaluates the default: the class body first, for a
-    ``Class.method`` or a dataclass field (any binding there counts, wherever it sits, which
-    can only fail closed), then the module's statements above the surface.
-    Each ``from X import A as B`` binding it is followed into ``X`` (relative imports
-    resolved), until a module that does not bind it by import: that module is the answer.
-    Anything else -- a class-scoped binding, one inside a compound statement, a star import,
-    a module outside ``src/``, or a name nothing binds -- is returned as it stands, with
-    ``assigned`` false, so it can only fail.
+    In each module along the way the name must have exactly **one** binding site
+    (:func:`_binding_sites`), and it must be a top-level statement: a ``from X import A as B``,
+    followed into ``X`` (relative imports resolved), or the plain ``NAME = …`` that ends the
+    trace. In the surface's own module that statement must also come before the surface,
+    since a ``def`` evaluates its defaults when it runs. Anything else -- a second binding of
+    any kind (a shadow, a reassignment, a conditional or class-body rebinding, a ``match``
+    capture, a duplicate alias, a star import), a binding nested in another statement, or a
+    module outside ``src/`` -- ends the trace with the reason in ``problem``, so it can only
+    fail. Python's own resolution is never modelled, only ruled out.
     """
     tree = _module_source(dotted)
     owner = qualname.split(".")[0]
-    top = next(
-        s for s in tree.body if isinstance(s, (ast.FunctionDef, ast.ClassDef)) and s.name == owner
+    before: int | None = next(
+        s.lineno
+        for s in tree.body
+        if isinstance(s, (ast.FunctionDef, ast.ClassDef)) and s.name == owner
     )
-    if isinstance(top, ast.ClassDef) and _binding(top.body, name) is not None:
-        return _Bound(dotted, f"{owner}.{name}", (), assigned=False)
     via: list[str] = []
-    seen: set[tuple[str, str]] = set()
-    before: int | None = top.lineno
-    stmt: ast.stmt | None = None
-    while (dotted, name) not in seen:
-        seen.add((dotted, name))
+    while True:
         module = _parsed(dotted)
-        stmt = None if module is None else _binding(module.body, name, before)
+        if module is None:
+            return _Bound(dotted, name, tuple(via), "outside src/")
+        sites = _binding_sites(module, name)
+        if len(sites) != 1:
+            return _Bound(dotted, name, tuple(via), f"bound {len(sites)} times there")
+        stmt = next((s for s in module.body if any(n is sites[0] for n in ast.walk(s))), None)
+        if stmt is None or (before is not None and stmt.lineno >= before):
+            return _Bound(dotted, name, tuple(via), "bound after the surface that reads it")
         before = None  # an imported module has run to the end before the import returns
-        if not isinstance(stmt, ast.ImportFrom) or stmt.names[0].name == "*":
-            break
-        alias = next(a for a in stmt.names if (a.asname or a.name) == name)
-        via.append(f"{dotted}: {ast.unparse(ast.ImportFrom(stmt.module, [alias], stmt.level))}")
-        dotted, name = _absolute(dotted, stmt), alias.name
-    return _Bound(dotted, name, tuple(via), isinstance(stmt, (ast.Assign, ast.AnnAssign)))
+        if isinstance(stmt, ast.ImportFrom) and sites[0] in stmt.names:
+            alias = sites[0]
+            assert isinstance(alias, ast.alias)
+            via.append(f"{dotted}: {ast.unparse(ast.ImportFrom(stmt.module, [alias], stmt.level))}")
+            dotted, name = _absolute(dotted, stmt), alias.name
+            if len(via) > 50:
+                return _Bound(dotted, name, tuple(via), "an import cycle")
+            continue
+        targets = stmt.targets if isinstance(stmt, ast.Assign) else [getattr(stmt, "target", None)]
+        if isinstance(stmt, (ast.Assign, ast.AnnAssign)) and sites[0] in targets:
+            return _Bound(_package_name(dotted), name, tuple(via), None)
+        return _Bound(dotted, name, tuple(via), f"bound by `{ast.unparse(stmt)[:60]}`")
 
 
 @functools.cache
 def _assignments(src: Path) -> dict[str, tuple[str, ...]]:
-    """Every name bound at module level under ``src`` other than by import, mapped to the
-    module of each statement binding it -- once per statement, so a module that binds a name
-    twice lists itself twice."""
+    """Every name bound under ``src`` other than by import, mapped to the module of each
+    site binding it -- once per site, so a module that binds a name twice lists itself twice."""
     out: dict[str, tuple[str, ...]] = {}
     for path in sorted(src.rglob("*.py")):
-        dotted = ".".join(path.relative_to(src).with_suffix("").parts)
+        dotted = _package_name(".".join(path.relative_to(src).with_suffix("").parts))
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for stmt in tree.body:
-            for name in _stored_names(stmt):
-                out[name] = (*out.get(name, ()), dotted)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.alias):
+                for name in _binds(node):
+                    out[name] = (*out.get(name, ()), dotted)
     return out
 
 
@@ -444,9 +438,9 @@ def check_constant_backed(dotted: str, qualname: str, param: str, constant: str)
     """One :data:`_CONSTANT_BACKED_SURFACES` row: the default reaches ``constant``'s assignment.
 
     Spelling the name is not enough (:func:`bound_constant`). The constant's home is the one
-    statement under ``src/`` that binds it other than by import, so a second binding -- a
-    local shadow beside the import, a reassignment in its own module -- fails as ambiguous
-    rather than letting either one vouch for the page.
+    site under ``src/`` that binds it other than by import, so a second one -- a local shadow
+    beside the import, a reassignment in its own module -- fails as ambiguous rather than
+    letting either one vouch for the page.
     """
     spelled = surface_default_name(dotted, qualname, param)
     assert spelled == constant, (
@@ -455,15 +449,15 @@ def check_constant_backed(dotted: str, qualname: str, param: str, constant: str)
     )
     homes = _assignments(SRC).get(constant, ())
     assert len(homes) == 1, (
-        f"{constant} is bound at module level {len(homes)} times under src/ "
+        f"{constant} is bound {len(homes)} times under src/ other than by import "
         f"({list(homes)}), so it has no single home for a default to be traced to"
     )
     bound = bound_constant(dotted, qualname, spelled)
-    assert (bound.module, bound.name, bound.assigned) == (homes[0], constant, True), (
+    assert (bound.module, bound.name, bound.problem) == (homes[0], constant, None), (
         f"{dotted}.{qualname} defaults {param!r} to {spelled}, which is bound to "
         f"{bound.module}.{bound.name}"
         + (f" through {list(bound.via)}" if bound.via else "")
-        + ("" if bound.assigned else " by something other than a plain assignment")
+        + (f" ({bound.problem})" if bound.problem else "")
         + f", not to {homes[0]}.{constant} — the name is right and the value it carries is not"
     )
 
@@ -1458,8 +1452,8 @@ def test_a_documented_constant_backed_default_still_names_its_constant(
 #      written would not accept the keyword, or the default is neither a literal nor a
 #      name (``mode=ParticleDetectionMode.WAVELET``)  -> the check fails, naming the token.
 #
-# A backticked token carrying a parenthesis that does not match the surface grammar
-# (``apparent-e-histogram(bins=…)``, ``apparent_e_histogram(bins=…``) is disposition 3
+# A backticked token carrying a parenthesis that is not one well-formed call of a surface
+# (``apparent-e-histogram(bins=…)``, ``apparent_e_histogram(bins=…))``) is disposition 3
 # too: it names no callable, and skipping it would leave the row green on the strength of
 # its other tokens (#513).
 #
@@ -1611,6 +1605,14 @@ class _Derived(NamedTuple):
     unresolved: list[str]
 
 
+def _is_call(token: str) -> bool:
+    """Does ``token``, its ``…`` read as ``...``, parse as one call -- parentheses balanced?"""
+    try:
+        return isinstance(ast.parse(token.replace("…", "..."), mode="eval").body, ast.Call)
+    except SyntaxError:
+        return False
+
+
 def _is_literal(node: ast.expr) -> bool:
     """Does ``ast.literal_eval`` accept ``node``?"""
     try:
@@ -1636,7 +1638,7 @@ def _derive(rows: list[list[str]], modules: _Modules | None = None) -> _Derived:
             continue
         for token in _BACKTICKED_RE.findall(row[4]):
             match = _SURFACE_TOKEN_RE.match(token)
-            if match is None:
+            if match is None or not _is_call(token):
                 if "(" in token or ")" in token:
                     unresolved.append(
                         f"`{token}` carries a parenthesis but is not a surface call: NAME(…) "
@@ -1906,7 +1908,7 @@ _PRIORS = "PB_PRIOR_A = 1.0\nPB_PRIOR_MU = 0.0\n"
                 "fret": _PRIORS + "PB_PRIOR_A = 0.0\n",
                 "proj": "from pkg.fret import PB_PRIOR_A\ndef f(a=PB_PRIOR_A): ...\n",
             },
-            "bound at module level 2 times",
+            "bound 2 times under src/",
         ),
         (
             {"proj": "def f(a=PB_PRIOR_A): ...\nfrom pkg.fret import PB_PRIOR_A\n"},
@@ -1918,7 +1920,7 @@ _PRIORS = "PB_PRIOR_A = 1.0\nPB_PRIOR_MU = 0.0\n"
                 "    from pkg.fret import PB_PRIOR_MU as PB_PRIOR_A\n"
                 "def f(a=PB_PRIOR_A): ...\n"
             },
-            "other than a plain assignment",
+            "bound 2 times there",
         ),
         (
             {
@@ -1926,14 +1928,36 @@ _PRIORS = "PB_PRIOR_A = 1.0\nPB_PRIOR_MU = 0.0\n"
                 "proj": "from pkg.fret import PB_PRIOR_A\nfrom pkg.other import *\n"
                 "def f(a=PB_PRIOR_A): ...\n",
             },
-            "other than a plain assignment",
+            "bound 2 times there",
         ),
         (
             {
                 "proj": "from pkg.fret import PB_PRIOR_A\nclass C:\n    PB_PRIOR_A = 2.0\n"
                 "    def f(self, a=PB_PRIOR_A): ...\n"
             },
-            "C.PB_PRIOR_A",
+            "bound 2 times under src/",
+        ),
+        (
+            {
+                "proj": "from pkg.fret import PB_PRIOR_A\nmatch {}:\n"
+                "    case {'a': PB_PRIOR_A}: ...\ndef f(a=PB_PRIOR_A): ...\n"
+            },
+            "bound 2 times under src/",
+        ),
+        (
+            {
+                "proj": "from pkg.fret import PB_PRIOR_A, PB_PRIOR_MU as PB_PRIOR_A\n"
+                "def f(a=PB_PRIOR_A): ...\n"
+            },
+            "bound 2 times there",
+        ),
+        (
+            {
+                "fret": "PB_PRIOR_MU = 0.0\n",
+                "consts/__init__": "PB_PRIOR_A = 1.0\n",
+                "proj": "from pkg.consts import PB_PRIOR_A\ndef f(a=PB_PRIOR_A): ...\n",
+            },
+            None,
         ),
     ],
     ids=[
@@ -1948,6 +1972,9 @@ _PRIORS = "PB_PRIOR_A = 1.0\nPB_PRIOR_MU = 0.0\n"
         "compound-rebinding",
         "star-import",
         "class",
+        "match-capture",
+        "duplicate-alias",
+        "package-init-home",
     ],
 )
 def test_a_name_default_is_traced_to_the_constant_it_is_bound_to(
@@ -1978,19 +2005,22 @@ def test_a_name_default_is_traced_to_the_constant_it_is_bound_to(
 def test_a_call_shaped_token_that_names_no_surface_fails() -> None:
     """#513: ``apparent-e-histogram(bins=…)`` names no callable, so it may not be skipped.
 
-    Nor may a token that has lost one parenthesis.
+    Nor may a token whose parentheses do not balance, whichever way.
 
     CLI flags and prose carry no parenthesis and are still not walked.
     """
-    cell = (
-        "`apparent-e-histogram(bins=…)` / `apparent_e_histogram(bins=…` / "
-        "`tether extract --window` / `--window`"
-    )
+    malformed = [
+        "`apparent-e-histogram(bins=…)`",
+        "`apparent_e_histogram(bins=…`",
+        "`apparent_e_histogram(bins=…))`",
+        "`apparent_e_histogram((bins=…)`",
+    ]
+    cell = " / ".join([*malformed, "`tether extract --window`", "`--window`"])
     derived = _derive([["`bins`<br>`DEFAULT_NBINS`", "`151`", "", "", cell, "**no**"]])
     assert derived.required == {}
-    assert len(derived.unresolved) == 2
-    assert "`apparent-e-histogram(bins=…)`" in derived.unresolved[0]
-    assert "`apparent_e_histogram(bins=…`" in derived.unresolved[1]
+    assert len(derived.unresolved) == len(malformed)
+    for token, message in zip(malformed, derived.unresolved, strict=True):
+        assert token in message
 
 
 def test_a_default_that_is_neither_a_literal_nor_a_name_fails() -> None:
