@@ -558,6 +558,9 @@ def test_an_http_error_after_a_redirect_keeps_the_final_url(
     monkeypatch.setattr(guard, "_OPENER", guard._build_opener(origins))
     response = guard.default_transport(guard.PRIVACY_URL, {})
     assert response.status == 404 and response.final_url == final
+    # The failure names both URLs, as a redirect to a 200 does (#523 review).
+    (problem,) = guard.check_privacy(response, 1)
+    assert guard.PRIVACY_URL in problem and "404" in problem and f"redirected to {final}" in problem
 
 
 def test_a_transient_503_is_retried_and_passes() -> None:

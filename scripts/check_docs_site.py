@@ -374,12 +374,14 @@ def check_privacy(response: Response, attempts: int) -> list[str]:
     Material/``mike`` markup this module cannot pin offline; the final-URL check closes the
     redirect case alone.
     """
-    problem = _status_problem(PRIVACY_URL, response, attempts)
-    if problem:
-        return [problem]
     final = response.final_url or PRIVACY_URL
     # A fragment never reaches the server, so a redirect to an anchor on the policy is the policy.
-    if urllib.parse.urldefrag(final).url not in PRIVACY_FINAL_URLS:
+    moved = urllib.parse.urldefrag(final).url not in PRIVACY_FINAL_URLS
+    problem = _status_problem(PRIVACY_URL, response, attempts)
+    if problem:
+        # A redirect ending on an error names where it ended, as one ending on a 200 does.
+        return [f"{problem} -- redirected to {final}" if moved else problem]
+    if moved:
         return [
             f"{PRIVACY_URL} redirected to {final} -- the published privacy-policy URL no longer "
             "serves the policy"
