@@ -92,8 +92,9 @@ against, so its residual is recorded as unknown and the gate is not applied
 ### Colocalize
 
 `tether.imaging.coloc` pairs each donor spot with the acceptor position the registration map
-predicts for it. The donor is the anchor: a molecule is kept because its donor was found,
-whether or not a separate acceptor spot was detected there, since requiring one would bias the
+predicts for it. The donor is the anchor: every donor spot whose extraction window fits
+inside both channels becomes a molecule, whether or not a separate acceptor spot was detected
+there, since requiring one would bias the
 population toward high E
 ([donor-anchored colocalization](glossary.md#donor-anchored-colocalization);
 [ADR-0015](adr/0015-donor-anchored-colocalization.md)).
@@ -167,12 +168,16 @@ its inputs
 
 The `tether.analysis` modules build the histograms, transition-density plots, dwell-time and
 kinetics analyses and the other population views. They read the project file and do not
-change it. By default every one of them leaves out molecules you rejected. The analyses built
-on an idealization (transition-density plots, dwell times, state number, transition
-probabilities) also leave out molecules whose idealization is stale; the raw-signal views,
-such as the E histogram and the FRET cloud, do not, so the two kinds can be drawn from
-different sets of molecules
-([fresh-idealization gating](glossary.md#fresh-idealization-gating-curation-filter)).
+change it. The analyses that read traces leave out molecules you rejected by default. Four
+analyses built on an idealization (transition-density plots, dwell times, state number and
+transition probabilities) also leave out molecules whose idealization is stale; the
+raw-signal views, such as the E histogram and the FRET cloud, do not, so the two kinds can be
+drawn from different sets of molecules
+([fresh-idealization gating](glossary.md#fresh-idealization-gating-curation-filter)). Two
+idealization-based views are exceptions: the post-synchronized transition heatmap applies the
+curation filter but not the staleness one, and the fitted-model overlay on the E histogram
+reads the model as it was fitted, so it reflects later curation only after a re-fit
+([`tether.analysis.histogram`](https://github.com/bioedca/tether/blob/main/src/tether/analysis/histogram.py)).
 
 - **Writes:** nothing to the project file.
 - **Read more:** [Seven-plot parity gallery](analysis/parity-gallery.md)
@@ -194,10 +199,11 @@ that decided it, so you can check the reasoning rather than take it on trust.
 ### Proximity ratio versus corrected E
 
 The proximity ratio, `A / (D + A)`, is what you get from raw intensities. It is internally
-consistent only while the dyes and the instrument stay the same. The γ-corrected efficiency
+consistent only while the dyes and the instrument stay the same
+([McCann 2010](https://doi.org/10.1016/j.bpj.2010.04.063)). The γ-corrected efficiency
 removes the leakage and the dye and detection imbalance, and is an absolute energy-transfer
-efficiency
-([`tether.fret.efficiency`](https://github.com/bioedca/tether/blob/main/src/tether/fret/efficiency.py)).
+efficiency ([Hellenkamp 2018](https://doi.org/10.1038/s41592-018-0085-0);
+[`tether.fret.efficiency`](https://github.com/bioedca/tether/blob/main/src/tether/fret/efficiency.py)).
 Tether calls the proximity ratio **apparent E**, and computes it as the corrected formula with
 the correction factors set to do nothing, so the two can never be defined differently
 ([apparent E](glossary.md#apparent-e)).
@@ -275,7 +281,7 @@ donor and acceptor intensities, with no α or γ applied
 ([`tether.project.idealize`](https://github.com/bioedca/tether/blob/main/src/tether/project/idealize.py)), but each fitted molecule carries a
 fingerprint of that trace, its window, and the α and γ in force for it when it was fitted.
 Change any of those and the fingerprint no longer matches, the molecule is marked stale, and
-the state-based analyses leave it out until it is re-fitted. A change in α marks every
+the four staleness-gated analyses above leave it out until it is re-fitted. A change in α marks every
 molecule stale, because one α applies to all of them; re-running the estimate and getting the
 same α changes nothing. A shift in the median γ marks only the molecules that took that
 median
