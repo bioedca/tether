@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# docs-liveness — checks that the PUBLISHED documentation site is still the mike-versioned
+# MkDocs Material site (issue #325). The required `docs-build` job in ci.yml proves only that
+# the source builds; for an undetermined window ending 2026-07-30 the Pages source had drifted
+# to the legacy Jekyll builder on main:/docs, every versioned URL 404'd, and every check stayed
+# green. This leg goes red, without a person going looking, when that happens again.
+#
+# The logic — the Pages-source probe, the four URL probes and the in-run retry policy — lives in
+# scripts/check_docs_site.py, unit-tested offline in tests/test_docs_site_guard.py; this file is
+# a thin wrapper. Its shape is contract-tested in tests/test_marker_contract.py.
+#
+# NON-REQUIRED BY CONSTRUCTION: schedule + workflow_dispatch only, never pull_request/push/
+# merge_group, so an external outage can never gate a merge. It must be able to go red, so
+# nothing here is continue-on-error. Standard library only: no environment restore.
+name: docs-liveness
+
+on:
+  schedule:
+    # Daily 09:19 UTC — a minute/hour no other workflow's cron uses.
+    - cron: "19 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-liveness:
+    name: docs-liveness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # GET /repos/{owner}/{repo}/pages needs the Pages permission at read (#325).
+      pages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the published docs site
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/check_docs_site.py
