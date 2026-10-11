@@ -1,6 +1,6 @@
 # Legacy Deep-LASI import
 
-Tether re-analyses an existing **Deep-LASI** acquisition *without re-extracting the movie*
+Tether re-analyses an existing **Deep-LASI** acquisition *without [re-extracting](../pipeline.md#extract) the movie*
 (PRD §7.8). The import path reads the legacy file set — the raw movie, the
 [`TIRFdata`](../glossary.md#tirfdata-mcos-refs)
 [`.tdat`](../glossary.md#tmap-tdat), the `DeepLASI_MAT_export_*.mat`, the

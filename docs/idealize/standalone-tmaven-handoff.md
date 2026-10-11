@@ -1,6 +1,6 @@
 # Standalone-tMAVEN hand-off
 
-Tether idealizes traces by driving [tMAVEN](https://github.com/GonzalezBiophysicsLab/tmaven)
+Tether [idealizes](../pipeline.md#idealize) traces by driving [tMAVEN](https://github.com/GonzalezBiophysicsLab/tmaven)
 ([vbFRET / consensus VB-HMM / ebFRET](../glossary.md#vbfret-ebfret-consensus-vb-hmm)).
 Because tMAVEN pins `numpy<2` + PyQt5, it runs in an **isolated sidecar environment** — a
 separate interpreter that never shares a process with Tether's own PySide6 / current-numpy

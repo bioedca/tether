@@ -1,6 +1,7 @@
 # Seven-plot parity gallery
 
-This page documents **plot and feature parity** with tMAVEN — which plots exist and how
+This page documents **plot and feature parity** with tMAVEN for the
+[analysis stage](../pipeline.md#analyze) — which plots exist and how
 they correspond — **not** numerical accuracy. For the accuracy evidence (the seven
 NFR-VALID oracles, the frozen tolerances and the external benchmark) see
 [Validation & benchmarks](../validation.md).

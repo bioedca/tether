@@ -42,6 +42,7 @@ nav:
   # "Project & maintainers" opens with a reader statement naming the access it needs.
   - Using Tether:
       - Home: index.md
+      - How Tether works: pipeline.md
       - Does Tether fit my data?: compatibility.md
       - Getting started:
           - Install Tether: install.md
