@@ -37,7 +37,9 @@ A default spelled as a constant (``bins=DEFAULT_NBINS``) is two links, page -> c
 and constant -> signature, and the registry pins only the first. The second is
 :data:`_CONSTANT_BACKED_SURFACES`, and that table is itself checked against the page: the
 **Set via** column is read, every keyword a constant-naming row spells is resolved in the
-source, and each one defaulted to a name must be in the table (#442).
+source, and each one defaulted to a name must be in the table (#442). Only the keywords a
+cell *spells* are reached: a surface written bare (``train_classifier(…)``) or with only some
+of its keywords spelled leaves its other constant-backed defaults unbound by this module.
 """
 
 from __future__ import annotations
@@ -1064,9 +1066,11 @@ def test_every_constant_the_page_prints_a_value_for_is_registered() -> None:
 #: would pass every registry check while the page tells the reader ``1001``.
 #:
 #: Hand-written, and checked against the page rather than trusted:
-#: :func:`test_every_page_named_constant_default_is_bound_by_the_table` derives every
+#: :func:`test_every_spelled_keyword_with_a_constant_default_is_in_the_table` derives every
 #: ``(surface, keyword)`` pair a constant-naming row's **Set via** cell spells and requires
-#: each one defaulted to a name to be here. The table may hold more than the page names
+#: each one defaulted to a name to be here -- the keywords a cell *spells*, and no more: a
+#: surface written bare (``population_transition_density(…)``) contributes nothing, so its
+#: constant-backed defaults are not bound here. The table may hold more than the page names
 #: (the ``w0`` seam below); it may not hold less. The *module* is not derived, because the
 #: row names the module its constant lives in, which is not always the function's
 #: (``compute_photobleach`` is in ``tether.project.photobleach``, ``PB_PRIOR_A`` in
@@ -1244,6 +1248,9 @@ def test_a_documented_constant_backed_default_still_names_its_constant(
 # list would let the whole check be discharged by binding a few surfaces and exempting the
 # rest. A token that spells no keyword (``DeepTraceDataset.split(…)``) yields no pair, and
 # a row naming no constant is not walked: the predicate is the keywords a cell *spells*.
+# That is a limit of what this guard covers, not a claim that the rest is safe: a default
+# the cell leaves unspelled (``train_classifier(…)``, ``population_transition_density(…)``)
+# can drift off its constant without any check here noticing.
 
 #: A **Set via** token naming a callable surface: ``NAME(…)``, where ``NAME`` may be dotted
 #: (``DwellTimeAnalysis.histogram``). CLI flags and prose never match.
@@ -1356,13 +1363,13 @@ def test_every_surface_a_set_via_cell_names_resolves() -> None:
     )
 
 
-def test_every_page_named_constant_default_is_bound_by_the_table() -> None:
-    """Disposition 1: every page-named signature defaulting to a name is in the table.
+def test_every_spelled_keyword_with_a_constant_default_is_in_the_table() -> None:
+    """Disposition 1: every keyword a **Set via** cell spells, defaulted to a name, is bound.
 
     One-directional -- what the page derives must be a subset of the table, which may hold
     more (the ``w0`` seam surfaces the page claims in words rather than by name). A table
     entry for a derived pair must also name a constant that the deriving row documents, so
-    the binding runs page -> constant -> signature with no link left to trust.
+    for that pair the binding runs page -> constant -> signature by name.
     """
     required = _derive(ROWS).required
     assert required, (
