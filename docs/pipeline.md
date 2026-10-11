@@ -10,8 +10,10 @@ and [Analysis parameters](reference/parameters.md) references, and the
 
 ## The pipeline at a glance
 
-Every movie travels the same road, and every stage leaves its result in one
-[`.tether` project file](reference/tether-format.md):
+Every movie travels the same road. The stages that keep a result keep it in one
+[`.tether` project file](reference/tether-format.md), which refers to your movie rather than
+copying its pixels ([the store references your movies](compatibility.md#the-store-references-your-movies-it-does-not-copy-them));
+some stages write nothing, and exports are new files beside the project:
 
 ```text
 movie → split → detect → register → colocalize → extract → curate → photobleach
