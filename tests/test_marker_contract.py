@@ -684,6 +684,93 @@ def test_the_anchor_guard_rejects_an_attestation_that_cannot_run() -> None:
     assert _is_live(_job_steps(live, PUBLISH_JOB)[0])
 
 
+# --- The published-docs liveness leg (docs-liveness.yml, issue #325) ---
+# A scheduled thin wrapper over scripts/check_docs_site.py, whose logic is unit-tested offline in
+# tests/test_docs_site_guard.py. These guards keep the wrapper honest: it really runs the script,
+# it can never gate a merge, it can go red, and it holds the token scope the Pages probe needs.
+DOCS_LIVENESS_WORKFLOW = (
+    Path(__file__).resolve().parents[1] / ".github" / "workflows" / "docs-liveness.yml"
+)
+DOCS_GUARD_SCRIPT = "scripts/check_docs_site.py"
+
+
+def _docs_liveness_jobs() -> dict[str, dict]:
+    workflow = yaml.safe_load(DOCS_LIVENESS_WORKFLOW.read_text(encoding="utf-8"))
+    return {k: v for k, v in (workflow.get("jobs") or {}).items() if isinstance(v, dict)}
+
+
+def _docs_guard_steps() -> list[tuple[dict, dict]]:
+    """(job, step) for every step whose ``run:`` invokes the guard script on a non-comment line."""
+    return [
+        (job, step)
+        for job in _docs_liveness_jobs().values()
+        for step in (job.get("steps") or [])
+        if isinstance(step, dict)
+        and isinstance(step.get("run"), str)
+        and any(
+            DOCS_GUARD_SCRIPT in ln and not ln.lstrip().startswith("#")
+            for ln in step["run"].splitlines()
+        )
+    ]
+
+
+def test_docs_liveness_workflow_really_runs_the_guard_script() -> None:
+    text = DOCS_LIVENESS_WORKFLOW.read_text(encoding="utf-8")
+    assert DOCS_GUARD_SCRIPT in _step_run_scripts(text), "no step's run: names the guard script"
+    live_steps = [s for s in _steps(text) if _is_live(s)]
+    assert any(step in live_steps and _is_live(job) for job, step in _docs_guard_steps()), (
+        f"docs-liveness.yml must keep a live step (in a live job) that runs {DOCS_GUARD_SCRIPT}"
+    )
+
+
+def test_docs_liveness_is_scheduled_daily_and_non_required_by_construction() -> None:
+    triggers = _on_block_child_keys(DOCS_LIVENESS_WORKFLOW.read_text(encoding="utf-8"))
+    assert {"schedule", "workflow_dispatch"} <= triggers, f"on-triggers: {sorted(triggers)}"
+    assert triggers.isdisjoint({"pull_request", "push", "merge_group"}), (
+        "docs-liveness.yml must stay advisory (no PR/push/merge_group trigger); "
+        f"on-triggers: {sorted(triggers)}"
+    )
+
+    def crons(path: Path) -> list[str]:
+        on = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        on = on.get("on", on.get(True)) or {}  # YAML 1.1 reads a bare `on:` key as True
+        schedule = on.get("schedule") if isinstance(on, dict) else None
+        return [str(e["cron"]) for e in (schedule or []) if isinstance(e, dict) and "cron" in e]
+
+    (cron,) = crons(DOCS_LIVENESS_WORKFLOW)
+    minute, hour, *rest = cron.split()
+    assert minute.isdigit() and hour.isdigit() and rest == ["*", "*", "*"], f"not daily: {cron}"
+    others = {
+        tuple(c.split()[:2])
+        for wf in DOCS_LIVENESS_WORKFLOW.parent.glob("*.yml")
+        if wf != DOCS_LIVENESS_WORKFLOW
+        for c in crons(wf)
+    }
+    assert (minute, hour) not in others, f"cron {cron} shares its minute/hour with another leg"
+
+
+def test_docs_liveness_can_go_red() -> None:
+    jobs = _docs_liveness_jobs()
+    assert jobs, "docs-liveness.yml must keep a job"
+    for job_id, job in jobs.items():
+        assert "continue-on-error" not in job, f"job {job_id} must be able to go red"
+        for step in job.get("steps") or []:
+            assert "continue-on-error" not in step, f"a {job_id} step is continue-on-error"
+    guard_steps = _docs_guard_steps()
+    assert guard_steps
+    for _job, step in guard_steps:
+        assert not re.search(r"\|\|\s*(true|:)\b", step["run"]), "the guard step is silenced"
+
+
+def test_docs_liveness_declares_pages_read() -> None:
+    guard_steps = _docs_guard_steps()
+    assert guard_steps, f"no step runs {DOCS_GUARD_SCRIPT}"
+    for job, _step in guard_steps:
+        permissions = job.get("permissions") or {}
+        assert permissions.get("contents") == "read", permissions
+        assert permissions.get("pages") == "read", permissions
+
+
 # The release-tag grammar (issue #380). PRD §12.7 states a release tag's form as
 # `vMAJOR.MINOR.PATCH`, and ADR-0060 §4's update client allowlists exactly that form on the
 # attested `sourceRepositoryRef`. Before #380 the publisher checked only for a leading `v` and
