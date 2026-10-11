@@ -41,9 +41,12 @@ dynamic = ["version"]
 # (ADR-0066): dev-only, never imported by `src/tether`, and already pinned in the
 # base lock as a transitive dependency, so it is declared here and in the CI pip
 # lines rather than added to `environment.yml`.
+# There is deliberately no `docs` extra: `requirements-docs.txt` is the single pinned
+# source of truth for the docs toolchain (mkdocs, mkdocs-material, mike), shared by the
+# required `docs-build` gate and the `docs.yml` publish. An unpinned extra here was a
+# second, wrong copy of it — it lacked `mike` (#183).
 [project.optional-dependencies]
 test = ["pytest", "pytest-qt", "pytest-cov"]
-docs = ["mkdocs", "mkdocs-material"]
 dev = ["ruff", "pre-commit", "reuse", "markdown-it-py"]
 
 # Console entry point (PRD §7.11 headless core). Stdlib argparse — no runtime

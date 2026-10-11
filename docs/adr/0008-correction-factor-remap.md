@@ -8,7 +8,7 @@
 
 ## Context and problem statement
 
-Tether adopts the field-standard α/δ/γ convention [Hellenkamp2018][Lee2005]:
+Tether adopts the field-standard α/δ/γ convention [Hellenkamp2018], [Lee2005]:
 **α** = donor→acceptor leakage (additive), **δ** = direct excitation (= 0,
 single-laser), **γ** = detection/QY ratio (multiplicative). Deep-LASI's internal
 MATLAB naming is **inverted**: its stored `Beta` holds leakage and its stored
