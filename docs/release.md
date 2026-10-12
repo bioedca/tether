@@ -50,6 +50,11 @@ release**, not the binaries, and it is unaffected by any of the above.
 2. Create a **signed, annotated** tag on the release commit and push it, with the two
    commands below the list:
 
+    **Before pushing the tag, confirm the Zenodo integration is on** for `bioedca/tether`
+    (see [Archiving (Zenodo)](#archiving-zenodo)). A Release published while it is off is
+    not archived and gets no DOI. Only the newest Release can be recovered afterwards, by
+    switching it to a draft and publishing it again once the integration is on.
+
     Tag only commits that already contain the post-merge gate: the pipeline that runs is
     the `release.yml` **in the tagged tree**, so a tag on an older commit executes that
     tree's gate-less definition. **No repository-level control enforces this — the risk is
@@ -201,6 +206,60 @@ The prerelease is intentionally retained as this documented evidence set. Pre-re
 also intentionally do **not** publish the documentation site: the RC release job logged
 its pre-release skip notice and created no `docs.yml` run. Release-triggered
 documentation publishing remains unproven until the stable `v1.0.0` tag.
+
+## Archiving (Zenodo)
+
+Every GitHub Release published while the Zenodo–GitHub integration is on, prereleases
+included, is archived on Zenodo, and Zenodo mints a DOI for it. A Release published while
+the integration was off is not archived until it is published again (see the recovery
+below), so not every historical release has a DOI. Tether therefore has two kinds of
+DOI, and they go in different places:
+
+| DOI | Resolves to | Where it is written |
+|---|---|---|
+| **Concept DOI** `10.5281/zenodo.23306397` | the newest archived version, whichever that is | `CITATION.cff` `doi:`, `README.md`, [Citing Tether](citing.md). It never changes. |
+| **Version DOI** | one release | only its own Zenodo record (linked from the concept record). Never hand-copied into the repository. |
+
+The ordering below is load-bearing and cannot be repaired by editing files afterwards. Follow
+it for every release:
+
+1. **The integration must be on before the tag is pushed.** Zenodo archives a Release only
+   if its webhook is active at the moment the Release is *published*. Check
+   <https://zenodo.org/account/settings/github/> (the `bioedca/tether` toggle is on) and the
+   repository's *Settings → Webhooks* (a `zenodo.org` hook is listed) before step 2 of
+   [Cutting a release](#cutting-a-release).
+2. **No DOI can be reserved in advance.** Through the GitHub integration Zenodo mints a
+   version's DOI when its Release is published, after the tagged commit already exists, so
+   no tagged commit can contain its own version DOI. That is why `CITATION.cff` carries the
+   concept DOI instead.
+3. **In the release commit**, set `CITATION.cff` `version:` to the tag without its leading
+   `v` and `date-released:` to the release date (ISO 8601). Leave `doi:` alone.
+4. **After the Release is published**, open the concept DOI and check that the new version
+   appears in the record's version list. Zenodo reads the archive's metadata from
+   `CITATION.cff` in the tagged tree.
+
+**If the newest Release was published while the integration was off**, it can still be
+archived without a new tag: switch the Release to a draft and publish it again. Publishing
+fires the event Zenodo listens for, and `release.yml` does not run, because it is
+triggered by tag pushes, not by Release events. For a stable Release, `docs.yml` also runs
+on that event and redeploys the same documentation it already published; for a prerelease
+it skips.
+
+Use this **only for the newest Release**. Re-publishing an older one has side effects that
+editing files cannot undo: Zenodo orders versions by when their records were created, so
+the backfilled release would become the version the concept DOI resolves to; GitHub may
+mark it as the repository's *Latest* release; and `docs.yml` would point the `latest`
+documentation at it. An older Release published while the integration was off stays
+unarchived, as `v1.0.0-rc1` does.
+
+```bash
+gh release edit <tag> -R bioedca/tether --draft=true
+gh release edit <tag> -R bioedca/tether --draft=false   # add --prerelease for an rc tag
+```
+
+This is how the archive was started: the integration was switched on on 2026-10-11, after
+`v1.0.0-rc2` had been published, and re-publishing `v1.0.0-rc2` created the Zenodo record
+and the concept DOI. `v1.0.0-rc1` was never archived.
 
 ## Publish the documentation
 
