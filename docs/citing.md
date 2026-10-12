@@ -99,8 +99,13 @@ projects Tether builds on is in
 ## Reporting a Tether analysis
 
 Quote the version that actually produced the results you report, not the version you have
-installed today. A `.tether` project records versions in more than one place, because a
-project created with one release can be corrected or idealized later with another:
+installed today. The dependable record is the one you keep yourself: when you run an
+analysis you will publish, note the output of `tether --version` (see the
+[command-line reference](cli.md)). Not every step leaves a version in the project.
+
+A `.tether` project does record versions in several places, which help you reconstruct
+them afterwards. A project created with one release can be corrected or idealized later
+with another, so they can differ:
 
 - the corrections stamp `app_version` on `/settings/leakage`, `/settings/gamma` and
   `/settings/correction`, rewritten each time they run, and each idealization run in
@@ -112,15 +117,20 @@ project created with one release can be corrected or idealized later with anothe
   into the project. Movies added later under a newer release leave it unchanged, and
   Tether records no per-movie version, so if you extracted movies into one project with
   different releases, the stamp names only the first;
-- exported files carry the version that wrote them in their `.provenance.json` sidecar;
-- ranking and classification runs are **not** stamped in the project. A saved classical
-  ranker records the version it was trained under (`tether_version` in its model
-  manifest), and the deep classifier records none, so for those steps note the version
-  you ran yourself;
+- the publication exports listed in the [exports reference](reference/exports.md) (the
+  molecule-table CSV, the Deep-LASI text export, the subset `.tether` and figures) carry
+  the version that wrote them in a `.provenance.json` sidecar. The SMD file handed off
+  to standalone tMAVEN has none;
 - the root `app_version` attribute records the version that *created* the project. It is
   optional, so a valid project can lack it.
 
-Read the stamp of the step you are describing. With any HDF5 viewer, or with `h5py`:
+Steps with **no** version stamp in the project include photobleach detection (rerunning
+it overwrites the bleach frames and analysis windows without recording a version), and
+ranking and classification runs. A saved classical ranker records the version it was
+trained under (`tether_version` in its model manifest); the deep classifier records
+none. For those steps, rely on the version you noted.
+
+To read the stamps that exist, use any HDF5 viewer, or `h5py`:
 
 ```python
 import h5py
