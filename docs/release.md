@@ -254,8 +254,9 @@ Merge commits are skipped, and so is a commit whose type matches none of these s
 Open the Releases page, or GitHub's compare view for the two tags:
 `https://github.com/bioedca/tether/compare/vX...vY`. For example,
 [`v0.8.0...v1.0.0-rc1`](https://github.com/bioedca/tether/compare/v0.8.0...v1.0.0-rc1) lists
-every commit that `v1.0.0-rc1` has and `v0.8.0` does not. To find which releases contain a
-particular fix, run `git tag --contains <commit>` in a clone.
+every commit that `v1.0.0-rc1` has and `v0.8.0` does not. To find which tags contain a
+particular fix, run `git tag --contains <commit>` in a clone. It lists every tag, so check each
+one against the Releases page: a tag left behind by a dry run or a failed run is not a release.
 
 ### Before 1.0: git history only
 
