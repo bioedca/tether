@@ -556,19 +556,36 @@ jobs:
           output-file: out/tether-sbom.cyclonedx.json
           artifact-name: tether-sbom.cyclonedx.json
 
-      - name: Generate the changelog (Conventional Commits since the previous tag)
+      - name: List the published Releases (the changelog's admissible bases)
+        id: published
+        # Drafts are not published. A failed run, a dry-run rehearsal tag and a rejected
+        # lightweight tag all leave a release-shaped tag with no Release behind; the changelog
+        # step below must not diff against one, so it needs this list. An API failure fails the
+        # step rather than letting the notes start from the wrong base.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate \
+            -q '.[] | select(.draft | not) | .tag_name' > "$RUNNER_TEMP/published-tags"
+          echo "file=$RUNNER_TEMP/published-tags" >> "$GITHUB_OUTPUT"
+
+      - name: Generate the changelog (Conventional Commits since the previous release)
         # The Release body is the project's only change record: there is no committed
         # CHANGELOG.md (ADR-0067). The diff base depends on the `verify` job's parsed
         # prerelease component, never on the tag's spelling (issue #380). A prerelease diffs
-        # against the nearest earlier tag of any kind, as rc1 and rc2 did. A stable tag diffs
-        # against the nearest earlier STABLE tag, so v1.0.0's notes cover everything since
-        # v0.8.0 rather than the commits since its last release candidate. The EARLIER tags have
-        # no parsed `verify` verdict of their own, so the step classifies them with the verify
-        # job's own TAG_ERE, exported as `tag_ere` so the grammar stays declared once (#380):
-        # every tag the grammar rejects -- a hand-pushed `checkpoint` or `v1.0.0junk`
-        # -- is excluded from both lookups, so it can never become the base and silently
-        # shorten the notes, and a stable tag also excludes every tag with a prerelease part.
-        # Tag names cannot contain `*`, `?` or `[`, so each exclude matches only itself.
+        # against the nearest earlier release of any kind, as rc1 and rc2 did. A stable tag
+        # diffs against the nearest earlier STABLE release, so v1.0.0's notes cover everything
+        # since v0.8.0 rather than the commits since its last release candidate.
+        #
+        # An earlier tag is a release, and so a candidate base, only when it is ANNOTATED (as
+        # `verify` requires), matches the verify job's own TAG_ERE (exported as `tag_ere`, so
+        # the grammar stays declared once, #380), and either has a published Release or is a
+        # pre-1.0 tag (v0.0.0..v0.8.0 predate the pipeline and never had Releases). Every other
+        # tag -- a hand-pushed `checkpoint` or `v1.0.0junk`, a lightweight `v0.9.0`, a dry-run
+        # or failed `v1.0.0-rc3` -- is excluded, so it can never become the base and silently
+        # shorten the notes; a stable tag also excludes every tag with a prerelease part. Tag
+        # names cannot contain `*`, `?` or `[`, so each exclude matches only itself.
         #
         # A commit marked breaking -- a `<type>!:` / `<type>(scope)!:` subject, or a body line
         # beginning `BREAKING CHANGE:` / `BREAKING-CHANGE:` (meant as the footer; the footer
@@ -581,17 +598,22 @@ jobs:
           TAG: ${{ needs.verify.outputs.tag }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
           TAG_ERE: ${{ needs.verify.outputs.tag_ere }}
+          PUBLISHED_TAGS: ${{ steps.published.outputs.file }}
         run: |
           set -euo pipefail
           test -n "$TAG_ERE" || { echo "::error::verify exported no tag_ere"; false; }
+          published=$'\n'"$(cat "$PUBLISHED_TAGS")"$'\n'
           skip=(--exclude="$TAG")
-          while IFS= read -r t; do
-            if ! [[ "$t" =~ $TAG_ERE ]]; then
-              skip+=(--exclude="$t")
-            elif [ "$PRERELEASE" != "true" ] && [ -n "${BASH_REMATCH[4]}" ]; then
-              skip+=(--exclude="$t")
+          while read -r type ref; do
+            t="${ref#refs/tags/}"
+            keep=false
+            if [ "$type" = "tag" ] && [[ "$t" =~ $TAG_ERE ]]; then
+              major="${BASH_REMATCH[1]}"; pre="${BASH_REMATCH[4]}"
+              if [ "$major" = "0" ] || [[ "$published" == *$'\n'"$t"$'\n'* ]]; then keep=true; fi
+              if [ "$PRERELEASE" != "true" ] && [ -n "$pre" ]; then keep=false; fi
             fi
-          done < <(git tag --list)
+            if [ "$keep" != "true" ]; then skip+=(--exclude="$t"); fi
+          done < <(git for-each-ref refs/tags --format='%(objecttype) %(refname)')
           prev="$(git describe --tags --abbrev=0 "${skip[@]}" "${TAG}^" 2>/dev/null || true)"
           if [ -n "$prev" ]; then range="${prev}..${TAG}"; header="## ${TAG} (changes since ${prev})"; else range="$TAG"; header="## ${TAG}"; fi
           work="$RUNNER_TEMP/changelog"

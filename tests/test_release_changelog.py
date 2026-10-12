@@ -10,9 +10,11 @@ stable ``v0.8.0``, two release candidates, then a stable ``v1.0.0``.
 
 Three behaviours are pinned, and each assertion fails if its part of the script is reverted:
 
-* a **stable** tag diffs against the nearest earlier *stable* tag (``v0.8.0..v1.0.0``), not the
-  release candidate immediately before it;
-* a **prerelease** tag still diffs against the nearest earlier tag of any kind;
+* a **stable** tag diffs against the nearest earlier *stable* release (``v0.8.0..v1.0.0``), not
+  the release candidate immediately before it;
+* a **prerelease** tag still diffs against the nearest earlier release of any kind;
+* in both, a tag that is not a release -- outside the grammar, lightweight, or with no published
+  Release past 1.0 -- is never the base;
 * "⚠ Breaking Changes" comes first and takes ``<type>!:`` subjects and ``BREAKING CHANGE:``
   footers away from their type's section, and "Internal" comes last with ``test`` and ``chore``.
 
@@ -39,24 +41,31 @@ import yaml
 RELEASE_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml"
 CHANGELOG_STEP_ID = "changelog"
 RESOLVE_STEP_ID = "resolve"
+PUBLISHED_STEP_ID = "published"
 
-#: The scratch history, oldest first: (subject, body, tag or None). Every type the generator
-#: sorts appears at least once, and the two breaking markers sit on different sides of a tag.
-#: ``checkpoint`` and ``v1.0.0junk`` are tags the release grammar rejects, placed where each would
-#: be the nearest base (for v1.0.0 and for v1.0.0-rc2); no diff may start from either.
-HISTORY: tuple[tuple[str, str, str | None], ...] = (
-    ("feat: first stable feature", "", "v0.8.0"),
-    ("fix: correct the leakage factor", "", "checkpoint"),
-    ("feat(api)!: drop the legacy reader", "", None),
-    ("perf: vectorise the dwell fit", "", "v1.0.0-rc1"),
-    ("test: cover the dwell fit", "", "v1.0.0junk"),
-    ("chore: tidy the fixtures", "", None),
-    ("refactor: split the store", "Moves the writer.\n\nBREAKING CHANGE: the writer moved", None),
-    ("docs: describe the store", "This body mentions BREAKING CHANGE: mid-line only.", None),
-    ("ci: pin the runner", "", "v1.0.0-rc2"),
-    ("build(installer): bundle the sidecar", "", None),
-    ("fix(gui): keep the dock open", "", "v1.0.0"),
+#: The scratch history, oldest first: (subject, body, tags). Every type the generator sorts
+#: appears at least once, and the two breaking markers sit on different sides of a tag. Four
+#: tags are not releases, each placed where it would otherwise be the nearest base: for v1.0.0,
+#: ``checkpoint`` (outside the grammar) and a lightweight ``v0.9.0``; for v1.0.0-rc2,
+#: ``v1.0.0junk`` (outside the grammar) and ``v1.0.0-rc9``, annotated and well-formed but with
+#: no published Release (a dry-run rehearsal tag). No diff may start from any of them.
+HISTORY: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("feat: first stable feature", "", ("v0.8.0",)),
+    ("fix: correct the leakage factor", "", ("checkpoint",)),
+    ("feat(api)!: drop the legacy reader", "", ("v0.9.0",)),
+    ("perf: vectorise the dwell fit", "", ("v1.0.0-rc1",)),
+    ("test: cover the dwell fit", "", ("v1.0.0junk",)),
+    ("chore: tidy the fixtures", "", ("v1.0.0-rc9",)),
+    ("refactor: split the store", "Moves the writer.\n\nBREAKING CHANGE: the writer moved", ()),
+    ("docs: describe the store", "This body mentions BREAKING CHANGE: mid-line only.", ()),
+    ("ci: pin the runner", "", ("v1.0.0-rc2",)),
+    ("build(installer): bundle the sidecar", "", ()),
+    ("fix(gui): keep the dock open", "", ("v1.0.0",)),
 )
+#: Tags created without ``-a``; ``verify`` rejects these, so they are never releases.
+LIGHTWEIGHT_TAGS = ("v0.9.0",)
+#: The non-draft Releases the step is told about, as ``gh api .../releases`` would list them.
+PUBLISHED_RELEASES = ("v1.0.0-rc2", "v1.0.0-rc1")
 
 
 def _bash() -> str:
@@ -105,6 +114,21 @@ def test_the_step_classifies_earlier_tags_with_the_release_grammar() -> None:
     grammar = re.compile(_release_tag_ere())
     for tag in ("checkpoint", "v1.0.0junk"):
         assert grammar.fullmatch(tag) is None, f"{tag!r} must be a tag the release grammar rejects"
+    # The other two non-release tags pass the grammar, so they test the other two rules.
+    for tag in ("v0.9.0", "v1.0.0-rc9"):
+        assert grammar.fullmatch(tag) is not None, f"{tag!r} must be a well-formed release tag"
+
+
+def test_the_step_is_told_which_releases_were_published() -> None:
+    """A step before the changelog lists the non-draft Releases, and the changelog reads it."""
+    steps = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release"]["steps"]
+    ids = [s.get("id") for s in steps if isinstance(s, dict)]
+    assert ids.index(PUBLISHED_STEP_ID) < ids.index(CHANGELOG_STEP_ID), ids
+    run = _step("release", PUBLISHED_STEP_ID)["run"]
+    assert "select(.draft | not)" in run, "a draft Release is not published and is no base"
+    assert 'echo "file=' in run, "the step must export the list's path as `file`"
+    env = _changelog_step().get("env") or {}
+    assert env.get("PUBLISHED_TAGS") == "${{ steps.published.outputs.file }}", env
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -135,11 +159,14 @@ def history(tmp_path_factory: pytest.TempPathFactory) -> Path:
         pytest.fail("git is not on PATH; the changelog-script tests need it")
     repo = tmp_path_factory.mktemp("history")
     _git(repo, "init", "-q")
-    for subject, body, tag in HISTORY:
+    for subject, body, tags in HISTORY:
         message = ["-m", subject] + (["-m", body] if body else [])
         _git(repo, "commit", "-q", "--allow-empty", *message)
-        if tag is not None:
-            _git(repo, "tag", "-a", tag, "-m", f"Tether {tag}")
+        for tag in tags:
+            if tag in LIGHTWEIGHT_TAGS:
+                _git(repo, "tag", tag)
+            else:
+                _git(repo, "tag", "-a", tag, "-m", f"Tether {tag}")
     return repo
 
 
@@ -147,7 +174,7 @@ def _generate(repo: Path, tmp_path: Path, tag: str, prerelease: str) -> str:
     """Run the extracted step script for ``tag`` and return the changelog it wrote."""
     step = _changelog_step()
     declared = set((step.get("env") or {}).keys())
-    assert declared == {"TAG", "PRERELEASE", "TAG_ERE"}, (
+    assert declared == {"TAG", "PRERELEASE", "TAG_ERE", "PUBLISHED_TAGS"}, (
         f"the changelog step's env keys changed ({sorted(declared)}); update this harness so "
         "every key it declares is set"
     )
@@ -158,6 +185,8 @@ def _generate(repo: Path, tmp_path: Path, tag: str, prerelease: str) -> str:
     runner_temp.mkdir()
     output = tmp_path / "github_output"
     output.write_text("", encoding="utf-8")
+    published = tmp_path / "published-tags"
+    published.write_text("".join(f"{t}\n" for t in PUBLISHED_RELEASES), encoding="utf-8")
     out_dir = repo / "out"
     shutil.rmtree(out_dir, ignore_errors=True)
     out_dir.mkdir()
@@ -166,6 +195,7 @@ def _generate(repo: Path, tmp_path: Path, tag: str, prerelease: str) -> str:
         "TAG": tag,
         "PRERELEASE": prerelease,
         "TAG_ERE": _release_tag_ere(),
+        "PUBLISHED_TAGS": published.as_posix(),
         "RUNNER_TEMP": runner_temp.as_posix(),
         "GITHUB_OUTPUT": output.as_posix(),
     }

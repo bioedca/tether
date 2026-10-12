@@ -224,11 +224,17 @@ uses them as the Release body; the same text is attached to the Release as
 
 Which tag a release is compared with depends on what kind of release it is:
 
-- A **stable** release (`v1.0.0`, `v1.1.0`) is compared with the nearest earlier **stable** tag.
-  `v1.0.0`'s notes therefore cover everything since `v0.8.0`, release candidates included,
-  rather than only the commits since its last release candidate.
-- A **prerelease** (`v1.0.0-rc2`) is compared with the nearest earlier tag of any kind, so each
-  release candidate lists what changed since the one before it.
+- A **stable** release (`v1.0.0`, `v1.1.0`) is compared with the nearest earlier **stable**
+  release. `v1.0.0`'s notes therefore cover everything since `v0.8.0`, release candidates
+  included, rather than only the commits since its last release candidate.
+- A **prerelease** (`v1.0.0-rc2`) is compared with the nearest earlier release of any kind, so
+  each release candidate lists what changed since the one before it.
+
+An earlier tag counts as a release only if it is annotated, has the `vMAJOR.MINOR.PATCH` form
+above, and has a published (non-draft) GitHub Release. The pre-1.0 tags are the exception to the
+last condition, since they never had Releases. A rehearsal tag from a dry run, a tag whose run
+failed, and any other tag left behind without a Release are skipped, so leaving one in place
+doesn't shorten the next release's notes.
 
 The notes have up to nine sections, in this order, and a section with no commits is left out:
 

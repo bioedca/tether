@@ -67,9 +67,12 @@ generated, and needs no write back to `main`.
 2. **Pre-1.0 history is git history.** `docs/release.md`'s Change record section says so and links a
    GitHub compare view from each pre-1.0 tag to the one before it.
 3. **The diff base follows the tag's kind.** A stable tag (the `verify` job's `prerelease=false`)
-   diffs against the nearest earlier tag with no prerelease component, so `v1.0.0` covers
-   `v0.8.0..v1.0.0`. A prerelease diffs against the nearest earlier tag of any kind, which is what
-   rc1 and rc2 did.
+   diffs against the nearest earlier release with no prerelease component, so `v1.0.0` covers
+   `v0.8.0..v1.0.0`. A prerelease diffs against the nearest earlier release of any kind, which is
+   what rc1 and rc2 did. An earlier tag is a release only when it is annotated, matches the
+   `verify` job's `TAG_ERE`, and has a published (non-draft) GitHub Release, except that the
+   pre-1.0 tags need no Release because they predate the pipeline. A dry-run, failed or
+   otherwise unpublished tag is never the base.
 4. **The sections, in order:** "⚠ Breaking Changes", Features, Bug fixes, Performance,
    Documentation, Refactoring, Build & packaging, CI, Internal. A commit is breaking when its
    subject is `<type>!:` or `<type>(scope)!:`, or a line of its body begins `BREAKING CHANGE:` (or
