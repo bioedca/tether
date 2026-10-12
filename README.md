@@ -141,7 +141,7 @@ resolves to the newest archived version:
 metadata is in [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this repository"
 button).
 
-The [Citing Tether](https://bioedca.github.io/tether/latest/citing/) page lists
+The [Citing Tether](docs/citing.md) page lists
 which upstream papers to cite as well for each part of the pipeline you ran
 (idealization backend, corrections, deep classifier), and how to report the
 exact version that produced your data. Licensing credit for tMAVEN, Deep-LASI

@@ -1,8 +1,8 @@
 # Citing Tether
 
 **Who this page is for.** Anyone publishing results produced with Tether. It gives the
-citation for Tether itself and, for each part of the pipeline you ran, the upstream papers
-whose methods that part implements and that you should cite alongside it.
+citation for Tether itself and, for each part of the pipeline you ran, the principal
+upstream papers behind the methods that part implements, which you should cite alongside it.
 
 ## Cite Tether
 
@@ -110,6 +110,10 @@ project created with one release can be corrected or idealized later with anothe
   Tether records no per-movie version, so if you extracted movies into one project with
   different releases, the stamp names only the first;
 - exported files carry the version that wrote them in their `.provenance.json` sidecar;
+- ranking and classification runs are **not** stamped in the project. A saved classical
+  ranker records the version it was trained under (`tether_version` in its model
+  manifest), and the deep classifier records none, so for those steps note the version
+  you ran yourself;
 - the root `app_version` attribute records the version that *created* the project. It is
   optional, so a valid project can lack it.
 
