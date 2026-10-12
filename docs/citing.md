@@ -157,7 +157,8 @@ A sample methods sentence, to adapt to what you ran:
 > (2018), and idealized with the consensus variational-Bayes HMM (Bronson et al., 2009)
 > run through tMAVEN (Verma et al., 2024).
 
-Replace `1.0.0` with the version stamped on the steps you report, and swap the corrections
-and the idealization backend for the rows above that match your analysis. If you need to
+Replace `1.0.0` with the version you noted when you ran the analysis (a stamp from the
+steps you report will do where one exists), and swap the corrections and the idealization
+backend for the rows above that match your analysis. If you need to
 point at one exact release, use that version's own DOI from its Zenodo record instead of
 the concept DOI.
