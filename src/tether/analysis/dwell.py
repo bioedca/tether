@@ -21,8 +21,9 @@ Three pieces, mirroring :mod:`tether.analysis.tdp`:
   dwells contribute — the last always, the first unless ``include_first`` (tMAVEN's
   ``first_flag``). The two are dropped for different reasons. The **last** dwell is
   right-censored: the trace ends before the molecule is seen to leave that state.
-  Dropping it is the standard survival-analysis handling of a finite observation
-  window [Schrangl2024]. The **first** dwell's start was not observed — the molecule
+  Dropping it is tMAVEN parity, not a censoring correction: no censoring correction
+  is applied, so the dropped dwell contributes nothing to the survival curve or its
+  fit. The **first** dwell's start was not observed — the molecule
   was already in that state when the window opened — while its exit is a recorded
   transition, observed only when no interior ``NO_STATE`` gap separates it from the
   next state.
@@ -147,7 +148,8 @@ def state_dwells(
     state (tMAVEN ``np.split`` on ``np.diff != 0``); each run is one dwell. The
     **last** run is always discarded — the trace ends before the molecule is observed
     to leave that state, so its true duration is unknown (right-censored). Dropping it
-    is the standard survival handling of a finite observation window [Schrangl2024].
+    is tMAVEN parity (``generate_dwells``), not a censoring correction: no censoring
+    correction is applied, so the dropped run contributes nothing downstream.
     The **first** run is discarded too unless ``include_first`` (tMAVEN's
     ``first_flag``): its start was not observed, because the molecule was already in
     that state when the window opened, while its exit is a recorded transition. That
