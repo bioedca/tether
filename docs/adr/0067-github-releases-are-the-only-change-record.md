@@ -70,8 +70,9 @@ generated, and needs no write back to `main`.
    diffs against the nearest earlier release with no prerelease component, so `v1.0.0` covers
    `v0.8.0..v1.0.0`. A prerelease diffs against the nearest earlier release of any kind, which is
    what rc1 and rc2 did. An earlier tag is a release only when it is annotated, matches the
-   `verify` job's `TAG_ERE`, and has a published (non-draft) GitHub Release, except that the
-   pre-1.0 tags need no Release because they predate the pipeline. A dry-run, failed or
+   `verify` job's `TAG_ERE`, and has a published (non-draft) GitHub Release, except that the nine
+   historical tags `v0.0.0`…`v0.8.0`, named in the step, need no Release because they predate
+   the pipeline. A dry-run, failed or
    otherwise unpublished tag is never the base.
 4. **The sections, in order:** "⚠ Breaking Changes", Features, Bug fixes, Performance,
    Documentation, Refactoring, Build & packaging, CI, Internal. A commit is breaking when its

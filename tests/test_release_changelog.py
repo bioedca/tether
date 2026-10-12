@@ -44,14 +44,15 @@ RESOLVE_STEP_ID = "resolve"
 PUBLISHED_STEP_ID = "published"
 
 #: The scratch history, oldest first: (subject, body, tags). Every type the generator sorts
-#: appears at least once, and the two breaking markers sit on different sides of a tag. Four
+#: appears at least once, and the two breaking markers sit on different sides of a tag. Five
 #: tags are not releases, each placed where it would otherwise be the nearest base: for v1.0.0,
-#: ``checkpoint`` (outside the grammar) and a lightweight ``v0.9.0``; for v1.0.0-rc2,
+#: ``checkpoint`` (outside the grammar), a lightweight ``v0.9.0`` and an annotated but
+#: unpublished ``v0.8.5`` (pre-1.0, yet not one of the historical tags); for v1.0.0-rc2,
 #: ``v1.0.0junk`` (outside the grammar) and ``v1.0.0-rc9``, annotated and well-formed but with
 #: no published Release (a dry-run rehearsal tag). No diff may start from any of them.
 HISTORY: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("feat: first stable feature", "", ("v0.8.0",)),
-    ("fix: correct the leakage factor", "", ("checkpoint",)),
+    ("fix: correct the leakage factor", "", ("checkpoint", "v0.8.5")),
     ("feat(api)!: drop the legacy reader", "", ("v0.9.0",)),
     ("perf: vectorise the dwell fit", "", ("v1.0.0-rc1",)),
     ("test: cover the dwell fit", "", ("v1.0.0junk",)),
@@ -114,8 +115,8 @@ def test_the_step_classifies_earlier_tags_with_the_release_grammar() -> None:
     grammar = re.compile(_release_tag_ere())
     for tag in ("checkpoint", "v1.0.0junk"):
         assert grammar.fullmatch(tag) is None, f"{tag!r} must be a tag the release grammar rejects"
-    # The other two non-release tags pass the grammar, so they test the other two rules.
-    for tag in ("v0.9.0", "v1.0.0-rc9"):
+    # The other non-release tags pass the grammar, so they test the other rules.
+    for tag in ("v0.9.0", "v0.8.5", "v1.0.0-rc9"):
         assert grammar.fullmatch(tag) is not None, f"{tag!r} must be a well-formed release tag"
 
 

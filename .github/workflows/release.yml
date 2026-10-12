@@ -580,10 +580,11 @@ jobs:
         #
         # An earlier tag is a release, and so a candidate base, only when it is ANNOTATED (as
         # `verify` requires), matches the verify job's own TAG_ERE (exported as `tag_ere`, so
-        # the grammar stays declared once, #380), and either has a published Release or is a
-        # pre-1.0 tag (v0.0.0..v0.8.0 predate the pipeline and never had Releases). Every other
-        # tag -- a hand-pushed `checkpoint` or `v1.0.0junk`, a lightweight `v0.9.0`, a dry-run
-        # or failed `v1.0.0-rc3` -- is excluded, so it can never become the base and silently
+        # the grammar stays declared once, #380), and either has a published Release or is one
+        # of the nine historical tags v0.0.0..v0.8.0, listed by name below, which predate the
+        # pipeline and never had Releases. Every other tag -- a hand-pushed `checkpoint` or
+        # `v1.0.0junk`, a lightweight or failed `v0.9.0`, a dry-run `v1.0.0-rc3` -- is
+        # excluded, so it can never become the base and silently
         # shorten the notes; a stable tag also excludes every tag with a prerelease part. Tag
         # names cannot contain `*`, `?` or `[`, so each exclude matches only itself.
         #
@@ -603,13 +604,16 @@ jobs:
           set -euo pipefail
           test -n "$TAG_ERE" || { echo "::error::verify exported no tag_ere"; false; }
           published=$'\n'"$(cat "$PUBLISHED_TAGS")"$'\n'
+          historical=" v0.0.0 v0.1.0 v0.2.0 v0.3.0 v0.4.0 v0.5.0 v0.6.0 v0.7.0 v0.8.0 "
           skip=(--exclude="$TAG")
           while read -r type ref; do
             t="${ref#refs/tags/}"
             keep=false
             if [ "$type" = "tag" ] && [[ "$t" =~ $TAG_ERE ]]; then
-              major="${BASH_REMATCH[1]}"; pre="${BASH_REMATCH[4]}"
-              if [ "$major" = "0" ] || [[ "$published" == *$'\n'"$t"$'\n'* ]]; then keep=true; fi
+              pre="${BASH_REMATCH[4]}"
+              if [[ "$historical" == *" $t "* ]] || [[ "$published" == *$'\n'"$t"$'\n'* ]]; then
+                keep=true
+              fi
               if [ "$PRERELEASE" != "true" ] && [ -n "$pre" ]; then keep=false; fi
             fi
             if [ "$keep" != "true" ]; then skip+=(--exclude="$t"); fi

@@ -231,10 +231,11 @@ Which tag a release is compared with depends on what kind of release it is:
   each release candidate lists what changed since the one before it.
 
 An earlier tag counts as a release only if it is annotated, has the `vMAJOR.MINOR.PATCH` form
-above, and has a published (non-draft) GitHub Release. The pre-1.0 tags are the exception to the
-last condition, since they never had Releases. A rehearsal tag from a dry run, a tag whose run
-failed, and any other tag left behind without a Release are skipped, so leaving one in place
-doesn't shorten the next release's notes.
+above, and has a published (non-draft) GitHub Release. The nine pre-1.0 tags listed under
+[Before 1.0](#before-10-git-history-only) are the only exception to the last condition, since
+they never had Releases. A rehearsal tag from a dry run, a tag whose run failed, and any other
+tag left behind without a Release are skipped, so leaving one in place doesn't shorten the next
+release's notes.
 
 The notes have up to nine sections, in this order, and a section with no commits is left out:
 
