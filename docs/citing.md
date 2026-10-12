@@ -103,8 +103,11 @@ installed today. A `.tether` project records versions in more than one place, be
 project created with one release can be corrected or idealized later with another:
 
 - the corrections stamp `app_version` on `/settings/leakage`, `/settings/gamma` and
-  `/settings/correction`, rewritten each time they run, and each idealization stamps its
-  own `/idealization/<model>` group;
+  `/settings/correction`, rewritten each time they run, and each idealization run in
+  Tether stamps its own `/idealization/<model>` group;
+- a model imported from standalone tMAVEN (its group's `nstates_selected_by` attribute
+  is `imported`) is stamped with the Tether version that *imported* it, not the software
+  that ran the fit, so for those results report the tMAVEN version you ran;
 - extraction stamps `/settings/extraction` only the *first* time a movie is extracted
   into the project. Movies added later under a newer release leave it unchanged, and
   Tether records no per-movie version, so if you extracted movies into one project with

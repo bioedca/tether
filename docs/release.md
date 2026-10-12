@@ -237,16 +237,19 @@ it for every release:
    appears in the record's version list. Zenodo reads the archive's metadata from
    `CITATION.cff` in the tagged tree.
 
-**If a Release was published while the integration was off**, it can still be archived
-without a new tag: switch the Release to a draft and publish it again. Publishing fires the
-event Zenodo listens for, and `release.yml` does not run, because it is triggered by tag
-pushes, not by Release events.
+**If the newest Release was published while the integration was off**, it can still be
+archived without a new tag: switch the Release to a draft and publish it again. Publishing
+fires the event Zenodo listens for, and `release.yml` does not run, because it is
+triggered by tag pushes, not by Release events. For a stable Release, `docs.yml` also runs
+on that event and redeploys the same documentation it already published; for a prerelease
+it skips.
 
-`docs.yml` *does* listen for that event. For a prerelease it skips, but re-publishing a
-**stable** Release redeploys that release's documentation and points `latest` at it. If
-the Release you re-publish is not the newest stable one, put `latest` back afterwards by
-running `docs.yml` by hand with the newest stable version
-([Publish the documentation](#publish-the-documentation)).
+Use this **only for the newest Release**. Re-publishing an older one has side effects that
+editing files cannot undo: Zenodo orders versions by when their records were created, so
+the backfilled release would become the version the concept DOI resolves to; GitHub may
+mark it as the repository's *Latest* release; and `docs.yml` would point the `latest`
+documentation at it. An older Release published while the integration was off stays
+unarchived, as `v1.0.0-rc1` does.
 
 ```bash
 gh release edit <tag> -R bioedca/tether --draft=true
