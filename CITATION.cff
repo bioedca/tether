@@ -43,8 +43,8 @@ keywords:
 # load-bearing and not recoverable after the fact:
 #   1. The Zenodo-GitHub integration must be ON before a release tag is pushed. Zenodo
 #      only archives releases published while its webhook is active; a release published
-#      with it off is never archived, and only another release (or re-publishing that one)
-#      fixes it. It was switched on 2026-10-11.
+#      with it off is not archived, and only re-publishing it while it is still the newest
+#      release fixes it. It was switched on 2026-10-11.
 #   2. A DOI cannot be reserved through the integration: Zenodo mints each version's DOI
 #      when the GitHub Release is published, after the tagged commit exists. So no tagged
 #      commit can name its own version DOI, and none is written here.

@@ -52,7 +52,8 @@ release**, not the binaries, and it is unaffected by any of the above.
 
     **Before pushing the tag, confirm the Zenodo integration is on** for `bioedca/tether`
     (see [Archiving (Zenodo)](#archiving-zenodo)). A Release published while it is off is
-    never archived and gets no DOI.
+    not archived and gets no DOI. Only the newest Release can be recovered afterwards, by
+    switching it to a draft and publishing it again once the integration is on.
 
     Tag only commits that already contain the post-merge gate: the pipeline that runs is
     the `release.yml` **in the tagged tree**, so a tag on an older commit executes that
