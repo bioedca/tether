@@ -58,5 +58,9 @@ SMD (Single-Molecule Dataset) format — Greenfeld, van de Meent, Pavlichin,
   doi:10.1186/s12859-014-0429-4. The .tether project store is an SMD superset
   (PRD §5.3).
 
-See CITATION.cff for machine-readable citation metadata and docs/PRD.md
-("References") for the complete bibliography.
+See CITATION.cff for machine-readable citation metadata: its `references:` list
+carries every work attributed above (the kinSoftChallenge paper and dataset
+included) plus the method papers a user is asked to cite alongside Tether. The
+published docs page "Citing Tether" (docs/citing.md) maps each part of the
+pipeline to those papers. docs/PRD.md ("References") holds the complete
+bibliography.
