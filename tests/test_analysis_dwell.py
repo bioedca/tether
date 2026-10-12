@@ -96,7 +96,9 @@ def test_state_dwells_drops_first_and_last_by_default() -> None:
     assert isinstance(sd, StateDwells)
     assert sd.lengths[1].tolist() == [2]
     assert sd.lengths[2].tolist() == [3]
-    assert 0 not in sd.lengths  # both state-0 runs are the censored ends
+    # both state-0 runs are dropped: the leading one's start was not observed,
+    # the trailing one is right-censored
+    assert 0 not in sd.lengths
     assert sd.n_molecules == {1: 1, 2: 1}
     assert sd.include_first is False
 
@@ -111,7 +113,7 @@ def test_state_dwells_include_first_keeps_leading_run() -> None:
 
 
 def test_state_dwells_single_run_contributes_nothing() -> None:
-    # no transition -> the sole dwell is censored at both ends
+    # no transition -> neither the start nor the exit of the sole dwell was observed
     sd = state_dwells([np.array([1, 1, 1, 1])], no_state=NO_STATE)
     assert sd.lengths == {}
     assert sd.n_molecules == {}

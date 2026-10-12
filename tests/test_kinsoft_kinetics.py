@@ -101,7 +101,7 @@ def test_pooled_exit_rates_include_first() -> None:
 
 
 def test_no_transition_path_has_no_rates() -> None:
-    # A single run is censored on both ends -> no dwell contributes.
+    # A single run: neither its start nor its exit was observed -> no dwell contributes.
     assert pooled_exit_rates([np.zeros(50, dtype=np.int64)], dt=0.2) == {}
 
 
