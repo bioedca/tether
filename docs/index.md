@@ -49,6 +49,8 @@ paper.
 - [Public roadmap](roadmap.md) — for what the current release contains, what comes
   next, and what is explicitly out of scope.
 - [Stability policy](stability.md) — for what a version number promises.
+- [Version history](release.md#change-record) — for what changed between two versions,
+  and where pre-1.0 history lives.
 - [Privacy policy](privacy.md) — for what Tether and this site do, and do not, collect.
 - [Architecture decisions](adr/README.md) — for the reasoning behind consequential
   design choices.

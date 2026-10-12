@@ -14,10 +14,11 @@ bytes about to be uploaded, so a broken installer fails the build instead of shi
 and **publishes** a GitHub
 Release with checksums, a CycloneDX SBOM, the frozen Tether GUI/runtime (`conda-lock.yml`), sidecar
 (`sidecar-conda-lock.yml`), and deep (`deep-conda-lock.yml`) source-lock assets, a
-Conventional-Commits changelog, and a build-provenance attestation. Constructor consumes the first
-two as its `tether` and `sidecar` extra environments; its own `base` is a live-solved Python + conda
-bootstrap excluded from that reproducibility bill of materials. The deep lock is standalone; the
-deep environment is not bundled into the desktop installers.
+Conventional-Commits changelog (the [change record](#change-record)), and a build-provenance
+attestation. Constructor consumes the first two as its `tether` and `sidecar` extra environments;
+its own `base` is a live-solved Python + conda bootstrap excluded from that reproducibility bill
+of materials. The deep lock is standalone; the deep environment is not bundled into the desktop
+installers.
 
 The installers are **not OS-code-signed** on any platform, and that is the settled 1.0 position
 rather than a pending task — SignPath Foundation declined enrollment on 2026-07-26 and Apple
@@ -201,6 +202,69 @@ The prerelease is intentionally retained as this documented evidence set. Pre-re
 also intentionally do **not** publish the documentation site: the RC release job logged
 its pre-release skip notice and created no `docs.yml` run. Release-triggered
 documentation publishing remains unproven until the stable `v1.0.0` tag.
+
+## Change record
+
+**The GitHub Releases are the change record.** Each published Release's notes say what changed
+in it, at [github.com/bioedca/tether/releases](https://github.com/bioedca/tether/releases).
+There is no `CHANGELOG.md` in this repository, and none will be generated or committed
+([ADR-0067](adr/0067-github-releases-are-the-only-change-record.md)).
+
+### How the notes are produced
+
+`release.yml` writes the notes from the Conventional-Commit subjects in the release's range and
+uses them as the Release body; the same text is attached to the Release as
+`CHANGELOG-<tag>.md`. Nobody edits them by hand, so any Release's notes can be regenerated from
+`git log`.
+
+Which tag a release is compared with depends on what kind of release it is:
+
+- A **stable** release (`v1.0.0`, `v1.1.0`) is compared with the nearest earlier **stable** tag.
+  `v1.0.0`'s notes therefore cover everything since `v0.8.0`, release candidates included,
+  rather than only the commits since its last release candidate.
+- A **prerelease** (`v1.0.0-rc2`) is compared with the nearest earlier tag of any kind, so each
+  release candidate lists what changed since the one before it.
+
+The notes have up to nine sections, in this order, and a section with no commits is left out:
+
+1. **⚠ Breaking Changes** — any commit whose subject is `<type>!:` or `<type>(scope)!:`, or
+   whose message carries a `BREAKING CHANGE:` footer. A breaking commit is listed here and not
+   again under its type.
+2. **Features** (`feat`), **Bug fixes** (`fix`), **Performance** (`perf`), **Documentation**
+   (`docs`), **Refactoring** (`refactor`), **Build & packaging** (`build`) and **CI** (`ci`).
+3. **Internal** — `test` and `chore`.
+
+Merge commits are skipped, and so is a commit whose type matches none of these sections.
+
+### Comparing any two versions
+
+Open the Releases page, or GitHub's compare view for the two tags:
+`https://github.com/bioedca/tether/compare/vX...vY`. For example,
+[`v0.8.0...v1.0.0-rc1`](https://github.com/bioedca/tether/compare/v0.8.0...v1.0.0-rc1) lists
+every commit that `v1.0.0-rc1` has and `v0.8.0` does not. To find which releases contain a
+particular fix, run `git tag --contains <commit>` in a clone.
+
+### Before 1.0: git history only
+
+**The pre-1.0 versions have no release notes, and none will be written.** The tags `v0.0.0`
+through `v0.8.0` were milestone markers, cut before the release pipeline existed. They have no
+GitHub Release, and their record is the commit history alone. If you need to know whether a
+result produced with a pre-1.0 version predates a fix, open the comparison for that version
+below, or search the commit history for the fix and check which tags contain it.
+
+| Version | What changed |
+| --- | --- |
+| `v0.0.0` | The first tag: [its source tree](https://github.com/bioedca/tether/tree/v0.0.0) |
+| `v0.1.0` | [`v0.0.0...v0.1.0`](https://github.com/bioedca/tether/compare/v0.0.0...v0.1.0) |
+| `v0.2.0` | [`v0.1.0...v0.2.0`](https://github.com/bioedca/tether/compare/v0.1.0...v0.2.0) |
+| `v0.3.0` | [`v0.2.0...v0.3.0`](https://github.com/bioedca/tether/compare/v0.2.0...v0.3.0) |
+| `v0.4.0` | [`v0.3.0...v0.4.0`](https://github.com/bioedca/tether/compare/v0.3.0...v0.4.0) |
+| `v0.5.0` | [`v0.4.0...v0.5.0`](https://github.com/bioedca/tether/compare/v0.4.0...v0.5.0) |
+| `v0.6.0` | [`v0.5.0...v0.6.0`](https://github.com/bioedca/tether/compare/v0.5.0...v0.6.0) |
+| `v0.7.0` | [`v0.6.0...v0.7.0`](https://github.com/bioedca/tether/compare/v0.6.0...v0.7.0) |
+| `v0.8.0` | [`v0.7.0...v0.8.0`](https://github.com/bioedca/tether/compare/v0.7.0...v0.8.0) |
+
+From `v1.0.0-rc1` on, every published Release carries its own notes.
 
 ## Publish the documentation
 

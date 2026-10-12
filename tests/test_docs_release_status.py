@@ -81,7 +81,8 @@ def test_the_guard_reports_the_wording_it_replaced() -> None:
 _ANNOUNCEMENT_ROW = re.compile(r"^\| Where is it announced\? \|.*$", re.MULTILINE)
 
 #: The row's exact allowed content, pinned. It describes *where* deprecations are announced and
-#: links the Releases page and the release pipeline page; it says nothing about what is
+#: links the Releases page, the change record (#182) and the release pipeline page; it says
+#: nothing about what is
 #: currently on the Releases page. A denylist of state-describing phrasings could not be made
 #: complete -- each version of one let ordinary wording through -- so the row is pinned whole.
 EXPECTED_ANNOUNCEMENT_ROW = (
@@ -89,7 +90,9 @@ EXPECTED_ANNOUNCEMENT_ROW = (
     "the deprecation, at [github.com/bioedca/tether/releases]"
     "(https://github.com/bioedca/tether/releases). There is no `CHANGELOG.md` in this "
     "repository, so do not go looking for one. The Releases page is the record of every "
-    "published Release; the [release pipeline](release.md) describes how a Release is cut. |"
+    "published Release; the [change record](release.md#change-record) says how the notes are "
+    "produced and where pre-1.0 history lives, and the [release pipeline](release.md) describes "
+    "how a Release is cut. |"
 )
 
 

@@ -555,18 +555,55 @@ jobs:
           artifact-name: tether-sbom.cyclonedx.json
 
       - name: Generate the changelog (Conventional Commits since the previous tag)
+        # The Release body is the project's only change record: there is no committed
+        # CHANGELOG.md (ADR-0067). The diff base depends on the `verify` job's parsed
+        # prerelease component, never on the tag's spelling (issue #380). A prerelease diffs
+        # against the nearest earlier tag of any kind, as rc1 and rc2 did. A stable tag diffs
+        # against the nearest earlier STABLE tag, so v1.0.0's notes cover everything since
+        # v0.8.0 rather than the commits since its last release candidate. The exclude glob
+        # below is TAG_ERE's group 4 (`-[0-9A-Za-z.-]+`) restated for git's wildmatch: it
+        # classifies the EARLIER tags, which have no parsed `verify` verdict of their own, and
+        # never this one. tests/test_release_changelog.py holds the two to the same verdicts.
+        #
+        # A commit marked breaking -- a `<type>!:` / `<type>(scope)!:` subject, or a
+        # `BREAKING CHANGE:` / `BREAKING-CHANGE:` footer line in its body -- is listed under
+        # "⚠ Breaking Changes" and NOT also under its type's section. `test` and `chore`,
+        # which no other section takes, land in "Internal". tests/test_release_changelog.py
+        # runs this exact script against a throwaway repository, so it must stay plain
+        # bash 3.2 (the macOS test leg): no associative arrays, no mapfile.
         env:
           TAG: ${{ needs.verify.outputs.tag }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
         run: |
           set -euo pipefail
-          prev="$(git describe --tags --abbrev=0 --exclude="$TAG" "${TAG}^" 2>/dev/null || true)"
+          if [ "$PRERELEASE" = "true" ]; then
+            prev="$(git describe --tags --abbrev=0 --exclude="$TAG" "${TAG}^" 2>/dev/null || true)"
+          else
+            prev="$(git describe --tags --abbrev=0 --exclude="$TAG" --exclude='*-[0-9A-Za-z.-]*' "${TAG}^" 2>/dev/null || true)"
+          fi
           if [ -n "$prev" ]; then range="${prev}..${TAG}"; header="## ${TAG} (changes since ${prev})"; else range="$TAG"; header="## ${TAG}"; fi
+          work="$RUNNER_TEMP/changelog"
+          mkdir -p "$work"
+          git log --no-merges --format='%H' -E --grep='^BREAKING[ -]CHANGE:' "$range" > "$work/breaking"
+          git log --no-merges --format='%H%x09- %s (%h)' "$range" > "$work/commits"
+          breaking=$'\n'"$(cat "$work/breaking")"$'\n'
+          bang='^- [A-Za-z]+(\([^)]*\))?!:'
+          # One line per commit, keyed by the section it belongs to: `!` for breaking,
+          # otherwise the Conventional-Commit type (the subject up to its first `(`, `!` or `:`).
+          while IFS=$'\t' read -r sha line; do
+            if [[ "$line" =~ $bang ]] || [[ "$breaking" == *$'\n'"$sha"$'\n'* ]]; then
+              key='!'
+            else
+              key="${line#- }"; key="${key%%[(!:]*}"
+            fi
+            printf '%s\t%s\n' "$key" "$line"
+          done < "$work/commits" > "$work/keyed"
           {
             echo "$header"
             echo
-            for grp in "feat:Features" "fix:Bug fixes" "perf:Performance" "docs:Documentation" "refactor:Refactoring" "build:Build & packaging" "ci:CI"; do
-              type="${grp%%:*}"; title="${grp#*:}"
-              body="$(git log --no-merges --pretty='- %s (%h)' "$range" 2>/dev/null | grep -E "^- ${type}(\(|!?:)" || true)"
+            for grp in "!|⚠ Breaking Changes" "feat|Features" "fix|Bug fixes" "perf|Performance" "docs|Documentation" "refactor|Refactoring" "build|Build & packaging" "ci|CI" "test chore|Internal"; do
+              keys="${grp%%|*}"; title="${grp#*|}"
+              body="$(awk -F '\t' -v keys=" $keys " 'index(keys, " " $1 " ") { sub(/^[^\t]*\t/, ""); print }' "$work/keyed")"
               if [ -n "$body" ]; then printf '### %s\n%s\n\n' "$title" "$body"; fi
             done
           } > out/CHANGELOG-${TAG}.md
