@@ -564,6 +564,8 @@ jobs:
         # below is TAG_ERE's group 4 (`-[0-9A-Za-z.-]+`) restated for git's wildmatch: it
         # classifies the EARLIER tags, which have no parsed `verify` verdict of their own, and
         # never this one. tests/test_release_changelog.py holds the two to the same verdicts.
+        # Both lookups also --match the release-tag shape, so a non-release tag (a
+        # `checkpoint` pushed by hand) can never become the base and silently shorten the notes.
         #
         # A commit marked breaking -- a `<type>!:` / `<type>(scope)!:` subject, or a
         # `BREAKING CHANGE:` / `BREAKING-CHANGE:` footer line in its body -- is listed under
@@ -577,9 +579,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$PRERELEASE" = "true" ]; then
-            prev="$(git describe --tags --abbrev=0 --exclude="$TAG" "${TAG}^" 2>/dev/null || true)"
+            prev="$(git describe --tags --abbrev=0 --match='v[0-9]*.[0-9]*.[0-9]*' --exclude="$TAG" "${TAG}^" 2>/dev/null || true)"
           else
-            prev="$(git describe --tags --abbrev=0 --exclude="$TAG" --exclude='*-[0-9A-Za-z.-]*' "${TAG}^" 2>/dev/null || true)"
+            prev="$(git describe --tags --abbrev=0 --match='v[0-9]*.[0-9]*.[0-9]*' --exclude="$TAG" --exclude='*-[0-9A-Za-z.-]*' "${TAG}^" 2>/dev/null || true)"
           fi
           if [ -n "$prev" ]; then range="${prev}..${TAG}"; header="## ${TAG} (changes since ${prev})"; else range="$TAG"; header="## ${TAG}"; fi
           work="$RUNNER_TEMP/changelog"

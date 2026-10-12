@@ -16,8 +16,9 @@ Three behaviours are pinned, and each assertion fails if its part of the script 
 * "⚠ Breaking Changes" comes first and takes ``<type>!:`` subjects and ``BREAKING CHANGE:``
   footers away from their type's section, and "Internal" comes last with ``test`` and ``chore``.
 
-A fourth test holds the glob that skips earlier prerelease tags to the release grammar's own
-prerelease verdict, since the step has no parsed verdict for any tag but its own.
+A fourth test holds the step's tag globs to the release grammar: the one that skips earlier
+prerelease tags to its prerelease verdict, since the step has no parsed verdict for any tag but its
+own, and the one that keeps non-release tags such as ``checkpoint`` from becoming the diff base.
 
 Dependency-free beyond the ``yaml`` the base matrix already carries, so it runs on all three OSes:
 ``ci.yml``'s ``test`` job has bash everywhere (Git Bash on Windows).
@@ -44,12 +45,15 @@ RESOLVE_STEP_ID = "resolve"
 #: The prerelease rows include the edge cases of the component's character class.
 STABLE_TAGS = ("v0.0.0", "v0.8.0", "v1.0.0", "v10.20.30")
 PRERELEASE_TAGS = ("v1.0.0-rc1", "v1.0.0-rc.2", "v1.0.0-0", "v1.0.0--x", "v1.0.0-.a", "v2.1.0-A")
+#: Tags the release grammar rejects, which must never become a diff base.
+NON_RELEASE_TAGS = ("checkpoint", "v1", "v1.0", "release-1.0.0", "x-v1.0.0")
 
 #: The scratch history, oldest first: (subject, body, tag or None). Every type the generator
 #: sorts appears at least once, and the two breaking markers sit on different sides of a tag.
+#: ``checkpoint`` is a non-release tag between v0.8.0 and v1.0.0 that no diff may start from.
 HISTORY: tuple[tuple[str, str, str | None], ...] = (
     ("feat: first stable feature", "", "v0.8.0"),
-    ("fix: correct the leakage factor", "", None),
+    ("fix: correct the leakage factor", "", "checkpoint"),
     ("feat(api)!: drop the legacy reader", "", None),
     ("perf: vectorise the dwell fit", "", "v1.0.0-rc1"),
     ("test: cover the dwell fit", "", None),
@@ -84,7 +88,7 @@ def _step(job: str, step_id: str) -> dict:
 
 
 def test_the_stable_base_glob_agrees_with_the_release_grammar() -> None:
-    """The ``--exclude`` glob that skips earlier prerelease tags is ``TAG_ERE``'s group 4.
+    """The ``--exclude`` glob is ``TAG_ERE``'s group 4, and ``--match`` admits only release tags.
 
     The changelog step cannot read a parsed verdict for an *earlier* tag, so it restates the
     grammar's prerelease component as a git wildmatch glob. This holds the two to the same answer
@@ -103,6 +107,13 @@ def test_the_stable_base_glob_agrees_with_the_release_grammar() -> None:
         if fnmatch.fnmatchcase(tag, globs[0]) is not bool(match.group(4)):
             wrong.append(tag)
     assert not wrong, f"the glob {globs[0]!r} and TAG_ERE disagree about {wrong}"
+    matches = re.findall(r"--match='([^']+)'", _changelog_step()["run"])
+    assert len(matches) == 2 and len(set(matches)) == 1, f"both lookups need one --match: {matches}"
+    for tag in STABLE_TAGS + PRERELEASE_TAGS:
+        assert fnmatch.fnmatchcase(tag, matches[0]), f"--match must admit release tag {tag!r}"
+    for tag in NON_RELEASE_TAGS:
+        assert grammar.fullmatch(tag) is None, f"{tag!r} must be a tag the release grammar rejects"
+        assert not fnmatch.fnmatchcase(tag, matches[0]), f"--match must reject {tag!r}"
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -196,7 +207,7 @@ def _sections(notes: str) -> dict[str, list[str]]:
 
 
 def test_a_stable_tag_diffs_against_the_previous_stable_tag(history: Path, tmp_path: Path) -> None:
-    """``v1.0.0`` covers everything since ``v0.8.0``, release candidates included."""
+    """``v1.0.0`` covers everything since ``v0.8.0``, the candidates and ``checkpoint`` too."""
     notes = _generate(history, tmp_path, "v1.0.0", "false")
     assert notes.splitlines()[0] == "## v1.0.0 (changes since v0.8.0)", notes
     listed = [s for subjects in _sections(notes).values() for s in subjects]
