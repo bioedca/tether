@@ -95,7 +95,7 @@ def test_the_stable_base_glob_agrees_with_the_release_grammar() -> None:
     assert len(eres) == 1, "the resolve step must declare TAG_ERE exactly once"
     grammar = re.compile(eres[0])
     globs = re.findall(r"--exclude='([^']+)'", _changelog_step()["run"])
-    assert len(globs) == 1, f"the changelog step must exclude prerelease tags with one glob: {globs}"
+    assert len(globs) == 1, f"the changelog step must exclude prereleases with one glob: {globs}"
     wrong = []
     for tag in STABLE_TAGS + PRERELEASE_TAGS:
         match = grammar.fullmatch(tag)
