@@ -22,8 +22,9 @@ Three pieces:
 * :func:`pooled_exit_rates` / :func:`two_state_rate_constants` — the per-state
   **exit rate** from the pooled dwell times, ``k = 1/⟨τ⟩`` (the maximum-likelihood
   estimator the benchmark uses [Götz2022]), reusing
-  :func:`tether.analysis.dwell.state_dwells` for the finite-window (first/last)
-  dwell censoring so the estimator is consistent with the M6 dwell analysis.
+  :func:`tether.analysis.dwell.state_dwells`, which drops each molecule's last dwell
+  and, unless ``include_first``, its first, so the estimator is consistent with the
+  M6 dwell analysis.
 * :class:`KinsoftReference` / :func:`load_kinsoft_reference` /
   :func:`evaluate_kinsoft_level` — load the frozen ground-truth + reported
   inter-tool spread (``schema/kinsoft_reference.json``) and check a fitted level
@@ -310,9 +311,10 @@ def pooled_exit_rates(
     the benchmark uses [Götz2022]: pool every fully-observed dwell of a state across
     all molecules and take the reciprocal of the mean dwell **time** (frames × ``dt``).
     Dwell extraction reuses :func:`tether.analysis.dwell.state_dwells` (a sentinel
-    ``no_state = -1`` never present in a Viterbi path), so the first/last dwell of
-    each molecule is censored exactly as in the M6 dwell analysis — the finite
-    observation window rarely coincides with a true state entry/exit.
+    ``no_state = -1`` never present in a Viterbi path), so the first and last dwell
+    of each molecule are dropped exactly as in :func:`~tether.analysis.dwell.state_dwells`
+    — the last because its exit was not observed, the first (unless ``include_first``)
+    because its start was not.
 
     Returns ``{state: k}`` (per second when ``dt`` is in seconds). A state with no
     fully-observed interior dwell is absent from the mapping.

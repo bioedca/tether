@@ -3,7 +3,7 @@
 """Dwell-time distributions + survival fits (M6 B2, FR-ANALYZE; PRD §7.7, Appendix C B2).
 
 Covers tMAVEN's dwell pipeline (``modeler/dwells.py`` ``generate_dwells`` + ``survival``
-+ ``optimize_*_surv``): per-state dwell extraction with first/last censoring, the
++ ``optimize_*_surv``): per-state dwell extraction dropping the first/last dwell, the
 empirical survival function, and its exponential fit. A verbatim port of the tMAVEN
 reference is the parity oracle. The store path additionally enforces the two Tether
 invariants tMAVEN has no analogue for — **fresh idealizations only** (STALE molecules
@@ -44,7 +44,7 @@ def _tmaven_dwells(
     """tMAVEN ``generate_dwells`` verbatim, on integer state paths (no_state == NaN).
 
     Splits each molecule's state path into constant runs, drops the last (right-censored)
-    and — unless ``first_flag`` — the first (left-censored), recording ``len(run)`` under
+    and — unless ``first_flag`` — the first (start not observed), recording ``len(run)`` under
     the run's state. Returns ``{state: sorted lengths}``.
     """
     dwell_list: dict[int, list[int]] = {}

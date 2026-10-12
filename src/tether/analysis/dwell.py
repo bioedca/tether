@@ -17,11 +17,15 @@ Three pieces, mirroring :mod:`tether.analysis.tdp`:
 
 * :func:`state_dwells` — the pure extraction core (iterable of per-molecule state
   paths → per-state dwell-length samples). Faithful to tMAVEN ``generate_dwells``:
-  the **first** and **last** dwell of every molecule are censored (the analysis
-  window rarely coincides with a true state entry/exit), so only fully-observed
-  interior dwells contribute — the last is always dropped, the first unless
-  ``include_first`` (tMAVEN's ``first_flag``). Right-censoring this way is the
-  standard survival-analysis handling of finite observation windows [Schrangl2024].
+  the **first** and **last** dwell of every molecule are dropped, so only interior
+  dwells contribute — the last always, the first unless ``include_first`` (tMAVEN's
+  ``first_flag``). The two are dropped for different reasons. The **last** dwell is
+  right-censored: the trace ends before the molecule is seen to leave that state.
+  Dropping it is the standard survival-analysis handling of a finite observation
+  window [Schrangl2024]. The **first** dwell's start was not observed — the molecule
+  was already in that state when the window opened — while its exit is a recorded
+  transition, observed only when no interior ``NO_STATE`` gap separates it from the
+  next state.
 * :func:`survival_curve` / :func:`fit_survival` — the empirical survival function
   (tMAVEN ``survival``) and its non-linear-least-squares exponential fit (tMAVEN
   ``optimize_*_surv``), with covariance-derived standard errors + Student-``t``
@@ -126,7 +130,7 @@ class StateDwells:
 
     lengths: dict[int, np.ndarray]  # state index -> int64 dwell lengths (frames)
     n_molecules: dict[int, int]  # state index -> molecules contributing >= 1 dwell
-    include_first: bool  # whether each molecule's first (left-censored) dwell was kept
+    include_first: bool  # whether each molecule's first (start not observed) dwell was kept
 
 
 def state_dwells(
@@ -142,15 +146,17 @@ def state_dwells(
     ``no_state`` frames are dropped and the remainder is split into runs of constant
     state (tMAVEN ``np.split`` on ``np.diff != 0``); each run is one dwell. The
     **last** run is always discarded — the trace ends before the molecule is observed
-    to leave that state, so its true duration is unknown (right-censored). The
-    **first** run is discarded too unless ``include_first`` — the window rarely begins
-    exactly when the molecule entered the state, so the first dwell is left-censored
-    (tMAVEN's ``first_flag``). Every remaining interior run's ``(state, length)`` is
-    recorded. Restricting to fully-observed interior dwells is the standard survival
-    handling of a finite observation window [Schrangl2024].
+    to leave that state, so its true duration is unknown (right-censored). Dropping it
+    is the standard survival handling of a finite observation window [Schrangl2024].
+    The **first** run is discarded too unless ``include_first`` (tMAVEN's
+    ``first_flag``): its start was not observed, because the molecule was already in
+    that state when the window opened, while its exit is a recorded transition. That
+    exit is observed only when no interior ``no_state`` gap separates the first run
+    from the next state; across such a gap the exit happened somewhere inside it.
+    Every remaining interior run's ``(state, length)`` is recorded.
 
-    A molecule with no transition (a single run) contributes nothing — its lone dwell
-    is censored on both ends.
+    A molecule with no transition (a single run) contributes nothing — neither the
+    start nor the exit of its lone dwell was observed.
 
     Parameters
     ----------
@@ -160,7 +166,7 @@ def state_dwells(
         Sentinel for out-of-window / gap frames. ``None`` uses
         :data:`tether.idealize.NO_STATE`.
     include_first
-        Keep each molecule's first (left-censored) dwell (default drops it).
+        Keep each molecule's first (start not observed) dwell (default drops it).
 
     Returns
     -------
@@ -188,7 +194,7 @@ def state_dwells(
             continue
         # runs of constant state: split where the value changes (tMAVEN gen split)
         runs = np.split(s, np.flatnonzero(np.diff(s) != 0) + 1)
-        if len(runs) <= 1:  # no transition -> the sole dwell is censored both ends
+        if len(runs) <= 1:  # no transition -> neither start nor exit of the sole dwell observed
             continue
         start = 0 if include_first else 1
         interior = runs[start:-1]  # drop last (right-censored); drop first unless include_first
@@ -522,7 +528,7 @@ def population_dwell_times(
         Restrict to these ``molecule_key`` values (``None`` = all), intersected with
         the fresh + curation filters.
     include_first
-        Keep each molecule's first (left-censored) dwell (default drops it).
+        Keep each molecule's first (start not observed) dwell (default drops it).
     model
         Survival fit model (``"single"`` .. ``"stretched"``).
     ci_level
