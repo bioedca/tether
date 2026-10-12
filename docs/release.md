@@ -208,8 +208,10 @@ documentation publishing remains unproven until the stable `v1.0.0` tag.
 
 ## Archiving (Zenodo)
 
-Every published GitHub Release, prereleases included, is archived on Zenodo through the
-Zenodo–GitHub integration, and Zenodo mints a DOI for it. Tether therefore has two kinds of
+Every GitHub Release published while the Zenodo–GitHub integration is on, prereleases
+included, is archived on Zenodo, and Zenodo mints a DOI for it. A Release published while
+the integration was off is not archived until it is published again (see the recovery
+below), so not every historical release has a DOI. Tether therefore has two kinds of
 DOI, and they go in different places:
 
 | DOI | Resolves to | Where it is written |
@@ -239,6 +241,12 @@ it for every release:
 without a new tag: switch the Release to a draft and publish it again. Publishing fires the
 event Zenodo listens for, and `release.yml` does not run, because it is triggered by tag
 pushes, not by Release events.
+
+`docs.yml` *does* listen for that event. For a prerelease it skips, but re-publishing a
+**stable** Release redeploys that release's documentation and points `latest` at it. If
+the Release you re-publish is not the newest stable one, put `latest` back afterwards by
+running `docs.yml` by hand with the newest stable version
+([Publish the documentation](#publish-the-documentation)).
 
 ```bash
 gh release edit <tag> -R bioedca/tether --draft=true

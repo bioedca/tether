@@ -32,7 +32,10 @@ credited for the parts you used. Find the rows that match your analysis.
 
 The idealization backend is the `type` attribute of the model's group under
 `/idealization/` in your `.tether` project. The group itself is named after the backend
-unless a different name was chosen when the model was written.
+unless a different name was chosen when the model was written. A model imported from
+tMAVEN keeps tMAVEN's own label in `type` (for example `vb Consensus HMM` or `vbFRET`)
+rather than one of the six keys below: find the row that describes the same method and
+cite that.
 
 | Backend (model type) | What it is | Cite |
 |---|---|---|
@@ -47,7 +50,7 @@ unless a different name was chosen when the model was written.
 
 | What you ran | Cite |
 |---|---|
-| Leakage (α) and detection (γ) corrections, and the gamma-corrected FRET efficiency | McCann 2010; Hellenkamp 2018 |
+| Leakage (α) and γ (detection-efficiency and quantum-yield ratio) corrections, and the gamma-corrected FRET efficiency | McCann 2010; Hellenkamp 2018 |
 | Native movie-to-trace extraction and channel registration | Wanninger 2023 |
 | The deep trace classifier (GPU add-on) | Thomsen 2020; Wanninger 2023 |
 | Saving or exporting the `.tether` / SMD project format | Greenfeld 2015 |
@@ -99,9 +102,13 @@ Quote the version that actually produced the results you report, not the version
 installed today. A `.tether` project records versions in more than one place, because a
 project created with one release can be corrected or idealized later with another:
 
-- each analysis step stamps its own `app_version` attribute when it runs: extraction on
-  `/settings/extraction`, the corrections on `/settings/leakage`, `/settings/gamma` and
-  `/settings/correction`, and each idealization on its `/idealization/<model>` group;
+- the corrections stamp `app_version` on `/settings/leakage`, `/settings/gamma` and
+  `/settings/correction`, rewritten each time they run, and each idealization stamps its
+  own `/idealization/<model>` group;
+- extraction stamps `/settings/extraction` only the *first* time a movie is extracted
+  into the project. Movies added later under a newer release leave it unchanged, and
+  Tether records no per-movie version, so if you extracted movies into one project with
+  different releases, the stamp names only the first;
 - exported files carry the version that wrote them in their `.provenance.json` sidecar;
 - the root `app_version` attribute records the version that *created* the project. It is
   optional, so a valid project can lack it.
@@ -126,8 +133,8 @@ If the steps you report ran under different versions, name each one.
 A sample methods sentence, to adapt to what you ran:
 
 > Single-molecule FRET movies were processed with Tether version 1.0.0
-> (https://doi.org/10.5281/zenodo.23306397). Traces were corrected for donor leakage and
-> detection efficiency (γ) as described by McCann et al. (2010) and Hellenkamp et al.
+> (https://doi.org/10.5281/zenodo.23306397). Traces were corrected for donor leakage (α)
+> and for the detection-efficiency and quantum-yield ratio (γ) as described by McCann et al. (2010) and Hellenkamp et al.
 > (2018), and idealized with the consensus variational-Bayes HMM (Bronson et al., 2009)
 > run through tMAVEN (Verma et al., 2024).
 
