@@ -80,6 +80,7 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
       publish: ${{ steps.resolve.outputs.publish }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
+      tag_ere: ${{ steps.resolve.outputs.tag_ere }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -130,6 +131,7 @@ jobs:
             echo "version=${tag#v}"
             echo "publish=$publish"
             echo "prerelease=$prerelease"
+            echo "tag_ere=$TAG_ERE"
           } >> "$GITHUB_OUTPUT"
           echo "Release tag '$tag' (publish=$publish, prerelease=$prerelease)."
 
@@ -560,15 +562,17 @@ jobs:
         # prerelease component, never on the tag's spelling (issue #380). A prerelease diffs
         # against the nearest earlier tag of any kind, as rc1 and rc2 did. A stable tag diffs
         # against the nearest earlier STABLE tag, so v1.0.0's notes cover everything since
-        # v0.8.0 rather than the commits since its last release candidate. The exclude glob
-        # below is TAG_ERE's group 4 (`-[0-9A-Za-z.-]+`) restated for git's wildmatch: it
-        # classifies the EARLIER tags, which have no parsed `verify` verdict of their own, and
-        # never this one. tests/test_release_changelog.py holds the two to the same verdicts.
-        # Both lookups also --match the release-tag shape, so a non-release tag (a
-        # `checkpoint` pushed by hand) can never become the base and silently shorten the notes.
+        # v0.8.0 rather than the commits since its last release candidate. The EARLIER tags have
+        # no parsed `verify` verdict of their own, so the step classifies them with the verify
+        # job's own TAG_ERE, exported as `tag_ere` so the grammar stays declared once (#380):
+        # every tag the grammar rejects -- a hand-pushed `checkpoint` or `v1.0.0junk`
+        # -- is excluded from both lookups, so it can never become the base and silently
+        # shorten the notes, and a stable tag also excludes every tag with a prerelease part.
+        # Tag names cannot contain `*`, `?` or `[`, so each exclude matches only itself.
         #
-        # A commit marked breaking -- a `<type>!:` / `<type>(scope)!:` subject, or a
-        # `BREAKING CHANGE:` / `BREAKING-CHANGE:` footer line in its body -- is listed under
+        # A commit marked breaking -- a `<type>!:` / `<type>(scope)!:` subject, or a body line
+        # beginning `BREAKING CHANGE:` / `BREAKING-CHANGE:` (meant as the footer; the footer
+        # block is not parsed, so any line starting that way counts) -- is listed under
         # "⚠ Breaking Changes" and NOT also under its type's section. `test` and `chore`,
         # which no other section takes, land in "Internal". tests/test_release_changelog.py
         # runs this exact script against a throwaway repository, so it must stay plain
@@ -576,13 +580,19 @@ jobs:
         env:
           TAG: ${{ needs.verify.outputs.tag }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+          TAG_ERE: ${{ needs.verify.outputs.tag_ere }}
         run: |
           set -euo pipefail
-          if [ "$PRERELEASE" = "true" ]; then
-            prev="$(git describe --tags --abbrev=0 --match='v[0-9]*.[0-9]*.[0-9]*' --exclude="$TAG" "${TAG}^" 2>/dev/null || true)"
-          else
-            prev="$(git describe --tags --abbrev=0 --match='v[0-9]*.[0-9]*.[0-9]*' --exclude="$TAG" --exclude='*-[0-9A-Za-z.-]*' "${TAG}^" 2>/dev/null || true)"
-          fi
+          test -n "$TAG_ERE" || { echo "::error::verify exported no tag_ere"; false; }
+          skip=(--exclude="$TAG")
+          while IFS= read -r t; do
+            if ! [[ "$t" =~ $TAG_ERE ]]; then
+              skip+=(--exclude="$t")
+            elif [ "$PRERELEASE" != "true" ] && [ -n "${BASH_REMATCH[4]}" ]; then
+              skip+=(--exclude="$t")
+            fi
+          done < <(git tag --list)
+          prev="$(git describe --tags --abbrev=0 "${skip[@]}" "${TAG}^" 2>/dev/null || true)"
           if [ -n "$prev" ]; then range="${prev}..${TAG}"; header="## ${TAG} (changes since ${prev})"; else range="$TAG"; header="## ${TAG}"; fi
           work="$RUNNER_TEMP/changelog"
           mkdir -p "$work"

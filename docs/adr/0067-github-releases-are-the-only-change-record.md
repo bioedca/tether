@@ -72,9 +72,10 @@ generated, and needs no write back to `main`.
    rc1 and rc2 did.
 4. **The sections, in order:** "⚠ Breaking Changes", Features, Bug fixes, Performance,
    Documentation, Refactoring, Build & packaging, CI, Internal. A commit is breaking when its
-   subject is `<type>!:` or `<type>(scope)!:`, or its body has a `BREAKING CHANGE:` (or the
-   Conventional Commits synonym `BREAKING-CHANGE:`) footer line; it is listed under Breaking and not
-   also under its type. Internal collects `test` and `chore`.
+   subject is `<type>!:` or `<type>(scope)!:`, or a line of its body begins `BREAKING CHANGE:` (or
+   the Conventional Commits synonym `BREAKING-CHANGE:`); it is listed under Breaking and not also
+   under its type. That line is meant to be the footer, but the step does not parse the footer
+   block: any line starting that way counts. Internal collects `test` and `chore`.
 5. **The asset name is unchanged:** `CHANGELOG-<tag>.md`, attached to the Release beside the
    installers.
 

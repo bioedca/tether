@@ -233,8 +233,9 @@ Which tag a release is compared with depends on what kind of release it is:
 The notes have up to nine sections, in this order, and a section with no commits is left out:
 
 1. **⚠ Breaking Changes** — any commit whose subject is `<type>!:` or `<type>(scope)!:`, or
-   whose message carries a `BREAKING CHANGE:` (or `BREAKING-CHANGE:`) footer. A breaking commit is
-   listed here and not again under its type.
+   whose message has a line beginning `BREAKING CHANGE:` (or `BREAKING-CHANGE:`). That line is
+   meant to be the footer, but any line starting that way counts, so don't begin a body paragraph
+   with it unless you mean it. A breaking commit is listed here and not again under its type.
 2. **Features** (`feat`), **Bug fixes** (`fix`), **Performance** (`perf`), **Documentation**
    (`docs`), **Refactoring** (`refactor`), **Build & packaging** (`build`) and **CI** (`ci`).
 3. **Internal** — `test` and `chore`.

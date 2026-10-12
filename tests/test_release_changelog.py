@@ -16,9 +16,9 @@ Three behaviours are pinned, and each assertion fails if its part of the script 
 * "⚠ Breaking Changes" comes first and takes ``<type>!:`` subjects and ``BREAKING CHANGE:``
   footers away from their type's section, and "Internal" comes last with ``test`` and ``chore``.
 
-A fourth test holds the step's tag globs to the release grammar: the one that skips earlier
-prerelease tags to its prerelease verdict, since the step has no parsed verdict for any tag but its
-own, and the one that keeps non-release tags such as ``checkpoint`` from becoming the diff base.
+A fourth test holds the step to the verify job's own ``TAG_ERE``, which it uses to classify the
+earlier tags (it has no parsed verdict for any tag but its own): the step must read the exported
+grammar rather than restate it, so the grammar stays declared once (#380).
 
 Dependency-free beyond the ``yaml`` the base matrix already carries, so it runs on all three OSes:
 ``ci.yml``'s ``test`` job has bash everywhere (Git Bash on Windows).
@@ -26,7 +26,6 @@ Dependency-free beyond the ``yaml`` the base matrix already carries, so it runs 
 
 from __future__ import annotations
 
-import fnmatch
 import os
 import re
 import shutil
@@ -41,22 +40,16 @@ RELEASE_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 CHANGELOG_STEP_ID = "changelog"
 RESOLVE_STEP_ID = "resolve"
 
-#: Tags the release grammar accepts, split by its prerelease verdict (group 4 of ``TAG_ERE``).
-#: The prerelease rows include the edge cases of the component's character class.
-STABLE_TAGS = ("v0.0.0", "v0.8.0", "v1.0.0", "v10.20.30")
-PRERELEASE_TAGS = ("v1.0.0-rc1", "v1.0.0-rc.2", "v1.0.0-0", "v1.0.0--x", "v1.0.0-.a", "v2.1.0-A")
-#: Tags the release grammar rejects, which must never become a diff base.
-NON_RELEASE_TAGS = ("checkpoint", "v1", "v1.0", "release-1.0.0", "x-v1.0.0")
-
 #: The scratch history, oldest first: (subject, body, tag or None). Every type the generator
 #: sorts appears at least once, and the two breaking markers sit on different sides of a tag.
-#: ``checkpoint`` is a non-release tag between v0.8.0 and v1.0.0 that no diff may start from.
+#: ``checkpoint`` and ``v1.0.0junk`` are tags the release grammar rejects, placed where each would
+#: be the nearest base (for v1.0.0 and for v1.0.0-rc2); no diff may start from either.
 HISTORY: tuple[tuple[str, str, str | None], ...] = (
     ("feat: first stable feature", "", "v0.8.0"),
     ("fix: correct the leakage factor", "", "checkpoint"),
     ("feat(api)!: drop the legacy reader", "", None),
     ("perf: vectorise the dwell fit", "", "v1.0.0-rc1"),
-    ("test: cover the dwell fit", "", None),
+    ("test: cover the dwell fit", "", "v1.0.0junk"),
     ("chore: tidy the fixtures", "", None),
     ("refactor: split the store", "Moves the writer.\n\nBREAKING CHANGE: the writer moved", None),
     ("docs: describe the store", "This body mentions BREAKING CHANGE: mid-line only.", None),
@@ -87,33 +80,31 @@ def _step(job: str, step_id: str) -> dict:
     return found[0]
 
 
-def test_the_stable_base_glob_agrees_with_the_release_grammar() -> None:
-    """The ``--exclude`` glob is ``TAG_ERE``'s group 4, and ``--match`` admits only release tags.
-
-    The changelog step cannot read a parsed verdict for an *earlier* tag, so it restates the
-    grammar's prerelease component as a git wildmatch glob. This holds the two to the same answer
-    on every row, so a change to either one that the other does not follow turns this red.
-    """
+def _release_tag_ere() -> str:
     run = _step("verify", RESOLVE_STEP_ID)["run"]
     eres = re.findall(r"^[ \t]*TAG_ERE='([^']+)'[ \t]*$", run, re.MULTILINE)
     assert len(eres) == 1, "the resolve step must declare TAG_ERE exactly once"
-    grammar = re.compile(eres[0])
-    globs = re.findall(r"--exclude='([^']+)'", _changelog_step()["run"])
-    assert len(globs) == 1, f"the changelog step must exclude prereleases with one glob: {globs}"
-    wrong = []
-    for tag in STABLE_TAGS + PRERELEASE_TAGS:
-        match = grammar.fullmatch(tag)
-        assert match is not None, f"{tag!r} must be a tag the release grammar accepts"
-        if fnmatch.fnmatchcase(tag, globs[0]) is not bool(match.group(4)):
-            wrong.append(tag)
-    assert not wrong, f"the glob {globs[0]!r} and TAG_ERE disagree about {wrong}"
-    matches = re.findall(r"--match='([^']+)'", _changelog_step()["run"])
-    assert len(matches) == 2 and len(set(matches)) == 1, f"both lookups need one --match: {matches}"
-    for tag in STABLE_TAGS + PRERELEASE_TAGS:
-        assert fnmatch.fnmatchcase(tag, matches[0]), f"--match must admit release tag {tag!r}"
-    for tag in NON_RELEASE_TAGS:
+    return eres[0]
+
+
+def test_the_step_classifies_earlier_tags_with_the_release_grammar() -> None:
+    """The step reads ``TAG_ERE`` from the ``verify`` job's outputs and never restates it.
+
+    The resolve step writes the literal to ``$GITHUB_OUTPUT`` as ``tag_ere``, the job exports
+    it, and the changelog step takes it as its ``TAG_ERE`` env. The harness below hands the step
+    the resolve step's own literal, so the history tests run the real grammar too.
+    """
+    workflow = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    resolve = _step("verify", RESOLVE_STEP_ID)["run"]
+    assert 'echo "tag_ere=$TAG_ERE"' in resolve, "the resolve step must write tag_ere"
+    outputs = workflow["jobs"]["verify"].get("outputs") or {}
+    assert outputs.get("tag_ere") == "${{ steps.resolve.outputs.tag_ere }}", outputs
+    step = _changelog_step()
+    assert (step.get("env") or {}).get("TAG_ERE") == "${{ needs.verify.outputs.tag_ere }}"
+    assert "TAG_ERE=" not in step["run"], "the changelog step must not restate the grammar"
+    grammar = re.compile(_release_tag_ere())
+    for tag in ("checkpoint", "v1.0.0junk"):
         assert grammar.fullmatch(tag) is None, f"{tag!r} must be a tag the release grammar rejects"
-        assert not fnmatch.fnmatchcase(tag, matches[0]), f"--match must reject {tag!r}"
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -156,7 +147,7 @@ def _generate(repo: Path, tmp_path: Path, tag: str, prerelease: str) -> str:
     """Run the extracted step script for ``tag`` and return the changelog it wrote."""
     step = _changelog_step()
     declared = set((step.get("env") or {}).keys())
-    assert declared == {"TAG", "PRERELEASE"}, (
+    assert declared == {"TAG", "PRERELEASE", "TAG_ERE"}, (
         f"the changelog step's env keys changed ({sorted(declared)}); update this harness so "
         "every key it declares is set"
     )
@@ -174,6 +165,7 @@ def _generate(repo: Path, tmp_path: Path, tag: str, prerelease: str) -> str:
         **os.environ,
         "TAG": tag,
         "PRERELEASE": prerelease,
+        "TAG_ERE": _release_tag_ere(),
         "RUNNER_TEMP": runner_temp.as_posix(),
         "GITHUB_OUTPUT": output.as_posix(),
     }
@@ -207,7 +199,7 @@ def _sections(notes: str) -> dict[str, list[str]]:
 
 
 def test_a_stable_tag_diffs_against_the_previous_stable_tag(history: Path, tmp_path: Path) -> None:
-    """``v1.0.0`` covers everything since ``v0.8.0``, the candidates and ``checkpoint`` too."""
+    """``v1.0.0`` covers everything since ``v0.8.0``, past the candidates and non-release tags."""
     notes = _generate(history, tmp_path, "v1.0.0", "false")
     assert notes.splitlines()[0] == "## v1.0.0 (changes since v0.8.0)", notes
     listed = [s for subjects in _sections(notes).values() for s in subjects]
@@ -216,7 +208,7 @@ def test_a_stable_tag_diffs_against_the_previous_stable_tag(history: Path, tmp_p
 
 
 def test_a_prerelease_tag_diffs_against_the_tag_before_it(history: Path, tmp_path: Path) -> None:
-    """``v1.0.0-rc2`` still diffs against ``v1.0.0-rc1``, as the published candidates did."""
+    """``v1.0.0-rc2`` diffs against ``v1.0.0-rc1``, past the non-release ``v1.0.0junk``."""
     notes = _generate(history, tmp_path, "v1.0.0-rc2", "true")
     assert notes.splitlines()[0] == "## v1.0.0-rc2 (changes since v1.0.0-rc1)", notes
     listed = sorted(s for subjects in _sections(notes).values() for s in subjects)
