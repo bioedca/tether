@@ -80,6 +80,7 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
       publish: ${{ steps.resolve.outputs.publish }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
+      tag_ere: ${{ steps.resolve.outputs.tag_ere }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -130,6 +131,7 @@ jobs:
             echo "version=${tag#v}"
             echo "publish=$publish"
             echo "prerelease=$prerelease"
+            echo "tag_ere=$TAG_ERE"
           } >> "$GITHUB_OUTPUT"
           echo "Release tag '$tag' (publish=$publish, prerelease=$prerelease)."
 
@@ -554,19 +556,92 @@ jobs:
           output-file: out/tether-sbom.cyclonedx.json
           artifact-name: tether-sbom.cyclonedx.json
 
-      - name: Generate the changelog (Conventional Commits since the previous tag)
+      - name: List the published Releases (the changelog's admissible bases)
+        id: published
+        # Drafts are not published. A failed run, a dry-run rehearsal tag and a rejected
+        # lightweight tag all leave a release-shaped tag with no Release behind; the changelog
+        # step below must not diff against one, so it needs this list. An API failure fails the
+        # step rather than letting the notes start from the wrong base.
         env:
-          TAG: ${{ needs.verify.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          prev="$(git describe --tags --abbrev=0 --exclude="$TAG" "${TAG}^" 2>/dev/null || true)"
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate \
+            -q '.[] | select(.draft | not) | .tag_name' > "$RUNNER_TEMP/published-tags"
+          echo "file=$RUNNER_TEMP/published-tags" >> "$GITHUB_OUTPUT"
+
+      - name: Generate the changelog (Conventional Commits since the previous release)
+        # The Release body is the project's only change record: there is no committed
+        # CHANGELOG.md (ADR-0067). The diff base depends on the `verify` job's parsed
+        # prerelease component, never on the tag's spelling (issue #380). A prerelease diffs
+        # against the nearest earlier release of any kind, as rc1 and rc2 did. A stable tag
+        # diffs against the nearest earlier STABLE release, so v1.0.0's notes cover everything
+        # since v0.8.0 rather than the commits since its last release candidate.
+        #
+        # An earlier tag is a release, and so a candidate base, only when it is ANNOTATED (as
+        # `verify` requires), matches the verify job's own TAG_ERE (exported as `tag_ere`, so
+        # the grammar stays declared once, #380), and either has a published Release or is one
+        # of the nine historical tags v0.0.0..v0.8.0, listed by name below, which predate the
+        # pipeline and never had Releases. Every other tag -- a hand-pushed `checkpoint` or
+        # `v1.0.0junk`, a lightweight or failed `v0.9.0`, a dry-run `v1.0.0-rc3` -- is
+        # excluded, so it can never become the base and silently
+        # shorten the notes; a stable tag also excludes every tag with a prerelease part. Tag
+        # names cannot contain `*`, `?` or `[`, so each exclude matches only itself.
+        #
+        # A commit marked breaking -- a `<type>!:` / `<type>(scope)!:` subject, or a body line
+        # beginning `BREAKING CHANGE:` / `BREAKING-CHANGE:` (meant as the footer; the footer
+        # block is not parsed, so any line starting that way counts) -- is listed under
+        # "⚠ Breaking Changes" and NOT also under its type's section. `test` and `chore`,
+        # which no other section takes, land in "Internal". tests/test_release_changelog.py
+        # runs this exact script against a throwaway repository, so it must stay plain
+        # bash 3.2 (the macOS test leg): no associative arrays, no mapfile.
+        env:
+          TAG: ${{ needs.verify.outputs.tag }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+          TAG_ERE: ${{ needs.verify.outputs.tag_ere }}
+          PUBLISHED_TAGS: ${{ steps.published.outputs.file }}
+        run: |
+          set -euo pipefail
+          test -n "$TAG_ERE" || { echo "::error::verify exported no tag_ere"; false; }
+          published=$'\n'"$(cat "$PUBLISHED_TAGS")"$'\n'
+          historical=" v0.0.0 v0.1.0 v0.2.0 v0.3.0 v0.4.0 v0.5.0 v0.6.0 v0.7.0 v0.8.0 "
+          skip=(--exclude="$TAG")
+          while read -r type ref; do
+            t="${ref#refs/tags/}"
+            keep=false
+            if [ "$type" = "tag" ] && [[ "$t" =~ $TAG_ERE ]]; then
+              pre="${BASH_REMATCH[4]}"
+              if [[ "$historical" == *" $t "* ]] || [[ "$published" == *$'\n'"$t"$'\n'* ]]; then
+                keep=true
+              fi
+              if [ "$PRERELEASE" != "true" ] && [ -n "$pre" ]; then keep=false; fi
+            fi
+            if [ "$keep" != "true" ]; then skip+=(--exclude="$t"); fi
+          done < <(git for-each-ref refs/tags --format='%(objecttype) %(refname)')
+          prev="$(git describe --tags --abbrev=0 "${skip[@]}" "${TAG}^" 2>/dev/null || true)"
           if [ -n "$prev" ]; then range="${prev}..${TAG}"; header="## ${TAG} (changes since ${prev})"; else range="$TAG"; header="## ${TAG}"; fi
+          work="$RUNNER_TEMP/changelog"
+          mkdir -p "$work"
+          git log --no-merges --format='%H' -E --grep='^BREAKING[ -]CHANGE:' "$range" > "$work/breaking"
+          git log --no-merges --format='%H%x09- %s (%h)' "$range" > "$work/commits"
+          breaking=$'\n'"$(cat "$work/breaking")"$'\n'
+          bang='^- [A-Za-z]+(\([^)]*\))?!:'
+          # One line per commit, keyed by the section it belongs to: `!` for breaking,
+          # otherwise the Conventional-Commit type (the subject up to its first `(`, `!` or `:`).
+          while IFS=$'\t' read -r sha line; do
+            if [[ "$line" =~ $bang ]] || [[ "$breaking" == *$'\n'"$sha"$'\n'* ]]; then
+              key='!'
+            else
+              key="${line#- }"; key="${key%%[(!:]*}"
+            fi
+            printf '%s\t%s\n' "$key" "$line"
+          done < "$work/commits" > "$work/keyed"
           {
             echo "$header"
             echo
-            for grp in "feat:Features" "fix:Bug fixes" "perf:Performance" "docs:Documentation" "refactor:Refactoring" "build:Build & packaging" "ci:CI"; do
-              type="${grp%%:*}"; title="${grp#*:}"
-              body="$(git log --no-merges --pretty='- %s (%h)' "$range" 2>/dev/null | grep -E "^- ${type}(\(|!?:)" || true)"
+            for grp in "!|⚠ Breaking Changes" "feat|Features" "fix|Bug fixes" "perf|Performance" "docs|Documentation" "refactor|Refactoring" "build|Build & packaging" "ci|CI" "test chore|Internal"; do
+              keys="${grp%%|*}"; title="${grp#*|}"
+              body="$(awk -F '\t' -v keys=" $keys " 'index(keys, " " $1 " ") { sub(/^[^\t]*\t/, ""); print }' "$work/keyed")"
               if [ -n "$body" ]; then printf '### %s\n%s\n\n' "$title" "$body"; fi
             done
           } > out/CHANGELOG-${TAG}.md

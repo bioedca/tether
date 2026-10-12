@@ -1352,6 +1352,8 @@ namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and 
   pin-and-hold (§4.1) — the tag is the single point where all three are snapshotted for the release.
 - **`CHANGELOG.md`** is **generated from commit history**, never hand-edited (so squash titles must be clean
   Conventional Commits — §12.2/§12.6).
+  *Superseded by [ADR-0067](adr/0067-github-releases-are-the-only-change-record.md): GitHub Releases are the
+  only change record; there is no committed `CHANGELOG.md`.*
 - **Release pipeline (`release.yml`, triggered by pushing a signed `v*` tag; its `verify` job enforces the
   `vMAJOR.MINOR.PATCH` form, optionally with a `-<prerelease>` component, and rejects any other tag):**
   1. **verify-tag** — assert the tag is signed + annotated, on `main`, and all three locks are committed and clean;
@@ -1369,6 +1371,8 @@ namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and 
      `gh attestation verify`).
   4. **changelog** — auto-generate from Conventional Commits since the previous tag into `CHANGELOG.md` + the
      Release body.
+     *Superseded by [ADR-0067](adr/0067-github-releases-are-the-only-change-record.md): the Release body only,
+     diffed against the previous stable tag for a stable release, with its own section list.*
   5. **publish** — create the GitHub Release; upload installers + checksums + SBOM + all three lock files. (A
      conda-forge feedstock is an optional later follow-on, not required at first 1.0.0.)
 - **Docs deploy.** mkdocs (Material) is built in CI on every PR (`docs-build`, required) and **deployed on
