@@ -34,8 +34,8 @@ The idealization backend is the `type` attribute of the model's group under
 `/idealization/` in your `.tether` project. The group itself is named after the backend
 unless a different name was chosen when the model was written. A model imported from
 tMAVEN keeps tMAVEN's own label in `type` (for example `vb Consensus HMM` or `vbFRET`)
-rather than one of the six keys below: find the row that describes the same method and
-cite that.
+rather than one of Tether's six backend keys. `vbFRET` has its own row below; for any
+other label, find the row that describes the same method and cite that.
 
 | Backend (model type) | What it is | Cite |
 |---|---|---|
@@ -45,11 +45,13 @@ cite that.
 | `ebhmm_modelselection` | The same ebFRET HMM, with the number of states chosen by model selection. | van de Meent 2014; Verma 2024 |
 | `vbgmm_vbhmm` | VB-HMM seeded from a variational-Bayes Gaussian mixture, with the number of states chosen by model selection, run in the tMAVEN sidecar. | Verma 2024 |
 | `kmeans_vbhmm` | VB-HMM seeded from k-means, run in the tMAVEN sidecar. | Verma 2024 |
+| `vbFRET` (imported only) | Per-trace variational-Bayes HMM (vbFRET), fitted in standalone tMAVEN and imported into the project. | Bronson 2009; Verma 2024 |
 
 ### The rest of the pipeline
 
 | What you ran | Cite |
 |---|---|
+| Photobleaching (bleach-step) detection, Tether's native reimplementation of tMAVEN's Bayesian single-step model | Verma 2024 |
 | Leakage (α) and γ (detection-efficiency and quantum-yield ratio) corrections, and the gamma-corrected FRET efficiency | McCann 2010; Hellenkamp 2018 |
 | Native movie-to-trace extraction and channel registration | Wanninger 2023 |
 | The deep trace classifier (GPU add-on) | Thomsen 2020; Wanninger 2023 |
