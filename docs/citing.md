@@ -17,9 +17,11 @@ The same metadata is in
 GitHub's **Cite this repository** button on the repository page reads; it exports APA and
 BibTeX.
 
-Each release also gets its own **version DOI** on Zenodo. To cite the exact version you ran,
-open the concept DOI above, pick that version from the record's version list, and cite the
-DOI shown on that version's record.
+Every release archived on Zenodo also has its own **version DOI**. To cite the exact
+version you ran, open the concept DOI above, pick that version from the record's version
+list, and cite the DOI shown on that version's record. Archiving started with
+`v1.0.0-rc2`, so `v1.0.0-rc1` has no version DOI: if you ran it, cite the concept DOI and
+give the version number in the text.
 
 ## Also cite the methods you used
 
@@ -85,8 +87,10 @@ unless a different name was chosen when the model was written.
   123(17):2765–2780 (2024).
   [https://doi.org/10.1016/j.bpj.2024.01.022](https://doi.org/10.1016/j.bpj.2024.01.022)
 
-These are the same entries as the `references:` list in `CITATION.cff`. Licensing credit for
-the projects Tether builds on is in
+These are the papers the tables above cite. The `references:` list in `CITATION.cff` holds
+them all, plus works Tether credits that a citing user does not need here (MASH-FRET and the
+kinSoftChallenge benchmark and dataset used in Tether's own tests). Licensing credit for the
+projects Tether builds on is in
 [`NOTICE`](https://github.com/bioedca/tether/blob/main/NOTICE).
 
 ## Reporting a Tether analysis
