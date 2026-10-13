@@ -32,6 +32,9 @@ bleach found the first time, so a window the first pass shortened stays as it wa
   mixes samples or setups gets one value for all of them. `tether extract` and
   `tether batch` make one project per movie; keep movies of different samples or setups
   in separate projects.
+- Each movie file in the project once. A file extracted into the project twice puts every
+  trace in it twice, and the α and γ steps count both copies toward the 10 molecules each
+  factor needs, so a factor can pass on half that many real traces.
 - No rejected molecules you distrust. The α and γ steps read every molecule in the project,
   whatever its curation label, so a trace you rejected still enters both estimates when its
   bleach steps pass the checks above. If you rejected traces as contaminants or artefacts,
