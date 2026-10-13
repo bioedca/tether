@@ -26,6 +26,12 @@ paper.
   verify a download.
 - [Command line](cli.md) — for scripting or batch-processing movies, and for launching
   Tether after an installer install.
+- How-to guides, one per task once you have your own data:
+  [extract traces](how-to/extract-traces.md), [curate them](how-to/curate-traces.md),
+  [correct for leakage and gamma](how-to/apply-corrections.md),
+  [idealize them](how-to/idealize.md),
+  [draw a histogram, TDP and dwell plots](how-to/analyze.md) and
+  [export the results](how-to/export-results.md).
 - [Legacy Deep-LASI import](io/legacy-import.md) — for re-analysing an existing
   Deep-LASI acquisition without re-extracting the movie.
 - [Standalone-tMAVEN hand-off](idealize/standalone-tmaven-handoff.md) — for idealizing

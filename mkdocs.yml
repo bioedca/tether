@@ -47,6 +47,13 @@ nav:
       - Getting started:
           - Install Tether: install.md
           - Installers &amp; offline bundle: packaging.md
+      - How-to guides:
+          - Extract traces from a dual-view movie: how-to/extract-traces.md
+          - Curate traces: how-to/curate-traces.md
+          - Correct for leakage and gamma: how-to/apply-corrections.md
+          - Idealize traces into FRET states: how-to/idealize.md
+          - Draw a histogram, TDP and dwell plots: how-to/analyze.md
+          - Export results: how-to/export-results.md
       - Import:
           - Legacy Deep-LASI import: io/legacy-import.md
       - Idealization:
