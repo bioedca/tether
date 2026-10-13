@@ -8,9 +8,11 @@ it.
 
 Tether's design rule is that every datum carries its origin
 ([ADR-0001](adr/0001-provenance-first-data-model.md)). In practice that means three things,
-covered in turn below: a version stamp and a parameter set on each pipeline stage inside the
-project, the same stamp in a sidecar file beside every publication export, and committed
-dependency locks that pin the environment the version ran in. Two pages go further: the
+covered in turn below: a version stamp and the stage's settings on extraction, the leakage,
+γ and correction passes and each idealization inside the project, the same stamp in a sidecar file
+beside every publication export, and committed dependency locks that pin the environment the
+version ran in. The record is not complete: some steps and some settings are never stamped,
+and [What is not recorded](#what-is-not-recorded) lists them. Two pages go further: the
 [project store reference](reference/tether-format.md) documents every group and dataset in a
 `.tether` file, and the [exports reference](reference/exports.md) documents every column of
 every export. What to cite, and the caveats on which steps leave no stamp, are on
@@ -113,7 +115,7 @@ Every fitted model is its own group, `/idealization/<model>`, stamped by
 | `type` | The backend, for example `vbconhmm` (Tether's default) or `ebhmm`. A model imported from standalone tMAVEN keeps tMAVEN's own label. |
 | `nstates` | Number of states in the chosen model. |
 | `nstates_selected_by` | How `nstates` was chosen: `max-elbo` (the best evidence lower bound over the states tried), `fixed`, or `imported`. |
-| `dtype`, `intensity_quantity` | What was fitted. |
+| `dtype`, `intensity_quantity` | Which trace layer was fitted. `corrected` here means the background-subtracted layer, not α- or γ-corrected: the fit always runs on apparent E computed from that layer ([ADR-0029](adr/0029-idealization-correction-provenance-hash-and-per-factor-staleness.md)), so the state means are apparent efficiencies. |
 | `n_molecules` | Molecules this fit covered. |
 | `app_version`, `created_utc` | The Tether version and time of the fit. For an imported model this is the version that *imported* it, not the software that ran the fit. |
 | `elbo`, `elbo_by_nstates` | The evidence lower bound of the chosen model, and of every state count tried (JSON), when the backend reports them. |
@@ -127,6 +129,12 @@ ranking and classification runs. The SMD file handed off to standalone tMAVEN ha
 sidecar, and a fit run there is stamped only with the Tether version that imported it. For
 those, keep your own note of the version and settings; [Citing Tether](citing.md#reporting-a-tether-analysis)
 lists each case.
+
+Nor is every setting of the stamped stages stored. The idealization fitter's restart count
+(`nrestarts`), for one, is passed to tMAVEN but never written to the model group. The
+*Recorded in `.tether`* column of the [parameters reference](reference/parameters.md) says,
+for each tunable, whether and where it is stamped; anything marked **no** that you changed
+belongs in your own notes.
 
 ### Every export
 
@@ -175,11 +183,14 @@ with h5py.File("experiment.tether", "r") as f:
         if isinstance(group, h5py.Group):
             show(f"/settings/{name}", group.attrs)
     for name, group in f.get("idealization", {}).items():
-        show(f"/idealization/{name}", group.attrs)
+        if not name.endswith(".__writing__"):
+            show(f"/idealization/{name}", group.attrs)
 ```
 
 The `isinstance` test skips `/settings/condition_audit`, which is a dataset (a log of
-condition edits) rather than a group.
+condition edits) rather than a group. The `.__writing__` test skips the staging group a fit
+leaves behind if it is interrupted while being saved; that group is an incomplete model, and
+`list_idealizations` in `src/tether/project/idealize.py` skips it the same way.
 
 Here is that script's actual output for a project made by `tether batch` from a synthetic
 25-molecule, 400-frame movie, with the default extraction settings and the default
@@ -366,17 +377,21 @@ not run. The citations are the ones [Citing Tether](citing.md) gives for each st
 > (https://doi.org/10.5281/zenodo.23306397). Donor and acceptor intensities were integrated
 > over a 3.0-pixel-radius disk inside a 21-pixel window, with the local background taken from
 > an annulus between 6.0 and 8.0 pixels and averaged over 10 frames (Wanninger et al., 2023).
-> Intensities were corrected for donor-to-acceptor leakage (α = 0.079, estimated from 25 of
-> 25 molecules after acceptor photobleaching) and for the detection-efficiency and
-> quantum-yield ratio γ, estimated and applied per molecule at the acceptor photobleaching
-> step (median 0.99, interquartile range 0.89 to 1.13; all 25 molecules had their own
-> estimate, so none took the median), as described by McCann et al. (2010) and
-> Hellenkamp et al. (2018);
-> direct acceptor excitation was taken as zero under single-laser excitation. FRET
-> trajectories were idealized with the consensus variational-Bayes hidden Markov model
+> Correction factors were estimated as described by McCann et al. (2010) and Hellenkamp et
+> al. (2018): donor-to-acceptor leakage α = 0.079, from 25 of 25 molecules after acceptor
+> photobleaching, and the detection-efficiency and quantum-yield ratio γ, estimated per
+> molecule at the acceptor photobleaching step (median 0.99, interquartile range 0.89 to
+> 1.13; all 25 molecules had their own estimate, so none took the median). Direct acceptor
+> excitation was taken as zero under single-laser excitation. FRET trajectories were
+> idealized on the apparent FRET efficiency of the background-subtracted intensities,
+> without the α and γ corrections, using the consensus variational-Bayes hidden Markov model
 > (Bronson et al., 2009) run through tMAVEN (Verma et al., 2024), with the number of states
-> (three) chosen by the maximum evidence lower bound over one to four states.
+> (three) chosen by the maximum evidence lower bound over one to four states; the state
+> means are therefore apparent efficiencies.
 
-A paper names a release rather than a development build. If one exact release matters, cite
+The idealization clause matters most. Tether stores α and γ with each molecule and applies
+them when it shows corrected E, but the hidden Markov model is fitted to apparent E, so its
+state means are not corrected efficiencies. If you report corrected E values, say which
+figure or table they come from. A paper names a release rather than a development build. If one exact release matters, cite
 that version's own DOI from its Zenodo record instead of the concept DOI. If steps ran under
 different versions, name each one.
