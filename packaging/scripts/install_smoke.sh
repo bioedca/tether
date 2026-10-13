@@ -78,7 +78,15 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   # pre_uninstall step removed the shortcut and its folder (issue #551). `_?=`
   # makes the NSIS uninstaller run in place, so this call waits for it instead
   # of returning while a relocated copy is still working.
-  "$prefix\\Uninstall-Tether.exe" /S "_?=$prefix"
+  #
+  # Its exit status is reported, not gated on. pre_uninstall runs first; the
+  # constructor step after it reverses `conda init` and, on the hosted runner,
+  # exits 2 with "Failed to clean AutoRun" and "needs sudo ...\Scripts\conda.exe"
+  # (first seen on the #551 packaging run). That step is constructor's, not
+  # Tether's, and the shortcut checks below are what this smoke owns.
+  uninstall_rc=0
+  "$prefix\\Uninstall-Tether.exe" /S "_?=$prefix" || uninstall_rc=$?
+  echo "Uninstall-Tether.exe exited $uninstall_rc"
   test ! -e "$sm_dir/Tether.lnk" || {
     echo "uninstall left the Start Menu shortcut behind: $sm_dir/Tether.lnk"; exit 1; }
   test ! -e "$sm_dir" || {
