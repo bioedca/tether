@@ -16,8 +16,8 @@
 #
 # `set -euo pipefail` MUST stay the first executable line, and the contract test
 # asserts exactly that: the caller's own `-e` only ever sees this script's FINAL exit
-# status, and both platform branches deliberately END in non-fatal commands (the
-# Windows Start Menu check, the Unix Linux-only desktop-entry block), so without `-e`
+# status, and the Unix branch deliberately ENDS in a non-fatal command (the
+# Linux-only desktop-entry block), so without `-e`
 # armed before the first probe the script would exit 0 no matter which probe failed.
 set -euo pipefail
 
@@ -67,12 +67,22 @@ if [ "$RUNNER_OS" = "Windows" ]; then
     echo "missing tether-gui.exe — is [project.gui-scripts] declared?"; exit 1; }
   cmd /c "$prefix\\bin\\tether.bat" --version
   # Start Menu shortcut (created directly; menuinst cannot own a pip-installed
-  # wheel — ADR-0051). Non-fatal: a locked-down runner profile may refuse the
-  # shortcut. `${APPDATA-}` (a default, never a bare reference): the variable is
-  # legitimately absent off-Windows, and `-u` would otherwise turn this
-  # intentionally non-fatal check into a hard failure.
-  ls "${APPDATA-}/Microsoft/Windows/Start Menu/Programs/Tether/Tether.lnk" \
-    || echo "WARNING: Start Menu shortcut absent on this runner"
+  # wheel — ADR-0051). FATAL since issue #551: this check used to warn and carry
+  # on, and it warned on every Windows build, rc2's included, because post_install
+  # could not find PowerShell. The hosted runner's profile does create shortcuts,
+  # so an absent one here is the installer's fault, not the runner's.
+  sm_dir="$(cygpath -u "$APPDATA")/Microsoft/Windows/Start Menu/Programs/Tether"
+  test -f "$sm_dir/Tether.lnk" || {
+    echo "missing Start Menu shortcut: $sm_dir/Tether.lnk"; exit 1; }
+  # Uninstall last, through the uninstaller a user would run, and prove the
+  # pre_uninstall step removed the shortcut and its folder (issue #551). `_?=`
+  # makes the NSIS uninstaller run in place, so this call waits for it instead
+  # of returning while a relocated copy is still working.
+  "$prefix\\Uninstall-Tether.exe" /S "_?=$prefix"
+  test ! -e "$sm_dir/Tether.lnk" || {
+    echo "uninstall left the Start Menu shortcut behind: $sm_dir/Tether.lnk"; exit 1; }
+  test ! -e "$sm_dir" || {
+    echo "uninstall left the Start Menu folder behind: $sm_dir"; exit 1; }
 else
   prefix="$RUNNER_TEMP/tether-smoke"
   if [ "$RUNNER_OS" = "macOS" ]; then
