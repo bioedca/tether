@@ -71,7 +71,9 @@ that decision: `n_qualifying`, `n_molecules`, `min_window_frames`, `ceiling`,
 **`/settings/gamma`** — `src/tether/project/gamma.py`. Rewritten on every γ pass. The
 detection-efficiency and quantum-yield ratio γ is estimated **per molecule** at its acceptor
 bleach step (`source` = `acceptor-bleach-step`), and each molecule that passes the gates
-stores its own value in the `gamma` column of `/molecules`. Storing is all the pass does;
+stores its own value in the `gamma` column of `/molecules`, unless the population value
+below is withheld, in which case every processed molecule's `gamma` is cleared to `NaN`,
+including those that had an estimate of their own. Storing is all the pass does;
 nothing in Tether applies γ to a displayed or exported value (see the note under the sample
 Methods paragraph). The `gamma`
 attribute here is the population median of those values, which the `n_fallback` molecules
@@ -226,7 +228,8 @@ set of groups and keys, because some are written only when a step ran or produce
 In an intact project, a missing group means the step left no completed record: it did not
 run, withheld its result, or ran and failed. For a `tether batch` run, each `<stage>_status`
 in `/settings/batch` records how that stage ended (`done`, `skipped`, `failed`, `blocked`,
-`deferred`, `not-requested` or `warning`), and the batch log has the detail. The groups alone
+`deferred` or `not-requested`), and the batch log has the detail. A warning, such as a
+provenance stamp that failed, goes only to the batch log: the stage can still read `done`. The groups alone
 cannot tell any of these apart from a record that was deleted or damaged. One loss does leave
 a trace: a save interrupted between removing an old model and renaming its replacement can
 leave only the `<model>.__writing__` staging group, which the script skips. If
@@ -397,7 +400,9 @@ also publishes a software bill of materials, `tether-sbom.cyclonedx.json`, besid
 
 **With an installer**, the environment comes with the version. Each installer is built from
 per-platform locks rendered from the first two files, with no fresh solve, so two installs of
-the same release get the same packages. Each release publishes the source locks as assets
+the same release on the same platform get the same packages. Linux, Intel macOS, Apple
+silicon macOS and Windows each have their own solution, so the packages differ between
+platforms. Each release publishes the source locks as assets
 on its [release page](https://github.com/bioedca/tether/releases), so you can see exactly
 what a release pinned without installing it. `v1.0.0-rc1` predates the deep lock's addition
 to the release assets and carries only the base and sidecar locks
