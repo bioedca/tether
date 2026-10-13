@@ -46,6 +46,7 @@ nav:
       - Does Tether fit my data?: compatibility.md
       - Getting started:
           - Install Tether: install.md
+          - "Tutorial: your first analysis": tutorial.md
           - Installers &amp; offline bundle: packaging.md
       - How-to guides:
           - Extract traces from a dual-view movie: how-to/extract-traces.md

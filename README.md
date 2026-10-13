@@ -111,6 +111,8 @@ every other flag, and `tether batch`.
 
 - **User manual:** https://bioedca.github.io/tether/ — use the version selector to
   match your installed release.
+- **First run:** [Your first analysis](https://bioedca.github.io/tether/latest/tutorial/) —
+  a guided tutorial on a sample movie, from extraction to an exported table.
 - **Installers:** [Packaging & installers](https://bioedca.github.io/tether/latest/packaging/)
   and [launching Tether after an install](https://bioedca.github.io/tether/latest/cli/#launching-tether-after-an-installer-install).
 - **Does Tether fit my data?** —

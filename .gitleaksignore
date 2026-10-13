@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# gitleaks findings reviewed and confirmed not to be secrets, one fingerprint per line
+# (commit:file:rule:line). Each is pinned to the commit that carries it, so it cannot
+# excuse the same text anywhere else.
+#
+# PR #539 (#176): a tutorial molecule ID, the content hash Tether prints when a molecule is
+# rejected, assigned to a constant whose name ended in KEY. Renamed in the next commit.
+87daed6d658aaf3042cd507cca7d5ace6646d8e9:tests/test_docs_tutorial.py:generic-api-key:50
