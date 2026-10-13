@@ -117,7 +117,7 @@ Every fitted model is its own group, `/idealization/<model>`, stamped by
 | `nstates_selected_by` | How `nstates` was chosen: `max-elbo` (the best evidence lower bound over the states tried), `fixed`, or `imported`. |
 | `dtype`, `intensity_quantity` | Which trace layer was fitted. `corrected` here means the background-subtracted layer, not α- or γ-corrected: the fit always runs on apparent E computed from that layer ([ADR-0029](adr/0029-idealization-correction-provenance-hash-and-per-factor-staleness.md)), so the state means are apparent efficiencies. |
 | `n_molecules` | Molecules this fit covered. |
-| `app_version`, `created_utc` | The Tether version and time of the fit. For an imported model this is the version that *imported* it, not the software that ran the fit. |
+| `app_version`, `created_utc` | The Tether version and time of the fit. For a model imported from standalone tMAVEN both describe the import instead: the version that imported it and the time it was written (`apply_reconcile`, `src/tether/project/handoff.py`), not the software or time of the fit, so record those yourself if they matter. |
 | `elbo`, `elbo_by_nstates` | The evidence lower bound of the chosen model, and of every state count tried (JSON), when the backend reports them. |
 
 The backends and the papers behind each are listed on [Citing Tether](citing.md#idealization).
@@ -205,8 +205,20 @@ leaves behind if it is interrupted while being saved; that group is an incomplet
 
 Here is that script's actual output for a project made by `tether batch` from a synthetic
 25-molecule, 400-frame movie, with the default extraction settings and the default
-idealization, on a development build. Numbers will differ for your data; the key names will
-not.
+idealization, on a development build. Numbers will differ for your data, and so can the
+set of groups and keys, because some are written only when a step ran or produced a result:
+
+- `/settings/gamma` is absent when leakage withheld α (too few qualifying molecules), since
+  `tether batch` then skips γ; the correction pass still runs and records the apparent-E
+  fallback.
+- `/idealization/<model>` is absent when no fit ran, and `elbo` and `elbo_by_nstates` appear
+  only when the backend reports them.
+- `profile_json` appears only when a settings profile was supplied.
+- `/settings/batch` appears only for a `tether batch` run, and `/settings/analysis_only` only
+  for an imported analysis-only store.
+
+A missing group means the step did not run or withheld its result, not that its record was
+lost.
 
 ```text
 [/]
@@ -366,9 +378,12 @@ software bill of materials, `tether-sbom.cyclonedx.json`, beside the locks.
 
 **With an installer**, the environment comes with the version. Each installer is built from
 per-platform locks rendered from the first two files, with no fresh solve, so two installs of
-the same release get the same packages. Each release also publishes the three source locks
-as assets on its [release page](https://github.com/bioedca/tether/releases), so you can see
-exactly what a release pinned without installing it.
+the same release get the same packages. Each release publishes the source locks as assets
+on its [release page](https://github.com/bioedca/tether/releases), so you can see exactly
+what a release pinned without installing it. `v1.0.0-rc1` predates the deep lock's addition
+to the release assets and carries only the base and sidecar locks
+([its asset record](release.md#what-a-published-release-contains-verified-v100-rc1)); for that release, read `deep/conda-lock.yml` from the
+`v1.0.0-rc1` tag in the source tree.
 
 **From source**, check out the release tag you are reproducing, create the environment from
 the committed lock, and install Tether on top of it without letting pip install any
