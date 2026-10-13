@@ -124,6 +124,13 @@ idealizes them:
 tether batch data/*.tif -d projects
 ```
 
+Windows PowerShell does not expand `*.tif` for a command like `tether`, so list the files
+for it:
+
+```powershell
+tether batch (Get-ChildItem data\*.tif) -d projects
+```
+
 It has no `--donor-side`, `--detection-mode` or `--detection-threshold` option, so every
 movie is extracted with the donor on the left and the default detector. A shared `--tdat`
 replaces only the detector settings, never the donor side, and a shared `--tmap` sets the

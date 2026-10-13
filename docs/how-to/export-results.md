@@ -67,6 +67,12 @@ This writes the background-subtracted traces of every molecule you did not rejec
 per frame and a donor column then an acceptor column per molecule, with no header. Tether
 writes the `-donc-accc-w.txt` ending only if you name the file that way, as above.
 
+The file has no molecule names, so its column pairs line up with the rows of the molecule
+table only when both leave out the same molecules. This export leaves out rejected
+molecules and the molecule table keeps them, so if you will pair the two, for example to
+apply each molecule's γ to its trace, export the table with `include_rejected=False` as
+well.
+
 The first row of the file is not always frame 0 of the movie. The sidecar's `frame_range`
 records which frames it covers. Every molecule in one file shares that one frame axis, so a
 project that combines movies of different lengths has to be exported one movie at a time,

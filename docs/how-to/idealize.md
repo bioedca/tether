@@ -27,9 +27,10 @@ dwell-time analyses read.
 
 ## Choose a method
 
-- **To look at one trace:** press **I** in the desktop application. This is the one-click
-  vbFRET fit. It fits only the selected molecule and is for checking a trace by eye, not for
-  analysis.
+- **To look at one trace:** press **I** in the desktop application. The status bar calls
+  this the one-click vbFRET fit, but it runs the same consensus VB-HMM as a whole-project
+  fit, on the selected molecule alone, and stores the result under the model name `vbfret`.
+  It is for checking a trace by eye, not for analysis, so do not report it as a vbFRET fit.
 - **For a population analysis:** fit the whole project with the **consensus VB-HMM**, one
   shared model across all molecules. This is Tether's default and what `tether batch` runs.
   Use it unless you have a reason not to.

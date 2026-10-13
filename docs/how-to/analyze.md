@@ -14,6 +14,11 @@ gallery](../analysis/parity-gallery.md); this page is how to make them.
 - The project file, here called `movie.tether`, closed in the desktop application.
 - The name of the fitted model. A whole-project fit or a `tether batch` run stores it as
   `vbconhmm`, and an ebFRET fit as `ebhmm`. The histogram needs no model.
+- A project of one experimental condition. Each plot pools every molecule the analysis
+  admits. A project made by `tether extract` or `tether batch` holds one movie, and so one
+  condition; keep movies of different conditions in separate projects, and run the script
+  for each in that project's own folder, so one condition's figures do not overwrite
+  another's.
 - Your movie's frame time in seconds. Dwell times and rates come out **per frame** unless
   you supply it.
 - The Python that came with Tether: `~/tether/envs/tether/bin/python` on Linux,
@@ -118,7 +123,9 @@ for state, analysis in dwells.items():
         parameters={"model_name": model_name, "state": state, **dwell_settings},
     )
     if analysis.fit is not None and analysis.fit.success:
-        rates = ", ".join(f"{rate:.3g}" for rate in analysis.fit.rates)
+        rates = ", ".join(
+            f"{rate:.3g} ± {ci:.2g}" for rate, ci in zip(analysis.fit.rates, analysis.fit.rate_ci)
+        )
         print(f"state {state} (E = {analysis.level:.2f}): k = {rates} per second")
 ```
 
@@ -153,7 +160,8 @@ the molecules. The resampling is seeded, so the band is the same every time the 
    their own, for example `f"dwell-100ms-state-{state}"` in place of `f"dwell-state-{state}"`,
    because a run that reuses a name overwrites the files the earlier run wrote.
 4. The script prints one rate for each state whose fit succeeded, from the
-   single-exponential fit. A state whose fit fails, for example because it has too few
+   single-exponential fit, with the half-width of its 95% confidence interval after the `±`
+   ([dwell-fit `ci_level`](../reference/parameters.md#param-dwell-model)). A state whose fit fails, for example because it has too few
    dwells, still gets its plot, but no rate. For a two-exponential fit, set `model="double"` in `dwell_settings`; it
    then prints both rates, slower first
    ([dwell-fit `model`](../reference/parameters.md#param-dwell-model)).
