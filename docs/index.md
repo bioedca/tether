@@ -15,6 +15,10 @@ acquisition geometry and file formats Tether reads, what it deliberately does no
 what a dataset costs in time and disk. It is the fastest way to find out whether Tether
 suits your experiment before you install anything.
 
+**Just installed it?** Do [Your first analysis](tutorial.md) next. It takes a small sample
+movie that comes with these docs through every stage, from extraction to an exported table, in
+about fifteen minutes.
+
 **Want the big picture?** [How Tether works](pipeline.md) walks a movie through every stage,
 from extraction to export, and explains the decisions that change what you can claim in a
 paper.
@@ -26,6 +30,8 @@ paper.
 - [How Tether works](pipeline.md) — for the order Tether processes a movie in, and why.
 - [Install Tether](install.md) — for downloading, verifying, installing and uninstalling
   the desktop installer.
+- [Your first analysis](tutorial.md) — for a guided first run on a sample movie, once Tether
+  is installed.
 - [Installers & offline bundle](packaging.md) — for what an installer contains and how to
   verify a download.
 - [Command line](cli.md) — for scripting or batch-processing movies, and for launching
