@@ -24,14 +24,16 @@ dwell-time analyses read.
   [curate the traces](curate-traces.md) first.
 - Your corrections done. Changing α or γ after a fit makes it stale, so
   [correct the dataset](apply-corrections.md) first.
+- Each movie file in the project once. A file extracted into the project twice gives both
+  copies the same molecule keys, and the one-click fit and `reidealize` pick molecules by key,
+  so they fit every copy together, rejected ones included for `reidealize`. A project made by
+  `tether extract` or `tether batch` holds one movie.
 
 ## Choose a method
 
 - **To look at one trace:** press **I** in the desktop application. The status bar calls
   this the one-click vbFRET fit, but it runs the same consensus VB-HMM as a whole-project
   fit, on the selected molecule alone, and stores the result under the model name `vbfret`.
-  It selects the molecule by its key, so if a movie file was added to the project twice, it
-  fits both copies together.
   It is for checking a trace by eye, not for analysis, so do not report it as a vbFRET fit.
 - **For a population analysis:** fit the whole project with the **consensus VB-HMM**, one
   shared model across all molecules. This is Tether's default and what `tether batch` runs.

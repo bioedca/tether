@@ -17,6 +17,9 @@ rejected.
   change a project at a time, and a second window opens it read-only. See
   [The project is locked by another user or
   machine](../troubleshooting.md#the-project-is-locked-by-another-user-or-machine).
+- Each movie file in the project once. A file extracted into the project twice gives both
+  copies the same molecule keys, and accepting or rejecting a molecule labels every copy that
+  carries its key. A project made by `tether extract` or `tether batch` holds one movie.
 
 ## 1. Open the project
 
