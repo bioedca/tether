@@ -3,10 +3,11 @@
 **Tether** is a cross-platform single-molecule FRET (smFRET) desktop suite built for the
 Mondragón Lab at Northwestern University. It pairs a PySide6 application shell with an
 embedded [napari](https://napari.org) movie panel and [pyqtgraph](https://www.pyqtgraph.org)
-trace docks, backed by a single self-describing HDF5 (`.tether`) project store. Each pipeline step
-stamps the Tether version and its parameters into that store, and every export carries the
-same stamp; [Reproducibility and reporting](reproducibility.md) lists what is recorded and
-how to read it back.
+trace docks, backed by a single self-describing HDF5 (`.tether`) project store. Extraction, the
+corrections and idealization stamp their Tether version and parameters into that store, and
+the publication exports carry the same stamp beside them;
+[Reproducibility and reporting](reproducibility.md) lists what is recorded, what is not,
+and how to read it back.
 
 **New here?** Start with [Does Tether fit my data?](compatibility.md) — it describes the
 acquisition geometry and file formats Tether reads, what it deliberately does not do, and

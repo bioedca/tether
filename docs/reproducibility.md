@@ -40,8 +40,11 @@ Each stage writes one group under `/settings` holding its parameters and its own
 that file for the name and land on the line that writes it.
 
 **`/settings/extraction`** — `src/tether/imaging/extract.py`. Written the **first** time a
-movie is extracted into the project and never rewritten; later movies must match it or the
-write is refused. In a project rebuilt from a Deep-LASI acquisition it holds Tether's
+movie is extracted into the project and never rewritten. A later movie must use the same
+`window`, `disk_radius`, `ring_inner`, `ring_outer` and `bg_window` or the write is
+refused; nothing else is compared, so `profile_json` and `app_version` describe the first
+movie only, and a later movie's detection or registration settings are not recorded. In a
+project rebuilt from a Deep-LASI acquisition it holds Tether's
 standard aperture values, recording where the traces came from rather than an integration
 Tether performed.
 
@@ -54,7 +57,7 @@ Tether performed.
 | `n_psf` | Number of pixels in the signal disk. |
 | `molecule_key_quantum_px` | The coordinate quantum behind each molecule's key, pixels. |
 | `app_version` | The Tether version that extracted the first movie. |
-| `profile_json` | Present only when a settings profile was supplied; the native pipeline behind `tether extract` and `tether batch` always supplies one. It holds the detection, registration and colocalization settings as JSON, plus the registration source and its RMS error. |
+| `profile_json` | Present only when a settings profile was supplied, as JSON. From the native pipeline behind `tether extract` and `tether batch` it holds the detection, registration and colocalization settings plus the registration source and its RMS error. From a Deep-LASI reconstruction it holds only where the traces came from: `source`, `coordinate_source`, `movie_name` and `exported_by`. |
 
 **`/settings/leakage`** — `src/tether/project/leakage.py`. Rewritten on every leakage pass.
 `alpha` is the donor-to-acceptor leakage factor α, estimated from the signal left in the
@@ -63,9 +66,12 @@ acceptor channel after the acceptor bleaches (`source` = `post-acceptor-bleach-t
 that decision: `n_qualifying`, `n_molecules`, `min_window_frames`, `ceiling`,
 `min_qualifying_traces` and `intensity_quantity`, plus `app_version` and `created_utc`.
 
-**`/settings/gamma`** — `src/tether/project/gamma.py`. Rewritten on every γ pass. `gamma` is
-the detection-efficiency and quantum-yield ratio γ, estimated at the acceptor bleach step
-(`source` = `acceptor-bleach-step`), with the same `withheld` rule. The rest are
+**`/settings/gamma`** — `src/tether/project/gamma.py`. Rewritten on every γ pass. The
+detection-efficiency and quantum-yield ratio γ is estimated **per molecule** at its acceptor
+bleach step (`source` = `acceptor-bleach-step`), and each molecule that passes the gates is
+corrected with its own value, stored in the `gamma` column of `/molecules`. The `gamma`
+attribute here is the population median of those values, which the `n_fallback` molecules
+that failed the gates receive instead; it follows the same `withheld` rule. The rest are
 `n_qualifying`, `n_fallback`, `n_molecules`, `half_window`, `min_window_frames`, `ceiling`,
 `min_qualifying_traces`, `intensity_quantity`, `app_version` and `created_utc`.
 
@@ -76,7 +82,7 @@ pass, and the stage that turns α and γ into corrected FRET efficiency (`source
 | Attribute | Meaning |
 |---|---|
 | `apparent_e_only` | `True` when the pass was told to keep every molecule on apparent E on purpose, even where factors exist. |
-| `alpha_override`, `gamma_override` | A factor set by hand and applied to every molecule, or `NaN` when none was set. |
+| `alpha_override`, `gamma_override` | A factor requested by hand, or `NaN` when none was. It is recorded whether or not it took effect (`apparent_e_only`, for one, overrides it), so read `n_manual` for how many molecules it was actually applied to. |
 | `n_molecules` | Molecules in the pass. |
 | `n_corrected`, `n_manual`, `n_apparent` | How many got estimated factors, manual factors, or fell back to apparent E. |
 | `total_failure` | `True` when no molecule carries a correction. It is also `True` under `apparent_e_only`, where nothing was corrected by choice, so check that attribute first. |
@@ -113,6 +119,14 @@ Every fitted model is its own group, `/idealization/<model>`, stamped by
 | `elbo`, `elbo_by_nstates` | The evidence lower bound of the chosen model, and of every state count tried (JSON), when the backend reports them. |
 
 The backends and the papers behind each are listed on [Citing Tether](citing.md#idealization).
+
+### What is not recorded
+
+Some steps leave no version or parameter stamp in the project: photobleach detection, and
+ranking and classification runs. The SMD file handed off to standalone tMAVEN has no
+sidecar, and a fit run there is stamped only with the Tether version that imported it. For
+those, keep your own note of the version and settings; [Citing Tether](citing.md#reporting-a-tether-analysis)
+lists each case.
 
 ### Every export
 
@@ -283,8 +297,10 @@ have:
 - **A development build** looks like `1.0.0rc3.dev28+gdfadf1f74`: 28 commits after the last
   release tag, at commit `dfadf1f74`. That commit identifies the exact source, and it is what
   the output above shows.
-- **`0.0.0`** means the build had no git history to read, for example one made from a
-  downloaded source archive.
+- **`0.0.0`** means one of two things: a build that had no git history to read, for example
+  one made from a downloaded source archive, or a build at the project's first milestone tag,
+  `v0.0.0`. The string alone cannot tell them apart, so check it against your own record of
+  what you installed.
 - **`0.0.0+unknown`** means the version could not be determined at all, for example code run
   straight from a source tree that was never installed.
 
@@ -297,7 +313,7 @@ be the one installed today.
 ## Reproducing the environment
 
 The version string pins Tether's own code. The libraries it ran on are pinned by three
-committed lock files. CI checks on every change that each lock still matches the
+committed lock files, and CI checks on every change that each lock still matches the
 specification it was solved from ([ADR-0004](adr/0004-pin-and-hold-dual-lock-isolation.md)):
 
 | Lock | Pins | In the installer |
@@ -306,6 +322,13 @@ specification it was solved from ([ADR-0004](adr/0004-pin-and-hold-dual-lock-iso
 | `sidecar/conda-lock.yml` | The isolated tMAVEN idealization environment (PyQt5, `numpy<2`). | Yes, as `envs/sidecar`. |
 | `deep/conda-lock.yml` | The optional deep-classifier add-on (PyTorch). | **No.** It is a separate opt-in install; see [Deep trace classifier](ml/deep-classifier.md). |
 
+Two parts of the sidecar sit outside its lock: tMAVEN itself, installed from a pinned git
+commit by `scripts/setup_sidecar.py`, and a setuptools compatibility wheel pinned by version
+and hash in `packaging/setuptools-compatibility.txt`, which replaces the lock's own
+setuptools. The installer bundles both. A release's record of its environment is therefore
+those three locks plus `scripts/setup_sidecar.py` and `packaging/setuptools-compatibility.txt` at the release tag; each release also publishes a
+software bill of materials, `tether-sbom.cyclonedx.json`, beside the locks.
+
 **With an installer**, the environment comes with the version. Each installer is built from
 per-platform locks rendered from the first two files, with no fresh solve, so two installs of
 the same release get the same packages. Each release also publishes the three source locks
@@ -313,7 +336,8 @@ as assets on its [release page](https://github.com/bioedca/tether/releases), so 
 exactly what a release pinned without installing it.
 
 **From source**, check out the release tag you are reproducing, create the environment from
-the committed lock, and install Tether on top of it without letting pip resolve anything:
+the committed lock, and install Tether on top of it without letting pip install any
+runtime dependency:
 
 ```console
 micromamba create -n tether -f conda-lock.yml   # or: conda-lock install -n tether
@@ -322,14 +346,20 @@ pip install -e . --no-deps
 ```
 
 Never create the environment from `environment.yml`: that is the specification the lock was
-solved from, and solving it again today gives newer packages than the release used. The
-sidecar has its own guided setup, `python scripts/setup_sidecar.py`, described in
+solved from, and solving it again today gives newer packages than the release used. One
+step is not pinned by the lock: `pip install` still downloads Tether's build backend
+(`hatchling` and `hatch-vcs`) into a temporary build environment, so it needs network
+access, and the backend version can differ from the one the release was built with. The
+sidecar has its own guided setup, `python scripts/setup_sidecar.py` from the same tag,
+which installs the pinned tMAVEN and setuptools; see
 [`CONTRIBUTING.md`](https://github.com/bioedca/tether/blob/main/CONTRIBUTING.md).
 
 ## A sample Methods paragraph
 
 This paragraph is built from the read-back above: the version, the extraction settings, the
-correction stamps and the idealization stamp. Swap in your own values and drop what you did
+correction stamps and the idealization stamp. The spread of the per-molecule γ values comes
+from the `gamma` column of the molecule-table CSV exported from the same project. Swap in
+your own values and drop what you did
 not run. The citations are the ones [Citing Tether](citing.md) gives for each step.
 
 > Single-molecule FRET movies were processed with Tether version 1.0.0rc3.dev28+gdfadf1f74
@@ -338,8 +368,10 @@ not run. The citations are the ones [Citing Tether](citing.md) gives for each st
 > an annulus between 6.0 and 8.0 pixels and averaged over 10 frames (Wanninger et al., 2023).
 > Intensities were corrected for donor-to-acceptor leakage (α = 0.079, estimated from 25 of
 > 25 molecules after acceptor photobleaching) and for the detection-efficiency and
-> quantum-yield ratio (γ = 0.99, estimated from 25 of 25 molecules at the acceptor
-> photobleaching step) as described by McCann et al. (2010) and Hellenkamp et al. (2018);
+> quantum-yield ratio γ, estimated and applied per molecule at the acceptor photobleaching
+> step (median 0.99, interquartile range 0.89 to 1.13; all 25 molecules had their own
+> estimate, so none took the median), as described by McCann et al. (2010) and
+> Hellenkamp et al. (2018);
 > direct acceptor excitation was taken as zero under single-laser excitation. FRET
 > trajectories were idealized with the consensus variational-Bayes hidden Markov model
 > (Bronson et al., 2009) run through tMAVEN (Verma et al., 2024), with the number of states
