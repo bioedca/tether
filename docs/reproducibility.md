@@ -86,7 +86,7 @@ pass, and the stage that turns α and γ into corrected FRET efficiency (`source
 | `apparent_e_only` | `True` when the pass was told to keep every molecule on apparent E on purpose, even where factors exist. |
 | `alpha_override`, `gamma_override` | A factor requested by hand, or `NaN` when none was. It is recorded whether or not it took effect (`apparent_e_only`, for one, overrides it), so read `n_manual` for how many molecules it was actually applied to. |
 | `n_molecules` | Molecules in the pass. |
-| `n_corrected`, `n_manual`, `n_apparent` | How many got estimated factors, manual factors, or fell back to apparent E. |
+| `n_corrected`, `n_manual`, `n_apparent` | How many molecules this pass classified `corrected`, `manual` or apparent E. `corrected` means the molecule had a finite stored α, a positive stored γ and no override was requested in this pass; it does not prove the factors were estimated. A factor stored earlier by an override or by a Deep-LASI reconstruction counts as `corrected` on a later pass with no override, and the later pass replaces this group, so check how the factors were produced if that matters. |
 | `total_failure` | `True` when no molecule carries a correction. It is also `True` under `apparent_e_only`, where nothing was corrected by choice, so check that attribute first. |
 | `app_version`, `created_utc` | The version and time of the pass. |
 
@@ -122,6 +122,15 @@ Every fitted model is its own group, `/idealization/<model>`, stamped by
 
 The backends and the papers behind each are listed on [Citing Tether](citing.md#idealization).
 
+### Two more stamps
+
+Two other records carry a version, and the read-back below does not print them. The
+engineered feature table, the dataset `/features/table`, carries `app_version`,
+`created_utc`, `intensity_quantity`, `feature_schema_version`, `feature_names` and
+`n_molecules` as attributes (`src/tether/project/features.py`). Each row of the
+`/settings/condition_audit` log of condition re-keys and merges carries its own
+`app_version` and `timestamp` (`src/tether/project/conditions.py`).
+
 ### What is not recorded
 
 Some steps leave no version or parameter stamp in the project: photobleach detection, and
@@ -155,7 +164,9 @@ filename with `.provenance.json` appended, so the original extension survives:
 | `parameters` | The export's own settings, such as the intensity quantity and molecule count. |
 
 Figures are stamped twice more: the version is printed in the figure footer and embedded in
-the PDF, SVG and PNG metadata. A figure re-rendered and exported again at the same pinned
+the PDF, SVG and PNG metadata. The printed footer is there only with `export_figure`'s
+default `stamp=True`; a caller that passes `stamp=False` gets no footer, while the sidecar
+and the embedded metadata are still written. A figure re-rendered and exported again at the same pinned
 time gives byte-identical files in all three formats. Each export's parameters are listed in
 the [exports reference](reference/exports.md#provenance-sidecar).
 
@@ -323,7 +334,9 @@ be the one installed today.
 
 ## Reproducing the environment
 
-The version string pins Tether's own code. The libraries it ran on are pinned by three
+A release or development version string pins Tether's own code. `0.0.0` and
+`0.0.0+unknown` do not, as the section above explains: for those, keep the commit or a
+checksum of the source you ran as a separate record. The libraries it ran on are pinned by three
 committed lock files, and CI checks on every change that each lock still matches the
 specification it was solved from ([ADR-0004](adr/0004-pin-and-hold-dual-lock-isolation.md)):
 

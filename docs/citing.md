@@ -100,9 +100,9 @@ projects Tether builds on is in
 
 ## Reporting a Tether analysis
 
-[Reproducibility and reporting](reproducibility.md) lists every stamp a project and its
-exports carry, with real read-back output, and explains how to rebuild the environment a
-release ran in. This section covers what to quote.
+[Reproducibility and reporting](reproducibility.md) lists the version and settings stamps
+on each pipeline stage and export, with real read-back output, says which steps and settings
+are not stamped, and explains how to rebuild the environment a release ran in. This section covers what to quote.
 
 Quote the version that actually produced the results you report, not the version you have
 installed today. The dependable record is the one you keep yourself: when you run an
