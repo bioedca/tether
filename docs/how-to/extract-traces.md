@@ -8,6 +8,10 @@ one acceptor trace for every molecule in it. You may also have a Deep-LASI `.tma
 (a channel map) or `.tdat` (a detection setup) from the same microscope; this page says when to
 use them.
 
+If you have not run Tether before, do [Your first analysis](../tutorial.md) first: it takes a
+small sample movie through every stage once, and this page and the five after it pick up
+from there with your own data.
+
 If your traces were already extracted in Deep-LASI, you do not need this page: bring them in
 with [Legacy Deep-LASI import](../io/legacy-import.md) instead.
 

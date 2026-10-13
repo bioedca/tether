@@ -199,6 +199,12 @@ efficiency. [Exports](reference/exports.md#molecule-table-columns) describes eve
 You took one movie through every stage Tether has: extraction, curation, idealization, a
 population histogram and an export. To do the same with your own movies:
 
+- The how-to guides take each stage in turn on your own data, with the options this tutorial
+  left out: [extract traces](how-to/extract-traces.md), [curate them](how-to/curate-traces.md),
+  [correct for leakage and gamma](how-to/apply-corrections.md),
+  [idealize them](how-to/idealize.md),
+  [draw a histogram, TDP and dwell plots](how-to/analyze.md) and
+  [export the results](how-to/export-results.md).
 - [Does Tether fit my data?](compatibility.md) says which movies Tether reads.
 - [How Tether works](pipeline.md) explains each stage you just used.
 - [Command line](cli.md) covers `tether extract` options and `tether batch` for many movies
