@@ -882,7 +882,8 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 | **Legacy import** (FR-LEGACY) | A full Deep-LASI acquisition reconstructs into a round-trip-ready project from `.tdat` or `.mat` coordinates; curated subset and categories survive; the intensity-match cross-check passes on the SMD subset. | M7 |
 | **Deep add-on** (FR-ML) | A deep classifier trains on the shared label store and is optional: the CPU base app is unaffected (§9.1 item 5). | M8 |
 | **Kinetics** (§8 NFR-VALID (c)) | Kinetics on the named kinSoftChallenge dataset fall within that dataset's reported inter-tool spread (§11.2) — **advisory**, never a gate (§9.5). | M8 |
-| **Packaging & release** (NFR-PKG, §12.7) | The installers install clean on Windows + Mac + Linux with the trimmed/pinned sidecar bundled (no install-time git/network; `biasd` omitted); docs build in CI; the validation suite (§9.5) runs end to end; a signed `v1.0.0` tag drives the §12.7 release pipeline (3-OS installers + frozen `conda-lock` + SBOM + attestation + changelog + docs deploy) reproducibly. The tag signature is the release's provenance; it is **not** OS code-signing, which 1.0 does not ship ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). Which milestone cuts the tag is the GitHub milestone set's to say, not this row's. | M9 |
+| **Packaging & pre-release** (NFR-PKG, §12.7) | The installers install clean on Windows + Mac + Linux with the trimmed/pinned sidecar bundled (no install-time git/network; `biasd` omitted); docs build in CI; the §12.7 release pipeline (3-OS installers + frozen `conda-lock` + SBOM + attestation + changelog + docs deploy) is proven end to end on pre-release `v1.0.0-rcN` tags. No stable tag is cut by this row. | M9 |
+| **Stable release acceptance** (NFR-PKG, §12.7) | The validation suite (§9.5) runs end to end, with its evidence bound to the release commit; the installers pass on three clean machines; ADR-0010's deferred leg is discharged (§9.6); then a signed `v1.0.0` tag drives the §12.7 release pipeline reproducibly. The tag signature is the release's provenance; it is **not** OS code-signing, which 1.0 does not ship ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). | the release-acceptance milestone, M18 (§12.10) |
 
 ### 9.4 Fixture policy
 
@@ -891,8 +892,9 @@ each committed fixture's source file, sizes, source SHA-256, license and regener
 policy and does not repeat that table, which would drift.
 
 - The lab's sibling `example-data/` is **external and read-only**. Committed fixtures are **derived into the
-  repository** — small, plain git — by `scripts/make_fixtures.py` and its siblings; large originals stay in the
-  large tier and are **never committed** (§8 NFR-FIXTURES).
+  repository** — small, plain git — by `scripts/make_fixtures.py` and its siblings; large originals stay **external
+  and gated** and are **never committed**; only authorized, redistributable derived fixtures enter the LFS tier below
+  (§8 NFR-FIXTURES).
 - **Three tiers.** Small committed fixtures run in the required matrix. Larger redistributable fixtures (the
   281-molecule population SMD and its model; the kinSoftChallenge simulations) are Git LFS under
   `tests/fixtures/large/`. The ≈ 0.9 GB UCKOPSB movie and its full `.tdat` are in neither: the gated
@@ -907,10 +909,12 @@ policy and does not repeat that table, which would drift.
 
 ### 9.5 The validation suite
 
-The seven validation oracles (a)–(g) of §8 NFR-VALID are, together, **the validation suite** that §9.3's *Packaging &
-release* bar and §12.10 require to "run end to end". This table is the definition. It is harvested from the retired
-ledger's §2.3 (oracle → fixture → tolerance) and reconciled with [`docs/validation.md`](validation.md), whose
-headline-tier table it follows exactly and which transcribes each oracle's enforcing tests and measured numbers.
+The seven validation oracles (a)–(g) of §8 NFR-VALID are, together, **the validation suite** that §9.3's *Stable release
+acceptance* bar and §12.10 require to "run end to end". **This table is a summary, not a second definition.** The
+suite's tier table lives in [`docs/validation.md`](validation.md#how-to-read-the-tiers), which also transcribes each
+oracle's enforcing tests and measured numbers; where the two differ, `docs/validation.md` governs. Making that table
+the normative definition, with the fixture column harvested here from the retired ledger's §2.3 (oracle → fixture →
+tolerance), is release-acceptance work owned by its GitHub milestone.
 
 | Oracle | What it checks | Headline assertion runs in | Also on the required matrix | Fixture | Tolerance and evidence artifact | Standing |
 |---|---|---|---|---|---|---|
@@ -925,9 +929,8 @@ headline-tier table it follows exactly and which transcribes each oracle's enfor
 **What "runs end to end" means.** Every *gate* row has passing evidence bound to the release commit, and (c) may be
 recorded advisory; no other oracle may. Binding that evidence (one artifact per oracle naming the commit it was
 produced at, a forced full `sidecar` run on the release commit so the path filter cannot report a pass without
-fitting, and the recorded local run for (a)) is release-acceptance work owned by its GitHub milestone; this section
-owns the definition. A change to an oracle's membership, tier or tolerance changes this table and `docs/validation.md`
-in the same pull request.
+fitting, and the recorded local run for (a)) is release-acceptance work owned by the same milestone. A change to an
+oracle's membership, tier or tolerance is made in `docs/validation.md` and mirrored here in the same pull request.
 
 ### 9.6 Criteria on record as not yet met
 
@@ -970,7 +973,7 @@ this section.
 | **§9 M6** | Analysis suite | §9.3 *Analysis suite*, *Idealization & sidecar* (population parity); §9.5 (b); §9.6 |
 | **§9 M7** | Legacy importers | §9.3 *Legacy import* |
 | **§9 M8** | ML v2 | §9.3 *Deep add-on*, *Kinetics*; §9.5 (c) |
-| **§9 M9** | Packaging & docs | §9.3 *Packaging & release*; §9.5. SemVer 1.0.0 is **not** cut at M9 (§12.7) |
+| **§9 M9** | Packaging & docs | §9.3 *Packaging & pre-release*. The validation-suite run and SemVer 1.0.0 are **not** M9's: they are §9.3 *Stable release acceptance* (§9.5, §12.7, §12.10) |
 
 ---
 
