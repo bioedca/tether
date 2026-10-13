@@ -45,7 +45,10 @@ Save this as `plots.py` beside the project, set `dt` to your frame time, and run
 Tether's Python. Each analysis takes its settings from one dictionary, and the same
 dictionary goes into the figure's provenance file, so the record names every setting that
 made the plot. `molecule_keys=None` means every molecule the analysis admits; to analyze only
-some, put their keys there, so the record names them too:
+some, put their keys there, so the record names them too. A key selects every molecule that
+carries it, and a movie file added to the project twice gives both copies the same keys, so
+there a key counts the molecule twice and the record cannot show it. Select by key only in a
+project that holds each movie file once:
 
 ```python
 from tether.analysis.dwell import population_dwell_times
