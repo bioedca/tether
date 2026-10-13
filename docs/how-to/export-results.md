@@ -72,8 +72,28 @@ table only when both leave out the same molecules. This export leaves out reject
 molecules and the molecule table keeps them, so if you will pair the two, for example to
 apply each molecule's γ to its trace, export the table with `include_rejected=False` as
 well. The molecule table always covers the whole project and takes no `molecule_keys=`, so for
-a project that combines movies, first make a subset of one movie, as in
-[Export a subset project](#export-a-subset-project), and export both files from it.
+a project that combines movies, first make a subset of one movie and export both files from
+it. The table's `source_filename` column names each molecule's movie; replace the file name
+with one of yours:
+
+```python
+import csv
+
+from tether.project.export import (
+    export_deeplasi_txt,
+    export_molecule_table_csv,
+    export_subset_tether,
+)
+
+export_molecule_table_csv("movie.tether", "molecules.csv", include_rejected=False)
+with open("molecules.csv", newline="", encoding="utf-8") as f:
+    one_movie = [row["molecule_key"] for row in csv.DictReader(f)
+                 if row["source_filename"] == "movie_010.tif"]
+
+export_subset_tether("movie.tether", "movie_010.tether", molecule_keys=one_movie)
+export_molecule_table_csv("movie_010.tether", "movie_010.csv", include_rejected=False)
+export_deeplasi_txt("movie_010.tether", "movie_010-donc-accc-w.txt")
+```
 
 The first row of the file is not always frame 0 of the movie. The sidecar's `frame_range`
 records which frames it covers. Every molecule in one file shares that one frame axis, so a
