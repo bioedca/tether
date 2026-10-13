@@ -334,17 +334,28 @@ be the one installed today.
 
 ## Reproducing the environment
 
-A release or development version string pins Tether's own code. `0.0.0` and
-`0.0.0+unknown` do not, as the section above explains: for those, keep the commit or a
-checksum of the source you ran as a separate record. The libraries it ran on are pinned by three
-committed lock files, and CI checks on every change that each lock still matches the
+A release, or a development build installed from a clean checkout, pins Tether's own code
+through its version string. Three cases do not. `0.0.0` and `0.0.0+unknown` name no commit,
+as the section above explains. An editable install (`pip install -e`, used below) runs
+whatever is in the checkout, so uncommitted changes, or edits made after installing, are not
+in the version string, which names only the commit it was built from. In those cases keep
+the commit plus a patch, a source archive or a checksum of the source you ran as a separate
+record.
+
+The libraries Tether ran on are pinned by three committed lock files, and CI checks on every change that each lock still matches the
 specification it was solved from ([ADR-0004](adr/0004-pin-and-hold-dual-lock-isolation.md)):
 
 | Lock | Pins | In the installer |
 |---|---|---|
 | `conda-lock.yml` | The application: Python, NumPy, Numba, h5py, PySide6, napari and the rest. | Yes, as `envs/tether`. |
 | `sidecar/conda-lock.yml` | The isolated tMAVEN idealization environment (PyQt5, `numpy<2`). | Yes, as `envs/sidecar`. |
-| `deep/conda-lock.yml` | The optional deep-classifier add-on (PyTorch). | **No.** It is a separate opt-in install; see [Deep trace classifier](ml/deep-classifier.md). |
+| `deep/conda-lock.yml` | The optional deep-classifier add-on (PyTorch), CPU build only. | **No.** It is a separate opt-in install; see [Deep trace classifier](ml/deep-classifier.md). |
+
+The deep lock covers only the CPU build. The GPU path adds a CUDA PyTorch wheel from the
+PyTorch index on top, with whatever pip resolves alongside it, and that install is deliberately unpinned
+([ADR-0047](adr/0047-deep-model-optional-stack-and-dataset.md)). If you trained or scored with the GPU
+build, record the PyTorch wheel version, its CUDA channel and your NVIDIA driver version
+yourself (`pip freeze` in that environment lists the wheels); the lock does not.
 
 Two parts of the sidecar sit outside its lock: tMAVEN itself, installed from a pinned git
 commit by `scripts/setup_sidecar.py`, and a setuptools compatibility wheel pinned by version
