@@ -97,9 +97,12 @@ bidirectional colocalization filter was measured to collapse recall to ≈0.66.
 weekly `large-fixtures` job, but it **skips there every time**: the movie is absent from
 every GitHub-hosted runner, so this assertion has never executed in CI. (The weekly run of
 2026-07-20 reports `test_extraction_meets_m1_acceptance_on_uckopsb SKIPPED`, summary
-`7 passed, 4 skipped`.) The numbers in the table above therefore come from a local run,
-recorded in ADR-0022 and reproducible with `scripts/run_m1_oracle.py` against a staged
-copy of the movie.
+`7 passed, 4 skipped`.) The numbers in the table above therefore come from a local run of
+this enforcing test with `TETHER_UCKOPSB_DIR` pointing at a staged copy of the movie, which
+supplies the `.tdat` detector settings and the 2 px gate; that run is recorded in ADR-0022.
+The `scripts/run_m1_oracle.py` helper does not reproduce that configuration yet
+([#555](https://github.com/bioedca/tether/issues/555)), so it is not the reproduction
+command.
 
 On the required matrix: `tests/test_oracle.py::test_real_slice_txt_correlates_with_mat` —
 which is **not an extraction check**. It reads the committed 4-molecule slice's `.txt` and
@@ -564,6 +567,11 @@ k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking r
 - Nothing in CI fails on a **loosened** `$.tolerance`: the artifact self-checks assert
   recorded values *within* the bounds, so widening a bound keeps them passing. Only
   tightening below the evidence, or removing the evidence, is caught (see §(b)).
+- The ebFRET cross-seed gate is **nondeterministic**
+  ([#311](https://github.com/bioedca/tether/issues/311)): one observed fit scored Viterbi
+  0.7568 against the frozen 0.9034 floor. A single green run is therefore not release
+  evidence; (b) binds only after #311 closes, without widening the band, and the gate is
+  shown green on consecutive runs on one commit.
 - The kinSoftChallenge check is advisory, 2-state level 1 only, gated (see above), and
   **not blind** — the ground truth is committed and the fit is retrospective. Levels 2 and 3
   are deferred.
