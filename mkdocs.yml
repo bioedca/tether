@@ -46,6 +46,7 @@ nav:
       - Does Tether fit my data?: compatibility.md
       - Getting started:
           - Install Tether: install.md
+          - "Tutorial: your first analysis": tutorial.md
           - Installers &amp; offline bundle: packaging.md
       - Import:
           - Legacy Deep-LASI import: io/legacy-import.md
@@ -61,6 +62,7 @@ nav:
           - Exports (files, columns, units): reference/exports.md
           - Analysis parameters: reference/parameters.md
           - Project store (.tether HDF5 schema): reference/tether-format.md
+          - Reproducibility & reporting: reproducibility.md
       - Glossary: glossary.md
       - Troubleshooting: troubleshooting.md
       - Citing: citing.md

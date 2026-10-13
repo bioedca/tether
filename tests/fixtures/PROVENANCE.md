@@ -287,3 +287,27 @@ as the durable measurement (the movie is never committed — PRD §8 NFR-FIXTURE
   native `.tmap` fit, also locked by `test_register`).
 - **Accessed:** 2026-06-30. Re-measure all three gates with `scripts/run_m1_oracle.py`
   against the local `example-data/bla-uckopsb-tbox-video10/`.
+
+## Tutorial movie (docs asset)
+
+`docs/tutorial/data/tutorial_movie.tif` is not a test fixture derived from
+`example-data/`. It is **first-party synthetic output** of
+`scripts/make_tutorial_movie.py`, derived from no external dataset, and is the
+sample movie the guided first run (`docs/tutorial.md`, issue #176) starts from. It
+lives under `docs/` so the published site serves it next to the page, with no
+external download host. Its licence is the repository's REUSE blanket entry,
+`GPL-3.0-or-later`, with no separate annotation needed.
+
+Shape `(24, 40, 80)` big-endian `uint16`, 157,674 B: three colocalized
+donor/acceptor pairs with a known +1 px x translation between the halves, seeded
+Poisson noise (`numpy.random.default_rng(176)`), two molecules with two-state FRET
+changes and one whose donor and acceptor brighten together. The script's docstring
+records every parameter. Regenerate, or verify the committed bytes, with:
+
+```sh
+python scripts/make_tutorial_movie.py
+python scripts/make_tutorial_movie.py --check
+```
+
+`tests/test_docs_tutorial.py` runs the `--check` derivation on every OS in the
+required matrix.
