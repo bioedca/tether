@@ -61,6 +61,7 @@ nav:
           - Exports (files, columns, units): reference/exports.md
           - Analysis parameters: reference/parameters.md
           - Project store (.tether HDF5 schema): reference/tether-format.md
+          - Reproducibility & reporting: reproducibility.md
       - Glossary: glossary.md
       - Troubleshooting: troubleshooting.md
       - Citing: citing.md
