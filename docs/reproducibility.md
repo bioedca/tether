@@ -78,8 +78,10 @@ that failed the gates receive instead; it follows the same `withheld` rule. The 
 `min_qualifying_traces`, `intensity_quantity`, `app_version` and `created_utc`.
 
 **`/settings/correction`** — `src/tether/project/correct.py`. Rewritten on every correction
-pass, and the stage that turns α and γ into corrected FRET efficiency (`source` =
-`accurate-fret`).
+pass (`source` = `accurate-fret`). The pass decides, per molecule, whether its α and γ are
+usable and records the outcome in `/molecules` as `correction_method` and
+`correction_confidence`, with any manual factor written into `alpha` and `gamma`. It does
+not compute a corrected E itself.
 
 | Attribute | Meaning |
 |---|---|
@@ -428,9 +430,11 @@ not run. The citations are the ones [Citing Tether](citing.md) gives for each st
 > (three) chosen by the maximum evidence lower bound over one to four states; the state
 > means are therefore apparent efficiencies.
 
-The idealization clause matters most. Tether stores α and γ with each molecule and applies
-them when it shows corrected E, but the hidden Markov model is fitted to apparent E, so its
-state means are not corrected efficiencies. If you report corrected E values, say which
-figure or table they come from. A paper names a release rather than a development build. If one exact release matters, cite
+The idealization clause matters most. Tether stores α and γ with each molecule but does not
+apply them to any value it shows or exports: the trace views, the analysis functions, the
+molecule-table CSV's E summary and the hidden Markov model all use apparent E, so none of
+them is a corrected efficiency. If you report corrected E, compute it yourself from the
+stored factors (the [exports reference](reference/exports.md#at-a-glance) gives the formula)
+and say so. A paper names a release rather than a development build. If one exact release matters, cite
 that version's own DOI from its Zenodo record instead of the concept DOI. If steps ran under
 different versions, name each one.
