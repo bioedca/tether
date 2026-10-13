@@ -111,8 +111,8 @@ for state, analysis in dwells.items():
         parameters={"model_name": model_name, "state": state, **dwell_settings},
     )
     if analysis.fit is not None and analysis.fit.success:
-        rate = analysis.fit.rates[0]
-        print(f"state {state} (E = {analysis.level:.2f}): k = {rate:.3g} per second")
+        rates = ", ".join(f"{rate:.3g}" for rate in analysis.fit.rates)
+        print(f"state {state} (E = {analysis.level:.2f}): k = {rates} per second")
 ```
 
 Each plot is written three times, as `histogram.pdf`, `histogram.svg` and `histogram.png`,
@@ -122,9 +122,9 @@ one `dwell-state-N.*` set per state.
 
 ## 3. Check the result
 
-1. The molecule counts printed for the TDP and the dwell times can be **smaller** than the
-   histogram's. The TDP counts only molecules that change state at least once. Both leave out
-   stale molecules, whose inputs changed after they were fitted, such as a new α or γ; [fit them
+1. The molecule count printed for the TDP can be **smaller** than the histogram's, because
+   the TDP counts only molecules that change state at least once. The TDP and the dwell times
+   also leave out stale molecules, whose inputs changed after they were fitted, such as a new α or γ; [fit them
    again](idealize.md#after-you-change-the-project) if you corrected the project after
    idealizing.
 2. A state can be missing from the dwell-time results. A state gets a curve only if at least
@@ -136,8 +136,9 @@ one `dwell-state-N.*` set per state.
    one `tether extract` run holds one movie; if yours combines movies recorded at different
    frame times, run the dwell analysis once per frame time, passing those molecules as
    `molecule_keys=`.
-4. The rate printed is the single-exponential fit. For a two-exponential fit, set
-   `model="double"` in `dwell_settings`
+4. The script prints one rate per state, from the single-exponential fit. For a
+   two-exponential fit, set `model="double"` in `dwell_settings`; it then prints both rates,
+   slower first
    ([dwell-fit `model`](../reference/parameters.md#param-dwell-model)).
 
 The histogram here is of **apparent** efficiency, from the background-subtracted traces. To
