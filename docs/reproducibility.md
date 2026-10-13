@@ -223,8 +223,11 @@ set of groups and keys, because some are written only when a step ran or produce
 - `/settings/batch` appears only for a `tether batch` run, and `/settings/analysis_only` only
   for an imported analysis-only store.
 
-A missing group means the step did not run or withheld its result, not that its record was
-lost.
+In an intact project, a missing group means the step did not run or withheld its result. The
+read-back cannot tell that apart from a record that was deleted or damaged. One loss does leave
+a trace: a save interrupted between removing an old model and renaming its replacement can
+leave only the `<model>.__writing__` staging group, which the script skips. If
+`/idealization` holds one with no matching model, re-run that fit.
 
 ```text
 [/]
