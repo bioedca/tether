@@ -108,7 +108,8 @@ starting `detection: mode`, naming what was applied. Then check three things:
 3. The donor half is right. Open the project with `tether-gui movie.tether` and find a
    molecule whose acceptor bleaches partway through. When the acceptor goes dark, the
    **donor** trace (green) should step **up**. If it steps down instead, extract again with
-   the other `--donor-side`.
+   the other `--donor-side`. With `--tmap`, `--donor-side` is ignored, so extract again
+   with a correctly oriented map or without `--tmap`.
 
 ## Many movies at once
 

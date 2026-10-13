@@ -9,6 +9,9 @@ this page adds them.
 
 If you made the project with `tether batch`, this has already run with the default
 settings. Use this page to check the result, or to run it again with settings of your own.
+Running photobleach detection a second time updates the bleach frames but keeps each
+molecule's analysis window from the first pass, because Tether sets a window only while it
+still spans the whole trace; new α and γ settings take full effect.
 
 ## Before you start
 
@@ -23,6 +26,11 @@ settings. Use this page to check the result, or to run it again with settings of
   factor needs at least 10 such molecules. For α the stretch between the two bleaches must be
   at least 20 frames long; for γ the stretch before the acceptor bleaches and the stretch after
   it must each be longer than 20 frames.
+- A project of one sample on one optical setup. The steps pool every molecule into one
+  dataset α, and molecules without a γ of their own take one dataset γ, so a project that
+  mixes samples or setups gets one value for all of them. `tether extract` and
+  `tether batch` make one project per movie; keep movies of different samples or setups
+  in separate projects.
 - The donor half was right at extraction. Swapped channels make both factors meaningless; see
   step 5 of [Extract traces from a dual-view movie](extract-traces.md#5-check-that-it-worked).
 - Run this **before** you idealize. Changing α or γ after a fit makes that fit stale, and stale
