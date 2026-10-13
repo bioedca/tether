@@ -882,8 +882,8 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 | **Legacy import** (FR-LEGACY) | A full Deep-LASI acquisition reconstructs into a round-trip-ready project from `.tdat` or `.mat` coordinates; curated subset and categories survive; the intensity-match cross-check passes on the SMD subset. | M7 |
 | **Deep add-on** (FR-ML) | A deep classifier trains on the shared label store and is optional: the CPU base app is unaffected (§9.1 item 5). | M8 |
 | **Kinetics** (§8 NFR-VALID (c)) | Kinetics on the named kinSoftChallenge dataset fall within that dataset's reported inter-tool spread (§11.2) — **advisory**, never a gate (§9.5). | M8 |
-| **Packaging & pre-release** (NFR-PKG, §12.7) | The installers install clean on Windows + Mac + Linux with the trimmed/pinned sidecar bundled (no install-time git/network; `biasd` omitted); docs build in CI; the §12.7 release pipeline (3-OS installers + frozen `conda-lock` + SBOM + attestation + changelog + docs deploy) is proven end to end on pre-release `v1.0.0-rcN` tags. No stable tag is cut by this row. | M9 |
-| **Stable release acceptance** (NFR-PKG, §12.7) | The validation suite (§9.5) runs end to end, with its evidence bound to the release commit; the installers pass on three clean machines; ADR-0010's deferred leg is discharged (§9.6); then a signed `v1.0.0` tag drives the §12.7 release pipeline reproducibly. The tag signature is the release's provenance; it is **not** OS code-signing, which 1.0 does not ship ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). | the release-acceptance milestone, M18 (§12.10) |
+| **Packaging & pre-release** (NFR-PKG, §12.7) | The installers install clean on Windows + Mac + Linux with the trimmed/pinned sidecar bundled (no install-time git/network; `biasd` omitted); docs build in CI; the §12.7 release pipeline (3-OS installers + frozen `conda-lock` + SBOM + attestation + changelog) is proven end to end on pre-release `v1.0.0-rcN` tags, which skip the docs publish by design; the versioned docs site deploys through a manual `docs.yml` dispatch. No stable tag is cut by this row. | M9 |
+| **Stable release acceptance** (NFR-PKG, §12.7) | The validation suite (§9.5) runs end to end, with its evidence bound to the release commit; the installers pass on three clean machines; ADR-0010's deferred leg is discharged (§9.6); then a signed `v1.0.0` tag drives the §12.7 release pipeline reproducibly, including the docs deploy that pre-release tags skip. The tag signature is the release's provenance; it is **not** OS code-signing, which 1.0 does not ship ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). | the release-acceptance milestone, M18 (§12.10) |
 
 ### 9.4 Fixture policy
 
@@ -931,6 +931,9 @@ recorded advisory; no other oracle may. Binding that evidence (one artifact per 
 produced at, a forced full `sidecar` run on the release commit so the path filter cannot report a pass without
 fitting, and the recorded local run for (a)) is release-acceptance work owned by the same milestone. A change to an
 oracle's membership, tier or tolerance is made in `docs/validation.md` and mirrored here in the same pull request.
+The suite's tier table also holds the optional **deep add-on** tier (`deep.yml` on CPU, `deep-gpu.yml` on CUDA). It is
+not an oracle and gates nothing on `main`, but running end to end includes a recorded deep-tier run on the release
+commit, bound with the oracle evidence.
 
 ### 9.6 Criteria on record as not yet met
 
@@ -1533,9 +1536,11 @@ namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and 
   | `perf:` | patch | patch | Performance |
   | `docs/test/ci/build/chore/refactor:` | no release bump (changelog "Internal") | same | — |
 
-- **Milestone → tag.** Each milestone/release is cut as an **annotated, SSH-signed** tag `vMAJOR.MINOR.PATCH`
-  (e.g. `v0.3.0` at M3, `v1.0.0` at the stable release), and the **base, sidecar, and deep locks are frozen at that
-  tag** per pin-and-hold (§4.1) — the tag is the single point where all three are snapshotted for the release.
+- **Milestone → tag.** Each release checkpoint is cut as an **annotated, SSH-signed** tag `vMAJOR.MINOR.PATCH`
+  (e.g. `v0.3.0` at M3, `v1.0.0` at the stable release). A GitHub milestone that is not a release checkpoint cuts no
+  tag, because any `v*` tag triggers `release.yml` and publishes a Release. The **base, sidecar, and deep locks are
+  frozen at each such tag** per pin-and-hold (§4.1) — the tag is the single point where all three are snapshotted for
+  the release.
 - **`CHANGELOG.md`** is **generated from commit history**, never hand-edited (so squash titles must be clean
   Conventional Commits — §12.2/§12.6).
   *Superseded by [ADR-0067](adr/0067-github-releases-are-the-only-change-record.md): GitHub Releases are the
