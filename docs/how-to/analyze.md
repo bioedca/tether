@@ -44,7 +44,7 @@ some, put their keys there, so the record names them too:
 
 ```python
 from tether.analysis.dwell import population_dwell_times
-from tether.analysis.histogram import population_apparent_e_histogram
+from tether.analysis.histogram import population_apparent_e_histogram_ci
 from tether.analysis.plot_export import (
     export_figure,
     render_dwell_survival,
@@ -65,6 +65,9 @@ hist_settings = dict(
     density=True,
     per_molecule_equal_weight=False,
     include_rejected=False,
+    n_resamples=1000,
+    ci_level=0.95,
+    seed=0,
 )
 tdp_settings = dict(
     molecule_keys=None,
@@ -85,7 +88,7 @@ dwell_settings = dict(
     include_stale=False,
 )
 
-hist = population_apparent_e_histogram(project, **hist_settings)
+hist = population_apparent_e_histogram_ci(project, **hist_settings)
 export_figure(
     render_histogram1d(hist),
     "histogram",
@@ -93,7 +96,7 @@ export_figure(
     source=project,
     parameters=hist_settings,
 )
-print(f"histogram: {hist.n_molecules} molecules, {hist.n_samples} frames")
+print(f"histogram: {hist.histogram.n_molecules} molecules, {hist.histogram.n_samples} frames")
 
 tdp = population_transition_density(project, model_name, **tdp_settings)
 export_figure(
@@ -122,6 +125,11 @@ for state, analysis in dwells.items():
 Each plot is written three times, as `histogram.pdf`, `histogram.svg` and `histogram.png`,
 with a `histogram.provenance.json` beside them recording what made it; likewise `tdp.*` and
 one `dwell-state-N.*` set per state.
+The histogram carries a shaded 95% confidence band, drawn from 1000 bootstrap resamples of
+the molecules. The resampling is seeded, so the band is the same every time the script runs
+([`n_resamples`](../reference/parameters.md#param-n-resamples),
+[`ci_level`](../reference/parameters.md#param-bootstrap-ci-level),
+[`seed`](../reference/parameters.md#param-bootstrap-seed)).
 [Plot export](../reference/exports.md#4-plot-export-pdf-svg-png) describes the files.
 
 ## 3. Check the result
@@ -141,7 +149,9 @@ one `dwell-state-N.*` set per state.
    is right only when they all come from movies recorded at that frame time. A project from
    one `tether extract` run holds one movie; if yours combines movies recorded at different
    frame times, run the script once per frame time, with that frame time as `dt` and those
-   molecules as `molecule_keys` in `dwell_settings`.
+   molecules as `molecule_keys` in `dwell_settings`. Give each run's dwell files names of
+   their own, for example `f"dwell-100ms-state-{state}"` in place of `f"dwell-state-{state}"`,
+   because a run that reuses a name overwrites the files the earlier run wrote.
 4. The script prints one rate for each state whose fit succeeded, from the
    single-exponential fit. A state whose fit fails, for example because it has too few
    dwells, still gets its plot, but no rate. For a two-exponential fit, set `model="double"` in `dwell_settings`; it

@@ -240,7 +240,7 @@ def test_the_pages_call_tether() -> None:
         "compute_corrected_fret",
         "idealize_molecules",
         "reidealize",
-        "population_apparent_e_histogram",
+        "population_apparent_e_histogram_ci",
         "population_transition_density",
         "population_dwell_times",
         "export_figure",

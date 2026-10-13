@@ -31,10 +31,29 @@ still spans the whole trace; new α and γ settings take full effect.
   mixes samples or setups gets one value for all of them. `tether extract` and
   `tether batch` make one project per movie; keep movies of different samples or setups
   in separate projects.
+- No rejected molecules you distrust. The α and γ steps read every molecule in the project,
+  whatever its curation label, so a trace you rejected still enters both estimates when its
+  bleach steps pass the checks above. If you rejected traces as contaminants or artefacts,
+  [leave them out first](#leave-out-the-molecules-you-rejected).
 - The donor half was right at extraction. Swapped channels make both factors meaningless; see
   step 5 of [Extract traces from a dual-view movie](extract-traces.md#5-check-that-it-worked).
 - Run this **before** you idealize. Changing α or γ after a fit makes that fit stale, and stale
   molecules are left out of the transition and dwell-time analyses until you fit again.
+
+### Leave out the molecules you rejected
+
+Make a project of every molecule you did not reject, and correct that one instead:
+
+```python
+from tether.project.export import export_subset_tether
+
+export_subset_tether("movie.tether", "accepted.tether")
+```
+
+The new project carries the background-subtracted traces these steps read
+([Export a subset project](export-results.md#export-a-subset-project)). Use
+`accepted.tether` in place of `movie.tether` on the rest of this page and in the steps
+after it.
 
 ## 1. Run the four steps in order
 
