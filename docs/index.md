@@ -4,7 +4,8 @@
 Mondragón Lab at Northwestern University. It pairs a PySide6 application shell with an
 embedded [napari](https://napari.org) movie panel and [pyqtgraph](https://www.pyqtgraph.org)
 trace docks, backed by a single self-describing HDF5 (`.tether`) project store. Extraction, the
-corrections and idealization stamp their Tether version and parameters into that store, and
+corrections and idealization stamp their Tether version and most of their parameters into
+that store (not every setting, and not direct excitation, which Tether does not correct), and
 the publication exports carry the same stamp beside them;
 [Reproducibility and reporting](reproducibility.md) lists what is recorded, what is not,
 and how to read it back.
