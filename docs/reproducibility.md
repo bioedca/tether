@@ -165,7 +165,7 @@ filename with `.provenance.json` appended, so the original extension survives:
 | `app_version` | The Tether version that wrote the export. |
 | `created_utc` | When. |
 | `source_project` | The project it came from, as a file name. For a figure it is whatever the code that exported it passed in. |
-| `parameters` | The export's own settings, such as the intensity quantity and molecule count. |
+| `parameters` | For the store exports, the export's own settings, such as the intensity quantity and molecule count. For a figure, whatever the code that exported it passed in, plus `formats`, `dpi` and `outputs`; nothing records a plotting choice such as the bin count unless that code passes it, so pass every setting the plot was drawn with. |
 
 Figures are stamped twice more: the version is printed in the figure footer and embedded in
 the PDF, SVG and PNG metadata. The printed footer is there only with `export_figure`'s
@@ -217,14 +217,17 @@ set of groups and keys, because some are written only when a step ran or produce
 - `/settings/gamma` is absent when leakage withheld α (too few qualifying molecules), since
   `tether batch` then skips γ; the correction pass still runs and records the apparent-E
   fallback.
-- `/idealization/<model>` is absent when no fit ran, and `elbo` and `elbo_by_nstates` appear
+- `/idealization/<model>` is absent when no fit completed, and `elbo` and `elbo_by_nstates` appear
   only when the backend reports them.
 - `profile_json` appears only when a settings profile was supplied.
 - `/settings/batch` appears only for a `tether batch` run, and `/settings/analysis_only` only
   for an imported analysis-only store.
 
-In an intact project, a missing group means the step did not run or withheld its result. The
-read-back cannot tell that apart from a record that was deleted or damaged. One loss does leave
+In an intact project, a missing group means the step left no completed record: it did not
+run, withheld its result, or ran and failed. For a `tether batch` run, each `<stage>_status`
+in `/settings/batch` records how that stage ended (`done`, `skipped`, `failed`, `blocked`,
+`deferred`, `not-requested` or `warning`), and the batch log has the detail. The groups alone
+cannot tell any of these apart from a record that was deleted or damaged. One loss does leave
 a trace: a save interrupted between removing an old model and renaming its replacement can
 leave only the `<model>.__writing__` staging group, which the script skips. If
 `/idealization` holds one with no matching model, re-run that fit.
