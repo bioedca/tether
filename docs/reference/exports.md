@@ -507,6 +507,9 @@ parameters produced those numbers. A subset `.tether` and a plot export also car
 `create_project`'s `app_version`, and a plot's on-figure footer plus its embedded document
 metadata (both above) — but only the sidecar carries the full parameter set.
 
+To read a sidecar back next to the stamps inside the project, and to turn both into a
+Methods paragraph, see [Reproducibility and reporting](../reproducibility.md).
+
 ## Reading the exports elsewhere
 
 ### pandas
