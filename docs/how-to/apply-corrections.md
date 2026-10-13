@@ -9,9 +9,10 @@ this page adds them.
 
 If you made the project with `tether batch`, this has already run with the default
 settings. Use this page to check the result, or to run it again with settings of your own.
-Running photobleach detection a second time updates the bleach frames but keeps each
-molecule's analysis window from the first pass, because Tether sets a window only while it
-still spans the whole trace; new α and γ settings take full effect.
+Running photobleach detection a second time updates the bleach frames. It sets the analysis
+window only of a molecule whose window still spans the whole trace, such as one with no
+bleach found the first time, so a window the first pass shortened stays as it was; new α and
+γ settings take full effect.
 
 ## Before you start
 

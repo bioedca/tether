@@ -24,7 +24,8 @@ rejected.
 tether-gui movie.tether
 ```
 
-You can also start Tether from your applications menu and choose **File → Open project…**.
+On Windows and Linux you can also start Tether from the Start menu or applications menu and
+choose **File → Open project…**.
 When the project opens, the status bar at the bottom of the window names it and its molecule
 count:
 
