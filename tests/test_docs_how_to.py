@@ -11,7 +11,8 @@ instructions rather than reference. These tests pin what makes those pages usabl
 * every ``tether …`` command in a shell fence parses with the real argparse parser, and no
   page invents a subcommand;
 * every call a Python fence makes to an imported ``tether`` function or class method passes
-  only arguments that the source signature accepts, and every argument it requires.
+  only arguments that the source signature accepts, and every argument it requires, counting
+  the keys of a ``dict(...)`` it spreads with ``**``.
 
 Imports are already checked by ``tests/test_docs_examples.py``; this module checks the calls.
 Nothing under ``tether`` is imported except :mod:`tether.cli`, whose ``build_parser`` needs only
@@ -147,7 +148,9 @@ def _top_level(tree: ast.Module, name: str) -> ast.AST | None:
     return None
 
 
-def _check_call(call: ast.Call, func: ast.FunctionDef, *, bound: bool) -> list[str]:
+def _check_call(
+    call: ast.Call, func: ast.FunctionDef, *, bound: bool, spreads: dict[str, list[str]]
+) -> list[str]:
     args = func.args
     positional = [a.arg for a in args.posonlyargs + args.args][1 if bound else 0 :]
     keyword_ok = set(positional[len(args.posonlyargs) :]) | {a.arg for a in args.kwonlyargs}
@@ -155,12 +158,18 @@ def _check_call(call: ast.Call, func: ast.FunctionDef, *, bound: bool) -> list[s
     if args.vararg is None and len(call.args) > len(positional):
         problems.append(f"{len(call.args)} positional arguments, at most {len(positional)}")
     given = set(positional[: len(call.args)])
+    names = []
     for kw in call.keywords:
-        if kw.arg is None:
-            continue
-        if kw.arg not in keyword_ok and args.kwarg is None:
-            problems.append(f"no parameter {kw.arg!r}")
-        given.add(kw.arg)
+        if kw.arg is not None:
+            names.append(kw.arg)
+        elif isinstance(kw.value, ast.Name) and kw.value.id in spreads:
+            names += spreads[kw.value.id]
+        else:
+            problems.append("a ** argument whose keys the page does not spell out")
+    for arg in names:
+        if arg not in keyword_ok and args.kwarg is None:
+            problems.append(f"no parameter {arg!r}")
+        given.add(arg)
     n_pos_defaults = len(args.defaults)
     required = positional[: len(positional) - n_pos_defaults] + [
         a.arg for a, d in zip(args.kwonlyargs, args.kw_defaults, strict=True) if d is None
@@ -169,11 +178,29 @@ def _check_call(call: ast.Call, func: ast.FunctionDef, *, bound: bool) -> list[s
     return problems
 
 
-def _python_calls() -> list[tuple[str, str, ast.Call, ast.FunctionDef, bool]]:
+def _dict_literals(tree: ast.Module) -> dict[str, list[str]]:
+    """``name = dict(k=...)`` assignments, so ``f(**name)`` can be checked key by key."""
+    found = {}
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "dict"
+            and not node.value.args
+        ):
+            found[node.targets[0].id] = [kw.arg for kw in node.value.keywords]
+    return found
+
+
+def _python_calls() -> list[tuple[str, str, ast.Call, ast.FunctionDef, bool, dict]]:
     found = []
     for name in PAGES:
         for code in _fences(name, _PYTHON_LANGS):
             tree = ast.parse(re.sub(r"^(>>> |\.\.\. )", "", code, flags=re.M))
+            spreads = _dict_literals(tree)
             imported = {
                 alias.asname or alias.name: node.module
                 for node in ast.walk(tree)
@@ -201,7 +228,7 @@ def _python_calls() -> list[tuple[str, str, ast.Call, ast.FunctionDef, bool]]:
                 if label is None:
                     continue
                 assert isinstance(target, ast.FunctionDef), (name, label)
-                found.append((name, label, call, target, bound))
+                found.append((name, label, call, target, bound, spreads))
     return found
 
 
@@ -225,9 +252,9 @@ def test_the_pages_call_tether() -> None:
 
 
 @pytest.mark.parametrize(
-    ("name", "label", "call", "func", "bound"),
+    ("name", "label", "call", "func", "bound", "spreads"),
     _python_calls(),
     ids=lambda v: v if isinstance(v, str) else "",
 )
-def test_every_tether_call_matches_its_signature(name, label, call, func, bound) -> None:
-    assert _check_call(call, func, bound=bound) == [], (name, label)
+def test_every_tether_call_matches_its_signature(name, label, call, func, bound, spreads) -> None:
+    assert _check_call(call, func, bound=bound, spreads=spreads) == [], (name, label)

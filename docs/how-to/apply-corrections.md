@@ -82,8 +82,8 @@ takes the dataset median.
 
 ## 3. If a factor was withheld, or you measured it elsewhere
 
-If you measured α and γ on separate samples, for example donor-only and acceptor-only ones,
-give Tether those values instead
+If you have α and γ from your own calibration of the same setup, give Tether those values
+instead
 ([`alpha_override` / `gamma_override`](../reference/parameters.md#param-alpha-gamma-override)).
 A molecule is corrected only when it has both factors, and a withheld α means γ was never
 estimated, so in that case supply both. Replace the two numbers with your own measurements:

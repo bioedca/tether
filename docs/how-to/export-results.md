@@ -68,7 +68,10 @@ per frame and a donor column then an acceptor column per molecule, with no heade
 writes the `-donc-accc-w.txt` ending only if you name the file that way, as above.
 
 The first row of the file is not always frame 0 of the movie. The sidecar's `frame_range`
-records which frames it covers.
+records which frames it covers. Every molecule in one file shares that one frame axis, so a
+project that combines movies of different lengths has to be exported one movie at a time,
+passing that movie's molecules as `molecule_keys=`; otherwise the export stops with an error
+naming the frame ranges.
 
 ## Export a subset project
 
@@ -86,8 +89,10 @@ print(f"{result.n_molecules} molecules -> {result.path}")
 ```
 
 Leave out `molecule_keys=` to export every molecule you did not reject. The subset carries the
-molecules' traces, image crops, idealization models and curation history, so it needs neither
-the movie nor the original project. It refuses to replace an existing file unless you add
+molecules' background-subtracted traces, image crops, idealization models and curation
+history, so it needs neither the movie nor the original project. It leaves out the raw traces
+unless you add `include_raw=True`, and with them any idealization model fitted on raw traces;
+the sidecar names a model left out that way under `skipped_idealization_models`. It refuses to replace an existing file unless you add
 `overwrite=True`.
 
 ## Check the export

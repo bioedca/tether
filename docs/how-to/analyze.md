@@ -37,7 +37,9 @@ the script below.
 ## 2. Make and save all three plots
 
 Save this as `plots.py` beside the project, set `dt` to your frame time, and run it with
-Tether's Python:
+Tether's Python. Each analysis takes its settings from one dictionary, and the same
+dictionary goes into the figure's provenance file, so the record names every setting that
+made the plot:
 
 ```python
 from tether.analysis.dwell import population_dwell_times
@@ -51,37 +53,62 @@ from tether.analysis.plot_export import (
 from tether.analysis.tdp import population_transition_density
 
 project = "movie.tether"
-model = "vbconhmm"
+model_name = "vbconhmm"
 dt = 0.1  # seconds per frame: replace with your movie's frame time
 
-hist = population_apparent_e_histogram(project)
+hist_settings = dict(
+    intensity_quantity="corrected",
+    bins=151,
+    value_range=(-0.25, 1.25),
+    density=True,
+    per_molecule_equal_weight=False,
+    include_rejected=False,
+)
+tdp_settings = dict(
+    nskip=2,
+    signal_bins=101,
+    signal_range=(-0.25, 1.25),
+    density=False,
+    include_rejected=False,
+    include_stale=False,
+)
+dwell_settings = dict(
+    dt=dt,
+    include_first=False,
+    model="single",
+    ci_level=0.95,
+    include_rejected=False,
+    include_stale=False,
+)
+
+hist = population_apparent_e_histogram(project, **hist_settings)
 export_figure(
     render_histogram1d(hist),
     "histogram",
     tether_export="plot:a1",
     source=project,
-    parameters={},
+    parameters=hist_settings,
 )
 print(f"histogram: {hist.n_molecules} molecules, {hist.n_samples} frames")
 
-tdp = population_transition_density(project, model)
+tdp = population_transition_density(project, model_name, **tdp_settings)
 export_figure(
     render_transition_density(tdp),
     "tdp",
     tether_export="plot:b1",
     source=project,
-    parameters={"model": model},
+    parameters={"model_name": model_name, **tdp_settings},
 )
 print(f"TDP: {tdp.n_transitions} transitions from {tdp.n_molecules} molecules")
 
-dwells = population_dwell_times(project, model, dt=dt)
+dwells = population_dwell_times(project, model_name, **dwell_settings)
 for state, analysis in dwells.items():
     export_figure(
         render_dwell_survival(analysis),
         f"dwell-state-{state}",
         tether_export="plot:b2",
         source=project,
-        parameters={"model": model, "state": state, "dt": dt},
+        parameters={"model_name": model_name, "state": state, **dwell_settings},
     )
     if analysis.fit is not None and analysis.fit.success:
         rate = analysis.fit.rates[0]
@@ -104,8 +131,13 @@ one `dwell-state-N.*` set per state.
    one of its dwells both started and ended inside a trace, so a state molecules sit in until
    the trace ends has none.
 3. The dwell-time axis reads seconds only if you set `dt`
-   ([`dt`](../reference/parameters.md#param-dt)). The rate printed is the single-exponential
-   fit; for a two-exponential fit pass `model="double"` to `population_dwell_times`
+   ([`dt`](../reference/parameters.md#param-dt)). One `dt` applies to every molecule, so it
+   is right only when they all come from movies recorded at that frame time. A project from
+   one `tether extract` run holds one movie; if yours combines movies recorded at different
+   frame times, run the dwell analysis once per frame time, passing those molecules as
+   `molecule_keys=`.
+4. The rate printed is the single-exponential fit. For a two-exponential fit, set
+   `model="double"` in `dwell_settings`
    ([dwell-fit `model`](../reference/parameters.md#param-dwell-model)).
 
 The histogram here is of **apparent** efficiency, from the background-subtracted traces. To

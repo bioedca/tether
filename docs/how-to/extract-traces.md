@@ -59,7 +59,9 @@ If two molecules close together come out as one, lower `--min-separation`
   halves of your movie and fits the map from them.
 - **An imported map:** add `--tmap beads.tmap` to use a Deep-LASI channel map instead,
   for example one made from a bead slide. The map carries its own channel layout, so
-  `--donor-side` is ignored when you pass one.
+  `--donor-side` is ignored when you pass one. Tether reads only the crop of each channel
+  from the map, so a map that also rotates or flips a channel stops the extraction with an
+  error; use native registration for that movie instead.
 
 ## 4. Run the extraction
 
@@ -118,8 +120,11 @@ tether batch data/*.tif -d projects
 ```
 
 It has no `--donor-side`, `--detection-mode` or `--detection-threshold` option, so every
-movie is extracted with the donor on the left and the default detector. Use it when that
-fits your movies, or when you pass a shared `--tmap` or `--tdat`. [Command
+movie is extracted with the donor on the left and the default detector. A shared `--tdat`
+replaces only the detector settings, never the donor side, and a shared `--tmap` sets the
+channel layout from the map. So use `tether batch` when your donor is on the left, or when
+you pass a `--tmap` from the same microscope; otherwise run `tether extract --donor-side
+right` on each movie. [Command
 line](../cli.md#tether-batch) lists its options.
 
 ## Next

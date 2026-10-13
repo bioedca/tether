@@ -76,8 +76,9 @@ so the history survives a reversal.
 
 - **Uncurated** is where every molecule starts. Uncurated molecules are **included** in
   histograms, idealization and the other analyses, exactly like accepted ones.
-- **Accept** records your judgement. It does not change which molecules an analysis uses,
-  because only rejection removes a molecule.
+- **Accept** records your judgement. Accepting an uncurated molecule does not change which
+  molecules an analysis uses, because only rejection removes a molecule. Accepting a
+  rejected one does: it replaces the rejection and puts the molecule back in.
 - **Reject** keeps the molecule out of population analyses and idealization, and out of the
   trace matrix and subset exports. The molecule-table CSV still lists it, with `reject` in
   its `curation_label` column, because that table is a full inventory
