@@ -114,8 +114,16 @@ reidealize("movie.tether", "vbconhmm")
 ```
 
 If you rejected or un-rejected molecules since the fit, `reidealize` is not enough, because it
-keeps the molecules the model was first fitted on. Fit again with
-`idealize_molecules("movie.tether", overwrite=True)` instead.
+keeps the molecules the model was first fitted on. Run the fit you made in
+[Fit the whole project](#fit-the-whole-project) again, with the same settings and
+`overwrite=True` added. A call without them falls back to the defaults, so it fits a different
+model, or replaces the `vbconhmm` model while leaving the one you fitted untouched:
+
+```python
+stored = idealize_molecules("movie.tether", overwrite=True)  # the default consensus fit
+stored = idealize_molecules("movie.tether", nstates=2, overwrite=True)  # if you fixed the count
+stored = idealize_molecules("movie.tether", model_type="ebhmm", overwrite=True)  # an ebFRET fit
+```
 
 ## Next
 

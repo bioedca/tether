@@ -71,7 +71,9 @@ The file has no molecule names, so its column pairs line up with the rows of the
 table only when both leave out the same molecules. This export leaves out rejected
 molecules and the molecule table keeps them, so if you will pair the two, for example to
 apply each molecule's γ to its trace, export the table with `include_rejected=False` as
-well.
+well. The molecule table always covers the whole project and takes no `molecule_keys=`, so for
+a project that combines movies, first make a subset of one movie, as in
+[Export a subset project](#export-a-subset-project), and export both files from it.
 
 The first row of the file is not always frame 0 of the movie. The sidecar's `frame_range`
 records which frames it covers. Every molecule in one file shares that one frame axis, so a
@@ -100,6 +102,11 @@ history, so it needs neither the movie nor the original project. It leaves out t
 unless you add `include_raw=True`, and with them any idealization model fitted on raw traces;
 the sidecar names a model left out that way under `skipped_idealization_models`. It refuses to replace an existing file unless you add
 `overwrite=True`.
+
+A project imported for analysis only, from a Deep-LASI `.txt` or a tMAVEN SMD file, has no
+image crops, so it cannot be exported as a subset; the export stops with an error. Use the
+molecule table and the trace export for such a project instead
+([Legacy Deep-LASI import](../io/legacy-import.md)).
 
 ## Check the export
 

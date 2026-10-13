@@ -53,7 +53,8 @@ export_subset_tether("movie.tether", "accepted.tether")
 The new project carries the background-subtracted traces these steps read
 ([Export a subset project](export-results.md#export-a-subset-project)). Use
 `accepted.tether` in place of `movie.tether` on the rest of this page and in the steps
-after it.
+after it. A project imported for analysis only has no image crops and cannot be exported
+this way.
 
 ## 1. Run the four steps in order
 
