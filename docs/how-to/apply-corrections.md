@@ -106,7 +106,10 @@ To report a corrected efficiency, compute it from the exported factors, as
 [Reading the exports elsewhere](../reference/exports.md#reading-the-exports-elsewhere) shows.
 
 The settings the α, γ and correction steps used are recorded in the project; photobleach
-detection records none of its own. [Analysis
+detection records none of its own. If you run the steps again and α is withheld this time,
+γ is skipped, and the γ settings from the earlier run stay in the project although no
+molecule carries that γ any more. The molecules' own `alpha` and `gamma` values are the
+current result. [Analysis
 parameters](../reference/parameters.md#correction-factors) lists them, with what each one
 changes.
 

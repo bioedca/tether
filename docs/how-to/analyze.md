@@ -39,7 +39,8 @@ the script below.
 Save this as `plots.py` beside the project, set `dt` to your frame time, and run it with
 Tether's Python. Each analysis takes its settings from one dictionary, and the same
 dictionary goes into the figure's provenance file, so the record names every setting that
-made the plot:
+made the plot. `molecule_keys=None` means every molecule the analysis admits; to analyze only
+some, put their keys there, so the record names them too:
 
 ```python
 from tether.analysis.dwell import population_dwell_times
@@ -57,6 +58,7 @@ model_name = "vbconhmm"
 dt = 0.1  # seconds per frame: replace with your movie's frame time
 
 hist_settings = dict(
+    molecule_keys=None,
     intensity_quantity="corrected",
     bins=151,
     value_range=(-0.25, 1.25),
@@ -65,6 +67,7 @@ hist_settings = dict(
     include_rejected=False,
 )
 tdp_settings = dict(
+    molecule_keys=None,
     nskip=2,
     signal_bins=101,
     signal_range=(-0.25, 1.25),
@@ -73,6 +76,7 @@ tdp_settings = dict(
     include_stale=False,
 )
 dwell_settings = dict(
+    molecule_keys=None,
     dt=dt,
     include_first=False,
     model="single",
@@ -130,15 +134,18 @@ one `dwell-state-N.*` set per state.
 2. A state can be missing from the dwell-time results. A state gets a curve only if at least
    one of its dwells both started and ended inside a trace, so a state molecules sit in until
    the trace ends has none.
-3. The dwell-time axis reads seconds only if you set `dt`
-   ([`dt`](../reference/parameters.md#param-dt)). One `dt` applies to every molecule, so it
+3. The dwell-time axis reads seconds when `dt` is anything other than 1, and frames at
+   `dt = 1` ([`dt`](../reference/parameters.md#param-dt)). With a frame time of exactly
+   1 second the axis still says frames, but the numbers are the same, and the printed rates
+   are per second either way. One `dt` applies to every molecule, so it
    is right only when they all come from movies recorded at that frame time. A project from
    one `tether extract` run holds one movie; if yours combines movies recorded at different
-   frame times, run the dwell analysis once per frame time, passing those molecules as
-   `molecule_keys=`.
-4. The script prints one rate per state, from the single-exponential fit. For a
-   two-exponential fit, set `model="double"` in `dwell_settings`; it then prints both rates,
-   slower first
+   frame times, run the script once per frame time, with that frame time as `dt` and those
+   molecules as `molecule_keys` in `dwell_settings`.
+4. The script prints one rate for each state whose fit succeeded, from the
+   single-exponential fit. A state whose fit fails, for example because it has too few
+   dwells, still gets its plot, but no rate. For a two-exponential fit, set `model="double"` in `dwell_settings`; it
+   then prints both rates, slower first
    ([dwell-fit `model`](../reference/parameters.md#param-dwell-model)).
 
 The histogram here is of **apparent** efficiency, from the background-subtracted traces. To
