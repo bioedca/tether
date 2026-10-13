@@ -115,20 +115,28 @@ rem Paths are handed to PowerShell through the ENVIRONMENT, never interpolated i
 rem its source: a single apostrophe anywhere in %APPDATA% or %PREFIX% (e.g. a user
 rem named O'Brien) would close the single-quoted literal early and the shortcut would
 rem silently fail to a warning. $env:VAR carries the value verbatim, quotes and all.
+rem
+rem PowerShell is named by its ABSOLUTE path, never as a bare `powershell` (issue #551).
+rem The constructor NSIS template replaces PATH for this script with the prefix's own
+rem folders plus %SystemRoot%, System32 and System32\Wbem, which leaves out
+rem System32\WindowsPowerShell\v1.0. A bare name therefore resolves to nothing on every
+rem machine, and that is how rc2 shipped without a shortcut. Its error output is kept,
+rem not sent to nul, so the reason lands in the installer log if this fails again.
 set "SM_D=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Tether"
 if not exist "%SM_D%" mkdir "%SM_D%"
 set "TETHER_LNK=%SM_D%\Tether.lnk"
 set "TETHER_GUI_BAT=%BIN_D%\tether-gui.bat"
 set "TETHER_GUI_EXE=%PREFIX%\envs\tether\Scripts\tether-gui.exe"
 set "TETHER_GUI_WD=%PREFIX%\envs\tether"
-powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
+set "PS_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+"%PS_EXE%" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
   "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK);" ^
   "$s.TargetPath=$env:TETHER_GUI_BAT;" ^
   "$s.IconLocation=$env:TETHER_GUI_EXE + ',0';" ^
   "$s.WindowStyle=7;" ^
   "$s.WorkingDirectory=$env:TETHER_GUI_WD;" ^
   "$s.Description='Tether - single-molecule FRET analysis';" ^
-  "$s.Save()" 2>nul
+  "$s.Save()"
 if errorlevel 1 echo WARNING: could not create the Start Menu shortcut; launch via %BIN_D%\tether-gui.bat
 
 rem Drop the staged wheels; the environments now own the installed packages.

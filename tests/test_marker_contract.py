@@ -1156,10 +1156,9 @@ def test_install_smoke_script_arms_set_euo_pipefail_first() -> None:
     """``set -euo pipefail`` is the FIRST executable line — position, not mere presence.
 
     Once the probe sequence lives in a script, the calling step's ``-e`` only ever sees
-    the script's FINAL exit status — and both platform branches deliberately END in
-    non-fatal commands (the Windows Start Menu check returns 0 by design; the Unix branch
-    ends in an ``if`` block that is simply false on macOS) — so a script without
-    ``set -e`` exits 0 on Windows and macOS no matter which probe above failed: a
+    the script's FINAL exit status — and the Unix branch deliberately ENDS in a non-fatal
+    command (an ``if`` block that is simply false on macOS) — so a script without
+    ``set -e`` exits 0 on macOS no matter which probe above failed: a
     green-forever release gate, and one the string guards cannot see, because every
     guarded string is still there. Presence anywhere is not enough either: armed below
     the installer run, ``-e`` covers nothing that matters. This is the criterion that
@@ -1172,6 +1171,84 @@ def test_install_smoke_script_arms_set_euo_pipefail_first() -> None:
         "shebang, nor blank, nor a comment must be exactly `set -euo pipefail`; found: "
         f"{executable[:1]}"
     )
+
+
+POST_INSTALL_BAT = INSTALL_SMOKE_SCRIPT.with_name("post_install.bat")
+PRE_UNINSTALL_BAT = INSTALL_SMOKE_SCRIPT.with_name("pre_uninstall.bat")
+CONSTRUCT_YAML = INSTALL_SMOKE_SCRIPT.parents[1] / "construct.yaml"
+
+
+def _bat_code_lines(path: Path) -> list[str]:
+    """A batch script's non-blank lines, stripped, minus ``rem`` comments and ``@echo off``."""
+    return [
+        ln.strip()
+        for ln in path.read_text(encoding="utf-8").splitlines()
+        if ln.strip()
+        and not re.match(r"(?i)rem(\s|$)", ln.strip())
+        and ln.strip().lower() != "@echo off"
+    ]
+
+
+def test_windows_post_install_names_powershell_by_absolute_path() -> None:
+    """The shortcut step must not rely on PATH to find PowerShell (issue #551).
+
+    constructor's NSIS template replaces PATH for post_install with the prefix's own
+    folders plus ``%SystemRoot%``, ``System32`` and ``System32\\Wbem``, so a bare
+    ``powershell`` resolves to nothing on every machine. That is how rc2 shipped with no
+    Start Menu shortcut, and the ``2>nul`` on the call hid the reason from the installer
+    log. Both halves are pinned: the absolute path, and no discarded error output.
+    """
+    code = _bat_code_lines(POST_INSTALL_BAT)
+    bare = [ln for ln in code if re.match(r"(?i)powershell(\.exe)?\b", ln)]
+    assert not bare, (
+        "post_install.bat must call PowerShell by its absolute path, never a bare "
+        f"`powershell` (the installer's PATH leaves it out); offending lines: {bare}"
+    )
+    assert any(
+        r"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" in ln for ln in code
+    ), "post_install.bat must name %SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+    shortcut_call = [ln for ln in code if '"$s.Save()"' in ln]
+    assert shortcut_call and all("2>nul" not in ln for ln in shortcut_call), (
+        "the shortcut call must keep its error output so a failure reaches the installer "
+        "log (issue #551)"
+    )
+
+
+def test_windows_pre_uninstall_removes_the_shortcut_and_never_fails() -> None:
+    """The uninstaller removes what post_install created, and only that (issue #551).
+
+    The shortcut is created imperatively (ADR-0051), so nothing in constructor's own
+    uninstall removes it; ``pre_uninstall`` is the hook that runs before the prefix goes.
+    """
+    recipe = CONSTRUCT_YAML.read_text(encoding="utf-8")
+    assert re.search(r"(?m)^pre_uninstall:\s*scripts/pre_uninstall\.bat\s+# \[win\]\s*$", recipe), (
+        "construct.yaml must declare `pre_uninstall: scripts/pre_uninstall.bat   # [win]`"
+    )
+    code = _bat_code_lines(PRE_UNINSTALL_BAT)
+    assert any("del " in ln and "Tether.lnk" in ln for ln in code), (
+        "pre_uninstall.bat must delete the Tether.lnk shortcut"
+    )
+    rmdirs = [ln for ln in code if re.search(r"(?i)\b(rmdir|rd)\b", ln)]
+    assert rmdirs and all("/s" not in ln.lower() for ln in rmdirs), (
+        "pre_uninstall.bat may remove the Start Menu folder only with a plain `rmdir` "
+        f"(never /s), so anything else in it survives; found: {rmdirs}"
+    )
+    assert code[-1].lower() == "exit /b 0", (
+        "pre_uninstall.bat must end in `exit /b 0`: cleaning a shortcut may never fail "
+        "the uninstall"
+    )
+
+
+def test_windows_install_smoke_fails_on_a_missing_shortcut_and_checks_uninstall() -> None:
+    """The shortcut check is a gate, not a warning, and uninstall is exercised (issue #551)."""
+    code = _install_smoke_code_lines()
+    assert "WARNING: Start Menu shortcut absent" not in code, (
+        "install_smoke.sh must fail, not warn, when the Start Menu shortcut is absent"
+    )
+    for needle in ('test -f "$sm_dir/Tether.lnk"', "Uninstall-Tether.exe", '"_?=$prefix"'):
+        assert needle in code, (
+            f"install_smoke.sh must keep `{needle}` on a non-comment line (issue #551)"
+        )
 
 
 def test_release_install_smoke_gates_the_bytes_the_build_job_uploads() -> None:
