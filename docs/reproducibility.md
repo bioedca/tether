@@ -58,7 +58,7 @@ Tether performed.
 | `bg_window` | Background moving-average length, frames. |
 | `n_psf` | Number of pixels in the signal disk. |
 | `molecule_key_quantum_px` | The coordinate quantum behind each molecule's key, pixels. |
-| `app_version` | The Tether version that extracted the first movie. |
+| `app_version` | The Tether version that extracted the first movie. In a project rebuilt from a Deep-LASI acquisition it is the version that did the rebuild, not the software that extracted the traces. |
 | `profile_json` | Present only when a settings profile was supplied, as JSON. From the native pipeline behind `tether extract` and `tether batch` it holds the detection, registration and colocalization settings plus the registration source and its RMS error. From a Deep-LASI reconstruction it holds only where the traces came from: `source`, `coordinate_source`, `movie_name` and `exported_by`. |
 
 **`/settings/leakage`** — `src/tether/project/leakage.py`. Rewritten on every leakage pass.
@@ -338,8 +338,9 @@ have:
 - **A release**, such as `1.0.0`, or a release candidate such as `1.0.0rc2`, is what an
   installer from the [releases page](https://github.com/bioedca/tether/releases) reports.
 - **A development build** looks like `1.0.0rc3.dev28+gdfadf1f74`: 28 commits after the last
-  release tag, at commit `dfadf1f74`. That commit identifies the exact source, and it is what
-  the output above shows.
+  release tag, at commit `dfadf1f74`, which is what the output above shows. That commit
+  identifies the exact source only for a build made from a clean checkout; a dirty or edited
+  one runs code the commit does not name ([Reproducing the environment](#reproducing-the-environment)).
 - **`0.0.0`** means one of two things: a build that had no git history to read, for example
   one made from a downloaded source archive, or a build at the project's first milestone tag,
   `v0.0.0`. The string alone cannot tell them apart, so check it against your own record of
