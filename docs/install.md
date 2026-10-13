@@ -282,7 +282,9 @@ macOS keeps its package receipt for the install; it is a small record and does n
 in place.
 
 **Windows.** Open **Settings → Apps → Installed apps**, find **Tether**, and choose
-**Uninstall**. If a **Tether** folder is still in the Start menu afterwards, delete it. Remove
+**Uninstall**. The uninstaller removes the Start menu shortcut as well. An installer from
+1.0.0-rc2 or earlier does not, so if a **Tether** folder is still in the Start menu afterwards,
+delete it. Remove
 `C:\Users\<you>\Tether\bin` from your user PATH under **Settings → System → About → Advanced
 system settings → Environment Variables**.
 

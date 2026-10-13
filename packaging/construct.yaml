@@ -107,6 +107,10 @@ license_file: staging/LICENSE.txt
 post_install: scripts/post_install.sh    # [unix]
 post_install: scripts/post_install.bat   # [win]
 
+# Windows only: remove the Start Menu shortcut post_install created, which the
+# uninstaller would otherwise leave behind (issue #551, ADR-0051).
+pre_uninstall: scripts/pre_uninstall.bat   # [win]
+
 # Per-OS installer format. exe (NSIS) on Windows, pkg on macOS, sh on Linux.
 installer_type: exe    # [win]
 installer_type: pkg    # [osx]

@@ -26,7 +26,7 @@ its trace.
 6. [Processing pipeline](#6-processing-pipeline-movie--states)
 7. [Functional requirements](#7-functional-requirements)
 8. [Non-functional requirements](#8-non-functional-requirements)
-9. [Milestones & acceptance criteria](#9-milestones--acceptance-criteria)
+9. [Acceptance philosophy & criteria](#9-acceptance-philosophy--criteria)
 10. [Risks & mitigations](#10-risks--mitigations)
 11. [Conventions & glossary](#11-conventions--glossary)
 12. [Development & version-control protocol (GitHub)](#12-development--version-control-protocol-github)
@@ -750,8 +750,10 @@ Linux `.desktop` ([ADR-0051](adr/0051-installed-app-launch-surface.md)).
   (missing/sparse bleach steps, median-fallback paths, and the **total-failure → apparent-E** path that must never
   emit a NaN factor) derived from Appendix E Stages 16–18 and §10, plus the **conjunctive two-Tether-estimator α
   agreement** (§7.2, §11.2); (f) round-trip integrity and schema-migration tests under existing conventions;
-  (g) the photobleaching detector's **per-channel first-bleach frames vs the `.mat` `pacc`/`pdon` ground truth** to the **§11.2 bleach-frame tolerance**
-  (§9 M3 — validating the Bayesian single-step detector).
+  (g) the photobleaching detector's **per-channel first-bleach frames**, reframed by ADR-0026 (§9.5 (g)):
+  reference-formula parity with tMAVEN's photobleaching model plus recovery of a synthesized known step within the
+  **§11.2 bleach-frame tolerance** — the `.mat` `pacc`/`pdon` field is a constant (60 for every molecule), not ground
+  truth (§9 M3 — validating the Bayesian single-step detector).
   **No synthetic-data simulator is introduced** — validation stays on real labeled fixtures (N2 holds).
 - **NFR-FIXTURES — Test fixtures.** Because the lab holds redistribution rights, a small cropped UCKOPSB movie
   slice + a few molecules are committed for unit/CI; a **redistributable ≥ 50-molecule curated SMD**
@@ -775,25 +777,219 @@ Linux `.desktop` ([ADR-0051](adr/0051-installed-app-launch-surface.md)).
 
 ---
 
-## 9. Milestones & acceptance criteria
+## 9. Acceptance philosophy & criteria
 
-Each milestone ships a runnable, tested app + a scripted pass/fail checklist + sample data. Development is
-incremental and milestone-by-milestone with reviewer sign-off. The roadmap is extraction-first, with de-risking
-validation front-loaded at M0.5.
+This section says what "done" means for Tether and holds the acceptance bars, gates, fixture policy and validation
+suite that every milestone draws on. It deliberately holds **no dated milestone table and no ordering**.
 
-| Milestone | Deliverable | Acceptance criteria |
+**What "done" means.** A capability is done when its acceptance bar (§9.3) is met and the evidence that bar names is
+bound to a commit on `main`: a passing test on the required matrix, a frozen artifact, or a recorded run. Each
+milestone ships a runnable, tested app, a scripted pass/fail checklist and sample data, never a partial layer. Passing
+tests verify an implementation; they do not by themselves validate a scientific claim, which is why the bars below
+name their oracles, tolerances and evidence (§9.5, §11.2).
+
+**Where the sequence lives.** GitHub milestones and their issues are the roadmap of record (§12.5);
+[`docs/roadmap.md`](roadmap.md) is the public summary of them. This section names no milestone order and no release
+date, because a dated table here would be a second copy of the roadmap that goes stale. The table it replaces did:
+it stopped at M9 and declared "SemVer 1.0.0 cut here" while the repository moved the tag to a later milestone.
+
+**How a milestone closes.** A milestone's description names the §9 rows it discharges and the evidence each needs.
+It closes when every named row has that evidence bound to a commit on `main`, not on a date and not merely when its
+issues happen to be closed. A criterion that a closed milestone did not meet is carried onto an open issue and
+listed in §9.6; the criterion is never retracted and the closed milestone is never reopened.
+
+### 9.1 Load-bearing invariants
+
+These hold across every milestone and are never regressed. They are harvested from the retired planning ledger's
+§1.3 and corrected where it had gone stale (it said two conda-lock stacks; there are three).
+
+1. **The schema is additive-only after M0.** `schema-guard` enforces it; a structural change needs an ADR and a
+   version bump ([ADR-0005](adr/0005-m0-schema-freeze.md), §5).
+2. **`main` is always green and releasable.** Never advance or summarize over a red or pending check (§12.3).
+3. **Apparent E is never NaN.** A total correction failure falls to apparent E with a banner; the gate is applied
+   *before* the median, so no NaN factor is ever written (§7.2,
+   [ADR-0003](adr/0003-apparent-e-never-nan.md)).
+4. **Provenance travels with every datum** — coordinates, corrections, app version, parameters. The trace↔movie
+   round-trip is a data-model property, recovered by exact intensity matching on any tMAVEN return leg
+   ([ADR-0001](adr/0001-provenance-first-data-model.md),
+   [ADR-0025](adr/0025-tmaven-handoff-and-return-leg-reconcile.md)).
+5. **Three conda-lock stacks stay isolated and are never merged**: the base `conda-lock.yml` (PySide6, current
+   NumPy), the sidecar `sidecar/conda-lock.yml` (PyQt5, `numpy<2`, the trimmed tMAVEN dependencies) and the
+   optional deep `deep/conda-lock.yml` (the torch stack, added at M8 by
+   [ADR-0047](adr/0047-deep-model-optional-stack-and-dataset.md)). Each follows pin-and-hold
+   ([ADR-0004](adr/0004-pin-and-hold-dual-lock-isolation.md), §4.1, §4.3).
+6. **Parity is statistical, not bit-exact.** tMAVEN self-reseeds, so parity asserts against the M0.5-frozen
+   tolerance (§9.2), never against one run ([ADR-0007](adr/0007-parity-is-statistical.md)).
+7. **Every external-interface behaviour and every scientific fact is checked against an authoritative source
+   before it is encoded.** The routing (which source answers which kind of question, and what to record) is
+   `AGENTS.md` "Evidence and tool routing"; the ledger's older wording named specific tools.
+8. **Never fabricate reference data.** Source defensible public data with provenance and a locking test, **or
+   withhold**: when the data an oracle needs does not exist or cannot be read, that leg is recorded as deferred,
+   with the gap named, rather than gated against a fabricated, stub or reverse-engineered value; and a frozen
+   tolerance is never widened to fit an implementation. The legs withheld under this rule today are marked in §9.3
+   and carried in §9.6.
+
+### 9.2 Hard gates
+
+Later work may not sign off against a gate that is not in force. Each names its evidence.
+
+- **Schema freeze.** The M0 golden manifest `schema/schema_frozen.json` is the frozen structure; the required
+  `schema-guard` check runs `scripts/dump_schema.py --check` on every pull request and push to `main`. Additive
+  changes pass; removals, renames, dtype changes, reordering and a decremented `schema_version` fail (ADR-0005).
+- **Idealization-parity tolerance.** Frozen at M0.5 (2026-06-26) in `schema/parity_tolerance.json` at
+  `$.tolerance`, from the measured cross-seed spread (§11.2,
+  [ADR-0009](adr/0009-parity-metrics-and-freeze.md)). It applies to per-trace vbFRET and consensus VB-HMM;
+  **ebFRET is frozen separately** at `$.tolerance_by_method.ebhmm`
+  ([ADR-0043](adr/0043-per-method-parity-tolerance.md)). Every parity criterion asserts against this file and
+  never recomputes it; the live check is the required `sidecar / parity` job. The default row was measured on
+  tMAVEN `71cfa1af` under CPython 3.9.23, not on the pinned `10f4230b` under CPython 3.12.13 that the sidecar
+  ships, so re-measuring and re-freezing it on the pinned build is *not yet met* (§9.6); the ebFRET block has no
+  such gap. Nothing in CI fails on a **loosened** bound: the artifact self-checks assert the recorded values lie
+  within the bounds, so widening one keeps them passing, and only tightening below the evidence or removing it is
+  caught (`docs/validation.md` §(b)). Pinning the accepted bounds independently of the file is *not yet met* (§9.6).
+- **Sidecar mechanism — resolved.** Headless `maven_class` in the isolated sidecar environment is the mechanism.
+  The pre-committed escalation to a prebuilt sidecar over a stable IPC was never needed and never built
+  ([ADR-0006](adr/0006-sidecar-ipc-escalation.md)). What remains a gate is the isolation itself (§9.1 item 5).
+- **Extraction tolerance (reframed — [ADR-0022](adr/0022-m1-acceptance-reframe-and-close.md)).** Against the
+  Deep-LASI export of the UCKOPSB pair: matched-molecule recall ≥ 0.95 within **2 px**; the **donor-channel**
+  per-molecule intensity Pearson median ≥ 0.95, with the acceptor Pearson reported and never gated; and
+  registration RMS ≤ 0.5 px when the map is fit natively. The constants are `RECALL_THRESHOLD`, `MATCH_TOL_PX`,
+  `PEARSON_THRESHOLD` and `RMS_THRESHOLD_PX` in `src/tether/project/oracle.py`. **Superseded:** the original M1
+  bars (recall ≥ 95% within 1 px; per-frame intensity Pearson r ≥ 0.99 on both channels) were recorded as unmet
+  (recall at 1 px was 0.928) and formally abandoned by ADR-0022, which closed M1 on the gate above.
+
+### 9.3 Per-area acceptance bars
+
+One row per capability rather than per milestone, so a row outlives the milestone that first carried it. The bars
+are the accepted milestone criteria, regrouped; two rows (*Multi-movie project*, *Performance*) state from §5 and §8
+a capability a milestone delivered without a criterion of its own. The *First carried by* column is what §9.7 maps
+back from. A bar marked *not yet met* is listed in §9.6 with the open issue carrying it.
+
+| Area | Acceptance bar | First carried by |
 |---|---|---|
-| **M0 — Foundation** | Public repo, environment (pinned Python/numpy for Numba), CI; full HDF5 schema forward-declared (all groups incl. empty `/conditions`, `/features`, `/labels`, `/models`, `/idealization`, `/settings`, version-stamped; **`/molecules` carries the stable-UUID `molecule_id` + the `molecule_key` (movie-`sha256` + quantized `donor_xy`) + condition-key + provisional fields; `/labels` carries the `molecule_key` + labeler / timestamp / source / weight provenance fields; `/movies` carries the metadata-only fast signature (size + mtime + offline flag) — all frozen now**); lazy big-endian TIFF reader; embedded napari viewer; filename parser; headless-core scaffolding; governance setup (§12) — repo created with branch protection + signed commits, the GitHub Actions workflows (pytest + ruff + 3-OS), CodeQL + secret scanning + push protection + Dependabot enabled, issue/PR templates + labels + Milestones + Project board, pre-commit, and a CI schema-guard gate. | CI green on 3 OSes; a big-endian 512×512×1700 TIFF opens and displays in napari; `.tether` skeleton created and re-opened with version stamp; filename parser round-trips a known condition string; the frozen schema includes the `molecule_key` (on `/molecules` and `/labels`), the label-provenance, condition-key, and metadata-only movie-signature fields; branch protection rejects a PR with red CI, a signed/verified commit lands on `main`, and the CI schema-guard fails a deliberately structure-breaking schema change (§12). |
-| **M0.5 — De-risking validation** | (a) A headless vbFRET sidecar round-trip producing an SMD the standalone tMAVEN GUI opens with coordinate metadata intact, run via the guided sidecar setup on Windows + one of Mac/Linux; **and ratification of the §11.2 idealization-parity tolerance** — measure the cross-seed spread over ≥ 20 standalone-tMAVEN runs on the committed fixtures and freeze the four tolerance numbers (state count / means / Viterbi-path / ELBO). (b) Spot-detection + aperture integration on a `.tmap` + movie pair, the `TIRFdata` `.tdat` decode (incl. the β/α/γ remap, Appendix B), comparison to Deep-LASI, and validation of native bead/grid residuals against the `.tmap`. | (a) A headless vbFRET idealization reproduces tMAVEN's states on a known SMD **within the §11.2 idealization-parity tolerance (state count / means / Viterbi-path / ELBO)**, and that §11.2 row is **frozen with the measured numbers** (M2/M6 may not sign off until this is done); the exported SMD opens in standalone tMAVEN; setup script runs clean on two OSes. (b) ≥ 95% of Deep-LASI molecules matched within 1 px; the `TIRFdata` decode recovers coordinates + α/β/γ; native registration RMS residual ≤ 0.5 px vs the `.tmap`. *If headless `maven_class` cannot be driven reproducibly across OSes, the pre-committed escalation is a prebuilt bundled sidecar over a stable IPC — not an in-process embed, not a hand-off-only MVP (§4.3, §10).* |
-| **M1 — Extraction core** | Native calibration creation (bead/grid → transform) **and** apply imported `.tmap`; registration; spot detection + colocalization; aperture integration (configurable advanced options) + background → coordinate-tagged traces + cached patches + provisional `condition_id` per movie from filename + `/settings`. Minimal Deep-LASI reader for validation. Headless CLI: extract one movie → `.tether`. | Extraction-vs-Deep-LASI on the UCKOPSB pair meets tolerance: matched-molecule recall ≥ 95% within 1 px; per-frame integrated-intensity Pearson r ≥ 0.99 on matched molecules; registration RMS ≤ 0.5 px. CLI produces a valid `.tether` headlessly. |
-| **M2 — MVP** | Multi-movie round-trip browser (per-movie KDTree, movie switcher, static overlap) + curation logging (→ `/labels`) + tMAVEN sidecar (vbFRET, statistical parity) one-click + hand-off to standalone tMAVEN + non-destructive re-import + FRET histogram + cross-correlation + single-writer `.lock` + read-only banner + steal-lock. Runs on apparent E (UI-labeled). | Select-trace→camera-jump and click-spot→trace both work across ≥ 2 movies; every accept/reject writes a `/labels` row; one-click vbFRET matches standalone tMAVEN within the **§11.2 idealization-parity tolerance**; the single-writer lock (wall-clock stale-timeout) prevents a second writer, steal-lock recovers, and a cross-machine lock / stale / steal case is exercised. Headless: reproduce the MVP histogram from the API. |
-| **M3 — Corrections** | Photobleaching detection (native Bayesian single-step model, run per channel); load a donor-only sample → global leakage α; then γ auto (Appendix B order; δ = 0); corrected FRET with the **total-failure → apparent-E** fallback; stale-idealization flag + re-idealize; histograms with CI. Batch runner (error-isolated, **per-stage** checkpointed, sidecar-supervised, logged) usable by end of M3. | Tether's donor-only α agrees with its own post-acceptor-bleach-tail α (matched gates, same FRET dataset) under the **conjunctive §11.2 leakage-α validation band** (relative-median difference ≤ 20% **and** both medians ∈ 0.05–0.2; §7.2); γ agreement with the Deep-LASI median is within the **§11.2 γ-agreement tolerance** (default ±10%) **on a shared frame set derived from Deep-LASI's own per-frame classification** (estimator-isolated; 3-frame half-width, §11.2) plus a looser end-to-end CI-overlap check; the **per-channel first-bleach frames match the `.mat` `pacc`/`pdon` ground truth within the §11.2 bleach-frame tolerance (default ±2 frames)**; a pure-FRET dataset with no donor-only sample and < `min_qualifying_traces` valid factors **falls to apparent-E with a banner and never writes a NaN factor**; changing a correction flags only the affected molecules' dependent idealizations STALE and excludes them from TDP (a γ-median shift re-stales fallback molecules only, an α-median shift the whole cohort, §5.1); and the batch runner **(i)** isolates a deliberately corrupt movie (continue-on-error) while the rest complete, **(ii)** resumes after a killed movie via per-stage checkpoint, and **(iii)** emits an end-of-run summary naming the failed movie — exercising sidecar timeout/restart. |
-| **M4 — Annotation** | Structured conditions (spanning many movies/days/files) + filename auto-parse + user-editable per-condition category list + condition query/filter. Validates the provisional `condition_id`. | A condition aggregates molecules across ≥ 2 files; the category list edits persist per condition; provisional `condition_id` values are confirmed or corrected via the validation UI; a mis-parsed `condition_id` re-keys all affected molecules transactionally with an audit entry, and merges are keep-separate-by-default + human-confirmed (§5.1). |
-| **M5 — Curation + ML v1** | Per-condition, persistent, incrementally-retrained model (load → curate a video → warm-start retrain → save → reload next video); sort/rank only; active learning; seed from Deep-LASI categories / other conditions. Reads `/labels` since M2. | Reloading the saved model on a held-out (prequential) new video improves **precision@k** (k ≈ 20–50) over the file-order baseline by ≥ the agreed ship-bar (default ≥ 10 pts), holding on the median across the condition's videos; never-auto-drop is verified as a permutation invariant; active learning surfaces informative traces; the model file is portable across experiment files; a **weight-decay test** confirms a provisional label's effective weight drops below a stated fraction (e.g. < 0.2·w₀) after K human labels (decay law §7.5/§11.2); a **drift-flag test** confirms a deliberately mismatched source/target condition raises the advisory while a matched pair does not; and a **two-curator split-and-merge test** confirms split-file labels merge back on `molecule_key` with weights recomputed centrally and human-vs-human conflicts surfaced (§7.10). |
-| **M6 — Analysis suite** | Consensus + ebFRET; the seven tMAVEN plot types (Appendix C); real TDP; dwell/rate fits; raw FRET cloud; anticorrelation finder; CSV/`.txt`/subset-`.tether`/SMD exports. | Each of the seven plot types renders from real data and visually matches its tMAVEN counterpart; TDP uses only fresh idealizations; all exports carry provenance stamps; consensus VB-HMM and ebFRET reproduce standalone tMAVEN on the ≥ 50-molecule SMD within the **§11.2 idealization-parity tolerance** (state levels + transition matrix + ELBO). |
-| **M7 — Legacy importers** | The polished Deep-LASI re-analysis workflow (§7.8): multi-file intake + movie pairing → a full round-trip-ready project (coords / raw + corrected traces / factors / bleach / categories / selected subset) without re-extraction; robust `TIRFdata` OOP decode, error handling + wizard UI; tMAVEN SMD. | A full Deep-LASI acquisition reconstructs into a round-trip-ready project from `.tdat` or `.mat` coordinates; curated subset and categories survive; intensity-match cross-check passes on the SMD subset. |
-| **M8 — ML v2** | Deep models (GPU, optional add-on) [Thomsen2020], fine-tuning; kinSoftChallenge validation [Götz2022]. | A deep classifier trains on the shared label store and is optional (CPU base app unaffected); kinetics on the **named kinSoftChallenge dataset (§11.2)** fall within that dataset's reported inter-tool spread — an **advisory** check until the gated-CI slice is acquired (M8 is the terminal optional GPU add-on). |
-| **M9 — Packaging & docs** | Fully-bundled constructor installers (**unsigned** — ADR-0059); mkdocs; validation suite; the release pipeline (§12.7) — annotated + signed git tag → 3-OS installers + frozen per-release `conda-lock` + SBOM + build-provenance attestation + auto-generated changelog (Conventional Commits) + docs deploy; SemVer 1.0.0 cut here. | The installers install clean on Windows + Mac + Linux with the **trimmed/pinned** sidecar bundled (no install-time git/network; `biasd` omitted); docs build in CI; the validation suite runs end-to-end; a signed `v1.0.0` tag drives the §12.7 release pipeline (3-OS installers + frozen `conda-lock` + SBOM + attestation + changelog + docs deploy) reproducibly. The tag signature is the release's provenance; it is **not** OS code-signing, which 1.0 does not ship (ADR-0059). |
+| **Foundation & governance** (§12) | CI green on 3 OSes; branch protection rejects a PR with red CI; a signed/verified commit lands on `main`; the CI schema-guard fails a deliberately structure-breaking schema change (§9.2). | M0 |
+| **Project store & schema** (§5) | A `.tether` skeleton is created and re-opened with its version stamp; the frozen schema includes the `molecule_key` (on `/molecules` and `/labels`), the label-provenance, condition-key, and metadata-only movie-signature fields. | M0 |
+| **Movie I/O & viewer** (Appendix A) | A big-endian 512×512×1700 TIFF opens and displays in napari; the filename parser round-trips a known condition string. | M0 |
+| **Native extraction** (FR-EXTRACT, Appendix E) | Extraction vs Deep-LASI on the UCKOPSB pair meets the §9.2 extraction tolerance **(reframed — ADR-0022)**; the `TIRFdata` decode recovers coordinates + α/β/γ (Appendix B); native registration RMS residual ≤ 0.5 px vs the `.tmap`; the CLI produces a valid `.tether` headlessly. (M0.5's ≥ 95% recall leg was homed at M1 by [ADR-0011](adr/0011-home-extraction-recall-at-m1.md) and is the recall term of the reframed gate.) | M0.5(b), M1 |
+| **Idealization & sidecar** (FR-IDEALIZE) | A headless vbFRET idealization reproduces tMAVEN's states on a known SMD within the frozen §11.2 idealization-parity tolerance (state count / means / Viterbi path / ELBO), and that §11.2 row is frozen with the measured numbers before any later parity sign-off (§9.2; the default row was measured on an older tMAVEN build than the pinned one, and its re-freeze is *not yet met*, §9.6); one-click vbFRET matches standalone tMAVEN within that tolerance (*not yet met* per trace: the frozen row was measured on consensus `vbconhmm` and no test fits per-trace vbFRET, §9.6); consensus VB-HMM and ebFRET reproduce standalone tMAVEN on the ≥ 50-molecule SMD within it (state levels + transition matrix + ELBO; the transition-matrix term has no metric yet, *not yet met*, §9.6); the exported SMD opens in tMAVEN's own loader. The **standalone-tMAVEN GUI** leg — the exported SMD opens in the standalone GUI with coordinate metadata intact, and the guided setup runs clean on ≥ 2 OSes (Windows + macOS/Linux) — is **(leg deferred — [ADR-0010](adr/0010-defer-cross-os-gui-handoff.md))** to M9 acceptance, *not yet met* (§9.6). | M0.5(a), M2, M6 |
+| **Round-trip browser & curation** (FR-ROUNDTRIP) | Select-trace→camera-jump and click-spot→trace both work across ≥ 2 movies (*not yet met*, §9.6); every accept/reject writes a `/labels` row; headless: the MVP histogram reproduces from the API. | M2 |
+| **Multi-movie project** (§5) | One `.tether` holds many movies, as the M2 multi-movie round-trip browser assumes: a second movie appends into an existing project under its writer lock (*not yet met*, §9.6). | M2 |
+| **File lifecycle** (FR-CONCURRENCY) | The single-writer lock (wall-clock stale-timeout) prevents a second writer, steal-lock recovers, and a cross-machine lock / stale / steal case is exercised. | M2 |
+| **Corrections** (FR-CORRECT, Appendix B) | A pure-FRET dataset with no donor-only sample and < `min_qualifying_traces` valid factors **falls to apparent E with a banner and never writes a NaN factor**; changing a correction flags only the affected molecules' dependent idealizations STALE and excludes them from TDP (a γ-median shift re-stales fallback molecules only, an α-median shift the whole cohort, §5.1). Per-channel first-bleach detection **(reframed — [ADR-0026](adr/0026-photobleach-detection-and-window-default.md))**: reference-formula parity with tMAVEN's photobleaching model plus recovery of a synthesized known step within the §11.2 ±2-frame tolerance — the `.mat` `pacc`/`pdon` field is a constant (60 for every molecule), not ground truth. Withheld under §9.1 item 8: the **conjunctive §11.2 leakage-α validation band** (Tether's donor-only α vs its own post-acceptor-bleach-tail α, matched gates, same FRET dataset: relative-median difference ≤ 20% **and** both medians ∈ 0.05–0.2, §7.2; the donor-only traces sit in an undecoded MCOS blob — [ADR-0027](adr/0027-leakage-alpha-tail-estimator.md)) and **γ agreement with the Deep-LASI median within the §11.2 γ-agreement tolerance** (default ±10%) on a shared frame set derived from Deep-LASI's own per-frame classification (estimator-isolated; 3-frame half-width) plus a looser end-to-end CI-overlap check (the vendored export carries no per-frame classification — [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)); both are *not yet met* and carried in §9.6. Corrections are a first-class surface of the application (*not yet met*, §9.6). | M3 |
+| **Batch runner** (FR-BATCH) | The batch runner **(i)** isolates a deliberately corrupt movie (continue-on-error) while the rest complete, **(ii)** resumes after a killed movie via per-stage checkpoint, and **(iii)** emits an end-of-run summary naming the failed movie — exercising sidecar timeout/restart. | M3 |
+| **Performance** (NFR-PERF) | The §8 targets — per-trace render+navigate ≈ 100 ms; a ~100-movie condition completes extraction + correction + idealization overnight; a bounded `.tether` size per condition — verified as a light gate over slice-scaled envelopes, not an SLA matrix ([ADR-0032](adr/0032-nfr-perf-budget-verification.md)). | M3 |
+| **Annotation & conditions** (FR-ANNOTATE) | A condition aggregates molecules across ≥ 2 files; category edits persist (*not yet met* from the application, §9.6); provisional `condition_id` values are confirmed or corrected via the validation UI; a mis-parsed `condition_id` re-keys all affected molecules transactionally with an audit entry, and merges are keep-separate-by-default + human-confirmed (§5.1). | M4 |
+| **Curation ranking** (FR-ML) | Reloading the saved model on a held-out (prequential) new video improves **precision@k** (k ≈ 20–50) over the file-order baseline by ≥ the agreed ship-bar (default ≥ 10 pts, §11.2), holding on the median across the condition's videos (evidenced on synthetic stores only: the uplift on real labelled videos and the §8 NFR-VALID (d) leave-one-video-out protocol are *not yet met*, §9.6); never-auto-drop is verified as a permutation invariant; active learning surfaces informative traces; the model file is portable across experiment files; a **weight-decay test** confirms a provisional label's effective weight drops below a stated fraction (e.g. < 0.2·w₀) after K human labels (decay law §7.5/§11.2); a **drift-flag test** confirms a deliberately mismatched source/target condition raises the advisory while a matched pair does not; and a **two-curator split-and-merge test** confirms split-file labels merge back on `molecule_key` with weights recomputed centrally and human-vs-human conflicts surfaced (§7.10). | M5 |
+| **Analysis suite** (FR-ANALYZE, Appendix C) | Each of the seven plot types renders from real data and visually matches its tMAVEN counterpart (D1, the per-trace viewer, has no visual oracle and matches by layout and convention, as [the parity gallery](analysis/parity-gallery.md) records) — and is reachable from the application (*not yet met*, §9.6); TDP uses only fresh idealizations; all exports carry provenance stamps. | M6 |
+| **Legacy import** (FR-LEGACY) | A full Deep-LASI acquisition reconstructs into a round-trip-ready project from `.tdat` or `.mat` coordinates; curated subset and categories survive; the intensity-match cross-check passes on the SMD subset. | M7 |
+| **Deep add-on** (FR-ML) | A deep classifier trains on the shared label store and is optional: the CPU base app is unaffected (§9.1 item 5). | M8 |
+| **Kinetics** (§8 NFR-VALID (c)) | Kinetics on the named kinSoftChallenge dataset fall within that dataset's reported inter-tool spread (§11.2) — **advisory**, never a gate (§9.5). | M8 |
+| **Packaging & pre-release** (NFR-PKG, §12.7) | The installers install clean on Windows + Mac + Linux with the trimmed/pinned sidecar bundled (no install-time git/network; `biasd` omitted); docs build in CI; the §12.7 release pipeline (3-OS installers + frozen `conda-lock` + SBOM + attestation + changelog) is proven end to end on pre-release `v1.0.0-rcN` tags, which skip the docs publish by design; the versioned docs site deploys through a manual `docs.yml` dispatch; and ADR-0010's deferred standalone-tMAVEN GUI leg is discharged, since that ADR makes it part of M9 acceptance (*not yet met*, §9.6). No stable tag is cut by this row. | M9 |
+| **Stable release acceptance** (NFR-PKG, §12.7) | The validation suite (§9.5) runs end to end, with its evidence bound to the release commit; the installers pass on three clean machines; then a signed `v1.0.0` tag drives the §12.7 release pipeline reproducibly, including the docs deploy that pre-release tags skip. The tag signature is the release's provenance; it is **not** OS code-signing, which 1.0 does not ship ([ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)). | the release-acceptance milestone, M18 (§12.10) |
+
+### 9.4 Fixture policy
+
+Harvested from the retired ledger's §2.1–§2.2. **The authoritative inventory is `tests/fixtures/PROVENANCE.md`** —
+each committed data fixture's source file, sizes, source-checksum prefix, license and regeneration command. Most rows
+carry only a 16-hex prefix of the source SHA-256, which identifies a source but does not checksum-lock it. The one
+non-data fixture, `tests/fixtures/docs_site/gh_pages_index.html` (a verbatim `gh-pages` snapshot for the docs-site
+guard), is described in `tests/test_docs_site_guard.py` and has no row yet. Both are owed
+([#552](https://github.com/bioedca/tether/issues/552)). This section states the policy and does not repeat that table,
+which would drift.
+
+- The lab's sibling `example-data/` is **external and read-only**. Committed fixtures are **derived into the
+  repository** — small, plain git — by `scripts/make_fixtures.py` and its siblings; large originals stay **external
+  and gated** and are **never committed**; only authorized, redistributable derived fixtures enter the LFS tier below
+  (§8 NFR-FIXTURES).
+- **Three tiers.** Small committed fixtures run in the required matrix. Larger redistributable fixtures (the
+  281-molecule population SMD and its model; the kinSoftChallenge simulations) are Git LFS under
+  `tests/fixtures/large/`. The ≈ 0.9 GB UCKOPSB movie and its full `.tdat` are in neither: the gated
+  `large-fixtures.yml` workflow (manual dispatch + weekly cron, **never a required check**) locates them through
+  `TETHER_UCKOPSB_DIR` and skips when they are absent.
+- A new fixture needs a work item that authorizes it, a redistribution license, and a `PROVENANCE.md` row before it
+  is committed; third-party data keeps its own license (as the CC-BY-4.0 kinSoftChallenge data does).
+- **Never fabricate a stub donor-only distribution.** If the donor-only data a leg needs does not exist or cannot be
+  decoded, that is a data-gap sourcing task and the dependent leg is withheld (§9.1 item 8). This is the live case:
+  the lab's `cy3-donor-only-calibration` `.tdat` keeps its traces in an undecoded MCOS blob, so the donor-only α
+  leg is withheld (ADR-0027) rather than fed a synthesized distribution.
+
+### 9.5 The validation suite
+
+The seven validation oracles (a)–(g) of §8 NFR-VALID are, together, **the validation suite** that §9.3's *Stable release
+acceptance* bar and §12.10 require to "run end to end". **This table is a summary, not a second definition.** The
+suite's tier table lives in [`docs/validation.md`](validation.md#how-to-read-the-tiers), which also transcribes each
+oracle's enforcing tests and measured numbers; where the two differ, `docs/validation.md` governs. Making that table
+the normative definition, with the fixture column harvested here from the retired ledger's §2.3 (oracle → fixture →
+tolerance), is release-acceptance work owned by its GitHub milestone.
+
+| Oracle | What it checks | Headline assertion runs in | Also on the required matrix | Fixture | Tolerance and evidence artifact | Standing |
+|---|---|---|---|---|---|---|
+| **(a)** Extraction vs Deep-LASI | recall, donor intensity Pearson, registration RMS | `large` — the headline leg **skips on every runner** (the ≈ 0.9 GB movie is on none), so its numbers come from a local run of the enforcing test `tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb` with `TETHER_UCKOPSB_DIR` set, which supplies the `.tdat` detector settings and the 2 px gate (recorded in ADR-0022; the `scripts/run_m1_oracle.py` helper does not reproduce that configuration yet, [#555](https://github.com/bioedca/tether/issues/555)) | scorer unit tests, the committed 4-molecule slice, the registration RMS gate (`tests/test_register.py::test_native_fit_reproduces_tmap_within_tolerance`; the headline run imports the `.tmap`, so its RMS is not applicable) | UCKOPSB pair (gated full movie + committed slice) | the §9.2 extraction gate (reframed — ADR-0022); constants in `src/tether/project/oracle.py` | gate; evidence is a recorded run until a runner holds the movie |
+| **(b)** Idealization parity vs tMAVEN | state count, state means, Viterbi path, ELBO | `sidecar` — required, but **path-filtered**: it fits only when a pull request touches an idealization path | the frozen artifact checked against its own recorded evidence | `tests/fixtures/smd_4mol.hdf5`; LFS `smd_281mol.hdf5` + `model_281mol.hdf5` | `schema/parity_tolerance.json` (`$.tolerance`; ebFRET `$.tolerance_by_method.ebhmm`, ADR-0043); per-trace vbFRET, the transition-matrix term and the default row's re-freeze on the pinned tMAVEN build are not yet evidenced (§9.6); the ebFRET cross-seed gate is nondeterministic ([#311](https://github.com/bioedca/tether/issues/311)), so one green fit is not release evidence | gate |
+| **(c)** Kinetics vs kinSoftChallenge | 2-state rate constants vs the inter-tool spread | `large`, **advisory** | reference loader + synthetic rate recovery | LFS `tests/fixtures/large/kinsoft_sim.hdf5` | `schema/kinsoft_reference.json` (≤ 12% relative deviation per rate, [ADR-0048](adr/0048-kinsoft-kinetics-oracle.md)) | advisory, never a gate |
+| **(d)** Ranker held-out cross-validation | prequential precision@k uplift over file order, median across videos | required matrix | yes (synthetic stores only) | synthetic and programmatic stores | `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py`; the real-video uplift and leave-one-video-out legs are not yet evidenced (§9.6) | gate on the protocol; the real-data legs are *not yet met* |
+| **(e)** α / γ estimators | sparse/missing bleach steps, median fallbacks, total failure → apparent E never NaN | required matrix | yes | synthetic known-α/known-γ and edge-case traces | constants in `src/tether/fret/leakage.py` and `gamma.py`; the conjunctive α band and the γ-vs-Deep-LASI legs withheld (ADR-0027, ADR-0028; §9.6) | gate |
+| **(f)** Round-trip and schema integrity | `.tether` structure, frozen fields, SMD superset round-trip | required matrix plus the required `schema-guard` job; the live tMAVEN-opens leg is `sidecar` | yes | fresh `.tether` stores; `smd_4mol.hdf5` | `schema/schema_frozen.json` — structural, additive-only (ADR-0005); the schema-migration leg §8 and §5.4 name has no test (§9.6) | gate |
+| **(g)** Photobleach detector | per-channel first-bleach frame | required matrix | yes | synthesized known steps | reference-formula parity with tMAVEN's `photobleaching.py` + known-step recovery within ±2 frames (reframed — ADR-0026; supersedes the ±2 frames vs `.mat` `pacc`/`pdon` bar) | gate |
+
+**What "runs end to end" means.** Every *gate* row has passing evidence bound to the release commit, and (c) may be
+recorded advisory; no other oracle may. Binding that evidence (one artifact per oracle naming the commit it was
+produced at, a forced full `sidecar` run on the release commit so the path filter cannot report a pass without
+fitting, and the recorded local run for (a)) is release-acceptance work owned by the same milestone. Oracle (b)
+binds only once [#311](https://github.com/bioedca/tether/issues/311) is closed, with the ebFRET band made
+deterministic or re-derived and never widened to fit (the observed miss was Viterbi 0.7568 against the frozen 0.9034
+floor), and the gate is shown green on consecutive runs on one commit; a single passing fit cannot be cherry-picked. A change to an
+oracle's membership, tier or tolerance is made in `docs/validation.md` and mirrored here in the same pull request.
+The suite's tier table also holds the optional **deep add-on** tier (`deep.yml` on CPU, `deep-gpu.yml` on CUDA). It is
+not an oracle and gates nothing on `main`, but running end to end includes a recorded deep-tier run on the release
+commit, bound with the oracle evidence. The CUDA tests in `tests/test_deep_gpu_deep.py` self-skip when no GPU is
+present, so a green `deep-gpu.yml` run alone is not that evidence: the recorded run must show them executed, not
+skipped.
+
+### 9.6 Criteria on record as not yet met
+
+Criteria that a closed milestone did not meet, including legs withheld under the data-gaps rule (§9.1 item 8). None
+is retracted and no closed milestone is reopened; each is carried by the open issue named here.
+
+| Criterion | From | Carried by |
+|---|---|---|
+| Select-trace→camera-jump and click-spot→trace both work across ≥ 2 movies, in the shipped application | M2 | [#357](https://github.com/bioedca/tether/issues/357) (the movie panel it drives: [#356](https://github.com/bioedca/tether/issues/356)) |
+| Corrections as a surface of the application: the correction pass over the open project, the §7.2 total-failure banner with both recovery actions, and an apparent/corrected toggle | M3 | [#360](https://github.com/bioedca/tether/issues/360), [#361](https://github.com/bioedca/tether/issues/361), [#362](https://github.com/bioedca/tether/issues/362) |
+| Category (and analysis-window) edits made in the application persist to the project | M4 | [#359](https://github.com/bioedca/tether/issues/359) (the setters it writes through: [#358](https://github.com/bioedca/tether/issues/358)) |
+| Every plot renders from the application — each Appendix C type reachable from the GUI, not only from the API | M6 | [#374](https://github.com/bioedca/tether/issues/374) |
+| The multi-movie project: a second movie appends into an existing `.tether` | M2 | [#347](https://github.com/bioedca/tether/issues/347) |
+| Per-trace vbFRET parity against the frozen tolerance (the row was measured on consensus `vbconhmm`; no test fits per-trace vbFRET) | M2 | [#545](https://github.com/bioedca/tether/issues/545) |
+| The transition-matrix term of consensus VB-HMM / ebFRET parity on the ≥ 50-molecule SMD (the parity metrics have no transition-matrix term) | M6 | [#545](https://github.com/bioedca/tether/issues/545) |
+| The default idealization-parity row re-measured and re-frozen on the pinned tMAVEN `10f4230b` / CPython 3.12.13 build (it was measured on `71cfa1af` / CPython 3.9.23) | M0.5(a) | [#545](https://github.com/bioedca/tether/issues/545) |
+| ebFRET parity on the ≥ 50-molecule SMD holding reproducibly: the cross-seed gate is nondeterministic (observed Viterbi 0.7568 against the frozen 0.9034 floor) | M6 | [#311](https://github.com/bioedca/tether/issues/311) |
+| A check that fails when a frozen `$.tolerance` bound is loosened (the artifact self-checks catch only tightening below the evidence, or its removal) | M0.5(a) | [#545](https://github.com/bioedca/tether/issues/545) |
+| The ranker's precision@k uplift over file order measured on real labelled videos, not only synthetic stores | M5 | [#548](https://github.com/bioedca/tether/issues/548) |
+| The §8 NFR-VALID (d) leave-one-video-out protocol, implemented or settled against the prequential protocol | M5 | [#548](https://github.com/bioedca/tether/issues/548) |
+| Oracle (f)'s schema-migration leg: §8 NFR-VALID (f) and §5.4 name migration tests that the additive-only freeze has never needed | M0, §8 | [#547](https://github.com/bioedca/tether/issues/547) |
+| The conjunctive §11.2 leakage-α validation band — withheld: the donor-only traces sit in an undecoded MCOS blob (ADR-0027) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
+| γ agreement with the Deep-LASI median on a shared frame set — withheld: the vendored export carries no per-frame classification (ADR-0028) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
+| ADR-0010's deferred leg: the exported SMD opens in the standalone tMAVEN GUI with coordinate metadata intact, and the guided setup runs clean on ≥ 2 OSes | M0.5(a); ADR-0010 deferred it to M9 acceptance | [#543](https://github.com/bioedca/tether/issues/543) |
+
+### 9.7 Milestone-label map
+
+The repository cites criteria as "§9 M*N*" in code, tests, workflows and ADRs. Those citations name the milestone
+that first carried a criterion; this map sends each to the rows that carry it now, so they stay followable without
+being rewritten. It covers M0–M9 only: **M10 and every later milestone is defined by its GitHub milestone**, not by
+this section.
+
+| Label | Was | Now carried by |
+|---|---|---|
+| **§9 M0** | Foundation | §9.2 schema freeze; §9.3 *Foundation & governance*, *Project store & schema*, *Movie I/O & viewer*; §9.5 (f) |
+| **§9 M0.5** | De-risking validation | (a): §9.2 idealization-parity tolerance and sidecar mechanism; §9.3 *Idealization & sidecar* — **(leg deferred — ADR-0010)**, §9.6. (b): §9.3 *Native extraction* (recall leg homed at M1 — ADR-0011) |
+| **§9 M1** | Extraction core | §9.2 extraction tolerance **(reframed — ADR-0022)**; §9.3 *Native extraction*; §9.5 (a) |
+| **§9 M2** | MVP | §9.3 *Round-trip browser & curation*, *Multi-movie project*, *File lifecycle*, *Idealization & sidecar*; §9.6 |
+| **§9 M3** | Corrections | §9.3 *Corrections* (bleach-frame leg reframed — ADR-0026), *Batch runner*, *Performance*; §9.5 (e), (g); §9.6 |
+| **§9 M4** | Annotation | §9.3 *Annotation & conditions*; §9.6 |
+| **§9 M5** | Curation + ML v1 | §9.3 *Curation ranking*; §9.5 (d) |
+| **§9 M6** | Analysis suite | §9.3 *Analysis suite*, *Idealization & sidecar* (population parity); §9.5 (b); §9.6 |
+| **§9 M7** | Legacy importers | §9.3 *Legacy import* |
+| **§9 M8** | ML v2 | §9.3 *Deep add-on*, *Kinetics*; §9.5 (c) |
+| **§9 M9** | Packaging & docs | §9.3 *Packaging & pre-release*. The validation-suite run and SemVer 1.0.0 are **not** M9's: they are §9.3 *Stable release acceptance* (§9.5, §12.7, §12.10) |
 
 ---
 
@@ -875,10 +1071,10 @@ validation front-loaded at M0.5.
 | Over-gate batch policy (headless) | `warn` = accept-with-flag + structured warning (default; never abort, never drop); `fail` = fail-the-movie | Tether (§7.1; ADR-0014) |
 | Batch sidecar supervision (auto-restart / liveness) | auto-restart up to **N = 3** per movie's idealization on a *transient* sidecar failure (crash/timeout; a sidecar-reported fit error is **not** retried); per-idealization-call timeout = **1800 s** (inherited from `run_vbfret`); startup liveness probe (probe timeout **120 s**) → sidecar absent/corrupt ⇒ idealization **deferred** for the run (extract + correct still run and checkpoint; a later run resumes only the deferred stage) | Tether (§7.11 FR-BATCH; ADR-0031) |
 | Colocalization distance | 3 px, donor-anchored (ADR-0015) | `deeplasi/functions/mapping/findColoc.m`, `traces/batchExtraction.m:182` |
-| Bleach detection | native reimplementation of **tMAVEN's Bayesian single-step model** (signal→N(0)), run per channel; priors a = b = β = 1, μ = 1000; per-channel first-bleach validated vs `.mat` `pacc`/`pdon` (§9 M3) | [Verma2024]; `tmaven/tmaven/controllers/photobleaching/photobleaching.py`. (Kalafut2008 is a parameter-free *multi-step* method — classical alternative only; the `penalty ≈ 5` is Deep-LASI's `stepFinder` L1 mode, `TRACEdata.m:110`, not a Kalafut parameter) |
+| Bleach detection | native reimplementation of **tMAVEN's Bayesian single-step model** (signal→N(0)), run per channel; priors a = b = β = 1, μ = 1000; per-channel first-bleach validated by reference-formula parity with tMAVEN's formulas + synthesized known-step recovery (ADR-0026, §9.5 (g); the `.mat` `pacc`/`pdon` field is a constant, not ground truth) | [Verma2024]; `tmaven/tmaven/controllers/photobleaching/photobleaching.py`. (Kalafut2008 is a parameter-free *multi-step* method — classical alternative only; the `penalty ≈ 5` is Deep-LASI's `stepFinder` L1 mode, `TRACEdata.m:110`, not a Kalafut parameter) |
 | Correction tolerance window (γ half-width) | 3 frames each side of the bleach step (configurable) | `MASH-FRET/docs/.../panel-factor-corrections.md`; [McCann2010] (§7.2, §9 M3) |
 | γ-agreement tolerance (M3) | γ within ±10% of the Deep-LASI median on the shared-frame, estimator-isolated comparison | Tether (§7.2, §9 M3) |
-| Bleach-frame tolerance (M3) | per-channel first-bleach frame within ±2 frames of the `.mat` `pacc`/`pdon` ground truth | Tether (§8 NFR-VALID (g), §9 M3) |
+| Bleach-frame tolerance (M3) | per-channel first-bleach frame within ±2 frames of a synthesized known step (reframed — ADR-0026: the `.mat` `pacc`/`pdon` field is a constant, not ground truth) | Tether (§8 NFR-VALID (g), §9 M3, §9.5 (g)) |
 | Leakage acceptance ceiling | ≈ 0.3 (Cy3→Cy5 leakage typically 0.05–0.2; empirical median ≈ 0.09) | Tether tightening of Deep-LASI's loose `ct_lim = 1` |
 | γ acceptance ceiling | γ ≤ 5 | `deeplasi/functions/gui/TracesTab/createTracesPlotLayout.m:172` (in-scope 2-color single-row table; `:157` is the out-of-scope 3-color variant, same values) |
 | `min_window_frames` (per-trace bleach-window minimum) | 20 frames | `createTracesPlotLayout.m:172` (2-color single-row table default) |
@@ -993,7 +1189,8 @@ though **tMAVEN is never vendored** — reference clones are algorithm-reference
 
 - **Model — GitHub Flow.** `main` is **always releasable and protected** (§12.3). All work happens on short-lived
   branches off `main`, opened as a PR, merged via **squash-merge**, branch **deleted on merge**. No long-lived
-  `develop`/`release` branches — milestones M0–M10 (§9) are tracked as GitHub Milestones (§12.5), not git branches.
+  `develop`/`release` branches — milestones (M0 onward; the GitHub milestone set is the roadmap of record, §9) are
+  tracked as GitHub Milestones (§12.5), not git branches.
 - **Branch naming.** `type/issue-N-short-slug`, optionally scoped to a milestone or FR-ID: `feat/`, `fix/`, `docs/`,
   `chore/`, `refactor/`, `test/`, `ci/`, `build/`, `perf/`, `revert/`. Examples:
   `feat/issue-123-m1-atrous-detector`, `fix/issue-124-correct-nan-guard`, `docs/issue-125-mkdocs-deploy`. The slug is
@@ -1208,20 +1405,24 @@ behalf. ADR-0052's coordinator, leases, run records and guarded-merge monopoly a
 | standalone | `preauth` (covered by the standing pre-authorization scope), `good-first-issue`, `security`, `help-wanted`, `dependencies` (applied by Dependabot) |
 
 There is **no `milestone:` label namespace** — an earlier revision of this table specified one, but none was ever
-created and GitHub Milestones alone carry M0–M10; a mirrored label set would be a second thing to keep in step.
+created and GitHub Milestones alone carry the milestone set; a mirrored label set would be a second thing to keep in
+step.
 `size:`, `risk:`, `needs:` and `blocked-by:` are applied at **grooming**, not by the issue forms: a form's `labels:`
 list is static, so it cannot encode a per-issue judgement (§12.5, ADR-0053).
 
-**Roadmap milestones → GitHub Milestones.** Each of M0, M0.5, M1 … M10 is a GitHub Milestone. M0–M9 descriptions
-**embed the §9 acceptance criteria verbatim as a markdown checklist**; M10 tracks post-1.0 documentation and
-community work. An issue is filed per criterion (or coherent group) and assigned to that Milestone, so milestone
-progress is the sign-off checklist. M0's "schema freeze" and M0.5's "freeze the §11.2
-idealization-parity tolerance" become explicit checklist items, since later milestones gate on them
-(§9 M0.5/M2/M6).
+**Roadmap milestones → GitHub Milestones.** Each roadmap milestone (M0, M0.5, M1 …, and every later one) is a
+GitHub Milestone, and that milestone set is the roadmap of record (§9). A milestone's description names the §9 rows
+it discharges and the evidence each needs, as a markdown checklist, and it closes when every named row has that
+evidence bound to a commit on `main` (§9). M0–M9's descriptions embedded the acceptance criteria of the dated
+milestone table §9 used to carry; those criteria now live by capability in §9.3, and §9.7 maps each M0–M9 label to
+them. M10 tracks post-1.0 documentation and community work; M11 onward are defined by their own descriptions. An
+issue is filed per criterion (or coherent group) and assigned to that Milestone, so milestone progress is the sign-off
+checklist. M0's "schema freeze" and M0.5's "freeze the §11.2 idealization-parity tolerance" were explicit checklist
+items, since later milestones gate on them (§9.2).
 
 **Project board — GitHub Projects (v2)**, a single board with columns **Backlog → Ready → In progress → In review
-→ Done** (the `status:` labels mirror the columns). Custom fields: `Milestone` (M0–M10), `Area` (§4.2 module),
-`Priority`, `FR-ID`. The board is filtered by milestone to drive each §9 increment.
+→ Done** (the `status:` labels mirror the columns). Custom fields: `Milestone` (the GitHub Milestone), `Area` (§4.2
+module), `Priority`, `FR-ID`. The board is filtered by milestone to drive each increment.
 
 **Issue templates** (`.github/ISSUE_TEMPLATE/`, YAML issue forms) are the structured backlog admission layer
 defined by [ADR-0053](adr/0053-structured-backlog-intake-gates-swarm-admission.md). Every public form auto-labels
@@ -1336,8 +1537,9 @@ namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and 
 
 ### 12.7 Releases & versioning (SemVer)
 
-- **SemVer** [SemVer] on the §9 track: `0.x.y` through M0–M8, **1.0.0 at M9**. The Conventional-Commit → bump map
-  feeds the automated changelog/release tooling (`git-cliff` / `release-please`):
+- **SemVer** [SemVer]: `0.x.y` through the capability milestones M0–M8, **1.0.0 at the signed `v1.0.0` tag**, which
+  the milestone that owns release acceptance cuts once the validation suite (§9.5) passes. The Conventional-Commit →
+  bump map feeds the automated changelog/release tooling (`git-cliff` / `release-please`):
 
   | Commit type | Pre-1.0 (0.x.y) | Post-1.0 | Changelog section |
   |---|---|---|---|
@@ -1347,9 +1549,11 @@ namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and 
   | `perf:` | patch | patch | Performance |
   | `docs/test/ci/build/chore/refactor:` | no release bump (changelog "Internal") | same | — |
 
-- **Milestone → tag.** Each milestone/release is cut as an **annotated, SSH-signed** tag `vMAJOR.MINOR.PATCH`
-  (e.g. `v0.3.0` at M3, `v1.0.0` at M9), and the **base, sidecar, and deep locks are frozen at that tag** per
-  pin-and-hold (§4.1) — the tag is the single point where all three are snapshotted for the release.
+- **Milestone → tag.** Each release checkpoint is cut as an **annotated, SSH-signed** tag `vMAJOR.MINOR.PATCH`
+  (e.g. `v0.3.0` at M3, `v1.0.0` at the stable release). A GitHub milestone that is not a release checkpoint cuts no
+  tag, because any `v*` tag triggers `release.yml` and publishes a Release. The **base, sidecar, and deep locks are
+  frozen at each such tag** per pin-and-hold (§4.1) — the tag is the single point where all three are snapshotted for
+  the release.
 - **`CHANGELOG.md`** is **generated from commit history**, never hand-edited (so squash titles must be clean
   Conventional Commits — §12.2/§12.6).
   *Superseded by [ADR-0067](adr/0067-github-releases-are-the-only-change-record.md): GitHub Releases are the
@@ -1465,7 +1669,7 @@ The **pre-commit framework** runs the same checks locally (on commit) and in CI 
 ### 12.10 Bootstrap at M0 & threading through milestones
 
 Governance is **established whole at M0** and then enforced continuously — no calendar dates, only capability gates
-(mirrors §9).
+(mirrors §9 and the GitHub milestone set).
 
 **M0 bootstrap checklist** (all part of the §9 M0 "Foundation" deliverable):
 
@@ -1479,18 +1683,27 @@ Governance is **established whole at M0** and then enforced continuously — no 
   `scorecard.yml` scheduled.
 - Repo metadata + `.github/` scaffolding landed (§12.1): LICENSE, README, CONTRIBUTING, CODE_OF_CONDUCT,
   SECURITY.md, CITATION.cff, NOTICE, `.gitattributes` LFS, `.gitignore`, PR template + self-review checklist, issue
-  forms, labels, GitHub Milestones M0–M10 (M0–M9 with §9 acceptance criteria), Projects-v2 board, pre-commit config.
+  forms, labels, GitHub Milestones M0–M10 (M0–M9 carrying the acceptance criteria that now live in §9.3, mapped by
+  §9.7), Projects-v2 board, pre-commit config.
 - **M0 acceptance additions:** branch protection rejects a PR with red CI; a signed/verified commit lands on
   `main`; `schema-guard` fails a deliberately structure-breaking schema change (§9 M0).
 
-**Per-milestone governance touchpoints:**
+**Per-milestone governance touchpoints** — every GitHub Milestone, M0–M18:
 
 | Milestone | Governance touchpoint |
 |---|---|
 | **M0** | All of the above established; schema-guard freeze live; CI green on 3 OSes. |
-| **M0.5** | `sidecar / parity` becomes **required** (vbFRET round-trip + the §11.2 parity row frozen with measured numbers); M2/M6 parity checks inherit the frozen row by reference. |
-| **M1/M2/M3/M6** | §9 acceptance criteria become `@pytest.mark`-tagged tests in the **default (small-fixture) tier**; M1 full-movie extraction + M8 kinetics live in `large-fixtures.yml`. **M3** adds the batch-runner + perf-budget (§8 NFR-PERF / §11.2) and the bleach-frame parity (§8 NFR-VALID (g)) checks. |
-| **M9** | `release.yml` produces the 3-OS bundled installers (unsigned — ADR-0059) + frozen `conda-lock`s + SBOM + attestations + auto changelog; `docs.yml` deploy + the validation suite run end-to-end; SemVer **1.0.0** is cut from a signed `v1.0.0` tag. |
+| **M0.5** | `sidecar / parity` becomes **required** (vbFRET round-trip + the §11.2 parity row frozen with measured numbers); M2/M6 parity checks inherit the frozen row by reference (§9.2). |
+| **M1/M2/M3/M6** | §9.3 acceptance bars become `@pytest.mark`-tagged tests in the **default (small-fixture) tier**; M1 full-movie extraction + M8 kinetics live in `large-fixtures.yml`. **M3** adds the batch-runner + perf-budget (§8 NFR-PERF / §11.2) and the bleach-frame parity (§8 NFR-VALID (g)) checks. |
+| **M4, M5, M7** | No new gate; the standing gates hold. M5's ranker ship-bar (§9.5 (d)) runs on the required matrix. |
+| **M8** | The third, isolated `deep/conda-lock.yml` stack (ADR-0047) with its own `deep.yml` (CPU) and `deep-gpu.yml` (manual, self-hosted CUDA) workflows — **not** required checks; the kinSoftChallenge oracle (§9.5 (c)) is `large` and advisory. |
+| **M9** | `release.yml` produces the 3-OS bundled installers (unsigned — ADR-0059) + frozen `conda-lock`s + SBOM + attestations + auto changelog, and `docs.yml` deploys; the pipeline is exercised on pre-release tags (`v1.0.0-rc1`, `v1.0.0-rc2`); ADR-0010's deferred standalone-tMAVEN GUI leg (§9.6) is part of M9 acceptance. The stable `v1.0.0` tag is not cut here. |
+| **M10** | Post-1.0 documentation and community work; it opens when release acceptance (M18) closes. |
+| **M11** | The agent coordination layer: the atomic claim-ref mutex and its reaper (`.agents/bin/claim.py`, `agent-reaper.yml`; ADR-0057) and the draft-first review lane (ADR-0062–ADR-0065). It coordinates writers, not reviews (ADR-0064). |
+| **M12** | Write safety on the project store and the multi-movie append (§9.6); the schema freeze holds — `schema-guard` green with `SCHEMA_VERSION` unchanged. |
+| **M13** | The in-app updater verifies a download against its build-provenance attestation before handing off to the OS installer (ADR-0060). |
+| **M14–M17** | The unified GUI shell and its extraction, curation and analysis sections: durable coverage is committed `pytest-qt` tests run headless on the required 3-OS matrix. M16 and M17 discharge the §9.6 criteria they carry. |
+| **M18** | Release acceptance: one evidence artifact per §9.5 oracle bound to the release commit, a forced full `sidecar` run on that commit, recorded clean-machine passes on three OSes, then SemVer **1.0.0** cut from a signed `v1.0.0` tag through `release.yml`. |
 
 The **schema-guard** gate persists from M0 through every later milestone, mechanically enforcing the §5/§9-M0
 invariant that later milestones add **DATA, not STRUCTURE**.
@@ -1858,9 +2071,10 @@ conjugate Normal-inverse-Gamma priors and marginal-likelihood model selection; `
 `pb_ensemble` the empirical-Bayes population variant sharing a bleaching-rate constant), run **independently on the
 donor and acceptor channel**: each channel's drop-to-zero is its first-bleach frame, and the acceptor-before-donor
 ordering yields both the acceptor-bleaches-first window γ needs and the donor-only window for leakage α. Priors
-default to a = b = β = 1, μ = 1000 (tMAVEN's documented defaults); the per-channel frames are validated against the
-`.mat` `pacc`/`pdon` ground truth (§9 M3). (Kalafut2008 — a parameter-free *multi-step* BIC detector — is a
-classical alternative only; Deep-LASI's `stepFinder(s,'L1',5,1)` penalty of 5 belongs to that L1 method,
+default to a = b = β = 1, μ = 1000 (tMAVEN's documented defaults); the per-channel frames are validated by
+reference-formula parity with tMAVEN's formulas and synthesized known-step recovery (ADR-0026, §9.5 (g)), because the
+`.mat` `pacc`/`pdon` field is a constant (60 for every molecule), not ground truth (§9 M3). (Kalafut2008 — a
+parameter-free *multi-step* BIC detector — is a classical alternative only; Deep-LASI's `stepFinder(s,'L1',5,1)` penalty of 5 belongs to that L1 method,
 `TRACEdata.m:110`, not to Kalafut.)
 **Refs:** `deeplearning/predict_trace_categories.m:75-213`, `classes/TRACEdata.m:78-142`;
 `tmaven/tmaven/controllers/photobleaching/photobleaching.py`, `photobleaching_controller.py`.
