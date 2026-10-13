@@ -888,10 +888,12 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 ### 9.4 Fixture policy
 
 Harvested from the retired ledger's §2.1–§2.2. **The authoritative inventory is `tests/fixtures/PROVENANCE.md`** —
-each committed fixture's source file, sizes, source-checksum prefix, license and regeneration command. Most rows carry
-only a 16-hex prefix of the source SHA-256, which identifies a source but does not checksum-lock it; recording the full
-digests is owed ([#552](https://github.com/bioedca/tether/issues/552)). This section states the policy and does not
-repeat that table, which would drift.
+each committed data fixture's source file, sizes, source-checksum prefix, license and regeneration command. Most rows
+carry only a 16-hex prefix of the source SHA-256, which identifies a source but does not checksum-lock it. The one
+non-data fixture, `tests/fixtures/docs_site/gh_pages_index.html` (a verbatim `gh-pages` snapshot for the docs-site
+guard), is described in `tests/test_docs_site_guard.py` and has no row yet. Both are owed
+([#552](https://github.com/bioedca/tether/issues/552)). This section states the policy and does not repeat that table,
+which would drift.
 
 - The lab's sibling `example-data/` is **external and read-only**. Committed fixtures are **derived into the
   repository** — small, plain git — by `scripts/make_fixtures.py` and its siblings; large originals stay **external
