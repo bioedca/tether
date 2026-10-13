@@ -47,8 +47,8 @@ _needs_qt = pytest.mark.skipif(not _HAS_QT, reason="pyqtgraph/PySide6 not instal
 EXTRACT_LINE = "Extracted 3 molecule(s) -> tutorial.tether"
 OPEN_LINE = "Opened tutorial.tether — 3 molecule(s)"
 BROWSE_LINE = "Molecule mol-1 (2/3)"
-REJECTED_KEY = "b4d11875527ee175c9c0e414d154db7a81a9bca669d3573f66cb1184a511a09d"
-ACCEPTED_KEYS = (
+REJECTED_ID = "b4d11875527ee175c9c0e414d154db7a81a9bca669d3573f66cb1184a511a09d"
+ACCEPTED_IDS = (
     "463104a0a9ee0dca67d4eb2981655e11d79ac500d70fbb3cdc5c388de7a77392",
     "7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057",
 )
@@ -126,11 +126,11 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
             return status.currentMessage()
 
         # Step 6, in the page's order: reject mol-0, then accept mol-1 and mol-2.
-        assert press(QtCore.Qt.Key.Key_Backspace) == f"Rejected {REJECTED_KEY}"
+        assert press(QtCore.Qt.Key.Key_Backspace) == f"Rejected {REJECTED_ID}"
         assert press(QtCore.Qt.Key.Key_Right) == BROWSE_LINE  # step 5's quoted line
-        assert press(QtCore.Qt.Key.Key_Space) == f"Accepted {ACCEPTED_KEYS[0]}"
+        assert press(QtCore.Qt.Key.Key_Space) == f"Accepted {ACCEPTED_IDS[0]}"
         press(QtCore.Qt.Key.Key_Right)
-        assert press(QtCore.Qt.Key.Key_Space) == f"Accepted {ACCEPTED_KEYS[1]}"
+        assert press(QtCore.Qt.Key.Key_Space) == f"Accepted {ACCEPTED_IDS[1]}"
 
         # Step 8: the population histogram leaves the rejected molecule out.
         shell._act_histogram.trigger()
@@ -139,13 +139,13 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
     finally:
         shell.close()
 
-    for line in (OPEN_LINE, BROWSE_LINE, HISTOGRAM_LINE, f"Rejected {REJECTED_KEY}"):
+    for line in (OPEN_LINE, BROWSE_LINE, HISTOGRAM_LINE, f"Rejected {REJECTED_ID}"):
         assert f"```text\n{line}\n```" in page, line
-    for key in ACCEPTED_KEYS:
-        assert f"```text\nAccepted {key}\n```" in page, key
+    for molecule_id in ACCEPTED_IDS:
+        assert f"```text\nAccepted {molecule_id}\n```" in page, molecule_id
     # Step 7 idealizes mol-2, the second accepted molecule.
-    assert f"Idealizing {ACCEPTED_KEYS[1]} (one-click vbFRET)…" in page
-    assert f"Idealized {ACCEPTED_KEYS[1]} (one-click vbFRET)" in page
+    assert f"Idealizing {ACCEPTED_IDS[1]} (one-click vbFRET)…" in page
+    assert f"Idealized {ACCEPTED_IDS[1]} (one-click vbFRET)" in page
 
     # Step 9: the export call on the page, after the shell has closed.
     result = export_molecule_table_csv("tutorial.tether", "tutorial.csv", include_rejected=False)
