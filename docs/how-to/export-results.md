@@ -73,8 +73,9 @@ molecules and the molecule table keeps them, so if you will pair the two, for ex
 apply each molecule's γ to its trace, export the table with `include_rejected=False` as
 well. The molecule table always covers the whole project and takes no `molecule_keys=`, so for
 a project that combines movies, first make a subset of one movie and export both files from
-it. The table's `source_filename` column names each molecule's movie; replace the file name
-with one of yours:
+it. The table's `movie_id` column identifies each molecule's movie, and `source_filename`
+beside it names the movie's file. Two movies can share a file name, so pick the movie by its
+`movie_id`, here `mov-1`:
 
 ```python
 import csv
@@ -88,7 +89,7 @@ from tether.project.export import (
 export_molecule_table_csv("movie.tether", "molecules.csv", include_rejected=False)
 with open("molecules.csv", newline="", encoding="utf-8") as f:
     one_movie = [row["molecule_key"] for row in csv.DictReader(f)
-                 if row["source_filename"] == "movie_010.tif"]
+                 if row["movie_id"] == "mov-1"]
 
 export_subset_tether("movie.tether", "movie_010.tether", molecule_keys=one_movie)
 export_molecule_table_csv("movie_010.tether", "movie_010.csv", include_rejected=False)
