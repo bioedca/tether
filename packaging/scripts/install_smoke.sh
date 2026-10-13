@@ -66,6 +66,17 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   test -f "$prefix_u/envs/tether/Scripts/tether-gui.exe" || {
     echo "missing tether-gui.exe — is [project.gui-scripts] declared?"; exit 1; }
   cmd /c "$prefix\\bin\\tether.bat" --version
+  # `--version` imports nothing that touches BLAS, so it passed on rc2 while every
+  # real extraction crashed in MKL on a user's PC (issue #553). Run a real one
+  # through the launcher: the committed tutorial movie's native registration calls
+  # numpy.tensordot (skimage phase_cross_correlation), the call that crashed. The
+  # runner has nothing competing in the DLL search order, so this cannot reproduce
+  # the user's crash; it keeps the launch route, not just the env, under test.
+  # No path here contains a space, so git-bash adds no quotes for cmd to mangle.
+  smoke_project="$RUNNER_TEMP\\smoke-launcher.tether"
+  cmd /c "$prefix\\bin\\tether.bat" extract docs\\tutorial\\data\\tutorial_movie.tif -o "$smoke_project"
+  test -f "$(cygpath -u "$smoke_project")" || {
+    echo "tether.bat extract wrote no project: $smoke_project"; exit 1; }
   # Start Menu shortcut (created directly; menuinst cannot own a pip-installed
   # wheel — ADR-0051). FATAL since issue #551: this check used to warn and carry
   # on, and it warned on every Windows build, rc2's included, because post_install
