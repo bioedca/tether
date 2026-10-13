@@ -75,7 +75,9 @@ well. The molecule table always covers the whole project and takes no `molecule_
 a project that combines movies, first make a subset of one movie and export both files from
 it. The table's `movie_id` column identifies each molecule's movie, and `source_filename`
 beside it names the movie's file. Two movies can share a file name, so pick the movie by its
-`movie_id`, here `mov-1`:
+`movie_id`, here `mov-1`. A subset is chosen by `molecule_key`, and a movie file added to
+the project twice gives both copies the same keys, so the script stops rather than export
+both:
 
 ```python
 import csv
@@ -88,8 +90,11 @@ from tether.project.export import (
 
 export_molecule_table_csv("movie.tether", "molecules.csv", include_rejected=False)
 with open("molecules.csv", newline="", encoding="utf-8") as f:
-    one_movie = [row["molecule_key"] for row in csv.DictReader(f)
-                 if row["movie_id"] == "mov-1"]
+    rows = list(csv.DictReader(f))
+one_movie = [row["molecule_key"] for row in rows if row["movie_id"] == "mov-1"]
+shared = {row["molecule_key"] for row in rows if row["movie_id"] != "mov-1"} & set(one_movie)
+if shared:
+    raise SystemExit(f"{len(shared)} molecule keys also belong to another movie")
 
 export_subset_tether("movie.tether", "movie_010.tether", molecule_keys=one_movie)
 export_molecule_table_csv("movie_010.tether", "movie_010.csv", include_rejected=False)

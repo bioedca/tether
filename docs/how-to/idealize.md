@@ -113,6 +113,10 @@ from tether.project.idealize import reidealize
 reidealize("movie.tether", "vbconhmm")
 ```
 
+This works for a model fitted in Tether. A model you imported through the
+[standalone-tMAVEN hand-off](../idealize/standalone-tmaven-handoff.md) cannot be refitted this
+way, so hand the molecules to tMAVEN again and import the new fit.
+
 If you rejected or un-rejected molecules since the fit, `reidealize` is not enough, because it
 keeps the molecules the model was first fitted on. Run the fit you made in
 [Fit the whole project](#fit-the-whole-project) again, with the same settings and
