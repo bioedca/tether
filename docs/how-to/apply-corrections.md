@@ -105,8 +105,9 @@ Then look at the molecules themselves. Export the molecule table, as in
 ([molecule-table columns](../reference/exports.md#molecule-table-columns)).
 `correction_method` reads `corrected` where both factors were applied and
 `apparent-E (corrections unavailable)` where one was missing. Each molecule shares the one
-dataset α. A molecule whose own bleach step qualified keeps its own γ, and every other one
-takes the dataset median.
+dataset α. When the dataset γ was computed, a molecule whose own bleach step qualified keeps
+its own γ, and every other one takes the dataset median. When γ was withheld, no molecule
+carries one.
 
 ## 3. If a factor was withheld, or you measured it elsewhere
 

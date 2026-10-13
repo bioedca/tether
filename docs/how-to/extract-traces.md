@@ -111,9 +111,10 @@ starting `detection: mode`, naming what was applied. Then check three things:
    [Extraction found no molecules](../troubleshooting.md#extraction-found-no-molecules).
 3. The donor half is right. Open the project with `tether-gui movie.tether` and find a
    molecule whose acceptor bleaches partway through. When the acceptor goes dark, the
-   **donor** trace (green) should step **up**. If it steps down instead, extract again with
-   the other `--donor-side`. With `--tmap`, `--donor-side` is ignored, so extract again
-   with a correctly oriented map or without `--tmap`.
+   **donor** trace (green) should step **up**. If it steps down instead, close the project
+   in `tether-gui` and extract again with the other `--donor-side` and `--overwrite`, which
+   replaces `movie.tether`. With `--tmap`, `--donor-side` is ignored, so extract again with
+   a correctly oriented map or without `--tmap`.
 
 ## Many movies at once
 
@@ -138,6 +139,12 @@ channel layout from the map. So use `tether batch` when your donor is on the lef
 you pass a `--tmap` from the same microscope; otherwise run `tether extract --donor-side
 right` on each movie. [Command
 line](../cli.md#tether-batch) lists its options.
+
+`tether batch` corrects and idealizes every molecule before you have curated any. If you then
+reject molecules, the stored factors and model still include them. To leave them out,
+[export the accepted molecules](apply-corrections.md#leave-out-the-molecules-you-rejected),
+correct that project, and
+[fit it again](idealize.md#after-you-change-the-project).
 
 ## Next
 
