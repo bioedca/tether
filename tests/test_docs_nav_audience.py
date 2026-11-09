@@ -99,16 +99,23 @@ def test_every_maintainer_page_opens_with_a_reader_statement_naming_its_access()
     assert not missing, f"maintainer pages without a reader statement naming access: {missing}"
 
 
-def test_the_cross_os_record_keeps_both_pending_rows_on_a_maintainer_page() -> None:
+def test_the_cross_os_record_keeps_its_rows_on_a_maintainer_page() -> None:
+    # The two manual GUI legs ADR-0010 deferred were run and recorded under #543.
+    assert not [
+        path.relative_to(DOCS).as_posix()
+        for path in sorted(DOCS.rglob("*.md"))
+        if "| pending |" in path.read_text(encoding="utf-8")
+    ]
     rows = [
         (path.relative_to(DOCS).as_posix(), line)
         for path in sorted(DOCS.rglob("*.md"))
         for line in path.read_text(encoding="utf-8").splitlines()
-        if "| pending |" in line
+        if line.startswith("| ") and "| `10f4230` |" in line
     ]
     assert [line.split("|")[1].strip() for _, line in rows] == [
+        "Linux (CI)",
         "Windows 11",
-        "macOS / Linux (desktop)",
+        "Ubuntu on WSL2",
     ], rows
     maintainer_pages = set(_groups()[MAINTAINER_GROUP])
     assert {page for page, _ in rows} <= maintainer_pages, rows
