@@ -15,14 +15,14 @@ Windows (developer) and Linux (CI); the manual GUI leg is recorded here as it is
 | OS | tMAVEN commit | Setup script | Scripted open-check | Manual GUI open | Date | Notes |
 |---|---|---|---|---|---|---|
 | Linux (CI) | `10f4230` | clean | pass | n/a (headless CI) | ongoing | `sidecar` workflow: setup script + `test_handoff_sidecar.py` on every live run. |
-| Windows 11 | `10f4230` | clean | pass | pass, with matplotlib override (#566) | 2026-11-09 | Run 1 below. Scripted check from 2026-07-19 (developer box, `test_handoff_sidecar.py` 3/3). |
-| Ubuntu on WSL2 | `10f4230` | clean | n/a (not run) | pass, with matplotlib override (#566) | 2026-11-09 | Run 2 below. |
+| Windows 11 | `10f4230` | clean | pass | pass | 2026-11-09 | Runs 1 and 3 below; run 3 is on the locked environment. Scripted check from 2026-07-19 (developer box, `test_handoff_sidecar.py` 3/3). |
+| Ubuntu on WSL2 | `10f4230` | clean | n/a (not run) | pass | 2026-11-09 | Runs 2 and 4 below; run 4 is on the locked environment. |
 
 The guided setup script ran clean on two operating systems (Windows 11 and Ubuntu on WSL2), and
-the manual GUI leg passed on both, but only with matplotlib swapped in the sidecar environment:
-on the locked environment tMAVEN's window crashes at startup (#566). The step ADR-0010 deferred
-to packaging time therefore stays open (#543) until the GUI leg passes on the locked environment
-after #566 is fixed.
+the manual GUI leg passed on both on the locked sidecar environment (runs 3 and 4), after #566
+bounded its matplotlib below 3.11. That completes the step ADR-0010 deferred to packaging time
+(#543). Runs 1 and 2 passed earlier only with matplotlib swapped by hand, which is how #566 was
+found.
 
 ## Runs of 2026-11-09 (#543)
 
@@ -50,9 +50,27 @@ its own file.
 
 **Caveats.** The locked sidecar ships matplotlib 3.11.0, which crashes tMAVEN's window at
 startup (#566). Step 4 on both OSes therefore ran with `matplotlib-base` 3.10.9 swapped into
-the sidecar environment, and needs re-running on the locked environment once #566 is fixed.
+the sidecar environment; runs 3 and 4 below repeat it on the locked environment after the fix.
 On Linux the save box wrote the hand-off without the `.hdf5` extension, so it was renamed
 before step 3's reading. tMAVEN's time-axis labels do not reflect the movie's frame time,
 which tMAVEN does not read from the file; this is display only. On Windows, an add-on that is part of neither
 Tether nor tMAVEN (it logs `eps_fix: applied … preferences`) changed tMAVEN's plot preferences
 at startup; that is display only too.
+
+## Locked-environment rerun of 2026-11-09 (#543)
+
+Runs 3 and 4 repeated the steps above on the same desktop after #566 merged, from `main` at
+`832dc40`, in a new sidecar environment, `tether-sidecar-locked`, built by the guided setup
+from `sidecar/conda-lock.yml` with nothing swapped by hand. The environment reported
+matplotlib 3.10.9, numpy 1.26.4 and tMAVEN 0.3.0. Each run reused that OS's hand-off file from
+the earlier run.
+
+| Run | OS | Before/after SHA-256 | Result |
+|---|---|---|---|
+| 3 | Windows 11 Home 10.0.26300 (PowerShell 7.6) | `2629c2ed66985f60e54b1b32f80fc4ebbb9a6ca8dea91220afa5f3366093dd04`, unchanged | pass |
+| 4 | Ubuntu 24.04.5 LTS on WSL2 (kernel 5.15.153.1, WSLg) | `e0fede502b9dd32d8fe211601621b3ff5db1725d1500f06549f8198c90bfd3ce`, unchanged | pass |
+
+tMAVEN's window opened and all three traces loaded and stepped through on both OSes, and the
+coordinates read after the open were the same as in runs 1 and 2. On Windows, the tMAVEN
+process printed `unknown error ; error code 1073741819` (an access violation, `0xC0000005`)
+as it ended, after the window had worked; the file read afterwards was unchanged.
