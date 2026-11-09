@@ -15,12 +15,14 @@ Windows (developer) and Linux (CI); the manual GUI leg is recorded here as it is
 | OS | tMAVEN commit | Setup script | Scripted open-check | Manual GUI open | Date | Notes |
 |---|---|---|---|---|---|---|
 | Linux (CI) | `10f4230` | clean | pass | n/a (headless CI) | ongoing | `sidecar` workflow: setup script + `test_handoff_sidecar.py` on every live run. |
-| Windows 11 | `10f4230` | clean | pass | pass | 2026-11-09 | Run 1 below. Scripted check from 2026-07-19 (developer box, `test_handoff_sidecar.py` 3/3). |
-| Ubuntu on WSL2 | `10f4230` | clean | n/a (not run) | pass | 2026-11-09 | Run 2 below. |
+| Windows 11 | `10f4230` | clean | pass | pass, with matplotlib override (#566) | 2026-11-09 | Run 1 below. Scripted check from 2026-07-19 (developer box, `test_handoff_sidecar.py` 3/3). |
+| Ubuntu on WSL2 | `10f4230` | clean | n/a (not run) | pass, with matplotlib override (#566) | 2026-11-09 | Run 2 below. |
 
-The guided setup script ran clean and the manual GUI leg passed on two operating systems
-(Windows 11 and Ubuntu on WSL2), which discharges the step ADR-0010 deferred to packaging time
-(#543).
+The guided setup script ran clean on two operating systems (Windows 11 and Ubuntu on WSL2), and
+the manual GUI leg passed on both, but only with matplotlib swapped in the sidecar environment:
+on the locked environment tMAVEN's window crashes at startup (#566). The step ADR-0010 deferred
+to packaging time therefore stays open (#543) until the GUI leg passes on the locked environment
+after #566 is fixed.
 
 ## Runs of 2026-11-09 (#543)
 
