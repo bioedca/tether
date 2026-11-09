@@ -41,4 +41,10 @@ dependencies:
   - importlib_resources
   # --- GUI / plotting for the standalone-tMAVEN hand-off (PyQt5, not PySide6) ---
   - pyqt>=5.15,<6
-  - matplotlib-base>=3.5
+  # Upper bound (#566): from 3.11, `plt.close(fig)` resets `fig.canvas` to a bare
+  # `FigureCanvasBase`. tMAVEN's `multi_canvas.__init__` (pinned 10f4230) attaches
+  # a `FigureCanvasQTAgg` and then closes the figure through pyplot, so its first
+  # blit fails on `copy_from_bbox` and the standalone window never opens. Headless
+  # parity never draws and cannot see it; `tests/test_tmaven_gui_sidecar.py` builds
+  # the window offscreen so a regression fails CI. Lift only with that test green.
+  - matplotlib-base>=3.5,<3.11

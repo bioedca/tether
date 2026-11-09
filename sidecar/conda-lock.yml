@@ -13,10 +13,10 @@
 version: 1
 metadata:
   content_hash:
-    linux-64: 749381e67c5d0e92dd3f5239ca61c2c3366f719b6669e1800c9be56ce94ec908
-    osx-64: 905c6df102fd710f90488ca7b8a32a983931b423d16e7a5c7acfd02798a45de4
-    osx-arm64: c8090218b57a33d9dca5369d3737e0cc0febb8d2535b7c1d4570ef882cac1a8e
-    win-64: 08389cf8cd112f82531b7f747d718af1a8c2572c10e4598dbb3270333654296f
+    linux-64: 95116c1673c5b76b35da0edfec14e8ba1f166a4578a3e2eb7118e21cf84b7a97
+    osx-64: 7f8c198b290c0e4e6073632390da083711eaef2497d7446c0c7590874c3ab313
+    osx-arm64: d3170bf63b6e73d07379dee7c84d0a136d08b27e70a0d25ca7435436e91aff5f
+    win-64: 5335e3b32c9ee4a284b64b977914561ddf906705225c3d1cead18c80718d4b48
   channels:
   - url: conda-forge
     used_env_vars: []
@@ -1856,8 +1856,8 @@ package:
   manager: conda
   platform: linux-64
   dependencies:
-    glib-tools: ==2.88.1
-    libglib: ==2.88.1
+    glib-tools: 2.88.1
+    libglib: 2.88.1
     packaging: ''
     python: '*'
   url: https://conda.anaconda.org/conda-forge/linux-64/glib-2.88.1-hd810c12_2.conda
@@ -1871,8 +1871,8 @@ package:
   manager: conda
   platform: osx-64
   dependencies:
-    glib-tools: ==2.88.1
-    libglib: ==2.88.1
+    glib-tools: 2.88.1
+    libglib: 2.88.1
     libintl: '>=0.25.1,<1.0a0'
     libintl-devel: ''
     packaging: ''
@@ -1888,8 +1888,8 @@ package:
   manager: conda
   platform: osx-arm64
   dependencies:
-    glib-tools: ==2.88.1
-    libglib: ==2.88.1
+    glib-tools: 2.88.1
+    libglib: 2.88.1
     libintl: '>=0.25.1,<1.0a0'
     libintl-devel: ''
     packaging: ''
@@ -1905,8 +1905,8 @@ package:
   manager: conda
   platform: win-64
   dependencies:
-    glib-tools: ==2.88.1
-    libglib: ==2.88.1
+    glib-tools: 2.88.1
+    libglib: 2.88.1
     libintl: '>=0.22.5,<1.0a0'
     libintl-devel: ''
     packaging: ''
@@ -1928,7 +1928,7 @@ package:
     __glibc: '>=2.17,<3.0.a0'
     libffi: ''
     libgcc: '>=14'
-    libglib: ==2.88.1
+    libglib: 2.88.1
   url: https://conda.anaconda.org/conda-forge/linux-64/glib-tools-2.88.1-hee1de02_2.conda
   hash:
     md5: e5a459d2bb98edb88de5a44bfad66b9d
@@ -1942,7 +1942,7 @@ package:
   dependencies:
     __osx: '>=11.0'
     libffi: ''
-    libglib: ==2.88.1
+    libglib: 2.88.1
     libintl: '>=0.25.1,<1.0a0'
   url: https://conda.anaconda.org/conda-forge/osx-64/glib-tools-2.88.1-h6437393_2.conda
   hash:
@@ -1957,7 +1957,7 @@ package:
   dependencies:
     __osx: '>=11.0'
     libffi: ''
-    libglib: ==2.88.1
+    libglib: 2.88.1
     libintl: '>=0.25.1,<1.0a0'
   url: https://conda.anaconda.org/conda-forge/osx-arm64/glib-tools-2.88.1-h37541a8_2.conda
   hash:
@@ -1971,7 +1971,7 @@ package:
   platform: win-64
   dependencies:
     libffi: ''
-    libglib: ==2.88.1
+    libglib: 2.88.1
     libintl: '>=0.22.5,<1.0a0'
     ucrt: '>=10.0.20348.0'
     vc: '>=14.3,<15'
@@ -4834,73 +4834,6 @@ package:
     sha256: aed15f692ab1c050ed64e08e215b3a82f8d1efb87f6be54a052fa50292a88c82
   category: main
   optional: false
-- name: libraqm
-  version: 0.10.5
-  manager: conda
-  platform: linux-64
-  dependencies:
-    __glibc: '>=2.28,<3.0.a0'
-    fribidi: '>=1.0.16,<2.0a0'
-    harfbuzz: '>=14.2.1'
-    libfreetype: '>=2.14.3'
-    libfreetype6: '>=2.14.3'
-    libgcc: '>=14'
-  url: https://conda.anaconda.org/conda-forge/linux-64/libraqm-0.10.5-h75b3fb1_0.conda
-  hash:
-    md5: 6855be9eb1d891cd5afb5eb90501c74c
-    sha256: 36870c7e6362386c687f2f40d98de28f53ef84582ff65792f2f53981ede82681
-  category: main
-  optional: false
-- name: libraqm
-  version: 0.10.5
-  manager: conda
-  platform: osx-64
-  dependencies:
-    __osx: '>=11.0'
-    fribidi: '>=1.0.16,<2.0a0'
-    harfbuzz: '>=14.2.1'
-    libfreetype: '>=2.14.3'
-    libfreetype6: '>=2.14.3'
-  url: https://conda.anaconda.org/conda-forge/osx-64/libraqm-0.10.5-hcf81f31_0.conda
-  hash:
-    md5: 2c1e70004d0c00bedc213f167e2794ca
-    sha256: 33bb9019bb28438caa3a9a01b871e0d6b60aa57215758168e94836ad39a88097
-  category: main
-  optional: false
-- name: libraqm
-  version: 0.10.5
-  manager: conda
-  platform: osx-arm64
-  dependencies:
-    __osx: '>=11.0'
-    fribidi: '>=1.0.16,<2.0a0'
-    harfbuzz: '>=14.2.1'
-    libfreetype: '>=2.14.3'
-    libfreetype6: '>=2.14.3'
-  url: https://conda.anaconda.org/conda-forge/osx-arm64/libraqm-0.10.5-h29bd36a_0.conda
-  hash:
-    md5: 4c7999b62691f4ed6e0650832b7b6cff
-    sha256: 9a28d495e12638bda33a43c236c4089beef11e09b7a7a5ba52f86e3605264eb1
-  category: main
-  optional: false
-- name: libraqm
-  version: 0.10.5
-  manager: conda
-  platform: win-64
-  dependencies:
-    fribidi: '>=1.0.16,<2.0a0'
-    harfbuzz: '>=14.2.1'
-    libfreetype: '>=2.14.3'
-    libfreetype6: '>=2.14.3'
-    ucrt: '>=10.0.20348.0'
-    vc: '>=14.3,<15'
-    vc14_runtime: '>=14.44.35208'
-  url: https://conda.anaconda.org/conda-forge/win-64/libraqm-0.10.5-h781ae3c_0.conda
-  hash:
-    md5: df06465614f67f7e41233d356aa7a927
-    sha256: 7fc56b16f0379dfa73fef5741264565de621005e2f8d529523f5c33f0cec9daf
-  category: main
-  optional: false
 - name: libsndfile
   version: 1.2.2
   manager: conda
@@ -5680,7 +5613,7 @@ package:
   category: main
   optional: false
 - name: matplotlib-base
-  version: 3.11.0
+  version: 3.10.9
   manager: conda
   platform: linux-64
   dependencies:
@@ -5693,7 +5626,6 @@ package:
     libfreetype: '>=2.14.3'
     libfreetype6: '>=2.14.3'
     libgcc: '>=14'
-    libraqm: '>=0.10.5,<0.11.0a0'
     libstdcxx: '>=14'
     numpy: '>=1.23,<3'
     packaging: '>=20.0'
@@ -5704,14 +5636,14 @@ package:
     python_abi: 3.12.*
     qhull: '>=2020.2,<2020.3.0a0'
     tk: '>=8.6.13,<8.7.0a0'
-  url: https://conda.anaconda.org/conda-forge/linux-64/matplotlib-base-3.11.0-py312h1c5ec97_0.conda
+  url: https://conda.anaconda.org/conda-forge/linux-64/matplotlib-base-3.10.9-py312he3d6523_0.conda
   hash:
-    md5: 847125fead148cb26f52f8c3413cea12
-    sha256: 4d5db0491814ce2e70053ae5ac9ecd0a4f7103adb6df0e6eb0dcb7638145e65b
+    md5: 7d499b5b6d150f133800dc3a582771c7
+    sha256: c7e133837376e53e6a52719c205a3067c42f05769bc3e8307417f8d817dfc63e
   category: main
   optional: false
 - name: matplotlib-base
-  version: 3.11.0
+  version: 3.10.9
   manager: conda
   platform: osx-64
   dependencies:
@@ -5724,7 +5656,6 @@ package:
     libcxx: '>=19'
     libfreetype: '>=2.14.3'
     libfreetype6: '>=2.14.3'
-    libraqm: '>=0.10.5,<0.11.0a0'
     numpy: '>=1.23,<3'
     packaging: '>=20.0'
     pillow: '>=8'
@@ -5733,14 +5664,14 @@ package:
     python-dateutil: '>=2.7'
     python_abi: 3.12.*
     qhull: '>=2020.2,<2020.3.0a0'
-  url: https://conda.anaconda.org/conda-forge/osx-64/matplotlib-base-3.11.0-py312h323bd0e_0.conda
+  url: https://conda.anaconda.org/conda-forge/osx-64/matplotlib-base-3.10.9-py312h7609456_0.conda
   hash:
-    md5: 931da9651ba9cc20a09169f3c5586859
-    sha256: 4a3db0c2e73d23cca0a942b9fbf5fc1cd80f1db70e4455eb8097956eb5356fde
+    md5: c7133e403f67d8e34af93e0be4286478
+    sha256: 7cec29b831c25744736c92d3fa9afe0e2c090087ce2387e7f1c7ecf08414b23e
   category: main
   optional: false
 - name: matplotlib-base
-  version: 3.11.0
+  version: 3.10.9
   manager: conda
   platform: osx-arm64
   dependencies:
@@ -5753,7 +5684,6 @@ package:
     libcxx: '>=19'
     libfreetype: '>=2.14.3'
     libfreetype6: '>=2.14.3'
-    libraqm: '>=0.10.5,<0.11.0a0'
     numpy: '>=1.23,<3'
     packaging: '>=20.0'
     pillow: '>=8'
@@ -5762,14 +5692,14 @@ package:
     python-dateutil: '>=2.7'
     python_abi: 3.12.*
     qhull: '>=2020.2,<2020.3.0a0'
-  url: https://conda.anaconda.org/conda-forge/osx-arm64/matplotlib-base-3.11.0-py312h1d78f73_0.conda
+  url: https://conda.anaconda.org/conda-forge/osx-arm64/matplotlib-base-3.10.9-py312hf3defc7_0.conda
   hash:
-    md5: f557642c83e3e366da76b1c5cce5134d
-    sha256: 934aab07409366afa1e8973479394f600fed23106b906bc360619679a1179f26
+    md5: e5d83f3ae6ada32d4e64e366a41f9ff6
+    sha256: c2dc997012fb8a901163cdad333ba5ba27733aa26d67a28a6501f4b4d69fcbce
   category: main
   optional: false
 - name: matplotlib-base
-  version: 3.11.0
+  version: 3.10.9
   manager: conda
   platform: win-64
   dependencies:
@@ -5780,7 +5710,6 @@ package:
     kiwisolver: '>=1.3.1'
     libfreetype: '>=2.14.3'
     libfreetype6: '>=2.14.3'
-    libraqm: '>=0.10.5,<0.11.0a0'
     numpy: '>=1.23,<3'
     packaging: '>=20.0'
     pillow: '>=8'
@@ -5792,10 +5721,10 @@ package:
     ucrt: '>=10.0.20348.0'
     vc: '>=14.3,<15'
     vc14_runtime: '>=14.44.35208'
-  url: https://conda.anaconda.org/conda-forge/win-64/matplotlib-base-3.11.0-py312h6eb3b5e_0.conda
+  url: https://conda.anaconda.org/conda-forge/win-64/matplotlib-base-3.10.9-py312h0ebf65c_0.conda
   hash:
-    md5: 06257487123d60cc9b0879dab703deae
-    sha256: 02967be490110c2fb927a8ad057bfcb27e6a83af249bcf5e3a030b5e47f4c36a
+    md5: 3752482b0df88d7a08a0791f906e87ae
+    sha256: 539ca0eac473a1b7f9da1071ddcd6fe9a3bdd9e51eab0f1c498e6345c1898e8b
   category: main
   optional: false
 - name: mkl

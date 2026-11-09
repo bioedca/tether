@@ -78,6 +78,26 @@ was **not** touched.
 As with the M5 bump, this approval is scoped to **this single re-lock** and does
 not standing-authorize future base-lock bumps.
 
+### 2026-11-09 — Maintainer-approved sidecar-lock bound (standalone-tMAVEN GUI, #566)
+
+The clause was exercised for the **sidecar** lock. Its `matplotlib-base>=3.5` had
+resolved 3.11.0, and from 3.11 `plt.close(fig)` resets `fig.canvas` to a bare
+`FigureCanvasBase`; tMAVEN at the pinned `10f4230` closes its figure that way after
+attaching a `FigureCanvasQTAgg`, so the standalone window crashed at startup (found
+by the #543 manual run). Maintainer **bioedca** authorized the fix ("fix #566
+now"). `sidecar/environment.yml` now asks for `matplotlib-base>=3.5,<3.11`, and
+`sidecar/conda-lock.yml` was re-locked with `conda-lock==4.0.1 --update
+matplotlib-base`, so only that package moved: 3.11.0 → 3.10.9 on all four platforms,
+dropping its 3.11-only `libraqm` dependency, with every other sidecar pin held
+(numpy 1.26.4, PyQt5, numba, scipy, h5py). The headless fits never touch
+matplotlib, so the frozen parity evidence is unaffected. A new sidecar-tier test
+(`tests/test_tmaven_gui_sidecar.py`) builds tMAVEN's main window offscreen, so a
+GUI-breaking dependency now fails `sidecar / parity` instead of a human run. The
+base lock was **not** touched.
+
+This approval is scoped to this single re-lock; lift the bound only with that test
+green on the newer matplotlib.
+
 ## More information
 
 PRD §4.1, §4.3, §12.8; ADR-0006 (sidecar mechanism).
