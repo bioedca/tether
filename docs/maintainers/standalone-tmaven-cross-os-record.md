@@ -72,5 +72,5 @@ the earlier run.
 
 tMAVEN's window opened and all three traces loaded and stepped through on both OSes, and the
 coordinates read after the open were the same as in runs 1 and 2. On Windows, the tMAVEN
-process printed `unknown error ; error code 1073741819` (an access violation, `0xC0000005`)
-as it ended, after the window had worked; the file read afterwards was unchanged.
+process printed `unknown error ; error code 1073741819` as it ended, after the window had
+worked; the cause was not diagnosed, and the file read afterward was unchanged.
