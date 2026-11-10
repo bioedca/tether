@@ -77,6 +77,7 @@ nav:
       - Roadmap: roadmap.md
       - Stability policy: stability.md
       - Privacy policy: privacy.md
+      - Brand: brand.md
       - Architecture decisions: adr/README.md
       - Releasing (tag-driven pipeline): release.md
       - Building the installers: maintainers/building-installers.md
