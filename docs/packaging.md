@@ -18,7 +18,8 @@ required at install time.
   the movie panel, which reaches the application with the
   [trace curation section (M16)](https://github.com/bioedca/tether/milestone/18).
 - An **isolated tMAVEN sidecar** environment (installed under `envs/sidecar`), which runs
-  every idealization fit: the application's one-trace fit on the **I** key, and the
+  every idealization fit: the application's one-trace fit on the **I** key, the
+  whole-project consensus VB-HMM fit of [`tether batch`](cli.md#tether-batch), and the
   consensus VB-HMM and ebFRET fits that [run from Python](how-to/idealize.md). It runs in its
   own interpreter (PyQt5 on `numpy<2`) so it never collides with the application's GUI stack.
 - A minimal **conda bootstrap** in the install root, which the installer uses to lay down the

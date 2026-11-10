@@ -11,8 +11,10 @@ idealized smFRET traces — without ever losing the link between a trace and the
 pixels it came from. Today the desktop application opens a project, curates its
 traces, idealizes one trace at a time, hands traces to tMAVEN and back, imports
 Deep-LASI files and draws a population histogram. Extraction runs from the command
-line, and corrections, whole-project idealization, the other plots and the exports
-run from Python. [What it does](#what-it-does) says where each feature runs today,
+line, where `tether batch` also applies the corrections and idealizes every molecule.
+From Python you can run the corrections and whole-project idealization with your own
+settings, and make the other plots and the exports. [What it does](#what-it-does) says
+where each feature runs today,
 and the [documentation site](https://bioedca.github.io/tether/) is the user manual.
 
 **Does Tether fit my data?** Check
@@ -61,11 +63,16 @@ brings it to the application.
   extraction (channel split, à trous spot detection, polynomial registration, donor-anchored
   colocalization, aperture integration), validated against Deep-LASI. The application gets it
   with the [trace extraction section (M15)](https://github.com/bioedca/tether/milestone/17).
+- **Batch pipeline.** `tether batch` runs extraction, the corrections and a whole-project
+  consensus VB-HMM fit over many movies, one project per movie. A second run resumes at the
+  first stage that did not finish. When the tMAVEN sidecar is not available, the fit is left
+  for a later run ([command-line reference](docs/cli.md#tether-batch)).
 
 ### From Python today; planned for the application
 
 Each of these runs from a short script in the Python that comes with Tether. The linked how-to
-guide shows the script.
+guide shows the script. `tether batch` also runs the corrections and the whole-project fit with
+their default settings.
 
 - **Corrections.** Native per-channel Bayesian photobleach detection → leakage α → γ →
   corrected FRET, with an apparent-E fallback that **never emits a NaN**

@@ -11,8 +11,10 @@ is not, and how to read it back.
 
 **Where each feature runs today.** The desktop application opens a project, curates its
 traces, fits one trace at a time and draws a population histogram. Extraction runs from the
-[command line](cli.md). The corrections, whole-project fits, the other plots and the exports
-run from Python, as each [how-to guide](#using-tether) shows. The installer also includes
+[command line](cli.md), where `tether batch` also applies the corrections and fits every
+molecule. From Python you can run the corrections and whole-project fits with your own
+settings, and make the other plots and the exports, as each [how-to guide](#using-tether)
+shows. The installer also includes
 [napari](https://napari.org) for the movie panel, which reaches the application with the
 [trace curation section (M16)](https://github.com/bioedca/tether/milestone/18).
 
