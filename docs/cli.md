@@ -163,9 +163,11 @@ than a silent pass.
 ## `tether batch`
 
 Process many movies unattended (FR-BATCH). Each movie becomes its own
-`<out-dir>/<stem>.tether`. Failures are isolated — one bad movie does not stop the run —
-and each stage is checkpointed, so re-running the same command resumes only the
-incomplete stages instead of redoing finished work.
+`<out-dir>/<stem>.tether`. That is how the command writes, not a limit of the project
+file, which can hold several movies of one experiment
+([`.tether` project](glossary.md#tether-project)). Failures are isolated — one bad movie
+does not stop the run — and each stage is checkpointed, so re-running the same command
+resumes only the incomplete stages instead of redoing finished work.
 
 ```text
 tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]

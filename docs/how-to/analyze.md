@@ -14,11 +14,12 @@ gallery](../analysis/parity-gallery.md); this page is how to make them.
 - The project file, here called `movie.tether`, closed in the desktop application.
 - The name of the fitted model. A whole-project fit or a `tether batch` run stores it as
   `vbconhmm`, and an ebFRET fit as `ebhmm`. The histogram needs no model.
-- A project of one experimental condition. Each plot pools every molecule the analysis
-  admits. A project made by `tether extract` or `tether batch` holds one movie, and so one
-  condition; keep movies of different conditions in separate projects, and run the script
-  for each in that project's own folder, so one condition's figures do not overwrite
-  another's.
+- The molecules of one experimental condition. Each plot pools every molecule the analysis
+  admits, whatever its condition, so a plot of one condition needs a project, or a
+  `molecule_keys` selection, that holds only the molecules of that condition. A project can
+  hold more than one condition; a project made by `tether extract` or `tether batch` holds
+  one movie, and so one condition. Run the script for each project in that project's own
+  folder, so one project's figures do not overwrite another's.
 - Your movie's frame time in seconds. Dwell times and rates come out **per frame** unless
   you supply it.
 - The Python that came with Tether: `~/tether/envs/tether/bin/python` on Linux,
