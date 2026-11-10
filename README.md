@@ -57,6 +57,9 @@ The installers are **not OS-code-signed**, so expect a Windows SmartScreen or ma
 Gatekeeper warning; the published SHA-256 manifests and build-provenance attestation
 are the integrity check instead
 ([ADR-0059](docs/adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)).
+Signing costs money every year; the install guide explains
+[why the installers are unsigned](docs/install.md#why-the-installers-are-unsigned), and
+[sponsoring Tether](https://github.com/sponsors/bioedca) helps pay for it.
 
 ### From source
 

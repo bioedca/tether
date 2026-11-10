@@ -102,7 +102,8 @@ Because the installers are unsigned, Windows and macOS will warn you the first t
 one. The warning is expected, and the attestation check above is what tells you the file is
 genuine before you choose to go past it; the checksum alone cannot. What it looks like and how to
 get past it on each system is in
-[The installer is flagged as unsigned](troubleshooting.md#the-installer-is-flagged-as-unsigned).
+[The installer is flagged as unsigned](troubleshooting.md#the-installer-is-flagged-as-unsigned),
+and [why they are unsigned at all](#why-the-installers-are-unsigned) is at the end of this step.
 
 Installing for yourself only, which is what this page assumes, needs no administrator account
 on Windows or Linux, and none on macOS if you use the Terminal command below. The macOS
@@ -138,6 +139,31 @@ Page through the license, type `yes`, and press Enter to accept the suggested lo
 installer refuses one. Wait for `installation finished.`
 
 Installing unpacks about 3.6 GB and took around a minute and a half on a Linux test machine.
+
+### Why the installers are unsigned
+
+Signing an installer takes a certificate from Apple or Microsoft, and both charge for it
+every year. At the prices they listed on 10 November 2026 that is roughly **US$220 a year**:
+US$99 for the [Apple Developer Program](https://developer.apple.com/support/purchase-activation), and about
+US$9.99 a month for Microsoft's
+[Artifact Signing](https://learn.microsoft.com/windows/apps/package-and-deploy/code-signing-options),
+which individuals can only use in the USA and Canada (a conventional Windows certificate costs
+roughly US$150–300 a year instead). The free programme for open-source projects, SignPath
+Foundation, declined Tether in July 2026 because the project is still young, so for now the
+installers ship unsigned and the checks in step 2 are what tell you a download is genuine.
+
+Signing would change more on macOS than on Windows. A signed and notarized macOS installer opens
+without the Gatekeeper block; getting there also means signing every program inside the
+installer, which is work still to be done. A signed Windows installer shows a verified publisher
+name instead of *"Unknown publisher"*, but Microsoft says SmartScreen
+[can still warn](https://learn.microsoft.com/windows/apps/package-and-deploy/smartscreen-reputation)
+about a new release until it has built up a download reputation.
+
+**If Tether is useful to you, please consider
+[sponsoring it](https://github.com/sponsors/bioedca).** Sponsorship pays for Tether's
+development, and code signing comes first, so that macOS stops blocking the installer and
+Windows names who published it. When a funding goal for signing is set, its progress is shown
+on that Sponsors page.
 
 ## 4. Put Tether's launcher folder on your PATH
 

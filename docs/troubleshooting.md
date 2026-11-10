@@ -712,7 +712,9 @@ unidentified developer.
 **Cause.** **No Tether installer is OS-code-signed**, and for 1.0 none will be. The warning is
 expected and does not mean the download failed or was tampered with, so re-downloading
 normally reproduces it.
-[ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) records why.
+[ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) records why,
+and [Why the installers are unsigned](install.md#why-the-installers-are-unsigned) explains what
+signing costs and how [sponsoring Tether](https://github.com/sponsors/bioedca) helps pay for it.
 
 Whether the prompt appears at all is up to the OS, not to us: SmartScreen may stay quiet once
 a file has built reputation, a managed machine may have these checks configured off, and
