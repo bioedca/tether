@@ -16,6 +16,9 @@ copyright: Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
 
 theme:
   name: material
+  # One partial is overridden: the footer, which links the AI-use statement from every
+  # page (#649). See overrides/partials/copyright.html.
+  custom_dir: overrides
   # Use the visitor's system fonts — do NOT load Google Fonts. This keeps the site
   # free of any third-party asset request (no visitor IP sent to Google), matching
   # the "no third-party" statement in docs/privacy.md.
@@ -77,6 +80,7 @@ nav:
       - Roadmap: roadmap.md
       - Stability policy: stability.md
       - Privacy policy: privacy.md
+      - How AI tools are used: ai-use.md
       - Architecture decisions: adr/README.md
       - Releasing (tag-driven pipeline): release.md
       - Building the installers: maintainers/building-installers.md

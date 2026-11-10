@@ -152,6 +152,11 @@ which upstream papers to cite as well for each part of the pipeline you ran
 exact version that produced your data. Licensing credit for tMAVEN, Deep-LASI
 and MASH-FRET is in [`NOTICE`](NOTICE).
 
+## AI use
+
+AI tools draft Tether's documentation and source code. People direct and approve that
+work. See [How AI tools are used in Tether](docs/ai-use.md).
+
 ## License
 
 Tether is free software licensed under the **GNU General Public License v3.0 or
