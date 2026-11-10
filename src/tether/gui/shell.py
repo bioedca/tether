@@ -1156,6 +1156,10 @@ class TetherShell:
         the Qt dialog used on Linux returns the name as typed (#568). So the shell does
         it itself: a path without an ``.hdf5`` or ``.smd`` suffix gets ``.hdf5``, and
         the SMD filter can then find the file again on every OS.
+
+        The dialog's own replace prompt checked the name as typed, not the suffixed
+        one, so when the suffix changes the path and that file already exists the
+        shell asks before replacing it; the export would otherwise overwrite it.
         """
         from pyqtgraph.Qt import QtWidgets
 
@@ -1165,10 +1169,23 @@ class TetherShell:
         out_path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self._window, "Hand to tMAVEN (SMD)", "", _SMD_FILTER
         )
-        if out_path:
-            self.hand_off_to_tmaven(_with_smd_suffix(out_path))
-        else:
+        if not out_path:
             self._status("Hand-off cancelled")
+            return
+        smd_path = _with_smd_suffix(out_path)
+        if smd_path != out_path and Path(smd_path).exists():
+            buttons = QtWidgets.QMessageBox.StandardButton
+            answer = QtWidgets.QMessageBox.question(
+                self._window,
+                "Hand to tMAVEN (SMD)",
+                f"{Path(smd_path).name} already exists. Do you want to replace it?",
+                buttons.Yes | buttons.No,
+                buttons.No,
+            )
+            if answer != buttons.Yes:
+                self._status("Hand-off cancelled")
+                return
+        self.hand_off_to_tmaven(smd_path)
 
     def _import_dialog(self) -> None:  # pragma: no cover - interactive file dialog
         """Menu entry: pick the returning SMD (+ optional model), then reconcile."""

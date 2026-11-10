@@ -635,6 +635,62 @@ def test_hand_off_dialog_defaults_the_smd_suffix(
     assert sorted(p.name for p in tmp_path.iterdir()) == [written]
 
 
+@pytest.mark.parametrize("replace", [True, False])
+def test_hand_off_dialog_asks_before_replacing_the_suffixed_file(
+    make_shell, monkeypatch, tmp_path, replace
+) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
+    buttons = QtWidgets.QMessageBox.StandardButton
+    existing = tmp_path / "handoff.hdf5"
+    existing.write_bytes(b"earlier export")
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(tmp_path / "handoff"), "")),
+    )
+    asked: list = []
+
+    def fake_question(parent, title, text, *args):
+        asked.append(text)
+        return buttons.Yes if replace else buttons.No
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", staticmethod(fake_question))
+    fake = _WritingHandoff(manifest=_manifest(2))
+    shell = make_shell(handoff=fake)
+    next(a for a in shell.handoff_menu.actions() if "tMAVEN" in a.text()).trigger()
+    assert len(asked) == 1 and "handoff.hdf5" in asked[0]
+    if replace:
+        assert fake.hand_off_calls == [(None, str(existing))]
+    else:
+        assert fake.hand_off_calls == []
+        assert existing.read_bytes() == b"earlier export"
+        assert "Hand-off cancelled" in shell.status_message
+
+
+def test_hand_off_dialog_does_not_ask_when_the_typed_path_is_kept(
+    make_shell, monkeypatch, tmp_path
+) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
+    existing = tmp_path / "handoff.hdf5"
+    existing.write_bytes(b"earlier export")  # the dialog itself confirmed this name
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(existing), "")),
+    )
+
+    def no_question(*a, **k):
+        raise AssertionError("the dialog already confirmed this name")
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", staticmethod(no_question))
+    fake = _WritingHandoff(manifest=_manifest(2))
+    shell = make_shell(handoff=fake)
+    next(a for a in shell.handoff_menu.actions() if "tMAVEN" in a.text()).trigger()
+    assert fake.hand_off_calls == [(None, str(existing))]
+
+
 def test_hand_off_dialog_cancel_hands_off_nothing(make_shell, monkeypatch) -> None:
     from pyqtgraph.Qt import QtWidgets
 
