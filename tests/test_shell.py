@@ -598,6 +598,112 @@ def test_hand_off_failure_is_reported(make_shell) -> None:
     assert "Hand-off failed: disk full" in shell.status_message
 
 
+class _WritingHandoff(_FakeHandoff):
+    """A recording seam that also creates the file, so the test can read the disk."""
+
+    def hand_off(self, molecule_keys, out_path):
+        Path(out_path).write_bytes(b"")
+        return super().hand_off(molecule_keys, out_path)
+
+
+@pytest.mark.parametrize(
+    ("typed", "written"),
+    [
+        ("handoff", "handoff.hdf5"),  # #568: the Linux Qt dialog returns the bare name
+        ("handoff.hdf5", "handoff.hdf5"),
+        ("handoff.smd", "handoff.smd"),
+        ("HANDOFF.HDF5", "HANDOFF.HDF5"),
+        ("run.v2", "run.v2.hdf5"),  # a dot in the name is not an SMD suffix
+    ],
+)
+def test_hand_off_dialog_defaults_the_smd_suffix(
+    make_shell, monkeypatch, tmp_path, typed, written
+) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
+    chosen = str(tmp_path / typed)
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: (chosen, "tMAVEN SMD (*.hdf5 *.smd)")),
+    )
+    fake = _WritingHandoff(manifest=_manifest(2))
+    shell = make_shell(handoff=fake)
+    action = next(a for a in shell.handoff_menu.actions() if "tMAVEN" in a.text())
+    action.trigger()
+    assert fake.hand_off_calls == [(None, str(tmp_path / written))]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [written]
+
+
+@pytest.mark.parametrize("replace", [True, False])
+def test_hand_off_dialog_asks_before_replacing_the_suffixed_file(
+    make_shell, monkeypatch, tmp_path, replace
+) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
+    buttons = QtWidgets.QMessageBox.StandardButton
+    existing = tmp_path / "handoff.hdf5"
+    existing.write_bytes(b"earlier export")
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(tmp_path / "handoff"), "")),
+    )
+    asked: list = []
+
+    def fake_question(parent, title, text, *args):
+        asked.append(text)
+        return buttons.Yes if replace else buttons.No
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", staticmethod(fake_question))
+    fake = _WritingHandoff(manifest=_manifest(2))
+    shell = make_shell(handoff=fake)
+    next(a for a in shell.handoff_menu.actions() if "tMAVEN" in a.text()).trigger()
+    assert len(asked) == 1 and "handoff.hdf5" in asked[0]
+    if replace:
+        assert fake.hand_off_calls == [(None, str(existing))]
+    else:
+        assert fake.hand_off_calls == []
+        assert existing.read_bytes() == b"earlier export"
+        assert "Hand-off cancelled" in shell.status_message
+
+
+def test_hand_off_dialog_does_not_ask_when_the_typed_path_is_kept(
+    make_shell, monkeypatch, tmp_path
+) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
+    existing = tmp_path / "handoff.hdf5"
+    existing.write_bytes(b"earlier export")  # the dialog itself confirmed this name
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(existing), "")),
+    )
+
+    def no_question(*a, **k):
+        raise AssertionError("the dialog already confirmed this name")
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", staticmethod(no_question))
+    fake = _WritingHandoff(manifest=_manifest(2))
+    shell = make_shell(handoff=fake)
+    next(a for a in shell.handoff_menu.actions() if "tMAVEN" in a.text()).trigger()
+    assert fake.hand_off_calls == [(None, str(existing))]
+
+
+def test_hand_off_dialog_cancel_hands_off_nothing(make_shell, monkeypatch) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: ("", ""))
+    )
+    fake = _FakeHandoff(manifest=_manifest(2))
+    shell = make_shell(handoff=fake)
+    next(a for a in shell.handoff_menu.actions() if "tMAVEN" in a.text()).trigger()
+    assert fake.hand_off_calls == []
+    assert "Hand-off cancelled" in shell.status_message
+
+
 def test_import_return_leg_applies_decision(make_shell, monkeypatch) -> None:
     from tether.gui import reconcile as reconcile_mod
     from tether.gui.reconcile import ReconcileDecision
