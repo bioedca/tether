@@ -61,10 +61,12 @@ The scientific methods have their own checks against reference data.
 
 - **Your data.** The application makes no network connection during normal analysis. It
   sends none of your data to an AI service. See the [Privacy policy](privacy.md).
-- **Contributor data.** A contributor must not send unpublished or sensitive material to an
-  external AI service. The
+- **Contributor data.** Before a contributor sends unpublished or embargoed material to an
+  external AI service, the contributor must check two things. They are the policy of the
+  contributor's group and the data-retention terms of the service. The
   [contributor guide](https://github.com/bioedca/tether/blob/main/CONTRIBUTING.md#ai-assisted-contributions)
-  gives that rule.
+  gives that rule. The agent contract gives AI agents a stricter rule. An agent must not
+  send sensitive or uncommitted material to an external service.
 - **Language.** The project publishes the documentation in English only. The project
   publishes no AI translation. If you translate a page with a tool, the project has not
   checked the result.
@@ -109,7 +111,7 @@ or "Not yet". Each open issue updates its row when it is merged.
 |---|---|---|
 | AI assists, and human oversight stays | Partly | The maintainer approves every merge and signs every release. No rule yet makes a person read the user pages before a release ([#650](https://github.com/bioedca/tether/issues/650)). |
 | A statement of AI use, with its scope and its limits | Met | This page, the footer of each page of this site, and the README. |
-| Rules for data handling | Met | The contributor guide and the agent contract forbid sending unpublished or sensitive material to an external AI service. |
+| Rules for data handling | Met | The contributor guide tells a contributor to check the group policy and the retention terms of a service before sending unpublished material. The agent contract forbids an agent to send sensitive or uncommitted material to an external service. |
 | Rules for model validation and quality assurance | Not yet | An AI-use policy for documentation work ([#651](https://github.com/bioedca/tether/issues/651)). |
 | Examples of safe practice and unsafe practice | Not yet | The same policy ([#651](https://github.com/bioedca/tether/issues/651)). |
 | Transparency and traceability | Partly | This page names the tools. A change does not yet record the tool that drafted it ([#652](https://github.com/bioedca/tether/issues/652)). |
