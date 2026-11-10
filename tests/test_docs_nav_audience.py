@@ -8,8 +8,9 @@ properties that decision exists for, so a later nav edit cannot quietly undo the
 
 * commands that need write access to ``bioedca/tether`` live only on maintainer pages;
 * every maintainer page says, in its first paragraph, what access it needs;
-* the standalone-tMAVEN cross-OS acceptance record survives with both ``pending`` rows, on a
-  maintainer page rather than a user one (it is ADR-0010's manual GUI leg, not tracker state);
+* the standalone-tMAVEN cross-OS acceptance record keeps its three ``10f4230`` rows with no
+  ``pending`` row left, on a maintainer page rather than a user one (it is ADR-0010's manual GUI
+  leg, not tracker state);
 * the deep-classifier page leads with its setup command and keeps its rationale last, and the
   ``#gpu-cuda-setup`` anchor that ``troubleshooting.md`` links still exists.
 
@@ -99,13 +100,14 @@ def test_every_maintainer_page_opens_with_a_reader_statement_naming_its_access()
     assert not missing, f"maintainer pages without a reader statement naming access: {missing}"
 
 
+_CROSS_OS_RECORD = "maintainers/standalone-tmaven-cross-os-record.md"
+
+
 def test_the_cross_os_record_keeps_its_rows_on_a_maintainer_page() -> None:
-    # The two manual GUI legs ADR-0010 deferred were run and recorded under #543.
-    assert not [
-        path.relative_to(DOCS).as_posix()
-        for path in sorted(DOCS.rglob("*.md"))
-        if "| pending |" in path.read_text(encoding="utf-8")
-    ]
+    # The two manual GUI legs ADR-0010 deferred were run and recorded under #543. Only the record
+    # itself is read for a ``pending`` row: another page's table may use that word freely (#572).
+    record = (DOCS / _CROSS_OS_RECORD).read_text(encoding="utf-8")
+    assert "| pending |" not in record, _CROSS_OS_RECORD
     rows = [
         (path.relative_to(DOCS).as_posix(), line)
         for path in sorted(DOCS.rglob("*.md"))
