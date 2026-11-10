@@ -111,6 +111,14 @@ rem as every other route (issue #553): a shortcut cannot set environment variabl
 rem itself. WindowStyle 7 starts the launcher's console minimized, and it closes as
 rem soon as `start` hands off to the console-less tether-gui.exe, whose icon the
 rem shortcut shows.
+rem
+rem The shortcut's TARGET is cmd.exe, which runs the launcher as `/c ""<bat>""` (issue
+rem #578). rc3 pointed the shortcut straight at the .bat: the .lnk was created, but
+rem Start listed no Tether under All apps or in search. cmd.exe is the target conda's
+rem own Anaconda Prompt shortcuts use, and Start lists those. cmd strips the outer pair
+rem of quotes and keeps the inner pair, so a prefix containing spaces, & or ( ) still
+rem reaches it as one path. The quotes are built in PowerShell ([char]34) so none of
+rem them passes through this script's own cmd parsing.
 rem Paths are handed to PowerShell through the ENVIRONMENT, never interpolated into
 rem its source: a single apostrophe anywhere in %APPDATA% or %PREFIX% (e.g. a user
 rem named O'Brien) would close the single-quoted literal early and the shortcut would
@@ -126,12 +134,14 @@ set "SM_D=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Tether"
 if not exist "%SM_D%" mkdir "%SM_D%"
 set "TETHER_LNK=%SM_D%\Tether.lnk"
 set "TETHER_GUI_BAT=%BIN_D%\tether-gui.bat"
+set "CMD_EXE=%SystemRoot%\System32\cmd.exe"
 set "TETHER_GUI_EXE=%PREFIX%\envs\tether\Scripts\tether-gui.exe"
 set "TETHER_GUI_WD=%PREFIX%\envs\tether"
 set "PS_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 "%PS_EXE%" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
   "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK);" ^
-  "$s.TargetPath=$env:TETHER_GUI_BAT;" ^
+  "$s.TargetPath=$env:CMD_EXE;" ^
+  "$q=[char]34; $s.Arguments='/c ' + $q + $q + $env:TETHER_GUI_BAT + $q + $q;" ^
   "$s.IconLocation=$env:TETHER_GUI_EXE + ',0';" ^
   "$s.WindowStyle=7;" ^
   "$s.WorkingDirectory=$env:TETHER_GUI_WD;" ^

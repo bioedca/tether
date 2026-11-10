@@ -79,15 +79,32 @@ def test_windows_shortcut_starts_the_gui_through_its_launcher() -> None:
     """The Start Menu route gets the launcher's PATH too (issue #553).
 
     A ``.lnk`` cannot set environment variables, so targeting ``tether-gui.exe`` directly
-    would start the GUI without the env's folders on PATH. It targets ``tether-gui.bat``,
+    would start the GUI without the env's folders on PATH. It runs ``tether-gui.bat``,
     minimized (``WindowStyle`` 7), and borrows the console-less exe's icon.
     """
     text = POST_INSTALL_BAT.read_text(encoding="utf-8")
     assert re.search(r'(?m)^set "TETHER_GUI_BAT=%BIN_D%\\tether-gui\.bat"$', text)
-    assert '"$s.TargetPath=$env:TETHER_GUI_BAT;"' in text
     assert '"$s.TargetPath=$env:TETHER_GUI_EXE;"' not in text
     assert '"$s.WindowStyle=7;"' in text
     assert "\"$s.IconLocation=$env:TETHER_GUI_EXE + ',0';\"" in text
+
+
+def test_windows_shortcut_targets_cmd_so_start_lists_it() -> None:
+    """The shortcut's target is ``cmd.exe``, never the ``.bat`` itself (issue #578).
+
+    rc3's shortcut pointed straight at ``tether-gui.bat``: the ``.lnk`` existed, but Start
+    listed no Tether under All apps or in search. The shortcut now targets
+    ``%SystemRoot%\\System32\\cmd.exe`` and hands it the launcher as ``/c ""<bat>""``, the
+    shape conda's own Anaconda Prompt shortcuts use and Start lists. cmd strips the outer
+    pair of quotes and keeps the inner pair, so a launcher path with spaces, ``&`` or
+    parentheses in it still runs as one argument. The quote characters are built in
+    PowerShell (``[char]34``) so none reaches cmd's parser of ``post_install.bat`` itself.
+    """
+    text = POST_INSTALL_BAT.read_text(encoding="utf-8")
+    assert re.search(r'(?m)^set "CMD_EXE=%SystemRoot%\\System32\\cmd\.exe"$', text)
+    assert '"$s.TargetPath=$env:CMD_EXE;"' in text
+    assert '"$s.TargetPath=$env:TETHER_GUI_BAT;"' not in text
+    assert "\"$q=[char]34; $s.Arguments='/c ' + $q + $q + $env:TETHER_GUI_BAT + $q + $q;\"" in text
 
 
 def test_windows_install_smoke_runs_blas_through_the_launcher() -> None:
