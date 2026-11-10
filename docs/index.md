@@ -95,6 +95,14 @@ movie actually passes through them, and what each leaves in the project file, se
 | [`tether.gui`](adr/0055-gui-session-writer-ownership.md) | The PySide6 shell and dockable analysis surfaces. |
 | [`tether.project`](adr/0030-headless-batch-runner-isolation-and-checkpoint.md) | The experiment/session model and the headless core. |
 
+## Support Tether
+
+Tether is free, and its installers are not yet code-signed because signing costs money every
+year; [Why the installers are unsigned](install.md#why-the-installers-are-unsigned) explains
+what it costs and what it would change. If Tether is useful to you, please consider
+[sponsoring it](https://github.com/sponsors/bioedca). Sponsorship pays for development, and code
+signing comes first.
+
 ## License
 
 Tether is free software under the [GNU GPL v3.0-or-later](https://www.gnu.org/licenses/gpl-3.0.html).
