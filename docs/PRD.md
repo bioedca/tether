@@ -257,10 +257,13 @@ uses the three words only in these meanings:
   "project file" name the same file.
 - A **condition** is one chemistry/optics tuple, identified by the condition key (`/conditions` below). A project
   may hold several conditions, and one condition may span several projects: two projects whose `/conditions` rows
-  carry the same key hold the same condition. The correction factors (§7.2), the ranker model (§7.5), the
-  category list (§7.6) and plot selection (§7.7) are scoped by condition. The ranker model, the category list and
-  plot pooling **shall** also work for a condition whose molecules are in several projects; ADR-0068 lists each
-  with the issue that carries it.
+  carry the same confirmed key hold the same condition. A key parsed from a filename is provisional until the
+  validation step confirms or corrects it (`condition_id` in `/molecules` below, §9.3): the parse gives no buffer,
+  temperature or laser power, so two provisional keys can agree for two different conditions. A feature that joins
+  projects by the key **shall** join them only on confirmed keys. The correction factors (§7.2), the ranker model
+  (§7.5), the category list (§7.6) and plot selection (§7.7) are scoped by condition. The ranker model, the
+  category list and plot pooling **shall** also work for a condition whose molecules are in several projects;
+  ADR-0068 lists each with the issue that carries it.
 
 - **`/movies/{id}`** — source URI (relative), full `sha256`, a **metadata-only fast signature** (file size + mtime
   + offline-availability flag, e.g. `FILE_ATTRIBUTE_OFFLINE`) for routine no-hydration checks — it performs **zero

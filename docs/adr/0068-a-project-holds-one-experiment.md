@@ -77,9 +77,12 @@ day together with their shared calibration and settings.
   "project file" name the same file.
 - A **condition** is one chemistry/optics tuple, identified by the PRD §5.1 condition key. The key
   is the identity of the condition in every project: two projects whose `/conditions` rows carry
-  the same key hold the same condition. Keep-separate (ADR-0033) applies across projects as it does
-  inside one: a key that differs in one field is a different condition, and nothing merges two
-  conditions without a confirmation.
+  the same confirmed key hold the same condition. A key parsed from a filename is provisional until
+  the validation step (PRD §9.3) confirms or corrects it. The parse gives no buffer, temperature or
+  laser power (`tether.io.filename.parse_filename`), so two provisional keys can agree for two
+  different conditions, and a feature that joins projects by the key joins them only on confirmed
+  keys. Keep-separate (ADR-0033) applies across projects as it does inside one: a key that differs
+  in one field is a different condition, and nothing merges two conditions without a confirmation.
 
 ### What each unit governs
 

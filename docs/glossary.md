@@ -564,7 +564,9 @@ Not free text. A condition is identified by a **chemistry/optics key** — const
 dye, ligand + concentration, buffer, temperature, laser power (`tether.io.filename`,
 `tether.project.conditions`). `date`, replicate and source file deliberately **vary within**
 a condition and are not part of its identity. Neither is the project file: two projects whose
-`/conditions` rows carry the same key hold the same condition (ADR-0068). `condition_id` is a
+`/conditions` rows carry the same confirmed key hold the same condition (ADR-0068). A key parsed
+from a filename is provisional until it is confirmed: the parse gives no buffer, temperature or
+laser power, so two provisional keys can agree for two different conditions. `condition_id` is a
 content hash of that exact key, and validation is **referential**: an id is valid only if it
 resolves to a `/conditions` row whose stored fields hash back to it.
 
