@@ -5,12 +5,15 @@
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-bioedca.github.io%2Ftether-indigo.svg)](https://bioedca.github.io/tether/)
 
-Tether is a cross-platform application for the Mondragón Lab (Northwestern
+Tether is a cross-platform suite for the Mondragón Lab (Northwestern
 University) that takes you from a raw TIRF movie to curated, corrected,
 idealized smFRET traces — without ever losing the link between a trace and the
-pixels it came from. Extraction, curation, corrections, idealization and analysis
-are all in the application today; the
-[documentation site](https://bioedca.github.io/tether/) is the user manual.
+pixels it came from. Today the desktop application opens a project, curates its
+traces, idealizes one trace at a time, hands traces to tMAVEN and back, imports
+Deep-LASI files and draws a population histogram. Extraction runs from the command
+line, and corrections, whole-project idealization, the other plots and the exports
+run from Python. [What it does](#what-it-does) says where each feature runs today,
+and the [documentation site](https://bioedca.github.io/tether/) is the user manual.
 
 **Does Tether fit my data?** Check
 [supported inputs, acquisition geometry, scale and non-goals](https://bioedca.github.io/tether/latest/compatibility/)
@@ -27,22 +30,71 @@ stamped into a single self-describing project file, and the trace ⇄ movie
 
 ## What it does
 
-- **Native extraction** — faithful TIFF movie → trace extraction (channel split,
-  à trous spot detection, polynomial registration, donor-anchored
-  colocalization, aperture integration), validated against Deep-LASI.
-- **Round-trip browser** — a PySide6 shell with an embedded **napari** movie
-  panel and a fast **pyqtgraph** trace dock; click a trace → jump to its spot,
-  click a spot → open its trace, across many movies.
-- **Curation** — keyboard-driven accept/reject/categorize with full label
-  provenance, feeding a per-condition, incrementally-retrained quality ranker
-  (sort/rank only, never auto-drop).
-- **Corrections** — native per-channel Bayesian photobleach detection → leakage
-  α → γ → corrected FRET, with an apparent-E fallback that **never emits a NaN**.
-- **Idealization** — one-click vbFRET / consensus VB-HMM / ebFRET via an
-  **isolated tMAVEN sidecar**, plus a non-destructive hand-off to standalone
-  tMAVEN.
-- **Analysis** — histograms with CI, transition-density and dwell-time plots, the
-  raw FRET cloud, and provenance-stamped exports.
+Tether's features reach the desktop application in stages. Each feature below sits in the
+group where it runs today, and each planned feature links to the issue or milestone that
+brings it to the application.
+
+### In the application today
+
+- **Open and browse.** **File → Open project…** opens a `.tether` project. A **pyqtgraph**
+  trace dock shows each molecule's donor, acceptor and total intensity over its apparent FRET
+  efficiency, with marginal histograms. The movie list holds one fixed entry.
+- **Curation.** Keyboard-driven accept, reject and un-reject. Each decision is written to the
+  project with who made it and when.
+- **Neighbor view.** The selected molecule's cached image patch and the distance to its
+  nearest neighbor, with a warning when the apertures overlap.
+- **One-trace idealization.** The **I** key fits the selected molecule in the **isolated
+  tMAVEN sidecar** and draws the fitted steps on its trace. Use it to check a trace by eye.
+  The status bar calls it vbFRET, but it runs the consensus VB-HMM
+  ([#554](https://github.com/bioedca/tether/issues/554)).
+- **Standalone-tMAVEN hand-off.** A non-destructive round trip: save molecules as a file that
+  tMAVEN's own window opens, then import its result back through a per-trace reconcile prompt.
+- **Condition validation.** Confirm or correct the condition Tether read from each file name.
+- **Deep-LASI import.** A wizard turns an existing Deep-LASI acquisition into `.tether`
+  projects.
+- **Population histogram.** The apparent-FRET histogram of the project, with rejected
+  molecules left out.
+
+### From the command line today
+
+- **Native extraction.** `tether extract` and `tether batch`: faithful TIFF movie → trace
+  extraction (channel split, à trous spot detection, polynomial registration, donor-anchored
+  colocalization, aperture integration), validated against Deep-LASI. The application gets it
+  with the [trace extraction section (M15)](https://github.com/bioedca/tether/milestone/17).
+
+### From Python today; planned for the application
+
+Each of these runs from a short script in the Python that comes with Tether. The linked how-to
+guide shows the script.
+
+- **Corrections.** Native per-channel Bayesian photobleach detection → leakage α → γ →
+  corrected FRET, with an apparent-E fallback that **never emits a NaN**
+  ([how-to](docs/how-to/apply-corrections.md)). The application gets it with the
+  [trace curation section (M16)](https://github.com/bioedca/tether/milestone/18).
+- **Whole-project idealization.** The consensus VB-HMM or ebFRET over every molecule, in the
+  isolated tMAVEN sidecar ([how-to](docs/how-to/idealize.md)). An **Idealize project…** action
+  is planned ([#625](https://github.com/bioedca/tether/issues/625), M16).
+- **Quality ranker.** A per-condition, incrementally-retrained ranker that learns from your
+  accepts and rejects and orders traces for review (sort/rank only, never auto-drop). The
+  application gets it with [#639](https://github.com/bioedca/tether/issues/639) and
+  [#640](https://github.com/bioedca/tether/issues/640) (M16).
+- **Analysis plots.** Histograms with confidence intervals, transition-density and dwell-time
+  plots, and the raw FRET cloud ([how-to](docs/how-to/analyze.md)). The application gets them
+  with [analysis and plot composition (M17)](https://github.com/bioedca/tether/milestone/19).
+- **Exports.** Provenance-stamped tables and figures
+  ([how-to](docs/how-to/export-results.md)). The application gets them with
+  [#621](https://github.com/bioedca/tether/issues/621) and
+  [M17](https://github.com/bioedca/tether/milestone/19).
+
+### Not in Tether yet
+
+- **Movie panel.** A **napari** movie panel in the application window, with a movie switcher
+  filled from the project ([#356](https://github.com/bioedca/tether/issues/356), M16).
+- **Trace ⇄ movie round trip.** Click a trace → jump to its spot, click a spot → open its
+  trace, across many movies ([#357](https://github.com/bioedca/tether/issues/357), M16). The
+  project already stores the spot each trace came from.
+- **Category keys.** The **1**–**9** keys put a trace in a category. Today they report
+  "unavailable" ([#359](https://github.com/bioedca/tether/issues/359), M16).
 
 ## Installation
 
