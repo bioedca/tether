@@ -162,8 +162,8 @@ about a new release until it has built up a download reputation.
 **If Tether is useful to you, please consider
 [sponsoring it](https://github.com/sponsors/bioedca).** Sponsorship pays for Tether's
 development, and code signing comes first, so that macOS stops blocking the installer and
-Windows names who published it. The Sponsors page shows how close the project is to that
-goal.
+Windows names who published it. When a funding goal for signing is set, its progress is shown
+on that Sponsors page.
 
 ## 4. Put Tether's launcher folder on your PATH
 
