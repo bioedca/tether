@@ -598,6 +598,56 @@ def test_hand_off_failure_is_reported(make_shell) -> None:
     assert "Hand-off failed: disk full" in shell.status_message
 
 
+class _WritingHandoff(_FakeHandoff):
+    """A recording seam that also creates the file, so the test can read the disk."""
+
+    def hand_off(self, molecule_keys, out_path):
+        Path(out_path).write_bytes(b"")
+        return super().hand_off(molecule_keys, out_path)
+
+
+@pytest.mark.parametrize(
+    ("typed", "written"),
+    [
+        ("handoff", "handoff.hdf5"),  # #568: the Linux Qt dialog returns the bare name
+        ("handoff.hdf5", "handoff.hdf5"),
+        ("handoff.smd", "handoff.smd"),
+        ("HANDOFF.HDF5", "HANDOFF.HDF5"),
+        ("run.v2", "run.v2.hdf5"),  # a dot in the name is not an SMD suffix
+    ],
+)
+def test_hand_off_dialog_defaults_the_smd_suffix(
+    make_shell, monkeypatch, tmp_path, typed, written
+) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
+    chosen = str(tmp_path / typed)
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: (chosen, "tMAVEN SMD (*.hdf5 *.smd)")),
+    )
+    fake = _WritingHandoff(manifest=_manifest(2))
+    shell = make_shell(handoff=fake)
+    action = next(a for a in shell.handoff_menu.actions() if "tMAVEN" in a.text())
+    action.trigger()
+    assert fake.hand_off_calls == [(None, str(tmp_path / written))]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [written]
+
+
+def test_hand_off_dialog_cancel_hands_off_nothing(make_shell, monkeypatch) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: ("", ""))
+    )
+    fake = _FakeHandoff(manifest=_manifest(2))
+    shell = make_shell(handoff=fake)
+    next(a for a in shell.handoff_menu.actions() if "tMAVEN" in a.text()).trigger()
+    assert fake.hand_off_calls == []
+    assert "Hand-off cancelled" in shell.status_message
+
+
 def test_import_return_leg_applies_decision(make_shell, monkeypatch) -> None:
     from tether.gui import reconcile as reconcile_mod
     from tether.gui.reconcile import ReconcileDecision

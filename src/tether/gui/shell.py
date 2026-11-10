@@ -126,6 +126,9 @@ _HISTOGRAM_REFRESH_DEBOUNCE_MS = 250
 #: File filter for the hand-off SMD / model open+save dialogs (tMAVEN uses HDF5).
 _SMD_FILTER = "tMAVEN SMD (*.hdf5 *.smd);;All files (*)"
 
+#: Suffixes ``_SMD_FILTER`` lists; a hand-off path carrying neither gets the first.
+_SMD_SUFFIXES = (".hdf5", ".smd")
+
 #: File filter for the ``&File → Open project…`` dialog (a ``.tether`` HDF5 store).
 _TETHER_FILTER = "Tether project (*.tether);;All files (*)"
 
@@ -1146,8 +1149,14 @@ class TetherShell:
         self._status(_applied_summary(applied))
         return applied
 
-    def _hand_off_dialog(self) -> None:  # pragma: no cover - interactive file dialog
-        """Menu entry: pick a destination SMD, then hand off every extracted molecule."""
+    def _hand_off_dialog(self) -> None:
+        """Menu entry: pick a destination SMD, then hand off every extracted molecule.
+
+        The native Windows dialog appends the filter's first extension to a bare name;
+        the Qt dialog used on Linux returns the name as typed (#568). So the shell does
+        it itself: a path without an ``.hdf5`` or ``.smd`` suffix gets ``.hdf5``, and
+        the SMD filter can then find the file again on every OS.
+        """
         from pyqtgraph.Qt import QtWidgets
 
         if self._handoff is None:
@@ -1157,7 +1166,7 @@ class TetherShell:
             self._window, "Hand to tMAVEN (SMD)", "", _SMD_FILTER
         )
         if out_path:
-            self.hand_off_to_tmaven(out_path)
+            self.hand_off_to_tmaven(_with_smd_suffix(out_path))
         else:
             self._status("Hand-off cancelled")
 
@@ -1843,6 +1852,16 @@ def make_store_overlap(
         )
 
     return _overlap
+
+
+def _with_smd_suffix(path: str) -> str:
+    """``path`` with ``.hdf5`` appended unless it already ends in an SMD suffix (#568).
+
+    The comparison ignores case, so ``HANDOFF.HDF5`` is left as typed.
+    """
+    if Path(path).suffix.lower() in _SMD_SUFFIXES:
+        return path
+    return path + _SMD_SUFFIXES[0]
 
 
 def _applied_summary(applied: AppliedReconcile) -> str:
