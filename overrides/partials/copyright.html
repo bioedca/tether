@@ -1,0 +1,26 @@
+{#-
+  SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+  SPDX-License-Identifier: GPL-3.0-or-later
+
+  Footer of every page. This replaces Material's partials/copyright.html (9.8.0) and adds one
+  line: the link to the AI-use statement (#649). The link goes through the `url` filter so that
+  it is relative to the current page and resolves inside every versioned build that mike
+  publishes. An absolute link would point at one version only.
+-#}
+<div class="md-copyright">
+  {% if config.copyright %}
+    <div class="md-copyright__highlight">
+      {{ config.copyright }}
+    </div>
+  {% endif %}
+  <div class="md-copyright__highlight">
+    AI tools draft this documentation.
+    <a href="{{ 'ai-use/' | url }}">How AI tools are used in Tether</a>
+  </div>
+  {% if not config.extra.generator == false %}
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  {% endif %}
+</div>
