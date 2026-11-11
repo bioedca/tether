@@ -224,7 +224,8 @@ Windows PowerShell. To start the desktop application:
 - **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal.
   (A desktop that was already running may only show the menu entry after you log out and back
   in.)
-- **macOS:** run `tether-gui` in Terminal. There is no Dock or Launchpad icon yet.
+- **macOS:** run `tether-gui` in Terminal. The Dock shows the Tether icon while the
+  application runs, but there is no Launchpad entry yet.
 
 While the application loads, a splash window shows the Tether name, the version and
 **Loading…**. The splash window closes when the main window opens.
@@ -246,7 +247,10 @@ Everything lives in the single folder you chose (`~/tether` on Linux, `~/Tether`
 
 Outside the install folder, Tether's own files are one menu entry: on Windows a **Tether**
 Start menu shortcut, and on Linux an application-menu entry at
-`~/.local/share/applications/tether.desktop`. On macOS there is none. Windows and macOS also
+`~/.local/share/applications/tether.desktop` with its icon. The icon is nine files in
+`~/.local/share/icons/hicolor`: `tether.png` in the `apps` folder of each of the eight size
+folders `16x16`, `24x24`, `32x32`, `48x48`, `64x64`, `128x128`, `256x256` and `512x512`,
+and `tether.svg` in `scalable/apps`. On macOS there is none. Windows and macOS also
 keep their usual record of an installed program: the **Installed apps** entry that the Windows
 uninstaller runs from, and the package receipt macOS records for every `.pkg`.
 
@@ -296,6 +300,8 @@ the PATH line you added in step 4.
 
 ```bash
 rm -rf ~/tether ~/.local/share/applications/tether.desktop
+rm -f ~/.local/share/icons/hicolor/{16x16,24x24,32x32,48x48,64x64,128x128,256x256,512x512}/apps/tether.png
+rm -f ~/.local/share/icons/hicolor/scalable/apps/tether.svg
 ```
 
 Then delete the `export PATH=…/tether/bin` line from `~/.bashrc`.

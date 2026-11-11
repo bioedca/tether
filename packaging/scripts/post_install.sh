@@ -79,8 +79,31 @@ done
 # (ADR-0051). `uname` rather than a constructor selector: this is one shared script.
 # Exec= is quoted below: the freedesktop spec splits that value on whitespace, so an
 # unquoted prefix containing a space would launch the wrong executable.
+#
+# The entry's icon (issue #673). Icon=tether is a theme name, not a path, so the icon
+# files go into the user's own hicolor tree, the folder every desktop searches for it.
+# They are copied from the installed wheel (tether.gui.identity.hicolor_dir), so this
+# script and the package can never name different sizes. docs/install.md lists every
+# file this adds, for the uninstall. StartupWMClass=Tether matches the window class Qt
+# sets on X11 (the application name); on Wayland the window names tether.desktop itself
+# (QGuiApplication.setDesktopFileName), and the menu entry then gives the icon.
 if [ "$(uname -s)" = "Linux" ]; then
   APPS_D="$HOME/.local/share/applications"
+  ICONS_D="$HOME/.local/share/icons/hicolor"
+  ICON_SRC="$("$TETHER_PY" -c 'from tether.gui.identity import hicolor_dir; print(hicolor_dir())')"
+  for _src in "$ICON_SRC"/*/apps/tether.png "$ICON_SRC"/scalable/apps/tether.svg; do
+    _rel="${_src#"$ICON_SRC"/}"
+    mkdir -p "$ICONS_D/${_rel%/*}"
+    cp "$_src" "$ICONS_D/$_rel"
+  done
+  # Best-effort: GTK and Qt ignore an icon-theme.cache that is older than its theme
+  # folder, and adding a file to an existing size folder does not change that folder's
+  # time. So touch the theme folder, and rebuild a cache only where one already exists:
+  # creating one would add a file to the user's tree that the uninstall does not remove.
+  touch "$ICONS_D"
+  if [ -f "$ICONS_D/icon-theme.cache" ] && command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t -f "$ICONS_D" >/dev/null 2>&1 || true
+  fi
   mkdir -p "$APPS_D"
   cat > "$APPS_D/tether.desktop" <<EOF
 [Desktop Entry]
@@ -89,6 +112,8 @@ Name=Tether
 GenericName=single-molecule FRET analysis
 Comment=Provenance-first smFRET extraction, curation and analysis
 Exec="$PREFIX/envs/tether/bin/tether-gui" %f
+Icon=tether
+StartupWMClass=Tether
 Terminal=false
 Categories=Science;Biology;Education;
 MimeType=application/x-tether;
