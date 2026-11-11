@@ -46,8 +46,9 @@ storage, and temporary idealization files are described below.
 
 - This site is a static site hosted on **GitHub Pages**. It uses **no advertising or
   tracking cookies**, **no third-party analytics**, and **no third-party asset requests**
-  (it uses your system fonts rather than an external font service); the documentation
-  search runs entirely in your browser.
+  (body text uses your system fonts, and headings use a font file that this site serves
+  itself, not an external font service); the documentation search runs entirely in your
+  browser.
 - As the host, **GitHub** may process standard technical request data (such as your IP
   address and browser user-agent) to serve and protect the site, as described in the
   [GitHub General Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
