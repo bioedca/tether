@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0075 — The ebFRET parity gate runs on two fixed seeds
 
-- **Status:** accepted
+- **Status:** accepted; amends [ADR-0007](0007-parity-is-statistical.md) on pinning the seed
 - **Date:** 2026-11-11
 - **Deciders:** bioedca
 - **PRD anchor:** §7.4 (parity definition), §11.2 (the ebFRET tolerance row), §12.6 (`sidecar/parity`), §9 M6
@@ -83,7 +83,29 @@ image) and not thread scheduling or BLAS order (fitting is single-process, `ncpu
 All runs in the cloud `tether-sidecar` environment built from `sidecar/conda-lock.yml` (CPython
 3.12.13, NumPy 1.26.4, Numba 0.60.0, tMAVEN `10f4230b`), on one commit of this change.
 
-EVIDENCE_PLACEHOLDER
+- **Unseeded, two fits differ.** Two unseeded fits of `smd_281mol` scored state-count 0.7829,
+  per-state |ΔE| 0.00484 and Viterbi 0.9788 against each other: a pass, but a different draw from
+  the 0.4235 / 0.1612 / 0.7568 failure on #306.
+- **Seeded, one seed gives one model.** Two fits with seed 1 wrote model files whose every dataset is
+  equal, value for value, except tMAVEN's `time_made` wall-clock stamps. Their metrics against each
+  other are 1.0 / 0.0 / 1.0.
+- **Each stream matters.** The 4-mol guard fails when the Numba seeding is removed, and it fails when
+  the `np.random.seed` replacement is removed, so neither stream alone makes the fit reproducible.
+- **The gate, 20 runs on one commit.** `test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance`
+  ran 20 times on commit `b702f2d43eb8cb21fea7fd9167c3737582fdf64a` (2026-11-11, 21:03Z to 21:42Z,
+  four runs at a time). All 20 passed, and all 20 gave the same numbers:
+
+  | Metric | Seeds 1 vs 2 (every run) | Frozen ebFRET bound |
+  | --- | --- | --- |
+  | `state_count_fraction` | 0.7330960854092526 | ≥ 0.5249 |
+  | `state_mean_abs_delta` | 0.0032755259663808656 | ≤ 0.0518 |
+  | `viterbi_agreement` | 0.9829129373474369 | ≥ 0.9034 |
+  | `relative_elbo` | 0.0008214343691720765 | ≤ 0.01 |
+
+  These sit inside the spread the band was frozen from (ADR-0043: state-count 0.683 to 0.769,
+  Viterbi 0.936 to 0.981).
+- **CI.** `sidecar / parity` passed on the pull request's head (11 tests, including the gate and the
+  4-mol guard).
 
 ## Consequences
 
