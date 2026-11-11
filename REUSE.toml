@@ -23,3 +23,31 @@ path = ["tests/fixtures/large/kinsoft_sim.hdf5", "tests/fixtures/kinsoft_trace_s
 precedence = "override"
 SPDX-FileCopyrightText = "2021 Markus Götz and Sonja Schmid (kinSoftChallenge)"
 SPDX-License-Identifier = "CC-BY-4.0"
+
+# Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
+# the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark
+# with credit (docs/brand.md gives the rules). `override` beats the blanket GPL entry above.
+# The generator in scripts/brand/ stays GPL-3.0-or-later through its own SPDX headers.
+[[annotations]]
+path = [
+  "src/tether/gui/assets/brand/**",
+  "packaging/images/**",
+  "docs/assets/brand/**",
+  "scripts/brand/icon-16px-before-after.png",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 The Tether Authors <bioedca@u.northwestern.edu>"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# Red Hat Display (Regular, Medium, Bold), the upstream TTF files unchanged, with the upstream
+# OFL.txt beside them. From github.com/RedHatOfficial/RedHatFont at commit 6bb1048; the
+# copyright years are those of that OFL.txt (2021) and of the fonts' name table (2024).
+# Listed after the brand entry above: when two annotations match a file, the last one wins.
+[[annotations]]
+path = "src/tether/gui/assets/brand/fonts/**"
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "2021 The Red Hat Project Authors (https://github.com/RedHatOfficial/RedHatFont)",
+  "2024 The Red Hat Project Authors (https://github.com/RedHatOfficial/RedHatFont)",
+]
+SPDX-License-Identifier = "OFL-1.1"

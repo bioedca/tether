@@ -24,6 +24,10 @@
 *.pdf   binary
 *.gz    binary
 *.zip   binary
+# Brand kit (#671): icon containers and the bundled font files.
+*.ico   binary
+*.icns  binary
+*.ttf   binary
 
 # --- Git-LFS: the LARGE-fixture / benchmark tier only (PRD §8 NFR-FIXTURES) ---
 # The ≈0.9 GB UCKOPSB movie, kinSoftChallenge assets, and large *.hdf5 benchmarks

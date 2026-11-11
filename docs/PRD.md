@@ -142,9 +142,10 @@ Data lives on OneDrive or a network share; there is no shared server.
 - **UC2 — Curate at scale with logged labels.** Accept/reject/categorize hundreds of traces per sitting (≈1–2 s
   per trace), with every action logged into the project so it trains the per-condition model.
 - **UC3 — Per-condition curation loop (the central workflow).** A *condition* spans ≈100 videos across multiple
-  days and files. The loop is: load the condition's persistent model → curate one video → the model warm-start-
-  retrains on the new labels → save → open the next video and reload the model so it surfaces good traces faster
-  each time (§7.5).
+  days, and so across several projects, one for each experiment (§5.1). The loop is: load the condition's
+  persistent model → curate one video → the model warm-start-retrains on the new labels → save → open the next
+  video, in this project or in the project of a later experiment, and reload the model so it surfaces good traces
+  faster each time (§7.5).
 - **UC4 — Correct & idealize.** Apply background/leakage/γ corrections, then one-click idealize kept traces with
   verified tMAVEN parity (statistical tolerance, §7.4), review the step overlays, and optionally hand off to the
   standalone tMAVEN GUI.
@@ -245,6 +246,25 @@ M0 so that later milestones add *data*, not *structure*.
 
 ### 5.1 Group skeleton
 
+**Project, experiment and condition** ([ADR-0068](adr/0068-a-project-holds-one-experiment.md)). This document
+uses the three words only in these meanings:
+
+- An **experiment** is one day or one session of acquisition: the movies recorded together, with their
+  calibration and their extraction settings.
+- A **project** is the `.tether` file that holds one experiment: its movies, their molecules and traces, and every
+  label, correction and idealization made on them. It is the unit of the single-writer lock (§5.4), of the file
+  that OneDrive syncs, and of what an extraction, an import or a batch run writes into. "Experiment file" and
+  "project file" name the same file.
+- A **condition** is one chemistry/optics tuple, identified by the condition key (`/conditions` below). A project
+  may hold several conditions, and one condition may span several projects: two projects whose `/conditions` rows
+  carry the same confirmed key hold the same condition. A key parsed from a filename is provisional until the
+  validation step confirms or corrects it (`condition_id` in `/molecules` below, §9.3): the parse gives no buffer,
+  temperature or laser power, so two provisional keys can agree for two different conditions. A feature that joins
+  projects by the key **shall** join them only on confirmed keys. The correction factors (§7.2), the ranker model
+  (§7.5), the category list (§7.6) and plot selection (§7.7) are scoped by condition. The ranker model, the
+  category list and plot pooling **shall** also work for a condition whose molecules are in several projects;
+  ADR-0068 lists each with the issue that carries it.
+
 - **`/movies/{id}`** — source URI (relative), full `sha256`, a **metadata-only fast signature** (file size + mtime
   + offline-availability flag, e.g. `FILE_ATTRIBUTE_OFFLINE`) for routine no-hydration checks — it performs **zero
   byte reads**, so it never forces a OneDrive Files-On-Demand placeholder to hydrate; dims, dtype + endianness,
@@ -298,12 +318,13 @@ M0 so that later milestones add *data*, not *structure*.
   share a condition iff their key fields match. When two movies meant to be one condition parse to slightly
   different strings, the default is **keep-separate**, with an explicit human-confirmed **merge at M4** (re-keying
   all affected molecules transactionally with a logged audit entry); silent merges of ~100-video conditions are
-  never performed. A condition spans many movies across many days/files. The per-condition leakage α and its
-  donor-only-sample provenance are stored here. The **editable per-trace category list** (§7.6) and the
-  **integer↔category lookup table** (§7.4, Appendix D) also live here as per-condition **data** — the category list
-  as a variable-length string dataset (the same affordance as free tags), the lookup as a map attribute on the
-  condition row — so both travel with the condition across its many files. They are additive *data* under the
-  already-declared `/conditions` group, not new structure, so they do not require a schema-freeze exception.
+  never performed. A condition spans many movies across many days, and so across several project files (the
+  definitions above). The per-condition leakage α and its donor-only-sample provenance are stored here. The
+  **editable per-trace category list** (§7.6) and the **integer↔category lookup table** (§7.4, Appendix D) also live
+  here as per-condition **data** — the category list as a variable-length string dataset (the same affordance as
+  free tags), the lookup as a map attribute on the condition row — so both travel with the condition to every
+  project that holds it (ADR-0068). They are additive *data* under the already-declared `/conditions` group, not new
+  structure, so they do not require a schema-freeze exception.
 - **`/settings`** — effective extraction/detection/aperture/registration parameters per experiment, written at
   extraction. A global default config seeds new experiments (per-experiment overrides global); the batch runner
   reads a settings profile.
@@ -565,9 +586,10 @@ traces, DeepFRET/Deep-LASI-style [Thomsen2020]) **shall** reuse the same label s
 
 Tether **shall** support structured condition fields auto-filled from the filename (validation mandatory), free
 tags, and a **fully user-editable per-trace category list (no presets)** scoped per condition (the list travels
-with the condition, which spans many files). Assigning a category is **independent of accept/reject** (§5.1, §7.5):
-it does not imply acceptance, and accept/reject is a separate logged keystroke. A condition **shall** be
-queryable/filterable across its many movies.
+with the condition, which may span several projects, §5.1). Assigning a category is **independent of
+accept/reject** (§5.1, §7.5): it does not imply acceptance, and accept/reject is a separate logged keystroke. A
+condition **shall** be queryable/filterable across its many movies, and a plot **shall** be able to pool one
+condition across the projects that hold it (§7.7).
 
 ### 7.7 FR-ANALYZE — Analysis & visualization
 
@@ -652,6 +674,9 @@ Every module **shall** be usable without the GUI, proven per milestone (a CLI mo
 headless reproduction of the MVP histogram at M2). The overnight **batch runner shall** isolate each movie
 (continue-on-error), checkpoint **per stage** (extract / correct / idealize — so a resume re-runs only the failed
 stage), and emit a structured log + end-of-run summary that enumerates every movie's status and names any failures.
+Its output follows the project unit of §5.1: the batch runner **shall** be able to write the movies of one experiment
+into one project, through the multi-movie append (M12), so that a run does not split an experiment into one file for
+each movie.
 
 **Sidecar supervision.** Because idealization runs through the separate long-lived tMAVEN sidecar over IPC (§4.3),
 the batch **shall** supervise it: a per-IPC-call **wall-clock timeout + liveness check**; on a hang or crash,

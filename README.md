@@ -1,9 +1,14 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/lockup-dark.svg">
+  <img src="docs/assets/brand/lockup-light.svg" alt="Tether" width="420" height="120">
+</picture>
+
 # Tether
 
 **A provenance-first desktop suite for single-molecule FRET (smFRET) analysis.**
 
-[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-bioedca.github.io%2Ftether-indigo.svg)](https://bioedca.github.io/tether/)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPLv3-121417.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-bioedca.github.io%2Ftether-121417.svg)](https://bioedca.github.io/tether/)
 
 Tether is a cross-platform application for the Mondragón Lab (Northwestern
 University) that takes you from a raw TIRF movie to curated, corrected,
