@@ -50,8 +50,8 @@ The theme does not change the figures that Tether exports. Exported figures are 
 with Matplotlib and have no brand element ([ADR-0044](../adr/0044-matplotlib-base-plot-export-backend.md)).
 
 The window colors are the tokens in `src/tether/gui/assets/brand/tokens.json`
-(see [Brand](../brand.md)). The module `tether.gui.theme` is the only module of the
-application that contains a color value. A test makes sure of this.
+(see [Brand](../brand.md)). The module `tether.gui.theme` is the only module in
+`src/tether/gui` that contains a color value. A test makes sure of this.
 
 ## Trace colors
 
