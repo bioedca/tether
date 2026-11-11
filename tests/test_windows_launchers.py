@@ -80,13 +80,14 @@ def test_windows_shortcut_starts_the_gui_through_its_launcher() -> None:
 
     A ``.lnk`` cannot set environment variables, so targeting ``tether-gui.exe`` directly
     would start the GUI without the env's folders on PATH. It runs ``tether-gui.bat``,
-    minimized (``WindowStyle`` 7), and borrows the console-less exe's icon.
+    minimized (``WindowStyle`` 7), and shows the Tether ``tether.ico`` rather than the
+    generic launcher's icon (issue #673; ``tests/test_gui_identity.py`` binds the path).
     """
     text = POST_INSTALL_BAT.read_text(encoding="utf-8")
     assert re.search(r'(?m)^set "TETHER_GUI_BAT=%BIN_D%\\tether-gui\.bat"$', text)
     assert '"$s.TargetPath=$env:TETHER_GUI_EXE;"' not in text
     assert '"$s.WindowStyle=7;"' in text
-    assert "\"$s.IconLocation=$env:TETHER_GUI_EXE + ',0';\"" in text
+    assert "\"$s.IconLocation=$env:TETHER_ICO + ',0';\"" in text
 
 
 def test_windows_shortcut_targets_cmd_so_start_lists_it() -> None:
