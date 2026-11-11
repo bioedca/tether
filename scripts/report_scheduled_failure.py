@@ -94,10 +94,12 @@ ORACLE_FIELDS = (
     ("Reproduction / harness", "{facts}"),
     (
         "Required safety attestations",
-        "- [x] I searched existing issues and this is not a duplicate.\n"
-        "- [x] I am not reporting a vulnerability publicly; security reports use the private "
+        "The report step ticks none of these: it looked only for an open issue with the same "
+        "title, and no person read the log excerpt. Tick each one when you have checked it.\n\n"
+        "- [ ] I searched existing issues and this is not a duplicate.\n"
+        "- [ ] I am not reporting a vulnerability publicly; security reports use the private "
         "advisory flow.\n"
-        "- [x] I included no secrets or private, raw, unlicensed, user, or lab data.",
+        "- [ ] I included no secrets or private, raw, unlicensed, user, or lab data.",
     ),
     (
         "Remediation checks (CLAUDE.md data-gaps / invariants)",

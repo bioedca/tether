@@ -39,9 +39,11 @@ oracle jobs, `sidecar / parity` and `large-fixtures`, use the fields and labels 
 validation-oracle-failure form. The other jobs use `type:ci`. A later failure adds one comment,
 and the next passing run adds one comment. Each day there is at most one new comment of each
 kind. After that, a change from failed to passed (or back) edits the latest comment, so the issue
-always shows the latest run. The issue does not close itself: close it with the cause. A pull request never opens an issue. To test the report,
-run `docs-liveness` by hand on a test branch with `drill` set to `fail`, then to `pass`. A drill
-issue has the title prefix `ci(drill)`, so it never touches the real issue.
+always shows the latest state, failed or passed. A repeated failure on the same day adds nothing:
+the Actions page lists every run. The issue does not close itself: close it with the cause. A
+pull request never opens an issue. To test the report, run `docs-liveness` by hand on a test
+branch with `drill` set to `fail`, then to `pass`. A drill issue has the title prefix
+`ci(drill)`, so it never touches the real issue.
 
 Which tier each oracle's *headline* assertion lives in:
 

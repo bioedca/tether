@@ -311,7 +311,9 @@ def test_oracle_jobs_open_from_the_validation_oracle_failure_form() -> None:
     for field in form["body"]:
         if field["type"] == "checkboxes":
             for option in field["attributes"]["options"]:
-                assert f"] {option['label']}\n" in issue["body"] + "\n", option["label"]
+                # Unticked: the report step cannot attest what only a person can check.
+                assert f"- [ ] {option['label']}\n" in issue["body"] + "\n", option["label"]
+    assert "- [x]" not in issue["body"]
 
 
 # --- the log excerpt ----------------------------------------------------------------------
