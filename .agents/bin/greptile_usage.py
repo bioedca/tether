@@ -54,9 +54,11 @@ BOT = "greptile-apps"
 #: Greptile Pro, per seat, per billing period.
 INCLUDED_CREDITS = 50
 
-#: Tether's self-imposed share of the seat. Advisory - nothing enforces it, and exceeding it is not
-#: an error, it just means the other two repositories have less.
-REPO_SHARE = 16
+#: Tether's share of the seat, set by the maintainer (ADR-0069): the optional review and the review
+#: that stands in for a refused CodeRabbit draw on it together. Nothing here enforces it - the
+#: figure is printed for the worker `AGENTS.md` §Review tells to read it before asking, and a
+#: worker past it does not ask.
+REPO_SHARE = 15
 
 EXIT_OVER_BUDGET = 1
 

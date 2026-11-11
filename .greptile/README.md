@@ -39,7 +39,8 @@ The cover for those older branches is the account-level **file-change limit**, s
 config to land in each. Note the comparison is **exceeding** — a pull request touching exactly one
 file is still reviewed automatically, so the limit is a broad net, not a seal.
 
-**It does not enforce a budget.** Nothing stops a seventeenth `@greptileai` except not typing it.
+**It does not enforce a budget.** Tether's share of the seat is **15 credits a month**
+(ADR-0069), and nothing stops a sixteenth `@greptileai` except not typing it.
 
 ## Once this has merged, this repository no longer needs the account-level limit
 
@@ -95,10 +96,16 @@ skipped when the seat has no budget: skipped without a request, never without a 
 PR body carries the skip and its reason as §Review words them. Draft-first is the default rather than a
 precondition: a pull request opened ready with its reason recorded is asked there, at the same point
 in the lane and on the same green checks. What does not change either way is the order — Codex
-reads the diff before any metered provider does. **One *review* in practice**, and a review is not always one credit — a standard review costs one, a TREX review three (see above), so a second ask is a real spend rather than a free retry. The ceiling of **at most two completed
-reviews per metered provider** in `AGENTS.md` §Review applies here as everywhere, but it is a
-ceiling rather than a second credit to plan on, so ask again only if the first found something blocking and the seat still has
-budget. A request that produced no review — a throttle, a quota refusal, a failed run — is not an
+reads the diff before any metered provider does. **One review**, and a review is not always one credit — a standard review costs one, a TREX review three (see above). The cap of **at most one completed
+review per metered provider** in `AGENTS.md` §Review applies here as everywhere. A request that produced no review — a throttle, a quota refusal, a failed run — is not an
 ask and spends nothing. CodeRabbit, not Greptile, is the metered gate — and when CodeRabbit's own
 cap is spent with no finding left outstanding, an unmetered **posted** Codex review closes it — §Review carries the
-conditions on that, and this page states none of them. Greptile is never the closer either way.
+conditions on that, and this page states none of them.
+
+**One exception makes Greptile the metered gate** (ADR-0069). Where CodeRabbit posts a refusal that
+names more than 30 minutes, §Review lets one **standard** Greptile review stand in for it — the one
+already on the pull request, or else a new one asked only while the seat has credits left and Tether
+is under its share of 15 for the month, both read from the script above at that moment. Count a TREX
+review as three in that reading, because the script counts it as one (see "Reading the balance before
+spending"). An unreadable balance is a no. §Review carries the conditions, and this page states none
+beyond these.
