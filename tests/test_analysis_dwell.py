@@ -33,6 +33,7 @@ from tether.analysis import (  # noqa: E402
     state_dwells,
     survival_curve,
 )
+from tether.analysis.dwell import triple_exp_survival  # noqa: E402
 from tether.idealize import NO_STATE  # noqa: E402
 
 # --- tMAVEN reference oracle (dwells.py, ported verbatim) ---------------------
@@ -110,6 +111,18 @@ def test_state_dwells_include_first_keeps_leading_run() -> None:
     assert sd.lengths[0].tolist() == [3]
     assert sd.lengths[1].tolist() == [2]
     assert sd.lengths[2].tolist() == [3]
+
+
+def test_state_dwells_include_first_two_runs_keeps_the_first() -> None:
+    # The smallest molecule that include_first changes: exactly two runs. The first run
+    # (0x2) has an observed exit, so it is kept; the second (1x2) is right-censored.
+    # (#739 ANB-F10, dwell.py:199: a guard of `len(runs) <= 2` would drop this molecule.)
+    two_runs = np.array([0, 0, 1, 1])
+    sd = state_dwells([two_runs], no_state=NO_STATE, include_first=True)
+    assert {st: v.tolist() for st, v in sd.lengths.items()} == {0: [2]}
+    assert sd.n_molecules == {0: 1}
+    # without include_first both runs are dropped
+    assert state_dwells([two_runs], no_state=NO_STATE).lengths == {}
 
 
 def test_state_dwells_single_run_contributes_nothing() -> None:
@@ -209,6 +222,19 @@ def test_fit_recovers_known_rate() -> None:
     np.testing.assert_allclose(fit.amplitudes[0], 1.0, atol=0.05)
 
 
+def test_fit_single_recovers_an_amplitude_below_one() -> None:
+    # A noise-free single exponential whose amplitude is below 1 (a fast component that
+    # the frame grid cannot resolve). The fitted A in the other tests is above 1, so the
+    # lower bound of A is never active there (#739 ANB-F10, dwell.py:328).
+    # Measured agreement: 1.2e-10 (rate) and 6.0e-11 (amplitude); limit 1e-6.
+    tau = np.arange(40, dtype=float)
+    surv = 0.6 * np.exp(-0.3 * tau)
+    fit = fit_survival(tau, surv, model="single")
+    assert fit.success
+    np.testing.assert_allclose(fit.rates, [0.3], rtol=1e-6)
+    np.testing.assert_allclose(fit.amplitudes, [0.6], rtol=1e-6)
+
+
 def test_fit_ci_and_residuals() -> None:
     from scipy import stats
 
@@ -250,6 +276,22 @@ def test_fit_too_few_points_fails_gracefully() -> None:
     assert np.all(np.isnan(fit.rates))
     assert np.all(np.isnan(fit.rate_ci))
     assert fit.residuals.shape == fit.tau.shape
+    # a model without a stretch exponent reports no beta fields at all
+    assert fit.beta is None
+    assert fit.beta_stderr is None
+    assert fit.beta_ci is None
+
+
+def test_failed_stretched_fit_reports_nan_beta_fields() -> None:
+    # The failed stretched fit has a beta, so its beta fields are NaN, not None
+    # (#739 ANB-F10, dwell.py:406).
+    tau, surv = survival_curve(np.array([1]))
+    fit = fit_survival(tau, surv, model="stretched")
+    assert fit.success is False
+    assert np.isnan(fit.beta)
+    assert np.isnan(fit.beta_stderr)
+    assert np.isnan(fit.beta_ci)
+    assert np.all(np.isnan(fit.rates)) and np.all(np.isnan(fit.amplitudes))
 
 
 def test_fit_non_finite_survival_fails_gracefully() -> None:
@@ -294,7 +336,10 @@ def test_fit_double_sorted_by_rate() -> None:
     assert fit.success
     assert fit.rates.shape == (2,) and fit.amplitudes.shape == (2,)
     assert fit.rates[0] < fit.rates[1]  # ascending
-    np.testing.assert_allclose(np.sort(fit.rates), [0.05, 0.8], rtol=0.15)
+    # Noise-free curve: measured agreement 5.6e-13 (rates) and 4.4e-13 (amplitudes), so
+    # the limit is 1e-6, not 0.15 (#739 ANB-F6).
+    np.testing.assert_allclose(fit.rates, [0.05, 0.8], rtol=1e-6)
+    np.testing.assert_allclose(fit.amplitudes, [0.5, 0.5], rtol=1e-6)
 
 
 def test_fit_double_cosorts_stderr_and_amplitudes_with_rates(monkeypatch) -> None:
@@ -341,15 +386,84 @@ def test_fit_triple_cosorts_stderr_and_amplitudes_with_rates(monkeypatch) -> Non
     np.testing.assert_allclose(fit.amplitude_ci, ses[3:][order] * t)
 
 
+def test_triple_exp_survival_values() -> None:
+    # The tri-exponential form itself, at hand-computed points: three decaying terms,
+    # each with its own rate (#739 ANB-F3, dwell.py:111).
+    import math
+
+    tau = np.array([0.0, 1.0, 5.0, 20.0])
+    got = triple_exp_survival(tau, 0.02, 0.2, 2.0, 0.5, 0.3, 0.2)
+    want = [
+        0.5 * math.exp(-0.02 * t) + 0.3 * math.exp(-0.2 * t) + 0.2 * math.exp(-2.0 * t) for t in tau
+    ]
+    np.testing.assert_allclose(got, want, rtol=1e-12)
+
+
+def test_fit_triple_recovers_known_rates_and_amplitudes() -> None:
+    # A real tri-exponential fit (no monkeypatch): the noise-free curve
+    # 0.5 exp(-0.02 t) + 0.3 exp(-0.2 t) + 0.2 exp(-2 t). The test above fakes
+    # curve_fit and checks only the sort order, so this is the test that the optimizer
+    # and triple_exp_survival give the right numbers (#739 ANB-F3).
+    # Measured agreement: 3.0e-13 (rates), 2.3e-13 (amplitudes), 2.1e-14 (model curve).
+    tau = np.arange(200, dtype=float)
+    surv = 0.5 * np.exp(-0.02 * tau) + 0.3 * np.exp(-0.2 * tau) + 0.2 * np.exp(-2.0 * tau)
+    fit = fit_survival(tau, surv, model="triple")
+    assert fit.success
+    assert fit.model == "triple"
+    np.testing.assert_allclose(fit.rates, [0.02, 0.2, 2.0], rtol=1e-6)
+    np.testing.assert_allclose(fit.amplitudes, [0.5, 0.3, 0.2], rtol=1e-6)
+    np.testing.assert_allclose(fit.model_survival, surv, rtol=1e-6)
+
+
 def test_fit_stretched_reports_beta() -> None:
     tau = np.arange(50, dtype=float)
     surv = np.exp(-((0.1 * tau) ** 0.7))
     fit = fit_survival(tau, surv, model="stretched")
     assert fit.success
     assert fit.beta is not None
-    np.testing.assert_allclose(fit.beta, 0.7, rtol=0.15)
-    np.testing.assert_allclose(fit.rates[0], 0.1, rtol=0.15)
+    # Noise-free curve: measured agreement 2.4e-13 (beta), 1.7e-13 (rate) and 9.3e-14
+    # (amplitude), so the limit is 1e-6, not 0.15 (#739 ANB-F6).
+    np.testing.assert_allclose(fit.beta, 0.7, rtol=1e-6)
+    np.testing.assert_allclose(fit.rates, [0.1], rtol=1e-6)
+    np.testing.assert_allclose(fit.amplitudes, [1.0], rtol=1e-6)
     assert "β" in fit.annotation
+
+
+def test_fit_stretched_maps_stderr_and_ci_to_each_parameter(monkeypatch) -> None:
+    # curve_fit's popt for the stretched model is (k, beta, A). With a known popt and a
+    # covariance whose three standard errors differ, each reported error and CI must
+    # belong to its own parameter (#739 ANB-F6: dwell.py:345 can swap them).
+    from scipy import stats
+
+    popt = np.array([0.1, 0.7, 0.9])  # k, beta, A
+    ses = np.array([0.01, 0.02, 0.03])  # SE of k, beta, A
+    monkeypatch.setattr("scipy.optimize.curve_fit", lambda *a, **k: (popt, np.diag(ses**2)))
+    fit = fit_survival(
+        np.arange(20.0), np.exp(-((0.1 * np.arange(20.0)) ** 0.7)), model="stretched"
+    )
+    assert fit.success
+    np.testing.assert_allclose(fit.rates, [0.1])
+    np.testing.assert_allclose(fit.amplitudes, [0.9])
+    assert fit.beta == pytest.approx(0.7)
+    np.testing.assert_allclose(fit.rate_stderr, [0.01])
+    np.testing.assert_allclose(fit.amplitude_stderr, [0.03])
+    assert fit.beta_stderr == pytest.approx(0.02)
+    t = float(stats.t.ppf(0.975, fit.n_points - 3))
+    np.testing.assert_allclose(fit.rate_ci, [0.01 * t])
+    np.testing.assert_allclose(fit.amplitude_ci, [0.03 * t])
+    assert fit.beta_ci == pytest.approx(0.02 * t)
+
+
+def test_fit_stretched_beta_stays_at_most_one() -> None:
+    # beta is bounded to (0, 1]: a compressed curve exp(-(k t)^1.5) is fitted with the
+    # bound active, so the reported beta is at most 1 (#739 ANB-F10, dwell.py:335).
+    # Measured: beta = 1 - 1.1e-16 at the bound.
+    tau = np.arange(50, dtype=float)
+    surv = np.exp(-((0.1 * tau) ** 1.5))
+    fit = fit_survival(tau, surv, model="stretched")
+    assert fit.success
+    assert fit.beta <= 1.0
+    assert fit.beta == pytest.approx(1.0, abs=1e-6)
 
 
 def test_fit_annotation_present() -> None:
@@ -444,6 +558,7 @@ def test_population_missing_state_is_empty_never_raises(tmp_path) -> None:
     proj, _keys = build_store_with_model(tmp_path, s, MEANS)
     a = population_dwell_times(proj, "vbconhmm", state=99)
     assert a.n_dwells == 0
+    assert a.n_molecules == 0  # no molecule contributes (#739 ANB-F10, dwell.py:586)
     assert a.dwell_lengths.size == 0
     assert a.fit is None
     assert np.isnan(a.level)  # out of means range
@@ -509,6 +624,77 @@ def test_population_state_none_returns_all_states_fitted(tmp_path) -> None:
         assert analysis.fit.success
         assert analysis.fit.rates[0] > 0
         assert "k =" in analysis.fit.annotation
+
+
+def _chained_store(tmp_path, *, seed: int, n_runs: int, name: str):
+    """One molecule that cycles 0 -> 1 -> 2 -> 0 with exponential run lengths (mean 4)."""
+    rng = np.random.default_rng(seed)
+    frames = []
+    state = 0
+    for _ in range(n_runs):
+        frames.extend([state] * int(np.ceil(rng.exponential(4.0))))
+        state = (state + 1) % 3
+    s = np.array([frames], dtype="int64")
+    proj, _keys = build_store_with_model(tmp_path, s, MEANS, name=name)
+    return proj, s
+
+
+def test_population_fit_is_in_time_units_of_dt(tmp_path) -> None:
+    # The store path fits tau in seconds (frames * dt), so with dt = 0.1 s every rate
+    # is 10 times the per-frame rate, in 1/s. A fit on frames would report the
+    # per-frame rate in 1/s (#739 ANB-F4, dwell.py:578).
+    # Measured agreement: 1.1e-9; limit 1e-6.
+    proj, _s = _chained_store(tmp_path, seed=99, n_runs=600, name="dt.tether")
+    per_frame = population_dwell_times(proj, "vbconhmm", model="single")
+    per_second = population_dwell_times(proj, "vbconhmm", model="single", dt=0.1)
+    assert set(per_second) == set(per_frame) == {0, 1, 2}
+    for st, a in per_second.items():
+        assert a.fit is not None and a.fit.success
+        np.testing.assert_allclose(a.fit.tau, per_frame[st].fit.tau * 0.1)
+        np.testing.assert_allclose(a.fit.rates, per_frame[st].fit.rates / 0.1, rtol=1e-6)
+        # the amplitude has no unit, so dt does not change it
+        np.testing.assert_allclose(a.fit.amplitudes, per_frame[st].fit.amplitudes, rtol=1e-6)
+
+
+def test_population_ci_level_reaches_the_fit(tmp_path) -> None:
+    # The requested ci_level is the level of the reported intervals: at 0.68 the
+    # half-width is the Student-t multiplier of 0.68 times the same standard error, so
+    # it is narrower than at 0.95 (#739 ANB-F4, dwell.py:578).
+    from scipy import stats
+
+    proj, _s = _chained_store(tmp_path, seed=99, n_runs=600, name="ci.tether")
+    at_68 = population_dwell_times(proj, "vbconhmm", model="single", ci_level=0.68)
+    at_95 = population_dwell_times(proj, "vbconhmm", model="single")
+    for st, a in at_68.items():
+        fit68, fit95 = a.fit, at_95[st].fit
+        assert fit68.ci_level == 0.68
+        assert fit95.ci_level == 0.95
+        t68 = float(stats.t.ppf(0.84, fit68.n_points - 2))
+        np.testing.assert_allclose(fit68.rate_ci, fit68.rate_stderr * t68, rtol=1e-9)
+        np.testing.assert_allclose(fit68.amplitude_ci, fit68.amplitude_stderr * t68, rtol=1e-9)
+        np.testing.assert_allclose(fit68.rate_stderr, fit95.rate_stderr, rtol=1e-9)
+        assert np.all(fit68.rate_ci < fit95.rate_ci)
+
+
+def test_population_include_first_adds_the_leading_dwell(tmp_path) -> None:
+    # include_first=True keeps the molecule's first run: the state of frame 0 gains
+    # exactly that one dwell, at the front, and no other state changes
+    # (#739 ANB-F4, dwell.py:570).
+    proj, s = _chained_store(tmp_path, seed=99, n_runs=600, name="first.tether")
+    first_state = int(s[0, 0])
+    first_len = int(np.argmax(s[0] != first_state))  # length of the leading run
+    assert first_len >= 1
+    without = population_dwell_times(proj, "vbconhmm", model="single")
+    with_first = population_dwell_times(proj, "vbconhmm", model="single", include_first=True)
+    assert set(with_first) == set(without)
+    for st, a in with_first.items():
+        if st == first_state:
+            want = np.r_[first_len, without[st].dwell_lengths]
+            np.testing.assert_array_equal(a.dwell_lengths, want)
+            assert a.n_dwells == without[st].n_dwells + 1
+        else:
+            np.testing.assert_array_equal(a.dwell_lengths, without[st].dwell_lengths)
+        assert a.n_molecules == without[st].n_molecules == 1
 
 
 @pytest.mark.parametrize("model", ["double", "triple", "stretched"])
