@@ -118,7 +118,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > traces ([ADR-0070](adr/0070-advisory-check-for-swapped-donor-and-acceptor-halves.md)).
 > When the acceptor bleaches first the acceptor drops to background and the donor *rises*;
 > when the donor bleaches first both drop. Among molecules with a complete bleach sequence,
-> if the channel labelled donor shows the acceptor's drop in at least 80 % of at least 20
+> if the channel labelled donor shows the acceptor's drop in at least 80 % of at least 15
 > events, the command warns on standard error, names the evidence and gives the remedy:
 >
 > ```text
@@ -132,9 +132,9 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > and thresholds are stored as `donor_side_check` in `/settings/extraction`, and
 > `tether batch` lists the flagged movies in its summary.
 >
-> **It cannot always decide.** With fewer than 20 bleach events it says `not enough bleach
+> **It cannot always decide.** With fewer than 15 bleach events it says `not enough bleach
 > events to check the donor side`. Expect that with low FRET (below about E = 0.2), with no
-> acceptor, with short movies, and with most movies of fewer than about 50 molecules. A
+> acceptor, with short movies, and with most movies of fewer than about 35 molecules. A
 > verdict of "not a clear majority either way" means the votes split. In both cases, and
 > whenever the result matters, check by eye.
 >

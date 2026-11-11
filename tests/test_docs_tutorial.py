@@ -48,7 +48,7 @@ _needs_qt = pytest.mark.skipif(not _HAS_QT, reason="pyqtgraph/PySide6 not instal
 EXTRACT_LINE = "Extracted 3 molecule(s) -> tutorial.tether"
 #: The donor-side check (#646): three molecules are too few for it to judge.
 SIDE_CHECK_LINE = (
-    "  donor side: not enough bleach events to check the donor side (0 found, 20 needed)."
+    "  donor side: not enough bleach events to check the donor side (0 found, 15 needed)."
 )
 OPEN_LINE = "Opened tutorial.tether — 3 molecule(s)"
 BROWSE_LINE = "Molecule mol-1 (2/3)"

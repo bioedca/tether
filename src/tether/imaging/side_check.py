@@ -103,7 +103,7 @@ __all__ = [
 
 # --- Tunables (PRD §11.2; measured in ADR-0070) --------------------------------
 #: Fewest voting bleach events before the check gives a verdict.
-SIDE_CHECK_MIN_EVENTS: int = 20
+SIDE_CHECK_MIN_EVENTS: int = 15
 #: Fraction of the votes that must agree before the check calls the halves swapped
 #: (or consistent).
 SIDE_CHECK_MAJORITY: float = 0.8

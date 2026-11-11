@@ -106,7 +106,7 @@ stores — is the supported case (`RegistrationChannel.has_simple_geometry` in
 > other steps up, your halves are swapped.
 >
 > Tether makes this check for you after every extraction, on every molecule with a complete
-> bleach sequence, and warns when at least 80 % of at least 20 such events point to swapped
+> bleach sequence, and warns when at least 80 % of at least 15 such events point to swapped
 > halves; `tether batch` lists those movies in its summary. The check is advisory and
 > cannot decide on every sample: with low FRET, no acceptor, short movies or few molecules
 > it reports "not enough bleach events to check", and then the check by eye above is the

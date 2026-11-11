@@ -76,9 +76,9 @@ evidence below; the detection columns give P(warning) when the halves really are
 | `min_events` / `majority` | Worst false-alarm bound | Typical, 50 molecules | Typical, 100 | 281-mol fixture, 50 | Binding-like, 100 |
 |---|---|---|---|---|---|
 | 10 / 0.8 | 5.9 % (kinSoft `level2`, 250) | 100 % | 100 % | 99.4 % | 88.8 % |
-| 15 / 0.8 | 0.13 % (kinSoft `level2`, 250) | 96.7 % | 100 % | 99.4 % | 88.8 % |
+| **15 / 0.8** | **0.13 % (kinSoft `level2`, 250)** | **96.7 %** | **100 %** | **99.4 %** | **88.8 %** |
 | 20 / 0.7 | 0.91 % (binding-like short, 100) | 64.5 % | 100 % | 99.5 % | 99.9 % |
-| **20 / 0.8** | **0.048 % (binding-like short, 100)** | **64.5 %** | **100 %** | **98.9 %** | **88.8 %** |
+| 20 / 0.8 | 0.048 % (binding-like short, 100) | 64.5 % | 100 % | 98.9 % | 88.8 % |
 | 20 / 0.9 | 0.001 % | 64.5 % | 100 % | 80.4 % | 18.7 % |
 | 30 / 0.8 | 0.001 % | 0.7 % | 99.4 % | 38.6 % | 88.8 % |
 
@@ -89,11 +89,15 @@ lower them. They are listed because the rule here is to report the bound, not th
 
 ## Decision outcome
 
-Chosen option: **option 4 with `min_events` = 20 and `majority` = 0.8**. It is the smallest
-event count whose worst false-alarm bound is below 0.1 % everywhere, and the largest majority
-that keeps detection on the real fixture near 99 % at 50 molecules. 0.9 buys a lower bound that
-is already negligible and loses most of the binding-like detection; 30 events loses most small
-movies.
+Chosen option: **option 4 with `min_events` = 15 and `majority` = 0.8**. The first draft chose
+20 events, the smallest count whose worst bound is below 0.1 % everywhere. A real movie changed
+that (*A real movie extracted both ways*, below): Tether's own extraction gave about 10 votes per
+100 molecules, not the fixture's 57, and with the halves swapped 17 of 17 votes pointed the right
+way while 20 events stayed silent. 15 is the smallest count whose worst bound stays near 0.1 %
+(0.13 %, a small-pool bound; 10 events reach 5.9 %), and it raises detection on a typical
+50-molecule movie from 64.5 % to 96.7 %. 0.8 is the largest majority that keeps detection on the
+real fixture near 99 % at 50 molecules: 0.9 buys a lower bound that is already negligible and
+loses most of the binding-like detection; 30 events loses most small movies.
 
 ### The rule (`tether.imaging.side_check`)
 
@@ -121,7 +125,7 @@ movies.
 
 | Tunable | Default | Role |
 |---|---|---|
-| `SIDE_CHECK_MIN_EVENTS` | 20 | votes needed before any verdict |
+| `SIDE_CHECK_MIN_EVENTS` | 15 | votes needed before any verdict |
 | `SIDE_CHECK_MAJORITY` | 0.8 | share of the votes a verdict needs |
 | `SIDE_CHECK_STEP_Z` | 3.0 | standard errors for the drop and for the rise |
 | `SIDE_CHECK_LEVEL_FRAMES` | 10 | frames averaged on each side of the step |
@@ -183,31 +187,35 @@ conservative rate. **Detection** is P(swapped) with the labels exchanged.
 
 | Source | Votes per 100 molecules | False alarm, worst N | Detection at N = 25 / 50 / 100 / 250 |
 |---|---|---|---|
-| 281-molecule fixture (resampled) | 56.9 | < 0.01 % | 1.4 % / 98.9 % / 99.98 % / 100 % |
-| Typical (E 0.5, 10 % donor-only) | 41.6 | < 0.01 % | 0.01 % / 64.5 % / 100 % / 100 % |
+| 281-molecule fixture (resampled) | 56.9 | < 0.01 % | 45.4 % / 99.4 % / 99.98 % / 100 % |
+| kinSoft `level2` (resampled) | 0.7 | **0.13 %** (N = 250) | insufficient at every N |
+| kinSoft `level3` (resampled) | 0.4 | < 0.01 % | insufficient at every N |
+| Typical (E 0.5, 10 % donor-only) | 41.6 | < 0.01 % | 5.0 % / 96.7 % / 100 % / 100 % |
 | E 0.05 | 0.1 | < 0.01 % | insufficient at every N |
 | E 0.1 | 1.4 | < 0.01 % | insufficient at every N |
-| E 0.2 | 17.9 | < 0.01 % | < 0.01 % / 0.02 % / 33.0 % / 100 % |
-| E 0.3 | 32.5 | < 0.01 % | < 0.01 % / 16.1 % / 99.8 % / 100 % |
-| E 0.7 | 43.0 | < 0.01 % | 0.02 % / 71.7 % / 100 % / 100 % |
-| E 0.9 | 41.8 | < 0.01 % | 0.01 % / 65.3 % / 100 % / 100 % |
-| Dim (I₀ 200 counts) | 39.0 | < 0.01 % | < 0.01 % / 49.6 % / 100 % / 100 % |
+| E 0.2 | 17.9 | < 0.01 % | < 0.01 % / 2.5 % / 81.1 % / 100 % |
+| E 0.3 | 32.5 | < 0.01 % | 0.42 % / 69.4 % / 100 % / 100 % |
+| E 0.7 | 43.0 | < 0.01 % | 6.6 % / 97.9 % / 100 % / 100 % |
+| E 0.9 | 41.8 | < 0.01 % | 5.1 % / 96.9 % / 100 % / 100 % |
+| Dim (I₀ 200 counts) | 39.0 | < 0.01 % | 2.7 % / 92.9 % / 100 % / 100 % |
 | No acceptor (donor-only sample) | 0 | < 0.01 % | insufficient at every N |
-| Half donor-only | 21.6 | < 0.01 % | < 0.01 % / 0.25 % / 68.9 % / 100 % |
-| γ 0.5 | 27.5 | < 0.01 % | < 0.01 % / 3.8 % / 96.7 % / 100 % |
-| γ 2 | 43.3 | < 0.01 % | 0.02 % / 72.9 % / 100 % / 100 % |
-| Dynamics E 0.15 ↔ 0.85 | 33.6 | < 0.01 % | < 0.01 % / 21.0 % / 99.9 % / 100 % |
-| Binding-like E 0 ↔ 0.9 | 55.5 | < 0.01 % | 0.8 % / 81.1 % / 88.8 % / 96.8 % |
-| Short movie (300 frames) | 6.0 | < 0.01 % | < 0.01 % / < 0.01 % / < 0.01 % / 11.8 % |
+| Half donor-only | 21.6 | < 0.01 % | < 0.01 % / 10.5 % / 96.3 % / 100 % |
+| γ 0.5 | 27.5 | < 0.01 % | 0.07 % / 39.8 % / 99.9 % / 100 % |
+| γ 2 | 43.3 | < 0.01 % | 7.0 % / 98.1 % / 100 % / 100 % |
+| Dynamics E 0.15 ↔ 0.85 | 33.6 | < 0.01 % | 0.62 % / 75.4 % / 100 % / 100 % |
+| Binding-like E 0 ↔ 0.9 | 55.5 | < 0.01 % | 32.4 % / 81.8 % / 88.8 % / 96.8 % |
+| Short movie (300 frames) | 6.0 | < 0.01 % | < 0.01 % / < 0.01 % / 0.09 % / 53.8 % |
 | Dynamics, no bleaching in view | 0.8 | < 0.01 % | insufficient at every N |
-| Binding-like, short movie | 22.7 | **0.048 %** (N = 100) | < 0.01 % / < 0.01 % / 0.8 % / 0.02 % |
+| Binding-like, short movie | 22.7 | **0.10 %** (N = 50) | < 0.01 % / 0.55 % / 1.3 % / 0.02 % |
 
 Where detection is low the movie reads **insufficient** (too few votes), except in the two
 binding-like rows, where the remainder reads **mixed**: an acceptor that leaves and returns
 produces anticorrelated steps that are not bleaching, and the second-bleach requirement removes
 most but not all of them (86 % and 56 % of their votes are consistent). The short binding-like
-movie gives the worst false-alarm bound, 0.048 %, and its verdict at 100 and 250 molecules is
-mostly *mixed*, which the check reports as a prompt to look at one trace by eye.
+movie gives the worst false-alarm bound of any condition with wrong votes, 0.10 % at 50
+molecules, and its verdict at 100 and 250 molecules is mostly *mixed*, which the check reports as
+a prompt to look at one trace by eye. The overall worst bound, 0.13 %, is the kinSoft `level2`
+small-pool bound described under the sweep.
 
 **The simulations.** Each simulated molecule is background-subtracted, under donor excitation
 only: before either bleach the donor reads `I₀(1 − E)` and the acceptor `γ I₀ E` plus a 0.07
@@ -219,6 +227,27 @@ pre-bleach scatter of the 281-molecule fixture. Every condition changes one of t
 typical row. This is a measurement aid in `scripts/`, not a shipped simulator, so PRD N2 (no data
 simulator in v1) is unaffected; the real fixtures remain the evidence the issue names.
 
+**A real movie extracted both ways.** The maintainer ran the check on one real movie that is not
+in the repository (UCKOPSB, 1,700 frames, native registration RMS 0.87 px), extracted with
+`--donor-side left`, the correct side, and with `--donor-side right`. The counts come from
+`classify_bleach_event` on the stored `donor_corrected` and `acceptor_corrected` traces:
+
+| Extraction | Molecules | Votes consistent / swapped | Together | No vote | Verdict at 20 | Verdict at 15 |
+|---|---|---|---|---|---|---|
+| `left` (correct) | 183 | 0 / 0 | 46 | 137 | insufficient | insufficient |
+| `right` (wrong) | 165 | 0 / 17 | 23 | 125 | insufficient | **swapped** |
+
+Two things differ from the fixture. The vote yield is about 10 per 100 molecules, not 57: most
+molecules bleach in view (the summed signal of 137 of the 183 ends below 20 % of its start), but
+few show a donor rise of three standard errors. And the two extractions do not see the same
+molecules. Colocalization is donor-anchored, so every spot on the half labelled donor becomes a
+molecule. The likely result is that the correct side keeps the bright donors, mostly low-FRET and
+donor-only molecules that rarely vote, and the wrong side keeps the bright acceptors, high-FRET
+molecules that vote clearly. On this movie that asymmetry worked for the check: the correct side
+collected no wrong vote and the swapped side collected only right ones. At this movie's yield a
+165-molecule movie with swapped halves warns with probability about 26 % at 20 events and 73 % at
+15 (binomial, with the observed rate as the point estimate).
+
 ### Consequences
 
 - Good: a wrong `--donor-side` on a movie with enough acceptor-first bleach events is now caught
@@ -226,8 +255,9 @@ simulator in v1) is unaffected; the real fixtures remain the evidence the issue 
 - Good: the result and its thresholds travel with the project, so a later reader can see what the
   check said and why.
 - Bad / trade-off: the check is silent below about 20 % FRET, without an acceptor, on short
-  movies, and on most movies under about 50 molecules. In those cases the manual check in the
-  docs remains the only defence, and the docs say so.
+  movies, on most movies under about 35 molecules, and on real movies where few molecules show a
+  clear donor rise (the real movie above gave 10 votes per 100 molecules). In those cases the
+  manual check in the docs remains the only defence, and the docs say so.
 - Bad / trade-off: a sample whose acceptor binds and unbinds can read *mixed*. That is a prompt to
   look, not a verdict, and it does not reach the batch summary.
 - Neutral: no frozen oracle or tolerance changes. The detector and its priors are reused as they
