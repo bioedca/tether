@@ -22,12 +22,12 @@ the module is excluded by ``-m "not ... and not sidecar"``.
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 
 import pytest
 
+from _sidecar_gate import requires_sidecar
 from tether.idealize import (
     compare_models,
     load_frozen_tolerance,
@@ -42,11 +42,6 @@ pytestmark = pytest.mark.sidecar
 REPO = Path(__file__).resolve().parents[1]
 FIXTURES = REPO / "tests" / "fixtures"
 FROZEN = REPO / "schema" / "parity_tolerance.json"
-
-_SIDECAR = os.environ.get("TETHER_SIDECAR_PYTHON")
-requires_sidecar = pytest.mark.skipif(
-    not _SIDECAR, reason="set TETHER_SIDECAR_PYTHON to a tMAVEN sidecar interpreter"
-)
 
 
 @requires_sidecar
