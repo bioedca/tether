@@ -124,7 +124,8 @@ no checks, so that `latest` shows them at once.
 
 **Privacy.** Before it writes a result, the runner searches it for every name of the mapping
 file, each of its folder names, its file name and its stem (names shorter than 5 characters are not
-searched). If it finds one, it removes the checks and writes `withheld`. A folder name that is also
+searched). It searches each name also as pytest writes it into a test name, where a letter that is
+not ASCII becomes an escape (`é` becomes `\xe9`). If it finds one, it removes the checks and writes `withheld`. A folder name that is also
 part of a test name (for example `tests`) makes every result `withheld`: give that folder another
 name. The pytest log in `<state>/logs/` can name files: it stays on the workstation. Do not attach
 it to an issue.

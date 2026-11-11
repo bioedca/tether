@@ -160,6 +160,29 @@ def test_a_name_that_json_escapes_is_still_found(passing_run, tmp_path, name) ->
     assert name not in json.loads(text)["checks"] and Path(name).stem not in text
 
 
+def test_a_name_that_pytest_escapes_in_a_node_id_is_still_found(passing_run, tmp_path) -> None:
+    """pytest writes a non-ASCII parameter into the node id escaped, which JSON decoding keeps."""
+    name = "acquisition-\u00e9clair.tif"
+    (tmp_path / runner.MAPPING_FILE).write_text(json.dumps({"lab-01": name}), encoding="utf-8")
+    tokens = runner.private_tokens(runner.load_mapping(tmp_path))
+    module = tmp_path / "test_escaped.py"
+    module.write_text(
+        f"import pytest\n\n\n@pytest.mark.parametrize('movie', [{name!r}])\n"
+        "def test_y(movie):\n    pass\n",
+        encoding="utf-8",
+    )
+    cmd = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"]
+    proc = subprocess.run([*cmd, module.name], cwd=tmp_path, capture_output=True, text=True)
+    (nodeid,) = [line for line in proc.stdout.splitlines() if "::test_y[" in line]
+    assert name not in nodeid and "\\xe9" in nodeid  # the escaped form, as Codex reproduced
+    root, _ = passing_run
+    _, result = _only_result(root)
+    result["checks"][0]["check"] = nodeid
+    sealed, text = runner.seal(result, tokens)
+    assert sealed["status"] == "withheld" and sealed["checks"] == []
+    assert "clair" not in text and "clair" not in runner.redact(f"  failed {nodeid}", tokens)
+
+
 def test_the_environment_folders_come_first_on_path_as_the_launchers_put_them() -> None:
     """The scheduled task runs the env's python unactivated; MKL needs its folders first (#553)."""
     bat = (_REPO / "packaging" / "scripts" / "post_install.bat").read_text(encoding="utf-8")
@@ -311,7 +334,25 @@ def test_a_fetch_that_does_not_finish_is_a_run_error_with_a_result(
     assert runner.main(args) == runner.EXIT_ERROR
     assert "error: git fetch did not finish" in capsys.readouterr().out
     _, result = _only_result(tmp_path)
-    assert (result["status"], result["checks"]) == ("error", [])
+    # Nothing verified the commit, so the result may not say that it is on main.
+    assert (result["status"], result["commit"], result["on_main"]) == ("error", None, False)
+    assert result["checks"] == []
+
+
+def test_a_run_that_fails_after_the_commit_check_says_on_main(
+    tmp_path, origin, monkeypatch
+) -> None:
+    monkeypatch.setattr(runner, "CANONICAL_REMOTE", origin["url"])
+
+    def build_fails(*args):
+        raise RuntimeError("the environment build failed")
+
+    monkeypatch.setattr(runner, "ensure_env", build_fails)
+    data = _data_dir(tmp_path)
+    args = ["run", "--state", str(tmp_path / "state"), "--data", str(data)]
+    assert runner.main(args) == runner.EXIT_ERROR
+    _, result = _only_result(tmp_path)
+    assert (result["status"], result["commit"], result["on_main"]) == ("error", origin["tip"], True)
 
 
 def test_a_grandchild_that_keeps_the_output_open_does_not_extend_the_timeout(tmp_path) -> None:

@@ -130,13 +130,15 @@ def load_mapping(data_dir: Path) -> dict[str, dict[str, str]]:
 
 def private_tokens(mapping: dict[str, dict[str, str]]) -> frozenset[str]:
     """The strings no result and no console line may contain: each name, each of its folder
-    names, its file name and its stem."""
+    names, its file name and its stem, also as pytest writes them into a node id (a parameter
+    ``acquisition-\u00e9clair.tif`` becomes ``acquisition-\\xe9clair.tif``)."""
     tokens = set()
     for files in mapping.values():
         for rel in files.values():
             path = PurePosixPath(rel)
             tokens.update({rel, rel.replace("/", "\\"), path.name, path.stem, *path.parent.parts})
-    return frozenset(t for t in tokens if len(t) >= MIN_TOKEN)
+    tokens = {t for t in tokens if len(t) >= MIN_TOKEN}
+    return frozenset(tokens | {t.encode("unicode_escape").decode("ascii") for t in tokens})
 
 
 def redact(text: str, tokens: frozenset[str]) -> str:
@@ -558,6 +560,7 @@ def run(args: argparse.Namespace) -> int:
     log_path = state / "logs" / f"{stamp}.log"
     record = state / f"{stamp}.record.jsonl"
     commit, lock_sha, code, checks, tools, status = None, None, None, [], {}, None
+    on_main = False  # true only once prepare_clone() has verified the commit
     with _run_lock(state), open(log_path, "w", encoding="utf-8") as log:
         try:
             if args.dry_run:
@@ -566,6 +569,7 @@ def run(args: argparse.Namespace) -> int:
                 python, source, paths = Path(sys.executable), REPO, [SELF_CHECK]
             else:
                 commit = prepare_clone(state / "clone", CANONICAL_REMOTE, args.commit)
+                on_main = True
                 source, paths = state / "clone", []
                 python, lock_sha = ensure_env(source, state / "env", args.micromamba, log)
             say(f"running the workstation checks at {commit or 'an unknown commit'}")
@@ -595,7 +599,7 @@ def run(args: argparse.Namespace) -> int:
         "mode": "dry-run" if args.dry_run else "scheduled",
         "status": status,
         "commit": commit,
-        "on_main": not args.dry_run and status != "refused",
+        "on_main": on_main,
         "started": _utc(started),
         "finished": _utc(finished),
         "duration_s": round(finished - started, 1),
