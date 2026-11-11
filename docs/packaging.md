@@ -13,11 +13,15 @@ required at install time.
 ## What a Tether installer contains
 
 - The **Tether application environment** (installed under `envs/tether`) — the PySide6 shell,
-  the embedded napari movie panel and the pyqtgraph trace docks, plus the compute/IO stack —
-  pinned to Tether's committed lock so every install is byte-for-byte reproducible.
-- An **isolated tMAVEN sidecar** environment (installed under `envs/sidecar`), used for
-  one-click vbFRET / consensus VB-HMM / ebFRET idealization. It runs in its own
-  interpreter (PyQt5 on `numpy<2`) so it never collides with the application's GUI stack.
+  the pyqtgraph trace docks and the compute/IO stack — pinned to Tether's committed lock so
+  every install is byte-for-byte reproducible. It also holds [napari](https://napari.org) for
+  the movie panel, which reaches the application with the
+  [trace curation section (M16)](https://github.com/bioedca/tether/milestone/18).
+- An **isolated tMAVEN sidecar** environment (installed under `envs/sidecar`), which runs
+  every idealization fit: the application's one-trace fit on the **I** key, the
+  whole-project consensus VB-HMM fit of [`tether batch`](cli.md#tether-batch), and the
+  consensus VB-HMM and ebFRET fits that [run from Python](how-to/idealize.md). It runs in its
+  own interpreter (PyQt5 on `numpy<2`) so it never collides with the application's GUI stack.
 - A minimal **conda bootstrap** in the install root, which the installer uses to lay down the
   two pinned environments above — it holds no Tether code and never modifies your shell.
 - Tether's **GPL-3.0 license** text, shown during installation and shipped beside the

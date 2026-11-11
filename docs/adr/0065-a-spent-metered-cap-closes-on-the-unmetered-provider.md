@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0065 — A spent metered cap closes on the unmetered provider, not on a maintainer
 
-- **Status:** accepted; supersedes the review-gate terminus of [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md), whose other decisions govern unchanged
+- **Status:** accepted; supersedes the review-gate terminus of [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md), whose other decisions govern unchanged; its two-review trigger and third shutting condition are in turn superseded by [ADR-0069](0069-one-metered-review-then-the-codex-close.md)
 - **Date:** 2026-08-10
 - **Deciders:** bioedca
 - **PRD anchor:** §12 (development & version-control protocol)
