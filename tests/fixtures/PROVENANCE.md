@@ -235,7 +235,7 @@ uv run --no-project --with h5py --with numpy \
 
 Both files, and the three source zips, have entries in `tests/reference_data/manifest.toml`
 (ids `kinsoft-sim-packed`, `kinsoft-trace-sample`, `kinsoft-sim-fig2` to `kinsoft-sim-fig4`;
-ADR-0072). The weekly `reference-data` job downloads the zips, verifies the checksums above, and
+ADR-0073). The weekly `reference-data` job downloads the zips, verifies the checksums above, and
 compares `kinsoft_trace_sample.txt` with its member of `sim_dataset_Fig4.zip` (verified again on
 2026-11-11).
 

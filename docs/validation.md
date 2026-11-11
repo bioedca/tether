@@ -55,7 +55,7 @@ file whose checksum is not the manifest's. The tiers are `git` (at most 1 MB for
 (at most 50 MB for all LFS files together), `download` (at most 200 MB for each file; downloaded
 only when the environment variable `TETHER_REFERENCE_DOWNLOAD` is `1`) and `workstation` (a
 directory that an environment variable names). A test skips, with the reason, when its tier is not
-available. [ADR-0072](adr/0072-one-manifest-for-reference-data-sets.md) records the tiers, the
+available. [ADR-0073](adr/0073-one-manifest-for-reference-data-sets.md) records the tiers, the
 limits and the cache rule.
 
 Which tier each oracle's *headline* assertion lives in:

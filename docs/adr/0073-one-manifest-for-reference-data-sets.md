@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0072 — One manifest and four storage tiers for reference data sets
+# 0073 — One manifest and four storage tiers for reference data sets
 
 - **Status:** accepted
 - **Date:** 2026-11-11

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The reference-data manifest and its fetch helper (#696, ADR-0072). No test here uses the network.
+"""The reference-data manifest and its fetch helper (#696, ADR-0073). No test here uses the network.
 
 The first half holds ``tests/reference_data/manifest.toml`` to its rules: the fields, the licence,
 the checksum, the tier limits, and a manifest entry plus REUSE, NOTICE and PROVENANCE rows for every

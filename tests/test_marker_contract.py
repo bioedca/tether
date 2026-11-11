@@ -2326,7 +2326,7 @@ def test_no_dependabot_glob_overlaps_the_workflows_directory() -> None:
         )
 
 
-# --- The reference-download leg (reference-data.yml, #696 / ADR-0072) ---
+# --- The reference-download leg (reference-data.yml, #696 / ADR-0073) ---
 # `@pytest.mark.reference_download` tests download the `download` tier of
 # tests/reference_data/manifest.toml. The required matrix deselects the marker and makes no network
 # call; exactly one scheduled workflow collects them. A test with the marker that no workflow

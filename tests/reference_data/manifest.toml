@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The reference data sets of the regression suite (#696, ADR-0072). One [[dataset]] entry for
+# The reference data sets of the regression suite (#696, ADR-0073). One [[dataset]] entry for
 # each file. tests/reference_data/fetch.py reads it, and tests/test_reference_data.py holds every
 # entry to the rules:
 #

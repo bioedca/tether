@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Find, download and verify the reference data sets of ``manifest.toml`` (#696, ADR-0072).
+"""Find, download and verify the reference data sets of ``manifest.toml`` (#696, ADR-0073).
 
 A test asks for a data set by its id and gets a local path to bytes whose SHA-256 equals the
 manifest's, or a skip that says why the data is not here::

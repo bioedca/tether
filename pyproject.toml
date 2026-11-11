@@ -111,5 +111,5 @@ markers = [
   "large: needs the gated large-fixture tier (never part of the default required matrix).",
   "sidecar: drives the live tMAVEN sidecar env (needs $TETHER_SIDECAR_PYTHON; never in the CI matrix).",
   "deep: drives the live torch deep-classifier env (deep/conda-lock.yml; the non-required deep.yml leg, never in the base matrix).",
-  "reference_download: downloads a reference data set of tests/reference_data/manifest.toml (the weekly reference-data.yml job, never in the required matrix; ADR-0072).",
+  "reference_download: downloads a reference data set of tests/reference_data/manifest.toml (the weekly reference-data.yml job, never in the required matrix; ADR-0073).",
 ]

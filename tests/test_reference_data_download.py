@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The weekly check of the ``download`` tier (#696, ADR-0072): it needs the network.
+"""The weekly check of the ``download`` tier (#696, ADR-0073): it needs the network.
 
 Every test here is ``@pytest.mark.reference_download``. The required matrix deselects the marker,
 and the weekly ``reference-data`` workflow runs it with ``TETHER_REFERENCE_DOWNLOAD=1`` and a cache
