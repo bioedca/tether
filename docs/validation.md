@@ -608,6 +608,12 @@ k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking r
   ([ADR-0034](adr/0034-gradient-boosting-quality-ranker.md),
   [ADR-0038](adr/0038-provisional-prior-training-fold.md)) discusses validation data at all. The
   real-data comparisons that do exist (oracles (a), (b), (c)) stay on real fixtures.
+- A reference that comes from an ALEX data set compares **apparent FRET from the
+  donor-excitation channels only** — the donor and acceptor intensities under donor
+  excitation. It does not check direct excitation (δ), stoichiometry or any other quantity
+  that needs the acceptor-excitation frames, and so it does not validate them. Tether is
+  single-laser only (PRD N1); the PRD's "What the tests can use" rules (§2.2) allow the
+  ALEX sets at trace level and add no ALEX feature.
 
 **Accepted diagnostics that are not gates.**
 

@@ -126,6 +126,22 @@ both — Appendices B and E), HDF5 for self-describing files, and the SMD format
   and tMAVEN SMD (`.hdf5`). Older `.dat` and vbFRET `.mat` formats are out of scope.
 - **N5 — No central server.** Each lab member runs on their own machine; data lives on OneDrive / a network share.
 
+#### What the tests can use
+
+N1 and N4 limit the product. They do not limit the reference data that a test can read. Many public TIRF smFRET
+sets are ALEX sets, and some reference tools store traces in the old formats that N4 excludes. These rules let a
+test use that data and give the product no new feature. Each data set still follows the fixture policy (§9.4).
+
+1. **ALEX data at trace level only.** A test can use an ALEX data set at trace level. It uses only the donor and
+   acceptor intensities under donor excitation, and it compares apparent FRET from those two channels. No test uses
+   a correction that needs ALEX: no direct-excitation (δ) estimate, no stoichiometry, and no correction factor that
+   is derived from the acceptor-excitation frames. The product gets no ALEX support, and N1 stays as it is.
+2. **Old formats through test-only readers.** A test can read an old file format, such as a `.dat` trace file or a
+   vbFRET `.mat` file, with a small reader that lives under `tests/`. The product gets no importer, and N4 stays as
+   it is. The test starts from the original bytes of the reference file, not from a converted copy.
+3. **Simulated data.** This subsection adds no rule for simulated data. The N2 text governs it, and
+   [#550](https://github.com/bioedca/tether/issues/550) settles that text.
+
 ---
 
 ## 3. Target users & use cases
