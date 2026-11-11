@@ -17,9 +17,11 @@ gallery](../analysis/parity-gallery.md); this page is how to make them.
 - The molecules of one experimental condition. Each plot pools every molecule the analysis
   admits, whatever its condition, so a plot of one condition needs a project, or a
   `molecule_keys` selection, that holds only the molecules of that condition. A project can
-  hold more than one condition; a project made by `tether extract` or `tether batch` holds
-  one movie, and so one condition. Run the script for each project in that project's own
-  folder, so one project's figures do not overwrite another's.
+  hold more than one condition. A project made by `tether extract` or `tether batch` holds
+  one movie, and every molecule in it gets the one provisional condition parsed from the
+  movie's filename, so make sure that the movie holds molecules of one condition only. Run
+  the script for each project in that project's own folder, so one project's figures do not
+  overwrite another's.
 - Your movie's frame time in seconds. Dwell times and rates come out **per frame** unless
   you supply it.
 - The Python that came with Tether: `~/tether/envs/tether/bin/python` on Linux,
