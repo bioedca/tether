@@ -144,7 +144,9 @@ available to read it. Such scope belongs in its own pull request.
 - Trade-off: Greptile has reviewed one Tether pull request, so nothing here measures how its
   findings compare with CodeRabbit's.
 - Trade-off: `greptile_usage.py` needs the `gh` GraphQL route and read access to three
-  repositories. A session that has neither reads no balance and therefore gets no stand-in.
+  repositories. A session that has neither reads no balance and therefore asks for no new
+  stand-in. A Greptile review already on the pull request still counts, because it needs no
+  balance reading.
 - Nothing counts the cap or the share. Like ADR-0064's cap, both are conventions a worker keeps,
   and the merged history is auditable.
 
