@@ -149,6 +149,10 @@ for it:
 tether batch (Get-ChildItem data\*.tif) -d projects
 ```
 
+One project for each movie is how the command writes, not a limit of the project, which can
+hold several movies of one experiment ([`.tether` project](../glossary.md#tether-project)).
+No command adds a movie to an existing project.
+
 It has no `--donor-side`, `--detection-mode` or `--detection-threshold` option, so every
 movie is extracted with the donor on the left and the default detector. A shared `--tdat`
 replaces only the detector settings, never the donor side, and a shared `--tmap` sets the
