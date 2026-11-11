@@ -21,6 +21,10 @@
 name: sidecar-upstream
 
 on:
+  # TEMPORARY (#704 drill): one push run registers the new workflow so it can be dispatched
+  # on this branch. Reverted before review.
+  push:
+    branches: [agent/issue-704]
   workflow_dispatch:
     inputs:
       drill:
