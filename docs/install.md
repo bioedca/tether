@@ -227,6 +227,9 @@ Windows PowerShell. To start the desktop application:
 - **macOS:** run `tether-gui` in Terminal. The Dock shows the Tether icon while the
   application runs, but there is no Launchpad entry yet.
 
+While the application loads, a splash window shows the Tether name, the version and
+**Loading…**. The splash window closes when the main window opens.
+
 The application opens with no project loaded; use **File → Open project…** to open one. The
 [Command line](cli.md) reference covers what `tether` itself can do.
 

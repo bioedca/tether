@@ -11,9 +11,12 @@ This is deliberately *not* :func:`tether.gui.shell.launch`, which fabricates six
 synthetic traces and a demo project as a hand-driven live-smoke helper. Wiring a
 desktop shortcut to that entry would ship a demo rather than the application.
 
-The Qt import is deferred into :func:`create_shell` so that ``--version`` and
-``--help`` answer without paying for PySide6/pyqtgraph, matching the lazy-import
-discipline :mod:`tether.cli` uses for the imaging stack.
+The Qt import is deferred into :func:`create_shell`, after the arguments are parsed,
+so that ``--version`` and ``--help`` answer without paying for PySide6/pyqtgraph,
+matching the lazy-import discipline :mod:`tether.cli` uses for the imaging stack.
+
+Between the ``QApplication`` and the slow import of the shell, :func:`create_shell`
+shows the startup splash (:mod:`tether.gui.splash`, #676) on a platform with a screen.
 """
 
 from __future__ import annotations
@@ -57,7 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def create_shell(argv: Sequence[str] | None = None) -> tuple[Any, TetherShell]:
+def create_shell(
+    argv: Sequence[str] | None = None, *, splash: bool | None = None
+) -> tuple[Any, TetherShell]:
     """Build the ``QApplication`` and shell **without** entering the event loop.
 
     Split out from :func:`main` so the startup path is exercisable headlessly: a test
@@ -72,16 +77,24 @@ def create_shell(argv: Sequence[str] | None = None) -> tuple[Any, TetherShell]:
     rather than raising — starting the application must not be fatal just because the
     path on the command line was wrong.
 
-    The application identity — the Tether icon, the Windows AppUserModelID and the Linux
-    desktop file name (issue #673, :mod:`tether.gui.identity`) — is set before the shell
-    builds its window, since Windows reads the identity only before the first window.
+    The arguments are parsed first, so ``--version`` and ``--help`` exit before any Qt
+    import and before any window. Then the application identity — the Tether icon, the
+    Windows AppUserModelID and the Linux desktop file name (issue #673,
+    :mod:`tether.gui.identity`) — is set, before the splash: Windows reads the identity
+    only before the first window, and the splash is a window. Then the startup splash
+    shows, before the import of :mod:`tether.gui.shell`, which is the slow part; it
+    closes when the shell window is shown, or before the error propagates when the start
+    fails. ``splash=None`` shows it unless the Qt platform is headless; ``True`` or
+    ``False`` decides it explicitly.
     """
-    from pyqtgraph.Qt import QtWidgets
-
-    from tether.gui.identity import APPLICATION_NAME, apply_application_identity
-    from tether.gui.shell import TetherShell
-
     args = build_parser().parse_args(argv)
+
+    # PySide6 directly, not pyqtgraph.Qt: importing pyqtgraph loads NumPy, and the
+    # splash must be on the screen before that. pyqtgraph then picks the same binding.
+    from PySide6 import QtWidgets
+
+    from tether.gui import splash as startup
+    from tether.gui.identity import APPLICATION_NAME, apply_application_identity
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     app.setApplicationName(APPLICATION_NAME)
@@ -90,9 +103,20 @@ def create_shell(argv: Sequence[str] | None = None) -> tuple[Any, TetherShell]:
     app.setApplicationVersion(__version__)
     apply_application_identity(app)
 
-    shell = TetherShell()
-    if args.project is not None:
-        shell.load_project(args.project)
+    wanted = not startup.is_headless(app) if splash is None else splash
+    screen = startup.open_splash(app) if wanted else None
+    try:
+        from tether.gui.shell import TetherShell
+
+        shell = TetherShell()
+        if args.project is not None:
+            shell.load_project(args.project)
+    except BaseException:
+        if screen is not None:
+            screen.abort()
+        raise
+    if screen is not None:
+        screen.close_when_shown(shell.window)
     return app, shell
 
 
