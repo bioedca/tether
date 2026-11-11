@@ -11,10 +11,12 @@ What it does, by the watched job's result:
 * **failure** -- it looks for an open issue with the workflow's fixed title. If there is none, it
   opens one with the run URL, the commit, the failed step and the last log lines: an oracle job
   gets the fields of the ``validation-oracle-failure`` form, the others get ``type:ci``. If the
-  issue is open, it adds one comment with the new run URL, and at most one such comment each day
-  (UTC), so a gate that flaps (#311) cannot flood the issue.
+  issue is open, it adds one comment with the new run URL.
 * **success** -- if the issue is open and its last report is a failure, it adds one comment that
   says so. It never closes the issue: the person or agent who finds the cause closes it.
+* **the limit** -- one new failure comment and one new pass comment each day (UTC), so a gate
+  that flaps (#311) cannot flood the issue. Past the limit, a run that changes the state edits
+  the latest report in place instead, so the issue never says "passed" while the job fails.
 * **cancelled** -- the workflow calls this only while the run itself is not cancelled
   (``!cancelled()``), so a cancelled job here is a job that hit its own ``timeout-minutes``, and
   that is a failure. A run that a newer run replaced never gets this far.
@@ -53,8 +55,12 @@ ORACLE_LABELS = ("type:validation-oracle-failure", "priority:P0", "status:backlo
 REPORTABLE_EVENTS = ("schedule", "push", "workflow_dispatch")
 #: Job and step conclusions that count as "this is where it failed".
 FAILED = ("failure", "timed_out", "cancelled")
-_MARKER = "<!-- tether-scheduled-failure:{state} run={run} -->"
-_MARKER_RE = re.compile(r"<!-- tether-scheduled-failure:(opened|failed|passed) run=\S+ -->")
+#: ``state`` is what the report says now; ``as`` is what its comment was posted as, which an edit
+#: keeps, so the one-a-day limit still counts the comment once.
+_MARKER = "<!-- tether-scheduled-failure:{state} run={run}{kind} -->"
+_MARKER_RE = re.compile(
+    r"<!-- tether-scheduled-failure:(opened|failed|passed) run=\S+?(?: as=(failed|passed))? -->"
+)
 _STAMP_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z ")
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _NOT_KNOWN = "Not known yet: the log of the failed step tells it."
@@ -197,8 +203,9 @@ class Run:
         prefix = "ci(drill)" if self.drill else "ci(scheduled)"
         return f"{prefix}: {self.job_name} failed on {self.ref_name}"
 
-    def marker(self, state: str) -> str:
-        return _MARKER.format(state=state, run=f"{self.run_id}/{self.attempt}")
+    def marker(self, state: str, kind: str = "") -> str:
+        as_kind = f" as={kind}" if kind else ""
+        return _MARKER.format(state=state, run=f"{self.run_id}/{self.attempt}", kind=as_kind)
 
 
 def run_from_env(env: Mapping[str, str]) -> Run:
@@ -335,25 +342,49 @@ def report(run: Run, api: Api, now: dt.datetime) -> str:
         return f"opened #{created['number']}"
     number = issue["number"]
     comments = api.pages(f"/issues/{number}/comments?per_page=100")
-    states = [
-        (m.group(1), str(c.get("created_at", "")))
-        for c in [{"body": issue.get("body") or ""}, *comments]
-        if (m := _MARKER_RE.match(c.get("body") or ""))
+    # (state now, posted as, item) for each report, oldest first; the issue body says "opened".
+    reports = [
+        (m.group(1), m.group(2) or m.group(1), item)
+        for item in [{"body": issue.get("body") or ""}, *comments]
+        if (m := _MARKER_RE.match(item.get("body") or ""))
     ]
-    if outcome == "failed":
-        today = now.astimezone(dt.UTC).date().isoformat()
-        if any(state == "failed" and at.startswith(today) for state, at in states):
-            return f"no report: #{number} already has a failure comment from {today}"
-        body = f"{run.marker('failed')}\nFailed again.\n\n{facts(run, api, with_log=False)}\n"
-    else:
-        if states and states[-1][0] == "passed":
-            return f"no report: #{number} already says the job passed"
-        body = (
-            f"{run.marker('passed')}\nThe next run passed: {run.url} on commit "
-            f"{run.server}/{run.repo}/commit/{run.sha}. Close this issue with the cause."
-        )
-    api.call("POST", f"/issues/{number}/comments", {"body": body})
+    failing = not reports or reports[-1][0] != "passed"  # an issue a person opened says "failed"
+    if outcome == "passed" and not failing:
+        return f"no report: #{number} already says the job passed"
+    today = now.astimezone(dt.UTC).date().isoformat()
+    posted_today = any(
+        kind == outcome and str(item.get("created_at", "")).startswith(today)
+        for _, kind, item in reports
+    )
+    if posted_today and outcome == "failed" and failing:
+        return f"no report: #{number} already has a failure comment from {today}"
+    if posted_today and "id" in reports[-1][2]:
+        # Over the limit but the state changed: edit the latest report in place, so the issue
+        # never says "passed" while the job fails (or the reverse), and nobody is notified.
+        _, kind, latest = reports[-1]
+        body = _comment_body(run, api, outcome, kind, updated=True)
+        api.call("PATCH", f"/issues/comments/{latest['id']}", {"body": body})
+        return f"updated a comment on #{number} ({outcome})"
+    api.call(
+        "POST", f"/issues/{number}/comments", {"body": _comment_body(run, api, outcome, outcome)}
+    )
     return f"commented on #{number} ({outcome})"
+
+
+def _comment_body(run: Run, api: Api, state: str, kind: str, *, updated: bool = False) -> str:
+    if state == "failed":
+        text = f"Failed again.\n\n{facts(run, api, with_log=False)}"
+    else:
+        text = (
+            f"The next run passed: {run.url} on commit {run.server}/{run.repo}/commit/{run.sha}. "
+            "Close this issue with the cause."
+        )
+    if updated:
+        text += (
+            "\n\nThis comment was edited to show the latest run: the limit is one new failure "
+            "comment and one new pass comment each day. The Actions page lists every run."
+        )
+    return f"{run.marker(state, kind)}\n{text}\n"
 
 
 def main(env: Mapping[str, str] = os.environ) -> int:

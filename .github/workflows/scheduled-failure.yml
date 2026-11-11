@@ -15,8 +15,9 @@
 #
 # The logic is scripts/report_scheduled_failure.py (unit-tested offline in
 # tests/test_scheduled_failure_report.py, which also holds every caller to the shape above).
-# A failure opens one issue with a fixed title, or adds at most one comment a day to the open
-# one; the next pass adds one comment; nothing closes the issue.
+# A failure opens one issue with a fixed title, or comments on the open one; the next pass adds
+# one comment; nothing closes the issue. One new comment of each kind a day at most: past that, a
+# change of state edits the latest report, so the issue always shows the latest run.
 #
 # `!cancelled()` in the caller, not `always()`: a run that a newer run replaced (the
 # `cancel-in-progress` concurrency of every caller) is not a failure and must not report. A job

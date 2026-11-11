@@ -103,9 +103,17 @@ class FakeGitHub:
         if found := re.fullmatch(r"/issues/(\d+)/comments(\?.*)?", path):
             thread = self.comments.setdefault(int(found.group(1)), [])
             if method == "POST":
-                thread.append({"body": json.loads(body or b"{}")["body"], "created_at": stamp})
+                new_id = 1 + sum(len(c) for c in self.comments.values())
+                text = json.loads(body or b"{}")["body"]
+                thread.append({"id": new_id, "body": text, "created_at": stamp})
                 return 201, b"{}", {}
             return 200, json.dumps(thread).encode(), {}
+        if method == "PATCH" and (found := re.fullmatch(r"/issues/comments/(\d+)", path)):
+            (comment,) = [
+                c for th in self.comments.values() for c in th if c["id"] == int(found[1])
+            ]
+            comment["body"] = json.loads(body or b"{}")["body"]
+            return 200, b"{}", {}
         if re.fullmatch(r"/actions/runs/\d+/attempts/\d+/jobs\?per_page=100", path):
             return self.jobs_status, json.dumps({"jobs": self.jobs}).encode(), {}
         if path == "/actions/jobs/8/logs":
@@ -211,6 +219,30 @@ def test_the_next_pass_comments_once_and_never_closes_the_issue() -> None:
     assert len(gh.comments[1]) == 1
     assert gh.issues[0]["state"] == "open"
     assert not any(method == "PATCH" for method, _ in gh.calls)
+
+
+def test_a_flapping_job_posts_two_comments_a_day_and_the_last_report_is_always_true() -> None:
+    """Failure, pass, failure, pass... in one day: the post-merge sidecar case (Codex, #765)."""
+    gh = FakeGitHub()
+    report(gh)  # opened
+    expected = [
+        "commented",
+        "commented",
+        "updated a comment",
+        "updated a comment",
+        "updated a comment",
+    ]
+    for i, verb in enumerate(expected):
+        result = "success" if i % 2 == 0 else "failure"
+        outcome = report(gh, run_id=str(101 + i), result=result)
+        assert outcome.startswith(f"{verb} on #1"), (i, outcome)
+        latest = gh.comments[1][-1]["body"]
+        assert latest.startswith(
+            "<!-- tether-scheduled-failure:" + ("passed" if result == "success" else "failed")
+        ), (i, latest)
+        assert f"runs/{101 + i}/attempts/1" in latest
+    assert len(gh.comments[1]) == 2, "one new failure comment and one new pass comment a day"
+    assert report(gh, NOW + dt.timedelta(days=1), run_id="200") == "commented on #1 (failed)"
 
 
 def test_a_pass_with_no_open_issue_writes_nothing() -> None:
