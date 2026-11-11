@@ -179,6 +179,16 @@ def budget(tmp_path: Path) -> Path:
     return path
 
 
+@pytest.fixture(autouse=True)
+def _plain_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The plain ``error:`` format, also when this suite itself runs on GitHub Actions.
+
+    On Actions the script writes workflow commands; the tests below read the plain format,
+    and the one test of the Actions format sets the variable itself.
+    """
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+
 def _run(capsys, *argv: str) -> tuple[int, str]:
     status = check_skips.main(list(argv))
     return status, capsys.readouterr().out
