@@ -1284,9 +1284,11 @@ has not — until it surfaces
 nothing blocking; it is the free provider, and throttling it bought nothing but slower convergence. Then **optionally
 one Greptile review**, if the seat has budget — a *review*, not a credit, since a standard one costs one credit and a
 TREX one three; then ready-for-review if it is not already; then **CodeRabbit with no actionable comments,
-which is the last metered gate before merge — and when that two-review cap is spent, a fresh posted Codex review
+which is the last metered gate before merge — and when that one-review cap is spent, a fresh posted Codex review
 of the final head closes the gate in its place, so a reviewed PR finishes on an unmetered read rather
-than on a maintainer (ADR-0065)**. **`AGENTS.md` §Review is the operative statement of the conditions
+than on a maintainer (ADR-0065, as ADR-0069 amends it)**. Where CodeRabbit posts a refusal that names more than 30 minutes,
+one standard Greptile review **may** stand in as that gate within Tether's share of 15 credits a month, and Codex
+**shall not** stand in (ADR-0069). **`AGENTS.md` §Review is the operative statement of the conditions
 that close is subject to, and this document deliberately restates none of them** — `CONTRIBUTING.md`
 and the pull-request template do carry working copies, as detail and as evidence fields, and both
 defer to §Review where they differ. Four drafts of this
@@ -1294,20 +1296,19 @@ paragraph tried to summarise them and each admitted or refused a case the contra
 restatement that is wrong in either direction is worse than a pointer, because `AGENTS.md` tells a
 worker to stop when these two files disagree, so the summary strands the pull request either way. The round
 ledger that used to count this is gone — ADR-0064 retired it along with the launcher that consumed it, leaving **at most
-two completed reviews per metered provider** as a convention a worker keeps rather than a counter that publishes
+one completed review per metered provider** (ADR-0069; it was two) as a convention a worker keeps rather than a counter that publishes
 labels — **Codex is
 uncapped**, being unmetered. The cap bounds how many times a provider whose reads cost money or quota is made to **read the
 diff**, so a request that produced
-nothing — a throttle, a quota refusal, a failed run — is not one of the two; counting those would make the gate
-unsatisfiable exactly when the provider is rate-limiting. It licenses neither a third review nor hammering: the retry
-interval a refusal names **shall** be honoured. Greptile is **one *review* in practice**, and a review is not always one credit — a standard review costs one and a TREX review three. Two is the shared ceiling, not a second review
-to plan on. Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
+nothing — a throttle, a quota refusal, a failed run — is not that one; counting those would make the gate
+unsatisfiable exactly when the provider is rate-limiting. It licenses neither a second review nor hammering: the retry
+interval a refusal names **shall** be honoured. A Greptile review is not always one credit — a standard review costs one and a TREX review three — and Tether's share of the seat is 15 a month. Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
 no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
 **Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
 works in, billed per **completed review** — one credit for a standard review, **three for a TREX** one; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
 leg, and a quota refusal from it means the provider **did not review**, never a pass. Exhaustion and incapacity differ: Greptile out of
 credits is skippable, CodeRabbit unavailable **freezes the PR** — though a fair-use refusal that names a retry time
-is a **wait**, not unavailability — the interval it names being a floor rather than a guarantee — and the retry is a fresh provider request that consumes no completed-review slot, since a request that produced no review is not one of the two.
+is a **wait**, not unavailability — the interval it names being a floor rather than a guarantee — and the retry is a fresh provider request that consumes no completed-review slot, since a request that produced no review is not a completed one.
 Author-side review and a green or status-only
 result do not satisfy the gate; *author-side* names whose judgement it is rather than which machine ran it, and what
 the gate protects is that **every substantive change reaching the merge was externally reviewed** — `AGENTS.md`
@@ -1326,10 +1327,10 @@ non-material — and those exceptions WIN over the material paths, which is what
 governance text itself (`AGENTS.md` anywhere, `CLAUDE.md`, `CONTRIBUTING.md`, this document, `docs/adr/**`,
 `.agents/**`, `docs/agents/**`, `.claude/**`, `.github/pull_request_template.md` and
 `.greptile/**`, and `AGENTS.override.md` and `.codex/` anywhere) are material — the list is *every file that states a rule*, because a push that
-changes what the gate requires must not keep evidence gathered under the old requirement. A material push re-arms the review, and a PR gets **at most two completed reviews per metered provider**, Codex being unmetered and uncapped —
-needing a third usually means the issue was scoped too large. The lane does **not** stop for the maintainer: when
-**CodeRabbit's** two-review cap specifically is spent — not any other provider's, since Greptile is optional and its
-exhaustion never blocks — a fresh posted Codex review of the final head closes the gate instead (ADR-0065), subject to
+changes what the gate requires must not keep evidence gathered under the old requirement. A material push re-arms the review, and a PR gets **at most one completed review per metered provider**, Codex being unmetered and uncapped —
+needing a second usually means the issue was scoped too large. The lane does **not** stop for the maintainer: when
+**CodeRabbit's** one-review cap specifically is spent — or that of the Greptile review standing in for it (ADR-0069); not the
+optional Greptile review's, whose exhaustion never blocks — a fresh posted Codex review of the final head closes the gate instead (ADR-0065), subject to
 conditions `AGENTS.md` §Review states and this document, again deliberately, does not.
 
 That bound is a **convention a worker keeps, not a counter that publishes labels.** ADR-0064 retired the round ledger,
@@ -1360,7 +1361,7 @@ left has not reviewed. Greptile out of credits is skippable and never blocks; **
 PR**, because it is the last metered gate and an unavailable provider is not a spent cap — it reviewed
 nothing, so nothing opens the unmetered close. **Throttled is not unavailable**: CodeRabbit's fair-use
 limit is adaptive, and a refusal that names when the next included review is due is a wait — wait it and ask again,
-which costs no round and no request, and never accept the usage-based-billing offer that accompanies it, since that is
+which costs no round and no request, or, where it names more than 30 minutes, take the Greptile stand-in `AGENTS.md` §Review allows (ADR-0069) — and never accept the usage-based-billing offer that accompanies it, since that is
 the maintainer's spending decision. The elapsed interval is necessary but **not sufficient**: the `CodeRabbit` commit
 status reads `pending` while a review is in flight, and a re-request sent then destroys the running review, so the
 status **shall** be read before every ask. Human sign-off is required for releases,
