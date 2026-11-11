@@ -230,7 +230,7 @@ def test_raw_and_corrected_layers_give_their_own_alpha(tmp_path: Path) -> None:
 
     raw = compute_leakage_alpha(path, intensity_quantity="raw")
     assert raw.intensity_quantity == "raw"
-    # Measured 2026-11-11: 0.181811, off by 7.1e-6 from 200/1100.
+    # Measured 2026-11-11 on the three OS legs: 0.181811, off by 7.0e-6 from 200/1100.
     assert raw.alpha == pytest.approx(200.0 / 1100.0, abs=_ALPHA_ABS)
     with h5py.File(path, "r") as f:
         assert f["settings/leakage"].attrs["intensity_quantity"] == "raw"
