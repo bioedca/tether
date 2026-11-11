@@ -36,6 +36,13 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   export MSYS2_ARG_CONV_EXCL="*"
   prefix="$RUNNER_TEMP\\tether-smoke"
   exe="$(ls packaging/dist/*.exe | head -1)"
+  # Before the install: the installer file must carry the Tether icon, welcome image and
+  # header image, not the ones constructor generates (issue #672). 7-Zip, on the hosted
+  # image, unpacks the two page bitmaps from the NSIS data; the check reads the icon from
+  # the file itself and needs the Pillow that constructor brings into this env.
+  brand_dir="$RUNNER_TEMP\\installer-branding"
+  7z x -y -r "-o$brand_dir" "$(cygpath -w "$exe")" "*.bmp" > /dev/null
+  python packaging/scripts/check_installer_branding.py exe "$(cygpath -w "$exe")" "$brand_dir"
   # NSIS silent install; /D (target dir, unquoted) must be the LAST arg.
   # Use `cmd /c` (single slash), NOT `//c`: MSYS2_ARG_CONV_EXCL='*' (set so
   # git-bash leaves /S and /D= intact) also stops git-bash rewriting //c to
@@ -130,6 +137,11 @@ else
   prefix="$RUNNER_TEMP/tether-smoke"
   if [ "$RUNNER_OS" = "macOS" ]; then
     pkg="$(ls packaging/dist/*.pkg | head -1)"
+    # Before the install: the package must show the Tether background and the three Tether
+    # texts, not constructor's Anaconda defaults (issue #672). pkgutil expands the product
+    # archive so the check can read its Distribution file and resources.
+    pkgutil --expand "$pkg" "$RUNNER_TEMP/installer-branding"
+    python packaging/scripts/check_installer_branding.py pkg "$RUNNER_TEMP/installer-branding"
     installer -pkg "$pkg" -target CurrentUserHomeDirectory
     prefix="$HOME/Tether"
   else

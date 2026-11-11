@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from tether.analysis.histogram import DEFAULT_RANGE
+from tether.gui import theme
 
 if TYPE_CHECKING:
     import pyqtgraph as pg
@@ -39,10 +40,10 @@ if TYPE_CHECKING:
 __all__ = ["HistogramDock"]
 
 _E_LABEL = "apparent E"
-# Blue, matching the FRET conventions of the per-trace dock (tether.gui.trace_dock):
-# the population apparent-E histogram is the FRET marginal at population scale.
-_HIST_PEN_RGB = (40, 90, 220)
-_HIST_BRUSH = (40, 90, 220, 120)  # semi-transparent fill under the step
+# The FRET token of tether.gui.theme, matching the per-trace dock
+# (tether.gui.trace_dock): the population apparent-E histogram is the FRET marginal
+# at population scale. The fill under the step is the same colour, semi-transparent.
+_FILL_ALPHA = 120
 
 
 def _summary(histogram: Histogram1D) -> str:
@@ -100,14 +101,16 @@ class HistogramDock:
         # Filled centred step over the bin edges. stepMode="center" wants
         # len(x) == len(y) + 1 (pyqtgraph 0.14) — exactly Histogram1D's
         # (bin_edges, counts) shapes. Empty until set_histogram.
-        self._curve = self._plot.plot(
-            [],
-            [],
-            stepMode="center",
-            fillLevel=0,
-            brush=_HIST_BRUSH,
-            pen=pg.mkPen(_HIST_PEN_RGB, width=1),
-        )
+        self._curve = self._plot.plot([], [], stepMode="center", fillLevel=0)
+        self.apply_theme(theme.current())
+        theme.subscribe(self.apply_theme)
+
+    def apply_theme(self, active: theme.Theme) -> None:
+        """Colour the plot and the histogram from ``active`` (a theme change)."""
+        theme.style_graphics(self._graphics, active)
+        fret = active.trace("fret")
+        self._curve.setPen(self._pg.mkPen(fret, width=1))
+        self._curve.setBrush(theme.rgba(fret, _FILL_ALPHA))
 
     # --- accessors -----------------------------------------------------------
 
@@ -172,6 +175,7 @@ class HistogramDock:
 
     def close(self) -> None:
         """Close and release the dock widget."""
+        theme.unsubscribe(self.apply_theme)
         self._widget.close()
 
     def __enter__(self) -> HistogramDock:
