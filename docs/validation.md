@@ -313,10 +313,15 @@ qualifiers, the frozen band, the ground truth and the deferred levels.
 **Enforcing test.** `tests/test_kinsoft_kinetics.py::test_kinsoft_level1_within_inter_tool_spread`
 — `@pytest.mark.large`, and it skips when `tests/fixtures/large/kinsoft_sim.hdf5` is an
 unmaterialized Git-LFS pointer. On the required matrix,
-`test_load_kinsoft_reference` locks the reference file's contents and
-`test_evaluate_rejects_deferred_levels` proves levels 2 and 3 raise rather than silently
-score; the primitives are covered by `test_fit_gaussian_hmm_recovers_synthetic_states` and
-`test_two_state_rate_constants_recovers_synthetic_rates` on synthetic traces.
+`test_load_kinsoft_reference` pins, by literal, the band, the ground-truth rates
+(`rates_s_inv`) of the three levels and Tether's frozen level-1 rates and deviations, and
+requires each deviation to be the one its rate gives;
+`test_evaluate_kinsoft_level_scores_a_synthetic_level` runs the scoring on a level built in
+the test; and `test_evaluate_rejects_deferred_levels` proves levels 2 and 3 raise rather
+than silently score. The primitives are covered by
+`test_fit_gaussian_hmm_recovers_synthetic_states` and
+`test_two_state_rate_constants_recovers_synthetic_rates` on synthetic traces, and the EM
+stop rule by `test_fit_gaussian_hmm_stops_on_the_first_iteration_that_meets_tol`.
 
 ## (d) Ranker held-out cross-validation
 
@@ -506,7 +511,8 @@ Read the qualifiers first, because the result means nothing without them:
   published analyses; that is a property of the paper, not of this check. Tether's fit is
   retrospective: the ground-truth rates are committed at
   `$.levels.level1.ground_truth.rates_s_inv`, the resulting rates are frozen in the same
-  file, and the enforcing test pins the fit to those frozen values (`abs=0.01`). What is
+  file, and the enforcing test pins the fit to those frozen values (each rate rounds to its
+  frozen four-decimal value). What is
   inherited from the benchmark is the *band*, not the blindness.
 
 **Band.** `$.band.rate_rel_deviation_max = 0.12` — the maximum relative deviation from
@@ -526,8 +532,10 @@ Both deviations sit inside the advisory band; the artifact characterises both as
 "~4x inside the band" (`$.band.rationale`, `$.levels.level1.tether_measured.note`) for this
 one 2-state dataset. That is the whole claim: it is not a general accuracy
 guarantee, and the file records no uncertainty on Tether's own two fitted rates. The
-enforcing test additionally requires both rates to reproduce the frozen values to `abs=0.01`
-and each state to contribute more than 500 pooled dwells.
+enforcing test additionally requires each rate to round, at four decimals, to its frozen
+value, to reproduce the rate measured on this fixture for #740 to a relative `1e-6` (one
+Viterbi frame moved between the states changes a rate by more than that), and each state to
+contribute more than 500 pooled dwells.
 
 **Deferred levels, with ground truth recorded.** Both are stored so a future oracle needs no
 new data sourcing, and both raise `ValueError` today rather than scoring
