@@ -21,10 +21,6 @@
 name: sidecar-upstream
 
 on:
-  # TEMPORARY (#704 drill): one push run registers the new workflow so it can be dispatched
-  # on this branch. Reverted before review.
-  push:
-    branches: [agent/issue-704]
   workflow_dispatch:
     inputs:
       drill:
@@ -119,6 +115,7 @@ jobs:
           first="$(grep -m1 -E '^(FAILED|ERROR) ' "$log" || echo 'not found; see the parity step')"
           # The assertion message of the first failure: the comparison and the limit it broke.
           why="$(grep -m1 -E '^E +[A-Za-z.]*(Error|Exception)' "$log" | sed -E 's/^E +//')"
+          case "$first" in *" - "*) why="" ;; esac # pytest already put it on the FAILED line
           echo "::error::Upstream tMAVEN commit under test: $SHA"
           echo "::error::First failing comparison: ${first//'%'/'%25'} ${why//'%'/'%25'}"
 
