@@ -1,0 +1,134 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# sidecar-upstream — the parity tests against the NEWEST upstream tMAVEN commit (#704). It
+# reports and never gates. `sidecar.yml` shows that Tether agrees with the PINNED tMAVEN
+# (`TMAVEN_SPEC` there). Nothing showed when upstream changed a default, a prior or an
+# algorithm, so the pin could become a version that no user has. This job builds the same
+# isolated sidecar env, installs tMAVEN at the head of its default branch, and runs the same
+# `sidecar` parity tests. A failure opens or updates one `type:ci` issue through
+# `scheduled-failure.yml` (#697); the issue is the signal to decide: move the pin, or record
+# why not. The job never moves the pin, never changes `sidecar/conda-lock.yml` and never
+# changes a parity limit.
+#
+# Not a required check by construction: no `pull_request` and no `push` trigger, so it never
+# reports on a pull request.
+#
+# `drill: drift` (manual only) changes one prior of the fetched tMAVEN before the install: the
+# consensus VB-HMM default `b` of `[modeler.vbconhmm.prior]`, 0.01 -> 1.0. The parity tests must
+# then fail and the report runs as a drill (title prefix `ci(drill)`), so it never touches the
+# real issue.
+name: sidecar-upstream
+
+on:
+  workflow_dispatch:
+    inputs:
+      drill:
+        description: >-
+          `drift` changes one prior in the fetched tMAVEN (test-only) and reports as a drill
+          (#704). `none` is the real weekly check.
+        type: choice
+        options: [none, drift]
+        default: none
+  schedule:
+    # Weekly, Monday 08:23 UTC: off the hour, and away from the nightly sidecar run at 06:37.
+    - cron: "23 8 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  upstream:
+    name: sidecar / upstream tMAVEN
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        # As in sidecar.yml: the restored micromamba env activates in a login shell. No step
+        # may call an explicit `exit` under it (tests/test_marker_contract.py says why).
+        shell: bash -el {0}
+    env:
+      QT_QPA_PLATFORM: offscreen
+      NAPARI_ASYNC: "0"
+      TMAVEN_REPO: https://github.com/GonzalezBiophysicsLab/tmaven.git
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          lfs: false
+      - name: Fetch the newest upstream tMAVEN commit
+        id: upstream
+        run: |
+          set -o pipefail
+          dir="$RUNNER_TEMP/tmaven"
+          git clone --quiet --filter=blob:none "$TMAVEN_REPO" "$dir"
+          sha="$(git -C "$dir" rev-parse HEAD)"
+          branch="$(git -C "$dir" rev-parse --abbrev-ref HEAD)"
+          echo "Upstream tMAVEN under test: $sha (head of $branch, $(git -C "$dir" log -1 --format=%cs))."
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+      - name: Change one prior in the fetched tMAVEN (drill only)
+        if: inputs.drill == 'drift'
+        env:
+          TMAVEN_DIR: ${{ steps.upstream.outputs.dir }}
+        run: |
+          f="$TMAVEN_DIR/tmaven/controllers/modeler/modeler.py"
+          sed -i '/^\[modeler\.vbconhmm\.prior\]$/,/^\[/ s/^b = 0\.01$/b = 1.0/' "$f"
+          git -C "$TMAVEN_DIR" diff --exit-code --quiet && echo "::error::The drill patch did not apply: upstream moved the vbconhmm prior." && false
+          git -C "$TMAVEN_DIR" diff
+      - name: Fetch the LFS large-tier fixtures (281-mol reference + SMD)
+        run: git lfs pull
+      - name: Restore the sidecar env + install tether (no deps)
+        uses: ./.github/actions/setup-env
+        with:
+          environment-file: sidecar/conda-lock.yml
+          environment-name: tether-sidecar
+          install-tether: "true"
+      - name: Install the fetched tMAVEN + pytest via the guided sidecar-setup script
+        env:
+          NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache
+          TMAVEN_DIR: ${{ steps.upstream.outputs.dir }}
+        run: |
+          python scripts/setup_sidecar.py --tmaven-spec "$TMAVEN_DIR" \
+            --python "$(python -c 'import sys; print(sys.executable)')" --with-pytest
+      - name: Run the parity tests against the upstream tMAVEN
+        id: parity
+        env:
+          NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache
+          TETHER_SIDECAR_PYTHON_AUTO: "1"
+        run: |
+          set -o pipefail
+          export TETHER_SIDECAR_PYTHON="$(python -c 'import sys; print(sys.executable)')"
+          # The same collection as sidecar.yml's parity step; -rfE lists each failure on one line.
+          pytest -m sidecar tests/test_*sidecar*.py -q -rfE | tee "$RUNNER_TEMP/parity.log"
+      - name: Name the upstream commit and the first failing comparison
+        # The last error line of the job log, so the report's log excerpt ends on it (#697).
+        if: failure() && steps.parity.outcome == 'failure'
+        env:
+          SHA: ${{ steps.upstream.outputs.sha }}
+        run: |
+          log="$RUNNER_TEMP/parity.log"
+          first="$(grep -m1 -E '^(FAILED|ERROR) ' "$log" || echo 'not found; see the parity step')"
+          # The assertion message of the first failure: the comparison and the limit it broke.
+          why="$(grep -m1 -E '^E +[A-Za-z.]*(Error|Exception)' "$log" | sed -E 's/^E +//')"
+          echo "::error::Upstream tMAVEN commit under test: $SHA"
+          echo "::error::First failing comparison: ${first//'%'/'%25'} ${why//'%'/'%25'}"
+
+  report:
+    # A failed weekly run opens or updates one issue, and the next pass says so (#697). The called
+    # workflow decides the event (never a pull request) and is the only job here that writes.
+    needs: upstream
+    if: ${{ !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/scheduled-failure.yml
+    with:
+      job-name: sidecar / upstream tMAVEN
+      result: ${{ needs.upstream.result }}
+      drill: ${{ inputs.drill == 'drift' }}

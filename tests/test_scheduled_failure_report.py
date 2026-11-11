@@ -36,8 +36,14 @@ ORACLE_FORM = _REPO / ".github" / "ISSUE_TEMPLATE" / "validation-oracle-failure.
 #: Scheduled workflows the issue leaves out of scope (#697 "Scope and non-goals"): the reaper
 #: writes issues itself, and the two audits are a later change.
 EXEMPT = {"agent-reaper.yml", "deps-audit.yml", "scorecard.yml"}
-#: The four the acceptance criteria name.
-NAMED = {"sidecar.yml", "deep.yml", "large-fixtures.yml", "docs-liveness.yml"}
+#: The four #697 names, and the weekly upstream-tMAVEN job (#704).
+NAMED = {
+    "sidecar.yml",
+    "sidecar-upstream.yml",
+    "deep.yml",
+    "large-fixtures.yml",
+    "docs-liveness.yml",
+}
 REPORT_PERMISSIONS = {"actions": "read", "contents": "read", "issues": "write"}
 
 _spec = importlib.util.spec_from_file_location("report_scheduled_failure", SCRIPT)
