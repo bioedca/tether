@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -129,6 +131,18 @@ def test_a_result_that_names_a_private_file_is_withheld(passing_run) -> None:
     sealed, text = runner.seal(result, tokens)
     assert sealed["status"] == "withheld" and sealed["checks"] == []
     assert _leaks(text) == [] and runner.validate_result(sealed) == []
+
+
+def test_a_folder_name_of_the_mapping_is_private_too(passing_run) -> None:
+    root, _ = passing_run
+    _, result = _only_result(root)
+    tokens = runner.private_tokens(runner.load_mapping(root / "data"))
+    assert "SECRET-series-alpha" in tokens
+    result["checks"][0]["check"] = "tests/test_x.py::test_y[SECRET-series-alpha]"
+    sealed, text = runner.seal(result, tokens)
+    assert sealed["status"] == "withheld" and sealed["checks"] == []
+    assert "SECRET-series-alpha" not in text
+    assert runner.redact("in SECRET-series-alpha", tokens) == f"in {runner.PRIVATE}"
 
 
 @pytest.mark.parametrize("name", ['acquisition-"ZETA".tif', "acquisition-éclair.tif"])
@@ -273,6 +287,92 @@ def test_a_scheduled_run_refuses_before_it_builds_or_runs_anything(
     assert runner.validate_result(result) == []
     titles = [i["title"] for i in runner.latest(tmp_path / "state" / "results")["open_or_update"]]
     assert titles == [runner.RUN_ISSUE_TITLE]
+
+
+def test_a_fetch_that_does_not_finish_is_a_run_error_with_a_result(
+    tmp_path, origin, monkeypatch, capsys
+) -> None:
+    """A stalled fetch must not keep the run (and its lock) alive with no result."""
+    monkeypatch.setattr(runner, "CANONICAL_REMOTE", origin["url"])
+    monkeypatch.setattr(runner, "ensure_env", lambda *a: pytest.fail("built an environment"))
+    real_run = subprocess.run
+
+    def fetch_stalls(cmd, *args, **kwargs):
+        if cmd[:2] == ["git", "fetch"]:
+            assert kwargs.get("timeout") == runner.NETWORK_TIMEOUT_S
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(runner.subprocess, "run", fetch_stalls)
+    data = _data_dir(tmp_path)
+    args = ["run", "--state", str(tmp_path / "state"), "--data", str(data)]
+    assert runner.main(args) == runner.EXIT_ERROR
+    assert "error: git fetch did not finish" in capsys.readouterr().out
+    _, result = _only_result(tmp_path)
+    assert (result["status"], result["checks"]) == ("error", [])
+
+
+def test_a_live_run_keeps_its_lock_however_long_it_takes(tmp_path) -> None:
+    with runner._run_lock(tmp_path):
+        old = time.time() - 48 * 3600  # a run older than a day is still a live run
+        os.utime(tmp_path / "run.lock", (old, old))
+        with (
+            pytest.raises(RuntimeError, match="another run holds the lock"),
+            runner._run_lock(tmp_path),
+        ):
+            pytest.fail("two runs at once")
+    with runner._run_lock(tmp_path):  # released at the end, and the lock file left over
+        pass  # from a run that ended (or died) never blocks the next one
+
+
+def test_the_lock_of_a_run_that_was_killed_is_free(tmp_path) -> None:
+    code = (
+        "import importlib.util, os, sys, pathlib\n"
+        f"spec = importlib.util.spec_from_file_location('r', {str(SCRIPT)!r})\n"
+        "r = importlib.util.module_from_spec(spec); spec.loader.exec_module(r)\n"
+        "with r._run_lock(pathlib.Path(sys.argv[1])):\n"
+        "    print('held', flush=True)\n"
+        "    sys.stdin.readline()\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", code, str(tmp_path)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert proc.stdout.readline().strip() == "held"
+        with (
+            pytest.raises(RuntimeError, match="another run holds the lock"),
+            runner._run_lock(tmp_path),
+        ):
+            pass
+    finally:
+        proc.kill()
+        proc.wait(timeout=60)
+    deadline = time.monotonic() + 30  # Windows releases a dead process's lock soon, not at once
+    while True:
+        try:
+            with runner._run_lock(tmp_path):
+                break
+        except RuntimeError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.2)
+
+
+def test_the_fixture_skips_unless_the_runner_started_pytest(tmp_path) -> None:
+    """$TETHER_PRIVATE_DATA alone (a bare pytest) must not run a check whose output is not kept
+    in the runner's local log."""
+    env = {k: v for k, v in os.environ.items() if k != runner.RECORD_ENV}
+    env[runner.DATA_ENV] = str(_data_dir(tmp_path))
+    cmd = [sys.executable, "-m", "pytest", "-m", "workstation", "-p", "no:cacheprovider", "-rs"]
+    proc = subprocess.run(
+        [*cmd, runner.SELF_CHECK], cwd=_REPO, env=env, capture_output=True, text=True, timeout=300
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "1 skipped" in proc.stdout and runner.RECORD_ENV in proc.stdout
+    assert _leaks(proc.stdout + proc.stderr) == []
 
 
 def test_a_cut_off_check_record_is_a_run_error_with_a_result(tmp_path, monkeypatch, capsys) -> None:

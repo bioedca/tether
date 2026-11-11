@@ -86,9 +86,12 @@ environment's own folders first on `PATH` for the checks, as `conda activate` do
 **WSL (cron).** Run `crontab -e` and add two lines (one line each):
 
 ```text
-0 3 * * 6 python3 $HOME/tether-workstation/clone/scripts/workstation/run_private_checks.py run --state $HOME/tether-workstation --data <data folder> >> $HOME/tether-workstation/logs/cron.log 2>&1
-@reboot sleep 600 && python3 $HOME/tether-workstation/clone/scripts/workstation/run_private_checks.py run --state $HOME/tether-workstation --data <data folder> --min-interval-hours 144 >> $HOME/tether-workstation/logs/cron.log 2>&1
+0 3 * * 6 python3 "$HOME/tether-workstation/clone/scripts/workstation/run_private_checks.py" run --state "$HOME/tether-workstation" --data "<data folder>" --micromamba "<micromamba path>" >> "$HOME/tether-workstation/logs/cron.log" 2>&1
+@reboot sleep 600 && python3 "$HOME/tether-workstation/clone/scripts/workstation/run_private_checks.py" run --state "$HOME/tether-workstation" --data "<data folder>" --micromamba "<micromamba path>" --min-interval-hours 144 >> "$HOME/tether-workstation/logs/cron.log" 2>&1
 ```
+
+cron starts a command with a short `PATH`, so give the full path of `micromamba`: the output of
+`command -v micromamba` in your shell. Keep the quotes, because a folder name can contain a space.
 
 cron runs only while the WSL distribution runs and its cron service is on (`systemd=true` in
 `/etc/wsl.conf`, or `sudo service cron start`). The Windows task is the more reliable method.
@@ -120,9 +123,11 @@ it withholds the result. A refusal and a failed environment build also write a r
 no checks, so that `latest` shows them at once.
 
 **Privacy.** Before it writes a result, the runner searches it for every name of the mapping
-file, its file name and its stem (names shorter than 5 characters are not searched). If it finds
-one, it removes the checks and writes `withheld`. The pytest log in `<state>/logs/` can name
-files: it stays on the workstation. Do not attach it to an issue.
+file, each of its folder names, its file name and its stem (names shorter than 5 characters are not
+searched). If it finds one, it removes the checks and writes `withheld`. A folder name that is also
+part of a test name (for example `tests`) makes every result `withheld`: give that folder another
+name. The pytest log in `<state>/logs/` can name files: it stays on the workstation. Do not attach
+it to an issue.
 
 ## For an agent session: open or update the issues
 

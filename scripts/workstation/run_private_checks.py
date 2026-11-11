@@ -47,6 +47,11 @@ import sys
 import time
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
+
 REPO = Path(__file__).resolve().parents[2]
 CANONICAL_REMOTE = "https://github.com/bioedca/tether.git"
 MAIN_REFSPEC = "+refs/heads/main:refs/remotes/origin/main"
@@ -62,6 +67,9 @@ LOCK_STAMP = "tether-lock.sha256"
 PRIVATE = "<private>"
 #: Shorter names are not searched for: they are too generic to name an acquisition.
 MIN_TOKEN = 5
+#: A git fetch or checkout (which can download LFS files) that takes longer is a run error, so a
+#: stalled network never keeps a run, and its lock, alive with no result.
+NETWORK_TIMEOUT_S = 1800
 
 NEUTRAL_ID = re.compile(r"[a-z]+-[0-9]{2,}")
 ROLE = re.compile(r"[a-z][a-z0-9_]{0,31}")
@@ -120,12 +128,13 @@ def load_mapping(data_dir: Path) -> dict[str, dict[str, str]]:
 
 
 def private_tokens(mapping: dict[str, dict[str, str]]) -> frozenset[str]:
-    """The strings no result and no console line may contain: each name, its file name and stem."""
+    """The strings no result and no console line may contain: each name, each of its folder
+    names, its file name and its stem."""
     tokens = set()
     for files in mapping.values():
         for rel in files.values():
             path = PurePosixPath(rel)
-            tokens.update({rel, rel.replace("/", "\\"), path.name, path.stem})
+            tokens.update({rel, rel.replace("/", "\\"), path.name, path.stem, *path.parent.parts})
     return frozenset(t for t in tokens if len(t) >= MIN_TOKEN)
 
 
@@ -191,12 +200,16 @@ class PrivateData:
 # --- Step 1: a clean clone at a commit of main -----------------------------------------------
 
 
-def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+def _git(cwd: Path, *args: str, timeout: float | None = None) -> subprocess.CompletedProcess:
+    cmd = ["git", *args]
+    try:
+        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"git {args[0]} did not finish in {timeout:g} s") from None
 
 
-def _git_out(cwd: Path, *args: str) -> str:
-    proc = _git(cwd, *args)
+def _git_out(cwd: Path, *args: str, timeout: float | None = None) -> str:
+    proc = _git(cwd, *args, timeout=timeout)
     if proc.returncode != 0:
         raise RuntimeError(f"git {args[0]} failed: {proc.stderr.strip()}")
     return proc.stdout.strip()
@@ -221,7 +234,9 @@ def prepare_clone(clone: Path, remote: str, commit: str | None = None) -> str:
         raise Refused("the origin of the clone is not the canonical repository")
     if _git_out(clone, "status", "--porcelain", "--untracked-files=all"):
         raise Refused("the clone has local changes; the runner runs only a clean checkout")
-    _git_out(clone, "fetch", "--quiet", "--no-tags", "origin", MAIN_REFSPEC)
+    _git_out(
+        clone, "fetch", "--quiet", "--no-tags", "origin", MAIN_REFSPEC, timeout=NETWORK_TIMEOUT_S
+    )
     tip = _git_out(clone, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")
     target = tip
     if commit is not None:
@@ -233,7 +248,7 @@ def prepare_clone(clone: Path, remote: str, commit: str | None = None) -> str:
         target = found.stdout.strip()
         if _git(clone, "merge-base", "--is-ancestor", target, tip).returncode != 0:
             raise Refused(f"commit {target} is not reachable from origin/main")
-    _git_out(clone, "checkout", "--quiet", "--detach", target)
+    _git_out(clone, "checkout", "--quiet", "--detach", target, timeout=NETWORK_TIMEOUT_S)
     if _git_out(clone, "rev-parse", "HEAD") != target:
         raise Refused("the checkout did not land on the verified commit")
     return target
@@ -486,18 +501,23 @@ def newest_result(results: Path) -> Path | None:
 
 @contextlib.contextmanager
 def _run_lock(state: Path):
-    lock = state / "run.lock"
-    with contextlib.suppress(FileNotFoundError):
-        if time.time() - lock.stat().st_mtime > 24 * 3600:
-            lock.unlink()  # a run that died a day ago does not block the next one
-    try:
-        os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-    except FileExistsError:
-        raise RuntimeError("another run holds the lock") from None
-    try:
-        yield
-    finally:
-        lock.unlink(missing_ok=True)
+    """One run at a time. The operating system holds the lock for as long as the process lives,
+    so a live run keeps it however long it takes and a run that dies releases it."""
+    with open(state / "run.lock", "a+b") as fh:
+        fh.seek(0)
+        try:
+            if os.name == "nt":
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise RuntimeError("another run holds the lock") from None
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def run(args: argparse.Namespace) -> int:

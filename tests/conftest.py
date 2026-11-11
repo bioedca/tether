@@ -59,11 +59,13 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 def private_data(request: pytest.FixtureRequest):
     """The private data of the workstation runner, or a skip where the runner did not start us."""
     runner = _runner()
-    root = os.environ.get(runner.DATA_ENV)
-    if not root:
-        pytest.skip(f"needs ${runner.DATA_ENV}: the workstation runner sets it (ADR-0071)")
-    record = os.environ.get(runner.RECORD_ENV)
-    return runner.PrivateData(Path(root), request.node.nodeid, Path(record) if record else None)
+    root, record = os.environ.get(runner.DATA_ENV), os.environ.get(runner.RECORD_ENV)
+    if not (root and record):  # $TETHER_PRIVATE_DATA alone is a bare pytest, whose output is public
+        pytest.skip(
+            f"needs ${runner.DATA_ENV} and ${runner.RECORD_ENV}: only the workstation runner "
+            "sets both, and it keeps the output of pytest in a local log (ADR-0071)"
+        )
+    return runner.PrivateData(Path(root), request.node.nodeid, Path(record))
 
 
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
