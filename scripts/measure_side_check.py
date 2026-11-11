@@ -135,9 +135,7 @@ def movie_rates(counts: dict[str, int], pool: int, min_events: int, majority: fl
     for n in _MOVIE_SIZES:
         correct = _verdict_probs(p_c, p_s, n, min_events, majority)
         rates[str(n)] = {
-            "false_alarm_upper95": _verdict_probs(p_c, p_s_hi, n, min_events, majority)[
-                "swapped"
-            ],
+            "false_alarm_upper95": _verdict_probs(p_c, p_s_hi, n, min_events, majority)["swapped"],
             "detection": _verdict_probs(p_s, p_c, n, min_events, majority)["swapped"],
             "insufficient": correct["insufficient"],
             "mixed": correct["mixed"],
@@ -349,9 +347,9 @@ def report(result: dict) -> str:
         "| Detection | Insufficient | Mixed |",
         "|---|---|---|---|---|---|---|---|",
     ]
-    sources = [
-        (f"fixture `{r['fixture']}`", r) for r in result["fixtures"] if "movies" in r
-    ] + [(r["condition"], r) for r in result["simulations"]]
+    sources = [(f"fixture `{r['fixture']}`", r) for r in result["fixtures"] if "movies" in r] + [
+        (r["condition"], r) for r in result["simulations"]
+    ]
     for label, row in sources:
         counts = row["events"]
         total = row.get("pool", row.get("n_molecules"))

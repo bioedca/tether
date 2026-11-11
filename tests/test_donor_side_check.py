@@ -277,8 +277,7 @@ def test_kinsoft_sets_have_no_bleach_sequences_to_vote(level) -> None:
     with h5py.File(path, "r") as f:
         idd, ida, length = f[level]["idd"][:], f[level]["ida"][:], f[level]["length"][:]
     kinds = [
-        classify_bleach_event(idd[i, : length[i]], ida[i, : length[i]])
-        for i in range(length.size)
+        classify_bleach_event(idd[i, : length[i]], ida[i, : length[i]]) for i in range(length.size)
     ]
     c, s = kinds.count(EVENT_CONSISTENT), kinds.count(EVENT_SWAPPED)
     assert side_check_verdict(c, s, SIDE_CHECK_MIN_EVENTS, SIDE_CHECK_MAJORITY) == "insufficient"
@@ -379,9 +378,7 @@ def test_the_check_alters_no_stored_value(bleaching_movie, tmp_path, monkeypatch
         assert np.array_equal(mols_a[field], mols_b[field]), field
 
 
-def test_a_failing_check_never_fails_the_extraction(
-    bleaching_movie, tmp_path, monkeypatch
-) -> None:
+def test_a_failing_check_never_fails_the_extraction(bleaching_movie, tmp_path, monkeypatch) -> None:
     from tether.project import extract as extract_mod
 
     def boom(donor, acceptor):
@@ -457,9 +454,7 @@ def test_batch_summary_lists_only_the_flagged_movies(tmp_path) -> None:
         MovieJob(movie_path=tmp_path / f"{stem}.tif", output_path=tmp_path / f"{stem}.tether")
         for stem in ("flipped", "fine", "sparse", "old")
     ]
-    summary = run_batch(
-        jobs, idealize=False, _extract=_side_stub(records), _correct=_ok_correct
-    )
+    summary = run_batch(jobs, idealize=False, _extract=_side_stub(records), _correct=_ok_correct)
     assert [r.job.label for r in summary.donor_side_flagged] == ["flipped"]
     report = summary.format_report()
     assert "halves look swapped in 1 movie(s)" in report
