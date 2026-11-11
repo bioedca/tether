@@ -246,6 +246,31 @@ def env_python(prefix: Path) -> Path:
     return prefix / "python.exe" if os.name == "nt" else prefix / "bin" / "python"
 
 
+#: The folders ``conda activate`` puts first on PATH on Windows, in its order. The installed
+#: launchers do the same (packaging/scripts/post_install.bat, issue #553): without them MKL can
+#: load another program's DLLs and crash at the first BLAS call.
+WINDOWS_ACTIVATION_DIRS = (
+    "",
+    r"Library\mingw-w64\bin",
+    r"Library\usr\bin",
+    r"Library\bin",
+    "Scripts",
+    "bin",
+)
+
+
+def activated_env(prefix: Path | None, *, windows: bool = os.name == "nt") -> dict[str, str]:
+    """This process's environment with *prefix*'s folders first on PATH, as activation does."""
+    env = dict(os.environ)
+    if prefix is not None:
+        if windows:
+            folders = [str(PureWindowsPath(prefix, sub)) for sub in WINDOWS_ACTIVATION_DIRS]
+        else:
+            folders = [str(Path(prefix) / "bin")]
+        env["PATH"] = (";" if windows else os.pathsep).join([*folders, env.get("PATH", "")])
+    return env
+
+
 def _run_logged(cmd: list[str], log, *, check: bool = True, **kwargs) -> int:
     log.write(f"\n$ {' '.join(cmd)}\n")
     log.flush()
@@ -260,7 +285,7 @@ def ensure_env(clone: Path, prefix: Path, micromamba: str, log) -> tuple[Path, s
     lock = clone / "conda-lock.yml"
     digest = hashlib.sha256(lock.read_bytes()).hexdigest()
     stamp = prefix / LOCK_STAMP
-    python = env_python(prefix)
+    python, env = env_python(prefix), activated_env(prefix)
     if not (stamp.is_file() and stamp.read_text(encoding="utf-8").strip() == digest):
         if prefix.exists():
             if not (prefix / "conda-meta").is_dir():
@@ -268,9 +293,10 @@ def ensure_env(clone: Path, prefix: Path, micromamba: str, log) -> tuple[Path, s
             shutil.rmtree(prefix)
         create = [micromamba, "create", "--yes", "--prefix", str(prefix), "--file", str(lock)]
         _run_logged(create, log)
-        _run_logged([str(python), "-m", "pip", "install", *TEST_TOOLS], log)
+        _run_logged([str(python), "-m", "pip", "install", *TEST_TOOLS], log, env=env)
         stamp.write_text(digest + "\n", encoding="utf-8")
-    _run_logged([str(python), "-m", "pip", "install", "--no-deps", "-e", str(clone)], log)
+    install = [str(python), "-m", "pip", "install", "--no-deps", "-e", str(clone)]
+    _run_logged(install, log, env=env)
     return python, digest
 
 
@@ -301,7 +327,7 @@ def collect_checks(record: Path) -> list[dict]:
     return [checks[k] for k in sorted(checks)]
 
 
-def tool_versions(python: Path) -> dict[str, str | None]:
+def tool_versions(python: Path, env: dict[str, str]) -> dict[str, str | None]:
     code = (
         "import importlib.metadata as m, json, platform\n"
         "out = {'python': platform.python_version()}\n"
@@ -310,7 +336,8 @@ def tool_versions(python: Path) -> dict[str, str | None]:
         "    except m.PackageNotFoundError:\n        out[name] = None\n"
         "print(json.dumps(out))\n"
     )
-    proc = subprocess.run([str(python), "-c", code], capture_output=True, text=True, check=True)
+    cmd = [str(python), "-c", code]
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
     return json.loads(proc.stdout)
 
 
@@ -420,13 +447,27 @@ def validate_result(result: object) -> list[str]:
     return problems
 
 
+def _strings(value: object):
+    """Every key and every string value in *value*, decoded (JSON escaping would hide a name)."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield str(key)
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+
+
 def seal(result: dict, tokens: frozenset[str]) -> tuple[dict, str]:
     """Serialize *result*; withhold the checks (then the summaries) when a private name shows."""
     for strip in ((), ("checks",), ("checks", "tools", "hardware")):
         for key in strip:
             result = {**result, key: [] if key == "checks" else {}, "status": "withheld"}
-        text = json.dumps(result, indent=2) + "\n"
-        if not any(token in text for token in tokens):
+        text = json.dumps(result, indent=2, ensure_ascii=False) + "\n"
+        named = any(token in s for s in _strings(result) for token in tokens)
+        if not named and not any(token in text for token in tokens):
             return result, text
     raise RuntimeError("the result still names a private file after it was withheld")
 
@@ -457,8 +498,9 @@ def _run_lock(state: Path):
 
 
 def run(args: argparse.Namespace) -> int:
-    state, data = Path(args.state), Path(args.data)
-    results = Path(args.results) if args.results else state / "results"
+    # Absolute before anything else: pytest runs in another folder and gets these through $ENV.
+    state, data = (Path(p).expanduser().resolve() for p in (args.state, args.data))
+    results = Path(args.results).expanduser().resolve() if args.results else state / "results"
     for folder in (state, results, state / "logs"):
         folder.mkdir(parents=True, exist_ok=True)
     newest = newest_result(results)
@@ -488,12 +530,14 @@ def run(args: argparse.Namespace) -> int:
                 source, paths = state / "clone", []
                 python, lock_sha = ensure_env(source, state / "env", args.micromamba, log)
             say(f"running the workstation checks at {commit or 'an unknown commit'}")
-            env = {**os.environ, DATA_ENV: str(data), RECORD_ENV: str(record)}
-            env["QT_QPA_PLATFORM"] = "offscreen"
+            env = activated_env(None if args.dry_run else state / "env")
+            env.update(
+                {DATA_ENV: str(data), RECORD_ENV: str(record), "QT_QPA_PLATFORM": "offscreen"}
+            )
             cmd = [str(python), "-m", "pytest", "-m", "workstation", "-p", "no:cacheprovider"]
             code = _run_logged([*cmd, "-rA", *paths], log, check=False, cwd=source, env=env)
             checks = collect_checks(record)
-            tools = tool_versions(python)
+            tools = tool_versions(python, env)
         except Refused as exc:
             say(f"refused: {exc}")
             status = "refused"

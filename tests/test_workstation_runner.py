@@ -61,8 +61,10 @@ def _data_dir(root: Path, *, missing: str | None = None) -> Path:
 
 
 def _dry_run(root: Path, data: Path) -> subprocess.CompletedProcess:
-    cmd = [sys.executable, str(SCRIPT), "run", "--dry-run", "--state", str(root / "state")]
-    return subprocess.run([*cmd, "--data", str(data)], capture_output=True, text=True, timeout=300)
+    """A dry run started in *root* with RELATIVE paths, which pytest must still find elsewhere."""
+    cmd = [sys.executable, str(SCRIPT), "run", "--dry-run", "--state", "state"]
+    cmd += ["--data", data.relative_to(root).as_posix()]
+    return subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=300)
 
 
 @pytest.fixture(scope="module")
@@ -127,6 +129,32 @@ def test_a_result_that_names_a_private_file_is_withheld(passing_run) -> None:
     sealed, text = runner.seal(result, tokens)
     assert sealed["status"] == "withheld" and sealed["checks"] == []
     assert _leaks(text) == [] and runner.validate_result(sealed) == []
+
+
+@pytest.mark.parametrize("name", ['acquisition-"ZETA".tif', "acquisition-éclair.tif"])
+def test_a_name_that_json_escapes_is_still_found(passing_run, tmp_path, name) -> None:
+    """JSON text escapes a quote or a non-ASCII letter, so the search reads decoded strings."""
+    (tmp_path / runner.MAPPING_FILE).write_text(json.dumps({"lab-01": name}), encoding="utf-8")
+    tokens = runner.private_tokens(runner.load_mapping(tmp_path))
+    root, _ = passing_run
+    _, result = _only_result(root)
+    result["checks"][0]["check"] = f"tests/test_x.py::test_y[{name}]"
+    sealed, text = runner.seal(result, tokens)
+    assert sealed["status"] == "withheld" and sealed["checks"] == []
+    assert name not in json.loads(text)["checks"] and Path(name).stem not in text
+
+
+def test_the_environment_folders_come_first_on_path_as_the_launchers_put_them() -> None:
+    """The scheduled task runs the env's python unactivated; MKL needs its folders first (#553)."""
+    bat = (_REPO / "packaging" / "scripts" / "post_install.bat").read_text(encoding="utf-8")
+    (launcher,) = [ln for ln in bat.splitlines() if ln.startswith('set "ENV_PATH=')]
+    expected = [d.removeprefix("%ENV_D%").lstrip("\\") for d in launcher[14:-1].split(";")]
+    assert list(runner.WINDOWS_ACTIVATION_DIRS) == expected
+    env = runner.activated_env(Path("C:/envs/tether"), windows=True)
+    first = env["PATH"].split(";")[: len(expected)]
+    assert first[0] == str(runner.PureWindowsPath("C:/envs/tether"))
+    assert first[3].endswith("Library\\bin")
+    assert runner.activated_env(None) == dict(runner.os.environ)
 
 
 @pytest.mark.parametrize(

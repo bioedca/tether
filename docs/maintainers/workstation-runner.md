@@ -58,8 +58,9 @@ uses only the Python standard library.
     ```
 
 4. Make the schedule with one of the two methods below. Both run weekly, and both start a
-   missed run at the next start of the computer. `--min-interval-hours 144` stops a second run
-   in the same week.
+   missed run at the next start of the computer. The weekly run always runs. Only the catch-up
+   run of the cron method uses `--min-interval-hours 144`, so it does nothing when a run was
+   less than 6 days ago, and it can never move or skip the next weekly run.
 
 **Windows (Task Scheduler).** In PowerShell, as the maintainer:
 
@@ -68,25 +69,24 @@ $state  = "$env:USERPROFILE\tether-workstation"
 $data   = "<data folder>"
 $script = "$state\clone\scripts\workstation\run_private_checks.py"
 $python = (Get-Command python).Source
-$arguments = "`"$script`" run --state `"$state`" --data `"$data`" --min-interval-hours 144"
+$arguments = "`"$script`" run --state `"$state`" --data `"$data`""
 $action = New-ScheduledTaskAction -Execute $python -Argument $arguments
-$triggers = @(
-  (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Saturday -At 3am),
-  (New-ScheduledTaskTrigger -AtLogOn)
-)
+$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Saturday -At 3am
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew `
   -ExecutionTimeLimit (New-TimeSpan -Hours 12)
-Register-ScheduledTask -TaskName "Tether private checks" -Action $action -Trigger $triggers `
+Register-ScheduledTask -TaskName "Tether private checks" -Action $action -Trigger $trigger `
   -Settings $settings
 ```
 
-`-StartWhenAvailable` starts a missed weekly run when the computer is available again. If
-`micromamba` is not on the `PATH` of the task, add `--micromamba <full path>` to `$arguments`.
+`-StartWhenAvailable` is the catch-up: it starts a missed weekly run when the computer is
+available again, and the next weekly run still starts on time. If `micromamba` is not on the
+`PATH` of the task, add `--micromamba <full path>` to `$arguments`. The runner puts the
+environment's own folders first on `PATH` for the checks, as `conda activate` does.
 
 **WSL (cron).** Run `crontab -e` and add two lines (one line each):
 
 ```text
-0 3 * * 6 python3 $HOME/tether-workstation/clone/scripts/workstation/run_private_checks.py run --state $HOME/tether-workstation --data <data folder> --min-interval-hours 144 >> $HOME/tether-workstation/logs/cron.log 2>&1
+0 3 * * 6 python3 $HOME/tether-workstation/clone/scripts/workstation/run_private_checks.py run --state $HOME/tether-workstation --data <data folder> >> $HOME/tether-workstation/logs/cron.log 2>&1
 @reboot sleep 600 && python3 $HOME/tether-workstation/clone/scripts/workstation/run_private_checks.py run --state $HOME/tether-workstation --data <data folder> --min-interval-hours 144 >> $HOME/tether-workstation/logs/cron.log 2>&1
 ```
 
