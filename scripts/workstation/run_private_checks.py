@@ -44,6 +44,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
@@ -200,12 +201,27 @@ class PrivateData:
 # --- Step 1: a clean clone at a commit of main -----------------------------------------------
 
 
+def _run_bounded(cmd: list[str], cwd: Path, timeout: float | None) -> subprocess.CompletedProcess:
+    """``subprocess.run`` with the output in files, so that ``timeout`` also stops the wait.
+
+    After a timeout, ``subprocess.run`` kills the child. On Windows it then reads captured pipes to
+    their end, with no limit, and a grandchild that holds a pipe (``git-remote-https``,
+    ``git-lfs``) keeps that end away. A file has no end to wait for: the wait stops with the child.
+    """
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        try:
+            proc = subprocess.run(cmd, cwd=cwd, stdout=out, stderr=err, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"{' '.join(cmd[:2])} did not finish in {timeout:g} s") from None
+        texts = []
+        for fh in (out, err):
+            fh.seek(0)
+            texts.append(fh.read().decode("utf-8", "replace"))
+    return subprocess.CompletedProcess(cmd, proc.returncode, *texts)
+
+
 def _git(cwd: Path, *args: str, timeout: float | None = None) -> subprocess.CompletedProcess:
-    cmd = ["git", *args]
-    try:
-        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(f"git {args[0]} did not finish in {timeout:g} s") from None
+    return _run_bounded(["git", *args], cwd, timeout)
 
 
 def _git_out(cwd: Path, *args: str, timeout: float | None = None) -> str:

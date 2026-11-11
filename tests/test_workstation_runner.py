@@ -14,9 +14,11 @@ workstation, where the private data is. These tests prove its three promises wit
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -310,6 +312,27 @@ def test_a_fetch_that_does_not_finish_is_a_run_error_with_a_result(
     assert "error: git fetch did not finish" in capsys.readouterr().out
     _, result = _only_result(tmp_path)
     assert (result["status"], result["checks"]) == ("error", [])
+
+
+def test_a_grandchild_that_keeps_the_output_open_does_not_extend_the_timeout(tmp_path) -> None:
+    """git starts helpers (git-remote-https, git-lfs) that can live on after git is killed."""
+    pid_file = tmp_path / "grandchild.pid"
+    code = (
+        "import subprocess, sys, time\n"
+        "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'],\n"
+        "                     stdout=sys.stdout, stderr=sys.stderr)\n"
+        "open(sys.argv[1], 'w').write(str(g.pid))\n"
+        "time.sleep(120)\n"
+    )
+    start = time.monotonic()
+    try:
+        with pytest.raises(RuntimeError, match="did not finish in 5 s"):
+            runner._run_bounded([sys.executable, "-c", code, str(pid_file)], tmp_path, timeout=5)
+        assert time.monotonic() - start < 60  # not the 120 s of the grandchild
+        assert pid_file.read_text()  # the grandchild was started, so the case was exercised
+    finally:
+        with contextlib.suppress(OSError, ValueError):
+            os.kill(int(pid_file.read_text()), signal.SIGTERM)
 
 
 def test_a_live_run_keeps_its_lock_however_long_it_takes(tmp_path) -> None:
