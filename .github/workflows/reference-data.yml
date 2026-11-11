@@ -7,9 +7,11 @@
 # ci.yml deselects the marker (`... and not reference_download`) and makes no network call; this
 # job is where a changed upstream record or a drifted committed extract goes red.
 #
-# The cache is keyed on the ids and checksums of the download entries only
-# (`fetch.py cache-key`), so an edit to a citation keeps it and a new or changed file replaces it.
-# A cached file is verified again on every run, so a bad cache entry fails instead of passing.
+# The cache key is a digest of the ids and checksums of the download entries (`fetch.py
+# cache-key`) plus the calendar month. An edit to a citation keeps the cache and a new or changed
+# file replaces it. The month makes the first run of each month download every set again from
+# upstream, so a changed or withdrawn upstream file goes red within about five weeks, while the
+# other weekly runs re-verify the cached bytes without downloading them again.
 #
 # NON-REQUIRED BY CONSTRUCTION: schedule + workflow_dispatch only, never pull_request/push/
 # merge_group, so an upstream outage can never gate a merge. tests/test_marker_contract.py holds
@@ -48,15 +50,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Compute the cache key from the manifest checksums
+      - name: Compute the cache key from the manifest checksums and the month
         id: key
         shell: bash -e {0}
-        run: echo "key=$(python3 tests/reference_data/fetch.py cache-key)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "key=$(python3 tests/reference_data/fetch.py cache-key)" >> "$GITHUB_OUTPUT"
+          echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
       - name: Restore the reference-data cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: .reference-data-cache
-          key: reference-data-${{ steps.key.outputs.key }}
+          key: reference-data-${{ steps.key.outputs.key }}-${{ steps.key.outputs.month }}
       - name: Restore env + install tether
         uses: ./.github/actions/setup-env
       - name: Install test tooling

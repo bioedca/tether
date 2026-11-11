@@ -2428,7 +2428,13 @@ def test_the_reference_job_downloads_into_its_keyed_cache() -> None:
     job = workflow["jobs"]["reference-data"]
     assert job["env"]["TETHER_REFERENCE_DOWNLOAD"] == "1"
     (cache,) = [s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache@")]
-    assert cache["with"]["key"] == "reference-data-${{ steps.key.outputs.key }}"
+    # The month makes the first run of each month download again from upstream (a cache hit
+    # never does), so a changed upstream file cannot hide behind the cache.
+    assert cache["with"]["key"] == (
+        "reference-data-${{ steps.key.outputs.key }}-${{ steps.key.outputs.month }}"
+    )
+    assert "restore-keys" not in cache["with"], "a partial key match would restore a stale cache"
     assert job["env"]["TETHER_REFERENCE_CACHE"].endswith("/" + cache["with"]["path"])
     (key,) = [s for s in job["steps"] if s.get("id") == "key"]
     assert "tests/reference_data/fetch.py cache-key" in key["run"]
+    assert "month=$(date -u +%Y-%m)" in key["run"]

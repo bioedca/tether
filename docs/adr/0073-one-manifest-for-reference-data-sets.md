@@ -93,8 +93,11 @@ archive.
 The marker `reference_download` identifies a test that needs the network. The required matrix
 deselects it. `.github/workflows/reference-data.yml` runs it every week and on manual dispatch,
 with `TETHER_REFERENCE_DOWNLOAD=1` and an `actions/cache` whose key is a digest of the ids and
-checksums of the `download` entries (`fetch.py cache-key`). A change of a citation keeps the cache;
-a new or changed file makes a new cache. A cached file is verified again on each run. A failed
+checksums of the `download` entries (`fetch.py cache-key`) plus the calendar month. A change of a
+citation keeps the cache; a new or changed file makes a new cache. A cached file is verified again
+on each run, but a cache hit does not download again, so only an upstream download can show that
+the upstream file changed. The month in the key gives that download on the first run of each
+month; the other weekly runs use the cache and save the traffic. A failed
 scheduled run opens or updates one issue through `scheduled-failure.yml` (#697).
 `tests/test_marker_contract.py` fails when a `reference_download` test is collected by no
 workflow, or when the required matrix collects one.
@@ -112,8 +115,8 @@ files from `REUSE.toml` (an annotation whose copyright holder is not The Tether 
 - Good: no test in the required matrix depends on a network or on an upstream record.
 - Good: the first users are the kinSoftChallenge fixtures, which now have entries, and the three
   source archives they came from, which the weekly job downloads and verifies.
-- Bad: a `download` set is checked only once a week, so an upstream change can stay unseen for up
-  to seven days.
+- Bad: a `download` set is downloaded again from upstream only once a month, so an upstream change
+  can stay unseen for about five weeks (a month plus the weekly interval).
 - Bad: a `workstation` set runs only where a person has put the data; CI never sees it.
 - Neutral: the maintainer's private laboratory data is not in this manifest (#698).
 

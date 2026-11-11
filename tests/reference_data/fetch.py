@@ -29,9 +29,10 @@ Each tier checks the SHA-256 before the first use in a process, and a file whose
 wrong is never returned: :class:`ChecksumMismatch` names the set and both checksums. A download
 is written to ``<name>.part`` and renamed only after its checksum matched.
 
-``python tests/reference_data/fetch.py cache-key`` prints the key of the weekly job's cache. It
-depends only on the ids and checksums of the ``download`` entries, so an edit to a citation keeps
-the cache and a new or changed file replaces it.
+``python tests/reference_data/fetch.py cache-key`` prints the manifest part of the weekly job's
+cache key. It depends only on the ids and checksums of the ``download`` entries, so an edit to a
+citation keeps the cache and a new or changed file replaces it; the job adds the month, so that the
+first run of each month downloads every set again from upstream.
 """
 
 from __future__ import annotations
@@ -223,7 +224,7 @@ def check_manifest(datasets: dict[str, Dataset], repo: Path = REPO) -> list[str]
 
 
 def cache_key(datasets: dict[str, Dataset]) -> str:
-    """The weekly cache key: a digest of the ids and checksums of the download entries."""
+    """The manifest part of the weekly cache key: the ids and checksums of the download entries."""
     lines = sorted(f"{d.id} {d.sha256}" for d in datasets.values() if d.tier == "download")
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()[:32]
 
