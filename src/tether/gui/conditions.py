@@ -153,7 +153,8 @@ class ConditionKeyEditor:
         layout.addLayout(form)
 
         self._error = QtWidgets.QLabel("")
-        self._error.setStyleSheet("color: palette(bright-text);")
+        # The theme's style sheet colours it with the "reject" state token.
+        self._error.setProperty("tetherRole", "error")
         self._error.setVisible(False)
         layout.addWidget(self._error)
 

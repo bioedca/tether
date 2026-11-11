@@ -74,7 +74,9 @@ The brand is monochrome. It has no accent color.
 | Ground | `#0d0f12` | The dark ground |
 | Chalk | `#f2f4f5` | The mark and text on a dark ground |
 
-The colors of data in plots are not brand colors. The application keeps them separate.
+The colors of data in plots are not brand colors. The application keeps them separate. For
+the light and dark themes of the window and the trace colors, see
+[Window themes and trace colors](reference/gui-theme.md).
 
 ## Type
 
