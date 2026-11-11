@@ -307,8 +307,11 @@ def collect_checks(record: Path) -> list[dict]:
     """One entry per test: worst outcome over its phases, total duration, ids and numbers."""
     checks: dict[str, dict] = {}
     lines = record.read_text(encoding="utf-8").splitlines() if record.is_file() else []
-    for line in lines:
-        rec = json.loads(line)
+    for number, line in enumerate(lines, 1):
+        try:
+            rec = json.loads(line)
+        except ValueError:  # pytest stopped while it wrote this line; never quote the line
+            raise RuntimeError(f"the check record is cut off at line {number}") from None
         entry = checks.setdefault(
             rec["nodeid"],
             {"check": rec["nodeid"], "outcome": None, "duration_s": 0.0, "datasets": {}},

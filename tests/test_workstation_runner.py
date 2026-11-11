@@ -275,6 +275,24 @@ def test_a_scheduled_run_refuses_before_it_builds_or_runs_anything(
     assert titles == [runner.RUN_ISSUE_TITLE]
 
 
+def test_a_cut_off_check_record_is_a_run_error_with_a_result(tmp_path, monkeypatch, capsys) -> None:
+    """pytest killed while it writes a record line: the run still leaves a result to read."""
+
+    def pytest_dies_mid_line(cmd, log, *, check=True, **kwargs):
+        record = Path(kwargs["env"][runner.RECORD_ENV])
+        record.write_text('{"nodeid": "tests/test_x.py::test_y", "kind": "rep', encoding="utf-8")
+        return 1
+
+    monkeypatch.setattr(runner, "_run_logged", pytest_dies_mid_line)
+    data = _data_dir(tmp_path)
+    args = ["run", "--dry-run", "--state", str(tmp_path / "state"), "--data", str(data)]
+    assert runner.main(args) == runner.EXIT_ERROR
+    assert "error: the check record" in capsys.readouterr().out
+    _, result = _only_result(tmp_path)
+    assert (result["status"], result["checks"]) == ("error", [])
+    assert runner.validate_result(result) == []
+
+
 # --- What an agent reads, and the agreements with the rest of the repository ---------------------
 
 
