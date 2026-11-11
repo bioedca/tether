@@ -63,6 +63,9 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   "$prefix\\envs\\sidecar\\python.exe" -c "import setuptools, pkg_resources; assert tuple(int(p) for p in setuptools.__version__.split('.')[:1]) < (81,), setuptools.__version__; print('sidecar setuptools OK', setuptools.__version__)"
   runner="$("$prefix\\envs\\tether\\python.exe" -c 'from tether.idealize.driver import _RUNNER; print(_RUNNER)')"
   "$prefix\\envs\\sidecar\\python.exe" "$runner" --probe
+  # The interface icons are SVG files (#677), and they draw only when the bundle carries
+  # Qt's SVG plugins. Render each one in both themes, headless, in the INSTALLED app env.
+  QT_QPA_PLATFORM=offscreen "$prefix\\envs\\tether\\python.exe" -c "from pyqtgraph.Qt import QtWidgets; app = QtWidgets.QApplication([]); from tether.gui.theme import missing_icons; m = missing_icons(); assert not m, m; print('icons OK')"
   # The USER-FACING launch surface (ADR-0051). The absolute env path above
   # proves the env was built; these prove the app can actually be STARTED.
   prefix_u="$(cygpath -u "$prefix")"
@@ -149,6 +152,9 @@ else
   # wheel never shipped it.
   runner="$("$prefix/envs/tether/bin/python" -c 'from tether.idealize.driver import _RUNNER; print(_RUNNER)')"
   "$prefix/envs/sidecar/bin/python" "$runner" --probe
+  # The interface icons are SVG files (#677), and they draw only when the bundle carries
+  # Qt's SVG plugins. Render each one in both themes, headless, in the INSTALLED app env.
+  QT_QPA_PLATFORM=offscreen "$prefix/envs/tether/bin/python" -c "from pyqtgraph.Qt import QtWidgets; app = QtWidgets.QApplication([]); from tether.gui.theme import missing_icons; m = missing_icons(); assert not m, m; print('icons OK')"
   # The USER-FACING launch surface (ADR-0051). The absolute env paths above
   # prove the envs were built; these prove the app can actually be STARTED,
   # which is the thing an install guide has to document. Exercised through

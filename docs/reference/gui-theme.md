@@ -53,6 +53,55 @@ The window colors are the tokens in `src/tether/gui/assets/brand/tokens.json`
 (see [Brand](../brand.md)). The module `tether.gui.theme` is the only module in
 `src/tether/gui` that contains a color value. A test makes sure of this.
 
+## Icons and progress cues
+
+The interface icons come from the brand kit ([Brand](../brand.md)). Each icon has a light
+version (ink) and a dark version (chalk), and the icons change with the theme.
+
+**Menus.** These menu items show an icon beside their text:
+
+| Menu item | Icon |
+|---|---|
+| File → Open project | project |
+| Curation → Assign category | curate |
+| Hand-off → Hand to tMAVEN | hand-off |
+| Hand-off → Import return leg | import |
+| Legacy → Import Deep-LASI bundle | import |
+| Analysis → Population histogram | analyze |
+| Conditions → Validate conditions | conditions |
+
+An icon is never the only sign of a function. Each menu item keeps its text.
+
+**Busy indicator.** When a task runs and does not give a percentage, the right end of the
+status bar shows the busy indicator and the name of the task. Today this task is the
+one-click idealize (the `I` key). The three wavefronts of the mark light in sequence, from
+the surface to the molecule. The indicator stops when the task stops.
+
+If your operating system asks for reduced motion, the wavefronts do not move. The
+indicator then shows the still mark and the name of the task. Tether reads this setting
+each time a task starts:
+
+| Operating system | Setting |
+|---|---|
+| Windows | Animation effects is off (Windows 11: Settings → Accessibility → Visual effects) |
+| macOS | Reduce motion is on (System Settings → Accessibility → Display) |
+| Linux (GNOME) | Animations are off (`org.gnome.desktop.interface enable-animations` is false) |
+
+On a Linux desktop other than GNOME, Tether cannot read the setting, and the wavefronts
+move.
+
+**Progress row.** A task that gives a percentage shows the row of beam dots. The dots fill
+from left to right, and the percentage is beside the row. Assistive technology reads the
+row as a progress bar with its value. The task service and the progress panel of a later
+version put the row in the window ([#343](https://github.com/bioedca/tether/issues/343),
+[#627](https://github.com/bioedca/tether/issues/627)).
+
+![The menus with their icons, the busy indicator and the progress row in the light theme](../assets/gui/indicators-light.png)
+
+![The menus with their icons, the busy indicator and the progress row in the dark theme](../assets/gui/indicators-dark.png)
+
+The two pictures were made on Linux with the offscreen Qt platform.
+
 ## Trace colors
 
 The colors of data are not brand colors. Tether has two sets of trace colors. Each set
