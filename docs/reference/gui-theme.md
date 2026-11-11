@@ -27,6 +27,13 @@ for the next session ([#330](https://github.com/bioedca/tether/issues/330)).
 
 If the operating system does not report a scheme, the System item gives the light theme.
 
+![The Tether window in the light theme, with a synthetic demonstration trace](../assets/gui/theme-light.png)
+
+![The Tether window in the dark theme, with the same synthetic demonstration trace](../assets/gui/theme-dark.png)
+
+The two pictures show a synthetic trace, not measured data. They were made on Linux with
+the offscreen Qt platform.
+
 ## What the theme changes
 
 - **The window.** Tether uses the Qt Fusion style on all operating systems, with the colors
