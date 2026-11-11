@@ -19,25 +19,42 @@ theme:
   # One partial is overridden: the footer, which links the AI-use statement from every
   # page (#649). See overrides/partials/copyright.html.
   custom_dir: overrides
-  # Use the visitor's system fonts — do NOT load Google Fonts. This keeps the site
-  # free of any third-party asset request (no visitor IP sent to Google), matching
-  # the "no third-party" statement in docs/privacy.md.
+  # Do NOT load Google Fonts. Body text uses the visitor's system fonts. Headings use
+  # Red Hat Display from font files that this site serves itself (docs/assets/fonts/,
+  # loaded by docs/stylesheets/site.css), so a page asks no other host for a font and
+  # no visitor IP goes to a font service. That keeps the "no third-party asset requests"
+  # statement in docs/privacy.md true; tests/test_docs_site_brand.py checks it (#674).
   font: false
+  # The small mark (chalk on the ink header) and the favicon, which follows the browser's
+  # colour scheme. Both are kit files from #671.
+  logo: assets/brand/logo.svg
+  favicon: assets/brand/favicon.svg
   features:
     - navigation.top
     - content.code.copy
     - search.suggest
+  # The brand is monochrome and has no accent colour (#674, Q3 and Q10). `custom` makes
+  # Material take the header, link and accent colours from docs/assets/brand/brand.css
+  # (extra_css below).
   palette:
     - scheme: default
-      primary: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+
+# The brand palette, links and beam-row rule (a kit file from #671), then the site's own
+# layer: the heading font and two adjustments to the monochrome palette.
+extra_css:
+  - assets/brand/brand.css
+  - stylesheets/site.css
 
 nav:
   # Two top-level groups, decided on #181 (2026-07-27, confirmed 2026-07-31): what a lab
