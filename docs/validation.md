@@ -31,6 +31,21 @@ The required set is the `main-baseline` ruleset: `lint`, `test` on the three pla
 `pre-commit`, `commitlint`, `secret-scan`, `conda-lock-verify`, `docs-build`,
 `schema-guard` and `sidecar / parity`.
 
+**When a scheduled run fails.** `sidecar.yml` (nightly, and after each merge to `main`),
+`deep.yml` (nightly), `large-fixtures.yml` (weekly) and `docs-liveness.yml` (daily) call
+`.github/workflows/scheduled-failure.yml` after their job. When the job fails on `main`, that
+workflow opens one issue with the title `ci(scheduled): <job> failed on main`. The issue gives
+the run, the commit, the failed step and the last 50 log lines up to the last error. The two
+oracle jobs, `sidecar / parity` and `large-fixtures`, use the fields and labels of the
+validation-oracle-failure form. The other jobs use `type:ci`. A later failure adds one comment,
+and the next passing run adds one comment. Each day there is at most one new comment of each
+kind. After that, a change from failed to passed (or back) edits the latest comment, so the issue
+always shows the latest state, failed or passed. A repeated failure on the same day adds nothing:
+the Actions page lists every run. The issue does not close itself: close it with the cause. A
+pull request never opens an issue. To test the report, run `docs-liveness` by hand on a test
+branch with `drill` set to `fail`, then to `pass`. A drill issue has the title prefix
+`ci(drill)`, so it never touches the real issue.
+
 Which tier each oracle's *headline* assertion lives in:
 
 | Oracle | Headline assertion runs in | Also covered on the required matrix |
