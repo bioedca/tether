@@ -59,8 +59,14 @@ def _tmaven_reference(means, variances, frac, lo, hi, n):
     return x, np.array(comps), y
 
 
-def test_overlay_matches_tmaven_formula_exactly() -> None:
-    """The overlay reproduces tMAVEN's per-state Gaussian loop bit-for-bit."""
+def test_overlay_matches_tmaven_formula_to_rounding() -> None:
+    """The overlay reproduces tMAVEN's per-state Gaussian loop to rounding.
+
+    Not bit-for-bit: the vectorized form orders the operations differently, which moves a
+    value by at most 1.44e-14 relative here and on the 281-molecule model against live
+    tMAVEN (#707, ``test_analysis_plots_sidecar.py``). ``_tmaven_reference`` itself is
+    bit-equal to tMAVEN.
+    """
     means = np.array([0.2, 0.5, 0.85])
     variances = np.array([0.01, 0.02, 0.005])
     frac = np.array([0.5, 0.3, 0.2])
@@ -69,9 +75,9 @@ def test_overlay_matches_tmaven_formula_exactly() -> None:
     x_ref, comps_ref, total_ref = _tmaven_reference(
         means, variances, frac, DEFAULT_RANGE[0], DEFAULT_RANGE[1], DEFAULT_OVERLAY_POINTS
     )
-    np.testing.assert_allclose(ov.x, x_ref)
-    np.testing.assert_allclose(ov.components, comps_ref)
-    np.testing.assert_allclose(ov.total, total_ref)
+    np.testing.assert_array_equal(ov.x, x_ref)
+    np.testing.assert_allclose(ov.components, comps_ref, rtol=1e-13, atol=0)
+    np.testing.assert_allclose(ov.total, total_ref, rtol=1e-13, atol=0)
 
 
 def test_overlay_component_is_scaled_gaussian() -> None:
