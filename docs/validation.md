@@ -523,8 +523,8 @@ Gaussian HMM (Baum–Welch + Viterbi) with pooled dwell-time MLE `k = 1/⟨τ⟩
 | `k21_high_low` | 0.22 | 0.2131 | 0.031 | ≤ 0.12 |
 
 Both deviations sit inside the advisory band; the artifact characterises both as
-"~4x inside the band" (`$.band.rationale`, `$.levels.level1.tether_measured.note`) for this
-one 2-state dataset. That is the whole claim: it is not a general accuracy
+"~4x inside the band" (`$.band.rationale`) and "~4x inside the 12% band"
+(`$.levels.level1.tether_measured.note`) for this one 2-state dataset. That is the whole claim: it is not a general accuracy
 guarantee, and the file records no uncertainty on Tether's own two fitted rates. The
 enforcing test additionally requires both rates to reproduce the frozen values to `abs=0.01`
 and each state to contribute more than 500 pooled dwells.

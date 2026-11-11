@@ -34,6 +34,10 @@ import numpy as np  # noqa: E402
 
 from tether.io.deeplasi import DeepLasiExport  # noqa: E402
 from tether.project.oracle import (  # noqa: E402
+    MATCH_TOL_PX,
+    PEARSON_THRESHOLD,
+    RECALL_THRESHOLD,
+    RMS_THRESHOLD_PX,
     OracleResult,
     coordinate_rms,
     evaluate_extraction,
@@ -231,6 +235,22 @@ def test_evaluate_extraction_rms_gate() -> None:
     assert ok.meets_rms and ok.meets_acceptance()
     nan = evaluate_extraction(gt, xy.copy(), donor.copy(), acceptor.copy())  # imported-tmap → N/A
     assert nan.meets_rms  # nan ⇒ not measured ⇒ does not block
+
+
+def test_m1_gate_constants_are_frozen() -> None:
+    """The four ADR-0022 M1 gates, pinned to literals (#748).
+
+    ``docs/validation.md`` prints these constants, and its guard compares the page with
+    the source, so a change of the constant and of the page together passes that guard.
+    The scorer tests above catch only large moves (the #695 audit had recall 0.7,
+    Pearson 0.5 and a 5 px match tolerance pass all of them), and the one test that
+    applies all four to real data is ``large`` and skips on every runner. A change here
+    is a re-freeze of a frozen oracle and needs an ADR, never only this edit.
+    """
+    assert RECALL_THRESHOLD == 0.95
+    assert MATCH_TOL_PX == 2.0
+    assert PEARSON_THRESHOLD == 0.95
+    assert RMS_THRESHOLD_PX == 0.5
 
 
 def test_invalid_matched_traces_do_not_mask_failure() -> None:
