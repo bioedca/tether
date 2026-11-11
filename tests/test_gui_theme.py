@@ -471,3 +471,18 @@ def test_a_missing_font_file_leaves_the_system_font(qapp, qtbot, monkeypatch, tm
     with TetherShell() as shell:  # starts normally
         qtbot.addWidget(shell.window)
         assert shell.section_titles[0].text() == "Movie"
+
+
+@_needs_qt
+def test_one_missing_font_file_also_leaves_the_system_font(qapp, monkeypatch, tmp_path, caplog):
+    """A partial load must not keep Red Hat Display: the warning says the system font."""
+    from pyqtgraph.Qt import QtGui
+
+    regular = theme._FONT_FILES[0]
+    (tmp_path / regular).write_bytes((theme._FONT_DIR / regular).read_bytes())
+    monkeypatch.setattr(theme, "_FONT_DIR", tmp_path)  # only the first of the three files
+    monkeypatch.setattr(theme, "_fonts", {})
+    with caplog.at_level(logging.WARNING, logger="tether.gui.theme"):
+        assert theme.load_fonts() is None
+    assert len(caplog.records) == 1 and "system font" in caplog.records[0].getMessage()
+    assert theme.heading_font().families() == QtGui.QGuiApplication.font().families()

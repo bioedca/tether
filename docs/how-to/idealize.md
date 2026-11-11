@@ -52,8 +52,9 @@ dwell-time analyses read.
 2. Press **I**. The status bar reads `Idealizing` followed by the molecule's ID.
 3. Wait. The first fit after Tether starts is much slower than later ones, and the window stays
    usable meanwhile.
-4. When the status bar reads `Idealized` and the ID, a black stepped line is drawn over the
-   blue efficiency trace.
+4. When the status bar reads `Idealized` and the ID, a stepped line is drawn over the
+   blue efficiency trace. The line is black in the light theme and white in the dark theme
+   ([Window themes and trace colors](../reference/gui-theme.md#trace-colors)).
 
 Each press stores its fit as the project's `vbfret` model and replaces whatever that model held
 before, so it never builds up a population fit.

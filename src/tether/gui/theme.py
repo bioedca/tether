@@ -387,6 +387,9 @@ def load_fonts() -> str | None:
         else:
             failed.append(name)
     if failed:
+        # One missing weight would leave Qt to fake it from another, so any failure
+        # gives the system font, as the warning and the docs say.
+        family = None
         _log.warning(
             "Red Hat Display not fully loaded (%s); headings use the system font",
             ", ".join(failed),
