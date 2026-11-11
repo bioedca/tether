@@ -293,6 +293,15 @@ TIER_GLOB_EXEMPT: dict[str, frozenset[str]] = {
 
 #: A pytest invocation on one shell line, bare or through `python -m`.
 _PYTEST_INVOCATION = re.compile(r"(?:^|[\s;&|(])(?:python3?\s+-m\s+)?pytest(?=\s|$)")
+#: The one option a pinned pytest command may carry past its pin: a JUnit report to one path
+#: (letters, digits and ``$_./-`` only, so no second command can hide in it). It changes neither
+#: the tests that run nor the exit status; the skip budget of #726 reads it.
+_JUNIT_REPORT = r'(?: --junitxml=(?:"[\w$./-]+"|[\w$./-]+))?'
+
+
+def _runs_exactly(line: str, command: str) -> bool:
+    """True if *line* is *command*, or *command* and a JUnit report, and nothing else."""
+    return re.fullmatch(re.escape(command) + _JUNIT_REPORT, line) is not None
 
 
 def _pytest_ini() -> dict:
@@ -412,14 +421,23 @@ def test_the_pytest_step_finder_skips_comments_and_reads_continuations() -> None
     assert _pytest_command_lines("python -m pytest -q") == ["python -m pytest -q"]
 
 
+def test_a_pinned_command_may_add_only_a_junit_report() -> None:
+    command = "pytest -m deep tests/test_*_deep.py -q"
+    assert _runs_exactly(command, command)
+    assert _runs_exactly(f'{command} --junitxml="$RUNNER_TEMP/pytest-junit.xml"', command)
+    assert _runs_exactly(f"{command} --junitxml=report.xml", command)
+    for tail in (" -k x", " --junitxml=a.xml -k x", " --junitxml=a.xml||true", " || true"):
+        assert not _runs_exactly(command + tail, command), tail
+
+
 def test_the_sidecar_parity_step_runs_the_whole_live_suite() -> None:
     """The required ``sidecar / parity`` step is live, unnarrowed and cannot pass with no fit.
 
     DCS-F1. Its script is exactly two commands: export the interpreter, then
-    ``pytest -m sidecar tests/<glob> -q`` with no other option and nothing after it, so the
-    step's exit status is pytest's. The step sets ``TETHER_REQUIRE_SIDECAR=1``, under which a
-    missing interpreter fails the live tests instead of skipping them (``tests/_sidecar_gate.py``;
-    the next test proves that half).
+    ``pytest -m sidecar tests/<glob> -q`` with no other option (a JUnit report aside) and nothing
+    after it, so the step's exit status is pytest's. The step sets ``TETHER_REQUIRE_SIDECAR=1``,
+    under which a missing interpreter fails the live tests instead of skipping them
+    (``tests/_sidecar_gate.py``; the next test proves that half).
     """
     step = _the_pytest_step(SIDECAR_WORKFLOW, "parity")
     assert step.get("if") == SIDECAR_STEP_GATE, (
@@ -434,7 +452,7 @@ def test_the_sidecar_parity_step_runs_the_whole_live_suite() -> None:
         f"the parity script must export {SIDECAR_ENV} and then run pytest, and nothing else: "
         f"{lines}"
     )
-    assert lines[1] == f"pytest -m sidecar tests/{SIDECAR_FILE_GLOB} -q", (
+    assert _runs_exactly(lines[1], f"pytest -m sidecar tests/{SIDECAR_FILE_GLOB} -q"), (
         "the parity step must run the whole sidecar tier, unnarrowed and with its exit status "
         f"intact: {lines[1]!r}"
     )
@@ -443,7 +461,9 @@ def test_the_sidecar_parity_step_runs_the_whole_live_suite() -> None:
 def test_the_deep_smoke_step_runs_the_whole_deep_suite() -> None:
     """``deep / smoke`` runs ``pytest -m deep tests/<glob> -q`` and nothing else (DCS-F1)."""
     step = _the_pytest_step(DEEP_WORKFLOW, "smoke")
-    assert _command_lines(step["run"]) == [f"pytest -m deep tests/{DEEP_FILE_GLOB} -q"], step["run"]
+    lines = _command_lines(step["run"])
+    command = f"pytest -m deep tests/{DEEP_FILE_GLOB} -q"
+    assert len(lines) == 1 and _runs_exactly(lines[0], command), step["run"]
 
 
 def _sidecar_tier_files() -> list[Path]:
@@ -491,7 +511,8 @@ def test_the_required_matrix_runs_every_test_but_the_tier_markers() -> None:
     """The one command that gates every merge, pinned (DCS-F2).
 
     On each platform the ``test`` job runs ``pytest -v -m "not A and not B ..."`` over the whole
-    tree -- no path argument, no option, nothing after it -- and the markers it excludes are
+    tree -- no path argument, no option but a JUnit report, nothing after it -- and the
+    markers it excludes are
     exactly the tiers another workflow selects with ``-m``. So a new exclusion (``and not gui``)
     or a typo (``not largge``, which excludes nothing) fails here, and so does a tier that the
     matrix stops excluding.
@@ -500,16 +521,15 @@ def test_the_required_matrix_runs_every_test_but_the_tier_markers() -> None:
     assert (job.get("strategy") or {}).get("matrix", {}).get("os") == REQUIRED_MATRIX_OS, job
     step = _the_pytest_step(CI_WORKFLOW, "test")
     lines = _command_lines(step["run"])
-    match = (
-        re.fullmatch(r'xvfb-run -a pytest -v -m "([^"]+)"', lines[1]) if len(lines) > 1 else None
-    )
+    linux = r'xvfb-run -a pytest -v -m "([^"]+)"(' + _JUNIT_REPORT + ")"
+    match = re.fullmatch(linux, lines[1]) if len(lines) > 1 else None
     assert match, f"the matrix step must keep its Linux/other two-line form: {lines}"
-    expression = match.group(1)
+    expression, report = match.groups()
     assert lines == [
         'if [ "${RUNNER_OS}" = "Linux" ]; then',
-        f'xvfb-run -a pytest -v -m "{expression}"',
+        f'xvfb-run -a pytest -v -m "{expression}"{report}',
         "else",
-        f'pytest -v -m "{expression}"',
+        f'pytest -v -m "{expression}"{report}',
         "fi",
     ], f"the matrix script must be exactly the two pytest commands and nothing else: {lines}"
     terms = expression.split(" and ")
@@ -812,7 +832,8 @@ def test_the_large_tier_verifies_every_lfs_fixture_before_it_runs() -> None:
 
     The verify list must be every file under ``tests/fixtures/large/``: a file left off it
     (``kinsoft_sim.hdf5`` was, so the four oracle (c) tests skipped there) turns a failed LFS
-    pull into a green run. Then the job runs ``pytest -v -m large`` and nothing else.
+    pull into a green run. Then the job runs ``pytest -v -m large`` and nothing else (a JUnit
+    report aside).
     """
     required = set(re.findall(r'Path\("([^"]+)"\)', _large_verify_script()))
     tracked = _lfs_tracked_large_fixtures()
@@ -821,7 +842,8 @@ def test_the_large_tier_verifies_every_lfs_fixture_before_it_runs() -> None:
         f"not a fixture: {sorted(required - tracked)}"
     )
     step = _the_pytest_step(LARGE_WORKFLOW, "large")
-    assert _command_lines(step["run"]) == ["xvfb-run -a pytest -v -m large"], step["run"]
+    lines = _command_lines(step["run"])
+    assert len(lines) == 1 and _runs_exactly(lines[0], "xvfb-run -a pytest -v -m large"), lines
     order = [s.get("name") for s in _job_steps(LARGE_WORKFLOW.read_text(encoding="utf-8"), "large")]
     assert order.index(LFS_VERIFY_STEP) < order.index(step.get("name")), order
 
