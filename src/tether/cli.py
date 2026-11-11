@@ -209,6 +209,18 @@ def _run_extract(args: argparse.Namespace) -> int:
             "molecules tagged 'low-confidence-registration'.",
             file=sys.stderr,
         )
+    # The advisory donor-side check (#646, ADR-0070): a warning on stderr when the halves
+    # look swapped, otherwise one informational line. It never changes the exit code.
+    check = summary.donor_side_check
+    if check is not None:
+        note = check.describe(
+            donor_side=args.donor_side,
+            imported_map=summary.registration_source == "imported",
+        )
+        if check.swapped:
+            print(f"  warning: {note}.", file=sys.stderr)
+        else:
+            print(f"  donor side: {note}.")
     return 0
 
 
