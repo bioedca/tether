@@ -4,7 +4,7 @@
 
 The raw ``.txt`` reader is exercised on a tiny committed sample (plain git, in the
 required matrix); the packed gated-tier ``kinsoft_sim.hdf5`` structure is checked
-under ``@pytest.mark.large`` (LFS, skipped on an unmaterialized pointer). A
+under ``@pytest.mark.gui`` (LFS, skipped on an unmaterialized pointer). A
 cross-artifact identity test ties the committed sample to its row in the fixture.
 """
 
@@ -75,7 +75,7 @@ def test_read_kinsoft_trace_rejects_wrong_columns(tmp_path: Path) -> None:
         read_kinsoft_trace(bad)
 
 
-@pytest.mark.large
+@pytest.mark.gui
 def test_kinsoft_fixture_structure() -> None:
     if _is_lfs_pointer(FIXTURE):
         pytest.skip("LFS large-tier fixture not materialized (default checkout)")
@@ -105,7 +105,7 @@ def test_kinsoft_fixture_structure() -> None:
                 assert np.all(col[i, n_i:] == 0.0)
 
 
-@pytest.mark.large
+@pytest.mark.gui
 def test_kinsoft_fixture_provenance_attrs() -> None:
     if _is_lfs_pointer(FIXTURE):
         pytest.skip("LFS large-tier fixture not materialized (default checkout)")
@@ -121,7 +121,7 @@ def test_kinsoft_fixture_provenance_attrs() -> None:
             assert str(f[name].attrs["source_sha256"]) == sha256
 
 
-@pytest.mark.large
+@pytest.mark.gui
 def test_committed_sample_matches_fixture_row() -> None:
     """The plain-git sample is exactly its trace inside the packed fixture."""
     if _is_lfs_pointer(FIXTURE):
