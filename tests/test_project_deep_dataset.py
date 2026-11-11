@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import h5py
 import numpy as np
 import pytest
 
@@ -14,6 +15,7 @@ pytest.importorskip("skimage")
 pytest.importorskip("tifffile")
 
 from _analysis_store import build_store_with_channels  # noqa: E402
+from tether.imaging.extract import read_molecules  # noqa: E402
 from tether.ml.deep.dataset import DeepTraceDataset  # noqa: E402
 from tether.project.deep_dataset import build_deep_dataset  # noqa: E402
 from tether.project.features import compute_features  # noqa: E402
@@ -82,6 +84,33 @@ def test_build_tensor_shapes_and_provenance(tmp_path):
     assert ds.normalization == "per_trace_total"
 
 
+def _store_rows(proj) -> dict[str, int]:
+    """``molecule_id -> store row``, read from ``/molecules`` (the row the input traces sit at)."""
+    ids = read_molecules(proj.path)["molecule_id"]
+    return {(m.decode() if isinstance(m, bytes) else str(m)): i for i, m in enumerate(ids)}
+
+
+def test_tensor_values_are_each_molecules_own_donor_then_acceptor_trace(tmp_path):
+    # ML-F5: the tensor must hold, molecule for molecule, the donor trace in channel 0 and the
+    # acceptor trace in channel 1 — compared with the very arrays written to the store, so a
+    # swapped channel order (or a trace joined to the wrong molecule) cannot pass. mol 0 has a
+    # narrowed analysis window, so the window slice is checked by value too.
+    windows = [(2, 12), (0, 20), (0, 20), (0, 20), (0, 20), (0, 20)]
+    proj, _keys = _labeled_store(tmp_path, windows=windows)
+    donor, acceptor = _channels()  # the same seed _labeled_store wrote
+    rows = _store_rows(proj)
+    ds = build_deep_dataset(proj, normalization="none")
+    assert ds.channels == ("donor", "acceptor")
+    for i, mol_id in enumerate(ds.molecule_ids):
+        row = rows[mol_id]
+        start, stop = windows[row]
+        n = int(ds.lengths[i])
+        assert n == stop - start
+        np.testing.assert_allclose(ds.X[i, 0, :n], donor[row, start:stop], rtol=1e-6)
+        np.testing.assert_allclose(ds.X[i, 1, :n], acceptor[row, start:stop], rtol=1e-6)
+        assert np.all(ds.X[i, :, n:] == 0.0)  # padded tail stays a zero placeholder
+
+
 def test_labels_map_accept_to_one_reject_to_zero(tmp_path):
     proj, _keys = _labeled_store(tmp_path)
     ds = build_deep_dataset(proj)
@@ -105,6 +134,14 @@ def test_window_length_crops_long_traces(tmp_path):
     assert ds.X.shape == (4, 2, 5)
     assert ds.lengths.tolist() == [5, 5, 5, 5]  # native 20 frames cropped to the window
     assert ds.mask.all()
+    # ML-F6: the crop keeps the LEADING frames (PRD §11.2 "crop leading"), compared by value.
+    donor, acceptor = _channels()
+    rows = _store_rows(proj)
+    raw = build_deep_dataset(proj, window_length=5, normalization="none")
+    for i, mol_id in enumerate(raw.molecule_ids):
+        row = rows[mol_id]
+        np.testing.assert_allclose(raw.X[i, 0], donor[row, :5], rtol=1e-6)
+        np.testing.assert_allclose(raw.X[i, 1], acceptor[row, :5], rtol=1e-6)
 
 
 def test_build_reads_the_raw_trace_layer(tmp_path):
@@ -122,7 +159,7 @@ def test_requires_a_feature_table(tmp_path):
     proj, keys = build_store_with_channels(tmp_path, donor, acceptor, name="nofeat.tether")
     accept(proj.path, keys[0])
     reject(proj.path, keys[1])
-    with pytest.raises(KeyError):  # no compute_features run
+    with pytest.raises(KeyError, match="features"):  # no compute_features run
         build_deep_dataset(proj)
 
 
@@ -134,7 +171,18 @@ def test_raises_when_no_molecule_is_labeled(tmp_path):
         build_deep_dataset(proj)
 
 
-def test_raises_on_an_absent_trace_layer(tmp_path):
+def test_raises_on_an_unknown_intensity_quantity(tmp_path):
     proj, _keys = _labeled_store(tmp_path)
-    with pytest.raises((KeyError, ValueError)):
+    with pytest.raises(ValueError, match="intensity_quantity must be one of"):
         build_deep_dataset(proj, intensity_quantity="does-not-exist")
+
+
+@pytest.mark.parametrize("layer", ["donor_raw", "acceptor_raw"])
+def test_raises_on_an_absent_trace_layer(tmp_path, layer):
+    # ML-F14: a valid quantity whose /traces layer is missing from the store (an older or damaged
+    # file) is refused by name — the branch an unknown quantity never reaches.
+    proj, _keys = _labeled_store(tmp_path)
+    with h5py.File(proj.path, "r+") as f:
+        del f["traces"][layer]
+    with pytest.raises(ValueError, match=rf"has no '{layer}' layer"):
+        build_deep_dataset(proj, intensity_quantity="raw")
