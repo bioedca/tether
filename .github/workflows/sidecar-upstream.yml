@@ -106,18 +106,24 @@ jobs:
           # The same collection as sidecar.yml's parity step; -rfE lists each failure on one line.
           pytest -m sidecar tests/test_*sidecar*.py -q -rfE | tee "$RUNNER_TEMP/parity.log"
       - name: Name the upstream commit and the first failing comparison
-        # The last error line of the job log, so the report's log excerpt ends on it (#697).
-        if: failure() && steps.parity.outcome == 'failure'
+        # The last error lines of the job log, so the report's log excerpt ends on them (#697).
+        # Any failure after the fetch: an upstream change can also break the install or import.
+        if: failure() && steps.upstream.outcome == 'success'
         env:
           SHA: ${{ steps.upstream.outputs.sha }}
+          PARITY: ${{ steps.parity.outcome }}
         run: |
-          log="$RUNNER_TEMP/parity.log"
-          first="$(grep -m1 -E '^(FAILED|ERROR) ' "$log" || echo 'not found; see the parity step')"
-          # The assertion message of the first failure: the comparison and the limit it broke.
-          why="$(grep -m1 -E '^E +[A-Za-z.]*(Error|Exception)' "$log" | sed -E 's/^E +//')"
-          case "$first" in *" - "*) why="" ;; esac # pytest already put it on the FAILED line
           echo "::error::Upstream tMAVEN commit under test: $SHA"
-          echo "::error::First failing comparison: ${first//'%'/'%25'} ${why//'%'/'%25'}"
+          log="$RUNNER_TEMP/parity.log"
+          if [ "$PARITY" = "failure" ] && [ -f "$log" ]; then
+            first="$(grep -m1 -E '^(FAILED|ERROR) ' "$log" || echo 'not found; see the parity step')"
+            # The assertion message of the first failure: the comparison and the limit it broke.
+            why="$(grep -m1 -E '^E +[A-Za-z.]*(Error|Exception)' "$log" | sed -E 's/^E +//')"
+            case "$first" in *" - "*) why="" ;; esac # pytest already put it on the FAILED line
+            echo "::error::First failing comparison: ${first//'%'/'%25'} ${why//'%'/'%25'}"
+          else
+            echo "::error::The parity tests did not run: an earlier step failed (see it above)."
+          fi
 
   report:
     # A failed weekly run opens or updates one issue, and the next pass says so (#697). The called

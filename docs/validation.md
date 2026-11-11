@@ -255,8 +255,10 @@ means the same tMAVEN commit on the same CPython, not an identical dependency se
 **When upstream tMAVEN changes.** The parity tests use the pinned commit.
 `.github/workflows/sidecar-upstream.yml` runs the same tests each week with tMAVEN at the newest
 commit of its default branch, and its log names that commit. It never changes the pin, the
-sidecar lock or a limit. When it fails, the report step opens one `type:ci` issue whose log
-excerpt ends with the upstream commit and the first failing comparison. That issue is the
+sidecar lock or a limit. When a weekly run fails, the report step opens one `type:ci` issue
+whose log excerpt ends with the upstream commit and the first failing comparison (or a line
+saying the tests did not run, when the install or import failed). A manual run with `drill`
+set to `none` opens no issue: read its result on the Actions page. The weekly issue is the
 signal to decide: move the pin, or record why not. To test it, run the workflow by hand with
 `drill` set to `drift`. The drill changes one prior of the fetched tMAVEN (the consensus
 VB-HMM `b`, 0.01 to 1.0). The 281-molecule fit then fails on its ELBO, and the report uses the

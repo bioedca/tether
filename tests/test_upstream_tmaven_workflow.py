@@ -48,7 +48,8 @@ def test_the_log_names_the_upstream_commit_it_tested() -> None:
     assert 'git clone --quiet --filter=blob:none "$TMAVEN_REPO"' in fetch
     assert "Upstream tMAVEN under test: $sha" in fetch
     named = steps["Name the upstream commit and the first failing comparison"]
-    assert named["if"] == "failure() && steps.parity.outcome == 'failure'"
+    # Any failure after the fetch names the commit, also a broken install or import.
+    assert named["if"] == "failure() && steps.upstream.outcome == 'success'"
     assert "::error::Upstream tMAVEN commit under test: $SHA" in named["run"]
     assert "::error::First failing comparison:" in named["run"]
 
