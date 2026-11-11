@@ -203,16 +203,37 @@ def test_window_shows_the_application_icon(qtbot) -> None:
 @pytest.mark.gui
 @_needs_qt
 def test_small_sizes_use_the_drawing_made_for_them(qtbot) -> None:
-    """At 16 and 32 px the icon is the tiny and the small mark, not a shrunken tile."""
-    from pyqtgraph.Qt import QtGui
+    """At 16 and 32 px the icon is the tiny and the small mark, not a shrunken tile.
+
+    Both sides go through the same ``QPixmap`` load and are compared premultiplied. A
+    pixmap stores premultiplied alpha, and converting it back to straight alpha is lossy
+    and depends on the CPU (Qt's SSE4 path uses an approximate reciprocal): the first
+    version compared against the PNG in straight alpha and failed at 32 px on the Ubuntu
+    runner while it passed here. The shrunken 256 px tile is the negative control, so
+    the check can still tell the two drawings apart.
+    """
+    from pyqtgraph.Qt import QtCore, QtGui
+
+    premultiplied = QtGui.QImage.Format.Format_ARGB32_Premultiplied
+
+    def _image(pixmap: QtGui.QPixmap) -> QtGui.QImage:
+        return pixmap.toImage().convertToFormat(premultiplied)
 
     icon = identity.application_icon()
+    large = QtGui.QPixmap(str(identity.app_icon_dir() / "tether-256.png"))
     for n in (16, 32):
-        drawn = icon.pixmap(n, n).toImage().convertToFormat(QtGui.QImage.Format.Format_ARGB32)
-        source = QtGui.QImage(str(identity.app_icon_dir() / f"tether-{n}.png")).convertToFormat(
-            QtGui.QImage.Format.Format_ARGB32
+        drawn = _image(icon.pixmap(n, n))
+        source = _image(QtGui.QPixmap(str(identity.app_icon_dir() / f"tether-{n}.png")))
+        shrunk = _image(
+            large.scaled(
+                n,
+                n,
+                QtCore.Qt.AspectRatioMode.IgnoreAspectRatio,
+                QtCore.Qt.TransformationMode.SmoothTransformation,
+            )
         )
         assert drawn == source, f"the {n} px icon is not tether-{n}.png"
+        assert drawn != shrunk, f"tether-{n}.png cannot be told from the shrunken tile"
 
 
 @pytest.mark.gui
